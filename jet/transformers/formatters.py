@@ -7,22 +7,25 @@ def format_prompt_log(prompt, level=0):
     :return: Formatted string for the log.
     """
     prompt_log = ""
-    indent = "    " * level  # Indentation for nested structures
+    indent = "  " * level  # Indentation for nested structures
+    marker_list = ["-", "+"]
+    marker = marker_list[level % 2]
+    line_prefix = indent if level == 0 else f"{indent} {marker} "
 
     if isinstance(prompt, dict):
         for key, value in prompt.items():
             capitalized_key = key.capitalize()
             if isinstance(value, (dict, list)):  # If nested structure
-                prompt_log += f"{indent}{capitalized_key}:\n"
+                prompt_log += f"{line_prefix}{capitalized_key}:\n"
                 prompt_log += format_prompt_log(value, level + 1)
             else:  # Primitive value
-                prompt_log += f"{indent}{capitalized_key}: {value}\n"
+                prompt_log += f"{line_prefix}{capitalized_key}: {value}\n"
     elif isinstance(prompt, list):
         for item in prompt:
             if isinstance(item, (dict, list)):  # If nested structure
                 prompt_log += format_prompt_log(item, level + 1)
             else:  # Primitive value
-                prompt_log += f"{indent}- {item}\n"
+                prompt_log += f"{line_prefix}{item}\n"
 
     return prompt_log
 
