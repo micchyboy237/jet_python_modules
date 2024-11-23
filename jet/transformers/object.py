@@ -1,4 +1,5 @@
 import json
+import base64
 
 
 def make_serializable(obj):
@@ -13,6 +14,12 @@ def make_serializable(obj):
     """
     if isinstance(obj, (str, int, float, bool, type(None))):
         return obj
+    elif isinstance(obj, bytes):
+        # Check if bytes are printable, if so decode to a string; otherwise, base64 encode
+        try:
+            return obj.decode('utf-8')
+        except UnicodeDecodeError:
+            return base64.b64encode(obj).decode('utf-8')
     elif isinstance(obj, list):
         return [make_serializable(item) for item in obj]
     elif isinstance(obj, dict):
@@ -29,13 +36,18 @@ def make_serializable(obj):
 
 # Example usage
 if __name__ == "__main__":
-    class CustomObject:
-        def __init__(self, name, values):
-            self.name = name
-            self.values = values
-            self.metadata = {"key": "value", "nested": [1, 2, 3]}
-
-    obj = CustomObject("Test", [1, 2, {"a": "b"}])
+    obj = [
+        1,
+        "string",
+        b'bytes1',
+        {
+            "a": "b",
+            "c": b'\x00\x01\x02\x03',
+            "nested": {
+                "d":  b'bytes2'
+            }
+        }
+    ]
     serializable_obj = make_serializable(obj)
 
     # Serialize to JSON for testing
