@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Jet Packages: Python Debugger",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "/Users/jethroestrada/.pyenv/shims/python",
+      "env": {
+        // "PYTHONPATH": "/Users/jethroestrada/Desktop/External_Projects/AI/chatbot/autogenhub/.venv/lib/python3.12/site-packages:/Users/jethroestrada/Desktop/External_Projects/AI/chatbot/open-webui/.venv/lib/python3.12/site-packages"
+        "PYTHONPATH": "/Users/jethroestrada/Desktop/External_Projects/AI/chatbot/autogenhub/.venv/lib/python3.12/site-packages"
+      }
+    }
+  ]
+}
