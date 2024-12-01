@@ -7,7 +7,7 @@ def format_prompt_log(prompt, level=0):
     :return: Formatted string for the log.
     """
     prompt_log = ""
-    indent = "  " * level  # Indentation for nested structures
+    indent = " " * level  # Indentation for nested structures
     marker_list = ["-", "+"]
     marker = marker_list[level % 2]
     line_prefix = indent if level == 0 else f"{indent} {marker} "
