@@ -33,7 +33,6 @@ class MarkdownCodeExtractor:
         code_lines = []
 
         for line in lines:
-            line = line.strip()
             # Check for file path pattern
             file_path_match = re.match(FILE_PATH_PATTERN, line)
             if file_path_match:
@@ -48,7 +47,7 @@ class MarkdownCodeExtractor:
                     code_lines = []
                 else:
                     # End of a code block
-                    code_content = "\n".join(code_lines).strip()
+                    code_content = "\n".join(code_lines).rstrip()
                     if code_content:
                         code_blocks.append(
                             CodeBlock(

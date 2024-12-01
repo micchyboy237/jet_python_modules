@@ -3,6 +3,7 @@ import fnmatch
 import argparse
 import subprocess
 import re
+from jet.logger import logger
 
 exclude_files = [
     ".git",
@@ -20,22 +21,31 @@ exclude_files = [
     "dream",
 ]
 include_files = [
+    "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/prompts/context/01_Initial_Requirements.md",
     "OAI_CONFIG_LIST.json",
     "*README.md",
-    "*.py",
+    "*.py"
 ]
 
 include_content = []
 exclude_content = []
 
 # base_dir should be actual file directory
-file_dir = os.path.dirname(os.path.realpath(__file__))
-print("Base Dir:", file_dir)
+file_dir = os.path.dirname(os.path.abspath(__file__))
+# Change the current working directory to the script's directory
+os.chdir(file_dir)
 
 
 def find_files(base_dir, include, exclude, include_content_patterns, exclude_content_patterns, case_sensitive=False):
+    print("Base Dir:", file_dir)
     print("Finding files:", base_dir, include, exclude)
-    matched_files = set()
+    include_abs = [
+        os.path.abspath(pat) if not os.path.isabs(pat) else pat
+        for pat in include
+        if os.path.exists(os.path.abspath(pat) if not os.path.isabs(pat) else pat)
+    ]
+
+    matched_files = set(include_abs)
     for root, dirs, files in os.walk(base_dir):
         adjusted_include = [
             os.path.relpath(os.path.join(base_dir, pat), base_dir) if not any(
@@ -100,10 +110,15 @@ def clean_content(content: str, file_path: str, shorten_funcs: bool = True):
     if not file_path.endswith(".md"):
         content = clean_comments(content)
     content = clean_logging(content)
-    content = clean_print(content)
+    # content = clean_print(content)
     if shorten_funcs and file_path.endswith(".py"):
         content = shorten_functions(content)
     return content
+
+
+def remove_parent_paths(path: str) -> str:
+    return os.path.join(
+        *(part for part in os.path.normpath(path).split(os.sep) if part != ".."))
 
 
 def shorten_functions(content):
@@ -128,14 +143,33 @@ def get_file_length(file_path, shorten_funcs):
 
 
 def format_file_structure(base_dir, include_files, exclude_files, include_content, exclude_content, case_sensitive=True, shorten_funcs=True, show_file_length=True):
-    files = find_files(base_dir, include_files, exclude_files,
-                       include_content, exclude_content, case_sensitive)
+    files: list[str] = find_files(base_dir, include_files, exclude_files,
+                                  include_content, exclude_content, case_sensitive)
+    # Create a new set for absolute file paths
+    absolute_file_paths = set()
+
+    # Iterate in reverse to avoid index shifting while popping
+    for file in files:
+        if not file.startswith("/"):
+            file = os.path.join(file_dir, file)
+        absolute_file_paths.add(os.path.relpath(file))
+
+    files = list(absolute_file_paths)
+
     dir_structure = {}
     total_char_length = 0
 
     for file in files:
+        # Convert to relative path
+        file = os.path.relpath(file)
+
         dirs = file.split(os.sep)
         current_level = dir_structure
+
+        if file.startswith("/"):
+            dirs.pop(0)
+        if ".." in dirs:
+            dirs = [dir for dir in dirs if dir != ".."]
 
         for dir_name in dirs[:-1]:
             if dir_name not in current_level:
@@ -174,9 +208,14 @@ def format_file_structure(base_dir, include_files, exclude_files, include_conten
         return result
 
     file_structure = print_structure(dir_structure, is_base_level=True)
-    print(f"\nFile structure:\n{file_structure}")
-    print(f"Files Character Count: {total_char_length}")
-    return file_structure
+    # file_structure = f"Base dir: {file_dir}\n" + \
+    #     f"\nFile structure:\n{file_structure}"
+    print("\n")
+    num_files = len(files)
+    logger.log("Number of Files:", num_files, colors=["GRAY", "DEBUG"])
+    logger.log("Files Char Count:", total_char_length,
+               colors=["GRAY", "SUCCESS"])
+    return file_structure.strip()
 
 
 def main():
@@ -217,11 +256,13 @@ def main():
         base_dir, include, exclude, include_content, exclude_content,
         case_sensitive, shorten_funcs=False, show_file_length=show_file_length)
 
+    print(
+        f"\n----- START FILES STRUCTURE -----\n{file_structure}\n----- END FILES STRUCTURE -----\n")
+
     process = subprocess.Popen(
         'pbcopy', env={'LANG': 'en_US.UTF-8'}, stdin=subprocess.PIPE)
     process.communicate(file_structure.encode('utf-8'))
 
-    print(f"\nBase dir: {os.path.basename(os.path.dirname(__file__))}")
     print(f"\nFile structure copied to clipboard.")
 
 

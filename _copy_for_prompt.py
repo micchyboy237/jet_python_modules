@@ -5,8 +5,10 @@ import subprocess
 from _copy_file_structure import (
     format_file_structure,
     clean_newlines,
-    clean_content
+    clean_content,
+    remove_parent_paths
 )
+from jet.logger import logger
 
 exclude_files = [
     ".git",
@@ -15,7 +17,6 @@ exclude_files = [
     "_copy*.py",
     "__pycache__",
     ".pytest_cache",
-    ".vscode",
     "node_modules",
     "*lock.json",
     "public",
@@ -36,7 +37,8 @@ exclude_content = []
 
 # Args defaults
 DEFAULT_SHORTEN_FUNCTS = False
-DEFAULT_NO_LENGTH = True
+DEFAULT_NO_CHAR_LENGTH = False
+INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_SYSTEM_MESSAGE = """
 Dont use or add to memory.
@@ -44,140 +46,49 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-Please fix issues on code:
-
-_packages % 
-(.venv) (.venv) jethroestrada@Jethros-Mac-mini jet_packages % 
-(.venv) (.venv) jethroestrada@Jethros-Mac-mini jet_packages %  cd /Users/jethroestrada/Desktop/Exter
-nal_Projects/AI/jet_packages ; /usr/bin/env /Users
-/jethroestrada/.pyenv/versions/3.12.7/bin/python /
-Users/jethroestrada/.cursor/extensions/ms-python.d
-ebugpy-2024.6.0-darwin-arm64/bundled/libs/debugpy/
-adapter/../../debugpy/launcher 60910 -- /Users/jet
-hroestrada/Desktop/External_Projects/AI/jet_packag
-es/jet/code/test_markdown_code_extractor.py 
-"DB_*" environment variables unset successfully.
-Activated virtual environment...
-"DB_*" environment variables set successfully.
-FFFF.F
-======================================================================
-FAIL: test_code_block_with_unknown_language (__main__.TestMarkdownCodeExtractor.test_code_block_with_unknown_language)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/Users/jethroestrada/Desktop/External_Projects/AI/jet_packages/jet/code/test_markdown_code_extractor.py", line 66, in test_code_block_with_unknown_language
-    self.assertEqual(result, expected)
-AssertionError: Lists differ: [Code[45 chars]age='python', file_path='unknown_script'), Cod[46 chars]one)] != [Code[45 chars]age='', file_path='unknown_script')]
-
-First differing element 0:
-CodeB[22 chars]own language")', language='python', file_path='unknown_script')
-CodeB[22 chars]own language")', language='', file_path='unknown_script')
-
-First list contains 1 additional elements.
-First extra element 1:
-CodeBlock(code='', language='python', file_path=None)
-
-- [CodeBlock(code='print("Unknown language")', language='python', file_path='unknown_script'),
-?                                                        ------                              ^
-
-+ [CodeBlock(code='print("Unknown language")', language='', file_path='unknown_script')]
-?                                                                                      ^
-
--  CodeBlock(code='', language='python', file_path=None)]
-
-======================================================================
-FAIL: test_extract_code_block_with_file_path_pattern (__main__.TestMarkdownCodeExtractor.test_extract_code_block_with_file_path_pattern)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/Users/jethroestrada/Desktop/External_Projects/AI/jet_packages/jet/code/test_markdown_code_extractor.py", line 80, in test_extract_code_block_with_file_path_pattern
-    self.assertEqual(result, expected)
-AssertionError: Lists differ: [] != [CodeBlock(code='def hello_world():\n prin[67 chars]py')]
-
-Second list contains 1 additional elements.
-First extra element 0:
-CodeBlock(code='def hello_world():\n print("Hello, world!")', language='python', file_path='/path/to/script.py')
-
-- []
-+ [CodeBlock(code='def hello_world():\n print("Hello, world!")', language='python', file_path='/path/to/script.py')]
-
-======================================================================
-FAIL: test_extract_multiple_code_blocks_with_and_without_file_paths (__main__.TestMarkdownCodeExtractor.test_extract_multiple_code_blocks_with_and_without_file_paths)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/Users/jethroestrada/Desktop/External_Projects/AI/jet_packages/jet/code/test_markdown_code_extractor.py", line 46, in test_extract_multiple_code_blocks_with_and_without_file_paths
-    self.assertEqual(result, expected)
-AssertionError: Lists differ: [Code[87 chars]ode='', language='python', file_path=None), Co[115 chars]one)] != [Code[87 chars]ode='echo "Script 2"', language='bash', file_path='')]
-
-First differing element 1:
-CodeBlock(code='', language='python', file_path=None)
-CodeBlock(code='echo "Script 2"', language='bash', file_path='')
-
-First list contains 2 additional elements.
-First extra element 2:
-CodeBlock(code='echo "Script 2"', language='bash', file_path=None)
-
-  [CodeBlock(code='print("Script 1")', language='python', file_path='script1.py'),
--  CodeBlock(code='', language='python', file_path=None),
--  CodeBlock(code='echo "Script 2"', language='bash', file_path=None),
-?                                                               ^^^^ ^
-
-+  CodeBlock(code='echo "Script 2"', language='bash', file_path='')]
-?                                                               ^^ ^
-
--  CodeBlock(code='', language='python', file_path=None)]
-
-======================================================================
-FAIL: test_extract_single_code_block_with_file_path (__main__.TestMarkdownCodeExtractor.test_extract_single_code_block_with_file_path)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/Users/jethroestrada/Desktop/External_Projects/AI/jet_packages/jet/code/test_markdown_code_extractor.py", line 23, in test_extract_single_code_block_with_file_path
-    self.assertEqual(result, expected)
-AssertionError: Lists differ: [Code[96 chars]le.py'), CodeBlock(code='', language='python', file_path=None)] != [Code[96 chars]le.py')]
-
-First list contains 1 additional elements.
-First extra element 1:
-CodeBlock(code='', language='python', file_path=None)
-
-- [CodeBlock(code='def hello_world():\n    print("Hello, World!")', language='python', file_path='example.py'),
-?                                                                                                             ^
-
-+ [CodeBlock(code='def hello_world():\n    print("Hello, World!")', language='python', file_path='example.py')]
-?                                                                                                             ^
-
--  CodeBlock(code='', language='python', file_path=None)]
-
-======================================================================
-FAIL: test_no_file_path_detected (__main__.TestMarkdownCodeExtractor.test_no_file_path_detected)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/Users/jethroestrada/Desktop/External_Projects/AI/jet_packages/jet/code/test_markdown_code_extractor.py", line 95, in test_no_file_path_detected
-    self.assertEqual(result, expected)
-AssertionError: Lists differ: [] != [CodeBlock(code='def hello_world():\n prin[49 chars]='')]
-
-Second list contains 1 additional elements.
-First extra element 0:
-CodeBlock(code='def hello_world():\n print("Hello, world!")', language='python', file_path='')
-
-- []
-+ [CodeBlock(code='def hello_world():\n print("Hello, world!")', language='python', file_path='')]
-
-----------------------------------------------------------------------
-Ran 6 tests in 0.013s
-
-FAILED (failures=5)
-
+How to setup and run backend?
 """.strip()
+
+# Project specific
+# DEFAULT_QUERY_MESSAGE += (
+#     "\n- Use standard but beautiful designs if html will be provided."
+# )
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
+- Keep the code short, reusable, testable, maintainable and optimized.
+- Follow best practices and industry design patterns.
+- Install any libraries required to run the code.
+- You may update the code structure if necessary.
 """.strip()
 
+# For existing projects
+# DEFAULT_INSTRUCTIONS_MESSAGE += (
+#     "\n- Only respond with parts of the code that have been added or updated to keep it short and concise."
+# )
+
+# For creating projects
+# DEFAULT_INSTRUCTIONS_MESSAGE += (
+#     "\n- At the end, display the updated file structure and instructions for running the code."
+#     "\n- Provide complete working code for each file (should match file structure)"
+# )
+
 # base_dir should be actual file directory
-file_dir = os.path.dirname(os.path.realpath(__file__))
-print("Base Dir:", file_dir)
+file_dir = os.path.dirname(os.path.abspath(__file__))
+# Change the current working directory to the script's directory
+os.chdir(file_dir)
 
 
 def find_files(base_dir, include, exclude, include_content_patterns, exclude_content_patterns, case_sensitive=False):
+    print("Base Dir:", file_dir)
     print("Finding files:", base_dir, include, exclude)
-    matched_files = set()  # Use a set to prevent duplicates
+    include_abs = [
+        os.path.relpath(path=pat, start=file_dir)
+        if not os.path.isabs(pat) else pat
+        for pat in include
+        if os.path.exists(os.path.abspath(pat) if not os.path.isabs(pat) else pat)
+    ]
+
+    matched_files = set(include_abs)
     for root, dirs, files in os.walk(base_dir):
         # Adjust include and exclude lists: if no wildcard, treat it as a specific file in the current directory
         adjusted_include = [
@@ -304,7 +215,7 @@ def main():
                         help='Instructions to include in the clipboard content')
     parser.add_argument('-fo', '--filenames-only', action='store_true',
                         help='Only copy the relative filenames, not their contents')
-    parser.add_argument('-nl', '--no-length', action='store_true', default=DEFAULT_NO_LENGTH,
+    parser.add_argument('-nl', '--no-length', action='store_true', default=DEFAULT_NO_CHAR_LENGTH,
                         help='Do not show file character length')
 
     args = parser.parse_args()
@@ -327,7 +238,6 @@ def main():
                                include_content, exclude_content, case_sensitive)
 
     print("\n")
-    print(f"Base directory: {base_dir}")
     print(f"Include patterns: {include}")
     print(f"Exclude patterns: {exclude}")
     print(f"Include content patterns: {include_content}")
@@ -346,12 +256,15 @@ def main():
 
     # Append relative filenames to the clipboard content
     for file in context_files:
+        rel_path = os.path.relpath(path=file, start=file_dir)
+        cleaned_rel_path = remove_parent_paths(rel_path)
+
         prefix = (
-            f"\n// {file}\n" if not filenames_only else f"{file}\n")
+            f"\n// {cleaned_rel_path}\n" if not filenames_only else f"{file}\n")
         if filenames_only:
             clipboard_content += f"{prefix}"
         else:
-            file_path = os.path.join(base_dir, file)
+            file_path = os.path.relpath(os.path.join(base_dir, file))
             if os.path.isfile(file_path):
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
@@ -389,10 +302,11 @@ def main():
 
     if system_message:
         clipboard_content_parts.append(f"SYSTEM\n{system_message}")
-    clipboard_content_parts.append(f"QUERY\n{query_message}")
     if instructions_message:
         clipboard_content_parts.append(f"INSTRUCTIONS\n{instructions_message}")
-    clipboard_content_parts.append(f"FILES STRUCTURE\n{files_structure}")
+    clipboard_content_parts.append(f"QUERY\n{query_message}")
+    if INCLUDE_FILE_STRUCTURE:
+        clipboard_content_parts.append(f"FILES STRUCTURE\n{files_structure}")
     clipboard_content_parts.append(f"FILES CONTENTS\n{clipboard_content}")
 
     clipboard_content = "\n\n".join(clipboard_content_parts)
@@ -403,7 +317,11 @@ def main():
     process.communicate(clipboard_content.encode('utf-8'))
 
     # Print the copied content character count
-    print(f"Prompt Character Count: {len(clipboard_content)}")
+    logger.log("Prompt Char Count:", len(clipboard_content),
+               colors=["GRAY", "SUCCESS"])
+
+    print(
+        f"\n----- FILES STRUCTURE -----\n{files_structure}\n----- END FILES STRUCTURE -----\n")
 
     # Newline
     print("\n")
