@@ -26,7 +26,10 @@ exclude_files = [
     "jupyter"
 ]
 include_files = [
-    "*llm/token/*",
+    "*cache/redis/__init__.py",
+    "*cache/redis/config.py",
+    "*cache/redis/utils.py",
+    "*cache/redis/print_utils.py",
 ]
 structure_include = []
 structure_exclude = []
@@ -45,22 +48,9 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-Fix error on token_counter:
-
-Number of tokens for messages with tool calls: 12
-token_counter messages received: [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': 'http://example.com/image1.jpg'}, {'type': 'text', 'text': 'A beautiful sunset.'}]}]
-Exception has occurred: UnboundLocalError
-cannot access local variable 'num_tokens' where it is not associated with a value
-  File "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/llm/token/token.py", line 35, in token_counter
-    num_tokens += calculate_img_tokens(
-    ^^^^^^^^^^
-  File "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/token/count_tokens.py", line 47, in main
-    tokens_images = token_counter(messages=messages_with_images)
-  File "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/token/count_tokens.py", line 58, in <module>
-    main()
-UnboundLocalError: cannot access local variable 'num_tokens' where it is not associated with a value
-f6
-
+- Update config with reusable class.
+- Create the utils code with reusable functions derived from print_utils. Then update print_utils.
+- Apply classes to encapsulate config redis client instance to be instantiated for each function in print_utils .
 """.strip()
 
 # Project specific
