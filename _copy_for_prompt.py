@@ -29,7 +29,8 @@ include_files = [
     "*cache/redis/__init__.py",
     "*cache/redis/config.py",
     "*cache/redis/utils.py",
-    "*cache/redis/print_utils.py",
+    "*search/cache.py",
+    "*search/searxng.py",
 ]
 structure_include = []
 structure_exclude = []
@@ -48,9 +49,7 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-- Update config with reusable class.
-- Create the utils code with reusable functions derived from print_utils. Then update print_utils.
-- Apply classes to encapsulate config redis client instance to be instantiated for each function in print_utils .
+Complete cache code to use redis client to work well with search on db=0.
 """.strip()
 
 # Project specific

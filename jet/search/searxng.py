@@ -92,7 +92,6 @@ def filter_unique_hosts(results: list[Result]) -> list[Result]:
 
 
 def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.2, filter_sites: Optional[list[str]] = None, min_date: Optional[datetime] = None, cache: dict = {}, **kwargs) -> list[Result]:
-    # Decode unwanted characters
     query = decode_encoded_characters(query)
     try:
         params = {
@@ -104,20 +103,16 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
             "categories": ",".join(kwargs.get("categories", ["general"])),
             "engines": ",".join(kwargs.get("engines", ["google", "brave", "duckduckgo", "bing"])),
         }
-
         if not min_date:
             years_ago = kwargs.get("years_ago", 1)
             current_date = datetime.now()
             min_date = current_date.replace(year=current_date.year - years_ago)
-
         min_date = format_min_date(min_date)
         min_date_iso = min_date.isoformat()
-
         if filter_sites:
             site_filters = " ".join(filter_sites)
             query = f"{site_filters} {query}"
             params["q"] = query
-
         query_url = build_query_url(query_url, params)
         headers = {"Accept": "application/json"}
 
@@ -126,26 +121,23 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
         cached_results = cache.get(cache_key)
 
         if cached_results:
-            result = cached_results
-        else:
-            result = fetch_search_results(query_url, headers, params)
-            result['number_of_results'] = len(result.get("results", []))
-            result = remove_empty_attributes(result)
+            logger.info(f"Cache hit for {cache_key}")
+            return cached_results["results"]
+
+        logger.info(f"Cache miss for {cache_key}")
+        result = fetch_search_results(query_url, headers, params)
+        result['number_of_results'] = len(result.get("results", []))
+        result = remove_empty_attributes(result)
 
         results = result.get("results", [])
-
-        # for result in results:
-        #     result["published_date"] = result.pop("publishedDate", None)
-
         results = filter_relevant(results, threshold=min_score)
         results = deduplicate_results(results)
         results = sort_by_score(results)
         results = filter_unique_hosts(results)
         results = results[:count] if count is not None else results
-
         result["results"] = results
-        cache.set(cache_key, result)
 
+        cache.set(cache_key, result)
         return results
     except (requests.exceptions.RequestException, KeyError, TypeError) as e:
         logger.error(f"Error in search_searxng: {e}")
