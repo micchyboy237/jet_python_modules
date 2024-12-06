@@ -12,9 +12,9 @@ class RedisConfigParams(TypedDict, total=False):
 
 
 class RedisClient:
-    def __init__(self, config: Optional[RedisConfigParams] = None):
+    def __init__(self, config: Optional[RedisConfigParams] = {}):
         # Use the passed config or default values
-        self.config = RedisConfig(**(config or {}))
+        self.config = RedisConfig(**config)
         self.client = self.config.get_client()
 
     # Delegate methods to the underlying Redis client

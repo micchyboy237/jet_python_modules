@@ -10,7 +10,8 @@ DEFAULT_CONFIG: RedisConfigParams = {
 
 
 class Cache:
-    def __init__(self, config: RedisConfigParams = DEFAULT_CONFIG):
+    def __init__(self, config: RedisConfigParams = {}):
+        config = {**DEFAULT_CONFIG, **config}
         self.redis_client = RedisClient(config=config)
 
     def get(self, key: str):
