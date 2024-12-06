@@ -11,7 +11,6 @@ def token_counter(
 
     if text is None:
         if messages is not None:
-            print(f"token_counter messages received: {messages}")
             text = ""
             for message in messages:
                 if message.get("content", None) is not None:
