@@ -7,7 +7,7 @@
       "request": "launch",
       "program": "${file}",
       "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}",
+      "cwd": "${fileDirname}",
       "python": "/Users/jethroestrada/.pyenv/shims/python",
       "env": {
         "PYTHONPATH": "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules"
