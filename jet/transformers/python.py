@@ -1,4 +1,3 @@
-import black
 from pathlib import Path
 
 
@@ -12,6 +11,7 @@ def format_python_code(source_code: str) -> str:
     Returns:
         str: The formatted Python code.
     """
+    import black
     try:
         # Specify Black formatting mode
         mode = black.Mode()
