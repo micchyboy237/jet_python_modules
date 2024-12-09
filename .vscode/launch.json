@@ -8,7 +8,7 @@
       "program": "${file}",
       "console": "integratedTerminal",
       "cwd": "${fileDirname}",
-      "python": "/Users/jethroestrada/.pyenv/shims/python",
+      "python": "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/.venv/bin/python",
       "env": {
         "PYTHONPATH": "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules"
       }

@@ -82,7 +82,11 @@ def traverse_directory(
             current_backward_depth += 1
             if max_backward_depth is not None and current_backward_depth > max_backward_depth:
                 break
-            yield from search_dir(current_dir)
+            if match_patterns(current_dir, includes) or any(include in current_dir for include in includes):
+                print("MATCHED:", current_dir)
+                yield current_dir
+                yielded_count += 1
+
             if limit and yielded_count >= limit:
                 return
 
@@ -90,7 +94,7 @@ def traverse_directory(
 def main():
     base_dir = "/Users/jethroestrada/Desktop/External_Projects"  # os.getcwd()
     includes = ["<folder>/bin/activate"]
-    excludes = ["<folder>/node_modules"]
+    excludes = []
     limit = 1
     direction = "forward"
     max_backward_depth = None

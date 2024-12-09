@@ -26,11 +26,9 @@ exclude_files = [
     "jupyter"
 ]
 include_files = [
-    "*cache/redis/__init__.py",
-    "*cache/redis/config.py",
-    "*cache/redis/utils.py",
-    "*search/cache.py",
-    "*search/searxng.py",
+    "*vectors/tree.py",
+    "*vectors/test_tree.py",
+    "*transformers/object.py",
 ]
 structure_include = []
 structure_exclude = []
@@ -49,7 +47,14 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-Complete cache code to use redis client to work well with search on db=0.
+Please fix generate_hierarchical_summary so that it decodes to string based on this error:
+
+Exception has occurred: TypeError
+Object of type <class 'numpy.int32'> is not JSON serializable
+  File "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/transformers/object.py", line 46, in make_serializable
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+  File "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/transformers/object.py", line 35, in make_serializable
+    return {make_serializable(key): make_serializable(value) for key, value in obj.items()}
 """.strip()
 
 # Project specific

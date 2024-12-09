@@ -1,16 +1,15 @@
 import json
 import base64
+import numpy as np
 
 
 def make_serializable(obj):
     """
     Recursively converts an object's attributes to be serializable.
-
     Args:
         obj: The input object to process.
-
     Returns:
-        A serializable dictionary representation of the object.
+        A serializable representation of the object.
     """
     if isinstance(obj, (int, float, bool, type(None))):
         return obj
@@ -20,7 +19,6 @@ def make_serializable(obj):
         except json.JSONDecodeError:
             return obj
     elif isinstance(obj, bytes):
-        # Check if bytes are printable, if so decode to a string; otherwise, base64 encode
         try:
             decoded_str = obj.decode('utf-8')
         except UnicodeDecodeError:
@@ -36,8 +34,12 @@ def make_serializable(obj):
         return tuple(make_serializable(item) for item in obj)
     elif isinstance(obj, set):
         return {make_serializable(item) for item in obj}
+    elif isinstance(obj, (np.integer, np.floating)):
+        return obj.item()  # Convert numpy types to native Python types
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()  # Convert numpy arrays to lists
     else:
-        return str(obj)  # Fallback for non-serializable objects
+        return str(obj)  # Fallback for unsupported types
 
 
 # Example usage
