@@ -1,19 +1,41 @@
-from typing import List, Dict, TypedDict
+from typing import List, Dict, Literal, TypedDict
 from llama_index.core import VectorStoreIndex, Settings, download_loader, SimpleDirectoryReader
+from llama_index.core.base.base_retriever import BaseRetriever
 from llama_index.core.prompts import PromptTemplate
 from llama_index.core.schema import Document, QueryBundle, BaseNode, NodeWithScore
 from llama_index.core.indices.query.query_transform import HyDEQueryTransform
 from llama_index.core.query_engine.transform_query_engine import TransformQueryEngine
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.llms.ollama import Ollama
-from llama_index.core.llms import LLM, ChatMessage, MessageRole
+from llama_index.core.llms import (
+    LLM,
+    ChatMessage,
+    MessageRole,
+    ChatResponseGen,
+    CompletionResponseGen,
+)
 from llama_index.postprocessor.flag_embedding_reranker import FlagEmbeddingReranker
+from llama_index.core.postprocessor.rankGPT_rerank import RankGPTRerank
+from llama_index.core.postprocessor.sbert_rerank import SentenceTransformerRerank
 from llama_index.core.bridge.pydantic import BaseModel
-from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.node_parser import NodeParser, SentenceSplitter
+from llama_index.core.indices.query.query_transform.base import (
+    StepDecomposeQueryTransform,
+)
+from llama_index.core.query_engine import BaseQueryEngine, MultiStepQueryEngine
+from llama_index.core.response.notebook_utils import display_source_node
 
 
-# TypedDict definitions for settings and results
-class SettingsDict(TypedDict):
+DEFAULT_SETTINGS = {
+    "llm_model": "llama3.1",
+    "embedding_model": "nomic-embed-text",
+    "chunk_size": 768,
+    "chunk_overlap": 50,
+    "base_url": "http://localhost:11434",
+}
+
+
+class SettingsDict(TypedDict, total=False):
     llm_model: str
     embedding_model: str
     chunk_size: int
@@ -21,7 +43,7 @@ class SettingsDict(TypedDict):
     base_url: str
 
 
-class ResultDict(TypedDict):
+class ResultDict(TypedDict, total=False):
     settings: SettingsDict
     questions: List[Dict]
     chat: Dict
@@ -41,7 +63,9 @@ class WikipediaLoader:
 # Settings creation class
 class SettingsManager:
     @staticmethod
-    def create(settings: SettingsDict):
+    def create(settings: SettingsDict = {}):
+        settings = {**DEFAULT_SETTINGS, **settings}
+
         Settings.chunk_size = settings["chunk_size"]
         Settings.chunk_overlap = settings["chunk_overlap"]
         Settings.embed_model = OllamaEmbedding(
@@ -49,9 +73,13 @@ class SettingsManager:
             base_url=settings["base_url"],
         )
         Settings.llm = Ollama(
+            temperature=0,
+            context_window=4096,
+            # num_predict=-1,
+            # num_keep=1,
+            request_timeout=300.0,
             model=settings["llm_model"],
             base_url=settings["base_url"],
-            request_timeout=120.0
         )
         return Settings
 
@@ -59,14 +87,41 @@ class SettingsManager:
 # Query processing classes
 class IndexManager:
     @staticmethod
-    def create_nodes(documents: List[Document], chunk_size: int, chunk_overlap: int):
-        # parse nodes
-        parser = SentenceSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
+    def create_nodes(documents: List[Document], parser: NodeParser):
         nodes = parser.get_nodes_from_documents(documents, show_progress=True)
         return nodes
+
+    @staticmethod
+    def create_query_nodes(retriever: BaseRetriever, query: str):
+        nodes: list[NodeWithScore] = retriever.retrieve(query)
+        return nodes
+
+    @staticmethod
+    def create_reranker(
+        type: Literal["flag", "llm", "sentence"] = "flag",
+        top_n: int = 3,
+        *,
+        llm: LLM = None,
+        reranker_model: str = "BAAI/bge-reranker-base",
+    ):
+        reranker = None
+        if type == "flag":
+            reranker = FlagEmbeddingReranker(
+                model=reranker_model,
+                top_n=top_n,
+            )
+        elif type == "llm":
+            reranker = RankGPTRerank(
+                llm=llm,
+                top_n=top_n,
+            )
+        elif type == "sentence":
+            reranker = SentenceTransformerRerank(
+                model=reranker_model,
+                top_n=top_n,
+                keep_retrieval_score=True,
+            )
+        return reranker
 
     @staticmethod
     def create_index(embed_model: OllamaEmbedding, nodes: list[BaseNode]) -> VectorStoreIndex:
@@ -75,9 +130,15 @@ class IndexManager:
             nodes=nodes, embed_model=embed_model, show_progress=True)
 
     @staticmethod
-    def create_retriever(index: VectorStoreIndex, top_k: int):
-        retriever = index.as_retriever(similarity_top_k=top_k)
+    def create_retriever(index: VectorStoreIndex, similarity_top_k: int):
+        retriever = index.as_retriever(similarity_top_k=similarity_top_k)
         return retriever
+
+    @staticmethod
+    def create_query_engine(index: VectorStoreIndex, similarity_top_k: int, **kwargs: any):
+        query_engine = index.as_query_engine(
+            similarity_top_k=similarity_top_k, **kwargs)
+        return query_engine
 
 
 class QueryProcessor:
@@ -92,14 +153,42 @@ class QueryProcessor:
         retriever = index.as_retriever(similarity_top_k=5)
         nodes = retriever.retrieve(query)
         reranker = FlagEmbeddingReranker(top_n=top_n, model=model)
+        # Return the updated chunks
         query_bundle = QueryBundle(query_str=query)
-        return reranker._postprocess_nodes(nodes, query_bundle=query_bundle)
+        ranked_nodes = reranker._postprocess_nodes(
+            nodes, query_bundle=query_bundle)
+        for ranked_node in ranked_nodes:
+            print('----------------------------------------------------')
+            display_source_node(ranked_node, source_length=500)
+        # Initialize the query engine with Re-Ranking
+        query_engine = index.as_query_engine(
+            similarity_top_k=3,
+            node_postprocessors=[reranker]
+        )
 
-    def hyde_query_transform(self, index: VectorStoreIndex, query: str):
+        # Print the response from the model
+        response = query_engine.query(
+            "Compare the families of Emma Stone and Ryan Gosling")
+
+        print(response)
+
+    def hyde_query_transform(self, query_engine: BaseQueryEngine, query: str):
         hyde = HyDEQueryTransform(include_original=True)
-        hyde_query_engine = TransformQueryEngine(
-            index.as_query_engine(similarity_top_k=4), hyde)
+        hyde_query_engine = TransformQueryEngine(query_engine, hyde)
         return hyde_query_engine.query(query)
+
+    def multi_step_query(self, llm: LLM, query_engine: BaseQueryEngine, query: str):
+        # Multi-step query setup
+        step_decompose_transform_gpt3 = StepDecomposeQueryTransform(
+            llm, verbose=True)
+        index_summary = "Breaks down the initial query"
+        multi_step_query_engine = MultiStepQueryEngine(
+            query_engine=query_engine,
+            query_transform=step_decompose_transform_gpt3,
+            index_summary=index_summary
+        )
+        response = multi_step_query_engine.query(query)
+        return response
 
     def query_generate(self, prompt: str, model: BaseModel = None):
         llm = self.llm.as_structured_llm(model) if model else self.llm
@@ -119,8 +208,18 @@ def main():
     from langchain_community.document_loaders.generic import GenericLoader
     from langchain_community.document_loaders.parsers import LanguageParser
 
-    # openai_api_key = os.getenv("OPENAI_API_KEY")
-    # logger.log("OPENAI_API_KEY:", openai_api_key, colors=["GRAY", "INFO"])
+    # base_dir = "/Users/jethroestrada/Desktop/External_Projects/AI/chatbot/open-webui/backend/crewAI/docs"
+    context_files = [
+        "/Users/jethroestrada/Desktop/External_Projects/AI/chatbot/open-webui/backend/crewAI/docs/installation.mdx",
+        "/Users/jethroestrada/Desktop/External_Projects/AI/chatbot/open-webui/backend/crewAI/docs/introduction.mdx",
+        "/Users/jethroestrada/Desktop/External_Projects/AI/chatbot/open-webui/backend/crewAI/docs/quickstart.mdx",
+    ]
+
+    query = "How do I use CrewAI?"
+    similarity_top_k = 4
+    reranker_model = "BAAI/bge-reranker-base"
+    sentence_reranker_model = "cross-encoder/stsb-distilroberta-base"
+    reranker_top_n = 3
 
     # Configuration
     settings = SettingsDict(
@@ -130,9 +229,7 @@ def main():
         chunk_overlap=50,
         base_url="http://localhost:11434",
     )
-    reranking_model = "BAAI/bge-reranker-base"
-    retriever_top_k = 3
-    reranker_top_n = 3
+
     # pages = ["Emma_Stone", "La_La_Land", "Ryan_Gosling"]
     prompt_template = (
         "We have provided context information below.\n"
@@ -144,28 +241,28 @@ def main():
     )
     questions = [
         "What is CrewAI?",
-        "Give me code sample usage of CrewAI.",
     ]
+    questions.append(query)
 
     results = {
         "settings": settings,
         "questions": [],
-        "chat": {},
+        "chats": [],
         "rerank": {},
         "hyde": {},
     }
     settings_manager = SettingsManager.create(settings)
     # Merge settings
     logger.log("Settings:", json.dumps(settings), colors=["GRAY", "DEBUG"])
-    save_json(results)
+    save_json(results, file_path="generated/crewai/results.json")
 
     # Load documents
     logger.debug("Loading documents...")
     # documents = WikipediaLoader.load(pages)
-    base_dir = "/Users/jethroestrada/Desktop/External_Projects/AI/chatbot/open-webui/backend/crewAI/docs"
     documents = SimpleDirectoryReader(
-        input_dir=base_dir,
-        recursive=True,
+        input_files=context_files,
+        # input_dir=base_dir,
+        # recursive=True,
     ).load_data()
     # loader = GenericLoader.from_filesystem(
     #     base_dir,
@@ -175,90 +272,203 @@ def main():
     # )
     # documents = loader.load()
     logger.log("Documents:", len(documents), colors=["GRAY", "DEBUG"])
-    save_json(documents, file_path="generated/documents.json")
+    save_json(documents, file_path="generated/crewai/documents.json")
 
-    # Create nodes
+    # Create all nodes
     logger.debug("Creating nodes...")
-    nodes = IndexManager.create_nodes(
-        documents=documents,
-        chunk_size=settings_manager.chunk_size,
-        chunk_overlap=settings_manager.chunk_overlap,
-    )
-    logger.log("Nodes:", len(nodes), colors=["GRAY", "DEBUG"])
-    save_json(nodes, file_path="generated/nodes.json")
+    all_nodes = IndexManager.create_nodes(
+        documents=documents, parser=settings_manager.node_parser)
 
     # Create index
     logger.debug("Creating index...")
     index = IndexManager.create_index(
         embed_model=settings_manager.embed_model,
-        nodes=nodes,
+        nodes=all_nodes,
     )
 
     # Create retriever
     logger.debug("Creating retriever...")
-    retriever = IndexManager.create_retriever(index, retriever_top_k)
+    retriever = IndexManager.create_retriever(
+        index=index, similarity_top_k=3)
+
+    # Create query nodes
+    query_nodes = IndexManager.create_query_nodes(
+        retriever=retriever, query=query)
+    # Print the chunks
+    for node in query_nodes:
+        print('----------------------------------------------------')
+        display_source_node(node, source_length=500)
+    results["initial_query_nodes"] = {
+        "query": query,
+        "response": query_nodes,
+    }
+    save_json(results, file_path="generated/crewai/results.json")
+
+    # Create initial query engine
+    query_engine = IndexManager.create_query_engine(
+        index=index, similarity_top_k=4)
+
+    # generate the response
+    logger.log("Generating initial query:", query, colors=["GRAY", "DEBUG"])
+    response = query_engine.query(query)
+    results["initial_query"] = {
+        "query": query,
+        "response": response,
+    }
+    save_json(results, file_path="generated/crewai/results.json")
+
+    # Start query reranking
 
     # Initialize QueryProcessor
     query_processor = QueryProcessor(llm=settings_manager.llm)
 
+    # Flag reranking
+    logger.log("Flag reranking on query:", query, colors=["GRAY", "DEBUG"])
+    reranker = IndexManager.create_reranker(
+        "flag", top_n=reranker_top_n, reranker_model=reranker_model)
+    query_engine = IndexManager.create_query_engine(
+        index=index, similarity_top_k=3, node_postprocessors=[reranker])
+    query_bundle = QueryBundle(query_str=query)
+    ranked_nodes = reranker._postprocess_nodes(
+        query_nodes, query_bundle=query_bundle)
+    for ranked_node in ranked_nodes:
+        print('----------------------------------------------------')
+        display_source_node(ranked_node, source_length=500)
+    # Print the response from the model
+    response = query_engine.query(query)
+    results["rerank"] = {
+        "flag": {
+            "query": query,
+            "response": response,
+        }
+    }
+    save_json(results, file_path="generated/crewai/results.json")
+
+    # LLM reranking
+    logger.log("LLM reranking on query:", query, colors=["GRAY", "DEBUG"])
+    reranker = IndexManager.create_reranker(
+        "llm", top_n=reranker_top_n, llm=settings_manager.llm)
+    query_engine = IndexManager.create_query_engine(
+        index=index, similarity_top_k=3, node_postprocessors=[reranker])
+    query_bundle = QueryBundle(query_str=query)
+    ranked_nodes = reranker._postprocess_nodes(
+        query_nodes, query_bundle=query_bundle)
+    for ranked_node in ranked_nodes:
+        print('----------------------------------------------------')
+        display_source_node(ranked_node, source_length=500)
+    # Print the response from the model
+    response = query_engine.query(query)
+    results["rerank"] = {
+        "llm": {
+            "query": query,
+            "response": response,
+        }
+    }
+    save_json(results, file_path="generated/crewai/results.json")
+
+    # Sentence reranking
+    logger.log("Sentence reranking on query:", query, colors=["GRAY", "DEBUG"])
+    reranker = IndexManager.create_reranker(
+        "sentence", top_n=reranker_top_n, reranker_model=sentence_reranker_model)
+    query_engine = IndexManager.create_query_engine(
+        index=index, similarity_top_k=3, node_postprocessors=[reranker])
+    query_bundle = QueryBundle(query_str=query)
+    ranked_nodes = reranker._postprocess_nodes(
+        query_nodes, query_bundle=query_bundle)
+    for ranked_node in ranked_nodes:
+        print('----------------------------------------------------')
+        display_source_node(ranked_node, source_length=500)
+    # Print the response from the model
+    response = query_engine.query(query)
+    results["rerank"] = {
+        "sentence": {
+            "query": query,
+            "response": response,
+        }
+    }
+    save_json(results, file_path="generated/crewai/results.json")
+
+    # Start RAG strategies
+
+    # Set query engine for Multi-step and HyDE
+    logger.log("Setting query engine for Multi-step and HyDE",
+               query, colors=["GRAY", "DEBUG"])
+    query_engine = IndexManager.create_query_engine(
+        index=index, similarity_top_k=4)
+    # Multi-step query
+    logger.log("Multi-step query",
+               query, colors=["GRAY", "DEBUG"])
+    multi_step_response = query_processor.multi_step_query(
+        llm=settings_manager.llm,
+        query_engine=query_engine,
+        query=query
+    )
+    results["multi_step"] = {
+        "query": query,
+        "response": multi_step_response,
+    }
+    save_json(results, file_path="generated/crewai/results.json")
+
+    # HyDE transformation
+    logger.log("HyDE transforming on query",
+               query, colors=["GRAY", "DEBUG"])
+    hyde_response = query_processor.hyde_query_transform(
+        query_engine=query_engine, query=query)
+    results["hyde"] = {"query": query, **make_serializable(hyde_response)}
+    save_json(results, file_path="generated/crewai/results.json")
+
+    # Start LLM generation
+
+    def generate_query_response(query_processor: QueryProcessor, prompt: str | list[str], chat: bool = False):
+        query_callback = query_processor.query_chat if chat else query_processor.query_generate
+        query_response = query_callback(prompt)
+        response = ""
+        stream_response = []
+        for chunk in query_response:
+            response += chunk.delta
+            stream_response.append(chunk)
+            logger.success(chunk.delta, flush=True)
+
+        result = {
+            "contexts": contexts,
+            "response": response,
+            "stream_response": stream_response
+        }
+        if chat:
+            result["prompt"] = prompt
+        else:
+            result["messages"] = prompt
+        return result
+
     # Process questions
-    for question in questions:
-        logger.log("Processing question:", question, colors=["GRAY", "DEBUG"])
+    for question_idx, question in enumerate(questions):
+        logger.log(
+            f"Processing question #{question_idx + 1}:", question, colors=["GRAY", "DEBUG"])
         contexts: list[NodeWithScore] = retriever.retrieve(question)
         context_list = [node.get_content() for node in contexts]
         prompt = query_processor.generate_prompt(
             prompt_template, context_list, question)
-        generation_response = query_processor.query_generate(prompt)
 
-        response = ""
-        stream_response = []
-        for chunk in generation_response:
-            response += chunk.delta
-            stream_response.append(chunk)
-            logger.success(chunk.delta, flush=True)
-        results["questions"].append(
-            {"question": question, "prompt": prompt, "contexts": contexts, "response": response, "stream_response": stream_response})
-        save_json(results)
+        logger.debug(f"Generating prompt response #{question_idx + 1}...")
+        result = generate_query_response(query_processor, prompt)
+        results["questions"].append(result)
+        save_json(results, file_path="generated/crewai/results.json")
 
-    # HyDE transformation
-    hyde_query = "Give me code sample usage of CrewAI."
-    logger.log("HyDE transforming on query",
-               hyde_query, colors=["GRAY", "DEBUG"])
-    hyde_response = query_processor.hyde_query_transform(index, hyde_query)
-    results["hyde"] = {"query": hyde_query, **make_serializable(hyde_response)}
-    save_json(results)
-
-    # Reranking
-    rerank_query = "Give me code sample usage of CrewAI."
-    logger.log("Reranking on query:", rerank_query, colors=["GRAY", "DEBUG"])
-    ranked_nodes = query_processor.rerank_nodes(
-        index, rerank_query, reranker_top_n, reranking_model)
-    results["rerank"] = {"query": rerank_query, "response": ranked_nodes}
-    save_json(results)
-
-    # Chat response
-    logger.debug("Generating chat response...")
-    messages = [
-        ChatMessage(
-            role=MessageRole.SYSTEM,
-            content="You are a helpful assistant."
-        ),
-        ChatMessage(
-            role=MessageRole.USER,
-            content="Give me code sample usage of CrewAI."
-        ),
-    ]
-    chat_response = query_processor.query_chat(messages)
-
-    response = ""
-    stream_response = []
-    for chunk in chat_response:
-        response += chunk.delta
-        stream_response.append(chunk)
-        logger.success(chunk.delta, flush=True)
-    results["chat"] = {"messages": messages,
-                       "response": response, "stream_response": stream_response}
-    save_json(results)
+        # Chat response
+        logger.debug(f"Generating chat response #{question_idx + 1}...")
+        messages = [
+            ChatMessage(
+                role=MessageRole.SYSTEM,
+                content="You are a helpful assistant."
+            ),
+            ChatMessage(
+                role=MessageRole.USER,
+                content=prompt
+            ),
+        ]
+        result = generate_query_response(query_processor, messages, chat=True)
+        results["chats"].append(result)
+        save_json(results, file_path="generated/crewai/results.json")
 
 
 if __name__ == "__main__":

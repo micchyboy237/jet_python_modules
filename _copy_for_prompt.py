@@ -26,9 +26,10 @@ exclude_files = [
     "jupyter"
 ]
 include_files = [
-    "*vectors/tree.py",
-    "*vectors/test_tree.py",
-    "*transformers/object.py",
+    # "*vectors/tree.py",
+    # "*vectors/test_tree.py",
+    "*redis/server/*.sh",
+    "*redis/server/*.conf",
 ]
 structure_include = []
 structure_exclude = []
@@ -47,14 +48,7 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-Please fix generate_hierarchical_summary so that it decodes to string based on this error:
-
-Exception has occurred: TypeError
-Object of type <class 'numpy.int32'> is not JSON serializable
-  File "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/transformers/object.py", line 46, in make_serializable
-    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
-  File "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/transformers/object.py", line 35, in make_serializable
-    return {make_serializable(key): make_serializable(value) for key, value in obj.items()}
+Write a python script that with a function that accepts redis_path, redis_port, generated_dir params. This will generate new redis.conf and shell files with appropriate updated values.
 """.strip()
 
 # Project specific

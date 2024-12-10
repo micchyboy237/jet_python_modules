@@ -47,7 +47,12 @@ def get_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]]
     md_header_contents = []
     for split in md_header_splits:
         content = split.page_content
-        # metadata = split.metadata
+        metadata = split.metadata
+
+        # Check if header exists
+        header_exists = bool(metadata)
+        if not header_exists:
+            continue
 
         md_header_contents.append({
             "content": content.strip(),
@@ -114,6 +119,54 @@ def extract_header_contents(md_text: str, max_chars_per_chunk: int = None) -> li
     return header_contents
 
 
+def html_to_markdown(
+    html_str: str,
+    container_selector: str = 'body',
+    remove_selectors: list[str] = [],
+    replace_selectors: list[dict] = [],
+) -> str:
+    from bs4 import BeautifulSoup
+
+    # Parse the HTML with BeautifulSoup
+    soup = BeautifulSoup(html_str, 'html.parser')
+
+    # Select the container element
+    container = soup.select_one(container_selector)
+
+    if not container:
+        return ""
+
+    # Remove elements by CSS selector within the container
+    for selector in remove_selectors:
+        for element in container.select(selector):
+            element.decompose()
+
+    # Replace elements by CSS selector within the container
+    for replacement in replace_selectors:
+        for old_tag, new_tag in replacement.items():
+            for element in container.select(old_tag):
+                # Create a new tag with the same attributes
+                new_element = soup.new_tag(new_tag, **element.attrs)
+                # Copy over the contents, not just the string (handles nested tags)
+                if element.string is not None:
+                    new_element.string = element.string
+                else:
+                    new_element.extend(element.contents)
+                # Replace the old tag with the new tag
+                element.replace_with(new_element)
+
+    # Convert the cleaned HTML to Markdown
+    markdown = convert_html_to_markdown(str(container))
+    markdown = clean_text(markdown)
+
+    # Find the first instance of "# ", then remove all texts before it
+    first_header_index = markdown.find("# ")
+    if first_header_index != -1:
+        markdown = markdown[first_header_index:]
+
+    return markdown
+
+
 def scrape_markdown(html_str: str) -> dict:
     """Scrape text contents from the HTML string and convert to Markdown, including video URLs under each heading."""
 
@@ -125,7 +178,8 @@ def scrape_markdown(html_str: str) -> dict:
 
     # Clean and scrape the text content (replace with your actual cleaning logic)
     html_element = selector.css('html')
-    cleaned_html_element = clean_tags(html_element)
+    # cleaned_html_element = clean_tags(html_element)
+    cleaned_html_element = html_element
 
     # Remove the <title> tag from the cleaned HTML
     cleaned_html_element.css('title').remove()
