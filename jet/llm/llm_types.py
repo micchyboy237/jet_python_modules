@@ -29,7 +29,7 @@ class Message(TypedDict):
     tool_calls: Optional[list[Tool]]
 
 
-class ChatOptions(TypedDict):
+class OllamaChatOptions(TypedDict):
     mirostat: Optional[int]
     mirostat_eta: Optional[float]
     mirostat_tau: Optional[float]
@@ -46,27 +46,27 @@ class ChatOptions(TypedDict):
     min_p: Optional[float]
 
 
-class ChatRequest(TypedDict):
+class OllamaChatRequest(TypedDict):
     model: str
     messages: list[Message]
     tools: Optional[list[Tool]]
     format: Optional[Union[str, dict]]  # Can be "json" or a JSON schema
-    options: Optional[ChatOptions]
+    options: Optional[OllamaChatOptions]
     stream: Optional[bool]  # Defaults to True if not specified
     keep_alive: Optional[Union[int, str]]  # Defaults to "5m" if not specified
 
 
-class ChatResponseMessage(TypedDict):
+class OllamaChatResponseMessage(TypedDict):
     role: Literal["assistant", "system", "user", "tool"]
     content: str
     images: Optional[list[str]]
     tool_calls: Optional[list[dict]]
 
 
-class ChatResponse(TypedDict):
+class OllamaChatResponse(TypedDict):
     model: str
     created_at: str
-    message: ChatResponseMessage
+    message: OllamaChatResponseMessage
     done_reason: Optional[str]
     done: bool
     total_duration: Optional[int]
@@ -88,6 +88,7 @@ class Track(TypedDict):
     # Custom
     run_name: Optional[str]
     metadata: Optional[dict]
+    format: Optional[str]
 
 
 class MessageRole(str, Enum):

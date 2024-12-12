@@ -5,7 +5,7 @@ from typing import Generator, Literal, Optional, TypedDict, Union
 from langchain_ollama.llms import OllamaLLM
 from langchain_core.outputs.llm_result import LLMResult, GenerationChunk
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from jet.llm.llm_types import OllamaChatMessage, MessageRole, Track
+from jet.llm.llm_types import OllamaChatMessage, MessageRole, Track, OllamaChatOptions
 from jet.logger import logger
 from jet.transformers import make_serializable
 
@@ -65,7 +65,7 @@ def call_ollama_chat(
     system: str = "",
     tools: list = None,
     format: Union[str, dict] = None,
-    options: dict = None,
+    options: OllamaChatOptions = None,
     stream: bool = True,
     track: Track = None,
 ) -> Union[dict, Generator[str, None, None]]:
@@ -94,20 +94,12 @@ def call_ollama_chat(
             OllamaChatMessage(content=messages, role=MessageRole.USER)
         ]
 
-    if not any(message['role'] == MessageRole.SYSTEM for message in messages):
+    if system and not any(message['role'] == MessageRole.SYSTEM for message in messages):
         messages.insert(0, OllamaChatMessage(
             content=system, role=MessageRole.SYSTEM))
 
     if tools:
         stream = False
-
-    # Default options with provided overrides
-    default_options = {
-        "stream": stream,
-        "num_ctx": 4096,
-        "temperature": 0.7,
-    }
-    options = {**default_options, **(options or {})}
 
     # Prepare the request body
     body = {
@@ -121,15 +113,14 @@ def call_ollama_chat(
 
     # Initialize Aim run
     if track:
-        track_settings: Track = {
+        run_settings: Track = {
             "log_system_params": True,
             **track.copy()
         }
-        del track_settings["run_name"]
-        del track_settings["metadata"]
-        logger.log("Track Settings:", json.dumps(
-            track_settings, indent=2), ["GRAY", "INFO"])
-        run = Run(**track_settings)
+        del run_settings["run_name"]
+        del run_settings["metadata"]
+        del run_settings["format"]
+        run = Run(**run_settings)
 
     try:
         # Make the POST request
@@ -154,28 +145,39 @@ def call_ollama_chat(
                             response_chunks.append(content)
 
                             if decoded_chunk.get("done"):
-                                logger.debug("Stream completed.")
                                 # For Aim tracking
                                 if track:
                                     # Log the prompt (messages) to Aim
-                                    prompt = messages[-1]["content"]
+                                    prompt = messages[-1]['content']
                                     response = "".join(response_chunks)
 
                                     value = {
-                                        'prompt': prompt,
-                                        'response': response,
+                                        "system": system,
+                                        "prompt": prompt,
+                                        "response": response,
                                     }
-                                    aim_text = Text(
-                                        json.dumps(value, indent=2))
-                                    run.track(
-                                        aim_text,
-                                        name=track['run_name'],
-                                        context={
+
+                                    formatted_value = json.dumps(
+                                        value, indent=1)
+
+                                    if track.get('format'):
+                                        formatted_value = track['format'].format(
+                                            **value)
+
+                                    aim_value = Text(formatted_value)
+                                    track_args = {
+                                        "name": track['run_name'],
+                                        "context": {
                                             "model": model,
                                             "options": options,
-                                            "metadata": track['metadata'],
-                                        }
-                                    )
+                                            **track['metadata'],
+                                        },
+                                    }
+                                    logger.log("Run Settings:", json.dumps(
+                                        run_settings, indent=2), colors=["WHITE", "INFO"])
+                                    logger.log("Aim Track:", json.dumps(
+                                        track_args, indent=2), colors=["WHITE", "INFO"])
+                                    run.track(aim_value, **track_args)
 
                             yield content
 
@@ -200,9 +202,9 @@ def call_ollama_chat(
         logger.error("Unexpected error")
         return {"error": str(e)}
 
-    finally:
-        if track:
-            run.close()  # Ensure run is closed in all cases
+    # finally:
+    #     if track:
+    #         run.close()
 
 
 # Main function to demonstrate sample usage
