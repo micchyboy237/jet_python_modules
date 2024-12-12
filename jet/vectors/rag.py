@@ -68,20 +68,34 @@ class SettingsManager:
 
         Settings.chunk_size = settings["chunk_size"]
         Settings.chunk_overlap = settings["chunk_overlap"]
-        Settings.embed_model = OllamaEmbedding(
-            model_name=settings["embedding_model"],
+        Settings.embed_model = SettingsManager.create_embed_model(
+            model=settings["embedding_model"],
             base_url=settings["base_url"],
         )
-        Settings.llm = Ollama(
-            temperature=0,
-            context_window=4096,
-            # num_predict=-1,
-            # num_keep=1,
-            request_timeout=300.0,
+        Settings.llm = SettingsManager.create_llm(
             model=settings["llm_model"],
             base_url=settings["base_url"],
         )
         return Settings
+
+    @staticmethod
+    def create_llm(model: str, base_url: str, temperature: float = 0):
+        return Ollama(
+            temperature=temperature,
+            context_window=4096,
+            # num_predict=-1,
+            # num_keep=1,
+            request_timeout=300.0,
+            model=model,
+            base_url=base_url,
+        )
+
+    @staticmethod
+    def create_embed_model(model: str, base_url: str):
+        return OllamaEmbedding(
+            model_name=model,
+            base_url=base_url,
+        )
 
 
 # Query processing classes
