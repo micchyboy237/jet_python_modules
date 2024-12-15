@@ -1,4 +1,4 @@
-from typing import List, Dict, Literal, TypedDict
+from typing import List, Dict, Literal, Sequence, TypedDict
 from llama_index.core import VectorStoreIndex, Settings, download_loader, SimpleDirectoryReader
 from llama_index.core.base.base_retriever import BaseRetriever
 from llama_index.core.prompts import PromptTemplate
@@ -80,7 +80,7 @@ class SettingsManager:
 
     @staticmethod
     def create_llm(model: str, base_url: str, temperature: float = 0):
-        return Ollama(
+        llm = Ollama(
             temperature=temperature,
             context_window=4096,
             # num_predict=-1,
@@ -89,13 +89,17 @@ class SettingsManager:
             model=model,
             base_url=base_url,
         )
+        Settings.llm = llm
+        return llm
 
     @staticmethod
     def create_embed_model(model: str, base_url: str):
-        return OllamaEmbedding(
+        embed_model = OllamaEmbedding(
             model_name=model,
             base_url=base_url,
         )
+        Settings.embed_model = embed_model
+        return embed_model
 
 
 # Query processing classes
@@ -138,8 +142,19 @@ class IndexManager:
         return reranker
 
     @staticmethod
-    def create_index(embed_model: OllamaEmbedding, nodes: list[BaseNode]) -> VectorStoreIndex:
+    def create_index(
+        embed_model: OllamaEmbedding,
+        nodes: list[BaseNode] = [],
+        documents: Sequence[Document] = [],
+    ) -> VectorStoreIndex:
         # build index
+        if documents:
+            return VectorStoreIndex(
+                embed_model=embed_model,
+                nodes=documents,
+                show_progress=True,
+            )
+
         return VectorStoreIndex(
             nodes=nodes, embed_model=embed_model, show_progress=True)
 

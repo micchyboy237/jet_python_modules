@@ -37,12 +37,12 @@ class CustomLogger:
         console_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(console_handler)
 
-        # # File handler
-        # if self.log_file:
-        #     file_handler = logging.FileHandler(log_file)
-        #     file_handler.setLevel(logging.DEBUG)
-        #     file_handler.setFormatter(logging.Formatter("%(message)s"))
-        #     logger.addHandler(file_handler)
+        # File handler
+        if self.log_file:
+            file_handler = logging.FileHandler(self.log_file)
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(logging.Formatter("%(message)s"))
+            logger.addHandler(file_handler)
 
         return logger
 
@@ -71,6 +71,13 @@ class CustomLogger:
 
         return wrapper
 
+    def newline(self) -> None:
+        """Prints a newline character."""
+        print("\n", end="")
+        if self.log_file:
+            with open(self.log_file, "a") as file:
+                file.write("\n")
+
     def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
         if name.upper() in COLORS:
             return self.custom_logger_method(name.upper())
@@ -80,6 +87,7 @@ class CustomLogger:
 
 def logger_examples(logger: CustomLogger):
     logger.log("\n==== LOGGER METHODS =====")
+    logger.newline()
     logger.log("This is a default log message.")
     logger.log("This is a default log message.", bright=True)
     logger.info("This is an info message.")
@@ -101,6 +109,7 @@ def logger_examples(logger: CustomLogger):
                colors=["GRAY", "BRIGHT_DEBUG"])
     logger.log("3 multi-color", "Message 2", "Message 3",
                colors=["LOG", "DEBUG", "INFO"])
+    logger.newline()
     logger.log("====== END LOGGER METHODS ======\n")
 
 

@@ -28,8 +28,9 @@ exclude_files = [
 include_files = [
     # "*vectors/tree.py",
     # "*vectors/test_tree.py",
-    "*redis/server/*.sh",
-    "*redis/server/*.conf",
+    # "*logger/logger.py",
+    "*logger/timer.py",
+    # "*logger/test_timer.py",
 ]
 structure_include = []
 structure_exclude = []
@@ -48,7 +49,10 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-Write a python script that with a function that accepts redis_path, redis_port, generated_dir params. This will generate new redis.conf and shell files with appropriate updated values.
+Update code so that the goal is to simultaneusly run these 3 calls on main so that it finishes at the same time since all have same countdowns:
+1. sleep_countdown(3, "Custom message")
+2. test_time_it_annotation()
+3. time_it(test_time_it_named)()
 """.strip()
 
 # Project specific
@@ -57,10 +61,16 @@ Write a python script that with a function that accepts redis_path, redis_port, 
 # )
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
-- Keep the code short, reusable, testable, maintainable and optimized.
-- Follow best practices and industry design patterns.
+- Provide a step by step process of how you would solve the query.
+- Keep the code short, reusable, testable, maintainable and optimized. Follow best practices and industry design patterns.
 - Install any libraries required to run the code.
 - You may update the code structure if necessary.
+- Reuse existing code if possible without breaking anything.
+- Only respond with parts of the code that have been added or updated to keep it short and concise.
+- Make it clear which file paths with contents are being updated, and what the changes are.
+- Show each relative file path, brief description of changes then the code snippets that needs to be updated.
+- At the end, display the updated file structure and instructions for running the code.
+- Ignore instructions that are not applicable to the query.
 """.strip()
 
 # For existing projects
@@ -309,7 +319,8 @@ def main():
     clipboard_content_parts.append(f"QUERY\n{query_message}")
     if INCLUDE_FILE_STRUCTURE:
         clipboard_content_parts.append(f"FILES STRUCTURE\n{files_structure}")
-    clipboard_content_parts.append(f"FILES CONTENTS\n{clipboard_content}")
+    clipboard_content_parts.append(
+        f"EXISTING FILES CONTENTS\n{clipboard_content}")
 
     clipboard_content = "\n\n".join(clipboard_content_parts)
 
