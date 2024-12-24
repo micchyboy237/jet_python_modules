@@ -1,5 +1,5 @@
 # jet/cache/redis/print_utils.py
-from .utils import RedisClient
+from jet.cache.redis import RedisClient
 from jet.logger import logger
 
 

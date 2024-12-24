@@ -108,7 +108,9 @@ def logger_examples(logger: CustomLogger):
     logger.log("2 multi-color with bright", "Message 2",
                colors=["GRAY", "BRIGHT_DEBUG"])
     logger.log("3 multi-color", "Message 2", "Message 3",
-               colors=["LOG", "DEBUG", "INFO"])
+               colors=["WHITE", "BRIGHT_DEBUG", "BRIGHT_SUCCESS"])
+    logger.log("3 multi-color with repeat", "Message 2", "Message 3",
+               colors=["INFO", "DEBUG"])
     logger.newline()
     logger.log("====== END LOGGER METHODS ======\n")
 

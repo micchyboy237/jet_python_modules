@@ -3,8 +3,7 @@ from jet.scrapers.preprocessor import scrape_markdown
 import hashlib
 import os
 import json
-from .cache import Cache
-from jet.cache.redis import RedisConfigParams
+from jet.cache.redis import RedisCache, RedisConfigParams
 from jet.logger import logger
 from jet.scrapers.hrequests import request_url
 
@@ -43,7 +42,7 @@ def main_hrequests(url):
 
 
 def scrape_url(url: str, config: RedisConfigParams = {}, show_browser: bool = False) -> str:
-    cache = Cache(config=config)
+    cache = RedisCache(config=config)
     cache_key = url
     cached_result = cache.get(cache_key)
 

@@ -26,11 +26,9 @@ exclude_files = [
     "jupyter"
 ]
 include_files = [
-    # "*vectors/tree.py",
-    # "*vectors/test_tree.py",
-    # "*logger/logger.py",
-    "*logger/timer.py",
-    # "*logger/test_timer.py",
+    "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/memory/run_initialize_memory.py",
+    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/llm/memory.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/db/chroma/chroma.py",
 ]
 structure_include = []
 structure_exclude = []
@@ -49,10 +47,7 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-Update code so that the goal is to simultaneusly run these 3 calls on main so that it finishes at the same time since all have same countdowns:
-1. sleep_countdown(3, "Custom message")
-2. test_time_it_annotation()
-3. time_it(test_time_it_named)()
+Provide real world usage examples for run_initialize_memory initial data, then write separate functions for Memory class usage examples called by main. 
 """.strip()
 
 # Project specific
@@ -69,6 +64,7 @@ DEFAULT_INSTRUCTIONS_MESSAGE = """
 - Only respond with parts of the code that have been added or updated to keep it short and concise.
 - Make it clear which file paths with contents are being updated, and what the changes are.
 - Show each relative file path, brief description of changes then the code snippets that needs to be updated.
+- Include real world usage examples if applicable.
 - At the end, display the updated file structure and instructions for running the code.
 - Ignore instructions that are not applicable to the query.
 """.strip()

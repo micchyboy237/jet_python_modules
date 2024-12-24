@@ -2,6 +2,10 @@ import json
 import base64
 import numpy as np
 
+import json
+import base64
+import numpy as np
+
 
 def make_serializable(obj):
     """
@@ -15,7 +19,11 @@ def make_serializable(obj):
         return obj
     elif isinstance(obj, str):
         try:
-            return json.loads(obj)
+            # Avoid parsing strings that look like numbers or booleans
+            parsed_obj = json.loads(obj)
+            if isinstance(parsed_obj, (dict, list)):  # Only parse JSON objects or arrays
+                return parsed_obj
+            return obj  # Keep as string if it's a valid number or boolean
         except json.JSONDecodeError:
             return obj
     elif isinstance(obj, bytes):
@@ -54,7 +62,8 @@ if __name__ == "__main__":
             "nested": {
                 "d":  b'{"model": "llama3.2:latest"}'
             }
-        }
+        },
+        '-11'
     ]
     serializable_obj = make_serializable(obj)
 

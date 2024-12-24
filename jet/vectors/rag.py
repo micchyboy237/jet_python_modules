@@ -66,8 +66,8 @@ class SettingsManager:
     def create(settings: SettingsDict = {}):
         settings = {**DEFAULT_SETTINGS, **settings}
 
-        Settings.chunk_size = settings["chunk_size"]
-        Settings.chunk_overlap = settings["chunk_overlap"]
+        # Settings.chunk_size = settings["chunk_size"]
+        # Settings.chunk_overlap = settings["chunk_overlap"]
         Settings.embed_model = SettingsManager.create_embed_model(
             model=settings["embedding_model"],
             base_url=settings["base_url"],

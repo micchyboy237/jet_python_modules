@@ -1,6 +1,5 @@
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from open_webui.apps.retrieval.vector.main import SearchResult
 
 
 def calculate_vector_scores(distances: list[float]) -> list[float]:

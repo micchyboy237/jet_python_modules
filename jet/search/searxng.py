@@ -1,7 +1,7 @@
 from urllib.parse import urlparse
 from datetime import datetime
 import json
-from .cache import Cache
+from .cache import RedisCache
 import requests
 from typing import Optional, TypedDict
 from urllib.parse import urlencode
@@ -117,7 +117,7 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
         query_url = build_query_url(query_url, params)
         headers = {"Accept": "application/json"}
 
-        cache = Cache(config=config)
+        cache = RedisCache(config=config)
         cache_key = query_url
         cached_results = cache.get(cache_key)
 

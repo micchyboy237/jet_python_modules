@@ -65,6 +65,35 @@ def save_json(results, file_path="generated/results.json"):
         raise e
 
 
+def save_file(data: str | dict | list, output_file: str):
+    import os
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+    # Write to file
+    try:
+        if output_file.endswith(".json"):
+            if isinstance(data, str):
+                data = json.loads(data)
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            logger.log(
+                "Save JSON data to:",
+                output_file,
+                colors=["LOG", "BRIGHT_SUCCESS"]
+            )
+        else:
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(data)
+            logger.log(
+                "Save data to:",
+                output_file,
+                colors=["LOG", "BRIGHT_SUCCESS"]
+            )
+    except Exception as e:
+        logger.error(f"Failed to save file: {e}")
+
+
 def main():
     # Define file path
     file_dir = os.path.dirname(os.path.abspath(__file__))

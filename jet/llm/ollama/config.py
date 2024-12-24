@@ -8,18 +8,18 @@ from llama_index.core import Settings
 base_url = "http://localhost:11434"
 small_llm_model = "llama3.2"
 large_llm_model = "llama3.1"
-small_embed_model = "nomic-embed-text"
-large_embed_model = "mxbai-embed-large"
+small_embed_model = "mxbai-embed-large"
+large_embed_model = "nomic-embed-text"
 DEFAULT_LLM_SETTINGS = {
     "model": large_llm_model,
     "context_window": 4096,
     "request_timeout": 300.0,
     "temperature": 0,
+    "base_url": base_url,
 }
 DEFAULT_EMBED_SETTINGS = {
-    "model": small_embed_model,
-    "chunk_size": 768,
-    "chunk_overlap": 75,
+    "model": large_embed_model,
+    "base_url": base_url,
 }
 
 
@@ -33,6 +33,32 @@ class SettingsDict(TypedDict, total=False):
     base_url: str
 
 
+def initialize_ollama_settings(settings: SettingsDict = {}):
+    Settings.embed_model = create_embed_model(
+        model=settings.get("embedding_model", DEFAULT_EMBED_SETTINGS['model']),
+        base_url=settings.get("base_url", DEFAULT_EMBED_SETTINGS['base_url']),
+    )
+
+    Settings.llm = create_llm(
+        model=settings.get("llm_model", DEFAULT_LLM_SETTINGS['model']),
+        base_url=settings.get("base_url", DEFAULT_LLM_SETTINGS['base_url']),
+        temperature=settings.get(
+            "temperature", DEFAULT_LLM_SETTINGS['temperature']),
+        context_window=settings.get(
+            "context_window", DEFAULT_LLM_SETTINGS['context_window']),
+        request_timeout=settings.get(
+            "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
+    )
+
+    if settings.get("chunk_size"):
+        Settings.chunk_size = settings["chunk_size"]
+
+    if settings.get("chunk_overlap"):
+        Settings.chunk_overlap = settings["chunk_overlap"]
+
+    return Settings
+
+
 def update_llm_settings(settings: SettingsDict = {}):
     if settings.get("chunk_size"):
         Settings.chunk_size = settings["chunk_size"]
@@ -42,14 +68,17 @@ def update_llm_settings(settings: SettingsDict = {}):
 
     if settings.get("embedding_model"):
         Settings.embed_model = create_embed_model(
-            model=settings["embedding_model"],
-            base_url=settings.get("base_url", base_url),
+            model=settings.get("embedding_model",
+                               DEFAULT_EMBED_SETTINGS['model']),
+            base_url=settings.get(
+                "base_url", DEFAULT_EMBED_SETTINGS['base_url']),
         )
 
     if settings.get("llm_model"):
         Settings.llm = create_llm(
-            model=settings["llm_model"],
-            base_url=settings.get("base_url", base_url),
+            model=settings.get("llm_model", DEFAULT_LLM_SETTINGS['model']),
+            base_url=settings.get(
+                "base_url", DEFAULT_LLM_SETTINGS['base_url']),
             temperature=settings.get(
                 "temperature", DEFAULT_LLM_SETTINGS['temperature']),
             context_window=settings.get(

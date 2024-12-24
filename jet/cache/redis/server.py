@@ -1,5 +1,6 @@
 import os
 import subprocess
+from jet.logger import logger
 
 
 def generate_redis_files(redis_path, redis_port, generated_dir):
@@ -83,27 +84,33 @@ echo "Redis directories, files and IPC socket are created, and permissions are s
     for script in ["start.sh", "stop.sh", "setup.sh"]:
         script_path = os.path.join(generated_dir, script)
         os.chmod(script_path, 0o755)
+        logger.log("Changed permission to executable:", "755", "Script:", script_path,
+                   colors=["GRAY", "DEBUG"])
 
-    print(f"Files generated in {generated_dir}")
+    logger.log("Files generated in", generated_dir,
+               colors=["WHITE", "BRIGHT_SUCCESS"])
 
 
 def execute_scripts(generated_dir):
     try:
         cwd = os.path.realpath(generated_dir)
         if os.path.exists(f"{generated_dir}/setup.sh") and os.path.exists(f"{generated_dir}/start.sh"):
-            subprocess.run(["./setup.sh"], cwd=cwd, check=True)
-            subprocess.run(["./start.sh"], cwd=cwd, check=True)
+            subprocess.run([f"./setup.sh"], cwd=cwd, check=True)
+            subprocess.run([f"./start.sh"], cwd=cwd, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Error executing script: {e}")
+        print(f"Script call error: {e}")
     except FileNotFoundError as e:
         print(f"File not found: {e}")
+    except Exception as e:
+        print(f"Error executing script: {e}")
 
 
 if __name__ == "__main__":
     # Example usage
     generated_dir = "generated"
+    redis_data_dir = "scraped_urls"
     generate_redis_files(
-        redis_path="/Users/jethroestrada/redis/scraped_urls",
+        redis_path=f"/Users/jethroestrada/redis/{redis_data_dir}",
         redis_port=3102,
         generated_dir=generated_dir
     )

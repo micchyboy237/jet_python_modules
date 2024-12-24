@@ -1,14 +1,31 @@
 import json
 import requests
+import traceback
 from enum import Enum
 from typing import Generator, Literal, Optional, TypedDict, Union
 from langchain_ollama.llms import OllamaLLM
 from langchain_core.outputs.llm_result import LLMResult, GenerationChunk
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from jet.llm.llm_types import OllamaChatMessage, MessageRole, Track, OllamaChatOptions
+from jet.llm.llm_types import (
+    Message,
+    OllamaChatOptions,
+    OllamaChatResponse,
+    ChatResponseInfo,
+    Tool,
+    MessageRole,
+    Track,
+)
+from jet.utils import get_class_name
 from jet.logger import logger
 from jet.transformers import make_serializable
+from jet.llm.token import token_counter
 
+DEFAULT_SETTINGS: OllamaChatOptions = {
+    "seed": 42,
+    "temperature": 0,
+    "num_keep": 0,
+    "num_predict": -1,
+}
 
 # class CustomStreamingHandler(StreamingStdOutCallbackHandler):
 #     """Custom callback handler to log each new token with `logger.success`."""
@@ -18,16 +35,6 @@ from jet.transformers import make_serializable
 
 
 class Ollama:
-    DEFAULT_SETTINGS = {
-        "seed": 42,
-        "temperature": 1,
-        "top_k": 40,
-        "top_p": 0.5,
-        "tfs_z": 1.9,
-        "stop": [],
-        "num_keep": 1,
-        "num_predict": -2,
-    }
 
     def __init__(self, model: str = "mistral", base_url: str = "http://jetairm1:11434"):
         self.model = model
@@ -36,7 +43,7 @@ class Ollama:
 
     def generate(self, prompt: str, settings: dict[str, any] = None, raw: bool = False) -> dict[str, any]:
         # Merge default settings with user-provided settings
-        settings = {**self.DEFAULT_SETTINGS, **(settings or {})}
+        settings = {**DEFAULT_SETTINGS, **(settings or {})}
 
         data: LLMResult = self.ollama.generate(
             prompts=[prompt],
@@ -59,22 +66,24 @@ class Ollama:
 
 
 def call_ollama_chat(
-    messages: str | list[OllamaChatMessage],
+    messages: str | list[Message],
     model: str = "llama3.1",
     *,
     system: str = "",
-    tools: list = None,
+    tools: list[Tool] = None,
     format: Union[str, dict] = None,
     options: OllamaChatOptions = None,
     stream: bool = True,
+    keep_alive: Union[str, int] = "15m",
+    template: str = None,
     track: Track = None,
-) -> Union[dict, Generator[str, None, None]]:
+) -> Union[ChatResponseInfo, Generator[str, None, None]]:
     """
     Wraps call_ollama_chat to track the prompt and response using Aim.
 
     Args:
-        model (str | list[OllamaChatMessage]): The name of the model to use.
-        messages (list): The messages for the conversation.
+        messages (str | list): The prompt or messages for the conversation.
+        model (str | list[Message]): The name of the model to use.
         system (str): System message for the LLM.
         tools (list): Tools for the model to use.
         format (Union[str, dict]): Format of the response ("json" or JSON schema).
@@ -91,20 +100,38 @@ def call_ollama_chat(
 
     if isinstance(messages, str):
         messages = [
-            OllamaChatMessage(content=messages, role=MessageRole.USER)
+            Message(content=messages, role=MessageRole.USER)
         ]
 
+    logger.newline()
+    logger.log("Prompt:", len(str(messages)), colors=["GRAY", "INFO"])
+    logger.log("Tokens:", token_counter(
+        messages, model=model), colors=["GRAY", "INFO"])
+    logger.debug("Generating response...")
+
+    if not any(message['role'] == MessageRole.USER for message in messages):
+        messages[-1]["role"] = MessageRole.USER
+
     if system and not any(message['role'] == MessageRole.SYSTEM for message in messages):
-        messages.insert(0, OllamaChatMessage(
+        messages.insert(0, Message(
             content=system, role=MessageRole.SYSTEM))
 
     if tools:
         stream = False
 
+    options = {**DEFAULT_SETTINGS, **(options or {})}
+
+    # Format tool outputs to string if any
+    messages = convert_tool_outputs_to_string(messages)
+
     # Prepare the request body
     body = {
         "model": model,
         "messages": messages,
+        "stream": stream,
+        "keep_alive": keep_alive,
+        "template": template,
+        # "raw": False,
         "tools": tools,
         "format": format,
         "options": options,
@@ -139,12 +166,30 @@ def call_ollama_chat(
                     if line:
                         decoded_line = line.decode("utf-8")
                         try:
-                            decoded_chunk = json.loads(decoded_line)
+                            decoded_chunk: OllamaChatResponse = json.loads(
+                                decoded_line)
                             content = decoded_chunk.get(
                                 "message", {}).get("content", "")
                             response_chunks.append(content)
+                            logger.success(content, flush=True)
 
                             if decoded_chunk.get("done"):
+                                output = "".join(response_chunks)
+                                response_info: ChatResponseInfo = decoded_chunk.copy()
+                                if not content:
+                                    response_info["message"]["content"] = output
+                                    response_info["options"] = options
+
+                                logger.newline()
+                                logger.log("Response:", len(output),
+                                           colors=["GRAY", "DEBUG"])
+                                logger.log("Total:", len(
+                                    str(messages)) + len(output), colors=["GRAY", "DEBUG"])
+                                logger.debug("Response info:")
+                                logger.success(json.dumps(
+                                    response_info, indent=2))
+                                logger.newline()
+
                                 # For Aim tracking
                                 if track:
                                     # Log the prompt (messages) to Aim
@@ -173,6 +218,7 @@ def call_ollama_chat(
                                             **track['metadata'],
                                         },
                                     }
+                                    logger.newline()
                                     logger.log("Run Settings:", json.dumps(
                                         run_settings, indent=2), colors=["WHITE", "INFO"])
                                     logger.log("Aim Track:", json.dumps(
@@ -188,18 +234,33 @@ def call_ollama_chat(
             return line_generator()
         else:
             response = r.json()
+            response["options"] = options
+
+            response_info: ChatResponseInfo = response.copy()
+            output = response_info["message"]["content"]
+
+            logger.newline()
+            logger.log("Response:", len(output),
+                       colors=["GRAY", "DEBUG"])
+            logger.log("Total:", len(
+                str(messages)) + len(output), colors=["GRAY", "DEBUG"])
+            logger.debug("Response info:")
+            logger.success(json.dumps(response_info, indent=2))
+            logger.newline()
 
             return response
 
     except requests.RequestException as e:
-        logger.error(f"Request failed: {e}")
+        logger.error(f"Request failed - {get_class_name(e)}: {e}")
+        traceback.print_exc()
         if track:
             run.track({"error": str(e)}, name="error",
                       context={"model": model})
         return {"error": str(e)}
 
     except Exception as e:
-        logger.error("Unexpected error")
+        logger.error(f"Error class name: {get_class_name(e)}")
+        traceback.print_exc()
         return {"error": str(e)}
 
     # finally:
@@ -207,16 +268,26 @@ def call_ollama_chat(
     #         run.close()
 
 
+def convert_tool_outputs_to_string(ollama_messages: list[Message]):
+    for message in ollama_messages:
+        if message.get("role") == "tool" and not isinstance(message.get("content"), str):
+            message["content"] = str(message["content"])
+    return ollama_messages
+
+
 # Main function to demonstrate sample usage
 if __name__ == "__main__":
-    prompt = "Write a creative story about an explorer finding a hidden treasure."
+    prompt = "Write a 20 word creative story about an explorer finding a hidden treasure."
 
-    # generator = Ollama()
-    # result = generator.generate(prompt)
-    # print("Generated Output:")
-    # print(result["output"])
+    # No stream
+    logger.newline()
+    logger.info("No stream response:")
+    response = call_ollama_chat(prompt, stream=False)
+    logger.success(json.dumps(response, indent=2))
 
+    # With stream
+    logger.newline()
+    logger.info("With stream response:")
     response = ""
     for chunk in call_ollama_chat(prompt):
         response += chunk
-        logger.success(chunk, flush=True)

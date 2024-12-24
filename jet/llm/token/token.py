@@ -1,53 +1,28 @@
-from typing import Optional
-from .token_image import calculate_img_tokens
+from typing import Literal, Optional
 import tiktoken
+from jet.llm.token.token_image import calculate_img_tokens
+from jet.llm.llm_types import Message
+from jet.llm.ollama import (
+    OLLAMA_HF_MODELS,
+    count_tokens as count_ollama_tokens,
+    get_token_max_length,
+)
+
+
+def tokenizer():
+    encoding = tiktoken.get_encoding("cl100k_base")
+    return encoding
 
 
 def token_counter(
-    messages: Optional[list] = None,
-    text: Optional[str] = None,
-):
-    num_tokens = 0  # Initialize num_tokens to avoid UnboundLocalError
+    text: str | list[str] | list[Message] = None,
+    model: Optional[Literal[tuple(OLLAMA_HF_MODELS.keys())]] = "mistral",
+) -> int:
+    if not text:
+        raise ValueError("text cannot both be None")
 
-    if text is None:
-        if messages is not None:
-            text = ""
-            for message in messages:
-                if message.get("content", None) is not None:
-                    content = message.get("content")
-                    if isinstance(content, str):
-                        text += content
-                    elif isinstance(content, list):
-                        for c in content:
-                            if c["type"] == "text":
-                                text += c["text"]
-                            elif c["type"] == "image_url":
-                                if isinstance(c["image_url"], dict):
-                                    image_url_dict = c["image_url"]
-                                    detail = image_url_dict.get(
-                                        "detail", "auto")
-                                    url = image_url_dict.get("url")
-                                    num_tokens += calculate_img_tokens(
-                                        data=url, mode=detail
-                                    )
-                                elif isinstance(c["image_url"], str):
-                                    image_url_str = c["image_url"]
-                                    num_tokens += calculate_img_tokens(
-                                        data=image_url_str, mode="auto"
-                                    )
-                if message.get("tool_calls"):
-                    for tool_call in message["tool_calls"]:
-                        if "function" in tool_call:
-                            function_arguments = tool_call["function"]["arguments"]
-                            text += function_arguments
-        else:
-            raise ValueError("text and messages cannot both be None")
-    elif isinstance(text, list):
-        text = "".join(t for t in text if isinstance(t, str))
-    elif isinstance(text, str):
-        pass
+    if model not in OLLAMA_HF_MODELS:
+        raise ValueError(f"Model can only be one of the ff: {
+                         [tuple(OLLAMA_HF_MODELS.keys())]}")
 
-    encoding = tiktoken.get_encoding("cl100k_base")
-    # Ensure all tokens are counted
-    num_tokens += len(encoding.encode(text, disallowed_special=()))
-    return num_tokens
+    return count_ollama_tokens(OLLAMA_HF_MODELS[model], text)

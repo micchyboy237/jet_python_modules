@@ -1,80 +1,150 @@
-from enum import Enum
+import sys
 import json
-import requests
-from typing import Generator, Literal, Optional, TypedDict, Union
-from jet.logger import logger
+from enum import Enum
+from typing import Any, Optional, TypedDict, Sequence, Literal, Mapping
+
+if sys.version_info < (3, 11):
+    from typing_extensions import NotRequired
+else:
+    from typing import NotRequired
 
 
-class ToolFunctionParameters(TypedDict):
-    type: Literal["object"]
-    properties: dict
-    required: list[str]
+# Ollama LLM Types
+class BaseGenerateResponse(TypedDict):
+    model: str
+    created_at: str
+    done: bool
+    done_reason: str
+    total_duration: int
+    load_duration: int
+    prompt_eval_count: int
+    prompt_eval_duration: int
+    eval_count: int
+    eval_duration: int
+
+
+class GenerateResponse(BaseGenerateResponse):
+    response: str
+    context: Sequence[int]
+
+
+class ToolCallFunction(TypedDict):
+    name: str
+    arguments: NotRequired[Mapping[str, Any]]
+
+
+class ToolCall(TypedDict):
+    function: ToolCallFunction
+
+
+class Message(TypedDict):
+    role: Literal['user', 'assistant', 'system', 'tool']
+    content: NotRequired[str]
+    images: NotRequired[Sequence[Any]]
+    tool_calls: NotRequired[Sequence[ToolCall]]
+
+
+class Property(TypedDict):
+    type: str
+    description: str
+    enum: NotRequired[Sequence[str]]
+
+
+class Parameters(TypedDict):
+    type: str
+    required: Sequence[str]
+    properties: Mapping[str, Property]
 
 
 class ToolFunction(TypedDict):
     name: str
     description: str
-    parameters: ToolFunctionParameters
+    parameters: Parameters
 
 
 class Tool(TypedDict):
-    type: Literal["function"]
+    type: str
     function: ToolFunction
 
 
-class Message(TypedDict):
-    role: Literal["system", "user", "assistant", "tool"]
-    content: str
-    images: Optional[list[str]]
-    tool_calls: Optional[list[Tool]]
+class OllamaChatResponse(BaseGenerateResponse):
+    message: Message
 
 
-class OllamaChatOptions(TypedDict):
-    mirostat: Optional[int]
-    mirostat_eta: Optional[float]
-    mirostat_tau: Optional[float]
-    num_ctx: Optional[int]
-    repeat_last_n: Optional[int]
-    repeat_penalty: Optional[float]
-    temperature: Optional[float]
-    seed: Optional[int]
-    stop: Optional[str]
-    tfs_z: Optional[float]
-    num_predict: Optional[int]
-    top_k: Optional[int]
-    top_p: Optional[float]
-    min_p: Optional[float]
+class ProgressResponse(TypedDict):
+    status: str
+    completed: int
+    total: int
+    digest: str
 
 
-class OllamaChatRequest(TypedDict):
-    model: str
-    messages: list[Message]
-    tools: Optional[list[Tool]]
-    format: Optional[Union[str, dict]]  # Can be "json" or a JSON schema
-    options: Optional[OllamaChatOptions]
-    stream: Optional[bool]  # Defaults to True if not specified
-    keep_alive: Optional[Union[int, str]]  # Defaults to "5m" if not specified
+class OllamaChatOptions(TypedDict, total=False):
+    numa: bool
+    num_ctx: int
+    num_batch: int
+    num_gpu: int
+    main_gpu: int
+    low_vram: bool
+    f16_kv: bool
+    logits_all: bool
+    vocab_only: bool
+    use_mmap: bool
+    use_mlock: bool
+    embedding_only: bool
+    num_thread: int
+    num_keep: int
+    seed: int
+    num_predict: int
+    top_k: int
+    top_p: float
+    tfs_z: float
+    typical_p: float
+    repeat_last_n: int
+    temperature: float
+    repeat_penalty: float
+    presence_penalty: float
+    frequency_penalty: float
+    mirostat: int
+    mirostat_tau: float
+    mirostat_eta: float
+    penalize_newline: bool
+    stop: Sequence[str]
 
 
-class OllamaChatResponseMessage(TypedDict):
-    role: Literal["assistant", "system", "user", "tool"]
-    content: str
-    images: Optional[list[str]]
-    tool_calls: Optional[list[dict]]
+class ChatResponseInfo(OllamaChatResponse):
+    options: NotRequired[OllamaChatOptions]
+
+# Exception Definitions
 
 
-class OllamaChatResponse(TypedDict):
-    model: str
-    created_at: str
-    message: OllamaChatResponseMessage
-    done_reason: Optional[str]
-    done: bool
-    total_duration: Optional[int]
-    load_duration: Optional[int]
-    prompt_eval_count: Optional[int]
-    prompt_eval_duration: Optional[int]
-    eval_count: Optional[int]
-    eval_duration: Optional[int]
+class RequestError(Exception):
+    def __init__(self, error: str):
+        super().__init__(error)
+        self.error = error
+
+
+class ResponseError(Exception):
+    def __init__(self, error: str, status_code: int = -1):
+        try:
+            error = json.loads(error).get('error', error)
+        except json.JSONDecodeError:
+            pass
+        super().__init__(error)
+        self.error = error
+        self.status_code = status_code
+
+
+# Custom Types
+class MessageRole(str, Enum):
+    """Message role."""
+
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    FUNCTION = "function"
+    TOOL = "tool"
+    CHATBOT = "chatbot"
+    MODEL = "model"
 
 
 class Track(TypedDict):
@@ -89,22 +159,3 @@ class Track(TypedDict):
     run_name: Optional[str]
     metadata: Optional[dict]
     format: Optional[str]
-
-
-class MessageRole(str, Enum):
-    """Message role."""
-
-    SYSTEM = "system"
-    USER = "user"
-    ASSISTANT = "assistant"
-    FUNCTION = "function"
-    TOOL = "tool"
-    CHATBOT = "chatbot"
-    MODEL = "model"
-
-
-class OllamaChatMessage(TypedDict):
-    content: str
-    role: MessageRole
-    images: Optional[list[str]]
-    tool_calls: Optional[list[Tool]]

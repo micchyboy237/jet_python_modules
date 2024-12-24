@@ -11,10 +11,40 @@ class CodeBlock(TypedDict):
     code: str  # The code content.
     language: str  # Programming language of the code block.
     file_path: Optional[str]  # The file path associated with the code block.
+    # The file extension inferred from the language or file path.
+    extension: str
 
 
 class MarkdownCodeExtractor:
     """Extracts code blocks from Markdown content."""
+
+    LANGUAGE_EXTENSIONS = {
+        "python": ".py",
+        "javascript": ".js",
+        "java": ".java",
+        "html": ".html",
+        "css": ".css",
+        "cpp": ".cpp",
+        "c": ".c",
+        "ruby": ".rb",
+        "go": ".go",
+        "php": ".php",
+        "unknown": "",
+    }
+
+    def get_extension(self, language: str, file_path: Optional[str]) -> str:
+        """Determine the file extension based on the language or file path.
+
+        Args:
+            language (str): Programming language.
+            file_path (Optional[str]): File path if available.
+
+        Returns:
+            str: File extension.
+        """
+        if file_path:
+            return "." + file_path.split(".")[-1] if "." in file_path else ""
+        return self.LANGUAGE_EXTENSIONS.get(language.lower(), "")
 
     def extract_code_blocks(self, markdown: str) -> List[CodeBlock]:
         """Extract code blocks and associated file paths from Markdown text.
@@ -49,11 +79,13 @@ class MarkdownCodeExtractor:
                     # End of a code block
                     code_content = "\n".join(code_lines).rstrip()
                     if code_content:
+                        extension = self.get_extension(lang, current_file_path)
                         code_blocks.append(
                             CodeBlock(
                                 code=code_content,
                                 language=lang,
-                                file_path=current_file_path
+                                file_path=current_file_path,
+                                extension=extension
                             )
                         )
                     inside_code_block = False

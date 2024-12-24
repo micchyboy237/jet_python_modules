@@ -1,14 +1,9 @@
-from typing import TypedDict, Optional, List, Union
-from .config import RedisConfig
-import redis
-
-
-# Define a TypedDict for Redis configuration
-class RedisConfigParams(TypedDict, total=False):
-    host: str
-    port: int
-    db: int
-    max_connections: int
+import json
+import traceback
+from redis.exceptions import ConnectionError
+from typing import Optional, List, Union
+from jet.cache.redis import RedisConfig, RedisConfigParams, DEFAULT_CONFIG
+from jet.logger import logger
 
 
 class RedisClient:
@@ -27,7 +22,11 @@ class RedisClient:
         self.client.execute_command('SELECT', db)
 
     def get_all_keys(self, db: int, keys: Optional[List[str]] = None) -> List[bytes]:
-        self.select_db(db)
+        try:
+            self.select_db(db)
+        except ConnectionError as e:
+            logger.error(f"Connection error on db: {db}")
+            traceback.print_exc()
         db_keys = self.client.keys('*')
         if keys:
             db_keys = [key for key in db_keys if key in keys]
@@ -45,3 +44,20 @@ class RedisClient:
             return self.client.smembers(key)
         else:
             return f"Other type of data: {key_type}"
+
+
+class RedisCache:
+    def __init__(self, config: RedisConfigParams = {}):
+        config = {**DEFAULT_CONFIG, **config}
+        self.redis_client = RedisClient(config=config)
+
+    def get(self, key: str):
+        """Retrieve the cached value from Redis."""
+        cached_value = self.redis_client.get(key)
+        if cached_value:
+            return json.loads(cached_value.decode('utf-8'))
+        return None
+
+    def set(self, key: str, value: dict, ttl: int = 3600):
+        """Store the result in cache."""
+        self.redis_client.set(key, json.dumps(value), ttl)

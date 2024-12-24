@@ -16,3 +16,8 @@ def validate_sql(command: str, read="postgres") -> ValidationResult:
         logger.log("SQL validation error:")
         logger.error(e)
         return {"passed": False, "error": e}
+
+
+__all__ = [
+    "validate_sql",
+]

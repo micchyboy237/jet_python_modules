@@ -1,5 +1,13 @@
 import redis
 from jet.logger import logger
+from jet.cache.redis import RedisConfigParams
+
+DEFAULT_CONFIG: RedisConfigParams = {
+    "host": "localhost",
+    "port": 6380,
+    "db": 0,
+    "max_connections": 100
+}
 
 
 class RedisConfig:
