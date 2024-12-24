@@ -55,8 +55,6 @@ def get_local_models():
     result = response.json().get("models", [])
     if result:
         cache.set(cache_key, result)
-    logger.log("Saved cache:", cache_key, result,
-               colors=["WHITE", "DEBUG", "SUCCESS"])
     return result
 
 
@@ -76,7 +74,6 @@ def get_model_details(model_name: str) -> str:
     result = response.json()
     if result:
         cache.set(cache_key, result)
-    logger.log("Saved cache:", cache_key, colors=["SUCCESS", "BRIGHT_SUCCESS"])
     return result
 
 

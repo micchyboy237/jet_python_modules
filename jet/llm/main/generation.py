@@ -146,7 +146,9 @@ def call_ollama_chat(
         }
         del run_settings["run_name"]
         del run_settings["metadata"]
-        del run_settings["format"]
+        if "format" in run_settings:
+            del run_settings["format"]
+
         run = Run(**run_settings)
 
     try:
@@ -185,9 +187,18 @@ def call_ollama_chat(
                                            colors=["GRAY", "DEBUG"])
                                 logger.log("Total:", len(
                                     str(messages)) + len(output), colors=["GRAY", "DEBUG"])
-                                logger.debug("Response info:")
-                                logger.success(json.dumps(
-                                    response_info, indent=2))
+                                logger.info("Final tokens info:")
+                                # logger.success(json.dumps(
+                                #     response_info, indent=2))
+                                prompt_tokens = response_info['prompt_eval_count']
+                                response_tokens = response_info['eval_count']
+                                total_tokens = prompt_tokens + response_tokens
+                                logger.log("Prompt tokens:", prompt_tokens, colors=[
+                                           "DEBUG", "SUCCESS"])
+                                logger.log("Response tokens:", response_tokens, colors=[
+                                           "DEBUG", "SUCCESS"])
+                                logger.log("Total tokens:", total_tokens, colors=[
+                                           "DEBUG", "SUCCESS"])
                                 logger.newline()
 
                                 # For Aim tracking
@@ -244,8 +255,17 @@ def call_ollama_chat(
                        colors=["GRAY", "DEBUG"])
             logger.log("Total:", len(
                 str(messages)) + len(output), colors=["GRAY", "DEBUG"])
-            logger.debug("Response info:")
-            logger.success(json.dumps(response_info, indent=2))
+            logger.info("Final tokens info:")
+            # logger.success(json.dumps(response_info, indent=2))
+            prompt_tokens = response_info['prompt_eval_count']
+            response_tokens = response_info['eval_count']
+            total_tokens = prompt_tokens + response_tokens
+            logger.log("Prompt tokens:", prompt_tokens,
+                       colors=["DEBUG", "SUCCESS"])
+            logger.log("Response tokens:", response_tokens,
+                       colors=["DEBUG", "SUCCESS"])
+            logger.log("Total tokens:", total_tokens,
+                       colors=["DEBUG", "SUCCESS"])
             logger.newline()
 
             return response
