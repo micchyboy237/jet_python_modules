@@ -221,13 +221,14 @@ def call_ollama_chat(
                                             **value)
 
                                     aim_value = Text(formatted_value)
+                                    aim_context = {
+                                        "model": model,
+                                        "options": options,
+                                        **track.get('metadata', {})
+                                    }
                                     track_args = {
                                         "name": track['run_name'],
-                                        "context": {
-                                            "model": model,
-                                            "options": options,
-                                            **track['metadata'],
-                                        },
+                                        "context": aim_context,
                                     }
                                     logger.newline()
                                     logger.log("Run Settings:", json.dumps(

@@ -125,10 +125,10 @@ def count_tokens(model_name: str, text: str | list[dict] | list[str], template: 
             input_ids = tokenizer.apply_chat_template(text, tokenize=True)
             return len(input_ids)
         except Exception as e:
-            logger.newline()
-            logger.debug(model_name)
-            logger.error("Error on template:")
-            logger.error(e)
+            # logger.newline()
+            # logger.debug(model_name)
+            # logger.error("Error on template:")
+            # logger.error(e)
             # logger.warning(tokenizer.chat_template)
             texts = [str(item) for item in text]
             return count_encoded_tokens(model_name, texts)
