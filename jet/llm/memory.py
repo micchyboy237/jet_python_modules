@@ -83,12 +83,12 @@ def default_settings() -> Settings:
 
 class Memory:
     def __init__(self, memory_id: str, settings: Optional[dict] = None):
-        collection_name = memory_id
+        self.collection_name = memory_id
         # Use defaults if settings not provided
         self.settings = {**default_settings(), **(settings or {})}
         self.embedding_func = self.settings['embedding_function']
         self.chroma_client = ChromaClient(
-            collection_name=collection_name,
+            collection_name=self.collection_name,
             embedding_function=self.embedding_func,
             data_path=self.settings['db_path'],
             **self.settings['collections_settings'],
@@ -151,7 +151,7 @@ class Memory:
             # Query related memories from Chroma
             related_memories = self.chroma_client.query(
                 texts=memory,
-                limit=self.settings['related_memories_n'],
+                top_n=self.settings['related_memories_n'],
             )
 
             # Filter memories based on distance threshold

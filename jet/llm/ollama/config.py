@@ -6,6 +6,7 @@ from llama_index.core import Settings
 # LLM and embedding config
 
 base_url = "http://localhost:11434"
+base_embed_url = "http://localhost:11434"
 small_llm_model = "llama3.2"
 large_llm_model = "llama3.1"
 small_embed_model = "mxbai-embed-large"
@@ -18,8 +19,10 @@ DEFAULT_LLM_SETTINGS = {
     "base_url": base_url,
 }
 DEFAULT_EMBED_SETTINGS = {
-    "model": large_embed_model,
-    "base_url": base_url,
+    "model_name": large_embed_model,
+    "base_url": base_embed_url,
+    "embed_batch_size": 10,
+    "ollama_additional_kwargs": {}
 }
 
 
@@ -35,7 +38,8 @@ class SettingsDict(TypedDict, total=False):
 
 def initialize_ollama_settings(settings: SettingsDict = {}):
     Settings.embed_model = create_embed_model(
-        model=settings.get("embedding_model", DEFAULT_EMBED_SETTINGS['model']),
+        model=settings.get("embedding_model",
+                           DEFAULT_EMBED_SETTINGS['model_name']),
         base_url=settings.get("base_url", DEFAULT_EMBED_SETTINGS['base_url']),
     )
 
@@ -69,7 +73,7 @@ def update_llm_settings(settings: SettingsDict = {}):
     if settings.get("embedding_model"):
         Settings.embed_model = create_embed_model(
             model=settings.get("embedding_model",
-                               DEFAULT_EMBED_SETTINGS['model']),
+                               DEFAULT_EMBED_SETTINGS['model_name']),
             base_url=settings.get(
                 "base_url", DEFAULT_EMBED_SETTINGS['base_url']),
         )
@@ -108,10 +112,18 @@ def create_llm(
     return llm
 
 
-def create_embed_model(model: str = DEFAULT_EMBED_SETTINGS['model'], base_url: str = base_url):
+def create_embed_model(
+    model: str = DEFAULT_EMBED_SETTINGS['model_name'],
+    base_url: str = base_url,
+    embed_batch_size: int = DEFAULT_EMBED_SETTINGS['embed_batch_size'],
+    ollama_additional_kwargs: dict[str,
+                                   any] = DEFAULT_EMBED_SETTINGS['ollama_additional_kwargs'],
+):
     embed_model = OllamaEmbedding(
         model_name=model,
         base_url=base_url,
+        embed_batch_size=embed_batch_size,
+        ollama_additional_kwargs=ollama_additional_kwargs,
     )
     Settings.embed_model = embed_model
     return embed_model

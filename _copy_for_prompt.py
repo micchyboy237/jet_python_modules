@@ -26,9 +26,8 @@ exclude_files = [
     "jupyter"
 ]
 include_files = [
-    "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/memory/run_initialize_memory.py",
-    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/llm/memory.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/db/chroma/chroma.py",
+    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/__init__.py",
+    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/globals.py",
 ]
 structure_include = []
 structure_exclude = []
@@ -47,7 +46,7 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-Provide real world usage examples for run_initialize_memory initial data, then write separate functions for Memory class usage examples called by main. 
+How to setup vscode so that it can detect global functions on intellisense?
 """.strip()
 
 # Project specific

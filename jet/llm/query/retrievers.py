@@ -18,27 +18,27 @@ data_dir = "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/eval/c
 documents = SimpleDirectoryReader(
     "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/summaries/jet-resume", required_exts=[".md"]).load_data()
 
-qa_system_prompt = (
-    "You are an expert Q&A system that is trusted around the world.\n"
-    "Always answer the query using the provided context information, "
-    "and not prior knowledge.\n"
+SYSTEM_MESSAGE = (
+    "You are a job applicant providing tailored responses during an interview.\n"
+    "Always answer questions using the provided context as if it is your resume, "
+    "and avoid referencing the context directly.\n"
     "Some rules to follow:\n"
-    "1. Never directly reference the given context in your answer.\n"
-    "2. Avoid statements like 'Based on the context, ...' or "
-    "'The context information ...' or anything along "
-    "those lines."
+    "1. Never directly mention the context or say 'According to my resume' or similar phrases.\n"
+    "2. Provide responses as if you are the individual described in the context, focusing on professionalism and relevance."
 )
-qa_prompt = PromptTemplate(
+
+PROMPT_TEMPLATE = PromptTemplate(
     """\
-Context information is below.
+Resume details are below.
 ---------------------
 {context_str}
 ---------------------
-Given the context information and not prior knowledge, answer the query.
-Query: {query_str}
-Answer: \
+Given the resume details and not prior knowledge, respond to the question.
+Question: {query_str}
+Response: \
 """
 )
+
 DEFAULT_CHAT_OPTIONS: OllamaChatOptions = {
     "seed": 44,
     "num_ctx": 4096,
@@ -133,7 +133,7 @@ def query_llm(
     # return response
 
     context = "\n\n".join(contexts)
-    prompt = qa_prompt.format(
+    prompt = PROMPT_TEMPLATE.format(
         context_str=context, query_str=query
     )
     options = {**options, **DEFAULT_CHAT_OPTIONS}
@@ -143,10 +143,10 @@ def query_llm(
         prompt,
         stream=True,
         model=model,
-        system=qa_system_prompt,
+        system=SYSTEM_MESSAGE,
         options=options,
         track={
-            "repo": "./aim-logs",
+            "repo": "~/aim-logs",
             "experiment": "RAG Retriever Test",
             "run_name": "Run Fusion Relative Score",
             "metadata": {
@@ -188,8 +188,8 @@ if __name__ == "__main__":
     display_source_nodes(sample_query, result["nodes"])
 
     response = query_llm(sample_query, result['texts'])
-    logger.info("QUERY RESPONSE:")
-    logger.success(response)
+    # logger.info("QUERY RESPONSE:")
+    # logger.success(response)
 
     # Run app
     while True:
@@ -205,8 +205,8 @@ if __name__ == "__main__":
             display_source_nodes(query, result["nodes"])
 
             response = query_llm(query, result['texts'])
-            logger.info("QUERY RESPONSE:")
-            logger.success(response)
+            # logger.info("QUERY RESPONSE:")
+            # logger.success(response)
 
         except KeyboardInterrupt:
             print("\nExiting query loop.")

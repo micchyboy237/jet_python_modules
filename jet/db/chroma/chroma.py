@@ -242,8 +242,8 @@ class ChromaClient:
 
     def insert(self, items: list[VectorItem]):
         ids = [item["id"] for item in items]
-        documents = [item["text"] for item in items]
-        embeddings = [item["vector"] for item in items]
+        documents = [item["document"] for item in items]
+        embeddings = [item["embeddings"] for item in items]
         metadatas = [item["metadata"] for item in items]
         for batch in create_batches(
             api=self.client,
@@ -254,20 +254,21 @@ class ChromaClient:
         ):
             self.collection.add(*batch)
 
-    def upsert(self, collection_name: str, items: list[VectorItem]):
-        # Update the items in the collection, if the items are not present, insert them. If the collection does not exist, it will be created.
-        collection = self.client.get_or_create_collection(
-            name=collection_name, metadata={"hnsw:space": "cosine"}
-        )
+    def upsert(self, items: list[VectorItem]):
+        ids = [item["id"] for item in items if item.get("id")]
+        documents = [item["document"]
+                     for item in items if item.get("document")]
+        embeddings = [item["embeddings"]
+                      for item in items if item.get("embeddings")]
+        metadatas = [item["metadata"]
+                     for item in items if item.get("metadata")]
 
-        ids = [item["id"] for item in items]
-        documents = [item["text"] for item in items]
-        embeddings = [item["vector"] for item in items]
-        metadatas = [item["metadata"] for item in items]
+        # If no embeddings were provided, generate them
+        if not embeddings:
+            embeddings = self.embedding_function(documents)
 
-        collection.upsert(
-            ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas
-        )
+        self.collection.upsert(ids=ids, documents=documents,
+                               embeddings=embeddings, metadatas=metadatas)
 
     def delete(
         self,
