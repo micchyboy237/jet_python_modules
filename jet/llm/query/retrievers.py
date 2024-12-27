@@ -103,19 +103,25 @@ def setup_index(documents: list[Document], chunk_size: int = 256, chunk_overlap:
             node for node in retrieved_nodes if node.score > threshold]
 
         unique_files = set()
-        texts = [
-            read_file(file_path)
-            for node in filtered_nodes
-            if not (file_path := os.path.join(data_dir, node.metadata['file_name'])) in unique_files
-            and not unique_files.add(file_path)
-        ]
 
-        return {
+        if "metadata" in filtered_nodes[0]:
+            texts = [
+                read_file(file_path)
+                for node in filtered_nodes
+                if not (file_path := os.path.join(data_dir, node.metadata['file_name'])) in unique_files
+                and not unique_files.add(file_path)
+            ]
+        else:
+            texts = [node.text for node in filtered_nodes]
+
+        result = {
             "nodes": filtered_nodes,
             "retriever": fusion_retriever,
             "texts": texts,
             "files": list(unique_files),
         }
+
+        return result
 
     return query_nodes
 

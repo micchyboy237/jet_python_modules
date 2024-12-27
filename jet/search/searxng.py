@@ -12,6 +12,9 @@ from .transformers import decode_encoded_characters
 from jet.cache.redis import RedisConfigParams
 
 
+DEFAULT_REDIS_PORT = 3101
+
+
 class Result(TypedDict, total=False):
     url: str
     title: str
@@ -61,8 +64,7 @@ def remove_empty_attributes(data):
 
 def fetch_search_results(query_url: str, headers: dict, params: dict) -> QueryResponse:
     """Fetches search results from SearXNG."""
-    logger.debug(
-        f"Requesting URL: {query_url} with headers {headers} and params {params}")
+
     logger.log("Requesting URL:", query_url, colors=["LOG", "DEBUG"])
     logger.log("Headers:")
     logger.info(json.dumps(headers, indent=2))
@@ -118,6 +120,7 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
         headers = {"Accept": "application/json"}
 
         if use_cache:
+            config = {"port": DEFAULT_REDIS_PORT, **config}
             cache = RedisCache(config=config)
             cache_key = query_url
             cached_results = cache.get(cache_key)
