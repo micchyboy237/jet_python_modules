@@ -5,15 +5,19 @@ from jet.logger import logger
 from jet.cache.redis import RedisCache, RedisConfigParams
 
 
-DEFAULT_CONTEXT_LENGTH = 2048
-OLLAMA_MODELS: dict[str, int] = {
-    "llama3.1": DEFAULT_CONTEXT_LENGTH,
-    "llama3.2": DEFAULT_CONTEXT_LENGTH,
-    "mistral": DEFAULT_CONTEXT_LENGTH,
-    "codellama": DEFAULT_CONTEXT_LENGTH,
-    "qwen2.5-coder": DEFAULT_CONTEXT_LENGTH,
-    "deepseek-coder-v2": DEFAULT_CONTEXT_LENGTH,
+OLLAMA_MODEL_CONTEXTS = {
+    "mistral": 32768,
+    "llama3.1": 131072,
+    "llama3.2": 131072,
+    "codellama": 16384,
+    "qwen2.5-coder": 32768,
+    "nomic-embed-text": 2048,
+    "mxbai-embed-large": 512,
+    # "deepseek-coder-v2": 163840,
+    # "llava": 32768,
+    # "llama3.2-vision": 131072,
 }
+
 
 OLLAMA_HF_MODELS = {
     "mistral": "mistralai/Mistral-7B-Instruct-v0.3",
@@ -91,7 +95,7 @@ def get_chat_template(model_name: str) -> str:
     return result
 
 
-# Main function to build the OLLAMA_MODELS dictionary
+# Main function to build the OLLAMA_MODEL_CONTEXTS dictionary
 def build_ollama_models():
     models = get_local_models()
     ollama_models = {}
@@ -149,5 +153,5 @@ def count_encoded_tokens(model_name: str, text: str | list[str]) -> int:
 
 # Run the script and print the result
 if __name__ == "__main__":
-    OLLAMA_MODELS = build_ollama_models()
-    logger.success(json.dumps(OLLAMA_MODELS, indent=2))
+    OLLAMA_MODEL_CONTEXTS = build_ollama_models()
+    logger.success(json.dumps(OLLAMA_MODEL_CONTEXTS, indent=2))

@@ -3,7 +3,7 @@ import requests
 import traceback
 from enum import Enum
 from typing import Generator, Literal, Optional, TypedDict, Union
-from langchain_ollama.llms import OllamaLLM
+# from langchain_ollama.llms import OllamaLLM
 from langchain_core.outputs.llm_result import LLMResult, GenerationChunk
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from jet.llm.llm_types import (
@@ -34,35 +34,35 @@ DEFAULT_SETTINGS: OllamaChatOptions = {
 #         logger.success(token, end="", flush=True)
 
 
-class Ollama:
+# class Ollama:
 
-    def __init__(self, model: str = "mistral", base_url: str = "http://jetairm1:11434"):
-        self.model = model
-        self.base_url = base_url
-        self.ollama = OllamaLLM(model=model, base_url=base_url)
+#     def __init__(self, model: str = "mistral", base_url: str = "http://jetairm1:11434"):
+#         self.model = model
+#         self.base_url = base_url
+#         self.ollama = OllamaLLM(model=model, base_url=base_url)
 
-    def generate(self, prompt: str, settings: dict[str, any] = None, raw: bool = False) -> dict[str, any]:
-        # Merge default settings with user-provided settings
-        settings = {**DEFAULT_SETTINGS, **(settings or {})}
+#     def generate(self, prompt: str, settings: dict[str, any] = None, raw: bool = False) -> dict[str, any]:
+#         # Merge default settings with user-provided settings
+#         settings = {**DEFAULT_SETTINGS, **(settings or {})}
 
-        data: LLMResult = self.ollama.generate(
-            prompts=[prompt],
-            options={"stream": True, "raw": raw, **settings},
-            # callbacks=[CustomStreamingHandler()],
-        )
-        generated_chunk: GenerationChunk = data.generations[0][0]
-        output = generated_chunk.text.strip()
+#         data: LLMResult = self.ollama.generate(
+#             prompts=[prompt],
+#             options={"stream": True, "raw": raw, **settings},
+#             # callbacks=[CustomStreamingHandler()],
+#         )
+#         generated_chunk: GenerationChunk = data.generations[0][0]
+#         output = generated_chunk.text.strip()
 
-        return {
-            "prompt": prompt,
-            "output": output,
-            "meta": {
-                "prompt_len": len(prompt),
-                "output_len": len(output),
-                "total_len": len(prompt) + len(output),
-            },
-            "settings": settings,
-        }
+#         return {
+#             "prompt": prompt,
+#             "output": output,
+#             "meta": {
+#                 "prompt_len": len(prompt),
+#                 "output_len": len(output),
+#                 "total_len": len(prompt) + len(output),
+#             },
+#             "settings": settings,
+#         }
 
 
 def call_ollama_chat(
@@ -183,10 +183,17 @@ def call_ollama_chat(
                                     response_info["options"] = options
 
                                 logger.newline()
+                                logger.newline()
+                                logger.log("Options:", options,
+                                           colors=["GRAY", "DEBUG"])
+                                logger.log("Stream:", stream,
+                                           colors=["GRAY", "DEBUG"])
                                 logger.log("Response:", len(output),
                                            colors=["GRAY", "DEBUG"])
                                 logger.log("Total:", len(
                                     str(messages)) + len(output), colors=["GRAY", "DEBUG"])
+
+                                logger.newline()
                                 logger.info("Final tokens info:")
                                 # logger.success(json.dumps(
                                 #     response_info, indent=2))
@@ -252,10 +259,14 @@ def call_ollama_chat(
             output = response_info["message"]["content"]
 
             logger.newline()
+            logger.log("Options:", options, colors=["GRAY", "DEBUG"])
+            logger.log("Stream:", stream, colors=["GRAY", "DEBUG"])
             logger.log("Response:", len(output),
                        colors=["GRAY", "DEBUG"])
             logger.log("Total:", len(
                 str(messages)) + len(output), colors=["GRAY", "DEBUG"])
+
+            logger.newline()
             logger.info("Final tokens info:")
             # logger.success(json.dumps(response_info, indent=2))
             prompt_tokens = response_info['prompt_eval_count']

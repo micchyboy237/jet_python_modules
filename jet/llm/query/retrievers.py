@@ -5,7 +5,7 @@ from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.base.base_retriever import BaseRetriever
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
-from llama_index.core.schema import BaseNode, TextNode, ImageNode, NodeWithScore
+from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode, ImageNode
 from script_utils import display_source_nodes
 from jet.logger import logger
 from jet.llm import call_ollama_chat
@@ -13,29 +13,22 @@ from jet.llm.llm_types import OllamaChatOptions
 from jet.llm.ollama import initialize_ollama_settings, large_llm_model
 initialize_ollama_settings()
 
-data_dir = "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/data/jet-resume"
+DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/data/jet-resume"
 
-documents = SimpleDirectoryReader(
+DOCUMENTS = SimpleDirectoryReader(
     "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/summaries/jet-resume", required_exts=[".md"]).load_data()
 
-SYSTEM_MESSAGE = (
-    "You are a job applicant providing tailored responses during an interview.\n"
-    "Always answer questions using the provided context as if it is your resume, "
-    "and avoid referencing the context directly.\n"
-    "Some rules to follow:\n"
-    "1. Never directly mention the context or say 'According to my resume' or similar phrases.\n"
-    "2. Provide responses as if you are the individual described in the context, focusing on professionalism and relevance."
-)
+SYSTEM_MESSAGE = "You are a helpful AI Assistant."
 
 PROMPT_TEMPLATE = PromptTemplate(
     """\
-Resume details are below.
+Context information are below.
 ---------------------
 {context_str}
 ---------------------
-Given the resume details and not prior knowledge, respond to the question.
-Question: {query_str}
-Response: \
+Given the context information and not prior knowledge, answer the query.
+Query: {query_str}
+Answer: \
 """
 )
 
@@ -48,18 +41,7 @@ DEFAULT_CHAT_OPTIONS: OllamaChatOptions = {
 }
 
 
-splitter = SentenceSplitter(chunk_size=256)
-total_nodes = len(splitter.get_nodes_from_documents(documents))
-initial_similarity_k = len(documents)
-final_similarity_k = total_nodes
-
-# Next, we will setup a vector index over the documentation.
-index = VectorStoreIndex.from_documents(
-    documents, transformations=[splitter], show_progress=True
-)
-
-
-def setup_retrievers() -> list[BaseRetriever]:
+def setup_retrievers(index: VectorStoreIndex, initial_similarity_k: int, final_similarity_k: int) -> list[BaseRetriever]:
     from llama_index.retrievers.bm25 import BM25Retriever
 
     vector_retriever = index.as_retriever(
@@ -72,7 +54,7 @@ def setup_retrievers() -> list[BaseRetriever]:
     return [vector_retriever, bm25_retriever]
 
 
-def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MODES):
+def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MODES, final_similarity_k: int):
 
     retriever = QueryFusionRetriever(
         retrievers,
@@ -90,35 +72,52 @@ def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MO
 # Now, we can plug our retriever into a query engine to synthesize natural language responses.
 
 
-def query_nodes(
-    query: str,
-    fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
-    threshold: float = 0.0
-):
-    # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
-    retrievers = setup_retrievers()
+def setup_index(documents: list[Document], chunk_size: int = 256, chunk_overlap: int = 20):
+    splitter = SentenceSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    all_nodes = splitter.get_nodes_from_documents(documents)
+    # Next, we will setup a vector index over the documentation.
+    index = VectorStoreIndex.from_documents(
+        documents, transformations=[splitter], show_progress=True
+    )
 
-    fusion_retriever = get_fusion_retriever(retrievers, fusion_mode)
+    initial_similarity_k = len(documents)
+    final_similarity_k = len(all_nodes)
 
-    retrieved_nodes: list[NodeWithScore] = fusion_retriever.retrieve(query)
+    def query_nodes(
+        query: str,
+        fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
+        threshold: float = 0.0,
+        data_dir: str = DATA_DIR,
+    ):
+        # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
+        retrievers = setup_retrievers(
+            index, initial_similarity_k, final_similarity_k)
 
-    filtered_nodes: list[NodeWithScore] = [
-        node for node in retrieved_nodes if node.score > threshold]
+        fusion_retriever = get_fusion_retriever(
+            retrievers, fusion_mode, final_similarity_k)
 
-    unique_files = set()
-    texts = [
-        read_file(file_path)
-        for node in filtered_nodes
-        if not (file_path := os.path.join(data_dir, node.metadata['file_name'])) in unique_files
-        and not unique_files.add(file_path)
-    ]
+        retrieved_nodes: list[NodeWithScore] = fusion_retriever.retrieve(query)
 
-    return {
-        "nodes": filtered_nodes,
-        "retriever": fusion_retriever,
-        "texts": texts,
-        "files": list(unique_files),
-    }
+        filtered_nodes: list[NodeWithScore] = [
+            node for node in retrieved_nodes if node.score > threshold]
+
+        unique_files = set()
+        texts = [
+            read_file(file_path)
+            for node in filtered_nodes
+            if not (file_path := os.path.join(data_dir, node.metadata['file_name'])) in unique_files
+            and not unique_files.add(file_path)
+        ]
+
+        return {
+            "nodes": filtered_nodes,
+            "retriever": fusion_retriever,
+            "texts": texts,
+            "files": list(unique_files),
+        }
+
+    return query_nodes
 
 
 def query_llm(
@@ -126,6 +125,8 @@ def query_llm(
     contexts: list[str],
     model: str = "llama3.1",
     options: OllamaChatOptions = {},
+    system: str = SYSTEM_MESSAGE,
+    template: str = PROMPT_TEMPLATE,
     # retriever: QueryFusionRetriever,
 ):
     # query_engine = RetrieverQueryEngine.from_args(retriever, text_qa_template=)
@@ -133,7 +134,7 @@ def query_llm(
     # return response
 
     context = "\n\n".join(contexts)
-    prompt = PROMPT_TEMPLATE.format(
+    prompt = template.format(
         context_str=context, query_str=query
     )
     options = {**options, **DEFAULT_CHAT_OPTIONS}
@@ -143,7 +144,7 @@ def query_llm(
         prompt,
         stream=True,
         model=model,
-        system=SYSTEM_MESSAGE,
+        system=system,
         options=options,
         track={
             "repo": "~/aim-logs",
@@ -170,7 +171,29 @@ def read_file(file_path, start_index=None, end_index=None):
 
 
 if __name__ == "__main__":
+    system = (
+        "You are a job applicant providing tailored responses during an interview.\n"
+        "Always answer questions using the provided context as if it is your resume, "
+        "and avoid referencing the context directly.\n"
+        "Some rules to follow:\n"
+        "1. Never directly mention the context or say 'According to my resume' or similar phrases.\n"
+        "2. Provide responses as if you are the individual described in the context, focusing on professionalism and relevance."
+    )
+
+    prompt_template = PromptTemplate(
+        """\
+    Resume details are below.
+    ---------------------
+    {context_str}
+    ---------------------
+    Given the resume details and not prior knowledge, respond to the question.
+    Question: {query_str}
+    Response: \
+    """
+    )
     sample_query = "Tell me about yourself."
+
+    query_nodes = setup_index(DOCUMENTS)
 
     # logger.newline()
     # logger.info("RECIPROCAL_RANK: query...")
