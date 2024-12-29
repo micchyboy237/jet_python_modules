@@ -1,3 +1,4 @@
+import json
 import random
 from typing import Optional
 from jet.validation import schema_validate_json, ValidationResponse
@@ -30,7 +31,10 @@ Data guidelines:
 """.strip()
 
 
-def validate_json(json_string: str, schema: dict, model: str = MODEL, attempt: int = 1, max_attempts: int = 10, original_json: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
+def validate_json(json_string: str | dict, schema: dict, model: str = MODEL, attempt: int = 1, max_attempts: int = 10, original_json: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
+    if isinstance(json_string, dict):
+        json_string = json.dumps(json_string)
+
     if original_json is None:
         original_json = json_string  # Save the original JSON for comparison
 
