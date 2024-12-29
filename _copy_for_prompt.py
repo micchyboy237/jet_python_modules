@@ -26,8 +26,9 @@ exclude_files = [
     "jupyter"
 ]
 include_files = [
-    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/__init__.py",
-    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/globals.py",
+    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/validation/json_schema_validator.py",
+    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/validation/main/json_validation.py",
+    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/utils/markdown.py",
 ]
 structure_include = []
 structure_exclude = []
@@ -46,7 +47,7 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-How to setup vscode so that it can detect global functions on intellisense?
+Write a new files for Pydantic models validation instead of json.
 """.strip()
 
 # Project specific

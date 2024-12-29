@@ -103,11 +103,13 @@ def call_ollama_chat(
             Message(content=messages, role=MessageRole.USER)
         ]
 
+    char_count = len(str(messages))
+    token_count = token_counter(messages, model=model)
+
     logger.newline()
     logger.log("Model:", model, colors=["GRAY", "INFO"])
-    logger.log("Prompt:", len(str(messages)), colors=["GRAY", "INFO"])
-    logger.log("Tokens:", token_counter(
-        messages, model=model), colors=["GRAY", "INFO"])
+    logger.log("Prompt:", char_count, colors=["GRAY", "INFO"])
+    logger.log("Tokens:", token_count, colors=["GRAY", "INFO"])
     logger.debug("Generating response...")
 
     if not any(message['role'] == MessageRole.USER for message in messages):
@@ -152,11 +154,17 @@ def call_ollama_chat(
 
         run = Run(**run_settings)
 
+    # Define headers
+    headers = {
+        "Tokens": str(token_count),  # Include the token count here
+    }
+
     try:
-        # Make the POST request
+        # Make the POST request with headers
         r = requests.post(
             url=URL,
             json=body,
+            headers=headers,
             stream=stream,
         )
         r.raise_for_status()
