@@ -23,7 +23,7 @@ from jet.llm.token import token_counter
 DEFAULT_SETTINGS: OllamaChatOptions = {
     "seed": 42,
     "temperature": 0,
-    "num_keep": 0,
+    # "num_keep": 0,
     "num_predict": -1,
 }
 
