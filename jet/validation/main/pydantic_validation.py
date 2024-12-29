@@ -1,5 +1,6 @@
 import random
 from typing import Optional
+from pydantic import BaseModel
 from jet.validation import pydantic_validate_json, ValidationResponse
 from jet.llm import call_ollama_chat
 from jet.utils import extract_json_block_content
@@ -7,8 +8,8 @@ from jet.logger import logger
 
 MODEL = "llama3.1"
 PROMPT_TEMPLATE = """
-Schema:
-[schema]
+Model:
+[base_model]
 JSON to validate:
 [prompt]
 Validation Errors:
@@ -30,7 +31,7 @@ Data guidelines:
 """.strip()
 
 
-def validate_json_pydantic(json_string: str, schema: dict, model: str = MODEL, attempt: int = 1, max_attempts: int = 10, original_json: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
+def validate_json_pydantic(json_string: str, base_model: BaseModel, model: str = MODEL, attempt: int = 1, max_attempts: int = 10, original_json: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
     if original_json is None:
         original_json = json_string  # Save the original JSON for comparison
 
@@ -41,7 +42,7 @@ def validate_json_pydantic(json_string: str, schema: dict, model: str = MODEL, a
     logger.info(f"Validation attempt {attempt}")
 
     validation_response: ValidationResponse = pydantic_validate_json(
-        json_string, schema)
+        json_string, base_model)
 
     if validation_response["is_valid"] and not validation_response["errors"]:
         logger.success(f"Valid JSON on attempt {attempt}")
@@ -52,7 +53,7 @@ def validate_json_pydantic(json_string: str, schema: dict, model: str = MODEL, a
     if isinstance(error_prompt, list):
         error_prompt = str(error_prompt)
 
-    prompt = f"{PROMPT_TEMPLATE.replace('[schema]', str(schema)).replace(
+    prompt = f"{PROMPT_TEMPLATE.replace('[base_model]', str(base_model)).replace(
         '[prompt]', json_string).replace('[errors]', str(error_prompt))}"
 
     try:
@@ -73,7 +74,7 @@ def validate_json_pydantic(json_string: str, schema: dict, model: str = MODEL, a
             output += chunk
         extracted_result = extract_json_block_content(output)
         logger.info(f"Extracted JSON content:\n{extracted_result}")
-        return validate_json_pydantic(extracted_result, schema, model, attempt + 1, max_attempts, original_json)
+        return validate_json_pydantic(extracted_result, base_model, model, attempt + 1, max_attempts, original_json)
     except Exception as generated_error:
         logger.error(f"Failed to decode AI response: {generated_error}")
-        return validate_json_pydantic(json_string, schema, model, attempt + 1, max_attempts, original_json, generated_error)
+        return validate_json_pydantic(json_string, base_model, model, attempt + 1, max_attempts, original_json, generated_error)
