@@ -104,6 +104,7 @@ def call_ollama_chat(
         ]
 
     logger.newline()
+    logger.log("Model:", model, colors=["GRAY", "INFO"])
     logger.log("Prompt:", len(str(messages)), colors=["GRAY", "INFO"])
     logger.log("Tokens:", token_counter(
         messages, model=model), colors=["GRAY", "INFO"])
@@ -184,14 +185,17 @@ def call_ollama_chat(
 
                                 logger.newline()
                                 logger.newline()
+                                logger.newline()
+                                logger.log("Model:", model,
+                                           colors=["WHITE", "DEBUG"])
                                 logger.log("Options:", options,
-                                           colors=["GRAY", "DEBUG"])
+                                           colors=["WHITE", "DEBUG"])
                                 logger.log("Stream:", stream,
-                                           colors=["GRAY", "DEBUG"])
+                                           colors=["WHITE", "DEBUG"])
                                 logger.log("Response:", len(output),
-                                           colors=["GRAY", "DEBUG"])
-                                logger.log("Total:", len(
-                                    str(messages)) + len(output), colors=["GRAY", "DEBUG"])
+                                           colors=["WHITE", "DEBUG"])
+                                logger.log("Content:", len(
+                                    str(messages)) + len(output), colors=["WHITE", "DEBUG"])
 
                                 logger.newline()
                                 logger.info("Final tokens info:")
@@ -259,12 +263,17 @@ def call_ollama_chat(
             output = response_info["message"]["content"]
 
             logger.newline()
-            logger.log("Options:", options, colors=["GRAY", "DEBUG"])
-            logger.log("Stream:", stream, colors=["GRAY", "DEBUG"])
+            logger.newline()
+            logger.log("Model:", model,
+                       colors=["WHITE", "DEBUG"])
+            logger.log("Options:", options,
+                       colors=["WHITE", "DEBUG"])
+            logger.log("Stream:", stream,
+                       colors=["WHITE", "DEBUG"])
             logger.log("Response:", len(output),
-                       colors=["GRAY", "DEBUG"])
-            logger.log("Total:", len(
-                str(messages)) + len(output), colors=["GRAY", "DEBUG"])
+                       colors=["WHITE", "DEBUG"])
+            logger.log("Content:", len(
+                str(messages)) + len(output), colors=["WHITE", "DEBUG"])
 
             logger.newline()
             logger.info("Final tokens info:")
