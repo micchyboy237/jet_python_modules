@@ -16,7 +16,7 @@ def format_error(error: ValidationError) -> str:
 def pydantic_validate_json(json_string: str, model: BaseModel) -> ValidationResponse:
     """Validate a Pydantic BaseModel instance and return a formatted response."""
     try:
-        model.model_validate_json(json_string)
+        model.model_validate_json(json_string, strict=True)
 
         data = json.loads(json_string)
 
