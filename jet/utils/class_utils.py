@@ -14,6 +14,15 @@ def class_to_string(cls: Type | object) -> str:
     return class_source.strip()
 
 
+def get_class_name(cls: Type | object) -> str:
+    # If the input is an object, get its class first
+    if not isinstance(cls, type):
+        cls = cls.__class__
+
+    # Return the class name
+    return cls.__name__
+
+
 # Example usage:
 if __name__ == "__main__":
     from pydantic import BaseModel
