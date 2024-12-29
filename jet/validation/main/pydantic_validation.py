@@ -1,9 +1,10 @@
+import json
 import random
 from typing import Optional
 from pydantic import BaseModel
 from jet.validation import pydantic_validate_json, ValidationResponse
 from jet.llm import call_ollama_chat
-from jet.utils import extract_json_block_content
+from jet.utils import extract_json_block_content, class_to_string
 from jet.logger import logger
 
 MODEL = "llama3.1"
@@ -31,7 +32,10 @@ Data guidelines:
 """.strip()
 
 
-def validate_json_pydantic(json_string: str, base_model: BaseModel, model: str = MODEL, attempt: int = 1, max_attempts: int = 10, original_json: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
+def validate_json_pydantic(json_string: str | dict, base_model: BaseModel, model: str = MODEL, attempt: int = 1, max_attempts: int = 10, original_json: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
+    if isinstance(json_string, dict):
+        json_string = json.dumps(json_string)
+
     if original_json is None:
         original_json = json_string  # Save the original JSON for comparison
 
@@ -53,7 +57,7 @@ def validate_json_pydantic(json_string: str, base_model: BaseModel, model: str =
     if isinstance(error_prompt, list):
         error_prompt = str(error_prompt)
 
-    prompt = f"{PROMPT_TEMPLATE.replace('[base_model]', str(base_model)).replace(
+    prompt = f"{PROMPT_TEMPLATE.replace('[base_model]', class_to_string(base_model)).replace(
         '[prompt]', json_string).replace('[errors]', str(error_prompt))}"
 
     try:

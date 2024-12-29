@@ -2,7 +2,11 @@ import inspect
 from typing import Type
 
 
-def class_to_string(cls: Type) -> str:
+def class_to_string(cls: Type | object) -> str:
+    # If the input is an object, get its class first
+    if not isinstance(cls, type):
+        cls = cls.__class__
+
     # Get the source code of the class
     class_source = inspect.getsource(cls)
 
@@ -20,5 +24,18 @@ if __name__ == "__main__":
         use_cases: list[str]
         additional_info: Optional[str] = None
 
-    stringified_version = class_to_string(CodeSummary)
-    print(stringified_version)
+    # Stringify the class itself
+    class_stringified_version = class_to_string(CodeSummary)
+    print(class_stringified_version)
+
+    # Create an object of the class
+    code_summary_obj = CodeSummary(
+        features=["Sample feature"],
+        use_cases=["Sample use case"],
+    )
+
+    # Stringify the class of the object
+    obj_stringified_version = class_to_string(code_summary_obj)
+    print(obj_stringified_version)
+
+    assert class_stringified_version == obj_stringified_version
