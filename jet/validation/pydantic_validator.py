@@ -1,12 +1,7 @@
 import json
 from typing import Optional, List, TypedDict
 from pydantic import BaseModel, ValidationError
-
-
-class ValidationResponse(TypedDict):
-    is_valid: bool
-    data: Optional[dict]
-    errors: Optional[List[str]]
+from jet.validation import ValidationResponse
 
 
 def format_error(error: ValidationError) -> str:

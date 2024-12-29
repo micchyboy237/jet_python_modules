@@ -1,12 +1,7 @@
 import json
 from typing import List, Optional, TypedDict
 from jsonschema import Draft7Validator
-
-
-class ValidationResponse(TypedDict):
-    is_valid: bool
-    data: Optional[dict]
-    errors: Optional[List[str]]
+from jet.validation import ValidationResponse
 
 
 def format_error(error) -> str:
