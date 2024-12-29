@@ -47,11 +47,16 @@ class CustomLogger:
         return logger
 
     def custom_logger_method(self, level: str) -> Callable[[str, Optional[bool]], None]:
-        def wrapper(*messages: list[str], bright: bool = False, flush: bool = False, colors: list[str] = None) -> None:
+        def wrapper(
+            *messages: list[str],
+            bright: bool = False,
+            flush: bool = False,
+            colors: list[str] = None,
+        ) -> None:
             actual_level = f"BRIGHT_{level}" if bright else level
 
             if colors is None:
-                colors = [level] * len(messages)
+                colors = [actual_level] * len(messages)
             else:
                 colors = colors * \
                     ((len(messages) + len(colors) - 1) // len(colors))
@@ -104,7 +109,10 @@ def logger_examples(logger: CustomLogger):
     logger.log("Flush word 2.", flush=True)
     logger.log("Word 1", flush=False)
     logger.log("Word 2", flush=False)
-    logger.log("2 multi-color", "Message 2", colors=["WHITE", "DEBUG"])
+    logger.log("multi-color default", "Message 2",
+               "Message 3", "Message 4", "Message 5")
+    logger.log("2 multi-color with colors",
+               "Message 2", colors=["DEBUG", "SUCCESS"])
     logger.log("2 multi-color with bright", "Message 2",
                colors=["GRAY", "BRIGHT_DEBUG"])
     logger.log("3 multi-color", "Message 2", "Message 3",
