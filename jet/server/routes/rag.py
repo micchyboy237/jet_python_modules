@@ -29,10 +29,10 @@ class QueryRequest(BaseModel):
 
 
 def setup_rag(
-        data_dir: str,
+    system: str,
+    data_dir: str,
     rag_dir: str,
     extensions: list[str],
-    system: str,
 ):
     global rag_global
     rag_global = RAG(system, data_dir, rag_dir, extensions)
