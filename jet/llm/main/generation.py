@@ -270,6 +270,8 @@ def call_ollama_chat(
             response_info: ChatResponseInfo = response.copy()
             output = response_info["message"]["content"]
 
+            logger.success(output, flush=True)
+
             logger.newline()
             logger.newline()
             logger.log("Model:", model,
