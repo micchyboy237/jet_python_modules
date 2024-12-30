@@ -1,4 +1,5 @@
 import os
+from typing import Generator
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
 from llama_index.core.query_engine import RetrieverQueryEngine
@@ -58,7 +59,7 @@ def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MO
         similarity_top_k=final_similarity_k,
         num_queries=1,  # set this to 1 to disable query generation
         mode=fusion_mode,
-        use_async=True,
+        use_async=False,
         verbose=True,
     )
 
@@ -117,9 +118,7 @@ def setup_index(
 
         result = {
             "nodes": filtered_nodes,
-            "retriever": fusion_retriever,
             "texts": texts,
-            "files": list(unique_files),
         }
 
         return result
@@ -134,12 +133,8 @@ def query_llm(
     options: OllamaChatOptions = {},
     system: str = SYSTEM_MESSAGE,
     template: str = PROMPT_TEMPLATE,
-    # retriever: QueryFusionRetriever,
-):
-    # query_engine = RetrieverQueryEngine.from_args(retriever, text_qa_template=)
-    # response = query_engine.query(query)
-    # return response
-
+    stream: bool = True,
+) -> str | Generator[str, None, None]:
     context = "\n\n".join(contexts)
     prompt = template.format(
         context_str=context, query_str=query
@@ -149,7 +144,7 @@ def query_llm(
     response = ""
     for chunk in call_ollama_chat(
         prompt,
-        stream=True,
+        stream=stream,
         model=model,
         system=system,
         options=options,
@@ -163,7 +158,12 @@ def query_llm(
         }
     ):
         response += chunk
-    return response
+
+        if stream:
+            yield chunk
+
+    if not stream:
+        return response
 
 
 def read_file(file_path, start_index=None, end_index=None):
@@ -175,6 +175,12 @@ def read_file(file_path, start_index=None, end_index=None):
             # Read only up to the end index
             content = file.read(end_index - start_index)
     return content
+
+
+def load_documents(rag_dir, extensions):
+    documents = SimpleDirectoryReader(
+        rag_dir, required_exts=extensions).load_data()
+    return documents
 
 
 if __name__ == "__main__":
@@ -205,8 +211,7 @@ if __name__ == "__main__":
 
     sample_query = "Tell me about yourself."
 
-    documents = SimpleDirectoryReader(
-        rag_dir, required_exts=extensions).load_data()
+    documents = load_documents(rag_dir, extensions)
 
     query_nodes = setup_index(documents, data_dir)
 
@@ -242,7 +247,7 @@ if __name__ == "__main__":
             logger.info(f"RETRIEVED NODES ({len(result["nodes"])})")
             display_source_nodes(query, result["nodes"])
 
-            response = query_llm(query, result['texts'])
+            response = query_llm(query, result["texts"])
             # logger.info("QUERY RESPONSE:")
             # logger.success(response)
 

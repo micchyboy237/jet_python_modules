@@ -26,12 +26,16 @@ exclude_files = [
     "jupyter"
 ]
 include_files = [
-    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/validation/json_schema_validator.py",
-    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/validation/main/json_validation.py",
-    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/utils/markdown.py",
+    "jet/server/start.sh",
 ]
-structure_include = []
-structure_exclude = []
+structure_include = [
+    # "jet/server/*",
+    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/server/start.sh",
+    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/.vscode/launch.json",
+]
+structure_exclude = [
+    "cache"
+]
 
 include_content = []
 exclude_content = []
@@ -47,7 +51,7 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-Write a new files for Pydantic models validation instead of json.
+How to set config on vscode so that I can use debugger to run server.
 """.strip()
 
 # Project specific

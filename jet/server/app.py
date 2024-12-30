@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from routes import router, load_model
+from routes.rag import router as rag_router
+from routes.ner import router as ner_router
 from middlewares import log_exceptions_middleware
 from jet.logger import logger
 
@@ -10,14 +11,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 app = FastAPI()
 
 app.middleware("http")(log_exceptions_middleware)
-app.include_router(router)
 
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Starting server...")
-    try:
-        # Default model
-        load_model("tomaarsen/span-marker-mbert-base-multinerd")
-    except Exception as e:
-        logger.error(f"Failed to load default model: {e}")
+# Include the routes
+app.include_router(rag_router, prefix="/api/v1/rag", tags=["RAG"])
+app.include_router(ner_router, prefix="/api/v1/ner", tags=["NER"])

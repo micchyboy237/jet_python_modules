@@ -9,6 +9,9 @@ from span_marker import SpanMarkerModel
 router = APIRouter()
 
 # Global model and tokenizer variables
+DEFAULT_MODEL_NAME = "tomaarsen/span-marker-mbert-base-multinerd"
+
+cached_model_name = None
 model = None
 tokenizer = None
 
@@ -30,12 +33,17 @@ class ModelLoadResponse(TypedDict):
 
 
 def load_model(model_name: str):
-    global model, tokenizer
+    global cached_model_name, model, tokenizer
+
+    if all([cached_model_name == model_name, model, tokenizer]):
+        return model
+
     if model is not None:
         del model
     if tokenizer is not None:
         del tokenizer
 
+    logger.info("Loading NER model...")
     model = SpanMarkerModel.from_pretrained(model_name)
     tokenizer = model.tokenizer
 
@@ -48,7 +56,7 @@ def load_model(model_name: str):
     return model
 
 
-def predict_entities(text: str, model_name: str = None) -> List[EntityResponse]:
+def predict_entities(text: str, model_name: str = DEFAULT_MODEL_NAME) -> List[EntityResponse]:
     if model_name:
         predictor_model = load_model(model_name)
     else:
@@ -84,3 +92,13 @@ async def change_model(model_name: str) -> ModelLoadResponse:
     except Exception as e:
         logger.error(f"Error loading model: {e}")
         raise HTTPException(status_code=500, detail="Failed to load model")
+
+
+# @router.on_event("startup")
+# async def startup_event():
+#     logger.info("Loading NER model...")
+#     try:
+#         # Default model
+#         load_model("tomaarsen/span-marker-mbert-base-multinerd")
+#     except Exception as e:
+#         logger.error(f"Failed to load default model: {e}")

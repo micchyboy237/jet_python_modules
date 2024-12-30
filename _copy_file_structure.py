@@ -138,7 +138,7 @@ def get_file_length(file_path, shorten_funcs):
             content = file.read()
             content = clean_content(content, file_path, shorten_funcs)
         return len(content)
-    except (OSError, IOError):
+    except (OSError, IOError, UnicodeDecodeError):
         return 0
 
 
