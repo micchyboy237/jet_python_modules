@@ -24,11 +24,13 @@ DEFAULT_EMBED_BATCH_SIZE = 32
 DEFAULT_RERANK_MODEL = "nomic-embed-text"
 DEFAULT_TOP_K = 10
 DEFAULT_RERANK_THRESHOLD = 0.3
+DEFAULT_OVERWRITE = False
 
 
-class VectorSearchRetriever(BaseRetriever):
+class RerankerRetriever():
     def __init__(
         self,
+        data: list[str] | list[InitialDataEntry],
         *,
         use_ollama: bool = DEFAULT_USE_OLLAMA,
         use_reranker: bool = DEFAULT_USE_RERANKER,
@@ -36,6 +38,7 @@ class VectorSearchRetriever(BaseRetriever):
         embed_model: str = DEFAULT_EMBED_MODEL,
         embed_batch_size: int = DEFAULT_EMBED_BATCH_SIZE,
         rerank_model: str = DEFAULT_RERANK_MODEL,
+        overwrite: str = DEFAULT_OVERWRITE,
     ):
         self.collection_name = collection_name
         self.embed_model = embed_model
@@ -53,7 +56,12 @@ class VectorSearchRetriever(BaseRetriever):
             self.embedding_function = get_model_path(self.embed_model)
 
         # Setup Vector DB
-        self.db = ChromaClient(self.collection_name, self.embedding_function)
+        self.db = ChromaClient(
+            self.collection_name,
+            self.embedding_function,
+            initial_data=data,
+            overwrite=overwrite,
+        )
 
         if not use_ollama:
             from sentence_transformers import CrossEncoder
@@ -115,13 +123,20 @@ class VectorSearchRetriever(BaseRetriever):
             result = self.db.get()
 
             bm25_retriever = BM25Retriever.from_texts(
-                texts=result.documents[0],
-                metadatas=result.metadatas[0],
+                texts=result['documents'],
+                metadatas=result['metadatas'],
             )
             bm25_retriever.k = top_k
 
+            vector_search_retriever = VectorSearchRetriever(
+                collection_name=self.collection_name,
+                embedding_function=self.embedding_function,
+                top_k=top_k,
+            )
+
             ensemble_retriever = EnsembleRetriever(
-                retrievers=[bm25_retriever, self], weights=[0.5, 0.5]
+                retrievers=[bm25_retriever,
+                            vector_search_retriever], weights=[0.5, 0.5]
             )
             compressor = RerankCompressor(
                 embedding_function=self.embedding_function,
@@ -152,6 +167,37 @@ class VectorSearchRetriever(BaseRetriever):
         except Exception as e:
             logger.error(f"Error in search_with_reranking: {str(e)}")
             raise
+
+
+class VectorSearchRetriever(BaseRetriever):
+    db: ChromaClient
+    embedding_function: any
+    top_k: int
+
+    def _get_relevant_documents(
+        self,
+        query: str,
+        *,
+        run_manager: CallbackManagerForRetrieverRun,
+    ) -> list[Document]:
+        result = self.db.search(
+            embeddings=[self.embedding_function(query)],
+            limit=self.top_k,
+        )
+
+        ids = result.ids[0]
+        metadatas = result.metadatas[0]
+        documents = result.documents[0]
+
+        results = []
+        for idx in range(len(ids)):
+            results.append(
+                Document(
+                    metadata=metadatas[idx],
+                    page_content=documents[idx],
+                )
+            )
+        return results
 
 
 class RerankCompressor(BaseDocumentCompressor):
@@ -203,6 +249,7 @@ class RerankCompressor(BaseDocumentCompressor):
 
 
 __all__ = [
+    "RerankerRetriever",
     "VectorSearchRetriever",
     "RerankCompressor",
 ]

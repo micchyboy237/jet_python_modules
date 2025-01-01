@@ -26,11 +26,13 @@ class VectorSemanticSearch:
 
     def get_bm25(self):
         if self.bm25 is None:
-            from jet.llm.helpers.semantic_search import VectorSearchRetriever
+            from jet.llm.helpers.semantic_search import RerankerRetriever
 
-            retriever = VectorSearchRetriever(
+            retriever = RerankerRetriever(
+                data=self.module_paths,
                 use_ollama=True,
-                use_reranker=True
+                use_reranker=True,
+                overwrite=True,
             )
             self.bm25 = retriever
         return self.bm25
