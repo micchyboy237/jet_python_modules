@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from helpers.rag import RAG
-from script_utils import display_source_nodes
+from script_utils import get_source_node_attributes
 from jet.transformers import make_serializable
 from jet.logger import logger
 
@@ -74,5 +74,5 @@ async def get_nodes(query_request: QueryRequest):
                            query_request.rag_dir, query_request.extensions)
 
     result = rag_global.get_results(query)
-    display_source_nodes(query, result["nodes"])
-    return make_serializable(result["nodes"])
+
+    return (get_source_node_attributes(node) for node in result["nodes"])
