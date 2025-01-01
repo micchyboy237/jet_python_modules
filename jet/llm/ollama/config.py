@@ -21,7 +21,7 @@ DEFAULT_LLM_SETTINGS = {
 DEFAULT_EMBED_SETTINGS = {
     "model_name": large_embed_model,
     "base_url": base_embed_url,
-    "embed_batch_size": 10,
+    "embed_batch_size": 32,
     "ollama_additional_kwargs": {}
 }
 

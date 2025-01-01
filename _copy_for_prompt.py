@@ -2,6 +2,7 @@ import os
 import fnmatch
 import argparse
 import subprocess
+import json
 from _copy_file_structure import (
     format_file_structure,
     clean_newlines,
@@ -19,23 +20,18 @@ exclude_files = [
     ".pytest_cache",
     "node_modules",
     "*lock.json",
+    "*.lock",
     "public",
     "mocks",
     ".venv",
     "dream",
-    "jupyter"
+    "jupyter",
 ]
 include_files = [
-    "jet/server/start.sh",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core/*",
 ]
-structure_include = [
-    # "jet/server/*",
-    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/server/start.sh",
-    "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/.vscode/launch.json",
-]
-structure_exclude = [
-    "cache"
-]
+structure_include = []
+structure_exclude = []
 
 include_content = []
 exclude_content = []
@@ -51,7 +47,7 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-How to set config on vscode so that I can use debugger to run server.
+How to install this path and add to requirements.txt?
 """.strip()
 
 # Project specific
@@ -131,7 +127,7 @@ def find_files(base_dir, include, exclude, include_content_patterns, exclude_con
             dir_path = os.path.relpath(os.path.join(root, dir_name), base_dir)
             if any(fnmatch.fnmatch(dir_name, pat) for pat in adjusted_include) or any(fnmatch.fnmatch(dir_path, pat) for pat in adjusted_include):
                 # If the directory matches, find all files within this directory
-                for sub_root, _, sub_files in os.walk(os.path.join(root, dir_name)):
+                for sub_root, _, sub_files in os.walk(os.path.join(root, dir_name).replace("*", "")):
                     # Check if sub_root is excluded
                     base_sub_root = os.path.basename(sub_root)
                     if any(fnmatch.fnmatch(base_sub_root, pat) for pat in adjusted_exclude):
@@ -160,6 +156,37 @@ def find_files(base_dir, include, exclude, include_content_patterns, exclude_con
                     if file_path not in matched_files:
                         matched_files.add(file_path)  # Add to the set
                         print(f"Matched file: {file_path}")
+
+        # Check for files in absolute directories that match the include patterns with wildcards
+        include_dir_abs = [
+            pat for pat in include if "*" in pat and os.path.isdir(pat.replace("*", ""))
+        ]
+
+        for dir_name in include_dir_abs:
+            # Remove wildcard and calculate relative directory path
+            dir_no_wildcard = dir_name.replace("*", "")
+            dir_path = os.path.relpath(os.path.join(root, dir_name), base_dir)
+
+            # Check if the directory matches any adjusted include patterns
+            if any(fnmatch.fnmatch(dir_name, pat) for pat in adjusted_include) or any(fnmatch.fnmatch(dir_path, pat) for pat in adjusted_include):
+                # If matched, find all files within this directory
+                for file in os.listdir(os.path.join(root, dir_no_wildcard)):
+                    base_file = os.path.basename(file)
+
+                    # Skip if file matches exclude patterns
+                    if any(fnmatch.fnmatch(base_file, pat) for pat in adjusted_exclude):
+                        continue
+
+                    # Calculate the relative file path and skip if excluded
+                    file_path = os.path.relpath(
+                        os.path.join(dir_no_wildcard, file), base_dir)
+                    if not any(fnmatch.fnmatch(file_path, pat) for pat in adjusted_exclude):
+                        # If file path is new, add it to the set
+                        rel_file_path = os.path.relpath(file_path)
+                        if rel_file_path not in matched_files and os.path.isfile(rel_file_path):
+                            matched_files.add(rel_file_path)
+                            print(f"Matched file in directory: {
+                                  rel_file_path}")
 
     # Convert the set back to a list before returning
     return list(matched_files)
@@ -256,7 +283,8 @@ def main():
     print(f"Exclude content patterns: {exclude_content}")
     print(f"Case sensitive: {case_sensitive}")
     print(f"Filenames only: {filenames_only}")
-    print(f"\nFound files ({len(context_files)}): {context_files}")
+    print(f"\nFound files ({len(context_files)}):\n{
+          json.dumps(context_files, indent=2)}")
 
     if not context_files:
         print("No context files found matching the given patterns.")

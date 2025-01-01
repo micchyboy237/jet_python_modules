@@ -1,4 +1,7 @@
-class SemanticSearch:
+from jet.logger import logger
+
+
+class VectorSemanticSearch:
     def __init__(self, module_paths):
         self.module_paths = module_paths
         self.model = None
@@ -23,8 +26,13 @@ class SemanticSearch:
 
     def get_bm25(self):
         if self.bm25 is None:
-            from rank_bm25 import BM25Okapi
-            self.bm25 = BM25Okapi(self.tokenized_paths)
+            from jet.llm.helpers.semantic_search import VectorSearchRetriever
+
+            retriever = VectorSearchRetriever(
+                use_ollama=True,
+                use_reranker=True
+            )
+            self.bm25 = retriever
         return self.bm25
 
     def get_graph(self):
@@ -67,9 +75,8 @@ class SemanticSearch:
 
     def bm25_search(self, query):
         bm25 = self.get_bm25()
-        tokenized_query = query.split()
-        scores = bm25.get_scores(tokenized_query)
-        return sorted(zip(self.module_paths, scores), key=lambda x: x[1], reverse=True)
+        search_results = bm25.search_with_reranking(query)
+        return [(result['document'], result['score']) for result in search_results]
 
     def graph_based_search(self, query):
         graph = self.get_graph()
@@ -119,31 +126,31 @@ if __name__ == "__main__":
                     "pandas.core.frame", "sklearn.linear_model"]
     query = "from sklearn.linear_model import LogisticRegression"
 
-    # Initialize the SemanticSearch class
-    search = SemanticSearch(module_paths)
+    # Initialize the VectorSemanticSearch class
+    search = VectorSemanticSearch(module_paths)
 
     # Perform and print the results of each search method
-    print("Vector-Based Search:")
+    logger.info("Vector-Based Search:")
     vector_results = search.vector_based_search(query)
     for path, score in vector_results:
-        print(f"{path}: {score:.4f}")
+        logger.log(f"{path}:", f"{score:.4f}", colors=["DEBUG", "SUCCESS"])
 
-    print("\nBM25 Search:")
+    logger.info("\nBM25 Search:")
     bm25_results = search.bm25_search(query)
     for path, score in bm25_results:
-        print(f"{path}: {score:.4f}")
+        logger.log(f"{path}:", f"{score:.4f}", colors=["DEBUG", "SUCCESS"])
 
-    print("\nGraph-Based Search:")
+    logger.info("\nGraph-Based Search:")
     graph_results = search.graph_based_search(query)
     for path, score in graph_results:
-        print(f"{path}: {score:.4f}")
+        logger.log(f"{path}:", f"{score:.4f}", colors=["DEBUG", "SUCCESS"])
 
-    print("\nCross-Encoder Search:")
+    logger.info("\nCross-Encoder Search:")
     cross_encoder_results = search.cross_encoder_search(query)
     for path, score in cross_encoder_results:
-        print(f"{path}: {score:.4f}")
+        logger.log(f"{path}:", f"{score:.4f}", colors=["DEBUG", "SUCCESS"])
 
-    print("\nFAISS Search:")
+    logger.info("\nFAISS Search:")
     faiss_results = search.faiss_search(query)
     for path, distance in faiss_results:
-        print(f"{path}: {distance:.4f}")
+        logger.log(f"{path}:", f"{distance:.4f}", colors=["DEBUG", "SUCCESS"])
