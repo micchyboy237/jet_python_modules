@@ -1,5 +1,6 @@
 import time
 import threading
+from typing import Callable
 from functools import wraps
 from jet.logger import logger
 
@@ -101,27 +102,26 @@ def time_it(_func=None, *, hide_params=False, function_name=None):
         return decorator(_func)
 
 
-def sleep_countdown(count: int, message: str = "Sleep"):
+def sleep_countdown(count: int, message: str = "Sleep") -> Callable[[], None]:
+    stop_event = threading.Event()  # Event to control the countdown
     start_time = time.time()
+
+    def stop_countdown() -> None:
+        stop_event.set()  # This will trigger the event to stop the countdown
+
     while True:
         elapsed = time.time() - start_time
         remaining = count - elapsed
-        if remaining <= 0:
+        if remaining <= 0 or stop_event.is_set():  # Check if stop event is triggered
             break
         # Apply ceiling on the remaining time to display whole seconds
-        # Ceiling of remaining time
         remaining_ceiling = int(-(-remaining // 1))
-        logger.log(
-            f"{message}:",
-            f"{remaining_ceiling}s\r",
-            colors=["GRAY", "DEBUG"],
-            flush=True
-        )
-        # Sleep for 1 second or the remaining time if less than 1 second.
+        print(f"{message}: {remaining_ceiling}s\r", end='', flush=True)
         time.sleep(min(1, remaining))
-    logger.log(
-        f"\n{message}",
-        "took",
-        f"{count}s\n",
-        colors=["INFO", "WHITE", "SUCCESS"],
-    )
+
+    if stop_event.is_set():
+        print(f"\n{message} was stopped early.")
+    else:
+        print(f"\n{message} took {count}s\n")
+
+    return stop_countdown  # Return stop function to allow external stopping

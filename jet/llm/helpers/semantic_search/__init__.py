@@ -87,9 +87,9 @@ class RerankerRetriever():
             limit=limit,
         )
 
-        ids = result["ids"][0]
-        metadatas = result["metadatas"][0]
-        documents = result["documents"][0]
+        ids = result["ids"]
+        metadatas = result["metadatas"]
+        documents = result["documents"]
 
         results = []
         for idx in range(len(ids)):
@@ -122,6 +122,10 @@ class RerankerRetriever():
         try:
             result = self.db.get()
 
+            if "metadatas" in result and result["metadatas"]:
+                result["metadatas"] = [metadata or {}
+                                       for metadata in result["metadatas"]]
+
             bm25_retriever = BM25Retriever.from_texts(
                 texts=result['documents'],
                 metadatas=result['metadatas'],
@@ -129,7 +133,7 @@ class RerankerRetriever():
             bm25_retriever.k = top_k
 
             vector_search_retriever = VectorSearchRetriever(
-                collection_name=self.collection_name,
+                db=self.db,
                 embedding_function=self.embedding_function,
                 top_k=top_k,
             )

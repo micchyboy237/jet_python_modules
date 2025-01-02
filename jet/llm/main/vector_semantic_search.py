@@ -2,14 +2,14 @@ from jet.logger import logger
 
 
 class VectorSemanticSearch:
-    def __init__(self, module_paths):
-        self.module_paths = module_paths
+    def __init__(self, candidates: list[str]):
+        self.candidates = candidates
         self.model = None
         self.cross_encoder = None
-        self.tokenized_paths = [path.split('.') for path in module_paths]
+        self.tokenized_paths = [path.split('.') for path in candidates]
         self.graph = None
         self.embeddings = None
-        self.bm25 = None
+        self.reranking_model = None
 
     def get_model(self):
         if self.model is None:
@@ -24,18 +24,12 @@ class VectorSemanticSearch:
                 'cross-encoder/ms-marco-TinyBERT-L-6')
         return self.cross_encoder
 
-    def get_bm25(self):
-        if self.bm25 is None:
-            from jet.llm.helpers.semantic_search import RerankerRetriever
-
-            retriever = RerankerRetriever(
-                data=self.module_paths,
-                use_ollama=True,
-                use_reranker=True,
-                overwrite=True,
-            )
-            self.bm25 = retriever
-        return self.bm25
+    def get_reranking_model(self):
+        if self.reranking_model is None:
+            from sentence_transformers import CrossEncoder
+            self.reranking_model = CrossEncoder(
+                'cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512)
+        return self.reranking_model
 
     def get_graph(self):
         if self.graph is None:
@@ -43,72 +37,95 @@ class VectorSemanticSearch:
             self.graph = nx.Graph()
         return self.graph
 
+    @time_it
     def vector_based_search(self, query):
+        # Split query into lines, each treated as a separate item
+        query = query.splitlines()
         model = self.get_model()
-        query_embedding = model.encode(query, convert_to_tensor=True)
+        query_embeddings = [model.encode(
+            q, convert_to_tensor=True, clean_up_tokenization_spaces=True) for q in query]
         self.embeddings = model.encode(
-            self.module_paths, convert_to_tensor=True)
+            self.candidates, convert_to_tensor=True, clean_up_tokenization_spaces=True)
         from sentence_transformers import util
-        scores = util.cos_sim(query_embedding, self.embeddings)[
-            0].cpu().numpy()
-        return sorted(zip(self.module_paths, scores), key=lambda x: x[1], reverse=True)
+        scores = [util.cos_sim(q_emb, self.embeddings)[0].cpu().numpy()
+                  for q_emb in query_embeddings]
+        results = [(self.candidates[i], score)
+                   for score_list in scores for i, score in enumerate(score_list)]
+        return sorted(results, key=lambda x: x[1], reverse=True)
 
+    @time_it
     def faiss_search(self, query):
-        model = self.get_model()
-        if self.embeddings is None:
-            self.embeddings = model.encode(
-                self.module_paths, convert_to_tensor=True).cpu().numpy()
-        import numpy as np
-        import torch
-        if isinstance(self.embeddings, torch.Tensor):
-            # Move tensor to CPU if it's on a GPU, then convert to numpy array
-            self.embeddings = self.embeddings.cpu().detach().numpy()
-        else:
-            # Ensure embeddings are NumPy arrays
-            self.embeddings = np.array(self.embeddings)
         import faiss
-        d = self.embeddings.shape[1]
-        index = faiss.IndexFlatL2(d)
-        index.add(self.embeddings)
-        query_embedding = model.encode(
-            [query], convert_to_tensor=True).cpu().numpy()
-        distances, indices = index.search(query_embedding, 3)
-        return [(self.module_paths[i], distances[0][idx]) for idx, i in enumerate(indices[0])]
+        from jet.llm.main import faiss_search
 
-    def bm25_search(self, query):
-        bm25 = self.get_bm25()
-        search_results = bm25.search_with_reranking(query)
-        return [(result['document'], result['score']) for result in search_results]
+        # Split query into lines, each treated as a separate item
+        queries = query.splitlines()
 
+        top_k = 3
+        nlist = 100
+
+        results = faiss_search(queries, self.candidates,
+                               top_k=top_k, nlist=nlist)
+        return results
+
+    @time_it
+    def rerank_search(self, query):
+        # Split query into lines, each treated as a separate item
+        query = query.splitlines()
+        cross_encoder = self.get_reranking_model()
+        pairs = [(q, path) for q in query for path in self.candidates]
+        scores = cross_encoder.predict(pairs)
+        return sorted(zip(self.candidates, scores), key=lambda x: x[1], reverse=True)
+
+    @time_it
     def graph_based_search(self, query):
-        graph = self.get_graph()
-        graph.add_nodes_from(self.module_paths)
-
-        # Example: Update edge weights based on query similarity
-        model = self.get_model()
-        query_embedding = model.encode(
-            query, convert_to_tensor=True).cpu().numpy()
-        embeddings = model.encode(
-            self.module_paths, convert_to_tensor=True).cpu().numpy()
-
+        import numpy as np
         from sentence_transformers import util
-        # Compute similarities between query and module paths
-        similarities = util.cos_sim(query_embedding, embeddings)[
-            0].cpu().numpy()
+        import networkx as nx
+
+        # Split query into lines, each treated as a separate item
+        query = query.splitlines()
+        graph = self.get_graph()
+        graph.add_nodes_from(self.candidates)
+
+        model = self.get_model()
+        query_embeddings = [model.encode(
+            q, convert_to_tensor=True, clean_up_tokenization_spaces=True).cpu().numpy() for q in query]
+        embeddings = model.encode(self.candidates, convert_to_tensor=True,
+                                  clean_up_tokenization_spaces=True).cpu().numpy()
+
+        # Calculate similarities
+        similarities = [util.cos_sim(q_emb, embeddings)[
+            0].cpu().numpy() for q_emb in query_embeddings]
 
         # Update edges based on similarity scores
-        for i, path in enumerate(self.module_paths):
-            graph.add_edge(query, path, weight=similarities[i])
+        for query_emb, similarity in zip(query_embeddings, similarities):
+            query_emb_tuple = tuple(query_emb)  # Convert numpy array to tuple
+            for i, path in enumerate(self.candidates):
+                graph.add_edge(query_emb_tuple, path, weight=similarity[i])
 
-        import networkx as nx
+        # Calculate page rank
         pagerank_scores = nx.pagerank(graph, weight='weight')
-        return sorted(pagerank_scores.items(), key=lambda x: x[1], reverse=True)
 
+        # Convert non-string keys to a readable string format
+        results = []
+        for key, value in pagerank_scores.items():
+            if isinstance(key, str):
+                results.append((key, value))
+            else:
+                # Convert numpy array to string
+                results.append((np.array_repr(key), value))
+
+        return sorted(results, key=lambda x: x[1], reverse=True)
+
+    @time_it
     def cross_encoder_search(self, query):
+        # Split query into lines, each treated as a separate item
+        query = query.splitlines()
         cross_encoder = self.get_cross_encoder()
-        pairs = [(query, path) for path in self.module_paths]
+        pairs = [(q, path) for q in query for path in self.candidates]
         scores = cross_encoder.predict(pairs)
-        return sorted(zip(self.module_paths, scores), key=lambda x: x[1], reverse=True)
+        return sorted(zip(self.candidates, scores), key=lambda x: x[1], reverse=True)
 
     @staticmethod
     def parallel_tokenize(paths):
