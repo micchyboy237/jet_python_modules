@@ -1,3 +1,4 @@
+from sentence_transformers import SentenceTransformer
 import requests
 from typing import Optional, Callable, Union, List, TypedDict
 from chromadb import Documents, EmbeddingFunction, Embeddings
@@ -22,17 +23,50 @@ GenerateMultipleReturnType = Callable[[
 
 
 class SFEmbeddingFunction(EmbeddingFunction):
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", batch_size: int = 32) -> None:
         self.model_name = model_name
+        self.batch_size = batch_size
+        self.model = SentenceTransformer(model_name)
+
+    def tokenize(self, documents: List[str]) -> List[List[str]]:
+        # Tokenize documents into words using the sentence transformer tokenizer
+        return [self.model.tokenize(doc) for doc in documents]
+
+    def calculate_tokens(self, documents: List[str]) -> List[int]:
+        # Calculate the token count for each document using the model's tokenizer
+        tokenized = self.tokenize(documents)
+        return [len(tokens) for tokens in tokenized]
 
     def __call__(self, input: Documents) -> Embeddings:
-        sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=self.model_name
-        )
+        # Tokenize the input and calculate token counts for each document
+        token_counts = self.calculate_tokens(input)
 
-        # embed the documents somehow
-        embeddings = sentence_transformer_ef(input)
-        return embeddings
+        batched_input = []
+        current_batch = []
+        current_token_count = 0
+
+        # Split the input into batches based on the batch_size
+        for doc, token_count in zip(input, token_counts):
+            # Start a new batch when the batch size limit is reached
+            if len(current_batch) >= self.batch_size:
+                batched_input.append(current_batch)
+                current_batch = [doc]
+                current_token_count = token_count
+            else:
+                current_batch.append(doc)
+                current_token_count += token_count
+
+        if current_batch:  # Don't forget to add the last batch
+            batched_input.append(current_batch)
+
+        # Embed each batch using encode and decode methods
+        all_embeddings = []
+        for batch in batched_input:
+            # Encode documents into embeddings
+            embeddings = self.model.encode(batch, show_progress_bar=True)
+            all_embeddings.extend(embeddings)
+
+        return all_embeddings
 
 
 class OllamaEmbeddingFunction(EmbeddingFunction):
@@ -59,19 +93,14 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
 
 
 def get_embedding_function(
-    embedding_model=large_embed_model,
-    url=base_url,
-    batch_size=32,
-    key="",
+    model_name: str,
+    batch_size: int = 32,
+    use_ollama: bool = True,
 ) -> EmbeddingFunction:
-    def func(query): return generate_embeddings(
-        model=embedding_model,
-        text=query,
-        url=url,
-        key=key,
-    )
-
-    return lambda query: generate_multiple(query, func, batch_size)
+    if use_ollama:
+        return OllamaEmbeddingFunction(model_name=model_name, batch_size=batch_size)
+    else:
+        return SFEmbeddingFunction(model_name=model_name, batch_size=batch_size)
 
 
 def generate_multiple(

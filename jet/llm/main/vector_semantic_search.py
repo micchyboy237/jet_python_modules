@@ -1,6 +1,9 @@
 from jet.logger import logger
 
 
+from typing import List, Dict
+
+
 class VectorSemanticSearch:
     def __init__(self, candidates: list[str]):
         self.candidates = candidates
@@ -37,9 +40,7 @@ class VectorSemanticSearch:
             self.graph = nx.Graph()
         return self.graph
 
-    @time_it
-    def vector_based_search(self, query):
-        # Split query into lines, each treated as a separate item
+    def vector_based_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
         query = query.splitlines()
         model = self.get_model()
         query_embeddings = [model.encode(
@@ -51,39 +52,49 @@ class VectorSemanticSearch:
                   for q_emb in query_embeddings]
         results = [(self.candidates[i], score)
                    for score_list in scores for i, score in enumerate(score_list)]
-        return sorted(results, key=lambda x: x[1], reverse=True)
 
-    @time_it
-    def faiss_search(self, query):
+        # Sort results in reverse order of score
+        sorted_results = sorted(results, key=lambda x: x[1], reverse=True)
+
+        # Return in faiss_search format
+        return {query_line: [{'text': sorted_results[i][0], 'score': sorted_results[i][1]} for i in range(len(sorted_results))]
+                for query_line in query}
+
+    def faiss_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
         import faiss
         from jet.llm.main import faiss_search
 
-        # Split query into lines, each treated as a separate item
         queries = query.splitlines()
-
         top_k = 3
         nlist = 100
 
         results = faiss_search(queries, self.candidates,
                                top_k=top_k, nlist=nlist)
-        return results
 
-    @time_it
-    def rerank_search(self, query):
-        # Split query into lines, each treated as a separate item
+        # Sort results in reverse order of score
+        sorted_results = {query_line: sorted(res, key=lambda x: x['score'], reverse=True)
+                          for query_line, res in results.items()}
+
+        return sorted_results
+
+    def rerank_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
         query = query.splitlines()
         cross_encoder = self.get_reranking_model()
         pairs = [(q, path) for q in query for path in self.candidates]
         scores = cross_encoder.predict(pairs)
-        return sorted(zip(self.candidates, scores), key=lambda x: x[1], reverse=True)
 
-    @time_it
-    def graph_based_search(self, query):
-        import numpy as np
-        from sentence_transformers import util
+        # Sort results in reverse order of score
+        rerank_results = {query_line: [{'text': self.candidates[i], 'score': score} for i, score in enumerate(scores)]
+                          for query_line, scores in zip(query, [scores] * len(query))}
+
+        # Sorting by score
+        sorted_rerank_results = {query_line: sorted(res, key=lambda x: x['score'], reverse=True)
+                                 for query_line, res in rerank_results.items()}
+
+        return sorted_rerank_results
+
+    def graph_based_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
         import networkx as nx
-
-        # Split query into lines, each treated as a separate item
         query = query.splitlines()
         graph = self.get_graph()
         graph.add_nodes_from(self.candidates)
@@ -94,38 +105,54 @@ class VectorSemanticSearch:
         embeddings = model.encode(self.candidates, convert_to_tensor=True,
                                   clean_up_tokenization_spaces=True).cpu().numpy()
 
-        # Calculate similarities
+        from sentence_transformers import util
         similarities = [util.cos_sim(q_emb, embeddings)[
             0].cpu().numpy() for q_emb in query_embeddings]
 
-        # Update edges based on similarity scores
         for query_emb, similarity in zip(query_embeddings, similarities):
-            query_emb_tuple = tuple(query_emb)  # Convert numpy array to tuple
+            query_emb_tuple = tuple(query_emb)
             for i, path in enumerate(self.candidates):
                 graph.add_edge(query_emb_tuple, path, weight=similarity[i])
 
-        # Calculate page rank
         pagerank_scores = nx.pagerank(graph, weight='weight')
 
-        # Convert non-string keys to a readable string format
-        results = []
-        for key, value in pagerank_scores.items():
-            if isinstance(key, str):
-                results.append((key, value))
-            else:
-                # Convert numpy array to string
-                results.append((np.array_repr(key), value))
+        # Sort pagerank results by score
+        sorted_pagerank_results = {query_line: [{'text': path, 'score': pagerank_scores[path]}
+                                                for path in sorted(self.candidates, key=lambda p: pagerank_scores[p], reverse=True)]
+                                   for query_line in query}
 
-        return sorted(results, key=lambda x: x[1], reverse=True)
+        return sorted_pagerank_results
 
-    @time_it
-    def cross_encoder_search(self, query):
-        # Split query into lines, each treated as a separate item
+    def cross_encoder_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
         query = query.splitlines()
         cross_encoder = self.get_cross_encoder()
+
+        # Generate pairs of query and candidate paths
         pairs = [(q, path) for q in query for path in self.candidates]
+
+        # Predict the similarity scores
         scores = cross_encoder.predict(pairs)
-        return sorted(zip(self.candidates, scores), key=lambda x: x[1], reverse=True)
+
+        # Check if the number of scores matches the expected length
+        if len(scores) != len(pairs):
+            raise ValueError(f"Mismatch between number of score predictions ({
+                             len(scores)}) and pairs ({len(pairs)})")
+
+        # Organize the results by query line
+        results = {}
+        idx = 0
+        for query_line in query:
+            # Get the scores for this query
+            query_scores = scores[idx:idx + len(self.candidates)]
+            results[query_line] = [
+                {'text': self.candidates[i], 'score': query_scores[i]} for i in range(len(self.candidates))]
+            idx += len(self.candidates)
+
+        # Sort the results for each query line by score
+        sorted_results = {query_line: sorted(res, key=lambda x: x['score'], reverse=True)
+                          for query_line, res in results.items()}
+
+        return sorted_results
 
     @staticmethod
     def parallel_tokenize(paths):

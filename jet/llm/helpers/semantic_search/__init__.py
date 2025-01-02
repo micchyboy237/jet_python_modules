@@ -10,21 +10,28 @@ from jet.db.chroma import (
     InitialDataEntry,
     SearchResult,
 )
-from jet.llm.ollama import OllamaEmbeddingFunction
+from jet.llm.ollama import get_embedding_function
 from jet.llm.model import get_model_path
 from jet.transformers import make_serializable
 from jet.logger import logger
 
 # Defaults
 DEFAULT_USE_OLLAMA = True
+DEFAULT_OLLAMA_EMBED_MODEL = "nomic-embed-text"
+DEFAULT_OLLAMA_RERANK_MODEL = "mxbai-embed-large"
+DEFAULT_SF_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+DEFAULT_SF_RERANK_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_USE_RERANKER = True
 DEFAULT_COLLECTION_NAME = "jet_default_collection"
-DEFAULT_EMBED_MODEL = "nomic-embed-text"
 DEFAULT_EMBED_BATCH_SIZE = 32
-DEFAULT_RERANK_MODEL = "nomic-embed-text"
 DEFAULT_TOP_K = 10
 DEFAULT_RERANK_THRESHOLD = 0.3
 DEFAULT_OVERWRITE = False
+
+
+class EnhancedDocument(Document):
+    def __init__(self, score: float) -> None:
+        self.score = score
 
 
 class RerankerRetriever():
@@ -35,11 +42,15 @@ class RerankerRetriever():
         use_ollama: bool = DEFAULT_USE_OLLAMA,
         use_reranker: bool = DEFAULT_USE_RERANKER,
         collection_name: str = DEFAULT_COLLECTION_NAME,
-        embed_model: str = DEFAULT_EMBED_MODEL,
+        embed_model: str = DEFAULT_OLLAMA_EMBED_MODEL,
+        rerank_model: str = DEFAULT_OLLAMA_RERANK_MODEL,
         embed_batch_size: int = DEFAULT_EMBED_BATCH_SIZE,
-        rerank_model: str = DEFAULT_RERANK_MODEL,
         overwrite: str = DEFAULT_OVERWRITE,
     ):
+        if not use_ollama:
+            embed_model = DEFAULT_SF_EMBED_MODEL
+            rerank_model = DEFAULT_SF_RERANK_MODEL
+
         self.collection_name = collection_name
         self.embed_model = embed_model
         self.embed_batch_size = embed_batch_size
@@ -47,13 +58,12 @@ class RerankerRetriever():
         self.rerank_model = rerank_model
 
         # Setup embedding function
-        if use_ollama:
-            self.embedding_function = OllamaEmbeddingFunction(
-                model_name=self.embed_model,
-                batch_size=self.embed_batch_size,
-            )
-        else:
-            self.embedding_function = get_model_path(self.embed_model)
+        self.embedding_function = get_embedding_function(
+            model_name=self.embed_model,
+            batch_size=self.embed_batch_size,
+            use_ollama=use_ollama,
+        )
+        # self.embedding_function = get_model_path(self.embed_model)
 
         # Setup Vector DB
         self.db = ChromaClient(
@@ -102,19 +112,25 @@ class RerankerRetriever():
         return results
 
     def search(
-        self, query: Union[str, list[str]], embeddings: Optional[list[float]] = None
+        self,
+        query: Union[str, list[str]],
+        *,
+        embeddings: Optional[list[float]] = None,
+        top_k: Optional[int] = DEFAULT_TOP_K,
     ) -> list[SearchResult]:
-        return self.db.search(texts=query, embeddings=embeddings)
+        return self.db.search(
+            texts=query,
+            embeddings=embeddings,
+            top_n=top_k,
+        )
 
     def search_with_reranking(
         self,
         query: str,
-        top_k: Optional[int] = None,
-        rerank_threshold: Optional[float] = None,
+        *,
+        top_k: Optional[int] = DEFAULT_TOP_K,
+        rerank_threshold: Optional[float] = DEFAULT_RERANK_THRESHOLD,
     ) -> dict:
-        top_k = top_k or DEFAULT_TOP_K
-        rerank_threshold = rerank_threshold or DEFAULT_RERANK_THRESHOLD
-
         from langchain_community.retrievers import BM25Retriever
         from langchain.retrievers import ContextualCompressionRetriever, EnsembleRetriever
         from jet.db.chroma import convert_search_results
@@ -127,6 +143,7 @@ class RerankerRetriever():
                                        for metadata in result["metadatas"]]
 
             bm25_retriever = BM25Retriever.from_texts(
+                ids=result['ids'],
                 texts=result['documents'],
                 metadatas=result['metadatas'],
             )
@@ -153,18 +170,18 @@ class RerankerRetriever():
                 base_compressor=compressor, base_retriever=ensemble_retriever
             )
 
-            result = compression_retriever.invoke(query)
+            query_results = compression_retriever.invoke(query)
             result = {
-                "ids": [[d.id for d in result]],
-                "distances": [[d.metadata.get("score") for d in result]],
-                "documents": [[d.page_content for d in result]],
-                "metadatas": [[d.metadata for d in result]],
+                "ids": [[d.id for d in query_results]],
+                "distances": [[d.metadata.get("score") for d in query_results]],
+                "documents": [[d.page_content for d in query_results]],
+                "metadatas": [[d.metadata for d in query_results]],
             }
 
             search_results = convert_search_results(result)
 
             logger.info(
-                "query_doc_with_hybrid_search:result "
+                "search_with_reranking:result "
                 + f'{result["metadatas"]} {result["distances"]}'
             )
             return search_results
@@ -185,31 +202,38 @@ class VectorSearchRetriever(BaseRetriever):
         run_manager: CallbackManagerForRetrieverRun,
     ) -> list[Document]:
         result = self.db.search(
-            embeddings=[self.embedding_function(query)],
-            limit=self.top_k,
+            embeddings=self.embedding_function(query),
+            top_n=self.top_k,
         )
 
-        ids = result.ids[0]
-        metadatas = result.metadatas[0]
-        documents = result.documents[0]
-
         results = []
-        for idx in range(len(ids)):
+        for res in result:  # Iterate over the result list
+            id = res['id']  # Access 'id' from each dictionary
+            # Access 'metadata' from each dictionary
+            metadata = res['metadata']
+            # Access 'document' from each dictionary
+            document = res['document']
+
             results.append(
                 Document(
-                    metadata=metadatas[idx],
-                    page_content=documents[idx],
+                    id=id,
+                    metadata=metadata,
+                    page_content=document,
                 )
             )
+
         return results
 
 
 class RerankCompressor(BaseDocumentCompressor):
-    def __init__(self, embedding_function, top_n, reranking_function, r_score):
-        self.embedding_function = embedding_function
-        self.top_n = top_n
-        self.reranking_function = reranking_function
-        self.r_score = r_score
+    embedding_function: any
+    top_n: int
+    reranking_function: any
+    r_score: float
+
+    class Config:
+        extra = "forbid"
+        arbitrary_types_allowed = True
 
     def compress_documents(
         self,
@@ -245,6 +269,7 @@ class RerankCompressor(BaseDocumentCompressor):
             metadata = doc.metadata
             metadata["score"] = doc_score
             doc = Document(
+                id=doc.id,
                 page_content=doc.page_content,
                 metadata=metadata,
             )

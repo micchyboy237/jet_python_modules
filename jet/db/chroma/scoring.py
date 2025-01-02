@@ -30,4 +30,5 @@ def convert_search_results(query_result: QueryResult) -> list[SearchResult]:
         }
         converted_results.append(converted_result)
 
-    return converted_results
+    # Sort the results by score in reverse order (highest score first) using sorted
+    return sorted(converted_results, key=lambda x: x['score'], reverse=True)

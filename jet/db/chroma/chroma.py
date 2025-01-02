@@ -104,9 +104,8 @@ class ChromaClient:
                 # Check if initial_data is a list of strings
                 if isinstance(initial_data, list) and all(isinstance(i, str) for i in initial_data):
                     # Convert each string into an entry with 'id' as index and 'document' as the string
-                    initial_data = [
-                        {"id": str(index), "document": item} for index, item in enumerate(initial_data)
-                    ]
+                    initial_data = [{"id": str(index), "document": item}
+                                    for index, item in enumerate(initial_data)]
 
                 for item in initial_data:
                     if item.get("id"):
@@ -204,6 +203,9 @@ class ChromaClient:
                 "where_document": where_document,
                 "include": include,
             }
+            if not embeddings:
+                embeddings = self.embedding_function(texts)
+
             query_result = self.query(**options)
             search_results = convert_search_results(query_result)
             return search_results
