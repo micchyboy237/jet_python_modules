@@ -16,7 +16,7 @@ from jet.transformers import make_serializable
 from jet.logger import logger
 
 # Defaults
-DEFAULT_USE_OLLAMA = True
+DEFAULT_USE_OLLAMA = False
 DEFAULT_OLLAMA_EMBED_MODEL = "nomic-embed-text"
 DEFAULT_OLLAMA_RERANK_MODEL = "mxbai-embed-large"
 DEFAULT_SF_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -42,14 +42,14 @@ class RerankerRetriever():
         use_ollama: bool = DEFAULT_USE_OLLAMA,
         use_reranker: bool = DEFAULT_USE_RERANKER,
         collection_name: str = DEFAULT_COLLECTION_NAME,
-        embed_model: str = DEFAULT_OLLAMA_EMBED_MODEL,
-        rerank_model: str = DEFAULT_OLLAMA_RERANK_MODEL,
+        embed_model: str = DEFAULT_SF_EMBED_MODEL,
+        rerank_model: str = DEFAULT_SF_RERANK_MODEL,
         embed_batch_size: int = DEFAULT_EMBED_BATCH_SIZE,
         overwrite: str = DEFAULT_OVERWRITE,
     ):
-        if not use_ollama:
-            embed_model = DEFAULT_SF_EMBED_MODEL
-            rerank_model = DEFAULT_SF_RERANK_MODEL
+        if use_ollama:
+            embed_model = DEFAULT_OLLAMA_EMBED_MODEL
+            rerank_model = DEFAULT_OLLAMA_RERANK_MODEL
 
         self.collection_name = collection_name
         self.embed_model = embed_model
@@ -180,10 +180,6 @@ class RerankerRetriever():
 
             search_results = convert_search_results(result)
 
-            logger.info(
-                "search_with_reranking:result "
-                + f'{result["metadatas"]} {result["distances"]}'
-            )
             return search_results
         except Exception as e:
             logger.error(f"Error in search_with_reranking: {str(e)}")

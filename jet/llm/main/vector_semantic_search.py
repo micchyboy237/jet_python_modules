@@ -1,7 +1,7 @@
-from jet.logger import logger
+from jet.logger import logger, time_it
 
 
-from typing import List, Dict
+from typing import List, Dict, Union
 
 
 class VectorSemanticSearch:
@@ -40,6 +40,7 @@ class VectorSemanticSearch:
             self.graph = nx.Graph()
         return self.graph
 
+    @time_it
     def vector_based_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
         query = query.splitlines()
         model = self.get_model()
@@ -60,6 +61,7 @@ class VectorSemanticSearch:
         return {query_line: [{'text': sorted_results[i][0], 'score': sorted_results[i][1]} for i in range(len(sorted_results))]
                 for query_line in query}
 
+    @time_it
     def faiss_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
         import faiss
         from jet.llm.main import faiss_search
@@ -77,22 +79,48 @@ class VectorSemanticSearch:
 
         return sorted_results
 
+    @time_it
     def rerank_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
-        query = query.splitlines()
-        cross_encoder = self.get_reranking_model()
-        pairs = [(q, path) for q in query for path in self.candidates]
-        scores = cross_encoder.predict(pairs)
+        from jet.llm.helpers.semantic_search import RerankerRetriever
 
-        # Sort results in reverse order of score
-        rerank_results = {query_line: [{'text': self.candidates[i], 'score': score} for i, score in enumerate(scores)]
-                          for query_line, scores in zip(query, [scores] * len(query))}
+        data = query.splitlines()
 
-        # Sorting by score
-        sorted_rerank_results = {query_line: sorted(res, key=lambda x: x['score'], reverse=True)
-                                 for query_line, res in rerank_results.items()}
+        query = "Sample document"  # Consider removing this line if it's a placeholder
+        top_k = 10
+        rerank_threshold = 0.3
+        use_ollama = False
 
-        return sorted_rerank_results
+        # Initialize the retriever
+        retriever = RerankerRetriever(
+            data=data,
+            use_ollama=use_ollama,
+            collection_name="example_collection",
+            embed_batch_size=32,
+            overwrite=True
+        )
 
+        def search_with_reranking(query: Union[str, List[str]], top_k: int, rerank_threshold: float):
+            if isinstance(query, str):  # If the query is a single string
+                reranked_results = retriever.search_with_reranking(
+                    query, top_k=top_k, rerank_threshold=rerank_threshold)
+            elif isinstance(query, list):  # If the query is a list of strings
+                reranked_results = [
+                    retriever.search_with_reranking(q, top_k=top_k, rerank_threshold=rerank_threshold) for q in query
+                ]
+
+            return reranked_results
+
+        # Perform search with reranking
+        search_results_with_reranking = search_with_reranking(
+            data, top_k=top_k, rerank_threshold=rerank_threshold)
+
+        # Organize results in the same format as other search methods
+        sorted_results = {query_line: sorted(res, key=lambda x: x['score'], reverse=True)
+                          for query_line, res in zip(data, search_results_with_reranking)}
+
+        return sorted_results
+
+    @time_it
     def graph_based_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
         import networkx as nx
         query = query.splitlines()
@@ -123,6 +151,7 @@ class VectorSemanticSearch:
 
         return sorted_pagerank_results
 
+    @time_it
     def cross_encoder_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
         query = query.splitlines()
         cross_encoder = self.get_cross_encoder()
