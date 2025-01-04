@@ -161,7 +161,7 @@ def call_ollama_chat(
                                 # Get durations
                                 # Print all duration values from decoded_chunk
                                 durations = {
-                                    k: v for k, v in decoded_chunk.items() if k.endswith('duration')}
+                                    k: v for k, v in response_info.items() if k.endswith('duration')}
                                 if durations:
                                     logger.info("Durations:")
                                     for key, value in durations.items():
@@ -170,14 +170,14 @@ def call_ollama_chat(
                                         if seconds >= 60:
                                             minutes = seconds / 60
                                             logger.log(f"{key}:", f"{minutes:.2f}m", colors=[
-                                                "WHITE", "INFO"])
+                                                "WHITE", "ORANGE"])
                                         elif seconds >= 1:
                                             logger.log(f"{key}:", f"{seconds:.2f}s", colors=[
-                                                "WHITE", "INFO"])
+                                                "WHITE", "WARNING"])
                                         else:
                                             millis = seconds * 1000
                                             logger.log(f"{key}:", f"{millis:.2f}ms", colors=[
-                                                "WHITE", "INFO"])
+                                                "WHITE", "LIME"])
 
                                 logger.newline()
                                 logger.newline()
