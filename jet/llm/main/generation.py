@@ -158,6 +158,19 @@ def call_ollama_chat(
                                 logger.newline()
                                 logger.newline()
 
+                                logger.log("Model:", model,
+                                           colors=["WHITE", "DEBUG"])
+                                logger.log("Options:", options,
+                                           colors=["WHITE", "DEBUG"])
+                                logger.log("Stream:", stream,
+                                           colors=["WHITE", "DEBUG"])
+                                logger.log("Response:", len(output),
+                                           colors=["WHITE", "DEBUG"])
+                                logger.log("Content:", len(
+                                    str(messages)) + len(output), colors=["WHITE", "DEBUG"])
+
+                                logger.newline()
+
                                 # Get durations
                                 # Print all duration values from decoded_chunk
                                 durations = {
@@ -180,18 +193,6 @@ def call_ollama_chat(
                                                 "WHITE", "LIME"])
 
                                 logger.newline()
-                                logger.newline()
-                                logger.log("Model:", model,
-                                           colors=["WHITE", "DEBUG"])
-                                logger.log("Options:", options,
-                                           colors=["WHITE", "DEBUG"])
-                                logger.log("Stream:", stream,
-                                           colors=["WHITE", "DEBUG"])
-                                logger.log("Response:", len(output),
-                                           colors=["WHITE", "DEBUG"])
-                                logger.log("Content:", len(
-                                    str(messages)) + len(output), colors=["WHITE", "DEBUG"])
-
                                 logger.newline()
                                 logger.info("Final tokens info:")
                                 # logger.success(json.dumps(
@@ -262,6 +263,19 @@ def call_ollama_chat(
             logger.newline()
             logger.newline()
 
+            logger.log("Model:", model,
+                       colors=["WHITE", "DEBUG"])
+            logger.log("Options:", options,
+                       colors=["WHITE", "DEBUG"])
+            logger.log("Stream:", stream,
+                       colors=["WHITE", "DEBUG"])
+            logger.log("Response:", len(output),
+                       colors=["WHITE", "DEBUG"])
+            logger.log("Content:", len(
+                str(messages)) + len(output), colors=["WHITE", "DEBUG"])
+
+            logger.newline()
+
             # Get durations
             # Print all duration values from decoded_chunk
             durations = {
@@ -282,18 +296,6 @@ def call_ollama_chat(
                         millis = seconds * 1000
                         logger.log(f"{key}:", f"{millis:.2f}ms", colors=[
                             "WHITE", "LIME"])
-
-            logger.newline()
-            logger.log("Model:", model,
-                       colors=["WHITE", "DEBUG"])
-            logger.log("Options:", options,
-                       colors=["WHITE", "DEBUG"])
-            logger.log("Stream:", stream,
-                       colors=["WHITE", "DEBUG"])
-            logger.log("Response:", len(output),
-                       colors=["WHITE", "DEBUG"])
-            logger.log("Content:", len(
-                str(messages)) + len(output), colors=["WHITE", "DEBUG"])
 
             logger.newline()
             logger.info("Final tokens info:")
