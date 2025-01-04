@@ -347,7 +347,6 @@ if __name__ == "__main__":
     logger.newline()
     logger.info("No stream response:")
     response = call_ollama_chat(prompt, model, stream=False)
-    logger.success(json.dumps(response, indent=2))
 
     # With stream
     logger.newline()
