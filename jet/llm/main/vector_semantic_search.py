@@ -11,7 +11,7 @@ class VectorSemanticSearch:
         self.cross_encoder = None
         self.tokenized_paths = [path.split('.') for path in candidates]
         self.graph = None
-        self.embeddings = None
+        query_embeddings = None
         self.reranking_model = None
 
     def get_model(self):
@@ -40,33 +40,55 @@ class VectorSemanticSearch:
             self.graph = nx.Graph()
         return self.graph
 
+    def search(self, query: str | list[str]) -> Dict[str, List[Dict[str, float]]]:
+        queries = query
+        if isinstance(query, str):
+            queries = [query]
+
+        search_results = self.faiss_search(queries)
+        return search_results
+
     @time_it
-    def vector_based_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
-        query = query.splitlines()
+    def vector_based_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
         model = self.get_model()
-        query_embeddings = [model.encode(
-            q, convert_to_tensor=True, clean_up_tokenization_spaces=True) for q in query]
-        self.embeddings = model.encode(
+
+        # Get embeddings for both candidates and queries
+        data_embeddings = model.encode(
             self.candidates, convert_to_tensor=True, clean_up_tokenization_spaces=True)
+        query_embeddings = model.encode(
+            queries, convert_to_tensor=True, clean_up_tokenization_spaces=True)
+
         from sentence_transformers import util
-        scores = [util.cos_sim(q_emb, self.embeddings)[0].cpu().numpy()
+        scores = [util.cos_sim(q_emb, data_embeddings)[0].cpu().numpy()
                   for q_emb in query_embeddings]
+
         results = [(self.candidates[i], score)
                    for score_list in scores for i, score in enumerate(score_list)]
 
-        # Sort results in reverse order of score
-        sorted_results = sorted(results, key=lambda x: x[1], reverse=True)
+        def group_list(input_list):
+            query_results = [input_list[i:i + 3]
+                             for i in range(0, len(input_list), 3)]
 
-        # Return in faiss_search format
-        return {query_line: [{'text': sorted_results[i][0], 'score': sorted_results[i][1]} for i in range(len(sorted_results))]
-                for query_line in query}
+            results_dict = {}
+            for group_idx, groups in enumerate(query_results):
+                query_line = self.candidates[group_idx]
+                sorted_results = sorted(
+                    groups, key=lambda x: x[1], reverse=True)
+
+                results = [{'text': text, 'score': score}
+                           for text, score in sorted_results]
+                results_dict[query_line] = results
+            return results_dict
+
+        sorted_results = group_list(results)
+
+        return sorted_results
 
     @time_it
-    def faiss_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
+    def faiss_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
         import faiss
         from jet.llm.main import faiss_search
 
-        queries = query.splitlines()
         top_k = 3
         nlist = 100
 
@@ -80,19 +102,16 @@ class VectorSemanticSearch:
         return sorted_results
 
     @time_it
-    def rerank_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
+    def rerank_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
         from jet.llm.helpers.semantic_search import RerankerRetriever
 
-        data = query.splitlines()
-
-        query = "Sample document"  # Consider removing this line if it's a placeholder
         top_k = 10
         rerank_threshold = 0.3
         use_ollama = False
 
         # Initialize the retriever
         retriever = RerankerRetriever(
-            data=data,
+            data=queries,
             use_ollama=use_ollama,
             collection_name="example_collection",
             embed_batch_size=32,
@@ -112,24 +131,24 @@ class VectorSemanticSearch:
 
         # Perform search with reranking
         search_results_with_reranking = search_with_reranking(
-            data, top_k=top_k, rerank_threshold=rerank_threshold)
+            queries, top_k=top_k, rerank_threshold=rerank_threshold)
 
         # Organize results in the same format as other search methods
         sorted_results = {query_line: sorted(res, key=lambda x: x['score'], reverse=True)
-                          for query_line, res in zip(data, search_results_with_reranking)}
+                          for query_line, res in zip(queries, search_results_with_reranking)}
 
         return sorted_results
 
     @time_it
-    def graph_based_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
+    def graph_based_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
         import networkx as nx
-        query = query.splitlines()
+
         graph = self.get_graph()
         graph.add_nodes_from(self.candidates)
 
         model = self.get_model()
         query_embeddings = [model.encode(
-            q, convert_to_tensor=True, clean_up_tokenization_spaces=True).cpu().numpy() for q in query]
+            q, convert_to_tensor=True, clean_up_tokenization_spaces=True).cpu().numpy() for q in queries]
         embeddings = model.encode(self.candidates, convert_to_tensor=True,
                                   clean_up_tokenization_spaces=True).cpu().numpy()
 
@@ -147,13 +166,13 @@ class VectorSemanticSearch:
         # Sort pagerank results by score
         sorted_pagerank_results = {query_line: [{'text': path, 'score': pagerank_scores[path]}
                                                 for path in sorted(self.candidates, key=lambda p: pagerank_scores[p], reverse=True)]
-                                   for query_line in query}
+                                   for query_line in queries}
 
         return sorted_pagerank_results
 
     @time_it
-    def cross_encoder_search(self, query: str) -> Dict[str, List[Dict[str, float]]]:
-        query = query.splitlines()
+    def cross_encoder_search(self, query: list[str]) -> Dict[str, List[Dict[str, float]]]:
+
         cross_encoder = self.get_cross_encoder()
 
         # Generate pairs of query and candidate paths

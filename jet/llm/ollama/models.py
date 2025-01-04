@@ -1,5 +1,6 @@
 import json
 import requests
+import tiktoken
 from transformers import AutoTokenizer
 from jet.logger import logger
 from jet.cache.redis import RedisCache, RedisConfigParams
@@ -9,6 +10,8 @@ OLLAMA_MODEL_CONTEXTS = {
     "mistral": 32768,
     "llama3.1": 131072,
     "llama3.2": 131072,
+    "gemma2:2b": 8192,
+    "gemma2:9b": 8192,
     "codellama": 16384,
     "qwen2.5-coder": 32768,
     "nomic-embed-text": 2048,
@@ -23,6 +26,8 @@ OLLAMA_HF_MODELS = {
     "mistral": "mistralai/Mistral-7B-Instruct-v0.3",
     "llama3.1": "meta-llama/Llama-3.1-8B",
     "llama3.2": "meta-llama/Llama-3.2-3B",
+    "gemma2:2b": "google/gemma-2-2b",
+    "gemma2:9b": "google/gemma-2-9b",
     "codellama": "meta-llama/CodeLlama-7b-hf",
     "qwen2.5-coder": "Qwen/Qwen2.5-Coder-7B-Instruct",
     "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
@@ -115,20 +120,22 @@ def build_ollama_models():
 
 def count_tokens(model_name: str, text: str | list[dict] | list[str], template: str = None) -> int:
     if isinstance(text, list) and all(isinstance(item, dict) and 'role' in item and 'content' in item for item in text):
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-        if not template and tokenizer.chat_template:
-            template = tokenizer.chat_template
-
-        model_key = REVERSED_OLLAMA_HF_MODELS[model_name]
-        tokenizer.chat_template = template if template else get_chat_template(
-            model_key)
-
         try:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+            if not template and tokenizer.chat_template:
+                template = tokenizer.chat_template
+
+            model_key = REVERSED_OLLAMA_HF_MODELS[model_name]
+            tokenizer.chat_template = template if template else get_chat_template(
+                model_key)
+
             # Assuming 'apply_chat_template' handles list[dict]
             input_ids = tokenizer.apply_chat_template(text, tokenize=True)
             return len(input_ids)
         except Exception as e:
+            if isinstance(e, OSError):
+                logger.error(e)
             # logger.newline()
             # logger.debug(model_name)
             # logger.error("Error on template:")
@@ -141,7 +148,11 @@ def count_tokens(model_name: str, text: str | list[dict] | list[str], template: 
 
 
 def count_encoded_tokens(model_name: str, text: str | list[str]) -> int:
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+    except Exception:
+        encoding = tiktoken.get_encoding("cl100k_base")
+        return len(encoding.encode(str(text)))
 
     if isinstance(text, str):
         tokens = tokenizer.encode(text)

@@ -70,7 +70,7 @@ def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MO
 
 def setup_index(
     documents: list[Document],
-    data_dir: str,
+    data_dir: str = None,
     *,
     chunk_size: int = 256,
     chunk_overlap: int = 20,
@@ -105,7 +105,7 @@ def setup_index(
 
         unique_files = set()
 
-        if "metadata" in filtered_nodes[0]:
+        if data_dir and "metadata" in filtered_nodes[0]:
             texts = [
                 read_file(file_path)
                 for node in filtered_nodes

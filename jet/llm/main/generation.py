@@ -27,43 +27,6 @@ DEFAULT_SETTINGS: OllamaChatOptions = {
     "num_predict": -1,
 }
 
-# class CustomStreamingHandler(StreamingStdOutCallbackHandler):
-#     """Custom callback handler to log each new token with `logger.success`."""
-
-#     def on_llm_new_token(self, token: str, **kwargs: dict) -> None:
-#         logger.success(token, end="", flush=True)
-
-
-# class Ollama:
-
-#     def __init__(self, model: str = "mistral", base_url: str = "http://jetairm1:11434"):
-#         self.model = model
-#         self.base_url = base_url
-#         self.ollama = OllamaLLM(model=model, base_url=base_url)
-
-#     def generate(self, prompt: str, settings: dict[str, any] = None, raw: bool = False) -> dict[str, any]:
-#         # Merge default settings with user-provided settings
-#         settings = {**DEFAULT_SETTINGS, **(settings or {})}
-
-#         data: LLMResult = self.ollama.generate(
-#             prompts=[prompt],
-#             options={"stream": True, "raw": raw, **settings},
-#             # callbacks=[CustomStreamingHandler()],
-#         )
-#         generated_chunk: GenerationChunk = data.generations[0][0]
-#         output = generated_chunk.text.strip()
-
-#         return {
-#             "prompt": prompt,
-#             "output": output,
-#             "meta": {
-#                 "prompt_len": len(prompt),
-#                 "output_len": len(output),
-#                 "total_len": len(prompt) + len(output),
-#             },
-#             "settings": settings,
-#         }
-
 
 def call_ollama_chat(
     messages: str | list[Message],
@@ -194,6 +157,30 @@ def call_ollama_chat(
                                 logger.newline()
                                 logger.newline()
                                 logger.newline()
+
+                                # Get durations
+                                # Print all duration values from decoded_chunk
+                                durations = {
+                                    k: v for k, v in decoded_chunk.items() if k.endswith('duration')}
+                                if durations:
+                                    logger.info("Durations:")
+                                    for key, value in durations.items():
+                                        # Convert nanoseconds to seconds/minutes/milliseconds
+                                        seconds = value / 1e9
+                                        if seconds >= 60:
+                                            minutes = seconds / 60
+                                            logger.log(f"{key}:", f"{minutes:.2f}m", colors=[
+                                                "WHITE", "INFO"])
+                                        elif seconds >= 1:
+                                            logger.log(f"{key}:", f"{seconds:.2f}s", colors=[
+                                                "WHITE", "INFO"])
+                                        else:
+                                            millis = seconds * 1000
+                                            logger.log(f"{key}:", f"{millis:.2f}ms", colors=[
+                                                "WHITE", "INFO"])
+
+                                logger.newline()
+                                logger.newline()
                                 logger.log("Model:", model,
                                            colors=["WHITE", "DEBUG"])
                                 logger.log("Options:", options,
@@ -270,9 +257,32 @@ def call_ollama_chat(
             response_info: ChatResponseInfo = response.copy()
             output = response_info["message"]["content"]
 
-            logger.success(output, flush=True)
+            logger.success(output)
 
             logger.newline()
+            logger.newline()
+
+            # Get durations
+            # Print all duration values from decoded_chunk
+            durations = {
+                k: v for k, v in response_info.items() if k.endswith('duration')}
+            if durations:
+                logger.info("Durations:")
+                for key, value in durations.items():
+                    # Convert nanoseconds to seconds/minutes/milliseconds
+                    seconds = value / 1e9
+                    if seconds >= 60:
+                        minutes = seconds / 60
+                        logger.log(f"{key}:", f"{minutes:.2f}m", colors=[
+                            "WHITE", "ORANGE"])
+                    elif seconds >= 1:
+                        logger.log(f"{key}:", f"{seconds:.2f}s", colors=[
+                            "WHITE", "WARNING"])
+                    else:
+                        millis = seconds * 1000
+                        logger.log(f"{key}:", f"{millis:.2f}ms", colors=[
+                            "WHITE", "LIME"])
+
             logger.newline()
             logger.log("Model:", model,
                        colors=["WHITE", "DEBUG"])
@@ -328,17 +338,18 @@ def convert_tool_outputs_to_string(ollama_messages: list[Message]):
 
 # Main function to demonstrate sample usage
 if __name__ == "__main__":
+    model = "gemma2:9b"
     prompt = "Write a 20 word creative story about an explorer finding a hidden treasure."
 
     # No stream
     logger.newline()
     logger.info("No stream response:")
-    response = call_ollama_chat(prompt, stream=False)
+    response = call_ollama_chat(prompt, model, stream=False)
     logger.success(json.dumps(response, indent=2))
 
     # With stream
     logger.newline()
     logger.info("With stream response:")
     response = ""
-    for chunk in call_ollama_chat(prompt):
+    for chunk in call_ollama_chat(prompt, model):
         response += chunk
