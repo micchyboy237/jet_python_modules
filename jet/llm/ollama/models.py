@@ -135,7 +135,7 @@ def count_tokens(model_name: str, text: str | list[dict] | list[str], template: 
             return len(input_ids)
         except Exception as e:
             if isinstance(e, OSError):
-                logger.error(e)
+                logger.orange(e)
             # logger.newline()
             # logger.debug(model_name)
             # logger.error("Error on template:")
