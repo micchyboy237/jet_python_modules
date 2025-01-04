@@ -21,7 +21,7 @@ exclude_files = [
     "dream",
 ]
 include_files = [
-    "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/prompts/context/01_Initial_Requirements.md",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/prompts/context/01_Initial_Requirements.md",
     "OAI_CONFIG_LIST.json",
     "*README.md",
     "*.py"
@@ -304,14 +304,17 @@ def format_file_structure(base_dir, include_files, exclude_files, include_conten
         return result
 
     file_structure = print_structure(dir_structure, is_base_level=True)
+    file_structure = file_structure.strip()
     # file_structure = f"Base dir: {file_dir}\n" + \
     #     f"\nFile structure:\n{file_structure}"
+    print(
+        f"\n----- FILES STRUCTURE -----\n{file_structure}\n----- END FILES STRUCTURE -----\n")
     print("\n")
     num_files = len(files)
     logger.log("Number of Files:", num_files, colors=["GRAY", "DEBUG"])
     logger.log("Files Char Count:", total_char_length,
                colors=["GRAY", "SUCCESS"])
-    return file_structure.strip()
+    return file_structure
 
 
 def main():

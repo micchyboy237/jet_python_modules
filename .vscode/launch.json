@@ -8,9 +8,9 @@
       "program": "${file}",
       "console": "integratedTerminal",
       "cwd": "${fileDirname}",
-      "python": "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/.venv/bin/python",
+      "python": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv/bin/python",
       "env": {
-        "PYTHONPATH": "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules"
+        "PYTHONPATH": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules:${fileDirname}/.venv/lib/python3.12/site-packages"
       }
     },
     {
@@ -19,12 +19,12 @@
       "request": "launch",
       // "program": "${workspaceFolder}/servers/interceptor_server.py",
       "module": "uvicorn",
-      "cwd": "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules/jet/server",
+      "cwd": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/server",
       "args": ["app:app", "--host", "0.0.0.0", "--port", "8002", "--reload"],
       "justMyCode": true,
       // "python": "/Users/jethroestrada/.pyenv/shims/python"
       "env": {
-        "PYTHONPATH": "/Users/jethroestrada/Desktop/External_Projects/jet_python_modules"
+        "PYTHONPATH": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules"
       }
     }
   ]

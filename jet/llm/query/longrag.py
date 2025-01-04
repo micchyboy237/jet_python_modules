@@ -79,7 +79,7 @@ async def main():
         "queries": []
     }
     logger.log("Settings:", json.dumps(settings), colors=["GRAY", "DEBUG"])
-    save_json(results, file_path="/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/rag/generated/paul_graham/results.json")
+    save_json(results, file_path="/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/rag/generated/paul_graham/results.json")
 
     Settings.chunk_size = settings["chunk_size"]
     Settings.chunk_overlap = settings["chunk_overlap"]
@@ -111,7 +111,7 @@ async def main():
         "query": query_str,
         "response": res,
     })
-    save_json(res, file_path="/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/rag/generated/paul_graham/results.json")
+    save_json(res, file_path="/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/rag/generated/paul_graham/results.json")
     display(Markdown(str(res)))
 
     # %% [markdown]
@@ -137,7 +137,7 @@ async def main():
         "query": query_str,
         "response": res,
     })
-    save_json(res, file_path="/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/rag/generated/paul_graham/results.json")
+    save_json(res, file_path="/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/rag/generated/paul_graham/results.json")
     display(Markdown(str(res)))
 
     # %% [markdown]
@@ -150,7 +150,7 @@ async def main():
     modules = pack.get_modules()
     index = t.cast(VectorStoreIndex, modules["index"])
     index.storage_context.persist(
-        persist_dir="/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/rag/generated/paul_graham")
+        persist_dir="/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/rag/generated/paul_graham")
 
     # %% [markdown]
     # Below is an example of loading an index.
@@ -158,7 +158,7 @@ async def main():
     # %%
     logger.debug("Loading VectorStoreIndex...")
     ctx = StorageContext.from_defaults(
-        persist_dir="/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/rag/generated/paul_graham")
+        persist_dir="/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/rag/generated/paul_graham")
     index = load_index_from_storage(ctx)
 
     logger.debug("Loading LongRAGPack 3...")
@@ -179,7 +179,7 @@ async def main():
         "query": query_str,
         "response": res,
     })
-    save_json(res, file_path="/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/rag/generated/paul_graham/results.json")
+    save_json(res, file_path="/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/rag/generated/paul_graham/results.json")
     display(Markdown(str(res)))
 
 

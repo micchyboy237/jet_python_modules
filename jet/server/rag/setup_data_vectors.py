@@ -33,7 +33,7 @@ logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
 
 GENERATED_DIR = Path("generated")
 DEFAULT_BASE_DIR = os.path.basename(__file__).split(".")[0]
-DEFAULT_DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/data/jet-resume"
+DEFAULT_DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/data/jet-resume"
 
 DEFAULT_MODEL = "mistral"
 DEFAULT_CHUNK_SIZE = 512

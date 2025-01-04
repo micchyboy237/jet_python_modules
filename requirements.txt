@@ -7,6 +7,7 @@ camoufox==0.3.10
 chardet==5.2.0
 chromadb==0.5.23
 cloudpickle==3.1.0
+docutils==0.21.2
 elasticsearch==8.16.0
 email_validator==2.2.0
 en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
@@ -30,7 +31,7 @@ isoduration==20.11.0
 jupyter==1.1.1
 langchain-text-splitters==0.3.2
 lark==1.2.2
-llama-index-packs-neo4j-query-engine @ file:///Users/jethroestrada/Desktop/External_Projects/JetScripts/llm/eval/converted-notebooks/examples/neo4j_pack
+llama-index-packs-neo4j-query-engine @ file:///Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/eval/converted-notebooks/examples/neo4j_pack
 lxml_html_clean==0.4.1
 Markdown==3.7
 mem0ai==0.1.36
@@ -61,6 +62,7 @@ selenium==4.27.1
 spacy==3.8.3
 span_marker==1.6.0
 tabulate==0.9.0
+tinycss2==1.4.0
 torchaudio==2.5.1
 torchvision==0.20.1
 trafilatura==2.0.0

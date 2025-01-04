@@ -28,18 +28,22 @@ exclude_files = [
     "jupyter",
 ]
 include_files = [
-    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core/*",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/__init__.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/globals.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/code/__init__.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/code/markdown_code_extractor.py",
 ]
-structure_include = []
+structure_include = [
+    # "*.py"
+]
 structure_exclude = []
 
 include_content = []
 exclude_content = []
 
 # Args defaults
-DEFAULT_SHORTEN_FUNCTS = False
-DEFAULT_NO_CHAR_LENGTH = False
-INCLUDE_FILE_STRUCTURE = False
+SHORTEN_FUNCTS = False
+INCLUDE_FILE_STRUCTURE = True
 
 DEFAULT_SYSTEM_MESSAGE = """
 Dont use or add to memory.
@@ -47,7 +51,42 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-How to install this path and add to requirements.txt?
+- What do I do in order to allow vscode auto import and auto complete intellisense using pylance extension settings?
+python.analysis.autoFormatStrings
+python.analysis.autoImportCompletions
+python.analysis.autoIndent
+python.analysis.autoSearchPaths
+python.analysis.completeFunctionParens
+python.analysis.diagnosticMode
+python.analysis.diagnosticSeverityOverrides
+python.analysis.disableTaggedHints
+python.analysis.enablePytestSupport
+python.analysis.exclude
+python.analysis.experimentalserver
+python.analysis.extraCommitChars
+python.analysis.extraPaths
+python.analysis.fixAll
+python.analysis.gotoDefinitionInStringLiteral
+python.analysis.ignore
+python.analysis.importFormat
+python.analysis.include
+python.analysis.indexing
+python.analysis.inlayHints.callArgumentNames
+python.analysis.inlayHints.functionReturnTypes
+python.analysis.inlayHints.pytestParameters
+python.analysis.inlayHints.variableTypes
+python.analysis.logLevel
+python.analysis.nodeExecutable
+python.analysis.packageIndexDepths
+python.analysis.persistAllIndices
+python.analysis.regenerateStdLibIndices
+python.analysis.stubPath
+python.analysis.typeCheckingMode
+python.analysis.typeshedPaths
+python.analysis.useLibraryCodeForTypes
+python.analysis.userFileIndexingLimit
+
+- Which files should I create / update?
 """.strip()
 
 # Project specific
@@ -244,7 +283,7 @@ def main():
                         help='Patterns of file content to exclude')
     parser.add_argument('-cs', '--case-sensitive', action='store_true', default=False,
                         help='Make content pattern matching case-sensitive')
-    parser.add_argument('-sf', '--shorten-funcs', action='store_true', default=DEFAULT_SHORTEN_FUNCTS,
+    parser.add_argument('-sf', '--shorten-funcs', action='store_true', default=SHORTEN_FUNCTS,
                         help='Shorten function and class definitions')
     parser.add_argument('-s', '--system', default=DEFAULT_SYSTEM_MESSAGE,
                         help='Message to include in the clipboard content')
@@ -254,7 +293,7 @@ def main():
                         help='Instructions to include in the clipboard content')
     parser.add_argument('-fo', '--filenames-only', action='store_true',
                         help='Only copy the relative filenames, not their contents')
-    parser.add_argument('-nl', '--no-length', action='store_true', default=DEFAULT_NO_CHAR_LENGTH,
+    parser.add_argument('-nl', '--no-length', action='store_true', default=INCLUDE_FILE_STRUCTURE,
                         help='Do not show file character length')
 
     args = parser.parse_args()
@@ -286,38 +325,40 @@ def main():
     print(f"\nFound files ({len(context_files)}):\n{
           json.dumps(context_files, indent=2)}")
 
-    if not context_files:
-        print("No context files found matching the given patterns.")
-        return
     print("\n")
 
     # Initialize the clipboard content
     clipboard_content = ""
 
-    # Append relative filenames to the clipboard content
-    for file in context_files:
-        rel_path = os.path.relpath(path=file, start=file_dir)
-        cleaned_rel_path = remove_parent_paths(rel_path)
+    if not context_files:
+        print("No context files found matching the given patterns.")
+    else:
 
-        prefix = (
-            f"\n// {cleaned_rel_path}\n" if not filenames_only else f"{file}\n")
-        if filenames_only:
-            clipboard_content += f"{prefix}"
-        else:
-            file_path = os.path.relpath(os.path.join(base_dir, file))
-            if os.path.isfile(file_path):
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                        content = clean_content(content, file, shorten_funcs)
-                        clipboard_content += f"{prefix}{content}\n\n"
-                except Exception:
-                    # Continue to the next file
-                    continue
+        # Append relative filenames to the clipboard content
+        for file in context_files:
+            rel_path = os.path.relpath(path=file, start=file_dir)
+            cleaned_rel_path = remove_parent_paths(rel_path)
+
+            prefix = (
+                f"\n// {cleaned_rel_path}\n" if not filenames_only else f"{file}\n")
+            if filenames_only:
+                clipboard_content += f"{prefix}"
             else:
-                clipboard_content += f"{prefix}\n"
+                file_path = os.path.relpath(os.path.join(base_dir, file))
+                if os.path.isfile(file_path):
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            content = clean_content(
+                                content, file, shorten_funcs)
+                            clipboard_content += f"{prefix}{content}\n\n"
+                    except Exception:
+                        # Continue to the next file
+                        continue
+                else:
+                    clipboard_content += f"{prefix}\n"
 
-    clipboard_content = clean_newlines(clipboard_content).strip()
+        clipboard_content = clean_newlines(clipboard_content).strip()
 
     # Generate and format the file structure
     structure_include_files = structure_include
@@ -347,8 +388,10 @@ def main():
     clipboard_content_parts.append(f"QUERY\n{query_message}")
     if INCLUDE_FILE_STRUCTURE:
         clipboard_content_parts.append(f"FILES STRUCTURE\n{files_structure}")
-    clipboard_content_parts.append(
-        f"EXISTING FILES CONTENTS\n{clipboard_content}")
+
+    if clipboard_content:
+        clipboard_content_parts.append(
+            f"EXISTING FILES CONTENTS\n{clipboard_content}")
 
     clipboard_content = "\n\n".join(clipboard_content_parts)
 
@@ -360,9 +403,6 @@ def main():
     # Print the copied content character count
     logger.log("Prompt Char Count:", len(clipboard_content),
                colors=["GRAY", "SUCCESS"])
-
-    print(
-        f"\n----- FILES STRUCTURE -----\n{files_structure}\n----- END FILES STRUCTURE -----\n")
 
     # Newline
     print("\n")
