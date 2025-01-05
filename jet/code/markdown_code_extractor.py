@@ -3,7 +3,7 @@ from typing import List, Optional, TypedDict
 
 CODE_BLOCK_PATTERN = r"```[ \t]*(\w+)?[ \t]*\n(.*?)\n```"
 FILE_PATH_PATTERN = r".*File Path: `?([^`]+)`?"
-UNKNOWN = "unknown"
+UNKNOWN = "text"
 
 
 class CodeBlock(TypedDict):
@@ -29,6 +29,7 @@ class MarkdownCodeExtractor:
         "ruby": ".rb",
         "go": ".go",
         "php": ".php",
+        "text": ".txt",  # Added for 'text' blocks.
         "unknown": "",
     }
 
@@ -46,11 +47,12 @@ class MarkdownCodeExtractor:
             return "." + file_path.split(".")[-1] if "." in file_path else ""
         return self.LANGUAGE_EXTENSIONS.get(language.lower(), "")
 
-    def extract_code_blocks(self, markdown: str) -> List[CodeBlock]:
+    def extract_code_blocks(self, markdown: str, with_text: bool = False) -> List[CodeBlock]:
         """Extract code blocks and associated file paths from Markdown text.
 
         Args:
             markdown (str): Markdown content.
+            with_text (bool): Whether to include non-code text blocks as well.
 
         Returns:
             List[CodeBlock]: List of extracted code blocks.
@@ -61,6 +63,7 @@ class MarkdownCodeExtractor:
         inside_code_block = False
         lang = None
         code_lines = []
+        text_content = ""
 
         for line in lines:
             # Check for file path pattern
@@ -72,6 +75,17 @@ class MarkdownCodeExtractor:
             # Handle start of a code block
             if line.startswith("```"):
                 if not inside_code_block:
+                    if text_content and with_text:
+                        # Add the current text content as a text block if 'with_text' is True
+                        code_blocks.append(
+                            CodeBlock(
+                                code=text_content,
+                                language=UNKNOWN,
+                                file_path=None,
+                                extension=".txt"
+                            )
+                        )
+                        text_content = ""  # Reset text content
                     inside_code_block = True
                     lang = line.strip("`").strip() or UNKNOWN
                     code_lines = []
@@ -95,5 +109,19 @@ class MarkdownCodeExtractor:
             # Collect lines inside a code block
             if inside_code_block:
                 code_lines.append(line)
+            else:
+                # Collect non-code block content as "text"
+                text_content += line + "\n"
+
+        # Add any remaining text as a "text" block if 'with_text' is True
+        if text_content and with_text:
+            code_blocks.append(
+                CodeBlock(
+                    code=text_content.strip(),
+                    language="text",
+                    file_path=None,
+                    extension=".txt"
+                )
+            )
 
         return code_blocks
