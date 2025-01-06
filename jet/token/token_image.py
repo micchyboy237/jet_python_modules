@@ -2,7 +2,7 @@ import base64
 import io
 import struct
 from typing import Literal, Union
-from jet.llm.token.http_handler import HTTPHandler
+from jet.token.http_handler import HTTPHandler
 
 
 def resize_image_high_res(width, height):

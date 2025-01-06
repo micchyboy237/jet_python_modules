@@ -2,15 +2,18 @@ from typing import Literal, Optional
 from jet.logger import logger
 from llama_index.core.base.llms.types import ChatMessage
 import tiktoken
-from jet.llm.token.token_image import calculate_img_tokens
 from jet.llm.llm_types import Message
-from jet.llm.ollama import (
+from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
+from jet.llm.ollama.models import (
     OLLAMA_HF_MODELS,
     OLLAMA_MODEL_EMBEDDING_TOKENS,
-    count_tokens as count_ollama_tokens,
-    get_token_max_length,
 )
-from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
+
+
+def get_ollama_models():
+    """Lazy loading of Ollama models to avoid circular imports"""
+
+    return OLLAMA_HF_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS
 
 
 def tokenizer():
@@ -46,12 +49,15 @@ def tokenize(model_name: str, text: str | list[str] | list[dict]):
 
 
 def token_counter(
-    text: str | list[str] | list[ChatMessage] = None,
-    model: Optional[Literal[tuple(OLLAMA_HF_MODELS.keys())]] = "mistral",
+    text: str | list[str] | list[ChatMessage],
+    model: Optional[str] = "mistral",
     prevent_total: bool = False
 ) -> int | list[int]:
     if not text:
-        raise ValueError("text cannot both be None")
+        raise ValueError("text cannot be None")
+
+    # Get models only when needed
+    OLLAMA_HF_MODELS, _ = get_ollama_models()
 
     if model not in OLLAMA_HF_MODELS:
         raise ValueError(f"Model can only be one of the ff: {
@@ -66,21 +72,24 @@ def token_counter(
 
 
 def get_model_max_tokens(
-    model: Optional[Literal[tuple(
-        OLLAMA_MODEL_EMBEDDING_TOKENS.keys())]] = "mistral",
+    model: Optional[str] = "mistral",
 ) -> int:
+    # Get models only when needed
+    _, OLLAMA_MODEL_EMBEDDING_TOKENS = get_ollama_models()
+
     if model not in OLLAMA_MODEL_EMBEDDING_TOKENS:
         raise ValueError(f"Model can only be one of the ff: {
-                         [tuple(OLLAMA_HF_MODELS.keys())]}")
+                         [tuple(OLLAMA_MODEL_EMBEDDING_TOKENS.keys())]}")
 
     return OLLAMA_MODEL_EMBEDDING_TOKENS[model]
 
 
 def filter_texts(
-    text: str | list[str] | list[ChatMessage],
+    text: str | list[str] | list[dict] | list[ChatMessage],
     model: Optional[Literal[tuple(OLLAMA_HF_MODELS.keys())]] = "mistral",
     max_tokens: Optional[int | float] = None,
-) -> str | list[str] | list[ChatMessage]:
+) -> str | list[str] | list[dict] | list[ChatMessage]:
+    tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
     if isinstance(max_tokens, float) and max_tokens < 1:
         max_tokens = int(get_model_max_tokens(model) * max_tokens)
     else:
@@ -89,13 +98,11 @@ def filter_texts(
     if isinstance(text, str):
         token_count = token_counter(text, model)
         if token_count <= max_tokens:
-            return text
+            return [text]
 
-        while isinstance(token_count, int) and token_count > max_tokens:
-            text = text[:int(len(text) * 0.9)]  # Cut 10% at a time
-            token_count = token_counter(text, model)
-
-        return text
+        # Split into manageable chunks
+        tokens = tokenize(OLLAMA_HF_MODELS[model], text)
+        return tokenizer.decode(tokens[0:max_tokens], skip_special_tokens=False)
     else:
         if isinstance(text[0], str):
             filtered_texts = []

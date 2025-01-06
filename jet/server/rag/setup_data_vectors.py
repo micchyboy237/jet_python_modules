@@ -9,7 +9,7 @@ from tqdm import tqdm
 from llama_index.core import get_response_synthesizer
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import RecursiveRetriever
-from llama_index.core.schema import IndexNode
+from llama_index.core.schema import IndexNode, NodeWithScore
 from llama_index.core.vector_stores.types import MetadataInfo, VectorStoreInfo
 from llama_index.core.retrievers import VectorIndexAutoRetriever
 from llama_index.core import StorageContext
@@ -17,14 +17,13 @@ from IPython.display import Markdown, display
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.callbacks import LlamaDebugHandler, CallbackManager
-from llama_index.llms.ollama import Ollama
 from llama_index.core import SummaryIndex
 from llama_index.core import SimpleDirectoryReader
 import sys
 import logging
 from script_utils import display_source_nodes
 from jet.logger import logger
-from jet.llm.ollama import initialize_ollama_settings
+from jet.llm.ollama import initialize_ollama_settings, Ollama
 initialize_ollama_settings()
 
 
@@ -218,7 +217,7 @@ def build_recursive_retriever_over_document_summaries(
 
 
 @time_it
-def query_nodes(query, nodes, vector_retrievers, similarity_top_k=3):
+def query_nodes(query, nodes, vector_retrievers, similarity_top_k=3) -> list[NodeWithScore]:
     logger.debug(f"Querying ({len(nodes)}) nodes...")
     top_vector_index = VectorStoreIndex(
         nodes, transformations=[splitter], callback_manager=callback_manager
@@ -313,6 +312,12 @@ if __name__ == "__main__":
         similarity_top_k=query_top_k,
     )
     display_source_nodes(query, retrieved_nodes)
+    for node_idx, node in enumerate(retrieved_nodes):
+        logger.log(
+            f"{node_idx + 1}", f"{node.metadata['file_name']}:",
+            f"{node.score * 100:.2f}%",
+            colors=["INFO", "DEBUG", "SUCCESS"],
+        )
 
     retrieved_contents = []
     for node in retrieved_nodes:
@@ -339,6 +344,12 @@ if __name__ == "__main__":
                 similarity_top_k=query_top_k,
             )
             display_source_nodes(query, retrieved_nodes)
+            for node_idx, node in enumerate(retrieved_nodes):
+                logger.log(
+                    f"{node_idx + 1}", f"{node.metadata['file_name']}:",
+                    f"{node.score * 100:.2f}%",
+                    colors=["INFO", "DEBUG", "SUCCESS"],
+                )
 
             result = "\n\n".join(retrieved_contents)
             # logger.newline()

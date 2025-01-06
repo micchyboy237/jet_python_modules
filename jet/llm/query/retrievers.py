@@ -1,6 +1,6 @@
 import os
 from typing import Optional
-from jet.llm.token import filter_texts
+from jet.token import filter_texts
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
 from llama_index.core.query_engine import RetrieverQueryEngine

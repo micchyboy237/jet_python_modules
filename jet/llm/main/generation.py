@@ -18,7 +18,6 @@ from jet.llm.llm_types import (
 from jet.utils import get_class_name
 from jet.logger import logger
 from jet.transformers import make_serializable
-from jet.llm.token import token_counter
 
 DEFAULT_SETTINGS: OllamaChatOptions = {
     "seed": 42,
@@ -26,6 +25,12 @@ DEFAULT_SETTINGS: OllamaChatOptions = {
     # "num_keep": 0,
     "num_predict": -1,
 }
+
+
+def get_token_counter():
+    """Lazy loading of token_counter to avoid circular imports"""
+    from jet.token import token_counter
+    return token_counter
 
 
 def call_ollama_chat(
@@ -67,6 +72,7 @@ def call_ollama_chat(
         ]
 
     char_count = len(str(messages))
+    token_counter = get_token_counter()
     token_count = token_counter(messages, model=model)
 
     logger.newline()

@@ -1,3 +1,4 @@
+from enum import Enum
 import json
 import base64
 import numpy as np
@@ -5,6 +6,7 @@ import numpy as np
 import json
 import base64
 import numpy as np
+from pydantic.main import BaseModel
 
 
 def make_serializable(obj):
@@ -15,7 +17,9 @@ def make_serializable(obj):
     Returns:
         A serializable representation of the object.
     """
-    if isinstance(obj, (int, float, bool, type(None))):
+    if isinstance(obj, Enum):
+        return obj.value  # Convert Enum to its value
+    elif isinstance(obj, (int, float, bool, type(None))):
         return obj
     elif isinstance(obj, str):
         try:
@@ -36,6 +40,8 @@ def make_serializable(obj):
         return [make_serializable(item) for item in obj]
     elif isinstance(obj, dict):
         return {make_serializable(key): make_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, BaseModel):
+        return make_serializable(vars(obj))
     elif hasattr(obj, "__dict__"):
         return make_serializable(vars(obj))
     elif isinstance(obj, tuple):

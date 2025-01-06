@@ -1,8 +1,12 @@
-from typing import Optional
-from llama_index.core.callbacks.base import CallbackManager
+from typing import Callable, Optional, Sequence, TypedDict, Any, Union
+from llama_index.core.base.llms.types import ChatMessage, ChatResponse
+from llama_index.core.llms.llm import LLM
 from llama_index.llms.ollama import Ollama as BaseOllama
 from llama_index.embeddings.ollama import OllamaEmbedding as BaseOllamaEmbedding
+from llama_index.core import Settings
+
 from jet.llm.ollama import (
+    base_url,
     large_embed_model,
     DEFAULT_LLM_SETTINGS,
     DEFAULT_EMBED_SETTINGS,
@@ -10,84 +14,174 @@ from jet.llm.ollama import (
 from jet.logger import logger
 
 
-class Ollama(BaseOllama):
-    """
-    Extends functionality of BaseOllama.
-    """
+class SettingsDict(TypedDict, total=False):
+    llm_model: str
+    context_window: int
+    request_timeout: float
+    embedding_model: str
+    chunk_size: int
+    chunk_overlap: int
+    base_url: str
+    temperature: float
 
-    def __init__(
-        self,
-        model: str = DEFAULT_LLM_SETTINGS["model"],
-        context_window: int = DEFAULT_LLM_SETTINGS["context_window"],
-        request_timeout: float = DEFAULT_LLM_SETTINGS["request_timeout"],
-        temperature: float = DEFAULT_LLM_SETTINGS["temperature"],
-        base_url: str = DEFAULT_LLM_SETTINGS["base_url"],
-        **kwargs
-    ):
-        # Passing parameters to parent class constructor
-        super().__init__(
-            model=model,
-            context_window=context_window,
-            request_timeout=request_timeout,
-            temperature=temperature,
-            base_url=base_url,
-            **kwargs
+
+class EnhancedSettings(Settings):
+    model: str
+    embedding_model: str
+    count_tokens: Callable[[str], int]
+
+
+def initialize_ollama_settings(settings: SettingsDict = {}):
+    embedding_model = settings.get("embedding_model",
+                                   DEFAULT_EMBED_SETTINGS['model_name'])
+    Settings.embed_model = OllamaEmbedding(
+        model_name=DEFAULT_EMBED_SETTINGS['model_name'],
+        base_url=base_url,
+        embed_batch_size=DEFAULT_EMBED_SETTINGS['embed_batch_size'],
+        ollama_additional_kwargs=DEFAULT_EMBED_SETTINGS['ollama_additional_kwargs'],
+    )
+
+    llm_model = settings.get("llm_model", DEFAULT_LLM_SETTINGS['model'])
+    Settings.llm = create_llm(
+        model=llm_model,
+        base_url=settings.get("base_url", DEFAULT_LLM_SETTINGS['base_url']),
+        temperature=settings.get(
+            "temperature", DEFAULT_LLM_SETTINGS['temperature']),
+        context_window=settings.get(
+            "context_window", DEFAULT_LLM_SETTINGS['context_window']),
+        request_timeout=settings.get(
+            "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
+    )
+    Settings.llm = Ollama(
+        model=llm_model,
+        base_url=settings.get("base_url", DEFAULT_LLM_SETTINGS['base_url']),
+        temperature=settings.get(
+            "temperature", DEFAULT_LLM_SETTINGS['temperature']),
+        context_window=settings.get(
+            "context_window", DEFAULT_LLM_SETTINGS['context_window']),
+        request_timeout=settings.get(
+            "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
+    )
+
+    if settings.get("chunk_size"):
+        Settings.chunk_size = settings["chunk_size"]
+
+    if settings.get("chunk_overlap"):
+        Settings.chunk_overlap = settings["chunk_overlap"]
+
+    EnhancedSettings.model = llm_model
+    EnhancedSettings.embedding_model = embedding_model
+
+    def count_tokens(text: str) -> int:
+        from jet.token import token_counter
+        return token_counter(text, llm_model)
+    EnhancedSettings.count_tokens = count_tokens
+
+    return EnhancedSettings
+
+
+def update_llm_settings(settings: SettingsDict = {}):
+    if settings.get("chunk_size"):
+        Settings.chunk_size = settings["chunk_size"]
+
+    if settings.get("chunk_overlap"):
+        Settings.chunk_overlap = settings["chunk_overlap"]
+
+    if settings.get("embedding_model"):
+        Settings.embed_model = create_embed_model(
+            model=settings.get("embedding_model",
+                               DEFAULT_EMBED_SETTINGS['model_name']),
+            base_url=settings.get(
+                "base_url", DEFAULT_EMBED_SETTINGS['base_url']),
         )
 
-    def __call__(self, *args, **kwargs) -> None:
-        pass
+    if settings.get("llm_model"):
+        Settings.llm = create_llm(
+            model=settings.get("llm_model", DEFAULT_LLM_SETTINGS['model']),
+            base_url=settings.get(
+                "base_url", DEFAULT_LLM_SETTINGS['base_url']),
+            temperature=settings.get(
+                "temperature", DEFAULT_LLM_SETTINGS['temperature']),
+            context_window=settings.get(
+                "context_window", DEFAULT_LLM_SETTINGS['context_window']),
+            request_timeout=settings.get(
+                "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
+        )
+
+    return Settings
+
+
+def create_llm(
+    model: str = DEFAULT_LLM_SETTINGS['model'],
+    base_url: str = base_url,
+    temperature: float = DEFAULT_LLM_SETTINGS['temperature'],
+    context_window: int = DEFAULT_LLM_SETTINGS['context_window'],
+    request_timeout: float = DEFAULT_LLM_SETTINGS['request_timeout'],
+    max_tokens: Optional[int] = None
+) -> LLM:
+    llm = Ollama(
+        temperature=temperature,
+        context_window=context_window,
+        request_timeout=request_timeout,
+        model=model,
+        base_url=base_url,
+        max_tokens=max_tokens,
+    )
+    Settings.llm = llm
+    return llm
+
+
+def create_embed_model(
+    model: str = DEFAULT_EMBED_SETTINGS['model_name'],
+    base_url: str = base_url,
+    embed_batch_size: int = DEFAULT_EMBED_SETTINGS['embed_batch_size'],
+    ollama_additional_kwargs: dict[str,
+                                   any] = DEFAULT_EMBED_SETTINGS['ollama_additional_kwargs'],
+):
+    embed_model = OllamaEmbedding(
+        model_name=model,
+        base_url=base_url,
+        embed_batch_size=embed_batch_size,
+        ollama_additional_kwargs=ollama_additional_kwargs,
+    )
+    Settings.embed_model = embed_model
+    return embed_model
+
+
+class Ollama(BaseOllama):
+    def chat(self, messages: Sequence[ChatMessage], max_tokens: Optional[int] = None, **kwargs: Any) -> ChatResponse:
+        from jet.token import filter_texts
+
+        logger.info("Calling Ollama chat...")
+
+        if max_tokens:
+            messages = filter_texts(
+                messages, self.model, max_tokens=max_tokens)
+
+        return super().chat(messages, **kwargs)
 
 
 class OllamaEmbedding(BaseOllamaEmbedding):
-    """
-    Extends functionality of BaseOllamaEmbedding.
-    """
+    def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float]:
+        """Get Ollama embedding with retry mechanism."""
+        import time
 
-    def __init__(
-        self,
-        model_name: str = DEFAULT_EMBED_SETTINGS["model_name"],
-        base_url: str = DEFAULT_EMBED_SETTINGS["base_url"],
-        embed_batch_size: int = DEFAULT_EMBED_SETTINGS['embed_batch_size'],
-        ollama_additional_kwargs: dict[str,
-                                       any] = DEFAULT_EMBED_SETTINGS['ollama_additional_kwargs'],
-        callback_manager: Optional[CallbackManager] = None,
-        num_workers: Optional[int] = None,
-    ):
-        # Passing parameters to parent class constructor
-        super().__init__(
-            model_name=model_name,
-            base_url=base_url,
-            embed_batch_size=embed_batch_size,
-            ollama_additional_kwargs=ollama_additional_kwargs,
-            callback_manager=callback_manager,
-            num_workers=num_workers,
-        )
+        logger.info("Calling OllamaEmbedding embed...")
 
-    def embed_documents(
-        self,
-        texts: list[str],
-        key: str = ""
-    ) -> Optional[list[list[float]]]:
-        import requests
+        max_retries = 5
+        delay = 5  # seconds
 
-        try:
-            r = requests.post(
-                f"{self.base_url}/api/embed",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {key}",
-                },
-                json={"input": texts, "model": self.model_name},
-            )
-            r.raise_for_status()
-            data = r.json()
-
-            if "embeddings" in data:
-                logger.log("Embed Token Count:", data["prompt_eval_count"], colors=[
-                           "WHITE", "SUCCESS"])
-                return data["embeddings"]
-            else:
-                raise ValueError("Something went wrong :/")
-        except Exception as e:
-            logger.error(e)
-            return None
+        for attempt in range(max_retries):
+            try:
+                result = self._client.embed(
+                    model=self.model_name, input=texts, options=self.ollama_additional_kwargs
+                )
+                return result["embeddings"][0]
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(
+                        f"Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    print("Max retries reached. Raising the exception.")
+                    raise e
