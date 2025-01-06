@@ -179,7 +179,7 @@ def read_file(file_path, start_index=None, end_index=None):
 
 def load_documents(rag_dir, extensions):
     documents = SimpleDirectoryReader(
-        rag_dir, required_exts=extensions).load_data()
+        rag_dir, required_exts=extensions, recursive=True).load_data()
     return documents
 
 
@@ -205,8 +205,8 @@ if __name__ == "__main__":
     """
     )
 
-    data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/data/jet-resume"
-    rag_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/server/rag/generated/summaries"
+    data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
+    rag_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
     extensions = [".md"]
 
     sample_query = "Tell me about yourself."

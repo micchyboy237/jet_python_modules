@@ -1,7 +1,8 @@
+from typing import Awaitable
+from jet.server.helpers.rag import RAG
 from pydantic import BaseModel
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from helpers.rag import RAG
 from script_utils import get_source_node_attributes
 from jet.transformers import make_serializable
 from jet.logger import logger
@@ -15,8 +16,7 @@ rag_global: RAG = None
 # Define the schema for input queries
 class QueryRequest(BaseModel):
     query: str
-    data_dir: str = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/data/jet-resume"
-    rag_dir: str = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/server/rag/generated/summaries"
+    rag_dir: str = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
     extensions: list[str] = [".md"]
     system: str = (
         "You are a job applicant providing tailored responses during an interview.\n"
@@ -30,12 +30,11 @@ class QueryRequest(BaseModel):
 
 def setup_rag(
     system: str,
-    data_dir: str,
     rag_dir: str,
     extensions: list[str],
 ):
     global rag_global
-    rag_global = RAG(system, data_dir, rag_dir, extensions)
+    rag_global = RAG(system, rag_dir, extensions)
     return rag_global
 
 
@@ -52,7 +51,7 @@ async def query(query_request: QueryRequest):
     query = query_request.query.strip()
 
     # Initialize or update RAG instance based on incoming parameters
-    rag_global = setup_rag(query_request.system, query_request.data_dir,
+    rag_global = setup_rag(query_request.system,
                            query_request.rag_dir, query_request.extensions)
 
     headers = {
@@ -70,9 +69,12 @@ async def get_nodes(query_request: QueryRequest):
     query = query_request.query.strip()
 
     # Initialize or update RAG instance based on incoming parameters
-    rag_global = setup_rag(query_request.system, query_request.data_dir,
+    rag_global = setup_rag(query_request.system,
                            query_request.rag_dir, query_request.extensions)
 
-    result = rag_global.get_results(query)
+    # Await the coroutine result
+    coroutine_result = await rag_global.get_results(query)
+    result = await coroutine_result if isinstance(coroutine_result, Awaitable) else coroutine_result
 
+    # Assuming result is now a dictionary and contains the 'nodes' key
     return (get_source_node_attributes(node) for node in result["nodes"])

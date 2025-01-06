@@ -18,7 +18,6 @@ from llama_index.core import Settings
 from llama_index.llms.openai import OpenAI
 from llama_index.packs.longrag import LongRAGPack
 import os
-import nest_asyncio
 import asyncio
 
 # Custom
@@ -28,7 +27,6 @@ from llama_index.core.callbacks import CallbackManager
 from jet.logger import logger
 from jet.file import save_json
 
-nest_asyncio.apply()
 
 # %%
 # %pip install llama-index

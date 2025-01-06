@@ -32,7 +32,7 @@ logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
 
 GENERATED_DIR = Path("generated")
 DEFAULT_BASE_DIR = os.path.basename(__file__).split(".")[0]
-DEFAULT_DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/data/jet-resume"
+DEFAULT_DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
 
 DEFAULT_MODEL = "mistral"
 DEFAULT_CHUNK_SIZE = 512
@@ -72,7 +72,7 @@ def setup_paths(
 def create_dataset(data_dir):
     # Read rag files
     documents = SimpleDirectoryReader(
-        data_dir, required_exts=[".md"]).load_data()
+        data_dir, required_exts=[".md"], recursive=True).load_data()
     texts = [doc.text for doc in documents]
 
     combined_file_path = os.path.join(data_dir, "combined.txt")

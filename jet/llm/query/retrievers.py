@@ -84,7 +84,7 @@ def setup_index(
         documents, transformations=[splitter], show_progress=True
     )
 
-    def query_nodes(
+    async def query_nodes(
         query: str,
         fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
         threshold: float = 0.0,
@@ -99,7 +99,7 @@ def setup_index(
         fusion_retriever = get_fusion_retriever(
             retrievers, fusion_mode, final_similarity_k)
 
-        retrieved_nodes: list[NodeWithScore] = fusion_retriever.retrieve(query)
+        retrieved_nodes: list[NodeWithScore] = await fusion_retriever.aretrieve(query)
 
         filtered_nodes: list[NodeWithScore] = [
             node for node in retrieved_nodes if node.score > threshold]
@@ -213,8 +213,8 @@ if __name__ == "__main__":
     """
     )
 
-    data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/eval/converted-notebooks/retrievers/data/jet-resume"
-    rag_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/server/rag/generated/summaries"
+    data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
+    rag_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
     extensions = [".md"]
 
     sample_query = "Tell me about yourself."
