@@ -3,7 +3,7 @@ from jet.server.helpers.rag import RAG
 from pydantic import BaseModel
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from script_utils import get_source_node_attributes
+from jet.vectors import get_source_node_attributes
 from jet.transformers import make_serializable
 from jet.logger import logger
 
@@ -26,6 +26,38 @@ class QueryRequest(BaseModel):
         "1. Never directly mention the context or say 'According to my resume' or similar phrases.\n"
         "2. Provide responses as if you are the individual described in the context, focusing on professionalism and relevance."
     )
+
+
+class Metadata(BaseModel):
+    file_path: str
+    file_name: str
+    file_type: str
+    file_size: int
+    creation_date: str
+    last_modified_date: str
+
+
+class Node(BaseModel):
+    id: str
+    score: float
+    text_length: int
+    start_end: list[int]
+    text: str
+    metadata: Metadata
+
+
+class NodesResponse(BaseModel):
+    data: list[Node]
+
+    @classmethod
+    def from_nodes(cls, nodes: list):
+        # Transform the nodes, changing 'node_id' to 'id'
+        transformed_nodes = [
+            {**get_source_node_attributes(node),
+             "id": get_source_node_attributes(node).pop("node_id")}
+            for node in nodes
+        ]
+        return cls(data=transformed_nodes)
 
 
 def setup_rag(
@@ -62,19 +94,14 @@ async def query(query_request: QueryRequest):
     return StreamingResponse(event_stream(query), headers=headers)
 
 
-@router.post("/nodes")
+@router.post("/nodes", response_model=NodesResponse)
 async def get_nodes(query_request: QueryRequest):
     global rag_global
-
     query = query_request.query.strip()
-
-    # Initialize or update RAG instance based on incoming parameters
     rag_global = setup_rag(query_request.system,
                            query_request.rag_dir, query_request.extensions)
-
-    # Await the coroutine result
     coroutine_result = await rag_global.get_results(query)
     result = await coroutine_result if isinstance(coroutine_result, Awaitable) else coroutine_result
 
-    # Assuming result is now a dictionary and contains the 'nodes' key
-    return (get_source_node_attributes(node) for node in result["nodes"])
+    # Use the from_nodes class method to create the response model
+    return NodesResponse.from_nodes(result["nodes"])

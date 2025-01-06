@@ -9,7 +9,8 @@ from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode, ImageNode
 from llama_index.core.node_parser import TokenTextSplitter
 
-from script_utils import display_source_nodes, get_source_node_attributes
+from script_utils import display_source_nodes
+from jet.vectors import get_source_node_attributes
 from jet.logger import logger
 from jet.llm import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
