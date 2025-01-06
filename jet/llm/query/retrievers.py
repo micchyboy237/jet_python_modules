@@ -1,4 +1,6 @@
 import os
+from typing import Optional
+from jet.llm.token import filter_texts
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
 from llama_index.core.query_engine import RetrieverQueryEngine
@@ -70,7 +72,6 @@ def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MO
 
 def setup_index(
     documents: list[Document],
-    data_dir: str = None,
     *,
     chunk_size: int = 256,
     chunk_overlap: int = 20,
@@ -83,14 +84,14 @@ def setup_index(
         documents, transformations=[splitter], show_progress=True
     )
 
-    initial_similarity_k = len(documents)
-    final_similarity_k = len(all_nodes)
-
     def query_nodes(
         query: str,
         fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
         threshold: float = 0.0,
+        top_k: Optional[int] = None,
     ):
+        initial_similarity_k = len(documents)
+        final_similarity_k = len(all_nodes)  # top_k or len(all_nodes)
         # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
         retrievers = setup_retrievers(
             index, initial_similarity_k, final_similarity_k)
@@ -102,18 +103,12 @@ def setup_index(
 
         filtered_nodes: list[NodeWithScore] = [
             node for node in retrieved_nodes if node.score > threshold]
+        if top_k:
+            filtered_nodes = filtered_nodes[:top_k]
 
         unique_files = set()
 
-        if data_dir and "metadata" in filtered_nodes[0]:
-            texts = [
-                read_file(file_path)
-                for node in filtered_nodes
-                if not (file_path := os.path.join(data_dir, node.metadata['file_name'])) in unique_files
-                and not unique_files.add(file_path)
-            ]
-        else:
-            texts = [node.text for node in filtered_nodes]
+        texts = [node.text for node in filtered_nodes]
 
         result = {
             "nodes": filtered_nodes,
@@ -127,20 +122,39 @@ def setup_index(
     return query_nodes
 
 
+def get_relative_path(abs_path: str, partial_path: str) -> str:
+    """
+    Extracts the relative path from the absolute path using the given partial path as the starting point.
+
+    :param abs_path: The absolute path to process.
+    :param partial_path: The partial path to locate within the absolute path.
+    :return: The resulting relative path starting from the partial path.
+    """
+    if partial_path in abs_path:
+        start_index = abs_path.index(partial_path)
+        return abs_path[start_index:]
+    else:
+        raise ValueError(f"Partial path '{
+                         partial_path}' not found in the absolute path '{abs_path}'.")
+
+
 def query_llm(
     query: str,
     contexts: list[str],
     model: str = "llama3.1",
     options: OllamaChatOptions = {},
     system: str = SYSTEM_MESSAGE,
-    template: str = PROMPT_TEMPLATE,
+    template: PromptTemplate = PROMPT_TEMPLATE,
+    max_tokens: Optional[int | float] = None,
     # retriever: QueryFusionRetriever,
 ):
     # query_engine = RetrieverQueryEngine.from_args(retriever, text_qa_template=)
     # response = query_engine.query(query)
     # return response
 
-    context = "\n\n".join(contexts)
+    filtered_texts = filter_texts(
+        contexts, model, max_tokens=max_tokens)
+    context = "\n\n".join(filtered_texts)
     prompt = template.format(
         context_str=context, query_str=query
     )
@@ -208,7 +222,7 @@ if __name__ == "__main__":
     documents = SimpleDirectoryReader(
         rag_dir, required_exts=extensions).load_data()
 
-    query_nodes = setup_index(documents, data_dir)
+    query_nodes = setup_index(documents)
 
     # logger.newline()
     # logger.info("RECIPROCAL_RANK: query...")
@@ -221,7 +235,7 @@ if __name__ == "__main__":
     logger.newline()
     logger.info("RELATIVE_SCORE: sample query...")
     result = query_nodes(
-        sample_query, FUSION_MODES.RELATIVE_SCORE)
+        sample_query, FUSION_MODES.RELATIVE_SCORE, threshold=0.2)
     logger.info(f"RETRIEVED NODES ({len(result["nodes"])})")
     display_source_nodes(sample_query, result["nodes"])
 

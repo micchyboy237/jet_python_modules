@@ -21,6 +21,20 @@ OLLAMA_MODEL_CONTEXTS = {
     # "llama3.2-vision": 131072,
 }
 
+OLLAMA_MODEL_EMBEDDING_TOKENS = {
+    "gemma2:2b": 2304,
+    "gemma2:9b": 3584,
+    "qwen2.5-coder": 3584,
+    "nomic-embed-text": 768,
+    "mistral": 4096,
+    "mxbai-embed-large": 1024,
+    "llama3.1": 4096,
+    "codellama": 4096,
+    "deepseek-coder-v2": 2048,
+    "llava": 4096,
+    "llama3.2": 3072
+}
+
 
 OLLAMA_HF_MODELS = {
     "mistral": "mistralai/Mistral-7B-Instruct-v0.3",

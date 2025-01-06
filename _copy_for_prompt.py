@@ -30,8 +30,6 @@ exclude_files = [
 include_files = [
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/__init__.py",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/globals.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/code/__init__.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/code/markdown_code_extractor.py",
 ]
 structure_include = [
     # "*.py"
@@ -51,42 +49,8 @@ Execute browse or internet search if requested.
 """.strip()
 
 DEFAULT_QUERY_MESSAGE = """
-- What do I do in order to allow vscode auto import and auto complete intellisense using pylance extension settings?
-python.analysis.autoFormatStrings
-python.analysis.autoImportCompletions
-python.analysis.autoIndent
-python.analysis.autoSearchPaths
-python.analysis.completeFunctionParens
-python.analysis.diagnosticMode
-python.analysis.diagnosticSeverityOverrides
-python.analysis.disableTaggedHints
-python.analysis.enablePytestSupport
-python.analysis.exclude
-python.analysis.experimentalserver
-python.analysis.extraCommitChars
-python.analysis.extraPaths
-python.analysis.fixAll
-python.analysis.gotoDefinitionInStringLiteral
-python.analysis.ignore
-python.analysis.importFormat
-python.analysis.include
-python.analysis.indexing
-python.analysis.inlayHints.callArgumentNames
-python.analysis.inlayHints.functionReturnTypes
-python.analysis.inlayHints.pytestParameters
-python.analysis.inlayHints.variableTypes
-python.analysis.logLevel
-python.analysis.nodeExecutable
-python.analysis.packageIndexDepths
-python.analysis.persistAllIndices
-python.analysis.regenerateStdLibIndices
-python.analysis.stubPath
-python.analysis.typeCheckingMode
-python.analysis.typeshedPaths
-python.analysis.useLibraryCodeForTypes
-python.analysis.userFileIndexingLimit
-
-- Which files should I create / update?
+- How do add a global class that is imported from other module?
+- How to make this available for ctrl+space vscode pylance intellisense?
 """.strip()
 
 # Project specific
