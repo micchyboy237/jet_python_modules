@@ -1,5 +1,9 @@
+from collections import defaultdict
 from typing import Callable, Optional, Sequence, TypedDict, Any, Union
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse
+from llama_index.core.callbacks.base import CallbackManager
+from llama_index.core.callbacks.base_handler import BaseCallbackHandler
+from llama_index.core.callbacks.schema import CBEvent, CBEventType, EventPayload
 from llama_index.core.llms.llm import LLM
 from llama_index.llms.ollama import Ollama as BaseOllama
 from llama_index.embeddings.ollama import OllamaEmbedding as BaseOllamaEmbedding
@@ -7,11 +11,49 @@ from llama_index.core import Settings
 
 from jet.llm.ollama import (
     base_url,
+    base_embed_url,
     large_embed_model,
     DEFAULT_LLM_SETTINGS,
     DEFAULT_EMBED_SETTINGS,
+    DEFAULT_EMBED_BATCH_SIZE,
 )
+from jet.llm.ollama.config import DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP
 from jet.logger import logger
+
+
+# class StreamCallbackManager(CallbackManager):
+#     def on_event_start(
+#         self,
+#         event_type: CBEventType,
+#         payload: Optional[dict[str, any]] = None,
+#         event_id: str = "",
+#         parent_id: str = "",
+#         **kwargs: any,
+#     ):
+#         logger.log("StreamCallbackManager on_event_start:", {
+#             "event_type": event_type,
+#             "payload": payload,
+#             "event_id": event_id,
+#             "parent_id": parent_id,
+#             **kwargs
+#         })
+
+#     def on_event_end(
+#         self,
+#         event_type: CBEventType,
+#         payload: Optional[dict[str, any]] = None,
+#         event_id: str = "",
+#         **kwargs: any,
+#     ):
+#         logger.log("StreamCallbackManager on_event_end:", {
+#             "event_type": event_type,
+#             "payload": str(payload)[:50],
+#             "event_id": event_id,
+#             **kwargs
+#         })
+
+
+# Settings.callback_manager = StreamCallbackManager()
 
 
 class SettingsDict(TypedDict, total=False):
@@ -29,30 +71,24 @@ class EnhancedSettings(Settings):
     model: str
     embedding_model: str
     count_tokens: Callable[[str], int]
+    embed_model: object
+    llm: object
+    chunk_size: int
+    chunk_overlap: int
 
 
-def initialize_ollama_settings(settings: SettingsDict = {}):
-    embedding_model = settings.get("embedding_model",
-                                   DEFAULT_EMBED_SETTINGS['model_name'])
-    Settings.embed_model = OllamaEmbedding(
+def initialize_ollama_settings(settings: SettingsDict = {}) -> EnhancedSettings:
+    embedding_model = settings.get(
+        "embedding_model", DEFAULT_EMBED_SETTINGS['model_name'])
+    embed_model = OllamaEmbedding(
         model_name=DEFAULT_EMBED_SETTINGS['model_name'],
-        base_url=base_url,
+        base_url=settings.get("base_url", DEFAULT_EMBED_SETTINGS['base_url']),
         embed_batch_size=DEFAULT_EMBED_SETTINGS['embed_batch_size'],
         ollama_additional_kwargs=DEFAULT_EMBED_SETTINGS['ollama_additional_kwargs'],
     )
 
     llm_model = settings.get("llm_model", DEFAULT_LLM_SETTINGS['model'])
-    Settings.llm = create_llm(
-        model=llm_model,
-        base_url=settings.get("base_url", DEFAULT_LLM_SETTINGS['base_url']),
-        temperature=settings.get(
-            "temperature", DEFAULT_LLM_SETTINGS['temperature']),
-        context_window=settings.get(
-            "context_window", DEFAULT_LLM_SETTINGS['context_window']),
-        request_timeout=settings.get(
-            "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
-    )
-    Settings.llm = Ollama(
+    llm = Ollama(
         model=llm_model,
         base_url=settings.get("base_url", DEFAULT_LLM_SETTINGS['base_url']),
         temperature=settings.get(
@@ -63,21 +99,26 @@ def initialize_ollama_settings(settings: SettingsDict = {}):
             "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
     )
 
-    if settings.get("chunk_size"):
-        Settings.chunk_size = settings["chunk_size"]
+    chunk_size = settings.get(
+        "chunk_size", DEFAULT_LLM_SETTINGS.get('chunk_size'))
+    chunk_overlap = settings.get(
+        "chunk_overlap", DEFAULT_LLM_SETTINGS.get('chunk_overlap'))
 
-    if settings.get("chunk_overlap"):
-        Settings.chunk_overlap = settings["chunk_overlap"]
-
-    EnhancedSettings.model = llm_model
-    EnhancedSettings.embedding_model = embedding_model
+    enhanced_settings = EnhancedSettings()
+    enhanced_settings.model = llm_model
+    enhanced_settings.embedding_model = embedding_model
+    enhanced_settings.embed_model = embed_model
+    enhanced_settings.llm = llm
+    enhanced_settings.chunk_size = DEFAULT_CHUNK_SIZE
+    enhanced_settings.chunk_overlap = DEFAULT_CHUNK_OVERLAP
 
     def count_tokens(text: str) -> int:
         from jet.token import token_counter
         return token_counter(text, llm_model)
-    EnhancedSettings.count_tokens = count_tokens
 
-    return EnhancedSettings
+    enhanced_settings.count_tokens = count_tokens
+
+    return enhanced_settings
 
 
 def update_llm_settings(settings: SettingsDict = {}):
@@ -173,9 +214,20 @@ class OllamaEmbedding(BaseOllamaEmbedding):
 
         for attempt in range(max_retries):
             try:
-                result = self._client.embed(
-                    model=self.model_name, input=texts, options=self.ollama_additional_kwargs
-                )
+                with self.callback_manager.event(
+                    CBEventType.EMBEDDING,
+                    payload={EventPayload.SERIALIZED: self.to_dict()},
+                ) as event:
+                    result = self._client.embed(
+                        model=self.model_name, input=texts, options=self.ollama_additional_kwargs
+                    )
+                    event.on_end(
+                        payload={
+                            EventPayload.CHUNKS: [texts] if isinstance(texts, str) else texts,
+                            EventPayload.EMBEDDINGS: [result["embeddings"][0]],
+                        },
+                    )
+
                 return result["embeddings"][0]
             except Exception as e:
                 if attempt < max_retries - 1:
@@ -185,3 +237,84 @@ class OllamaEmbedding(BaseOllamaEmbedding):
                 else:
                     print("Max retries reached. Raising the exception.")
                     raise e
+
+
+class StreamCallbackHandler(BaseCallbackHandler):
+    def __init__(
+        self,
+    ) -> None:
+        """Initialize the Stream callback handler."""
+        super().__init__(
+            event_starts_to_ignore=[],
+            event_ends_to_ignore=[],
+        )
+        self._event_pairs_by_id: dict[str, list[CBEvent]] = defaultdict(list)
+        self._trace_map: dict[str, list[str]] = defaultdict(list)
+
+    def on_event_start(
+        self,
+        event_type: CBEventType,
+        payload: Optional[dict[str, any]] = None,
+        event_id: str = "",
+        parent_id: str = "",
+        **kwargs: any,
+    ):
+        logger.log("StreamCallbackHandler on_event_start:", {
+            "event_type": event_type,
+            "payload": payload,
+            "event_id": event_id,
+            "parent_id": parent_id,
+            **kwargs
+        })
+
+        event = CBEvent(event_type, payload=payload, id_=event_id)
+        self._event_pairs_by_id[event.id_].append(event)
+
+    def on_event_end(
+        self,
+        event_type: CBEventType,
+        payload: Optional[dict[str, any]] = None,
+        event_id: str = "",
+        **kwargs: any,
+    ):
+        logger.log("StreamCallbackHandler on_event_end:", {
+            "event_type": event_type,
+            "payload": str(payload)[:50],
+            "event_id": event_id,
+            **kwargs
+        })
+
+        event = CBEvent(event_type, payload=payload, id_=event_id)
+        self._event_pairs_by_id[event.id_].append(event)
+        self._trace_map = defaultdict(list)
+
+    def start_trace(self, trace_id: Optional[str] = None) -> None:
+        self._trace_map = defaultdict(list)
+        return super().start_trace(trace_id)
+
+    def end_trace(
+        self,
+        trace_id: Optional[str] = None,
+        trace_map: Optional[dict[str, list[str]]] = None,
+    ) -> None:
+        self._trace_map = trace_map or defaultdict(list)
+        return super().end_trace(trace_id, trace_map)
+
+    def build_trace_map(
+        self,
+        cur_event_id: str,
+        trace_map: Any,
+    ) -> dict[str, Any]:
+        event_pair = self._event_pairs_by_id[cur_event_id]
+        if event_pair:
+            event_data = {
+                "event_type": event_pair[0].event_type,
+                "event_id": event_pair[0].id_,
+                "children": {},
+            }
+            trace_map[cur_event_id] = event_data
+
+        child_event_ids = self._trace_map[cur_event_id]
+        for child_event_id in child_event_ids:
+            self.build_trace_map(child_event_id, event_data["children"])
+        return trace_map

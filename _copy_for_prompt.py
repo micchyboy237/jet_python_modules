@@ -41,7 +41,7 @@ exclude_content = []
 
 # Args defaults
 SHORTEN_FUNCTS = False
-INCLUDE_FILE_STRUCTURE = True
+INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_SYSTEM_MESSAGE = """
 Dont use or add to memory.

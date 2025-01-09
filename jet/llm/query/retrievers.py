@@ -1,6 +1,8 @@
 import os
 from typing import Optional
 from jet.token import filter_texts
+from llama_index.core.callbacks.base import CallbackManager
+from llama_index.core.callbacks.schema import CBEventType
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
 from llama_index.core.query_engine import RetrieverQueryEngine
@@ -43,7 +45,8 @@ def setup_retrievers(index: VectorStoreIndex, initial_similarity_k: int, final_s
     from llama_index.retrievers.bm25 import BM25Retriever
 
     vector_retriever = index.as_retriever(
-        similarity_top_k=initial_similarity_k)
+        similarity_top_k=initial_similarity_k,
+    )
 
     bm25_retriever = BM25Retriever.from_defaults(
         docstore=index.docstore, similarity_top_k=final_similarity_k
@@ -62,6 +65,7 @@ def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MO
         mode=fusion_mode,
         use_async=True,
         verbose=True,
+
     )
 
     return retriever
@@ -81,7 +85,9 @@ def setup_index(
     all_nodes = splitter.get_nodes_from_documents(documents)
     # Next, we will setup a vector index over the documentation.
     index = VectorStoreIndex.from_documents(
-        documents, transformations=[splitter], show_progress=True
+        documents,
+        transformations=[splitter],
+        show_progress=True,
     )
 
     async def query_nodes(

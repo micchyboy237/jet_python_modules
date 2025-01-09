@@ -21,8 +21,8 @@ import os
 import asyncio
 
 # Custom
-from llama_index.embeddings.ollama import OllamaEmbedding
-from llama_index.llms.ollama import Ollama
+from jet.llm.ollama.base import OllamaEmbedding
+from jet.llm.ollama.base import Ollama
 from llama_index.core.callbacks import CallbackManager
 from jet.logger import logger
 from jet.file import save_json

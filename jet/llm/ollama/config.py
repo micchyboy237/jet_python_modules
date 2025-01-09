@@ -6,6 +6,11 @@ small_llm_model = "llama3.2"
 large_llm_model = "llama3.1"
 small_embed_model = "mxbai-embed-large"
 large_embed_model = "nomic-embed-text"
+
+DEFAULT_CHUNK_SIZE = 1024
+DEFAULT_CHUNK_OVERLAP = 100
+
+DEFAULT_EMBED_BATCH_SIZE = 32
 DEFAULT_LLM_SETTINGS = {
     "model": large_llm_model,
     "context_window": 4096,

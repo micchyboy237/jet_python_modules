@@ -5,8 +5,8 @@ from llama_index.core.prompts import PromptTemplate
 from llama_index.core.schema import Document, QueryBundle, BaseNode, NodeWithScore
 from llama_index.core.indices.query.query_transform import HyDEQueryTransform
 from llama_index.core.query_engine.transform_query_engine import TransformQueryEngine
-from llama_index.embeddings.ollama import OllamaEmbedding
-from llama_index.llms.ollama import Ollama
+from jet.llm.ollama.base import OllamaEmbedding
+from jet.llm.ollama.base import Ollama
 from llama_index.core.llms import (
     LLM,
     ChatMessage,
