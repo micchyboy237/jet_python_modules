@@ -14,7 +14,7 @@ from jet.llm.utils import display_jet_source_nodes
 from jet.logger import logger
 from jet.llm import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
-from jet.llm.ollama import initialize_ollama_settings, large_llm_model
+from jet.llm.ollama import initialize_ollama_settings
 initialize_ollama_settings()
 
 
@@ -63,7 +63,7 @@ def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MO
         similarity_top_k=final_similarity_k,
         num_queries=1,  # set this to 1 to disable query generation
         mode=fusion_mode,
-        use_async=True,
+        use_async=False,
         verbose=True,
 
     )

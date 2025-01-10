@@ -100,8 +100,7 @@ async def get_nodes(query_request: QueryRequest):
     query = query_request.query.strip()
     rag_global = setup_rag(query_request.system,
                            query_request.rag_dir, query_request.extensions)
-    coroutine_result = await rag_global.get_results(query)
-    result = await coroutine_result if isinstance(coroutine_result, Awaitable) else coroutine_result
+    result = rag_global.get_results(query)
 
     # Use the from_nodes class method to create the response model
     return NodesResponse.from_nodes(result["nodes"])

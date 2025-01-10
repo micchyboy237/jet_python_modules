@@ -30,6 +30,10 @@ def display_jet_source_node(
                 source_node.text) > source_length else source_node.text,
             colors=["GRAY", "DEBUG"],
         )
+        with open(source_node.metadata['file_path'], "r", encoding="utf-8") as file:
+            content_length = len(file.read())
+        logger.log("File length:", content_length,
+                   colors=["GRAY", "SUCCESS"])
         logger.log("Text length:", len(source_node.text),
                    colors=["GRAY", "SUCCESS"])
         if hasattr(source_node, "start_char_idx") and hasattr(source_node, "end_char_idx"):
@@ -46,7 +50,7 @@ def display_jet_source_node(
         }, indent=2))
 
     if score != None:
-        logger.log("Similarity:", score, colors=["GRAY", "SUCCESS"])
+        logger.log("Similarity:", f"{score:.4f}", colors=["GRAY", "SUCCESS"])
 
 
 def display_jet_source_nodes(
@@ -78,6 +82,18 @@ def display_jet_source_nodes(
         )
         logger.log("---")
     logger.newline()
+
+    if isinstance(source_nodes[0], NodeWithScore):
+        for idx, source_node in enumerate(source_nodes):
+            score = source_node.score if source_node.score != None else 0
+            content = json.dumps(source_node.text).strip('"')
+            logger.log(
+                f"{idx + 1}:",
+                source_node.metadata['file_name'],
+                f"{score:.4f}",
+                colors=["INFO", "DEBUG", "SUCCESS"]
+            )
+            logger.log(content[:source_length] + '...')
 
 
 # Example usage
