@@ -36,6 +36,8 @@ def make_serializable(obj):
         except UnicodeDecodeError:
             decoded_str = base64.b64encode(obj).decode('utf-8')
         return make_serializable(decoded_str)
+    elif isinstance(obj, set):
+        return list(obj)
     elif isinstance(obj, list):
         return [make_serializable(item) for item in obj]
     elif isinstance(obj, dict):
