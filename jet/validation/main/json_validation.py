@@ -10,11 +10,14 @@ MODEL = "llama3.1"
 PROMPT_TEMPLATE = """
 Schema:
 [schema]
-JSON to validate:
+
+JSON to correct:
 [prompt]
-Validation Errors:
+
+Validation errors:
 [errors]
-Corrected JSON:
+
+Fix JSON based on schema and errors:
 """
 
 SYSTEM = f"""

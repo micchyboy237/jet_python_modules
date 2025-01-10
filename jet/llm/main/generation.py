@@ -78,6 +78,8 @@ def call_ollama_chat(
     token_counter = get_token_counter()
     token_count = token_counter(messages, model=model)
 
+    options = {**DEFAULT_SETTINGS, **(options or {})}
+
     logger.newline()
     logger.log("Model:", model, colors=["GRAY", "INFO"])
     logger.log("Prompt:", char_count, colors=["GRAY", "INFO"])
@@ -93,8 +95,7 @@ def call_ollama_chat(
 
     if tools:
         stream = False
-
-    options = {**DEFAULT_SETTINGS, **(options or {})}
+        options["temperature"] = 0
 
     # Format tool outputs to string if any
     messages = convert_tool_outputs_to_string(messages)
@@ -108,7 +109,7 @@ def call_ollama_chat(
         "template": template,
         # "raw": False,
         "tools": tools,
-        "format": format,
+        "format": json.dumps(format),
         "options": options,
     }
     body = make_serializable(body)
