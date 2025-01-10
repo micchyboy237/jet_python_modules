@@ -45,8 +45,8 @@ def call_ollama_chat(
     keep_alive: Union[str, int] = "15m",
     template: str = None,
     track: Track = None,
-    with_usage: dict = False,
-) -> Union[ChatResponseInfo, Generator[str, None, None]]:
+    full_stream_response: bool = False,
+) -> Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
     """
     Wraps call_ollama_chat to track the prompt and response using Aim.
 
@@ -59,9 +59,11 @@ def call_ollama_chat(
         options (dict): Additional model parameters like temperature.
         stream (bool): Whether to stream the response (defaults to True).
         track (Track): Enable Aim tracking for prompt, response and other metadata.
+        full_stream_response (bool): For stream only. Enable full dict format for each chunk.
 
     Returns:
-        Union[dict, Generator[str, None, None]]: Either the JSON response or a generator for streamed responses.
+         Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
+         Either the JSON response or a generator for streamed responses.
     """
     from aim import Run, Text
 
@@ -128,8 +130,6 @@ def call_ollama_chat(
     headers = {
         "Tokens": str(token_count),  # Include the token count here
     }
-
-    response_usage = {}
 
     try:
         # Make the POST request with headers
@@ -217,15 +217,6 @@ def call_ollama_chat(
                                            "DEBUG", "SUCCESS"])
                                 logger.newline()
 
-                                # Populate usage info
-                                if with_usage:
-                                    response_usage["total_duration"] = response_info["total_duration"]
-                                    response_usage["load_duration"] = response_info["load_duration"]
-                                    response_usage["prompt_eval_count"] = response_info["prompt_eval_count"]
-                                    response_usage["prompt_eval_duration"] = response_info["prompt_eval_duration"]
-                                    response_usage["eval_count"] = response_info["eval_count"]
-                                    response_usage["eval_duration"] = response_info["eval_duration"]
-
                                 # For Aim tracking
                                 if track:
                                     # Log the prompt (messages) to Aim
@@ -262,13 +253,10 @@ def call_ollama_chat(
                                         track_args, indent=2), colors=["WHITE", "INFO"])
                                     run.track(aim_value, **track_args)
 
-                            yield content
-
-                            if with_usage:
-                                yield {
-                                    "type": "usage",
-                                    "data": response_usage,
-                                }
+                            if full_stream_response:
+                                yield decoded_chunk
+                            else:
+                                yield content
 
                         except json.JSONDecodeError:
                             logger.warning(
@@ -334,17 +322,6 @@ def call_ollama_chat(
             logger.log("Total tokens:", total_tokens,
                        colors=["DEBUG", "SUCCESS"])
             logger.newline()
-
-            # Populate usage info
-            if with_usage:
-                response_usage["total_duration"] = response_info["total_duration"]
-                response_usage["load_duration"] = response_info["load_duration"]
-                response_usage["prompt_eval_count"] = response_info["prompt_eval_count"]
-                response_usage["prompt_eval_duration"] = response_info["prompt_eval_duration"]
-                response_usage["eval_count"] = response_info["eval_count"]
-                response_usage["eval_duration"] = response_info["eval_duration"]
-
-                response["usage"] = response_usage
 
             return response
 

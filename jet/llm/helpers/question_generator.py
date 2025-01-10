@@ -1,9 +1,16 @@
 # Reusable constants
 from jet.llm.ollama import initialize_ollama_settings
-from jet.llm.ollama.base import Ollama
+from jet.llm.ollama.constants import OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_LLM_MODEL
+from jet.llm.query.retrievers import get_fusion_retriever, setup_retrievers
 from jet.logger import logger
 from jet.transformers import make_serializable
-from script_utils import display_source_nodes
+from jet.token.token_utils import get_tokenizer
+from llama_index.core.evaluation.retrieval.evaluator import RetrieverEvaluator
+from llama_index.core.llama_dataset.legacy.embedding import EmbeddingQAFinetuneDataset
+from llama_index.core.node_parser.text.sentence import SentenceSplitter
+from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
+from llama_index.core.schema import Document
+from jet.llm.utils import display_jet_source_nodes
 import sys
 import logging
 from llama_index.core.evaluation import EvaluationResult
@@ -13,13 +20,22 @@ from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, Response
 import random
 import json
 
-DATA_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
-NUM_QUESTIONS_PER_CHUNK = 3
+DATA_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data"
 LLM_MODEL = "llama3.1"
+NUM_QUESTIONS_PER_CHUNK = 3
+
 QUESTION_GEN_QUERY = f"""
 You are a Job Employer. Your task is to setup {NUM_QUESTIONS_PER_CHUNK} questions
 for an upcoming interview. The questions should be relevant to the document.
 Restrict the questions to the context information provided.
+
+Format response with numeric list of questions separated by newline.
+Example response format:
+1. Question 1
+2. Question 2
+3. Question 3
+
+Output only the generated questions without any explanations.
 """
 QUESTION_GENERATION_PROMPT = """\
 Context information is below.
@@ -32,48 +48,64 @@ Query: {query_str}
 """
 
 
-class QuestionGenerationEvaluator:
-    def __init__(self, data_path, num_questions_per_chunk, llm_model):
+class QuestionGenerator:
+    def __init__(
+        self,
+        data_path,
+        num_questions_per_chunk: int = NUM_QUESTIONS_PER_CHUNK,
+        llm_model: str = OLLAMA_LARGE_LLM_MODEL,
+        chunk_size: int = OLLAMA_LARGE_CHUNK_SIZE,
+        chunk_overlap: int = OLLAMA_LARGE_CHUNK_OVERLAP,
+    ):
         self.data_path = data_path
         self.num_questions_per_chunk = num_questions_per_chunk
-        self.llm_model = llm_model
-        self._initialize_settings()
+        self.model = llm_model
+        self.tokenizer = get_tokenizer(llm_model)
+        self.llm_settings = initialize_ollama_settings({
+            "llm_model": self.model,
+        })
         self.reader = SimpleDirectoryReader(data_path, required_exts=[".md"])
         self.documents = self.reader.load_data()
-        self.vector_index = VectorStoreIndex.from_documents(self.documents)
-        self.gpt4 = Ollama(
-            temperature=0, model=self.llm_model,
-            request_timeout=300.0, context_window=4096
+        self.nodes = self._initialize_nodes(
+            self.documents, chunk_size, chunk_overlap)
+        self.vector_index_obj = VectorStoreIndex(
+            embed_model=self.llm_settings.embed_model,
+            nodes=self.documents,
+            show_progress=True,
         )
-        self.evaluator = RelevancyEvaluator(llm=self.gpt4)
+        self.vector_index = self.vector_index_obj.from_documents(
+            self.documents,
+            embed_model=self.llm_settings.embed_model,
+        )
+        self.llm = self.llm_settings.llm
+        self.evaluator = RelevancyEvaluator(llm=self.llm)
 
-    def _initialize_settings(self):
-        initialize_ollama_settings()
+    def _initialize_nodes(
+        self,
+        documents: list[Document],
+        chunk_size: int,
+        chunk_overlap: int,
+    ):
+        # create parser and parse documents into nodes
+        parser = SentenceSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            tokenizer=self.tokenizer.encode,
+        )
+        nodes = parser(documents)
+        return nodes
 
-    def generate_dataset(self):
+    def generate_questions(self) -> list[str]:
         question_template = PromptTemplate(QUESTION_GENERATION_PROMPT)
         data_generator = DatasetGenerator.from_documents(
             self.documents,
+            llm=self.llm,
             num_questions_per_chunk=self.num_questions_per_chunk,
             question_gen_query=QUESTION_GEN_QUERY,
             text_question_template=question_template,
         )
-        qa_dataset = generate_question_context_pairs(
-            self.documents, llm=gpt4, num_questions_per_chunk=self.num_questions_per_chunk, qa_generate_prompt_tmpl=QUESTION_GENERATION_PROMPT
-        )
         questions = data_generator.generate_questions_from_nodes()
-        return random.sample(questions, 5)
-
-    def generate_questions(self):
-        question_template = PromptTemplate(QUESTION_GENERATION_PROMPT)
-        data_generator = DatasetGenerator.from_documents(
-            self.documents,
-            num_questions_per_chunk=self.num_questions_per_chunk,
-            question_gen_query=QUESTION_GEN_QUERY,
-            text_question_template=question_template,
-        )
-        questions = data_generator.generate_questions_from_nodes()
-        return random.sample(questions, 5)
+        return questions
 
     def evaluate_questions(self, questions):
         results = []
@@ -83,13 +115,12 @@ class QuestionGenerationEvaluator:
             eval_result = self.evaluator.evaluate_response(
                 query=question, response=response_vector
             )
-            self.display_eval_df(question, response_vector, eval_result)
             results.append(eval_result)
         return results
 
     @staticmethod
     def display_eval_df(query, response, eval_result):
-        display_source_nodes(query, response.source_nodes)
+        display_jet_source_nodes(query, response.source_nodes)
         logger.newline()
         logger.info("Eval Results:")
         items = [(key, result) for key, result in eval_result.model_dump(
@@ -107,7 +138,7 @@ class QuestionGenerationEvaluator:
 
 
 def main():
-    evaluator = QuestionGenerationEvaluator(
+    evaluator = QuestionGenerator(
         data_path=DATA_PATH,
         num_questions_per_chunk=NUM_QUESTIONS_PER_CHUNK,
         llm_model=LLM_MODEL,
@@ -119,6 +150,14 @@ def main():
     logger.success(json.dumps(make_serializable(questions), indent=2))
 
     evaluator.evaluate_questions(questions)
+
+    qa_dataset = evaluator.generate_dataset()
+    logger.newline()
+    logger.info("Generated QA dataset pairs:")
+    logger.success(json.dumps(make_serializable(qa_dataset), indent=2))
+
+    evaluator.evaluate_dataset(qa_dataset)
+
     logger.info("\n\n[DONE]", bright=True)
 
 

@@ -31,11 +31,12 @@ isoduration==20.11.0
 jupyter==1.1.1
 langchain-text-splitters==0.3.2
 lark==1.2.2
-llama-index-packs-neo4j-query-engine @ file:///Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/eval/converted-notebooks/examples/neo4j_pack
+-e git+ssh://git@github.com/run-llama/llama_index.git@ad3be7fec4fa0f032661f9783c462a45cf3f6a3f#egg=llama_index_core&subdirectory=llama-index-core
 lxml_html_clean==0.4.1
 Markdown==3.7
 mem0ai==0.1.36
 mitmproxy==11.0.2
+neo4j==5.27.0
 ollama==0.4.4
 opencv-python==4.10.0.84
 openpyxl==3.1.5
@@ -74,9 +75,3 @@ watchfiles==1.0.0
 webcolors==24.11.1
 webdriver-manager==4.0.2
 wikipedia==1.4.0
-
-# Install this current dir as a package
--e .
-
-# Custom local paths
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core

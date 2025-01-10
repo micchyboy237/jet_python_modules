@@ -16,7 +16,7 @@ rag_global: RAG = None
 # Define the schema for input queries
 class QueryRequest(BaseModel):
     query: str
-    rag_dir: str = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
+    rag_dir: str = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data"
     extensions: list[str] = [".md"]
     system: str = (
         "You are a job applicant providing tailored responses during an interview.\n"

@@ -23,7 +23,7 @@ from llama_index.core.indices.query.query_transform.base import (
     StepDecomposeQueryTransform,
 )
 from llama_index.core.query_engine import BaseQueryEngine, MultiStepQueryEngine
-from llama_index.core.response.notebook_utils import display_source_node
+from jet.llm.utils import display_jet_source_node
 
 
 DEFAULT_SETTINGS = {
@@ -188,7 +188,7 @@ class QueryProcessor:
             nodes, query_bundle=query_bundle)
         for ranked_node in ranked_nodes:
             print('----------------------------------------------------')
-            display_source_node(ranked_node, source_length=500)
+            display_jet_source_node(ranked_node, source_length=500)
         # Initialize the query engine with Re-Ranking
         query_engine = index.as_query_engine(
             similarity_top_k=3,
@@ -326,7 +326,7 @@ def main():
     # Print the chunks
     for node in query_nodes:
         print('----------------------------------------------------')
-        display_source_node(node, source_length=500)
+        display_jet_source_node(node, source_length=500)
     results["initial_query_nodes"] = {
         "query": query,
         "response": query_nodes,
@@ -362,7 +362,7 @@ def main():
         query_nodes, query_bundle=query_bundle)
     for ranked_node in ranked_nodes:
         print('----------------------------------------------------')
-        display_source_node(ranked_node, source_length=500)
+        display_jet_source_node(ranked_node, source_length=500)
     # Print the response from the model
     response = query_engine.query(query)
     results["rerank"] = {
@@ -384,7 +384,7 @@ def main():
         query_nodes, query_bundle=query_bundle)
     for ranked_node in ranked_nodes:
         print('----------------------------------------------------')
-        display_source_node(ranked_node, source_length=500)
+        display_jet_source_node(ranked_node, source_length=500)
     # Print the response from the model
     response = query_engine.query(query)
     results["rerank"] = {
@@ -406,7 +406,7 @@ def main():
         query_nodes, query_bundle=query_bundle)
     for ranked_node in ranked_nodes:
         print('----------------------------------------------------')
-        display_source_node(ranked_node, source_length=500)
+        display_jet_source_node(ranked_node, source_length=500)
     # Print the response from the model
     response = query_engine.query(query)
     results["rerank"] = {

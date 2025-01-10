@@ -4,7 +4,7 @@ from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemp
 from jet.llm.query.retrievers import query_llm, setup_index
 
 DEFAULT_SYSTEM = ""
-DEFAULT_DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
+DEFAULT_DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data"
 DEFAULT_EXTENSIONS = [".md", ".mdx", ".rst"]
 
 

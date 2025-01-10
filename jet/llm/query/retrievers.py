@@ -10,7 +10,7 @@ from llama_index.core.base.base_retriever import BaseRetriever
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode, ImageNode
-from script_utils import display_source_nodes
+from jet.llm.utils import display_jet_source_nodes
 from jet.logger import logger
 from jet.llm import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
@@ -90,7 +90,7 @@ def setup_index(
         show_progress=True,
     )
 
-    async def query_nodes(
+    def query_nodes(
         query: str,
         fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
         threshold: float = 0.0,
@@ -105,7 +105,7 @@ def setup_index(
         fusion_retriever = get_fusion_retriever(
             retrievers, fusion_mode, final_similarity_k)
 
-        retrieved_nodes: list[NodeWithScore] = await fusion_retriever.aretrieve(query)
+        retrieved_nodes: list[NodeWithScore] = fusion_retriever.retrieve(query)
 
         filtered_nodes: list[NodeWithScore] = [
             node for node in retrieved_nodes if node.score > threshold]
@@ -219,8 +219,8 @@ if __name__ == "__main__":
     """
     )
 
-    data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
-    rag_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
+    data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data"
+    rag_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data"
     extensions = [".md"]
 
     sample_query = "Tell me about yourself."
@@ -243,7 +243,7 @@ if __name__ == "__main__":
     result = query_nodes(
         sample_query, FUSION_MODES.RELATIVE_SCORE, threshold=0.2)
     logger.info(f"RETRIEVED NODES ({len(result["nodes"])})")
-    display_source_nodes(sample_query, result["nodes"])
+    display_jet_source_nodes(sample_query, result["nodes"])
 
     response = query_llm(sample_query, result['texts'])
     # logger.info("QUERY RESPONSE:")
@@ -260,7 +260,7 @@ if __name__ == "__main__":
 
             result = query_nodes(query, FUSION_MODES.RELATIVE_SCORE)
             logger.info(f"RETRIEVED NODES ({len(result["nodes"])})")
-            display_source_nodes(query, result["nodes"])
+            display_jet_source_nodes(query, result["nodes"])
 
             response = query_llm(query, result['texts'])
             # logger.info("QUERY RESPONSE:")

@@ -9,7 +9,7 @@ from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode, ImageNode
 from llama_index.core.node_parser import TokenTextSplitter
 
-from script_utils import display_source_nodes
+from jet.llm.utils import display_jet_source_nodes
 from jet.vectors import get_source_node_attributes
 from jet.logger import logger
 from jet.llm import call_ollama_chat
@@ -59,6 +59,6 @@ def fusion_search(
     logger.info("RELATIVE_SCORE: sample query...")
     result = query_nodes(
         query, FUSION_MODES.RELATIVE_SCORE)
-    display_source_nodes(query, result["nodes"])
+    display_jet_source_nodes(query, result["nodes"])
     node_results = [get_source_node_attributes(
         node) for node in result["nodes"]]

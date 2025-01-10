@@ -1,13 +1,20 @@
 from collections import defaultdict
 from typing import Callable, Optional, Sequence, TypedDict, Any, Union
+from jet.decorators.error import wrap_retry
+from jet.decorators.function import retry_on_error
+from jet.llm.ollama.constants import OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
+from jet.logger.timer import sleep_countdown
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.base_handler import BaseCallbackHandler
 from llama_index.core.callbacks.schema import CBEvent, CBEventType, EventPayload
+from llama_index.core.embeddings.utils import EmbedType
+from llama_index.core.llms.callbacks import llm_chat_callback
 from llama_index.core.llms.llm import LLM
 from llama_index.llms.ollama import Ollama as BaseOllama
 from llama_index.embeddings.ollama import OllamaEmbedding as BaseOllamaEmbedding
 from llama_index.core import Settings
+from llama_index.core.settings import _Settings
 
 from jet.llm.ollama import (
     base_url,
@@ -15,9 +22,9 @@ from jet.llm.ollama import (
     large_embed_model,
     DEFAULT_LLM_SETTINGS,
     DEFAULT_EMBED_SETTINGS,
-    DEFAULT_EMBED_BATCH_SIZE,
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_CHUNK_OVERLAP,
 )
-from jet.llm.ollama.config import DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP
 from jet.logger import logger
 
 
@@ -67,17 +74,23 @@ class SettingsDict(TypedDict, total=False):
     temperature: float
 
 
-class EnhancedSettings(Settings):
+class _EnhancedSettings(_Settings):
     model: str
     embedding_model: str
     count_tokens: Callable[[str], int]
-    embed_model: object
-    llm: object
-    chunk_size: int
-    chunk_overlap: int
+
+    def __setattr__(self, name, value):
+        """Override setattr to synchronize with the Settings singleton."""
+        super().__setattr__(name, value)
+        # Synchronize with the Settings singleton if the attribute exists there
+        if hasattr(Settings, name):
+            setattr(Settings, name, value)
 
 
-def initialize_ollama_settings(settings: SettingsDict = {}) -> EnhancedSettings:
+EnhancedSettings = _EnhancedSettings()
+
+
+def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings:
     embedding_model = settings.get(
         "embedding_model", DEFAULT_EMBED_SETTINGS['model_name'])
     embed_model = OllamaEmbedding(
@@ -99,26 +112,30 @@ def initialize_ollama_settings(settings: SettingsDict = {}) -> EnhancedSettings:
             "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
     )
 
-    chunk_size = settings.get(
-        "chunk_size", DEFAULT_LLM_SETTINGS.get('chunk_size'))
-    chunk_overlap = settings.get(
-        "chunk_overlap", DEFAULT_LLM_SETTINGS.get('chunk_overlap'))
+    chunk_size = settings.get("chunk_size")
+    chunk_overlap = settings.get("chunk_overlap")
 
-    enhanced_settings = EnhancedSettings()
-    enhanced_settings.model = llm_model
-    enhanced_settings.embedding_model = embedding_model
-    enhanced_settings.embed_model = embed_model
-    enhanced_settings.llm = llm
-    enhanced_settings.chunk_size = DEFAULT_CHUNK_SIZE
-    enhanced_settings.chunk_overlap = DEFAULT_CHUNK_OVERLAP
+    if not chunk_size and not chunk_overlap:
+        if embedding_model == OLLAMA_LARGE_EMBED_MODEL:
+            chunk_size = OLLAMA_LARGE_CHUNK_SIZE
+            chunk_overlap = OLLAMA_LARGE_CHUNK_OVERLAP
+        elif embedding_model == OLLAMA_SMALL_EMBED_MODEL:
+            chunk_size = OLLAMA_SMALL_CHUNK_SIZE
+            chunk_overlap = OLLAMA_SMALL_CHUNK_OVERLAP
 
     def count_tokens(text: str) -> int:
         from jet.token import token_counter
         return token_counter(text, llm_model)
 
-    enhanced_settings.count_tokens = count_tokens
+    EnhancedSettings.llm = llm
+    EnhancedSettings.embed_model = embed_model
+    EnhancedSettings.chunk_size = chunk_size
+    EnhancedSettings.chunk_overlap = chunk_overlap
+    EnhancedSettings.model = llm_model
+    EnhancedSettings.embedding_model = embedding_model
+    EnhancedSettings.count_tokens = count_tokens
 
-    return enhanced_settings
+    return EnhancedSettings
 
 
 def update_llm_settings(settings: SettingsDict = {}):
@@ -190,7 +207,8 @@ def create_embed_model(
 
 
 class Ollama(BaseOllama):
-    def chat(self, messages: Sequence[ChatMessage], max_tokens: Optional[int] = None, **kwargs: Any) -> ChatResponse:
+    @llm_chat_callback()
+    def chat(self, messages: Sequence[ChatMessage], max_tokens: Optional[int | float] = 0.4, **kwargs: Any) -> ChatResponse:
         from jet.token import filter_texts
 
         logger.info("Calling Ollama chat...")
@@ -199,44 +217,160 @@ class Ollama(BaseOllama):
             messages = filter_texts(
                 messages, self.model, max_tokens=max_tokens)
 
-        return super().chat(messages, **kwargs)
+        def run():
+            from jet.llm import call_ollama_chat
+
+            ollama_messages = self._convert_to_ollama_messages(messages)
+
+            tools = kwargs.pop("tools", None)
+            format = kwargs.pop("format", "json" if self.json_mode else None)
+            stream = not tools
+
+            response = call_ollama_chat(
+                model=self.model,
+                messages=ollama_messages,
+                stream=stream,
+                format=format,
+                tools=tools,
+                options=self._model_kwargs,
+                keep_alive=self.keep_alive,
+                full_stream_response=True,
+            )
+
+            final_response = {}
+
+            if not stream:
+                content = response["message"]["content"]
+                role = response["message"]["role"]
+                tool_calls = response["message"].get("tool_calls", [])
+                token_counts = self._get_response_token_counts(response)
+                final_response = {
+                    **response.copy(),
+                    "usage": token_counts,
+                }
+
+            else:
+                content = ""
+                role = ""
+                tool_calls = []
+                for chunk in response:
+                    content += chunk["message"]["content"]
+                    if not role:
+                        role = chunk["message"]["role"]
+                    if chunk["done"]:
+                        token_counts = self._get_response_token_counts(
+                            response)
+                        final_response = {
+                            **chunk.copy(),
+                            "usage": token_counts,
+                        }
+
+            return ChatResponse(
+                message=ChatMessage(
+                    content=final_response["message"]["content"],
+                    role=final_response["message"]["role"],
+                    additional_kwargs={"tool_calls": tool_calls},
+                ),
+                raw=final_response,
+            )
+
+        return wrap_retry(run)
+
+    @llm_chat_callback()
+    async def achat(self, messages: Sequence[ChatMessage], max_tokens: Optional[int | float] = 0.4, **kwargs: Any) -> ChatResponse:
+        from jet.token import filter_texts
+
+        logger.info("Calling Ollama achat...")
+
+        if max_tokens:
+            messages = filter_texts(
+                messages, self.model, max_tokens=max_tokens)
+
+        def run():
+            from jet.llm import call_ollama_chat
+            ollama_messages = self._convert_to_ollama_messages(messages)
+
+            tools = kwargs.pop("tools", None)
+            format = kwargs.pop("format", "json" if self.json_mode else None)
+            stream = not tools
+
+            response = call_ollama_chat(
+                model=self.model,
+                messages=ollama_messages,
+                stream=stream,
+                format=format,
+                tools=tools,
+                options=self._model_kwargs,
+                keep_alive=self.keep_alive,
+                full_stream_response=True,
+            )
+
+            final_response = {}
+
+            if not stream:
+                content = response["message"]["content"]
+                role = response["message"]["role"]
+                tool_calls = response["message"].get("tool_calls", [])
+                token_counts = self._get_response_token_counts(response)
+                final_response = {
+                    **response.copy(),
+                    "usage": token_counts,
+                }
+
+            else:
+                content = ""
+                role = ""
+                tool_calls = []
+                for chunk in response:
+                    content += chunk["message"]["content"]
+                    if not role:
+                        role = chunk["message"]["role"]
+                    if chunk["done"]:
+                        token_counts = self._get_response_token_counts(
+                            response)
+                        final_response = {
+                            **chunk.copy(),
+                            "usage": token_counts,
+                        }
+
+            return ChatResponse(
+                message=ChatMessage(
+                    content=final_response["message"]["content"],
+                    role=final_response["message"]["role"],
+                    additional_kwargs={"tool_calls": tool_calls},
+                ),
+                raw=final_response,
+            )
+
+        return wrap_retry(run)
 
 
 class OllamaEmbedding(BaseOllamaEmbedding):
     def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float]:
         """Get Ollama embedding with retry mechanism."""
-        import time
-
         logger.info("Calling OllamaEmbedding embed...")
 
-        max_retries = 5
-        delay = 5  # seconds
+        def run():
+            with self.callback_manager.event(
+                CBEventType.EMBEDDING,
+                payload={EventPayload.SERIALIZED: self.to_dict()},
+            ) as event:
+                result = self._client.embed(
+                    model=self.model_name, input=texts, options=self.ollama_additional_kwargs
+                )
+                embeddings = result["embeddings"][0]
+                event.on_end(
+                    payload={
+                        EventPayload.CHUNKS: [texts] if isinstance(texts, str) else texts,
+                        EventPayload.EMBEDDINGS: [embeddings],
+                    },
+                )
 
-        for attempt in range(max_retries):
-            try:
-                with self.callback_manager.event(
-                    CBEventType.EMBEDDING,
-                    payload={EventPayload.SERIALIZED: self.to_dict()},
-                ) as event:
-                    result = self._client.embed(
-                        model=self.model_name, input=texts, options=self.ollama_additional_kwargs
-                    )
-                    event.on_end(
-                        payload={
-                            EventPayload.CHUNKS: [texts] if isinstance(texts, str) else texts,
-                            EventPayload.EMBEDDINGS: [result["embeddings"][0]],
-                        },
-                    )
+            logger.log("Batch Tokens:", len(embeddings),
+                       colors=["DEBUG", "SUCCESS"])
+            return embeddings
 
-                return result["embeddings"][0]
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    print(
-                        f"Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
-                    time.sleep(delay)
-                else:
-                    print("Max retries reached. Raising the exception.")
-                    raise e
+        return wrap_retry(run)
 
 
 class StreamCallbackHandler(BaseCallbackHandler):

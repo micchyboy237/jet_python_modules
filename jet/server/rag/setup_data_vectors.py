@@ -21,7 +21,7 @@ from llama_index.core import SummaryIndex
 from llama_index.core import SimpleDirectoryReader
 import sys
 import logging
-from script_utils import display_source_nodes
+from jet.llm.utils import display_jet_source_nodes
 from jet.logger import logger
 from jet.llm.ollama import initialize_ollama_settings, Ollama
 initialize_ollama_settings()
@@ -32,7 +32,7 @@ logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
 
 GENERATED_DIR = Path("generated")
 DEFAULT_BASE_DIR = os.path.basename(__file__).split(".")[0]
-DEFAULT_DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/summaries"
+DEFAULT_DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data"
 
 DEFAULT_MODEL = "mistral"
 DEFAULT_CHUNK_SIZE = 512
@@ -201,7 +201,7 @@ def build_recursive_retriever_over_document_summaries(
                     f"({len(response.source_nodes)})",
                     colors=["WHITE", "SUCCESS"]
                 )
-                display_source_nodes(wiki_title, response.source_nodes)
+                display_jet_source_nodes(wiki_title, response.source_nodes)
 
                 wiki_summary = response.response
                 with open(summary_file, "a") as fp:
@@ -311,7 +311,7 @@ if __name__ == "__main__":
         vector_retrievers,
         similarity_top_k=query_top_k,
     )
-    display_source_nodes(query, retrieved_nodes)
+    display_jet_source_nodes(query, retrieved_nodes)
     for node_idx, node in enumerate(retrieved_nodes):
         logger.log(
             f"{node_idx + 1}", f"{node.metadata['file_name']}:",
@@ -343,7 +343,7 @@ if __name__ == "__main__":
                 vector_retrievers,
                 similarity_top_k=query_top_k,
             )
-            display_source_nodes(query, retrieved_nodes)
+            display_jet_source_nodes(query, retrieved_nodes)
             for node_idx, node in enumerate(retrieved_nodes):
                 logger.log(
                     f"{node_idx + 1}", f"{node.metadata['file_name']}:",

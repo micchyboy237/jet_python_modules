@@ -77,6 +77,3 @@ wikipedia==1.4.0
 
 # Install this current dir as a package
 -e .
-
-# Custom local paths
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core
