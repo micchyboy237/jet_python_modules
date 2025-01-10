@@ -27,15 +27,15 @@ DEFAULT_CHUNK_SIZE = OLLAMA_LARGE_CHUNK_SIZE  # tokens
 DEFAULT_CHUNK_OVERLAP = OLLAMA_LARGE_CHUNK_OVERLAP  # tokens
 
 DEFAULT_LLM_SETTINGS = {
-    "model": large_llm_model,
+    "model": OLLAMA_LARGE_LLM_MODEL,
     "context_window": DEFAULT_CONTEXT_WINDOW,
     "request_timeout": DEFAULT_REQUEST_TIMEOUT,
     "temperature": DEFAULT_TEMPERATURE,
-    "base_url": base_url,
+    "base_url": OLLAMA_BASE_URL,
 }
 DEFAULT_EMBED_SETTINGS = {
-    "model_name": large_embed_model,
-    "base_url": base_embed_url,
+    "model_name": OLLAMA_LARGE_EMBED_MODEL,
+    "base_url": OLLAMA_BASE_EMBED_URL,
     "embed_batch_size": DEFAULT_EMBED_BATCH_SIZE,
     "ollama_additional_kwargs": {}
 }

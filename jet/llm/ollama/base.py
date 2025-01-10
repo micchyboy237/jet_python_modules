@@ -171,7 +171,7 @@ def update_llm_settings(settings: SettingsDict = {}):
 
 def create_llm(
     model: str = DEFAULT_LLM_SETTINGS['model'],
-    base_url: str = base_url,
+    base_url: str = DEFAULT_LLM_SETTINGS['base_url'],
     temperature: float = DEFAULT_LLM_SETTINGS['temperature'],
     context_window: int = DEFAULT_LLM_SETTINGS['context_window'],
     request_timeout: float = DEFAULT_LLM_SETTINGS['request_timeout'],
@@ -191,7 +191,7 @@ def create_llm(
 
 def create_embed_model(
     model: str = DEFAULT_EMBED_SETTINGS['model_name'],
-    base_url: str = base_url,
+    base_url: str = DEFAULT_EMBED_SETTINGS['base_url'],
     embed_batch_size: int = DEFAULT_EMBED_SETTINGS['embed_batch_size'],
     ollama_additional_kwargs: dict[str,
                                    any] = DEFAULT_EMBED_SETTINGS['ollama_additional_kwargs'],
@@ -207,15 +207,17 @@ def create_embed_model(
 
 
 class Ollama(BaseOllama):
+    max_tokens: int | float = 0.4
+
     @llm_chat_callback()
-    def chat(self, messages: Sequence[ChatMessage], max_tokens: Optional[int | float] = 0.4, **kwargs: Any) -> ChatResponse:
+    def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.token import filter_texts
 
         logger.info("Calling Ollama chat...")
 
-        if max_tokens:
+        if self.max_tokens:
             messages = filter_texts(
-                messages, self.model, max_tokens=max_tokens)
+                messages, self.model, max_tokens=self.max_tokens)
 
         def run():
             from jet.llm import call_ollama_chat
@@ -277,14 +279,14 @@ class Ollama(BaseOllama):
         return wrap_retry(run)
 
     @llm_chat_callback()
-    async def achat(self, messages: Sequence[ChatMessage], max_tokens: Optional[int | float] = 0.4, **kwargs: Any) -> ChatResponse:
+    async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.token import filter_texts
 
         logger.info("Calling Ollama achat...")
 
-        if max_tokens:
+        if self.max_tokens:
             messages = filter_texts(
-                messages, self.model, max_tokens=max_tokens)
+                messages, self.model, max_tokens=self.max_tokens)
 
         def run():
             from jet.llm import call_ollama_chat

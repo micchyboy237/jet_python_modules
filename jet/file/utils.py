@@ -75,6 +75,8 @@ def save_file(data: str | dict | list, output_file: str):
         if output_file.endswith(".json"):
             if isinstance(data, str):
                 data = json.loads(data)
+            else:
+                data = make_serializable(data)
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             logger.log(

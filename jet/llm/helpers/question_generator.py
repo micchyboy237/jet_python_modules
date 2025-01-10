@@ -1,15 +1,16 @@
-# Reusable constants
+from typing import Generator
 from jet.llm.ollama import initialize_ollama_settings
 from jet.llm.ollama.constants import OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_LLM_MODEL
 from jet.llm.query.retrievers import get_fusion_retriever, setup_retrievers
 from jet.logger import logger
+from jet.multiprocess.work_manager import WorkManager
 from jet.transformers import make_serializable
 from jet.token.token_utils import get_tokenizer
 from llama_index.core.evaluation.retrieval.evaluator import RetrieverEvaluator
 from llama_index.core.llama_dataset.legacy.embedding import EmbeddingQAFinetuneDataset
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
-from llama_index.core.schema import Document
+from llama_index.core.schema import BaseNode, Document, MetadataMode
 from jet.llm.utils import display_jet_source_nodes
 import sys
 import logging
@@ -20,20 +21,20 @@ from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, Response
 import random
 import json
 
+from tqdm.asyncio import tqdm_asyncio
+
 DATA_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data"
 LLM_MODEL = "llama3.1"
 NUM_QUESTIONS_PER_CHUNK = 3
 
 QUESTION_GEN_QUERY = f"""
-You are a Job Employer. Your task is to setup {NUM_QUESTIONS_PER_CHUNK} questions
-for an upcoming interview. The questions should be relevant to the document.
-Restrict the questions to the context information provided.
+You are a Job Employer. Your task is to setup multiple questions
+for an upcoming interview. Each question should cover a part of the document. Generated questions should be complete so that its answers cover all context information provided.
 
 Format response with numeric list of questions separated by newline.
 Example response format:
 1. Question 1
-2. Question 2
-3. Question 3
+...continue
 
 Output only the generated questions without any explanations.
 """
@@ -63,6 +64,8 @@ class QuestionGenerator:
         self.tokenizer = get_tokenizer(llm_model)
         self.llm_settings = initialize_ollama_settings({
             "llm_model": self.model,
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
         })
         self.reader = SimpleDirectoryReader(data_path, required_exts=[".md"])
         self.documents = self.reader.load_data()
@@ -95,28 +98,41 @@ class QuestionGenerator:
         nodes = parser(documents)
         return nodes
 
-    def generate_questions(self) -> list[str]:
-        question_template = PromptTemplate(QUESTION_GENERATION_PROMPT)
-        data_generator = DatasetGenerator.from_documents(
-            self.documents,
-            llm=self.llm,
-            num_questions_per_chunk=self.num_questions_per_chunk,
-            question_gen_query=QUESTION_GEN_QUERY,
-            text_question_template=question_template,
-        )
-        questions = data_generator.generate_questions_from_nodes()
-        return questions
-
-    def evaluate_questions(self, questions):
+    def generate_questions(self, nodes: list[BaseNode] = []) -> list[str]:
+        nodes = nodes or self.nodes
         results = []
+        for node in nodes:
+            question_template = PromptTemplate(QUESTION_GENERATION_PROMPT)
+            data_generator = DatasetGenerator(
+                [node],
+                metadata_mode=MetadataMode.ALL,
+                llm=self.llm,
+                num_questions_per_chunk=self.num_questions_per_chunk,
+                question_gen_query=QUESTION_GEN_QUERY,
+                text_question_template=question_template,
+            )
+            questions = data_generator.generate_questions_from_nodes()
+            # Filter questions to include only those starting with a number
+            filtered_questions = [q for q in questions if q.endswith("?")]
+            results.extend(filtered_questions)
+        return results
+
+    def parallel_generate_questions(self) -> list[str]:
+        work_callbacks = [lambda: self.generate_questions(
+            [node]) for node in self.nodes]
+        work_manager = WorkManager(
+            work_callbacks=work_callbacks, num_threads=2)
+        work_manager.start_threads()
+        return []
+
+    def evaluate_questions(self, questions) -> Generator[EvaluationResult, None, None]:
         for question in questions:
             query_engine = self.vector_index.as_query_engine()
             response_vector = query_engine.query(question)
             eval_result = self.evaluator.evaluate_response(
                 query=question, response=response_vector
             )
-            results.append(eval_result)
-        return results
+            yield eval_result
 
     @staticmethod
     def display_eval_df(query, response, eval_result):
