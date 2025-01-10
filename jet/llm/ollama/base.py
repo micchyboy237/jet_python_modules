@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Callable, Optional, Sequence, TypedDict, Any, Union
+from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
 from jet.decorators.error import wrap_retry
 from jet.decorators.function import retry_on_error
 from jet.llm.ollama.constants import OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
@@ -9,8 +9,11 @@ from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.base_handler import BaseCallbackHandler
 from llama_index.core.callbacks.schema import CBEvent, CBEventType, EventPayload
 from llama_index.core.embeddings.utils import EmbedType
+from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms.callbacks import llm_chat_callback
 from llama_index.core.llms.llm import LLM
+from llama_index.core.prompts.base import PromptTemplate
+from llama_index.core.types import PydanticProgramMode
 from llama_index.llms.ollama import Ollama as BaseOllama
 from llama_index.embeddings.ollama import OllamaEmbedding as BaseOllamaEmbedding
 from llama_index.core import Settings
@@ -26,6 +29,12 @@ from jet.llm.ollama import (
     DEFAULT_CHUNK_OVERLAP,
 )
 from jet.logger import logger
+from jet.utils.markdown import extract_json_block_content
+from jet.validation.main.json_validation import validate_json
+import json
+from pydantic.main import BaseModel
+
+dispatcher = get_dispatcher(__name__)
 
 
 # class StreamCallbackManager(CallbackManager):
@@ -345,6 +354,32 @@ class Ollama(BaseOllama):
             )
 
         return wrap_retry(run)
+
+    @dispatcher.span
+    def structured_predict(
+        self,
+        output_cls: Type[BaseModel],
+        prompt: PromptTemplate,
+        llm_kwargs: Optional[dict[str, Any]] = None,
+        **prompt_args: Any,
+    ) -> BaseModel:
+        if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
+            llm_kwargs = llm_kwargs or {}
+            llm_kwargs["format"] = output_cls.model_json_schema()
+
+            messages = prompt.format_messages(**prompt_args)
+            response = self.chat(messages, **llm_kwargs)
+
+            extracted_result = extract_json_block_content(
+                response.message.content or "")
+            validation_result = validate_json(
+                extracted_result, output_cls.model_json_schema())
+
+            return output_cls.model_validate_json(json.dumps(validation_result["data"]))
+        else:
+            return super().structured_predict(
+                output_cls, prompt, llm_kwargs, **prompt_args
+            )
 
 
 class OllamaEmbedding(BaseOllamaEmbedding):
