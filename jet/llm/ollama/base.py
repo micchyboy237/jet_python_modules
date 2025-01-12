@@ -222,6 +222,7 @@ class Ollama(BaseOllama):
     @llm_chat_callback()
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.token import filter_texts
+        from jet.llm import call_ollama_chat
 
         logger.orange("Calling Ollama chat...")
         logger.debug(
@@ -235,16 +236,14 @@ class Ollama(BaseOllama):
             messages = filter_texts(
                 messages, self.model, max_tokens=self.max_tokens)
 
+        ollama_messages = self._convert_to_ollama_messages(messages)
+
+        tools = kwargs.get("tools", None)
+        format = kwargs.get("format", "json" if self.json_mode else None)
+        options = kwargs.get("options", {})
+        stream = not tools
+
         def run():
-            from jet.llm import call_ollama_chat
-
-            ollama_messages = self._convert_to_ollama_messages(messages)
-
-            tools = kwargs.pop("tools", None)
-            format = kwargs.pop("format", "json" if self.json_mode else None)
-            options = kwargs.pop("options", {})
-            stream = not tools
-
             response = call_ollama_chat(
                 model=self.model,
                 messages=ollama_messages,
@@ -301,6 +300,7 @@ class Ollama(BaseOllama):
     @llm_chat_callback()
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.token import filter_texts
+        from jet.llm import call_ollama_chat
 
         logger.orange("Calling Ollama achat...")
         logger.debug(
@@ -314,15 +314,14 @@ class Ollama(BaseOllama):
             messages = filter_texts(
                 messages, self.model, max_tokens=self.max_tokens)
 
+        ollama_messages = self._convert_to_ollama_messages(messages)
+
+        tools = kwargs.get("tools", None)
+        format = kwargs.get("format", "json" if self.json_mode else None)
+        options = kwargs.get("options", {})
+        stream = not tools
+
         def run():
-            from jet.llm import call_ollama_chat
-            ollama_messages = self._convert_to_ollama_messages(messages)
-
-            tools = kwargs.pop("tools", None)
-            format = kwargs.pop("format", "json" if self.json_mode else None)
-            options = kwargs.pop("options", {})
-            stream = not tools
-
             response = call_ollama_chat(
                 model=self.model,
                 messages=ollama_messages,

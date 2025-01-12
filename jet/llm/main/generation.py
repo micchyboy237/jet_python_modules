@@ -109,7 +109,7 @@ def call_ollama_chat(
         "template": template,
         # "raw": False,
         "tools": tools,
-        "format": json.dumps(format),
+        "format": str(format) if format else None,
         "options": options,
     }
     body = make_serializable(body)

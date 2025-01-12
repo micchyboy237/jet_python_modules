@@ -17,6 +17,33 @@ from jet.utils.class_utils import class_to_string
 from llama_index.core import SimpleDirectoryReader, PromptTemplate
 
 
+class Data(BaseModel):
+    question: str = Field(
+        description="Short question text answering context information provided.")
+    answer: str = Field(
+        description="The concise answer to the question given the relevant context.")
+
+
+class QuestionAnswer(BaseModel):
+    data: List[Data]
+
+
+QA_PROMPT_TEMPLATE = (
+    "Context information is below.\n"
+    "---------------------\n"
+    "{context_str}\n"
+    "---------------------\n"
+    "Given the context information and not prior knowledge, answer the query.\n"
+    "{instructions_str}\n"
+    "Query: {query_str}\n"
+    "Response:\n"
+)
+
+INSTRUCTIONS_PROMPT = f"""
+Return only the generated JSON value without any explanations surrounded by ```json that adheres to the model below:
+{class_to_string(QuestionAnswer)}
+""".strip()
+
 DEFAULT_QUERY = """Generate real-world diverse questions and answers that an employer can have for a job interview based on provided context and schema.
 Example response format:
 {
@@ -28,17 +55,6 @@ Example response format:
     ]
 }
 """.strip()
-
-
-class Data(BaseModel):
-    question: str = Field(
-        description="Short question text answering context information provided.")
-    answer: str | List[str] = Field(
-        description="The concise answer or list of answers to the question given the relevant context.")
-
-
-class QuestionAnswer(BaseModel):
-    data: List[Data]
 
 
 class InterviewQAGenerator:
@@ -59,29 +75,13 @@ class InterviewQAGenerator:
         return "\n\n".join([doc.text for doc in base_nodes])
 
     def generate_questions_and_answers(self, context_text: str, query: str = DEFAULT_QUERY) -> QuestionAnswer:
-        instructions_prompt = f"""
-        Return only the generated JSON value without any explanations surrounded by ```json that adheres to the model below:
-        {class_to_string(QuestionAnswer)}
-        """.strip()
-
-        qa_prompt_template = (
-            "Context information is below.\n"
-            "---------------------\n"
-            "{context_str}\n"
-            "---------------------\n"
-            "Given the context information and not prior knowledge, answer the query.\n"
-            "{instructions_str}\n"
-            "Query: {query_str}\n"
-            "Response:\n"
-        )
-
-        qa_prompt = PromptTemplate(qa_prompt_template)
+        qa_prompt = PromptTemplate(QA_PROMPT_TEMPLATE)
 
         response = self.llm.structured_predict(
             QuestionAnswer,
             qa_prompt,
             context_str=context_text,
-            instructions_str=instructions_prompt,
+            instructions_str=INSTRUCTIONS_PROMPT,
             query_str=query,
             llm_kwargs={
                 "options": {"temperature": 0},
