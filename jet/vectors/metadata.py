@@ -1,22 +1,27 @@
-from typing import AsyncGenerator
+from typing import AsyncGenerator, TypedDict
 from llama_index.core.extractors.interface import BaseExtractor
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from llama_index.core.schema import TextNode
+
+
+class MetadataResults(TypedDict):
+    section_summary: str
+    questions_this_excerpt_can_answer: str
 
 
 # Generate metadata references
 async def generate_metadata(
     base_nodes: list[TextNode],
     extractors: list[BaseExtractor],
-) -> AsyncGenerator[tuple[TextNode, list], None]:
+) -> AsyncGenerator[tuple[TextNode, dict], None]:
     for node in base_nodes:
-        extracted_results = []
+        metadata_results = {}
         for extractor in extractors:
             # Passing the node as a list
             metadata = await extractor.aextract([node])
             # Assuming aextract returns a list
-            extracted_results.append(metadata)
-        yield node, extracted_results
+            metadata_results.update(metadata[0])
+        yield node, metadata_results
 
 
 # Parse nodes from documents
