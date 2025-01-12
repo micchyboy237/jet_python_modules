@@ -242,6 +242,7 @@ class Ollama(BaseOllama):
 
             tools = kwargs.pop("tools", None)
             format = kwargs.pop("format", "json" if self.json_mode else None)
+            options = kwargs.pop("options", {})
             stream = not tools
 
             response = call_ollama_chat(
@@ -250,7 +251,10 @@ class Ollama(BaseOllama):
                 stream=stream,
                 format=format,
                 tools=tools,
-                options=self._model_kwargs,
+                options={
+                    **self._model_kwargs,
+                    **options,
+                },
                 keep_alive=self.keep_alive,
                 full_stream_response=True,
             )
@@ -316,6 +320,7 @@ class Ollama(BaseOllama):
 
             tools = kwargs.pop("tools", None)
             format = kwargs.pop("format", "json" if self.json_mode else None)
+            options = kwargs.pop("options", {})
             stream = not tools
 
             response = call_ollama_chat(
@@ -324,7 +329,10 @@ class Ollama(BaseOllama):
                 stream=stream,
                 format=format,
                 tools=tools,
-                options=self._model_kwargs,
+                options={
+                    **self._model_kwargs,
+                    **options,
+                },
                 keep_alive=self.keep_alive,
                 full_stream_response=True,
             )
