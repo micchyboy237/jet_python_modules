@@ -1,6 +1,8 @@
+from jet.llm.ollama.base import OllamaEmbedding
+from jet.llm.ollama.constants import OLLAMA_BASE_EMBED_URL
 from langchain_core.documents import BaseDocumentCompressor, Document
 from langchain_core.callbacks import Callbacks
-from typing import Optional, Sequence
+from typing import Literal, Optional, Sequence
 import operator
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
@@ -331,30 +333,15 @@ def generate_openai_batch_embeddings(
 
 
 def generate_ollama_batch_embeddings(
-    model: str, texts: list[str], url: str, key: str = ""
-) -> Optional[list[list[float]]]:
-    try:
-        r = requests.post(
-            f"{url}/api/embed",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {key}",
-            },
-            json={"input": texts, "model": model},
-        )
-        r.raise_for_status()
-        data = r.json()
-
-        if "embeddings" in data:
-            return data["embeddings"]
-        else:
-            raise "Something went wrong :/"
-    except Exception as e:
-        print(e)
-        return None
+    model: str, texts: list[str], url: str = OLLAMA_BASE_EMBED_URL, key: str = ""
+) -> list[float]:
+    embed_model = OllamaEmbedding(
+        model_name=model, base_url=url)
+    embeddings = embed_model.get_general_text_embedding(texts)
+    return embeddings
 
 
-def generate_embeddings(engine: str, model: str, text: Union[str, list[str]], **kwargs):
+def generate_embeddings(engine: Literal["ollama", "openai"], model: str, text: Union[str, list[str]], **kwargs) -> list[float]:
     url = kwargs.get("url", "")
     key = kwargs.get("key", "")
 
@@ -367,7 +354,7 @@ def generate_embeddings(engine: str, model: str, text: Union[str, list[str]], **
             embeddings = generate_ollama_batch_embeddings(
                 **{"model": model, "texts": [text], "url": url, "key": key}
             )
-        return embeddings[0] if isinstance(text, str) else embeddings
+        return embeddings[0] if isinstance(embeddings[0], list) else embeddings
     elif engine == "openai":
         if isinstance(text, list):
             embeddings = generate_openai_batch_embeddings(
@@ -376,7 +363,7 @@ def generate_embeddings(engine: str, model: str, text: Union[str, list[str]], **
             embeddings = generate_openai_batch_embeddings(
                 model, [text], url, key)
 
-        return embeddings[0] if isinstance(text, str) else embeddings
+        return embeddings[0] if isinstance(embeddings[0], list) else embeddings
 
 
 class RerankCompressor(BaseDocumentCompressor):

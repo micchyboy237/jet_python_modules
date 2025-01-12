@@ -45,7 +45,7 @@ class RerankerRetriever():
         embed_model: str = DEFAULT_SF_EMBED_MODEL,
         rerank_model: str = DEFAULT_SF_RERANK_MODEL,
         embed_batch_size: int = DEFAULT_EMBED_BATCH_SIZE,
-        overwrite: str = DEFAULT_OVERWRITE,
+        overwrite: bool = DEFAULT_OVERWRITE,
     ):
         if use_ollama:
             embed_model = DEFAULT_OLLAMA_EMBED_MODEL

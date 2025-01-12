@@ -46,6 +46,7 @@ packages = [
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/program/llama-index-program-guidance",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-packs/llama-index-packs-neo4j-query-engine",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/readers/llama-index-readers-github",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-experimental",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/callbacks/llama-index-callbacks-aim",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/langgraph",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/checkpoint",

@@ -1,5 +1,8 @@
-import os
 from typing import Optional
+from jet.llm.retrievers.recursive import (
+    initialize_summary_nodes_and_retrievers,
+    query_nodes as query_nodes_recursive
+)
 from jet.token import filter_texts
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.schema import CBEventType
@@ -90,7 +93,7 @@ def setup_index(
         show_progress=True,
     )
 
-    def query_nodes(
+    def query_nodes_func(
         query: str,
         fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
         threshold: float = 0.0,
@@ -112,20 +115,16 @@ def setup_index(
         if top_k:
             filtered_nodes = filtered_nodes[:top_k]
 
-        unique_files = set()
-
         texts = [node.text for node in filtered_nodes]
 
         result = {
             "nodes": filtered_nodes,
-            "retriever": fusion_retriever,
             "texts": texts,
-            "files": list(unique_files),
         }
 
         return result
 
-    return query_nodes
+    return query_nodes_func
 
 
 def get_relative_path(abs_path: str, partial_path: str) -> str:
@@ -195,6 +194,46 @@ def read_file(file_path, start_index=None, end_index=None):
             # Read only up to the end index
             content = file.read(end_index - start_index)
     return content
+
+
+def setup_recursive_query(
+    *args,
+    chunk_size: int = 256,
+    chunk_overlap: int = 20,
+    **kwargs,
+):
+    splitter = SentenceSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+
+    summary_nodes, vector_retrievers = initialize_summary_nodes_and_retrievers(
+        *args,  transformations=[splitter], **kwargs)
+
+    def query_nodes_func(
+        query: str,
+        threshold: float = 0.0,
+        top_k: int = 4,
+    ):
+        retrieved_nodes = query_nodes_recursive(
+            query,
+            summary_nodes,
+            vector_retrievers,
+            transformations=[splitter],
+            similarity_top_k=top_k,
+        )
+
+        filtered_nodes: list[NodeWithScore] = [
+            node for node in retrieved_nodes if node.score > threshold]
+
+        texts = [node.text for node in filtered_nodes]
+
+        result = {
+            "nodes": filtered_nodes,
+            "texts": texts,
+        }
+
+        return result
+
+    return query_nodes_func
 
 
 if __name__ == "__main__":

@@ -30,10 +30,12 @@ def display_jet_source_node(
                 source_node.text) > source_length else source_node.text,
             colors=["GRAY", "DEBUG"],
         )
-        with open(source_node.metadata['file_path'], "r", encoding="utf-8") as file:
-            content_length = len(file.read())
-        logger.log("File length:", content_length,
-                   colors=["GRAY", "SUCCESS"])
+
+        if 'file_path' in source_node.metadata:
+            with open(source_node.metadata['file_path'], "r", encoding="utf-8") as file:
+                content_length = len(file.read())
+            logger.log("File length:", content_length,
+                       colors=["GRAY", "SUCCESS"])
         logger.log("Text length:", len(source_node.text),
                    colors=["GRAY", "SUCCESS"])
         if hasattr(source_node, "start_char_idx") and hasattr(source_node, "end_char_idx"):
@@ -89,7 +91,8 @@ def display_jet_source_nodes(
             content = json.dumps(source_node.text).strip('"')
             logger.log(
                 f"{idx + 1}:",
-                source_node.metadata['file_name'],
+                source_node.metadata['file_name'] if 'file_name' in source_node.metadata else str(
+                    source_node.metadata),
                 f"{score:.4f}",
                 colors=["INFO", "DEBUG", "SUCCESS"]
             )

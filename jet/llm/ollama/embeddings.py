@@ -125,14 +125,11 @@ def generate_embeddings(
     url = kwargs.get("url", "")
     key = kwargs.get("key", "")
 
-    if isinstance(text, list):
-        embeddings = generate_ollama_batch_embeddings(
-            **{"model": model, "texts": text, "url": url, "key": key}
-        )
-    else:
-        embeddings = generate_ollama_batch_embeddings(
-            **{"model": model, "texts": [text], "url": url, "key": key}
-        )
+    text = [text] if isinstance(text, str) else text
+    embeddings = generate_ollama_batch_embeddings(
+        **{"model": model, "texts": text, "url": url, "key": key}
+    )
+
     return embeddings[0] if isinstance(text, str) else embeddings
 
 

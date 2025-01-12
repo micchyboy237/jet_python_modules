@@ -3,6 +3,7 @@ from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
 from jet.decorators.error import wrap_retry
 from jet.decorators.function import retry_on_error
 from jet.llm.ollama.constants import OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
+from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
 from jet.logger.timer import sleep_countdown
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse
 from llama_index.core.callbacks.base import CallbackManager
@@ -222,7 +223,13 @@ class Ollama(BaseOllama):
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.token import filter_texts
 
-        logger.info("Calling Ollama chat...")
+        logger.orange("Calling Ollama chat...")
+        logger.debug(
+            "LLM model:",
+            self.model,
+            f"({OLLAMA_MODEL_EMBEDDING_TOKENS[self.model]})",
+            colors=["GRAY", "DEBUG", "DEBUG"],
+        )
 
         if self.max_tokens:
             messages = filter_texts(
@@ -291,7 +298,13 @@ class Ollama(BaseOllama):
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.token import filter_texts
 
-        logger.info("Calling Ollama achat...")
+        logger.orange("Calling Ollama achat...")
+        logger.debug(
+            "LLM model:",
+            self.model,
+            f"({OLLAMA_MODEL_EMBEDDING_TOKENS[self.model]})",
+            colors=["GRAY", "DEBUG", "DEBUG"],
+        )
 
         if self.max_tokens:
             messages = filter_texts(
@@ -385,7 +398,13 @@ class Ollama(BaseOllama):
 class OllamaEmbedding(BaseOllamaEmbedding):
     def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float]:
         """Get Ollama embedding with retry mechanism."""
-        logger.info("Calling OllamaEmbedding embed...")
+        logger.orange("Calling OllamaEmbedding embed...")
+        logger.debug(
+            "Embed model:",
+            self.model_name,
+            f"({OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]})",
+            colors=["GRAY", "DEBUG", "DEBUG"],
+        )
 
         def run():
             with self.callback_manager.event(
