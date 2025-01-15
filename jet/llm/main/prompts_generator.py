@@ -39,9 +39,7 @@ Create an account at my website.
 ```
 Response:
 {
-  "data": [
-    "Create an account at my website."
-  ]
+  "data": []
 }
 
 Example 2:
@@ -74,9 +72,10 @@ INSTRUCTIONS_PROMPT = """
 """.strip()
 
 PROMPT_QA_TEMPLATE = """
-Break the provided text down into smaller simple sentences.
+Break down the provided text into sentences that has a single object each.
 Each sentence should have a subject and predicate.
 The subject should be shared.
+You may return empty if the sentence has 0 or 1 object already.
 
 Return only the generated JSON value without any explanations surrounded by ```json that adheres to the model below:
 {class_str}
