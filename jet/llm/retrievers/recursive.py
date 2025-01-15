@@ -141,7 +141,7 @@ def initialize_summary_nodes_and_retrievers(
 
     summary_nodes, vector_retrievers = load_from_cache_or_compute(
         build_recursive_retriever_over_document_summaries,
-        file_path=output_dir,
+        file_path=os.path.join(output_dir, "summaries_and_retrievers.pkl"),
         use_cache=use_cache,
         data_dir=data_dir,
         similarity_top_k=similarity_top_k,
