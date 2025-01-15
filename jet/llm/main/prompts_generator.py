@@ -35,17 +35,28 @@ DEFAULT_FORMAT = """
 DEFAULT_SAMPLE = """
 Example 1:
 ```text
-List your work history and achievements.
+Create an account at my website.
 ```
 Response:
 {
   "data": [
-    "List your work experience.",
-    "List your achievements."
+    "Create an account at my website."
   ]
 }
 
 Example 2:
+```text
+Provide your best work schedule and projects.
+```
+Response:
+{
+  "data": [
+    "Provide your best work schedule.",
+    "Provide your best projects."
+  ]
+}
+
+Example 3:
 ```text
 She gave her friend a book and a pen.
 ```
@@ -81,7 +92,7 @@ Response:
 
 
 class PromptsGenerator:
-    def __init__(self, data_path: Optional[str] = None, llm: Ollama | LLM = Ollama(model="llama3.1"), chunk_size: int = 512, chunk_overlap: int = 128):
+    def __init__(self, data_path: Optional[str] = None, llm: Ollama | LLM = Ollama(model="llama3.1"), chunk_size: int = 512, chunk_overlap: int = 0):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.llm = llm
