@@ -2,8 +2,8 @@ from collections import defaultdict
 from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
 from jet.decorators.error import wrap_retry
 from jet.decorators.function import retry_on_error
-from jet.llm.ollama.constants import OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
-from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
+from jet.llm.ollama.constants import DEFAULT_BASE_URL, DEFAULT_CONTEXT_WINDOW, DEFAULT_REQUEST_TIMEOUT, OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
+from jet.llm.ollama.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.logger.timer import sleep_countdown
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse
 from llama_index.core.callbacks.base import CallbackManager
@@ -33,7 +33,9 @@ from jet.logger import logger
 from jet.utils.markdown import extract_json_block_content
 from jet.validation.main.json_validation import validate_json
 import json
+from pydantic.fields import Field
 from pydantic.main import BaseModel
+from transformers.tokenization_utils_base import EncodedInput, PreTokenizedInput, TextInput
 
 dispatcher = get_dispatcher(__name__)
 
@@ -74,10 +76,10 @@ dispatcher = get_dispatcher(__name__)
 
 
 class SettingsDict(TypedDict, total=False):
-    llm_model: str
+    llm_model: OLLAMA_MODEL_NAMES
     context_window: int
     request_timeout: float
-    embedding_model: str
+    embedding_model: OLLAMA_EMBED_MODELS
     chunk_size: int
     chunk_overlap: int
     base_url: str
@@ -85,8 +87,8 @@ class SettingsDict(TypedDict, total=False):
 
 
 class _EnhancedSettings(_Settings):
-    model: str
-    embedding_model: str
+    model: OLLAMA_MODEL_NAMES
+    embedding_model: OLLAMA_EMBED_MODELS
     count_tokens: Callable[[str], int]
 
     def __setattr__(self, name, value):
@@ -145,6 +147,9 @@ def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings
     EnhancedSettings.embedding_model = embedding_model
     EnhancedSettings.count_tokens = count_tokens
 
+    from jet.helpers.prompt.custom_prompt_helpers import OllamaPromptHelper
+    EnhancedSettings.prompt_helper = OllamaPromptHelper(llm_model)
+
     return EnhancedSettings
 
 
@@ -180,7 +185,7 @@ def update_llm_settings(settings: SettingsDict = {}):
 
 
 def create_llm(
-    model: str = DEFAULT_LLM_SETTINGS['model'],
+    model: OLLAMA_MODEL_NAMES = DEFAULT_LLM_SETTINGS['model'],
     base_url: str = DEFAULT_LLM_SETTINGS['base_url'],
     temperature: float = DEFAULT_LLM_SETTINGS['temperature'],
     context_window: int = DEFAULT_LLM_SETTINGS['context_window'],
@@ -200,7 +205,7 @@ def create_llm(
 
 
 def create_embed_model(
-    model: str = DEFAULT_EMBED_SETTINGS['model_name'],
+    model: OLLAMA_EMBED_MODELS = DEFAULT_EMBED_SETTINGS['model_name'],
     base_url: str = DEFAULT_EMBED_SETTINGS['base_url'],
     embed_batch_size: int = DEFAULT_EMBED_SETTINGS['embed_batch_size'],
     ollama_additional_kwargs: dict[str,
@@ -217,19 +222,29 @@ def create_embed_model(
 
 
 class Ollama(BaseOllama):
-    max_tokens: int | float = 0.4
+    max_tokens: Optional[Union[int, float]] = Field(
+        0.4, description="Maximum number of tokens to generate.")
+    model: OLLAMA_MODEL_NAMES = Field(
+        "llama3.1", description="The model name to use.")
 
     @llm_chat_callback()
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
-        from jet.token import filter_texts
+        from jet.token import filter_texts, token_counter
         from jet.llm import call_ollama_chat
 
+        model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[self.model]
+        token_count = token_counter(messages, self.model)
+
+        logger.newline()
         logger.orange("Calling Ollama chat...")
         logger.debug(
             "LLM model:",
             self.model,
-            f"({OLLAMA_MODEL_EMBEDDING_TOKENS[self.model]})",
-            colors=["GRAY", "DEBUG", "DEBUG"],
+            f"({model_max_length})",
+            "|",
+            "Tokens:",
+            token_count,
+            colors=["GRAY", "DEBUG", "DEBUG", "GRAY", "DEBUG", "DEBUG"],
         )
 
         if self.max_tokens:
@@ -253,6 +268,7 @@ class Ollama(BaseOllama):
                 options={
                     **self._model_kwargs,
                     **options,
+                    "num_ctx": model_max_length,
                 },
                 keep_alive=self.keep_alive,
                 full_stream_response=True,

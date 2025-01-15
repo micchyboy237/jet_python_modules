@@ -2,6 +2,7 @@ import os
 import json
 from jet.logger import logger
 from jet.transformers import make_serializable
+from pydantic.main import BaseModel
 
 
 def load_json(file_path):
@@ -58,14 +59,14 @@ def save_json(results, file_path="generated/results.json"):
 
         # Log success message
         logger.log("Results saved to", file_path,
-                   colors=["GRAY", "BRIGHT_SUCCESS"])
+                   colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
     except Exception as e:
         logger.log(f"Error saving results:", str(e), colors=["GRAY", "RED"])
         raise e
 
 
-def save_file(data: str | dict | list, output_file: str):
+def save_file(data: str | dict | list | BaseModel, output_file: str):
     import os
     # Ensure directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
@@ -82,7 +83,7 @@ def save_file(data: str | dict | list, output_file: str):
             logger.log(
                 "Save JSON data to:",
                 output_file,
-                colors=["LOG", "BRIGHT_SUCCESS"]
+                colors=["SUCCESS", "BRIGHT_SUCCESS"]
             )
         else:
             with open(output_file, "w", encoding="utf-8") as f:
@@ -90,7 +91,7 @@ def save_file(data: str | dict | list, output_file: str):
             logger.log(
                 "Save data to:",
                 output_file,
-                colors=["LOG", "BRIGHT_SUCCESS"]
+                colors=["SUCCESS", "BRIGHT_SUCCESS"]
             )
     except Exception as e:
         logger.error(f"Failed to save file: {e}")

@@ -5,8 +5,10 @@ import tiktoken
 from jet.llm.llm_types import Message
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from jet.llm.ollama.models import (
+    OLLAMA_HF_MODEL_NAMES,
     OLLAMA_HF_MODELS,
     OLLAMA_MODEL_EMBEDDING_TOKENS,
+    OLLAMA_MODEL_NAMES,
 )
 
 
@@ -16,17 +18,25 @@ def get_ollama_models():
     return OLLAMA_HF_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS
 
 
-def tokenizer():
-    encoding = tiktoken.get_encoding("cl100k_base")
-    return encoding
+def get_ollama_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
+    if model_name in OLLAMA_MODEL_NAMES.__args__:
+        model_name = OLLAMA_HF_MODELS[model_name]
 
-
-def get_tokenizer(model_name: str) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
-    try:
+    if model_name in OLLAMA_HF_MODEL_NAMES.__args__:
         tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
             model_name)
         return tokenizer
-    except Exception:
+
+    raise ValueError(f"Model \"{model_name}\" not found")
+
+
+def get_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
+    if model_name in OLLAMA_MODEL_NAMES.__args__:
+        model_name = OLLAMA_HF_MODELS[model_name]
+
+    if model_name in OLLAMA_HF_MODEL_NAMES.__args__:
+        return get_ollama_tokenizer(model_name)
+    else:
         encoding = tiktoken.get_encoding("cl100k_base")
         return encoding
 
@@ -50,7 +60,7 @@ def tokenize(model_name: str, text: str | list[str] | list[dict]):
 
 def token_counter(
     text: str | list[str] | list[ChatMessage],
-    model: Optional[str] = "mistral",
+    model: Optional[OLLAMA_MODEL_NAMES] = "mistral",
     prevent_total: bool = False
 ) -> int | list[int]:
     if not text:
@@ -61,7 +71,7 @@ def token_counter(
 
     if model not in OLLAMA_HF_MODELS:
         raise ValueError(f"Model can only be one of the ff: {
-                         [tuple(OLLAMA_HF_MODELS.keys())]}")
+                         [tuple(OLLAMA_HF_MODEL_NAMES.__args__)]}")
 
     tokenized = tokenize(OLLAMA_HF_MODELS[model], text)
     if isinstance(text, str):
@@ -72,7 +82,7 @@ def token_counter(
 
 
 def get_model_max_tokens(
-    model: Optional[str] = "mistral",
+    model: Optional[OLLAMA_MODEL_NAMES] = "mistral",
 ) -> int:
     # Get models only when needed
     _, OLLAMA_MODEL_EMBEDDING_TOKENS = get_ollama_models()
@@ -86,12 +96,13 @@ def get_model_max_tokens(
 
 def filter_texts(
     text: str | list[str] | list[dict] | list[ChatMessage],
-    model: Optional[Literal[tuple(OLLAMA_HF_MODELS.keys())]] = "mistral",
+    model: OLLAMA_MODEL_NAMES = "mistral",
     max_tokens: Optional[int | float] = None,
 ) -> str | list[str] | list[dict] | list[ChatMessage]:
     tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
     if isinstance(max_tokens, float) and max_tokens < 1:
-        max_tokens = int(get_model_max_tokens(model) * max_tokens)
+        max_tokens = max_tokens or int(
+            get_model_max_tokens(model) * max_tokens)
     else:
         max_tokens = max_tokens or get_model_max_tokens(model)
 

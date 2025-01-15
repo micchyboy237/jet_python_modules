@@ -1,3 +1,3 @@
-from .logger import *
+from .logger import logger
 from .utils import *
 from .timer import *

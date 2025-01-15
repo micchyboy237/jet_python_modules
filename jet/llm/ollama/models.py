@@ -1,3 +1,5 @@
+from typing import Literal
+from enum import Enum
 import json
 import requests
 import tiktoken
@@ -5,41 +7,68 @@ from transformers import AutoTokenizer
 from jet.logger import logger
 from jet.cache.redis import RedisCache, RedisConfigParams
 
+# Enum to define model types
 
+
+# Get the list of ollama models
+OLLAMA_MODEL_NAMES = Literal[
+    "llama3.1",
+    "llama3.2",
+    "mistral",
+    "gemma2:2b",
+    "gemma2:9b",
+    "codellama",
+    "qwen2.5-coder",
+]
+
+OLLAMA_HF_MODEL_NAMES = Literal[
+    "meta-llama/Llama-3.1-8B",
+    "meta-llama/Llama-3.2-3B",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "google/gemma-2-2b",
+    "google/gemma-2-9b",
+    "meta-llama/CodeLlama-7b-hf",
+    "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "nomic-ai/nomic-embed-text-v1.5",
+    "mixedbread-ai/mxbai-embed-large-v1",
+]
+
+OLLAMA_EMBED_MODELS = Literal[
+    "nomic-embed-text",
+    "mxbai-embed-large",
+]
+
+# Map models to context window sizes
 OLLAMA_MODEL_CONTEXTS = {
-    "mistral": 32768,
     "llama3.1": 131072,
     "llama3.2": 131072,
+    "mistral": 32768,
     "gemma2:2b": 8192,
     "gemma2:9b": 8192,
     "codellama": 16384,
     "qwen2.5-coder": 32768,
     "nomic-embed-text": 2048,
     "mxbai-embed-large": 512,
-    # "deepseek-coder-v2": 163840,
-    # "llava": 32768,
-    # "llama3.2-vision": 131072,
 }
 
+# Map models to embedding sizes
 OLLAMA_MODEL_EMBEDDING_TOKENS = {
+    "llama3.1": 4096,
+    "llama3.2": 3072,
+    "mistral": 4096,
     "gemma2:2b": 2304,
     "gemma2:9b": 3584,
+    "codellama": 4096,
     "qwen2.5-coder": 3584,
     "nomic-embed-text": 768,
-    "mistral": 4096,
     "mxbai-embed-large": 1024,
-    "llama3.1": 4096,
-    "codellama": 4096,
-    "deepseek-coder-v2": 2048,
-    "llava": 4096,
-    "llama3.2": 3072
 }
 
 
 OLLAMA_HF_MODELS = {
-    "mistral": "mistralai/Mistral-7B-Instruct-v0.3",
     "llama3.1": "meta-llama/Llama-3.1-8B",
     "llama3.2": "meta-llama/Llama-3.2-3B",
+    "mistral": "mistralai/Mistral-7B-Instruct-v0.3",
     "gemma2:2b": "google/gemma-2-2b",
     "gemma2:9b": "google/gemma-2-9b",
     "codellama": "meta-llama/CodeLlama-7b-hf",
@@ -178,5 +207,5 @@ def count_encoded_tokens(model_name: str, text: str | list[str]) -> int:
 
 # Run the script and print the result
 if __name__ == "__main__":
-    OLLAMA_MODEL_CONTEXTS = build_ollama_models()
-    logger.success(json.dumps(OLLAMA_MODEL_CONTEXTS, indent=2))
+    ollama_models = build_ollama_models()
+    logger.success(json.dumps(ollama_models, indent=2))
