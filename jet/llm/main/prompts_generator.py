@@ -24,42 +24,59 @@ class QueryData(BaseModel):
         ..., description="A list of prompts derived from query.")
 
 
-PROMPT_QA_TEMPLATE = (
-    "Context information is below.\n"
-    "---------------------\n"
-    "{context_str}\n"
-    "---------------------\n"
-    "Given the context information and not prior knowledge, answer the query.\n"
-    "{instructions_str}\n"
-    "Query: {query_str}\n"
-    "Response:\n"
-)
-
-
-DEFAULT_TONE_NAME = "an independent clause"
+DEFAULT_TONE_NAME = "an independent clause with a single direct object"
 DEFAULT_FORMAT = """
 {
   "data": [
-    "Prompt 1"
+    "Sentence 1"
+  ]
+}
+""".strip()
+DEFAULT_SAMPLE = """
+Example 1:
+```text
+List your work history and achievements.
+```
+Response:
+{
+  "data": [
+    "List your work experience.",
+    "List your achievements."
+  ]
+}
+
+Example 2:
+```text
+She gave her friend a book and a pen.
+```
+Response:
+{
+  "data": [
+    "She gave her friend a book.",
+    "She gave her friend a pen."
   ]
 }
 """.strip()
 
 INSTRUCTIONS_PROMPT = """
+
+""".strip()
+
+PROMPT_QA_TEMPLATE = """
+Break the provided text down into smaller simple sentences.
+Each sentence should have a subject and predicate.
+The subject should be shared.
+
 Return only the generated JSON value without any explanations surrounded by ```json that adheres to the model below:
-{class_string}
-""".strip()
+{class_str}
 
-PROMPT_TEMPLATE = """
-{general_query_str}
+Example prompt and response:
+{sample_str}
 
-Generated prompts must be a sentence derived from the given query in the style of {tone_name}.
-Example response format:
-{format}
-""".strip()
-
-DEFAULT_GENERAL_QUERY = """
-Generate independent clauses based on provided context and schema.
+```text
+{prompt_str}
+```
+Response:
 """.strip()
 
 
@@ -123,34 +140,28 @@ class PromptsGenerator:
 
         return base_nodes
 
-    def generate(self, context_text: str, query: str = DEFAULT_GENERAL_QUERY, tone_name: str = DEFAULT_TONE_NAME, format: str = DEFAULT_FORMAT) -> QueryData:
+    def generate(self, prompt: str, tone_name: str = DEFAULT_TONE_NAME, format: str = DEFAULT_FORMAT, sample: str = DEFAULT_SAMPLE) -> QueryData:
         qa_prompt_tmpl = PromptTemplate(PROMPT_QA_TEMPLATE)
-        general_query_str = PROMPT_TEMPLATE.format(
-            general_query_str=query,
-            tone_name=tone_name,
-            format=format,
-        )
-        instructions_str = INSTRUCTIONS_PROMPT.format(
-            class_string=class_to_string(QueryData),
-        )
-
-        formatted_context_text = f"Prompt: \"{context_text}\""
 
         response = self.llm.structured_predict(
             QueryData,
             qa_prompt_tmpl,
-            context_str=formatted_context_text,
-            instructions_str=instructions_str,
-            query_str=general_query_str,
+            prompt_str=prompt,
+            format_str=format,
+            sample_str=sample,
+            class_str=class_to_string(QueryData),
             llm_kwargs={
                 "options": {"temperature": 0},
             },
         )
         return response
 
-    def process(self, prompt: str) -> QueryData | Generator[QueryData, None, None]:
+    def process(self, prompt: str | list[str]) -> Generator[tuple[str, QueryData], None, None]:
         if not self.nodes:
-            return self.generate(prompt)
+            if isinstance(prompt, str):
+                prompt = [prompt]
+            for text in prompt:
+                yield text, self.generate(text)
         else:
             for node in self.nodes:
                 nodes_to_parse = [node]
@@ -162,4 +173,4 @@ class PromptsGenerator:
 
                 response = self.generate(context_text)
 
-                yield response
+                yield node.text, response
