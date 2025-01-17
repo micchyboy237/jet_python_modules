@@ -1,8 +1,6 @@
-from .globals import inject_globals
+# Setup all shared packages
+from .shared_modules import *
 
 # Enable parallelism for faster LLM tokenizer encoding
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
-
-# Ensure globals are injected when the package is imported
-inject_globals()

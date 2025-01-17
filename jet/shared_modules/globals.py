@@ -1,12 +1,17 @@
 import builtins
-from jet.logger import logger, time_it
-from jet.transformers import make_serializable
-from jet.transformers.formatters import format_json, prettify_value
-from jet.utils.class_utils import class_to_string, get_class_name
-from jet.file import save_file
+from .modules import (
+    logger,
+    time_it,
+    make_serializable,
+    format_json,
+    prettify_value,
+    class_to_string,
+    get_class_name,
+    save_file,
+)
 
 
-# Injects global methods / variables only once
+# Injects global methods/variables only once
 def inject_globals():
     if not hasattr(builtins, "logger"):
         builtins.logger = logger

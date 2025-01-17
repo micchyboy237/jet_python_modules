@@ -1,12 +1,13 @@
 from enum import Enum
+import collections.abc
 import json
 import base64
 import numpy as np
-
 import json
 import base64
 import numpy as np
 from pydantic.main import BaseModel
+from jet.validation.object import is_iterable_but_not_primitive
 
 
 def make_serializable(obj):
@@ -17,7 +18,13 @@ def make_serializable(obj):
     Returns:
         A serializable representation of the object.
     """
-    if isinstance(obj, Enum):
+    if is_iterable_but_not_primitive(obj, 'list'):
+        return [make_serializable(item) for item in obj]
+    elif is_iterable_but_not_primitive(obj, 'dict'):
+        return {key: make_serializable(value) for key, value in obj.items()}
+    elif is_iterable_but_not_primitive(obj, 'set'):
+        return [make_serializable(item) for item in obj]
+    elif isinstance(obj, Enum):
         return obj.value  # Convert Enum to its value
     elif isinstance(obj, (int, float, bool, type(None))):
         return obj
@@ -36,20 +43,11 @@ def make_serializable(obj):
         except UnicodeDecodeError:
             decoded_str = base64.b64encode(obj).decode('utf-8')
         return make_serializable(decoded_str)
-    elif isinstance(obj, set):
-        return list(obj)
-    elif isinstance(obj, list):
-        return [make_serializable(item) for item in obj]
-    elif isinstance(obj, dict):
-        return {make_serializable(key): make_serializable(value) for key, value in obj.items()}
+
+    # elif isinstance(obj, dict):
+    #     return {make_serializable(key): make_serializable(value) for key, value in obj.items()}
     elif isinstance(obj, BaseModel):
         return make_serializable(vars(obj))
-    elif hasattr(obj, "__dict__"):
-        return make_serializable(vars(obj))
-    elif isinstance(obj, tuple):
-        return tuple(make_serializable(item) for item in obj)
-    elif isinstance(obj, set):
-        return {make_serializable(item) for item in obj}
     elif isinstance(obj, (np.integer, np.floating)):
         return obj.item()  # Convert numpy types to native Python types
     elif isinstance(obj, np.ndarray):
@@ -60,19 +58,22 @@ def make_serializable(obj):
 
 # Example usage
 if __name__ == "__main__":
-    obj = [
-        1,
-        "string",
-        b'bytes1',
-        {
-            "a": "b",
-            "c": b'\x00\x01\x02\x03',
-            "nested": {
-                "d":  b'{"model": "llama3.2:latest"}'
-            }
-        },
-        '-11'
-    ]
+    byte_val = b'{"model": "llama3.2:latest"}'
+    dict_bytes_val = {
+        "key":  byte_val,
+        "nested_bytes": {
+            "nested_key":  byte_val
+        }
+    }
+    obj = {
+        "list": [4, 2, 3, 2, 5],
+        "list_bytes": [byte_val, dict_bytes_val],
+        "tuple": (4, 2, 3, 2, 5),
+        "tuple_bytes": (byte_val, dict_bytes_val),
+        "set": {4, 2, 3, 2, 5},
+        "set_bytes": {byte_val, byte_val},
+        "dict_bytes": dict_bytes_val
+    }
     serializable_obj = make_serializable(obj)
 
     # Serialize to JSON for testing
