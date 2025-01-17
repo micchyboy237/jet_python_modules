@@ -45,7 +45,7 @@ def load_or_save_cache(
         raise ValueError("Model must be provided when loading data.")
 
 
-def load_from_cache_or_compute(func, *args, file_path: str = "", use_cache: bool = False, **kwargs):
+def load_from_cache_or_compute(func, *args, file_path: str = "", use_cache: bool = True, **kwargs):
     """
     Caches the result of a function to a .pkl file or computes it if cache doesn't exist.
 
@@ -62,12 +62,14 @@ def load_from_cache_or_compute(func, *args, file_path: str = "", use_cache: bool
     if not file_path.endswith(".pkl"):
         raise ValueError("Cache file must have a .pkl extension.")
 
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
     if use_cache and os.path.exists(file_path):
         logger.success(f"Cache hit! File: {file_path}")
         return joblib.load(file_path)
 
     # Compute the result and cache it
-    logger.debug(f"Cache miss! Computing result for: {file_path}")
+    logger.info(f"Cache miss! Computing result for: {file_path}")
     result = func(*args, **kwargs)
     joblib.dump(result, file_path)
     logger.success(f"Saved cache to: {file_path}")
