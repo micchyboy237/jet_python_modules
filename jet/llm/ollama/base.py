@@ -316,15 +316,22 @@ class Ollama(BaseOllama):
 
     @llm_chat_callback()
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
-        from jet.token import filter_texts
+        from jet.token import filter_texts, token_counter
         from jet.llm import call_ollama_chat
 
-        logger.orange("Calling Ollama achat...")
+        model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[self.model]
+        token_count = token_counter(messages, self.model)
+
+        logger.newline()
+        logger.orange("Calling Ollama chat...")
         logger.debug(
             "LLM model:",
             self.model,
-            f"({OLLAMA_MODEL_EMBEDDING_TOKENS[self.model]})",
-            colors=["GRAY", "DEBUG", "DEBUG"],
+            f"({model_max_length})",
+            "|",
+            "Tokens:",
+            token_count,
+            colors=["GRAY", "DEBUG", "DEBUG", "GRAY", "DEBUG", "DEBUG"],
         )
 
         if self.max_tokens:
