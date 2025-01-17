@@ -42,3 +42,5 @@ def inject_globals():
 
 
 inject_globals()
+
+__all__ = []

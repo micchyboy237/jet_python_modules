@@ -1,4 +1,5 @@
 import json
+from events.events import EventSettings
 import requests
 import traceback
 from enum import Enum
@@ -129,8 +130,10 @@ def call_ollama_chat(
         run = Run(**run_settings)
 
     # Define headers
+    event = EventSettings.call_ollama_chat()
     headers = {
         "Tokens": str(token_count),  # Include the token count here
+        "Log-Filename": event['filename'].split(".")[0],
     }
 
     try:

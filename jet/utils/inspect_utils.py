@@ -1,14 +1,19 @@
 import inspect
 import os
 from collections import defaultdict
-from typing import Optional
+from typing import Optional, TypedDict
 
-from global_types import EventData
+from global_types import BaseEventData
 from jet.logger import logger
 from jet.transformers.object import make_serializable
 
 
-def inspect_original_script_path() -> Optional[EventData]:
+class INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE(TypedDict):
+    first: BaseEventData
+    last: BaseEventData
+
+
+def inspect_original_script_path() -> Optional[INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE]:
     # Get the stack frames
     stack_info = inspect.stack()
 
@@ -16,27 +21,40 @@ def inspect_original_script_path() -> Optional[EventData]:
     matching_frames = [
         frame for frame in stack_info if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename]
     matching_functions = [
-        frame for frame in matching_frames if frame.function != "<module>"]
+        frame for frame in matching_frames
+        if not frame.function.startswith('_') and
+        frame.function != "<module>"
+    ]
 
     if matching_functions:
-        # # Get the last matching frame
-        # last_matching_frame = matching_frames[-1]
-        # last_positions = last_matching_frame.positions
-        # last_lineno = last_matching_frame.lineno
+        # # Get the orig matching frame
+        first_matching_frame = matching_frames[-1]
+        first_filename = first_matching_frame.filename
+        first_code_context = first_matching_frame.code_context
+        first_function = first_matching_frame.function
+        first_lineno = first_matching_frame.lineno
 
         # Get the last function frame
         last_function_frame = matching_functions[-1]
-        filename = last_function_frame.filename
+        last_filename = last_function_frame.filename
         last_code_context = last_function_frame.code_context
         last_function = last_function_frame.function
         last_lineno = last_function_frame.lineno
-        # Extract the file name of the script from the last matching frame
-        script_path = os.path.abspath(filename)
         return {
-            "filepath": script_path,
-            "function": last_function,
-            "lineno": last_lineno,
-            "code_context": last_code_context,
+            "first": {
+                "filepath":  os.path.abspath(first_filename),
+                "filename":  os.path.basename(first_filename),
+                "function": first_function,
+                "lineno": first_lineno,
+                "code_context": first_code_context,
+            },
+            "last": {
+                "filepath":  os.path.abspath(last_filename),
+                "filename":  os.path.basename(last_filename),
+                "function": last_function,
+                "lineno": last_lineno,
+                "code_context": last_code_context,
+            }
         }
     else:
         return None
@@ -49,10 +67,14 @@ def print_inspect_original_script_path():
         # Only print frames that have "JetScripts/" or "jet_python_modules/" in the filename
         if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename:
             logger.info(f"Frame #{idx}:")
-            logger.debug(f"  File: {frame.filename}")
-            print(f"  Line Number: {frame.lineno}")
-            print(f"  Function Name: {frame.function}")
-            print(f"  Code Context: {frame.code_context}")
+            logger.log("  File:", frame.filename,
+                       colors=["WHITE", "DEBUG"])
+            logger.log("  Function Name:", frame.function,
+                       colors=["GRAY", "DEBUG"])
+            logger.log("  Line Number:", frame.lineno,
+                       colors=["GRAY", "DEBUG"])
+            logger.log("  Code Context:", frame.code_context,
+                       colors=["GRAY", "DEBUG"])
             print("-" * 50)
 
 
@@ -65,7 +87,8 @@ def print_inspect_original_script_path_grouped():
         file_groups[frame.filename].append({
             'frame': idx,
             'index': frame.index,
-            'line': frame.lineno,
+            'filename': frame.filename,
+            'lineno': frame.lineno,
             'function': frame.function,
             'code_context': frame.code_context
         })
@@ -75,15 +98,19 @@ def print_inspect_original_script_path_grouped():
     for file_name, frames in file_groups.items():
         print(f"\nFile: {file_name}")
         for frame in frames:
-            logger.info(f"  Frame #{frame['frame']}:")
-            print(f"    Index: {frame['index']}")
-            print(f"    Line Number: {frame['line']}")
-            print(f"    Function Name: {frame['function']}")
-            print(f"    Code Context: {frame['code_context']}")
+            logger.info(f"Frame #{idx}:")
+            logger.log("  File:", frame["filename"],
+                       colors=["WHITE", "DEBUG"])
+            logger.log("  Function Name:", frame["function"],
+                       colors=["GRAY", "DEBUG"])
+            logger.log("  Line Number:", frame["lineno"],
+                       colors=["GRAY", "DEBUG"])
+            logger.log("  Code Context:", frame["code_context"],
+                       colors=["GRAY", "DEBUG"])
             print("-" * 50)
 
 
 # Example usage
 if __name__ == "__main__":
     print("Original script path:", inspect_original_script_path())
-    print_inspect_original_script_path()
+    print_inspect_original_script_path_grouped()

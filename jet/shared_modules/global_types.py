@@ -1,9 +1,20 @@
 from dis import Positions
-from typing import TypedDict
+from typing import Any, Optional, TypedDict
 
 
-class EventData(TypedDict, total=False):
+class BaseEventData(TypedDict, total=False):
     filepath: str
+    filename: str
     function: str
     lineno: int
-    code_context: list[str] | None
+    code_context: list[str]
+
+
+class OrigEventDataFunction(BaseEventData, total=False):
+    pass
+
+
+class EventData(BaseEventData, total=False):
+    event_name: str
+    orig_function: OrigEventDataFunction
+    arguments: dict[str, Any]
