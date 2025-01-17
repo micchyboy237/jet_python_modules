@@ -1,5 +1,6 @@
 # Sort these imports that prevents circular dependencies
 # Shared modules should be on top
+from jet.transformers import make_serializable
 from jet.logger import logger, time_it
 
 from jet.utils.class_utils import *

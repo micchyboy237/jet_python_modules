@@ -1,7 +1,5 @@
 import builtins
 
-from jet.utils.class_utils import get_internal_attributes, get_non_empty_attributes, validate_class
-
 from .modules import (
     logger,
     time_it,
@@ -13,6 +11,7 @@ from .modules import (
     save_file,
     is_iterable_but_not_primitive,
 )
+from jet.utils.class_utils import get_internal_attributes, get_non_empty_attributes, validate_class
 
 
 # Injects global methods/variables only once

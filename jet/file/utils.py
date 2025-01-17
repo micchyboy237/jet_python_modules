@@ -1,7 +1,6 @@
 import os
 import json
 from jet.logger import logger
-from jet.transformers import make_serializable
 from pydantic.main import BaseModel
 
 
@@ -41,6 +40,7 @@ def save_json(results, file_path="generated/results.json"):
     """
     Save results to a JSON file, merging with existing results if the file exists.
     """
+    from jet.transformers import make_serializable
     try:
         # Serialize results
         results = make_serializable(results)
@@ -68,6 +68,7 @@ def save_json(results, file_path="generated/results.json"):
 
 def save_file(data: str | dict | list | BaseModel, output_file: str):
     import os
+    from jet.transformers import make_serializable
     # Ensure directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 

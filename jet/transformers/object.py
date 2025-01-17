@@ -6,7 +6,7 @@ import json
 import base64
 import numpy as np
 from pydantic.main import BaseModel
-from jet.validation.object import is_iterable_but_not_primitive
+# from jet.validation.object import is_iterable_but_not_primitive
 
 
 def make_serializable(obj):
