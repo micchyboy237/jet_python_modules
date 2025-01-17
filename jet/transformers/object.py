@@ -1,5 +1,4 @@
 from enum import Enum
-import collections.abc
 import json
 import base64
 import numpy as np
@@ -18,13 +17,8 @@ def make_serializable(obj):
     Returns:
         A serializable representation of the object.
     """
-    if is_iterable_but_not_primitive(obj, 'list'):
-        return [make_serializable(item) for item in obj]
-    elif is_iterable_but_not_primitive(obj, 'dict'):
-        return {key: make_serializable(value) for key, value in obj.items()}
-    elif is_iterable_but_not_primitive(obj, 'set'):
-        return [make_serializable(item) for item in obj]
-    elif isinstance(obj, Enum):
+
+    if isinstance(obj, Enum):
         return obj.value  # Convert Enum to its value
     elif isinstance(obj, (int, float, bool, type(None))):
         return obj
@@ -44,14 +38,26 @@ def make_serializable(obj):
             decoded_str = base64.b64encode(obj).decode('utf-8')
         return make_serializable(decoded_str)
 
-    # elif isinstance(obj, dict):
-    #     return {make_serializable(key): make_serializable(value) for key, value in obj.items()}
     elif isinstance(obj, BaseModel):
         return make_serializable(vars(obj))
     elif isinstance(obj, (np.integer, np.floating)):
         return obj.item()  # Convert numpy types to native Python types
     elif isinstance(obj, np.ndarray):
         return obj.tolist()  # Convert numpy arrays to lists
+    elif is_iterable_but_not_primitive(obj, 'dict'):
+        return {key: make_serializable(value) for key, value in obj.items()}
+    elif is_iterable_but_not_primitive(obj, 'list'):
+        return [make_serializable(item) for item in obj]
+    elif is_iterable_but_not_primitive(obj, 'set'):
+        return [make_serializable(item) for item in obj]
+    elif hasattr(obj, "__dict__"):
+        return make_serializable(vars(obj))
+    elif isinstance(obj, set):
+        return list(obj)
+    elif isinstance(obj, list):
+        return [make_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {make_serializable(key): make_serializable(value) for key, value in obj.items()}
     else:
         return str(obj)  # Fallback for unsupported types
 

@@ -3,7 +3,7 @@ import os
 from collections import defaultdict
 from typing import Optional, TypedDict
 
-from global_types import BaseEventData
+from shared.global_types import BaseEventData
 from jet.logger import logger
 from jet.transformers.object import make_serializable
 

@@ -2,6 +2,7 @@ import json
 from typing import TypedDict
 from dataclasses import is_dataclass
 from types import MappingProxyType
+from jet.utils.class_utils import get_class_name
 
 
 def check_object_type(obj: object, target_type: str) -> bool:
@@ -12,14 +13,26 @@ def check_object_type(obj: object, target_type: str) -> bool:
 
 
 # Function to get the class name
-def get_class_name(obj):
-    # Check if the object is an instance of a TypedDict
-    if isinstance(obj, dict) and hasattr(obj, "__annotations__"):
-        for base in obj.__class__.__bases__:
-            if isinstance(base.__dict__, MappingProxyType) and "__annotations__" in base.__dict__:
-                return obj.__class__.__name__
+# def get_class_name(cls: Type | object) -> str:
+#     # If the input is an object, get its class first
+#     if not isinstance(cls, type):
+#         cls = cls.__class__
 
-    return obj.__class__.__name__
+#     # Return the class name
+#     return cls.__name__
+
+
+# def validate_class_object(obj) -> bool:
+#     if obj.__class__.__name__ in ['dict', 'list']:
+#         return False
+
+#     # Check if the object is an instance of a TypedDict
+#     if isinstance(obj, dict) and hasattr(obj, "__annotations__"):
+#         for base in obj.__class__.__bases__:
+#             if isinstance(base.__dict__, MappingProxyType) and "__annotations__" in base.__dict__:
+#                 return bool(obj.__class__.__name__)
+
+#     return bool(obj.__class__.__name__)
 
 
 def print_types_recursive(obj):

@@ -1,6 +1,6 @@
 import builtins
 
-from jet.utils.class_utils import get_internal_attributes, get_non_empty_attributes
+from jet.utils.class_utils import get_internal_attributes, get_non_empty_attributes, validate_class
 
 from .modules import (
     logger,
@@ -27,6 +27,8 @@ def inject_globals():
         builtins.format_json = format_json
     if not hasattr(builtins, "prettify_value"):
         builtins.prettify_value = prettify_value
+    if not hasattr(builtins, "validate_class"):
+        builtins.validate_class = validate_class
     if not hasattr(builtins, "class_to_string"):
         builtins.class_to_string = class_to_string
     if not hasattr(builtins, "get_class_name"):

@@ -1,5 +1,4 @@
 import json
-from events.events import EventSettings
 import requests
 import traceback
 from enum import Enum
@@ -16,6 +15,7 @@ from jet.llm.llm_types import (
     MessageRole,
     Track,
 )
+from shared.events import EventSettings
 from jet.utils import get_class_name
 from jet.logger import logger
 from jet.transformers import make_serializable

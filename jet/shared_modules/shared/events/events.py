@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Literal, Optional
-from global_types import EventData
+from shared.global_types import EventData
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 from jet.utils.inspect_utils import inspect_original_script_path
@@ -88,6 +88,10 @@ class _EventSettings:
 
 # Singleton
 EventSettings = _EventSettings()
+
+__all__ = [
+    "EventSettings"
+]
 
 
 if __name__ == "__main__":

@@ -1,4 +1,7 @@
+import abc
+from dataclasses import dataclass
 import json
+from typing import TypeVar
 import unittest
 from enum import Enum
 from jet.transformers.object import make_serializable
@@ -76,6 +79,40 @@ class TestMakeSerializable(unittest.TestCase):
         obj = b'\x80\x81\x82'
         result = make_serializable(obj)
         self.assertEqual(result, "gIGC")  # Base64 encoded form
+
+    def test_serializable_class(self):
+        T = TypeVar("T", bound="Serializable")
+
+        class Serializable(metaclass=abc.ABCMeta):
+            @classmethod
+            @abc.abstractmethod
+            def from_state(cls: type[T], state) -> T:
+                raise NotImplementedError()
+
+        @dataclass
+        class MessageData(Serializable):
+            http_version: str
+
+            def from_state(self, state):
+                pass
+
+        @dataclass
+        class RequestData(MessageData):
+            host: str
+            port: int
+        obj = RequestData(
+            host='localhost',
+            port=8080,
+            http_version="1.0"
+        )
+        result = make_serializable(obj)
+        self.assertEqual(
+            json.dumps(result),
+            json.dumps({
+                "http_version": "1.0",
+                "host": 'localhost',
+                "port": 8080,
+            }))
 
     def test_serializable_dict(self):
         obj = {"key1": 1, "key2": 2}
