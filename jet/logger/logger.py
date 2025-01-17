@@ -113,6 +113,10 @@ def logger_examples(logger: CustomLogger):
 
 logger = CustomLogger()
 
+__all__ = [
+    "logger",
+]
+
 if __name__ == "__main__":
     logger_examples(logger)
 

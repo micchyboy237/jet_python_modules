@@ -1,5 +1,7 @@
 import builtins
 
+from jet.utils.class_utils import get_internal_attributes, get_non_empty_attributes
+
 from .modules import (
     logger,
     time_it,
@@ -33,6 +35,10 @@ def inject_globals():
         builtins.save_file = save_file
     if not hasattr(builtins, "is_iterable_but_not_primitive"):
         builtins.is_iterable_but_not_primitive = is_iterable_but_not_primitive
+    if not hasattr(builtins, "get_non_empty_attributes"):
+        builtins.get_non_empty_attributes = get_non_empty_attributes
+    if not hasattr(builtins, "get_internal_attributes"):
+        builtins.get_internal_attributes = get_internal_attributes
 
 
 inject_globals()
