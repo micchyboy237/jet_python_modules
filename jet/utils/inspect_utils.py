@@ -1,31 +1,59 @@
 import inspect
 import os
 from collections import defaultdict
+from typing import Optional
 
+from global_types import EventData
 from jet.logger import logger
 from jet.transformers.object import make_serializable
 
 
-def inspect_original_script_path():
-    # Get the frame of the caller (stack trace)
-    caller_frame = inspect.stack()[1]
-    # Extract the file name of the script from the caller's frame
-    script_path = caller_frame.filename
-    return os.path.abspath(script_path)
+def inspect_original_script_path() -> Optional[EventData]:
+    # Get the stack frames
+    stack_info = inspect.stack()
+
+    # Filter frames that contain "JetScripts/" or "jet_python_modules/" in the filename
+    matching_frames = [
+        frame for frame in stack_info if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename]
+    matching_functions = [
+        frame for frame in matching_frames if frame.function != "<module>"]
+
+    if matching_functions:
+        # # Get the last matching frame
+        # last_matching_frame = matching_frames[-1]
+        # last_positions = last_matching_frame.positions
+        # last_lineno = last_matching_frame.lineno
+
+        # Get the last function frame
+        last_function_frame = matching_functions[-1]
+        filename = last_function_frame.filename
+        last_code_context = last_function_frame.code_context
+        last_function = last_function_frame.function
+        last_lineno = last_function_frame.lineno
+        # Extract the file name of the script from the last matching frame
+        script_path = os.path.abspath(filename)
+        return {
+            "filepath": script_path,
+            "function": last_function,
+            "lineno": last_lineno,
+            "code_context": last_code_context,
+        }
+    else:
+        return None
 
 
 def print_inspect_original_script_path():
     stack_info = inspect.stack()
-    stack_info = make_serializable(stack_info)
     print("Inspecting stack frames:\n")
     for idx, frame in enumerate(stack_info):
-        print(f"Frame #{idx}:")
-        print(f"  Index: {frame.index}")
-        print(f"  File: {frame.filename}")
-        print(f"  Line Number: {frame.lineno}")
-        print(f"  Function Name: {frame.function}")
-        print(f"  Code Context: {frame.code_context}")
-        print("-" * 50)
+        # Only print frames that have "JetScripts/" or "jet_python_modules/" in the filename
+        if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename:
+            logger.info(f"Frame #{idx}:")
+            logger.debug(f"  File: {frame.filename}")
+            print(f"  Line Number: {frame.lineno}")
+            print(f"  Function Name: {frame.function}")
+            print(f"  Code Context: {frame.code_context}")
+            print("-" * 50)
 
 
 def print_inspect_original_script_path_grouped():

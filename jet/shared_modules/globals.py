@@ -1,4 +1,5 @@
 import builtins
+
 from .modules import (
     logger,
     time_it,
@@ -8,6 +9,7 @@ from .modules import (
     class_to_string,
     get_class_name,
     save_file,
+    is_iterable_but_not_primitive,
 )
 
 
@@ -29,6 +31,8 @@ def inject_globals():
         builtins.get_class_name = get_class_name
     if not hasattr(builtins, "save_file"):
         builtins.save_file = save_file
+    if not hasattr(builtins, "is_iterable_but_not_primitive"):
+        builtins.is_iterable_but_not_primitive = is_iterable_but_not_primitive
 
 
 inject_globals()
