@@ -1,12 +1,13 @@
 import unittest
+from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
 from llama_index.core import Document
 from llama_index.core.node_parser import (
-    HierarchicalNodeParser,
     get_child_nodes,
     get_deeper_nodes,
     get_leaf_nodes,
     get_root_nodes,
 )
+from llama_index.core.node_parser.relational.hierarchical import HierarchicalNodeParser
 
 ROOT_NODES_LEN = 1
 CHILDREN_NODES_LEN = 3
