@@ -166,12 +166,14 @@ class PromptsGenerator:
         )
         return response
 
-    def process(self, prompt: str | list[str]) -> Generator[tuple[str, QueryData], None, None]:
+    def process(self, prompt: str | list[str]) -> Generator[tuple[str, str], None, None]:
         if not self.nodes:
             if isinstance(prompt, str):
                 prompt = [prompt]
             for text in prompt:
-                yield text, self.generate(text)
+                response = self.generate(text)
+                for result in response.data:
+                    yield text, result
         else:
             for node in self.nodes:
                 nodes_to_parse = [node]
@@ -182,5 +184,5 @@ class PromptsGenerator:
                 context_text = "\n\n".join(texts)
 
                 response = self.generate(context_text)
-
-                yield node.text, response
+                for result in response.data:
+                    yield node.text, result

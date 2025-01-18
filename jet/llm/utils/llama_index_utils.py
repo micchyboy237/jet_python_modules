@@ -19,9 +19,18 @@ def display_jet_source_node(
 
     logger.log("Node ID:", source_node.node_id, colors=["GRAY", "INFO"])
 
-    if show_source_metadata:
-        logger.log("Metadata:", source_node.metadata, colors=[
-                   "GRAY", "INFO"])
+    # if show_source_metadata:
+    #     logger.log("Metadata:", source_node.metadata, colors=[
+    #                "GRAY", "INFO"])
+    if 'file_name' in source_node.metadata:
+        logger.log("File name:", source_node.metadata['file_name'],
+                   colors=["GRAY", "SUCCESS"])
+    if 'chunk_size' in source_node.metadata:
+        logger.log("Chunk size:", source_node.metadata['chunk_size'],
+                   colors=["GRAY", "SUCCESS"])
+    if 'depth' in source_node.metadata:
+        logger.log("Depth:", source_node.metadata['depth'],
+                   colors=["GRAY", "SUCCESS"])
 
     if isinstance(source_node, TextNode):
         logger.log(

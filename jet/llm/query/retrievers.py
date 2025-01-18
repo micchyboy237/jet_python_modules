@@ -1,17 +1,21 @@
 from typing import Optional
+from jet.llm.query.splitters import split_heirarchical_nodes, split_sub_nodes
 from jet.llm.retrievers.recursive import (
     initialize_summary_nodes_and_retrievers,
     query_nodes as query_nodes_recursive
 )
 from jet.token import filter_texts
+from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.schema import CBEventType
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
+from llama_index.core.node_parser.relational.hierarchical import get_leaf_nodes
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.base.base_retriever import BaseRetriever
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
+from llama_index.core.retrievers.recursive_retriever import RecursiveRetriever
 from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode, ImageNode
 from jet.llm.utils import display_jet_source_nodes
 from jet.logger import logger
@@ -72,6 +76,23 @@ def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MO
     )
 
     return retriever
+
+
+def get_recursive_retriever(index: VectorStoreIndex, all_nodes: list[BaseNode], similarity_top_k: Optional[int] = None):
+    vector_retriever_chunk = index.as_retriever(
+        similarity_top_k=similarity_top_k)
+
+    all_nodes_dict = {n.node_id: n for n in all_nodes}
+
+    retriever = RecursiveRetriever(
+        "vector",
+        retriever_dict={"vector": vector_retriever_chunk},
+        node_dict=all_nodes_dict,
+        verbose=False,
+    )
+
+    return retriever
+
 # Use in a Query Engine!
 #
 # Now, we can plug our retriever into a query engine to synthesize natural language responses.
@@ -80,16 +101,38 @@ def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MO
 def setup_index(
     documents: list[Document],
     *,
-    chunk_size: int = 256,
-    chunk_overlap: int = 20,
+    chunk_size: int = 1024,
+    chunk_overlap: int = 40,
+    sub_chunk_sizes: list[int] = [],
+    with_heirarchy: bool = True
 ):
     splitter = SentenceSplitter(
         chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    all_nodes = splitter.get_nodes_from_documents(documents)
+    all_nodes = splitter.get_nodes_from_documents(
+        documents, show_progress=True)
+
+    # if with_heirarchy:
+    # all_nodes = split_sub_nodes(all_nodes, [128, 256, 512], chunk_overlap)
+
+    if not sub_chunk_sizes:
+        sub_chunk_sizes = [chunk_size]
+    # sub_chunk_sizes = [chunk_size, *sub_chunk_sizes]
+    sub_nodes = split_heirarchical_nodes(
+        all_nodes, sub_chunk_sizes, chunk_overlap)
+    jet_node_parser = JetHierarchicalNodeParser(sub_nodes, sub_chunk_sizes)
+    all_nodes = jet_node_parser.all_nodes
+    # leaf_nodes = get_leaf_nodes(sub_nodes)
+    # leaf_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
+    # all_nodes = leaf_nodes
+
     # Next, we will setup a vector index over the documentation.
-    index = VectorStoreIndex.from_documents(
-        documents,
-        transformations=[splitter],
+    # index = VectorStoreIndex.from_documents(
+    #     documents,
+    #     transformations=[splitter],
+    #     show_progress=True,
+    # )
+    index = VectorStoreIndex(
+        all_nodes,
         show_progress=True,
     )
 
@@ -97,18 +140,27 @@ def setup_index(
         query: str,
         fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
         threshold: float = 0.0,
-        top_k: Optional[int] = None,
+        top_k: int = 10,
     ):
-        initial_similarity_k = len(documents)
-        final_similarity_k = len(all_nodes)  # top_k or len(all_nodes)
         # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
+
+        # if with_heirarchy:
+        #     combined_retriever = get_recursive_retriever(
+        #         index, all_nodes, top_k)
+        # else:
+        # initial_similarity_k = len(documents)
+        # final_similarity_k = len(all_nodes)
+        initial_similarity_k = top_k if top_k < len(
+            all_nodes) else len(all_nodes)
+        final_similarity_k = top_k if top_k < len(
+            all_nodes) else len(all_nodes)
         retrievers = setup_retrievers(
             index, initial_similarity_k, final_similarity_k)
+        combined_retriever = get_fusion_retriever(
+            retrievers, fusion_mode, top_k)
 
-        fusion_retriever = get_fusion_retriever(
-            retrievers, fusion_mode, final_similarity_k)
-
-        retrieved_nodes: list[NodeWithScore] = fusion_retriever.retrieve(query)
+        retrieved_nodes: list[NodeWithScore] = combined_retriever.retrieve(
+            query)
 
         filtered_nodes: list[NodeWithScore] = [
             node for node in retrieved_nodes if node.score > threshold]

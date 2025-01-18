@@ -9,7 +9,6 @@ class JetHierarchicalNodeParser:
     all_nodes: list[BaseNode] = []
     depth: int = 0  # Variable to store the calculated depth
     nodes_tree: dict = {}  # Variable to store the calculated depth
-    chunk_sizes: Optional[List[int]] = None
 
     def __init__(
         self,
@@ -51,6 +50,13 @@ class JetHierarchicalNodeParser:
         max_depth = depth if isinstance(depth, int) else self.depth
         if not isinstance(max_depth, int):
             raise ValueError(f"Invalide max_depth: {max_depth}")
+
+        self.add_additional_metadata(max_depth, nodes)
+
+        self.nodes_tree = self._generate_nodes_tree()
+        return self.nodes_tree
+
+    def add_additional_metadata(self, max_depth: int, nodes: List[BaseNode]):
         if not self.chunk_sizes:
             raise ValueError(f"Invalide chunk_sizes: {self.chunk_sizes}")
 
@@ -60,9 +66,6 @@ class JetHierarchicalNodeParser:
                 for node in deep_nodes:
                     node.metadata["chunk_size"] = chunk_size
                     node.metadata["depth"] = idx
-
-        self.nodes_tree = self._generate_nodes_tree()
-        return self.nodes_tree
 
     def _generate_nodes_tree(self, nodes: Optional[list[BaseNode] | list[RelatedNodeInfo]] = None, depth=0, nodes_tree: dict = {}):
         nodes = get_deeper_nodes(self.all_nodes, depth=depth)
@@ -81,27 +84,6 @@ class JetHierarchicalNodeParser:
             self._generate_nodes_tree(
                 child_nodes, depth=depth+1, nodes_tree=sub_nodes_tree)
         return nodes_tree
-
-    def get_nodes_from_documents(
-        self,
-        documents: Sequence[Document],
-        show_progress: bool = False,
-        **kwargs: Any,
-    ) -> List[BaseNode]:
-        """Parse document into nodes and calculate the depth."""
-        all_nodes = self.node_parser.get_nodes_from_documents(
-            documents, show_progress, **kwargs)
-        self.all_nodes = all_nodes
-
-        # After parsing nodes, calculate and store the depth
-        # This will store the depth in self.depth
-        depth = self.get_depth(all_nodes)
-        nodes_tree = self.generate_nodes_tree(all_nodes, depth)
-        return {
-            "all_nodes": all_nodes,
-            "nodes_tree": nodes_tree,
-            "depth": depth,
-        }
 
     @property
     def readable_depth(self) -> Optional[int]:
