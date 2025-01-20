@@ -427,7 +427,7 @@ class Ollama(BaseOllama):
 
 
 class OllamaEmbedding(BaseOllamaEmbedding):
-    def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float]:
+    def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float] | list[list[float]]:
         """Get Ollama embedding with retry mechanism."""
         logger.orange("Calling OllamaEmbedding embed...")
         logger.debug(
@@ -445,7 +445,10 @@ class OllamaEmbedding(BaseOllamaEmbedding):
                 result = self._client.embed(
                     model=self.model_name, input=texts, options=self.ollama_additional_kwargs
                 )
-                embeddings = result["embeddings"][0]
+                if len(result["embeddings"]) > 1:
+                    embeddings = result["embeddings"]
+                else:
+                    embeddings = result["embeddings"][0]
                 event.on_end(
                     payload={
                         EventPayload.CHUNKS: [texts] if isinstance(texts, str) else texts,

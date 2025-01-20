@@ -19,6 +19,8 @@ OLLAMA_MODEL_NAMES = Literal[
     "gemma2:9b",
     "codellama",
     "qwen2.5-coder",
+    "nomic-embed-text",
+    "mxbai-embed-large",
 ]
 
 OLLAMA_HF_MODEL_NAMES = Literal[
