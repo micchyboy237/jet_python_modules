@@ -26,7 +26,7 @@ def get_source_node_attributes(
 
         if hasattr(source_node, "start_char_idx") and hasattr(source_node, "end_char_idx"):
             attributes["start_end"] = (
-                source_node.start_char_idx, source_node.end_char_idx)
+                source_node.start_char_idx or 0, source_node.end_char_idx or attributes["text_length"] - 1)
 
     if isinstance(source_node, ImageNode):
         attributes["image_info"] = {

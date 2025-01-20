@@ -1,10 +1,9 @@
 import os
-from typing import Callable, Optional
-from deeplake.core.vectorstore import VectorStore
+from typing import Any, Callable, Literal, Optional
 from jet.llm.ollama.base import OllamaEmbedding
-from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL
+from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_SMALL_LLM_MODEL
 from jet.llm.ollama.embeddings import get_ollama_embedding_function
-from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
+from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.llm.query.splitters import split_heirarchical_nodes, split_sub_nodes
 from jet.llm.retrievers.recursive import (
     initialize_summary_nodes_and_retrievers,
@@ -31,7 +30,6 @@ from jet.llm.llm_types import OllamaChatOptions
 from jet.llm.ollama import initialize_ollama_settings
 initialize_ollama_settings()
 
-DEFAULT_VECTOR_STORE_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/generated/deeplake/store_1"
 
 SYSTEM_MESSAGE = "You are a helpful AI Assistant."
 
@@ -106,90 +104,165 @@ def get_recursive_retriever(index: VectorStoreIndex, all_nodes: list[BaseNode], 
 # Now, we can plug our retriever into a query engine to synthesize natural language responses.
 
 
+def load_documents(data_dir: str, extensions: Optional[list[str]] = None):
+    documents = SimpleDirectoryReader(
+        data_dir, required_exts=extensions, recursive=True).load_data()
+    return documents
+
+
 def setup_index(
     path_or_docs: str | list[Document],
     *,
-    chunk_size: int = 1024,
-    chunk_overlap: int = 40,
-    sub_chunk_sizes: list[int] = [],
-    with_heirarchy: bool = True
+    extensions: Optional[list[str]] = None,
+    chunk_size: Optional[int] = None,
+    chunk_overlap: Optional[int] = None,
+    sub_chunk_sizes: Optional[list[int]] = None,
+    with_heirarchy: Optional[bool] = None,
+    embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
+    mode: Optional[Literal["fusion", "heirarchy", "deeplake"]] = "fusion",
+    **kwargs
 ):
-    if isinstance(path_or_docs, str):
-        documents = SimpleDirectoryReader(data_dir).load_data()
-    else:
+    search_func: Callable[..., dict[str, Any]]
+
+    final_chunk_size: int = chunk_size if isinstance(
+        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
+
+    documents: list[Document]
+    if type(path_or_docs) == str:
+        documents = load_documents(path_or_docs, extensions)
+    elif isinstance(path_or_docs, list):
         documents = path_or_docs
+    else:
+        raise ValueError(f"'data_dir' must be of type str | list[Document]")
 
     splitter = SentenceSplitter(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        chunk_size=final_chunk_size,
+        chunk_overlap=chunk_overlap,
+        tokenizer=get_ollama_tokenizer(embed_model).encode
+    )
     all_nodes = splitter.get_nodes_from_documents(
         documents, show_progress=True)
 
-    # if with_heirarchy:
+    # if mode == "summary":
     # all_nodes = split_sub_nodes(all_nodes, [128, 256, 512], chunk_overlap)
+    if mode == "heirarchy":
+        index = VectorStoreIndex(
+            all_nodes,
+            show_progress=True,
+        )
 
-    if not sub_chunk_sizes:
-        sub_chunk_sizes = [chunk_size]
-    # sub_chunk_sizes = [chunk_size, *sub_chunk_sizes]
-    sub_nodes = split_heirarchical_nodes(
-        all_nodes, sub_chunk_sizes, chunk_overlap)
-    jet_node_parser = JetHierarchicalNodeParser(sub_nodes, sub_chunk_sizes)
-    all_nodes = jet_node_parser.all_nodes
-    # leaf_nodes = get_leaf_nodes(sub_nodes)
-    # leaf_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
-    # all_nodes = leaf_nodes
+        if not sub_chunk_sizes:
+            sub_chunk_sizes = [final_chunk_size]
+        # sub_chunk_sizes = [chunk_size, *sub_chunk_sizes]
+        sub_nodes = split_heirarchical_nodes(
+            all_nodes, sub_chunk_sizes, chunk_overlap)
+        jet_node_parser = JetHierarchicalNodeParser(sub_nodes, sub_chunk_sizes)
+        all_nodes = jet_node_parser.all_nodes
+        # leaf_nodes = get_leaf_nodes(sub_nodes)
+        # leaf_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
+        # all_nodes = leaf_nodes
 
-    # Next, we will setup a vector index over the documentation.
-    # index = VectorStoreIndex.from_documents(
-    #     documents,
-    #     transformations=[splitter],
-    #     show_progress=True,
-    # )
-    index = VectorStoreIndex(
-        all_nodes,
-        show_progress=True,
-    )
+        def search_func(
+            query: str,
+            fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
+            threshold: float = 0.0,
+            top_k: int = 10,
+        ):
+            # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
 
-    def query_nodes_func(
-        query: str,
-        fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
-        threshold: float = 0.0,
-        top_k: int = 10,
-    ):
-        # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
+            combined_retriever = get_recursive_retriever(
+                index, all_nodes, top_k)
+            # else:
+            # initial_similarity_k = len(documents)
+            # final_similarity_k = len(all_nodes)
 
-        # if with_heirarchy:
-        #     combined_retriever = get_recursive_retriever(
-        #         index, all_nodes, top_k)
-        # else:
-        # initial_similarity_k = len(documents)
-        # final_similarity_k = len(all_nodes)
-        initial_similarity_k = top_k if top_k < len(
-            all_nodes) else len(all_nodes)
-        final_similarity_k = top_k if top_k < len(
-            all_nodes) else len(all_nodes)
-        retrievers = setup_retrievers(
-            index, initial_similarity_k, final_similarity_k)
-        combined_retriever = get_fusion_retriever(
-            retrievers, fusion_mode, top_k)
+            retrieved_nodes: list[NodeWithScore] = combined_retriever.retrieve(
+                query)
 
-        retrieved_nodes: list[NodeWithScore] = combined_retriever.retrieve(
-            query)
+            filtered_nodes: list[NodeWithScore] = [
+                node for node in retrieved_nodes if node.score > threshold]
 
-        filtered_nodes: list[NodeWithScore] = [
-            node for node in retrieved_nodes if node.score > threshold]
-        if top_k:
-            filtered_nodes = filtered_nodes[:top_k]
+            texts = [node.text for node in filtered_nodes]
 
-        texts = [node.text for node in filtered_nodes]
+            result = {
+                "nodes": filtered_nodes,
+                "texts": texts,
+            }
 
-        result = {
-            "nodes": filtered_nodes,
+            return result
+
+    elif mode == "deeplake":
+        store_path = kwargs["store_path"]
+        texts = [node.text for node in all_nodes]
+        metadata = [node.metadata for node in all_nodes]
+        embedding_function = get_ollama_embedding_function(embed_model)
+        args = {
+            "store_path": store_path,
             "texts": texts,
+            "metadata": metadata,
+            "embedding_function": embedding_function,
+            "overwrite": kwargs.get("overwrite", True),
+            "verbose": kwargs.get("verbose", False),
         }
+        load_or_create_deeplake_vector_store(**args)
 
-        return result
+        def search_func(
+            query: str,
+            threshold: float = 0.0,
+            top_k: int = 4,
+        ):
+            search_results = search_deeplake_store(
+                query, store_path, top_k=top_k, embedding_function=embedding_function)
 
-    return query_nodes_func
+            texts = [node.text for node in search_results]
+
+            result = {
+                "nodes": search_results,
+                "texts": texts,
+            }
+
+            return result
+
+    else:
+        index = VectorStoreIndex(
+            all_nodes,
+            show_progress=True,
+        )
+
+        def search_func(
+            query: str,
+            fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
+            threshold: float = 0.0,
+            top_k: int = 10,
+        ):
+
+            initial_similarity_k = top_k if top_k < len(
+                all_nodes) else len(all_nodes)
+            final_similarity_k = top_k if top_k < len(
+                all_nodes) else len(all_nodes)
+            retrievers = setup_retrievers(
+                index, initial_similarity_k, final_similarity_k)
+            combined_retriever = get_fusion_retriever(
+                retrievers, fusion_mode, top_k)
+
+            retrieved_nodes: list[NodeWithScore] = combined_retriever.retrieve(
+                query)
+
+            filtered_nodes: list[NodeWithScore] = [
+                node for node in retrieved_nodes if node.score > threshold]
+            if top_k:
+                filtered_nodes = filtered_nodes[:top_k]
+
+            texts = [node.text for node in filtered_nodes]
+
+            result = {
+                "nodes": filtered_nodes,
+                "texts": texts,
+            }
+
+            return result
+
+    return search_func
 
 
 def get_relative_path(abs_path: str, partial_path: str) -> str:
@@ -211,7 +284,7 @@ def get_relative_path(abs_path: str, partial_path: str) -> str:
 def query_llm(
     query: str,
     contexts: list[str],
-    model: str = "llama3.1",
+    model: Optional[OLLAMA_MODEL_NAMES] = OLLAMA_SMALL_LLM_MODEL,
     options: OllamaChatOptions = {},
     system: str = SYSTEM_MESSAGE,
     template: PromptTemplate = PROMPT_TEMPLATE,
@@ -302,19 +375,25 @@ def setup_recursive_query(
 
 
 def setup_deeplake_query(
-    data_dir: str,
+    data_dir: str | list[Document],
+    store_path: str,
     *,
     embed_model: str = OLLAMA_SMALL_EMBED_MODEL,
     chunk_size: Optional[int] = None,
     chunk_overlap: int = 40,
-    store_path: str = DEFAULT_VECTOR_STORE_PATH,
     overwrite=True,
     **kwargs,
 ):
     final_chunk_size: int = chunk_size if isinstance(
         chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
     # Define file and vector store paths
-    documents = SimpleDirectoryReader(data_dir).load_data()
+    documents: list[Document]
+    if type(data_dir) == str:
+        documents = SimpleDirectoryReader(data_dir).load_data()
+    elif isinstance(data_dir, list):
+        documents = data_dir
+    else:
+        raise ValueError(f"'data_dir' must be of type str | list[Document]")
     splitter = SentenceSplitter(
         chunk_size=final_chunk_size,
         chunk_overlap=chunk_overlap,
@@ -324,8 +403,7 @@ def setup_deeplake_query(
         documents, show_progress=True)
 
     texts = [node.text for node in all_nodes]
-    metadata = [{"file_name": node.metadata["file_name"]}
-                for node in all_nodes]
+    metadata = [node.metadata for node in all_nodes]
 
     embedding_function = get_ollama_embedding_function(embed_model)
 
@@ -366,7 +444,8 @@ def load_or_create_deeplake_vector_store(
     embedding_function: Optional[Callable] = None,
     overwrite: bool = False,
     **kwargs
-) -> VectorStore:
+):
+    from deeplake.core.vectorstore import VectorStore
     logger.log("Vector store path:", os.path.realpath(store_path),
                colors=["GRAY", "BRIGHT_DEBUG"])
 
@@ -394,16 +473,13 @@ def load_or_create_deeplake_vector_store(
 
 def search_deeplake_store(
     prompt: str,
-    store_path: str | VectorStore,
+    store_path: str,
     top_k=4,
     embedding_function: Optional[Callable] = None,
 ) -> list[NodeWithScore]:
-    # Perform a vector search
-    if isinstance(store_path, VectorStore):
-        vector_store = store_path
-    else:
-        vector_store = VectorStore(
-            path=store_path, embedding_function=embedding_function)
+    from deeplake.core.vectorstore import VectorStore
+    vector_store = VectorStore(
+        path=store_path, embedding_function=embedding_function)
 
     results = vector_store.search(
         embedding_data=prompt,

@@ -17,7 +17,7 @@ packages = [
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/camelot",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/faiss",
     # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/openai-python/src",
-    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/visualization/deeplake",
+    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/visualization/deeplake",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/llms/llama-index-llms-langchain",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/llms/llama-index-llms-openai",
