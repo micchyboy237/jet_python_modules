@@ -147,6 +147,9 @@ def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings
     EnhancedSettings.embedding_model = embedding_model
     EnhancedSettings.count_tokens = count_tokens
 
+    # from jet.token.token_utils import get_ollama_tokenizer
+    # EnhancedSettings.tokenizer = get_ollama_tokenizer(embed_model).encode
+
     from jet.helpers.prompt.custom_prompt_helpers import OllamaPromptHelper
     EnhancedSettings.prompt_helper = OllamaPromptHelper(llm_model)
 
@@ -222,10 +225,10 @@ def create_embed_model(
 
 
 class Ollama(BaseOllama):
-    max_tokens: Optional[Union[int, float]] = Field(
-        0.4, description="Maximum number of tokens to generate.")
     model: OLLAMA_MODEL_NAMES = Field(
         "llama3.1", description="The model name to use.")
+    max_tokens: Optional[Union[int, float]] = Field(
+        0.4, description="Maximum number of tokens to generate.")
 
     @llm_chat_callback()
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:

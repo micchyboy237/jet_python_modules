@@ -1,3 +1,4 @@
+from jet.llm.ollama.base import OllamaEmbedding
 from sentence_transformers import SentenceTransformer
 import requests
 from typing import Optional, Callable, Union, List, TypedDict
@@ -101,6 +102,28 @@ def get_embedding_function(
         return OllamaEmbeddingFunction(model_name=model_name, batch_size=batch_size)
     else:
         return SFEmbeddingFunction(model_name=model_name, batch_size=batch_size)
+
+
+def ollama_embedding_function(texts, model) -> list[float] | list[list[float]]:
+    if isinstance(texts, str):
+        texts = [texts]
+
+    embed_model = OllamaEmbedding(model_name=model)
+    results = embed_model.get_general_text_embedding(texts)
+    return results
+
+
+def get_ollama_embedding_function(model: str):
+    embed_model = OllamaEmbedding(model_name=model)
+
+    def embedding_function(texts: list[str]):
+        if isinstance(texts, str):
+            texts = [texts]
+
+        results = embed_model.get_general_text_embedding(texts)
+        return results
+
+    return embedding_function
 
 
 def generate_multiple(

@@ -85,6 +85,8 @@ def logger_examples(logger: CustomLogger):
     logger.warning("This is a bright warning message.", bright=True)
     logger.error("This is an error message.")
     logger.error("This is a bright error message.", bright=True)
+    logger.critical("This is an critical message.")
+    logger.critical("This is a bright critical message.", bright=True)
     logger.success("This is a success message.")
     logger.success("This is a bright success message.", bright=True)
     logger.orange("This is a orange message.")

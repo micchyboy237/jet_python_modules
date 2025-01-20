@@ -135,6 +135,23 @@ def get_internal_attributes(obj: Any) -> Dict[str, Any]:
     }
 
 
+def get_callable_attributes(obj: Any) -> Dict[str, Any]:
+    """
+    Extracts the callable attributes of an object and returns them in a dictionary.
+
+    Args:
+        obj: The object from which to extract callable attributes.
+
+    Returns:
+        A dictionary with attribute names as keys and the callable objects as values.
+    """
+    return {
+        attr: getattr(obj, attr)
+        for attr in dir(obj)
+        if callable(getattr(obj, attr))  # Filter for callable attributes
+    }
+
+
 __all__ = [
     "class_to_string",
     "validate_class",
@@ -143,6 +160,7 @@ __all__ = [
     "get_iterable_class_name",
     "get_non_empty_attributes",
     "get_internal_attributes",
+    "get_callable_attributes",
 ]
 
 # Real-world usage examples

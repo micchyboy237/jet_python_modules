@@ -1,10 +1,17 @@
-from typing import Optional
+import os
+from typing import Callable, Optional
+from deeplake.core.vectorstore import VectorStore
+from jet.llm.ollama.base import OllamaEmbedding
+from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL
+from jet.llm.ollama.embeddings import get_ollama_embedding_function
+from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
 from jet.llm.query.splitters import split_heirarchical_nodes, split_sub_nodes
 from jet.llm.retrievers.recursive import (
     initialize_summary_nodes_and_retrievers,
     query_nodes as query_nodes_recursive
 )
 from jet.token import filter_texts
+from jet.token.token_utils import get_ollama_tokenizer
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.schema import CBEventType
@@ -24,6 +31,7 @@ from jet.llm.llm_types import OllamaChatOptions
 from jet.llm.ollama import initialize_ollama_settings
 initialize_ollama_settings()
 
+DEFAULT_VECTOR_STORE_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/generated/deeplake/store_1"
 
 SYSTEM_MESSAGE = "You are a helpful AI Assistant."
 
@@ -99,13 +107,18 @@ def get_recursive_retriever(index: VectorStoreIndex, all_nodes: list[BaseNode], 
 
 
 def setup_index(
-    documents: list[Document],
+    path_or_docs: str | list[Document],
     *,
     chunk_size: int = 1024,
     chunk_overlap: int = 40,
     sub_chunk_sizes: list[int] = [],
     with_heirarchy: bool = True
 ):
+    if isinstance(path_or_docs, str):
+        documents = SimpleDirectoryReader(data_dir).load_data()
+    else:
+        documents = path_or_docs
+
     splitter = SentenceSplitter(
         chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     all_nodes = splitter.get_nodes_from_documents(
@@ -224,14 +237,14 @@ def query_llm(
         model=model,
         system=system,
         options=options,
-        track={
-            "repo": "~/aim-logs",
-            "experiment": "RAG Retriever Test",
-            "run_name": "Run Fusion Relative Score",
-            "metadata": {
-                "type": "rag_retriever",
-            }
-        }
+        # track={
+        #     "repo": "~/aim-logs",
+        #     "experiment": "RAG Retriever Test",
+        #     "run_name": "Run Fusion Relative Score",
+        #     "metadata": {
+        #         "type": "rag_retriever",
+        #     }
+        # }
     ):
         response += chunk
     return response
@@ -286,6 +299,137 @@ def setup_recursive_query(
         return result
 
     return query_nodes_func
+
+
+def setup_deeplake_query(
+    data_dir: str,
+    *,
+    embed_model: str = OLLAMA_SMALL_EMBED_MODEL,
+    chunk_size: Optional[int] = None,
+    chunk_overlap: int = 40,
+    store_path: str = DEFAULT_VECTOR_STORE_PATH,
+    overwrite=True,
+    **kwargs,
+):
+    final_chunk_size: int = chunk_size if isinstance(
+        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
+    # Define file and vector store paths
+    documents = SimpleDirectoryReader(data_dir).load_data()
+    splitter = SentenceSplitter(
+        chunk_size=final_chunk_size,
+        chunk_overlap=chunk_overlap,
+        tokenizer=get_ollama_tokenizer(embed_model).encode
+    )
+    all_nodes = splitter.get_nodes_from_documents(
+        documents, show_progress=True)
+
+    texts = [node.text for node in all_nodes]
+    metadata = [{"file_name": node.metadata["file_name"]}
+                for node in all_nodes]
+
+    embedding_function = get_ollama_embedding_function(embed_model)
+
+    # Create a VectorStore instance
+    vector_store = load_or_create_deeplake_vector_store(
+        store_path,
+        texts=texts,
+        metadata=metadata,
+        embedding_function=embedding_function,
+        overwrite=overwrite,
+        verbose=True,
+    )
+
+    def query_nodes_func(
+        query: str,
+        threshold: float = 0.0,
+        top_k: int = 4,
+    ):
+        search_results = search_deeplake_store(
+            query, vector_store, top_k=top_k, embedding_function=embedding_function)
+
+        texts = [node.text for node in search_results]
+
+        result = {
+            "nodes": search_results,
+            "texts": texts,
+        }
+
+        return result
+
+    return query_nodes_func
+
+
+def load_or_create_deeplake_vector_store(
+    store_path: str,
+    texts: list[str],
+    metadata: Optional[list[str]] = None,
+    embedding_function: Optional[Callable] = None,
+    overwrite: bool = False,
+    **kwargs
+) -> VectorStore:
+    logger.log("Vector store path:", os.path.realpath(store_path),
+               colors=["GRAY", "BRIGHT_DEBUG"])
+
+    os.makedirs(store_path, exist_ok=True)
+
+    # Create a VectorStore instance
+    vector_store = VectorStore(
+        path=store_path,
+        embedding_function=embedding_function,
+        overwrite=overwrite,
+        **kwargs
+    )
+
+    if overwrite:
+        # Add text chunks to the vector store with embeddings
+        vector_store.add(
+            text=texts,
+            embedding_function=embedding_function,
+            embedding_data=texts,
+            metadata=metadata,
+        )
+
+    return vector_store
+
+
+def search_deeplake_store(
+    prompt: str,
+    store_path: str | VectorStore,
+    top_k=4,
+    embedding_function: Optional[Callable] = None,
+) -> list[NodeWithScore]:
+    # Perform a vector search
+    if isinstance(store_path, VectorStore):
+        vector_store = store_path
+    else:
+        vector_store = VectorStore(
+            path=store_path, embedding_function=embedding_function)
+
+    results = vector_store.search(
+        embedding_data=prompt,
+        k=top_k,
+    )
+    results["text"] = [str(text) for text in results["text"]]
+
+    # Process search results into NodeWithScore format
+    nodes_with_scores = [
+        NodeWithScore(
+            node=TextNode(text=str(text), metadata=metadata),
+            score=extract_score(score)
+        )
+        for text, metadata, score in zip(results["text"], results["metadata"], results["score"])
+    ]
+    return nodes_with_scores
+
+
+def extract_score(score) -> float:
+    # Check if score is a tensor and convert it to float
+    if hasattr(score, 'item'):  # e.g., if it's a tensor
+        return score.item()
+    elif isinstance(score, list) and len(score) == 1:
+        # If it's a list with a single score, convert to float
+        return float(score[0])
+    return float(score)  # If it's already a float, return it directly
 
 
 if __name__ == "__main__":

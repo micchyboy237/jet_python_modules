@@ -66,7 +66,8 @@ def call_ollama_chat(
          Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
          Either the JSON response or a generator for streamed responses.
     """
-    from aim import Run, Text
+    if track:
+        from aim import Run, Text
 
     URL = "http://localhost:11434/api/chat"
 
