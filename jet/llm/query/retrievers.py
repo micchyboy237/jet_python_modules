@@ -14,6 +14,7 @@ from jet.token.token_utils import get_ollama_tokenizer
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.schema import CBEventType
+from llama_index.core.indices import vector_store
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
 from llama_index.core.node_parser.relational.hierarchical import get_leaf_nodes
@@ -162,7 +163,7 @@ def setup_index(
         # leaf_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
         # all_nodes = leaf_nodes
 
-        def search_func(
+        def search_heirarchy_func(
             query: str,
             fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
             threshold: float = 0.0,
@@ -191,6 +192,8 @@ def setup_index(
 
             return result
 
+        search_func = search_heirarchy_func
+
     elif mode == "deeplake":
         store_path = kwargs["store_path"]
         texts = [node.text for node in all_nodes]
@@ -204,24 +207,36 @@ def setup_index(
             "overwrite": kwargs.get("overwrite", True),
             "verbose": kwargs.get("verbose", False),
         }
-        load_or_create_deeplake_vector_store(**args)
+        vector_store = load_or_create_deeplake_vector_store(**args)
 
-        def search_func(
+        def search_deeplake_func(
             query: str,
             threshold: float = 0.0,
             top_k: int = 4,
         ):
-            search_results = search_deeplake_store(
-                query, store_path, top_k=top_k, embedding_function=embedding_function)
+            results = vector_store.search(
+                embedding_data=query,
+                k=top_k,
+            )
+            results["text"] = [str(text) for text in results["text"]]
 
-            texts = [node.text for node in search_results]
+            # Process search results into NodeWithScore format
+            nodes_with_scores = [
+                NodeWithScore(
+                    node=TextNode(text=str(text), metadata=metadata),
+                    score=extract_score(score)
+                )
+                for text, metadata, score in zip(results["text"], results["metadata"], results["score"])
+            ]
 
             result = {
-                "nodes": search_results,
-                "texts": texts,
+                "nodes": nodes_with_scores,
+                "texts": results["text"],
             }
 
             return result
+
+        search_func = search_deeplake_func
 
     else:
         index = VectorStoreIndex(
@@ -229,7 +244,7 @@ def setup_index(
             show_progress=True,
         )
 
-        def search_func(
+        def search_fusion_func(
             query: str,
             fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
             threshold: float = 0.0,
@@ -261,6 +276,8 @@ def setup_index(
             }
 
             return result
+
+        search_func = search_fusion_func
 
     return search_func
 
@@ -423,7 +440,7 @@ def setup_deeplake_query(
         top_k: int = 4,
     ):
         search_results = search_deeplake_store(
-            query, vector_store, top_k=top_k, embedding_function=embedding_function)
+            query, store_path, top_k=top_k, embedding_function=embedding_function)
 
         texts = [node.text for node in search_results]
 

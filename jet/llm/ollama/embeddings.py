@@ -1,4 +1,5 @@
 from jet.llm.ollama.base import OllamaEmbedding
+from jet.llm.ollama.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from sentence_transformers import SentenceTransformer
 import requests
 from typing import Optional, Callable, Union, List, TypedDict
@@ -113,7 +114,7 @@ def ollama_embedding_function(texts, model) -> list[float] | list[list[float]]:
     return results
 
 
-def get_ollama_embedding_function(model: str):
+def get_ollama_embedding_function(model: OLLAMA_EMBED_MODELS):
     embed_model = OllamaEmbedding(model_name=model)
 
     def embedding_function(texts: list[str]):

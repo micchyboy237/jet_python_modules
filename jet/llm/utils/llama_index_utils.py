@@ -81,18 +81,18 @@ def display_jet_source_nodes(
         #                colors=["WHITE", "DEBUG"])
         source_nodes = response.source_nodes
 
-    logger.log("Nodes Count:", len(source_nodes), colors=["WHITE", "DEBUG"])
-    for idx, source_node in enumerate(source_nodes):
-        logger.newline()
-        logger.info(f"Node {idx + 1}:")
-        # logger.debug(json.dumps(make_serializable(source_node), indent=2))
-        display_jet_source_node(
-            source_node,
-            source_length,
-            show_source_metadata,
-        )
-        logger.log("---")
-    logger.newline()
+    logger.log("Nodes Count:", len(source_nodes), colors=["WHITE", "SUCCESS"])
+    # for idx, source_node in enumerate(source_nodes):
+    #     logger.newline()
+    #     logger.info(f"Node {idx + 1}:")
+    #     # logger.debug(json.dumps(make_serializable(source_node), indent=2))
+    #     display_jet_source_node(
+    #         source_node,
+    #         source_length,
+    #         show_source_metadata,
+    #     )
+    #     logger.log("---")
+    # logger.newline()
 
     if isinstance(source_nodes[0], NodeWithScore):
         for idx, source_node in enumerate(source_nodes):
