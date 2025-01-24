@@ -12,8 +12,8 @@ COLORS = {
     "BRIGHT_WARNING": BOLD + "\u001b[48;5;220m",
     "ERROR": BOLD + "\u001b[38;5;196m",
     "BRIGHT_ERROR": BOLD + "\u001b[48;5;196m",
-    "CRITICAL": BOLD + "\u001b[38;5;208m",
-    "BRIGHT_CRITICAL": BOLD + "\u001b[48;5;208m",
+    "CRITICAL": BOLD + "\u001b[38;5;124m",
+    "BRIGHT_CRITICAL": BOLD + "\u001b[48;5;124m",
     "SUCCESS": BOLD + "\u001b[38;5;40m",
     "BRIGHT_SUCCESS": BOLD + "\u001b[48;5;40m",
     "ORANGE": BOLD + "\u001b[38;5;208m",
@@ -54,6 +54,8 @@ def configure_logger():
     console_handler.setFormatter(formatter)
 
     logger.addHandler(console_handler)
+
+    logging.info("Configured default logging")
 
 
 # Example usage

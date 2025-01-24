@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import List, Callable, Optional, Any
-from jet.logger import COLORS, RESET
+from jet.logger.config import COLORS, RESET
 
 
 class CustomLogger:
@@ -76,7 +76,6 @@ def logger_examples(logger: CustomLogger):
     logger.log("\n==== LOGGER METHODS =====")
     logger.newline()
     logger.log("This is a default log message.")
-    logger.log("This is a default log message.", bright=True)
     logger.info("This is an info message.")
     logger.info("This is a bright info message.", bright=True)
     logger.debug("This is a debug message.")

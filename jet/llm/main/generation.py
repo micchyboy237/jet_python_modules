@@ -133,9 +133,14 @@ def call_ollama_chat(
     # Define headers
     event = EventSettings.call_ollama_chat()
     pre_start_hook_start_time = EventSettings.event_data["pre_start_hook"]["start_time"]
+    # log_filename = f"{event['filename'].split(".")[0]}_{
+    #     pre_start_hook_start_time}"
+    log_filename = event['filename'].split(".")[0]
+    logger.log("Log-Filename:", log_filename, colors=["WHITE", "DEBUG"])
     headers = {
         "Tokens": str(token_count),  # Include the token count here
-        "Log-Filename": f"{event['filename'].split(".")[0]}_{pre_start_hook_start_time}",
+        "Log-Filename": log_filename,
+        "Event-Start-Time": pre_start_hook_start_time,
     }
 
     try:

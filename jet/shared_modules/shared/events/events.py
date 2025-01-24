@@ -68,8 +68,17 @@ class _EventSettings:
         """
         Runs the `inspect_original_script_path` function and stores the result in the event_data attribute.
         """
-        logger.info(f"Event: {event_name}")
+        logger.orange(f"Event: {event_name}")
         EventSettings.current_event = event_name
+
+        # Execute callable arguments and format results
+        def format_callable(arg):
+            if callable(arg):
+                return f"lambda_result=({arg()})"
+            return arg
+
+        args = [format_callable(arg) for arg in args]
+        kwargs = {key: format_callable(value) for key, value in kwargs.items()}
 
         result = inspect_original_script_path()
         event_data: 'EventData' = {
@@ -83,7 +92,6 @@ class _EventSettings:
 
         # To verify, print the result
         logger.log(f"File:", event_data['filename'], colors=["GRAY", "ORANGE"])
-        # logger.orange(format_json(EventSettings.event_data)[:100])
         return event_data
 
 
@@ -93,11 +101,9 @@ if not hasattr(builtins, "EventSettings"):
     builtins.EventSettings = EventSettings
 EventSettings = builtins.EventSettings
 
-
 __all__ = [
     "EventSettings"
 ]
-
 
 if __name__ == "__main__":
     logger.newline()
@@ -106,12 +112,13 @@ if __name__ == "__main__":
     logger.success(pre_start_hook_start_time)
 
     logger.newline()
-    event = EventSettings.any_call1(1, 2)
+    event = EventSettings.any_call1(lambda: 1 + 2, sample_func=lambda: 2 + 3)
     logger.info("Event 1...")
     logger.success(format_json(event))
 
     logger.newline()
-    event = EventSettings.any_call2("test", model="model")
+    event = EventSettings.any_call2(
+        "test", sample_func=lambda: "dynamic_model")
     logger.info("Event 2...")
     logger.success(format_json(event))
     pass
