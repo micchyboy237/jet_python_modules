@@ -144,7 +144,7 @@ def setup_index(
     all_nodes = splitter.get_nodes_from_documents(
         documents, show_progress=True)
 
-    if with_hierarchy:
+    if with_hierarchy or mode == 'hierarchy':
         if not sub_chunk_sizes:
             sub_chunk_sizes = [final_chunk_size]
         # sub_chunk_sizes = [chunk_size, *sub_chunk_sizes]
