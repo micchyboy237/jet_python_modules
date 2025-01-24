@@ -118,9 +118,9 @@ def setup_index(
     chunk_size: Optional[int] = None,
     chunk_overlap: Optional[int] = None,
     sub_chunk_sizes: Optional[list[int]] = None,
-    with_heirarchy: Optional[bool] = None,
+    with_hierarchy: Optional[bool] = None,
     embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
-    mode: Optional[Literal["fusion", "heirarchy", "deeplake"]] = "fusion",
+    mode: Optional[Literal["fusion", "hierarchy", "deeplake"]] = "fusion",
     **kwargs
 ):
     search_func: Callable[..., dict[str, Any]]
@@ -144,35 +144,39 @@ def setup_index(
     all_nodes = splitter.get_nodes_from_documents(
         documents, show_progress=True)
 
+    if with_hierarchy:
+        if not sub_chunk_sizes:
+            sub_chunk_sizes = [final_chunk_size]
+        # sub_chunk_sizes = [chunk_size, *sub_chunk_sizes]
+        other_args = {}
+        if chunk_overlap:
+            other_args["chunk_overlap"] = chunk_overlap
+
+        sub_nodes = split_heirarchical_nodes(
+            all_nodes, sub_chunk_sizes, **other_args)
+        jet_node_parser = JetHierarchicalNodeParser(sub_nodes, sub_chunk_sizes)
+        all_nodes = jet_node_parser.all_nodes
+        all_nodes = get_leaf_nodes(all_nodes)
+
     # if mode == "summary":
     # all_nodes = split_sub_nodes(all_nodes, [128, 256, 512], chunk_overlap)
-    if mode == "heirarchy":
+    if mode == "hierarchy":
         index = VectorStoreIndex(
             all_nodes,
             show_progress=True,
         )
 
-        if not sub_chunk_sizes:
-            sub_chunk_sizes = [final_chunk_size]
-        # sub_chunk_sizes = [chunk_size, *sub_chunk_sizes]
-        sub_nodes = split_heirarchical_nodes(
-            all_nodes, sub_chunk_sizes, chunk_overlap)
-        jet_node_parser = JetHierarchicalNodeParser(sub_nodes, sub_chunk_sizes)
-        all_nodes = jet_node_parser.all_nodes
-        # leaf_nodes = get_leaf_nodes(sub_nodes)
-        # leaf_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
-        # all_nodes = leaf_nodes
-
-        def search_heirarchy_func(
+        def search_hierarchy_func(
             query: str,
             fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
             threshold: float = 0.0,
             top_k: int = 10,
         ):
             # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
-
+            similarity_top_k = top_k if top_k and top_k < len(
+                all_nodes) else len(all_nodes)
             combined_retriever = get_recursive_retriever(
-                index, all_nodes, top_k)
+                index, all_nodes, similarity_top_k=similarity_top_k)
             # else:
             # initial_similarity_k = len(documents)
             # final_similarity_k = len(all_nodes)
@@ -192,7 +196,7 @@ def setup_index(
 
             return result
 
-        search_func = search_heirarchy_func
+        search_func = search_hierarchy_func
 
     elif mode == "deeplake":
         store_path = kwargs["store_path"]
@@ -214,9 +218,11 @@ def setup_index(
             threshold: float = 0.0,
             top_k: int = 4,
         ):
+            similarity_top_k = top_k if top_k and top_k < len(
+                all_nodes) else len(all_nodes)
             results = vector_store.search(
                 embedding_data=query,
-                k=top_k,
+                k=similarity_top_k,
             )
             results["text"] = [str(text) for text in results["text"]]
 
@@ -251,9 +257,9 @@ def setup_index(
             top_k: int = 10,
         ):
 
-            initial_similarity_k = top_k if top_k < len(
+            initial_similarity_k = top_k if top_k and top_k < len(
                 all_nodes) else len(all_nodes)
-            final_similarity_k = top_k if top_k < len(
+            final_similarity_k = top_k if top_k and top_k < len(
                 all_nodes) else len(all_nodes)
             retrievers = setup_retrievers(
                 index, initial_similarity_k, final_similarity_k)

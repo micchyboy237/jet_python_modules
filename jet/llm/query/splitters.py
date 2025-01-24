@@ -1,3 +1,4 @@
+from typing import Optional
 from llama_index.core.node_parser.relational.hierarchical import HierarchicalNodeParser
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from llama_index.core.schema import BaseNode, IndexNode
@@ -6,7 +7,7 @@ from llama_index.core.schema import BaseNode, IndexNode
 def split_sub_nodes(
     base_nodes: list[BaseNode],
     chunk_sizes: list[int] = [128, 256, 512],
-    chunk_overlap=20,
+    chunk_overlap: int = 20,
 ) -> list[BaseNode]:
     sub_node_parsers = [
         SentenceSplitter(chunk_size=c, chunk_overlap=chunk_overlap) for c in chunk_sizes
@@ -31,7 +32,7 @@ def split_sub_nodes(
 def split_heirarchical_nodes(
     base_nodes: list[BaseNode],
     chunk_sizes: list[int] = [512, 256, 128],
-    chunk_overlap=20,
+    chunk_overlap: int = 20,
 ) -> list[BaseNode]:
     chunk_sizes = sorted(chunk_sizes, reverse=True)
 
