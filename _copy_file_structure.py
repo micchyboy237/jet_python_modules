@@ -1,3 +1,4 @@
+import glob
 import os
 import fnmatch
 import argparse
@@ -96,7 +97,13 @@ def find_files(base_dir, include, exclude, include_content_patterns, exclude_con
             file_path = os.path.relpath(os.path.join(root, file), base_dir)
             is_current_package_json = (
                 file_path == "package.json" and "./package.json" in adjusted_include and root == base_dir)
-            if (is_current_package_json or any(fnmatch.fnmatch(file_path, pat) for pat in adjusted_include)) and not any(fnmatch.fnmatch(file_path, pat) for pat in adjusted_exclude):
+            include_glob_matched = any(
+                path in file_path for path in glob.glob('app/**/*.css', recursive=True))
+            include_fnmatched = any(fnmatch.fnmatch(file_path, pat)
+                                    for pat in adjusted_include)
+            exclude_fnmatched = any(fnmatch.fnmatch(file_path, pat)
+                                    for pat in adjusted_exclude)
+            if (is_current_package_json or include_fnmatched or include_glob_matched) and not exclude_fnmatched:
                 # Check if file is excluded
                 if file in adjusted_exclude:
                     continue
