@@ -64,20 +64,6 @@ class TestGetHeaderContents(unittest.TestCase):
         self.assertIn('# Header 2', header_2['header'])
         self.assertIn('Content under header 2.', header_2['details'])
 
-    def test_placeholder_content(self):
-        md_text = """
-        # Header 1
-
-        ## Subheader 1.1
-
-        ### Subheader 1.1.1
-        """
-        result = get_header_contents(md_text)
-        self.assertIn('<placeholder>', result[0]['details'])
-        self.assertIn('<placeholder>', result[0]['child_nodes'][0]['details'])
-        self.assertIn('<placeholder>',
-                      result[0]['child_nodes'][0]['child_nodes'][0]['details'])
-
     def test_collect_full_content(self):
         # Test when include_child_contents=True
         result = get_header_contents(

@@ -63,7 +63,8 @@ def split_markdown_header_nodes(
         file_metadata = item["metadata"]
         md_text = item["content"]
 
-        header_contents = get_header_contents(md_text)
+        header_contents = get_header_contents(
+            md_text, include_child_contents=True)
         header_contents: list[HeaderNode] = [{**item, "metadata": {**file_metadata,
                                                                    **item["metadata"]}} for item in header_contents]
         # filtered_header_contents = [

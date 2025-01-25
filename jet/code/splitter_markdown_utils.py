@@ -48,7 +48,7 @@ def collect_full_content(node: HeaderNode) -> str:
     if "child_nodes" in node:
         child_content = "\n".join(collect_full_content(child)
                                   for child in node["child_nodes"])
-        content += "\n" + child_content
+        content = content.strip() + "\n\n" + child_content
     return content
 
 
@@ -81,8 +81,12 @@ def get_header_contents(md_text: str,
         header_level = get_header_level(header_line)
         content = "\n".join(contents)
 
-        details = content if content.strip() else "<placeholder>"
-        block_content = f"{header_line}\n\n{details}\n\n"
+        # details = content if content.strip() else "<placeholder>"
+        details = content if content.strip() else ""
+        if details:
+            details = f"{details}\n\n"
+
+        block_content = f"{header_line}\n\n{details}"
 
         header_nodes.append({
             "header": header_line,
