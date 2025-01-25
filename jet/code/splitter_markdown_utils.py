@@ -72,7 +72,7 @@ def collect_full_content(node: HeaderNode) -> str:
 
 def get_header_contents(md_text: str,
                         headers_to_split_on: Optional[List[str]] = None,
-                        include_child_contents: bool = False) -> List[HeaderNode]:
+                        include_child_contents: bool = True) -> List[HeaderNode]:
     header_lines = []
     headers_to_split_on = headers_to_split_on or [
         "#", "##", "###", "####", "#####", "######"]

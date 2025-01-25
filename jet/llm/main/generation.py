@@ -23,7 +23,7 @@ from jet.transformers import make_serializable
 DEFAULT_SETTINGS: OllamaChatOptions = {
     "seed": 42,
     "temperature": 0,
-    # "num_keep": 0,
+    "num_keep": 0,
     "num_predict": -1,
 }
 
@@ -81,21 +81,25 @@ def call_ollama_chat(
 
     logger.newline()
     logger.orange("Calling Ollama chat...")
-    logger.debug(
+    logger.log(
         "LLM model:",
         model,
         f"({model_max_length})",
         "|",
         "Tokens:",
         token_count,
-        colors=["GRAY", "DEBUG", "DEBUG", "GRAY", "DEBUG", "DEBUG"],
+        colors=["GRAY", "INFO", "INFO", "GRAY", "INFO", "INFO"],
     )
+    logger.newline()
 
     if max_tokens:
         messages = filter_texts(
             messages, model, max_tokens=max_tokens)
 
-    options = {**DEFAULT_SETTINGS, **(options or {})}
+    derived_options = {
+        "num_ctx": model_max_length,
+    }
+    options = {**derived_options, **DEFAULT_SETTINGS, **(options or {})}
 
     logger.newline()
     logger.log("Model:", model, colors=["GRAY", "INFO"])

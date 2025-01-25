@@ -5,7 +5,8 @@ from llama_index.core.schema import BaseNode, TextNode
 def group_and_merge_texts_by_file_name(nodes: List[BaseNode]) -> Dict[str, str]:
     """
     Groups and merges the texts of nodes by their metadata["file_name"] attribute,
-    ensuring no overlapping or duplicate lines between consecutive nodes.
+    ensuring no overlapping or duplicate lines between consecutive nodes, and sorting
+    by the start_line_idx to preserve correct order.
 
     Args:
         nodes (List[BaseNode]): A list of BaseNode or TextNode objects to group and merge.
@@ -13,9 +14,13 @@ def group_and_merge_texts_by_file_name(nodes: List[BaseNode]) -> Dict[str, str]:
     Returns:
         Dict[str, str]: A dictionary where keys are file names and values are the merged texts.
     """
+    # Sort nodes by their start_line_idx
+    nodes_sorted = sorted(
+        nodes, key=lambda node: node.metadata.get("start_line_idx", 0))
+
     grouped_texts: Dict[str, List[str]] = {}
 
-    for node in nodes:
+    for node in nodes_sorted:
         file_name = node.metadata.get("file_name", "unknown")
         if file_name not in grouped_texts:
             grouped_texts[file_name] = []

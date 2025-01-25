@@ -49,6 +49,7 @@ def split_heirarchical_nodes(
 
 def split_markdown_header_nodes(
     base_nodes: list[BaseNode] | list[Document],
+    include_child_contents: bool = True
 ) -> list[BaseNode]:
     all_nodes: list[BaseNode] = []
     contents = [
@@ -64,7 +65,7 @@ def split_markdown_header_nodes(
         md_text = item["content"]
 
         header_contents = get_header_contents(
-            md_text, include_child_contents=True)
+            md_text, include_child_contents=include_child_contents)
         all_header_nodes = get_flat_header_list(header_contents)
         all_header_nodes: list[HeaderNode] = [
             {**item, "metadata": {**file_metadata, **item["metadata"]}} for item in all_header_nodes]

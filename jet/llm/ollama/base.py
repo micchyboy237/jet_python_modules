@@ -251,8 +251,6 @@ class Ollama(BaseOllama):
                 options={
                     **self._model_kwargs,
                     **options,
-                    "num_keep": 0,
-                    "num_ctx": model_max_length,
                 },
                 keep_alive=self.keep_alive,
                 full_stream_response=True,

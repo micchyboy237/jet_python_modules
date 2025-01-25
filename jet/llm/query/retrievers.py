@@ -196,9 +196,12 @@ def setup_index(
 
             texts = [node.text for node in filtered_nodes]
 
+            # contexts = clean_texts(filtered_nodes)
+
             result = {
                 "nodes": filtered_nodes,
                 "texts": texts,
+                # "contexts": contexts,
             }
 
             return result
@@ -242,9 +245,12 @@ def setup_index(
                 for text, metadata, score in zip(results["text"], results["metadata"], results["score"])
             ]
 
+            # contexts = clean_texts(nodes_with_scores)
+
             result = {
                 "nodes": nodes_with_scores,
                 "texts": results["text"],
+                # "contexts": contexts,
             }
 
             return result
@@ -282,13 +288,13 @@ def setup_index(
                 filtered_nodes = filtered_nodes[:top_k]
 
             texts = [node.text for node in filtered_nodes]
-            transformed_nodes = [get_source_node_attributes(
-                node) for node in filtered_nodes]
-            grouped_texts = group_and_merge_texts_by_file_name(filtered_nodes)
+
+            # contexts = clean_texts(filtered_nodes)
 
             result = {
                 "nodes": filtered_nodes,
                 "texts": texts,
+                # "contexts": contexts,
             }
 
             return result
@@ -312,6 +318,13 @@ def get_relative_path(abs_path: str, partial_path: str) -> str:
     else:
         raise ValueError(f"Partial path '{
                          partial_path}' not found in the absolute path '{abs_path}'.")
+
+
+def clean_texts(nodes: list[NodeWithScore]) -> list[str]:
+    grouped_texts = group_and_merge_texts_by_file_name(nodes)
+    contexts = [f"File: {file_name}\n\n{
+        content}" for file_name, content in grouped_texts.items()]
+    return contexts
 
 
 def query_llm(
