@@ -1,5 +1,5 @@
 from typing import Optional
-from jet.code.splitter_markdown_utils import HeaderNode, get_header_contents
+from jet.code.splitter_markdown_utils import HeaderNode, get_flat_header_list, get_header_contents
 from langchain_text_splitters.markdown import MarkdownHeaderTextSplitter
 from llama_index.core.node_parser.relational.hierarchical import HierarchicalNodeParser
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
@@ -65,13 +65,14 @@ def split_markdown_header_nodes(
 
         header_contents = get_header_contents(
             md_text, include_child_contents=True)
-        header_contents: list[HeaderNode] = [{**item, "metadata": {**file_metadata,
-                                                                   **item["metadata"]}} for item in header_contents]
+        all_header_nodes = get_flat_header_list(header_contents)
+        all_header_nodes: list[HeaderNode] = [{**item, "metadata": {**file_metadata,
+                                                                    **item["metadata"]}} for item in all_header_nodes]
         # filtered_header_contents = [
         #     item for item in header_contents if item['details'].strip()]
 
         nodes = [TextNode(text=item["content"], metadata=item["metadata"])
-                 for item in header_contents]
+                 for item in all_header_nodes]
         all_nodes.extend(nodes)
 
     return all_nodes
