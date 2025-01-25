@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, TypedDict
+from typing import Optional, List, Dict, TypedDict, Union
 
 
 class HeaderMetadata(TypedDict):
@@ -14,6 +14,24 @@ class HeaderNode(TypedDict, total=False):
     metadata: HeaderMetadata
     is_root: bool
     child_nodes: List["HeaderNode"]
+
+
+def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat_list: Optional[List[HeaderNode]] = None) -> List[HeaderNode]:
+    """Returns a flat list of header nodes, including itself and its children. Can handle a single header node or a list of header nodes."""
+    if flat_list is None:
+        flat_list = []
+
+    if isinstance(header_nodes, list):
+        # If input is a list of HeaderNode, process each node in the list
+        for node in header_nodes:
+            get_flat_header_list(node, flat_list)
+    else:
+        # If input is a single HeaderNode, process it
+        flat_list.append(header_nodes)
+        for child in header_nodes.get("child_nodes", []):
+            get_flat_header_list(child, flat_list)
+
+    return flat_list
 
 
 def get_header_level(header_line: str) -> int:

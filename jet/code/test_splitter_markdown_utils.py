@@ -1,5 +1,6 @@
 import unittest
 from jet.code import get_header_contents, collect_full_content
+from jet.code.splitter_markdown_utils import get_flat_header_list
 
 
 class TestGetHeaderContents(unittest.TestCase):
@@ -109,15 +110,11 @@ class TestGetHeaderContents(unittest.TestCase):
         # Test skipping different header levels
         # Example: Skip level 2 headers (##)
         result = get_header_contents(md_text)
-        # result = get_header_contents(
-        #     md_text, headers_to_split_on=["#", "###", "####"])
 
         # We expect headers at level 2 (##) to be skipped
         header_1 = result[0]
         self.assertIn("Header 1", header_1['header'])  # Header 1 is included
 
-        # Now we should have only the headers at levels 1, 3, 4, etc.
-        # Level 1 has 3 child headers now
         header_1_child_nodes = header_1['child_nodes']
         self.assertEqual(len(header_1_child_nodes), 4)
         self.assertIn("### Header 2", header_1_child_nodes[0]['header'])
@@ -146,6 +143,24 @@ class TestGetHeaderContents(unittest.TestCase):
         self.assertIn("## Header 3", header_2_child_nodes[0]['header'])
         self.assertIn("## Header 4", header_2_child_nodes[1]['header'])
         self.assertIn("## Header 6", header_2_child_nodes[2]['header'])
+
+    def test_flat_header_list(self):
+        result = get_header_contents(
+            self.sample_md, include_child_contents=True)
+        # Check the flat list for the first header (Header 1)
+        header_1 = result[0]
+        flat_list_1 = get_flat_header_list(header_1)
+
+        self.assertEqual(len(flat_list_1), 4)
+        self.assertIn(header_1, flat_list_1)
+
+        header_2 = result[1]
+        flat_list_2 = get_flat_header_list(header_2)
+        self.assertEqual(len(flat_list_2), 1)
+
+        all_headers = result
+        all_flat_list = get_flat_header_list(all_headers)
+        self.assertEqual(len(all_flat_list), 5)
 
 
 if __name__ == "__main__":
