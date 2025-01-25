@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any
 from jet.token.token_utils import token_counter
-from langchain_ollama import ChatOllama as BaseChatOllama
+from langchain_ollama import ChatOllama as BaseChatOllama, OllamaEmbeddings as BaseOllamaEmbeddings
 from jet.logger import logger
 
 from shared.events import EventSettings
@@ -34,3 +34,7 @@ class ChatOllama(BaseChatOllama):
         # Call the parent class initializer with updated parameters
         super().__init__(model=model, base_url=base_url,
                          client_kwargs=client_kwargs, **kwargs)
+
+
+class OllamaEmbeddings(BaseOllamaEmbeddings):
+    pass
