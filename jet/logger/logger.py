@@ -67,6 +67,48 @@ class CustomLogger:
             with open(self.log_file, "a") as file:
                 file.write("\n")
 
+    def pretty(self, prompt, level=0):
+        def _inner(prompt, level):
+            """
+            Recursively builds a formatted log string from a nested dictionary or list with readable colors using ANSI escape codes.
+
+            :param prompt: Dictionary or list to process.
+            :param level: Indentation level for nested structures.
+            :return: Formatted string for the log.
+            """
+            prompt_log = ""
+            indent = " " * level  # Indentation for nested structures
+            marker_list = ["-", "+"]
+            marker = marker_list[level % 2]
+            line_prefix = indent if level == 0 else f"{indent}{marker} "
+
+            # ANSI color codes
+            KEY_COLOR = COLORS["DEBUG"]
+            VALUE_COLOR = COLORS["SUCCESS"]
+            LIST_ITEM_COLOR = COLORS["SUCCESS"]
+
+            if isinstance(prompt, dict):
+                for key, value in prompt.items():
+                    capitalized_key = key.capitalize()
+                    # Use color for dictionary keys
+                    prompt_log += f"{line_prefix}{KEY_COLOR}{capitalized_key}{RESET}: "
+                    if isinstance(value, (dict, list)):  # If nested structure
+                        prompt_log += f"\n{_inner(value, level + 1)}"
+                    else:  # Primitive value
+                        prompt_log += f"{VALUE_COLOR}{value}{RESET}\n"
+            elif isinstance(prompt, list):
+                for item in prompt:
+                    if isinstance(item, (dict, list)):  # If nested structure
+                        prompt_log += f"\n{_inner(item, level + 1)}"
+                    else:  # Primitive value
+                        # Use color for list items
+                        prompt_log += f"{line_prefix}{LIST_ITEM_COLOR}{item}{RESET}\n"
+
+            return prompt_log
+
+        prompt_log = _inner(prompt, level)
+        print(prompt_log)
+
     def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
         if name.upper() in COLORS:
             return self.custom_logger_method(name.upper())
@@ -110,6 +152,18 @@ def logger_examples(logger: CustomLogger):
                colors=["WHITE", "BRIGHT_DEBUG", "BRIGHT_SUCCESS"])
     logger.log("3 multi-color with repeat", "Message 2", "Message 3",
                colors=["INFO", "DEBUG"])
+    logger.pretty({
+        "user": "Alice",
+        "attributes": {
+            "age": 30,
+            "preferences": ["running", "cycling", {"nested": "value"}],
+            "contact": {
+                "email": "alice@example.com",
+                "phone": "123-456-7890"
+            }
+        },
+        "status": "active"
+    })
     logger.newline()
     logger.log("====== END LOGGER METHODS ======\n")
 
