@@ -1,5 +1,5 @@
 import unittest
-from markdown_code_extractor import MarkdownCodeExtractor, CodeBlock
+from jet.code import MarkdownCodeExtractor, CodeBlock
 
 
 class TestMarkdownCodeExtractor(unittest.TestCase):
