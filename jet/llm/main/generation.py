@@ -28,12 +28,6 @@ DEFAULT_SETTINGS: OllamaChatOptions = {
 }
 
 
-def get_token_counter():
-    """Lazy loading of token_counter to avoid circular imports"""
-    from jet.token import token_counter
-    return token_counter
-
-
 def call_ollama_chat(
     messages: str | list[Message],
     model: str = "llama3.1",
@@ -47,6 +41,7 @@ def call_ollama_chat(
     template: str = None,
     track: Track = None,
     full_stream_response: bool = False,
+    max_tokens: Optional[int | float] = None,
 ) -> Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
     """
     Wraps call_ollama_chat to track the prompt and response using Aim.
@@ -77,8 +72,28 @@ def call_ollama_chat(
         ]
 
     char_count = len(str(messages))
-    token_counter = get_token_counter()
-    token_count = token_counter(messages, model=model)
+
+    from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
+    from jet.token.token_utils import filter_texts, token_counter
+
+    model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+    token_count = token_counter(messages, model)
+
+    logger.newline()
+    logger.orange("Calling Ollama chat...")
+    logger.debug(
+        "LLM model:",
+        model,
+        f"({model_max_length})",
+        "|",
+        "Tokens:",
+        token_count,
+        colors=["GRAY", "DEBUG", "DEBUG", "GRAY", "DEBUG", "DEBUG"],
+    )
+
+    if max_tokens:
+        messages = filter_texts(
+            messages, model, max_tokens=max_tokens)
 
     options = {**DEFAULT_SETTINGS, **(options or {})}
 

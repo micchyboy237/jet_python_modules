@@ -59,7 +59,7 @@ def tokenize(model_name: str, text: str | list[str] | list[dict]):
 
 
 def token_counter(
-    text: str | list[str] | list[ChatMessage],
+    text: str | list[str] | list[ChatMessage] | list[Message],
     model: Optional[OLLAMA_MODEL_NAMES] = "mistral",
     prevent_total: bool = False
 ) -> int | list[int]:
@@ -95,13 +95,16 @@ def get_model_max_tokens(
 
 
 def filter_texts(
-    text: str | list[str] | list[dict] | list[ChatMessage],
+    text: str | list[str] | list[ChatMessage] | list[Message],
     model: OLLAMA_MODEL_NAMES = "mistral",
     max_tokens: Optional[int | float] = None,
 ) -> str | list[str] | list[dict] | list[ChatMessage]:
+    if not max_tokens:
+        max_tokens = 0.4
+
     tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
     if isinstance(max_tokens, float) and max_tokens < 1:
-        max_tokens = max_tokens or int(
+        max_tokens = int(
             get_model_max_tokens(model) * max_tokens)
     else:
         max_tokens = max_tokens or get_model_max_tokens(model)

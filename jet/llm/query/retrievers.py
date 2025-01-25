@@ -4,6 +4,7 @@ from jet.llm.ollama.base import OllamaEmbedding
 from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_SMALL_LLM_MODEL
 from jet.llm.ollama.embeddings import get_ollama_embedding_function
 from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
+from jet.llm.query.cleaners import group_and_merge_texts_by_file_name
 from jet.llm.query.splitters import split_heirarchical_nodes, split_markdown_header_nodes, split_sub_nodes
 from jet.llm.retrievers.recursive import (
     initialize_summary_nodes_and_retrievers,
@@ -12,6 +13,7 @@ from jet.llm.retrievers.recursive import (
 from jet.token import filter_texts
 from jet.token.token_utils import get_ollama_tokenizer
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
+from jet.vectors.utils import get_source_node_attributes
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.schema import CBEventType
 from llama_index.core.indices import vector_store
@@ -280,6 +282,9 @@ def setup_index(
                 filtered_nodes = filtered_nodes[:top_k]
 
             texts = [node.text for node in filtered_nodes]
+            transformed_nodes = [get_source_node_attributes(
+                node) for node in filtered_nodes]
+            grouped_texts = group_and_merge_texts_by_file_name(filtered_nodes)
 
             result = {
                 "nodes": filtered_nodes,

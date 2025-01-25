@@ -66,8 +66,8 @@ def collect_full_content(node: HeaderNode) -> str:
     if "child_nodes" in node:
         child_content = "\n".join(collect_full_content(child)
                                   for child in node["child_nodes"])
-        content = content.strip() + "\n\n" + child_content
-    return content
+        content += child_content
+    return content.rstrip()
 
 
 def get_header_contents(md_text: str,
@@ -101,10 +101,8 @@ def get_header_contents(md_text: str,
 
         # details = content if content.strip() else "<placeholder>"
         details = content if content.strip() else ""
-        if details:
-            details = f"{details}\n\n"
 
-        block_content = f"{header_line}\n\n{details}"
+        block_content = f"{header_line}\n{details}"
 
         header_nodes.append({
             "header": header_line,
@@ -121,6 +119,12 @@ def get_header_contents(md_text: str,
 
     if include_child_contents:
         for node in header_nodes:
-            node["content"] = collect_full_content(node)
+            full_content = collect_full_content(node)
+            full_content_lines = full_content.splitlines()
+            start_line_idx = all_lines.index(full_content_lines[0])
+            end_line_idx = all_lines.index(full_content_lines[-1]) + 1
+            node["content"] = full_content
+            node["metadata"]["start_line_idx"] = start_line_idx
+            node["metadata"]["end_line_idx"] = end_line_idx
 
     return hierarchy

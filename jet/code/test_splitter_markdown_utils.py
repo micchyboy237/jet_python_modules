@@ -163,5 +163,129 @@ class TestGetHeaderContents(unittest.TestCase):
         self.assertEqual(len(all_flat_list), 5)
 
 
+class TestHeaderMetadata(unittest.TestCase):
+    def setUp(self):
+        self.sample_md = """
+        # Header 1
+        Content under header 1.
+
+        ## Subheader 1.1
+        Content under subheader 1.1.
+
+        ### Subheader 1.1.1
+        Content under subheader 1.1.1.
+
+        ## Subheader 1.2
+        Content under subheader 1.2.
+
+        # Header 2
+        Content under header 2.
+        """
+
+    def test_metadata_values(self):
+        result = get_header_contents(self.sample_md)
+
+        # Check metadata for Header 1
+        header_1 = result[0]
+        self.assertEqual(header_1['metadata']['start_line_idx'], 1)
+        self.assertEqual(header_1['metadata']['depth'], 1)
+
+        # Check metadata for Subheader 1.1
+        subheader_1_1 = header_1['child_nodes'][0]
+        self.assertEqual(subheader_1_1['metadata']['start_line_idx'], 4)
+        self.assertEqual(subheader_1_1['metadata']['depth'], 2)
+
+        # Check metadata for Subheader 1.1.1
+        subheader_1_1_1 = subheader_1_1['child_nodes'][0]
+        self.assertEqual(subheader_1_1_1['metadata']['start_line_idx'], 7)
+        self.assertEqual(subheader_1_1_1['metadata']['depth'], 3)
+
+        # Check metadata for Subheader 1.2
+        subheader_1_2 = header_1['child_nodes'][1]
+        self.assertEqual(subheader_1_2['metadata']['start_line_idx'], 10)
+        self.assertEqual(subheader_1_2['metadata']['depth'], 2)
+
+        # Check metadata for Header 2
+        header_2 = result[1]
+        self.assertEqual(header_2['metadata']['start_line_idx'], 13)
+        self.assertEqual(header_2['metadata']['depth'], 1)
+
+    def test_metadata_end_line_idx(self):
+        result = get_header_contents(self.sample_md)
+
+        # Ensure end_line_idx covers the full content range
+        header_1 = result[0]
+        self.assertEqual(header_1['metadata']['end_line_idx'], 4)
+
+        subheader_1_1 = header_1['child_nodes'][0]
+        self.assertEqual(subheader_1_1['metadata']['end_line_idx'], 7)
+
+        subheader_1_1_1 = subheader_1_1['child_nodes'][0]
+        self.assertEqual(subheader_1_1_1['metadata']['end_line_idx'], 10)
+
+        subheader_1_2 = header_1['child_nodes'][1]
+        self.assertEqual(subheader_1_2['metadata']['end_line_idx'], 13)
+
+        header_2 = result[1]
+        self.assertEqual(header_2['metadata']['end_line_idx'], 16)
+
+    def test_metadata_values_with_child_contents(self):
+        result = get_header_contents(
+            self.sample_md, include_child_contents=True)
+
+        # Check metadata for Header 1
+        header_1 = result[0]
+        self.assertEqual(header_1['metadata']['start_line_idx'], 1)
+        self.assertEqual(header_1['metadata']['depth'], 1)
+
+        # Check metadata for Subheader 1.1
+        subheader_1_1 = header_1['child_nodes'][0]
+        self.assertEqual(subheader_1_1['metadata']['start_line_idx'], 4)
+        self.assertEqual(subheader_1_1['metadata']['depth'], 2)
+
+        # Check metadata for Subheader 1.1.1
+        subheader_1_1_1 = subheader_1_1['child_nodes'][0]
+        self.assertEqual(subheader_1_1_1['metadata']['start_line_idx'], 7)
+        self.assertEqual(subheader_1_1_1['metadata']['depth'], 3)
+
+        # Check metadata for Subheader 1.2
+        subheader_1_2 = header_1['child_nodes'][1]
+        self.assertEqual(subheader_1_2['metadata']['start_line_idx'], 10)
+        self.assertEqual(subheader_1_2['metadata']['depth'], 2)
+
+        # Check metadata for Header 2
+        header_2 = result[1]
+        self.assertEqual(header_2['metadata']['start_line_idx'], 13)
+        self.assertEqual(header_2['metadata']['depth'], 1)
+
+        # Check end_line_idx for Header 1 with child content
+        self.assertEqual(header_1['metadata']['end_line_idx'], 12)
+
+        # Check end_line_idx for Subheader 1.1 with child content
+        self.assertEqual(subheader_1_1['metadata']['end_line_idx'], 9)
+
+        # Check end_line_idx for Subheader 1.1.1 with child content
+        self.assertEqual(subheader_1_1_1['metadata']['end_line_idx'], 9)
+
+        # Check end_line_idx for Subheader 1.2 with child content
+        self.assertEqual(subheader_1_2['metadata']['end_line_idx'], 12)
+
+        # Check end_line_idx for Header 2 with child content
+        self.assertEqual(header_2['metadata']['end_line_idx'], 15)
+
+    def test_hierarchy_depth(self):
+        result = get_header_contents(self.sample_md)
+
+        header_1 = result[0]
+        self.assertEqual(header_1['metadata']['depth'], 1)
+        self.assertEqual(header_1['child_nodes'][0]['metadata']['depth'], 2)
+        self.assertEqual(header_1['child_nodes'][0]
+                         ['child_nodes'][0]['metadata']['depth'], 3)
+        self.assertEqual(header_1['child_nodes'][1]['metadata']['depth'], 2)
+
+        header_2 = result[1]
+        self.assertEqual(header_2['metadata']['depth'], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

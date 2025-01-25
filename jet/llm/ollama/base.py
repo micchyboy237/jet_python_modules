@@ -228,31 +228,11 @@ class Ollama(BaseOllama):
     model: OLLAMA_MODEL_NAMES = Field(
         "llama3.1", description="The model name to use.")
     max_tokens: Optional[Union[int, float]] = Field(
-        0.4, description="Maximum number of tokens to generate.")
+        None, description="Maximum number of tokens to generate.")
 
     @llm_chat_callback()
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
-        from jet.token import filter_texts, token_counter
         from jet.llm import call_ollama_chat
-
-        model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[self.model]
-        token_count = token_counter(messages, self.model)
-
-        logger.newline()
-        logger.orange("Calling Ollama chat...")
-        logger.debug(
-            "LLM model:",
-            self.model,
-            f"({model_max_length})",
-            "|",
-            "Tokens:",
-            token_count,
-            colors=["GRAY", "DEBUG", "DEBUG", "GRAY", "DEBUG", "DEBUG"],
-        )
-
-        if self.max_tokens:
-            messages = filter_texts(
-                messages, self.model, max_tokens=self.max_tokens)
 
         ollama_messages = self._convert_to_ollama_messages(messages)
 
@@ -319,27 +299,7 @@ class Ollama(BaseOllama):
 
     @llm_chat_callback()
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
-        from jet.token import filter_texts, token_counter
         from jet.llm import call_ollama_chat
-
-        model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[self.model]
-        token_count = token_counter(messages, self.model)
-
-        logger.newline()
-        logger.orange("Calling Ollama chat...")
-        logger.debug(
-            "LLM model:",
-            self.model,
-            f"({model_max_length})",
-            "|",
-            "Tokens:",
-            token_count,
-            colors=["GRAY", "DEBUG", "DEBUG", "GRAY", "DEBUG", "DEBUG"],
-        )
-
-        if self.max_tokens:
-            messages = filter_texts(
-                messages, self.model, max_tokens=self.max_tokens)
 
         ollama_messages = self._convert_to_ollama_messages(messages)
 
