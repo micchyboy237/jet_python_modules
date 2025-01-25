@@ -52,6 +52,7 @@ packages = [
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/vector_stores/llama-index-vector-stores-deeplake",
     # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/graph_rag/llama-index-graph-rag-cognee",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/callbacks/llama-index-callbacks-aim",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-experimental/libs/experimental",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/langgraph",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/checkpoint",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langsmith-sdk/python",
