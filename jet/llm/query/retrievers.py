@@ -4,7 +4,7 @@ from jet.llm.ollama.base import OllamaEmbedding
 from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_SMALL_LLM_MODEL
 from jet.llm.ollama.embeddings import get_ollama_embedding_function
 from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
-from jet.llm.query.splitters import split_heirarchical_nodes, split_sub_nodes
+from jet.llm.query.splitters import split_heirarchical_nodes, split_markdown_header_nodes, split_sub_nodes
 from jet.llm.retrievers.recursive import (
     initialize_summary_nodes_and_retrievers,
     query_nodes as query_nodes_recursive
@@ -121,6 +121,7 @@ def setup_index(
     with_hierarchy: Optional[bool] = None,
     embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
     mode: Optional[Literal["fusion", "hierarchy", "deeplake"]] = "fusion",
+    split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
     **kwargs
 ):
     search_func: Callable[..., dict[str, Any]]
@@ -136,15 +137,19 @@ def setup_index(
     else:
         raise ValueError(f"'data_dir' must be of type str | list[Document]")
 
-    splitter = SentenceSplitter(
-        chunk_size=final_chunk_size,
-        chunk_overlap=chunk_overlap,
-        tokenizer=get_ollama_tokenizer(embed_model).encode
-    )
-    all_nodes = splitter.get_nodes_from_documents(
-        documents, show_progress=True)
+    if split_mode:
+        if "markdown" in split_mode:
+            all_nodes = split_markdown_header_nodes(documents)
+    else:
+        splitter = SentenceSplitter(
+            chunk_size=final_chunk_size,
+            chunk_overlap=chunk_overlap,
+            tokenizer=get_ollama_tokenizer(embed_model).encode
+        )
+        all_nodes = splitter.get_nodes_from_documents(
+            documents, show_progress=True)
 
-    if with_hierarchy or mode == 'hierarchy':
+    if with_hierarchy or mode == 'hierarchy' or (split_mode and "hierarchy" in split_mode):
         if not sub_chunk_sizes:
             sub_chunk_sizes = [final_chunk_size]
         # sub_chunk_sizes = [chunk_size, *sub_chunk_sizes]
