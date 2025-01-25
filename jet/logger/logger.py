@@ -33,6 +33,7 @@ class CustomLogger:
             *messages: list[str],
             bright: bool = False,
             flush: bool = False,
+            end: str = None,
             colors: list[str] = None,
         ) -> None:
             actual_level = f"BRIGHT_{level}" if bright else level
@@ -48,7 +49,8 @@ class CustomLogger:
             ]
             output = " ".join(formatted_messages)
 
-            end = "" if flush else "\n"
+            if not end:
+                end = "" if flush else "\n"
             print(output, end=end)
 
             # File handler
