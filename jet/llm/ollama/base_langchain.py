@@ -9,7 +9,7 @@ from shared.events import EventSettings
 class ChatOllama(BaseChatOllama):
     def __init__(
         self,
-        model: str,
+        model: str = "llama3.1",
         base_url: str = "http://localhost:11434",
         client_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs,
