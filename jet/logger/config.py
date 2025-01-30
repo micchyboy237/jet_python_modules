@@ -1,5 +1,6 @@
 import logging
 
+
 # ANSI color codes
 BOLD = "\u001b[1m"
 RESET = "\u001b[0m"
@@ -45,25 +46,29 @@ class ColoredFormatter(logging.Formatter):
 
 # Configure logger
 def configure_logger():
+    from shared.globals import RefreshableLoggerHandler
+
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 
     # Console handler with colored formatter
     console_handler = logging.StreamHandler()
-    formatter = ColoredFormatter("[%(levelname)s] %(message)s")
-    console_handler.setFormatter(formatter)
+    # formatter = ColoredFormatter("[%(levelname)s] %(message)s")
+    # console_handler.setFormatter(formatter)
 
     logger.addHandler(console_handler)
+    logger.addHandler(RefreshableLoggerHandler())
 
-    logging.info("Configured default logging")
+    logger.info("Configured default logging")
+    return logger
 
 
 # Example usage
 if __name__ == "__main__":
-    configure_logger()
+    logger = configure_logger()
 
-    logging.debug("This is a debug message")
-    logging.info("This is an info message")
-    logging.warning("This is a warning message")
-    logging.error("This is an error message")
-    logging.critical("This is a critical message")
+    logger.debug("This is a debug message")
+    logger.info("This is an info message")
+    logger.warning("This is a warning message")
+    logger.error("This is an error message")
+    logger.critical("This is a critical message")

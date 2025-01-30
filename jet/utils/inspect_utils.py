@@ -3,7 +3,7 @@ import os
 from collections import defaultdict
 from typing import Optional, TypedDict
 
-from shared.global_types import BaseEventData
+from shared.globals import BaseEventData
 from jet.logger import logger
 from jet.transformers.object import make_serializable
 
@@ -108,6 +108,49 @@ def print_inspect_original_script_path_grouped():
             logger.log("  Code Context:", frame["code_context"],
                        colors=["GRAY", "DEBUG"])
             print("-" * 50)
+
+
+def get_stack_frames(max_frames: Optional[int] = None):
+    stack_info = inspect.stack()
+    frames = [frame for frame in stack_info
+              if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename]
+    frames = frames[-max_frames:] if max_frames else frames
+
+    stack_frames = [{
+        'index': frame.index,
+        'filename': frame.filename,
+        'lineno': frame.lineno,
+        'function': frame.function,
+        'code_context': frame.code_context
+    } for frame in frames]
+
+    return stack_frames
+
+
+def find_stack_frames(text: str):
+    stack_info = inspect.stack()
+    frames = [frame for frame in stack_info
+              if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename]
+    frames = [
+        frame for frame in frames for code in frame.code_context if text in code]
+
+    stack_frames = [{
+        'index': frame.index,
+        'filename': frame.filename,
+        'lineno': frame.lineno,
+        'function': frame.function,
+        'code_context': frame.code_context
+    } for frame in frames]
+
+    return stack_frames
+
+
+def get_current_running_function():
+    stack = inspect.stack()
+    if len(stack) > 1:  # 1 is for the current function, so anything beyond that is a caller
+        current_function = stack[1].function
+        print(f"Currently running function: {current_function}")
+        return current_function
 
 
 # Example usage

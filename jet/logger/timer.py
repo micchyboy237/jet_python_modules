@@ -1,3 +1,4 @@
+from typing import Callable, Literal, Optional
 import asyncio
 import time
 import threading
@@ -165,3 +166,80 @@ def asleep_countdown(count: int, message: str = "Sleep") -> Callable[[], None]:
         return stop_countdown
 
     return start  # Return stop function to allow external stopping
+
+
+# Define the status literal type
+SleepStatus = Literal['pending', 'completed', 'cancelled']
+
+
+class SleepInterruptible:
+    def __init__(self, sleep_duration: float, on_complete: Optional[Callable[[SleepStatus, float, float], None]] = None):
+        """
+        :param sleep_duration: Duration in seconds for the sleep
+        :param on_complete: Callback function to be called after sleep is completed or canceled
+        """
+        self.sleep_duration: float = sleep_duration
+        self._thread: threading.Thread | None = None
+        self._cancel_flag: threading.Event = threading.Event()
+        self._done_flag: threading.Event = threading.Event()  # To track when sleep finishes
+        # Callback function
+        self._on_complete: Optional[Callable[[
+            SleepStatus, float, float], None]] = on_complete
+        # Possible values: 'pending', 'completed', 'cancelled'
+        self._status: SleepStatus = 'pending'
+        self.total_elapsed = 0.0
+        self.restart_elapsed = 0.0
+
+    def _sleep_task(self):
+        """Helper function to simulate sleep and update status"""
+        elapsed_time = 0.0
+        while elapsed_time < self.sleep_duration and not self._cancel_flag.is_set():
+            time.sleep(0.1)  # Sleep in short intervals to allow cancellation
+            elapsed_time += 0.1
+            self.total_elapsed += 0.1
+
+        # Update status based on whether the sleep was interrupted or completed
+        if self._cancel_flag.is_set():
+            self._status = 'cancelled'  # If cancelled during sleep
+        else:
+            self._status = 'completed'  # If completed successfully
+
+        self._done_flag.set()  # Set done flag when sleep finishes
+
+        # Trigger the callback (if provided) after completion
+        if self._on_complete and self._status == "completed" and self.total_elapsed - self.restart_elapsed > self.sleep_duration:
+            self._on_complete(self._status, self.total_elapsed,
+                              self.restart_elapsed)
+
+    def start_sleep(self):
+        """Start the sleep operation in a new thread"""
+        self.total_elapsed = 0.0
+        self._cancel_flag.clear()  # Ensure cancel flag is reset
+        self._done_flag.clear()  # Reset done flag
+        self._status = 'pending'  # Reset status to 'pending'
+        self._thread = threading.Thread(target=self._sleep_task)
+        self._thread.start()
+
+    def cancel_sleep(self):
+        """Cancel the ongoing sleep"""
+        self._cancel_flag.set()
+        if self._thread:
+            self._thread.join()
+        self._status = 'cancelled'  # Mark status as cancelled
+
+    def restart_sleep(self):
+        """Restart the sleep countdown"""
+        self.restart_elapsed = self.total_elapsed
+        # Cancel any ongoing sleep first
+        self.cancel_sleep()
+
+        # Reset the status to 'pending' and start sleep again
+        self._cancel_flag.clear()  # Ensure cancel flag is reset
+        self._done_flag.clear()  # Reset done flag
+        self._status = 'pending'  # Reset status to 'pending'
+        self._thread = threading.Thread(target=self._sleep_task)
+        self._thread.start()
+
+    def get_status(self) -> SleepStatus:
+        """Get the current status of the sleep"""
+        return self._status

@@ -1,5 +1,4 @@
-from dis import Positions
-from typing import Any, Optional, TypedDict
+from typing import Any, TypedDict
 
 
 class BaseEventData(TypedDict, total=False):

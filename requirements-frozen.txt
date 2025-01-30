@@ -1,3 +1,6 @@
+# Custom
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
+
 # .venv/bin/python
 aim==3.26.1
 airportsdata==20241001
