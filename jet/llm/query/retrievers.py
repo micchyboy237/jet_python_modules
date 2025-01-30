@@ -118,7 +118,7 @@ def setup_index(
     *,
     extensions: Optional[list[str]] = None,
     chunk_size: Optional[int] = None,
-    chunk_overlap: Optional[int] = None,
+    chunk_overlap: int = 40,
     sub_chunk_sizes: Optional[list[int]] = None,
     with_hierarchy: Optional[bool] = None,
     embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
