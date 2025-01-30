@@ -19,17 +19,6 @@ def make_serializable(obj):
     """
     if isinstance(obj, Enum):
         return obj.value  # Convert Enum to its value
-    elif isinstance(obj, (int, float, bool, type(None))):
-        return obj
-    elif isinstance(obj, str):
-        try:
-            # Avoid parsing strings that look like numbers or booleans
-            parsed_obj = json.loads(obj)
-            if isinstance(parsed_obj, (dict, list)):  # Only parse JSON objects or arrays
-                return parsed_obj
-            return obj  # Keep as string if it's a valid number or boolean
-        except json.JSONDecodeError:
-            return obj
     elif isinstance(obj, bytes):
         try:
             decoded_str = obj.decode('utf-8')
@@ -41,7 +30,12 @@ def make_serializable(obj):
     elif isinstance(obj, list):
         return [make_serializable(item) for item in obj]
     elif isinstance(obj, dict):
-        return {make_serializable(key): make_serializable(value) for key, value in obj.items()}
+        serialized_dict = {}
+        for key, value in obj.items():
+            serialized_key = make_serializable(key)
+            serialized_value = make_serializable(value)
+            serialized_dict[serialized_key] = serialized_value
+        return serialized_dict
     elif isinstance(obj, BaseModel):
         return make_serializable(vars(obj))
     elif hasattr(obj, "__dict__"):
@@ -54,6 +48,17 @@ def make_serializable(obj):
         return obj.item()  # Convert numpy types to native Python types
     elif isinstance(obj, np.ndarray):
         return obj.tolist()  # Convert numpy arrays to lists
+    elif isinstance(obj, (int, float, bool, type(None))):
+        return obj
+    elif isinstance(obj, str):
+        try:
+            # Avoid parsing strings that look like numbers or booleans
+            parsed_obj = json.loads(obj)
+            if isinstance(parsed_obj, (dict, list)):  # Only parse JSON objects or arrays
+                return parsed_obj
+            return obj  # Keep as string if it's a valid number or boolean
+        except json.JSONDecodeError:
+            return obj
     else:
         return str(obj)  # Fallback for unsupported types
 
