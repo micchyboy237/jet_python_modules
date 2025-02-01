@@ -24,7 +24,6 @@ USERNAME = os.environ.get("MEMGRAPH_USERNAME", "")
 PASSWORD = os.environ.get("MEMGRAPH_PASSWORD", "")
 
 
-# Function to initialize Memgraph
 def initialize_graph(url: str, username: str, password: str, data_query: Optional[str] = None) -> MemgraphGraph:
     graph = MemgraphGraph(url=url, username=username,
                           password=password, refresh_schema=False)
@@ -40,7 +39,6 @@ def initialize_graph(url: str, username: str, password: str, data_query: Optiona
     return graph
 
 
-# Function to generate cypher query
 def generate_cypher_query(query: str, graph: MemgraphGraph) -> str:
     cypher_generation_query = CYPHER_GENERATION_TEMPLATE.format(
         query_str=query)
@@ -60,8 +58,7 @@ def generate_cypher_query(query: str, graph: MemgraphGraph) -> str:
     return generated_cypher
 
 
-# Function to generate context and query
-def generate_context_and_query(cypher: str, query: str, graph_result_context: str) -> str:
+def generate_query(query: str, cypher: str, graph_result_context: str, *, model=MODEL) -> str:
     context = CONTEXT_PROMPT_TEMPLATE.format(
         cypher_query_str=cypher.strip('"'),
         graph_result_str=graph_result_context,
@@ -71,7 +68,25 @@ def generate_context_and_query(cypher: str, query: str, graph_result_context: st
     for chunk in call_ollama_chat(
         prompt,
         stream=True,
-        model=MODEL,
+        model=model,
+        options={"seed": 42, "temperature": 0,
+                 "num_keep": 0, "num_predict": -1},
+    ):
+        result += chunk
+    return result
+
+
+def generate_query_samples(query: str, cypher: str, graph_result_context: str, *, model=MODEL) -> str:
+    context = CONTEXT_PROMPT_TEMPLATE.format(
+        cypher_query_str=cypher.strip('"'),
+        graph_result_str=graph_result_context,
+    )
+    prompt = CONTEXT_QA_PROMPT.format(context=context, question=query)
+    result = ""
+    for chunk in call_ollama_chat(
+        prompt,
+        stream=True,
+        model=model,
         options={"seed": 42, "temperature": 0,
                  "num_keep": 0, "num_predict": -1},
     ):
