@@ -83,7 +83,6 @@ CONTEXT_QA_PROMPT = PromptTemplate(
 CONTEXT_PROMPT_TEMPLATE = """
 Cypher queries:
 {cypher_query_str}
-
 Cypher results:
 {graph_result_str}
 """.strip()
