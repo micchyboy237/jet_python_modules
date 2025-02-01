@@ -39,3 +39,10 @@ DEFAULT_EMBED_SETTINGS = {
     "embed_batch_size": DEFAULT_EMBED_BATCH_SIZE,
     "ollama_additional_kwargs": {}
 }
+
+DETERMINISTIC_LLM_SETTINGS = {
+    "seed": 42,
+    "temperature": 0,
+    "num_keep": 0,
+    "num_predict": -1,
+}

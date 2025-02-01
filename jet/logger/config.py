@@ -46,7 +46,7 @@ class ColoredFormatter(logging.Formatter):
 
 # Configure logger
 def configure_logger():
-    from shared.globals import RefreshableLoggerHandler
+    from shared.globals import import_tracker, RefreshableLoggerHandler
 
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -57,7 +57,9 @@ def configure_logger():
     # console_handler.setFormatter(formatter)
 
     logger.addHandler(console_handler)
-    logger.addHandler(RefreshableLoggerHandler())
+
+    if import_tracker:
+        logger.addHandler(RefreshableLoggerHandler())
 
     logger.info("Configured default logging")
     return logger

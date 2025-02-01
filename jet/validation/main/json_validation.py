@@ -3,7 +3,7 @@ import random
 from typing import Optional
 from jet.validation import schema_validate_json, ValidationResponse
 from jet.llm import call_ollama_chat
-from jet.utils import extract_json_block_content
+from jet.utils.markdown import extract_json_block_content
 from jet.logger import logger
 
 MODEL = "llama3.1"

@@ -185,17 +185,23 @@ def custom_import_module(name, package=None):
     return module
 
 
-importlib.import_module = custom_import_module  # Monkey-patch importlib
+import_tracker: Optional[ImportTracker] = None
 
 
 # ---- Start Import Monitoring Thread ----
-import_tracker = ImportTracker()
-import_monitor_thread = threading.Thread(
-    target=import_tracker.wait_for_all_modules, daemon=True)
-import_monitor_thread.start()
+def initialize_import_tracker():
+    importlib.import_module = custom_import_module  # Monkey-patch importlib
+
+    global import_tracker
+    import_tracker = ImportTracker()
+    import_monitor_thread = threading.Thread(
+        target=import_tracker.wait_for_all_modules, daemon=True)
+    import_monitor_thread.start()
+    return import_tracker
 
 
 __all__ = [
     "RefreshableLoggerHandler",
+    "initialize_import_tracker",
     "import_tracker",
 ]

@@ -4,7 +4,8 @@ from typing import Optional
 from pydantic import BaseModel
 from jet.validation import pydantic_validate_json, ValidationResponse
 from jet.llm import call_ollama_chat
-from jet.utils import extract_json_block_content, class_to_string
+from jet.utils.markdown import extract_json_block_content
+from jet.utils.class_utils import class_to_string
 from jet.logger import logger
 
 MODEL = "llama3.1"

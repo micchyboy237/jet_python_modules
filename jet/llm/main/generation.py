@@ -16,11 +16,11 @@ from jet.llm.llm_types import (
     Track,
 )
 from shared.events import EventSettings
-from jet.utils import get_class_name
+from jet.utils.class_utils import get_class_name
 from jet.logger import logger
 from jet.transformers import make_serializable
 
-DEFAULT_SETTINGS: OllamaChatOptions = {
+DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,
     "temperature": 0,
     "num_keep": 0,
@@ -99,7 +99,8 @@ def call_ollama_chat(
     derived_options = {
         "num_ctx": model_max_length,
     }
-    options = {**derived_options, **DEFAULT_SETTINGS, **(options or {})}
+    options = {**derived_options, **
+               DETERMINISTIC_LLM_SETTINGS, **(options or {})}
 
     logger.newline()
     logger.log("Model:", model, colors=["GRAY", "INFO"])

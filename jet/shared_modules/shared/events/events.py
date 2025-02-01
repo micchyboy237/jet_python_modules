@@ -4,48 +4,11 @@ import time
 import threading
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Literal, Optional
+from typing import Dict, Literal, Optional
 from jet.logger.config import configure_logger
-from shared.globals import EventData
+from shared.globals import EventData, initialize_import_tracker
 from jet.logger import logger
-from jet.transformers.formatters import format_json
 from jet.utils.inspect_utils import inspect_original_script_path
-import logging
-from shared.globals import import_tracker
-
-
-# ---- Custom Logger ----
-# class RefreshableLoggerHandler(logging.Logger):
-#     def __init__(self, name: str):
-#         super().__init__(name)
-#         self.max_wait_time = 5  # Default wait time
-#         self.check_interval = 1  # Check every 1 second
-
-#     def __getattr__(self, name: str):
-#         self.refresh_wait_time()
-
-#     def refresh_wait_time(self):
-#         """Refresh the max wait time whenever a logging call is made."""
-#         global import_tracker
-#         import_tracker.refresh_wait_time(self.max_wait_time)
-
-
-class RefreshableLoggerHandler(logging.Handler):
-    def __init__(self, name: str):
-        super().__init__(name)
-
-    def emit(self, record):
-        # Here we handle the log record and define custom behavior for each log level
-        log_message = self.format(record)
-
-        # Listen to any log level and perform custom actions
-        print(f"[Listener] Log received: {log_message}")
-
-        # Refresh the max wait time whenever a logging call is made.
-        import_tracker.refresh_wait_time()
-
-    # def __getattr__(self, name: str):
-    #     self.refresh_wait_time()
 
 
 # ---- Event Settings ----
@@ -137,24 +100,23 @@ def setup_events():
         from shared.events import EventSettings
 
         def pre_start_hook():
-            # Initialize base logger
             EventSettings.pre_start_hook(configure_logger)
             logger.newline()
             logger.success("pre_start_hook triggered at: " +
                            EventSettings.event_data['pre_start_hook']['start_time'])
 
-        def post_start_hook():
-            # Now trigger post_start_hook
-            EventSettings.post_start_hook()
-            logger.newline()
-            logger.success("post_start_hook triggered at: " +
-                           EventSettings.event_data['post_start_hook']['start_time'])
+        pre_start_hook()  # Trigger here
 
-        # Explicitly wait for the post_start_event before proceeding with a max wait time of 5 seconds
-        import_tracker.wait_for_all_modules({
-            "pre_start_hook": pre_start_hook,
-            "post_start_hook": post_start_hook,
-        })
+        # import_tracker = initialize_import_tracker()
+        # def post_start_hook():
+        #     EventSettings.post_start_hook()
+        #     logger.newline()
+        #     logger.success("post_start_hook triggered at: " +
+        #                    EventSettings.event_data['post_start_hook']['start_time'])
+        # import_tracker.wait_for_all_modules({
+        #     "pre_start_hook": pre_start_hook,
+        #     "post_start_hook": post_start_hook,
+        # })
 
         _initialized = True
 
