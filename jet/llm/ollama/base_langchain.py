@@ -27,6 +27,8 @@ class ChatOllama(BaseChatOllama):
         client_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
+        from jet.token.token_utils import token_counter
+
         # Generate headers dynamically
         event = EventSettings.call_ollama_chat_langchain()
         pre_start_hook_start_time = EventSettings.event_data["pre_start_hook"]["start_time"]
