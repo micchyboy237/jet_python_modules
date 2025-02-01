@@ -49,7 +49,8 @@ RETURN proj.name, port.url;
 ```
 <end_response>
 
-With all the above information and instructions, generate Cypher queries that will provide sensible data based on the user prompt.
+With all the above information and instructions, generate {num_of_queries} Cypher queries that will provide sensible data based on the user prompt.
+Write the answer in the tone of {tone_name}.
 
 Prompt:
 {prompt}
@@ -80,8 +81,10 @@ CONTEXT_QA_PROMPT = PromptTemplate(
 )
 
 CONTEXT_PROMPT_TEMPLATE = """
-Cypher query: {cypher_query_str}
-Cypher result:
+Cypher queries:
+{cypher_query_str}
+
+Cypher results:
 {graph_result_str}
 """.strip()
 
