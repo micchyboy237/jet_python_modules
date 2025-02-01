@@ -29,8 +29,9 @@ WHERE toLower(p.name) CONTAINS "jethro"
 RETURN p;
 
 Use valid markdown syntax for the response.
-Schema: 
+<start_schema>
 {schema}
+<end_schema>
 
 Sample response format:
 <start_response>
@@ -73,26 +74,28 @@ Follow this example when generating answers. If the provided context is empty, s
 
 
 Question: {question}
-Context: {context}
+Context:
+{context}
 Helpful Answer:"""
 
 CONTEXT_QA_PROMPT = PromptTemplate(
     input_variables=["context", "question"], template=CONTEXT_QA_TEMPLATE
 )
 
-CONTEXT_PROMPT_TEMPLATE = """
-Cypher queries:
-{cypher_query_str}
-Cypher results:
-{graph_result_str}
-""".strip()
 
 CONTEXT_SAMPLES_TEMPLATE = """
 Sample Queries:
 {sample_queries_str}
 """.strip()
 
+CONTEXT_DB_TEMPLATE = """
+<start_db_results>
+{db_results_str}
+<end_db_results>
+""".strip()
+
 CONTEXT_SCHEMA_TEMPLATE = """
-Schema:
+<start_schema>
 {schema_str}
+<end_schema>
 """.strip()

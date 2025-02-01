@@ -11,7 +11,6 @@ from jet.transformers import format_json
 from jet.memory.config import (
     CYPHER_GENERATION_PROMPT,
     CONTEXT_QA_PROMPT,
-    CONTEXT_PROMPT_TEMPLATE,
 )
 
 initialize_ollama_settings()
@@ -66,34 +65,7 @@ def generate_cypher_query(query: str, graph: MemgraphGraph, tone_name: str = "a 
     return transformed_results
 
 
-def generate_query(query: str, cypher: str, graph_result_context: str, *, model=MODEL, context: str = "") -> str:
-    custom_context = context
-
-    context = CONTEXT_PROMPT_TEMPLATE.format(
-        cypher_query_str=cypher.strip('"'),
-        graph_result_str=graph_result_context,
-    )
-    context = custom_context + "\n\n" + context
-    context = context.strip()
-
-    prompt = CONTEXT_QA_PROMPT.format(context=context, question=query)
-    result = ""
-    for chunk in call_ollama_chat(
-        prompt,
-        stream=True,
-        model=model,
-        options={"seed": 42, "temperature": 0,
-                 "num_keep": 0, "num_predict": -1},
-    ):
-        result += chunk
-    return result
-
-
-def generate_query_samples(query: str, cypher: str, graph_result_context: str, *, model=MODEL) -> str:
-    context = CONTEXT_PROMPT_TEMPLATE.format(
-        cypher_query_str=cypher.strip('"'),
-        graph_result_str=graph_result_context,
-    )
+def generate_query(query: str, *, model=MODEL, context: str = "") -> str:
     prompt = CONTEXT_QA_PROMPT.format(context=context, question=query)
     result = ""
     for chunk in call_ollama_chat(
