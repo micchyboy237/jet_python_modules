@@ -28,7 +28,46 @@ Data guidelines:
 """.strip()
 
 
-def validate_cypher(query: str, url: Optional[str] = "bolt://localhost:7687", username: Optional[str] = "", password: Optional[str] = "", attempt: int = 1, max_attempts: int = 10, original_query: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
+MEMGRAPH_URL = "bolt://localhost:7687"
+
+
+def initialize_memgraph(url: str = "", username: str = "", password: str = ""):
+    url = url or MEMGRAPH_URL
+
+    graph = MemgraphGraph(
+        url=url, username=username, password=password, refresh_schema=False
+    )
+
+    graph.query("STORAGE MODE IN_MEMORY_ANALYTICAL")
+    graph.query("DROP GRAPH")
+    graph.query("STORAGE MODE IN_MEMORY_TRANSACTIONAL")
+
+    query = """
+        MERGE (g:Game {name: "Baldur's Gate 3"})
+        WITH g, ["PlayStation 5", "Mac OS", "Windows", "Xbox Series X/S"] AS platforms,
+                ["Adventure", "Role-Playing Game", "Strategy"] AS genres
+        FOREACH (platform IN platforms |
+            MERGE (p:Platform {name: platform})
+            MERGE (g)-[:AVAILABLE_ON]->(p)
+        )
+        FOREACH (genre IN genres |
+            MERGE (gn:Genre {name: genre})
+            MERGE (g)-[:HAS_GENRE]->(gn)
+        )
+        MERGE (p:Publisher {name: "Larian Studios"})
+        MERGE (g)-[:PUBLISHED_BY]->(p);
+    """
+
+    # Create data
+    graph.query(query)
+
+    # Refresh schema
+    graph.refresh_schema()
+
+    return graph
+
+
+def validate_cypher(query: str, url: Optional[str] = "", username: Optional[str] = "", password: Optional[str] = "", attempt: int = 1, max_attempts: int = 10, original_query: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
     if original_query is None:
         original_query = query
 
@@ -38,8 +77,7 @@ def validate_cypher(query: str, url: Optional[str] = "bolt://localhost:7687", us
 
     logger.info(f"Validation attempt {attempt}")
 
-    graph = MemgraphGraph(url=url, username=username,
-                          password=password, refresh_schema=False)
+    graph = initialize_memgraph(url=url, username=username, password=password)
 
     result = validate_query(query, graph=graph)
     logger.success(f"Valid Cypher query on attempt {attempt}")
