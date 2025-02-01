@@ -13,10 +13,10 @@ def format_error(error: Dict[str, Any]) -> str:
     return ": ".join(error_chunks)
 
 
-def validate_query(query: str, url: Optional[str] = "bolt://localhost:7687", username: Optional[str] = "", password: Optional[str] = "") -> ValidationResponse:
+def validate_query(query: str, *, url: Optional[str] = "bolt://localhost:7687", username: Optional[str] = "", password: Optional[str] = "", graph: Optional[MemgraphGraph] = None) -> ValidationResponse:
     """Executes a cypher query using Memgraph Graph API for validation."""
-    graph = MemgraphGraph(url=url, username=username,
-                          password=password, refresh_schema=False)
+    graph = graph or MemgraphGraph(url=url, username=username,
+                                   password=password, refresh_schema=False)
     try:
         result = graph.query(query)
 
