@@ -58,11 +58,16 @@ def generate_cypher_query(query: str, graph: MemgraphGraph) -> str:
     return generated_cypher
 
 
-def generate_query(query: str, cypher: str, graph_result_context: str, *, model=MODEL) -> str:
+def generate_query(query: str, cypher: str, graph_result_context: str, *, model=MODEL, context: str = "") -> str:
+    custom_context = context
+
     context = CONTEXT_PROMPT_TEMPLATE.format(
         cypher_query_str=cypher.strip('"'),
         graph_result_str=graph_result_context,
     )
+    context = custom_context + "\n\n" + context
+    context = context.strip()
+
     prompt = CONTEXT_QA_PROMPT.format(context=context, question=query)
     result = ""
     for chunk in call_ollama_chat(

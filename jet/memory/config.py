@@ -62,3 +62,13 @@ Cypher query: {cypher_query_str}
 Cypher result:
 {graph_result_str}
 """.strip()
+
+CONTEXT_SAMPLES_TEMPLATE = """
+Sample Queries:
+{sample_queries_str}
+""".strip()
+
+CONTEXT_SCHEMA_TEMPLATE = """
+Schema:
+{schema_str}
+""".strip()
