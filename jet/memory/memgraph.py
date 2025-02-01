@@ -3,11 +3,11 @@ from jet.llm.main.generation import call_ollama_chat
 from jet.logger import logger
 from jet.llm.ollama import initialize_ollama_settings
 import os
+from jet.validation.graph_validation import extract_cypher_block_content
 from langchain_community.graphs import MemgraphGraph
 from langchain_core.prompts import PromptTemplate
 from jet.transformers import format_json
 from jet.memory.config import (
-    CYPHER_GENERATION_TEMPLATE,
     CYPHER_GENERATION_PROMPT,
     CONTEXT_QA_PROMPT,
     CONTEXT_PROMPT_TEMPLATE,
@@ -34,17 +34,16 @@ def initialize_graph(url: str, username: str, password: str, data_query: Optiona
 
         graph.query(data_query)
 
-        graph.refresh_schema()
+    graph.refresh_schema()
 
     return graph
 
 
-def generate_cypher_query(query: str, graph: MemgraphGraph) -> str:
-    cypher_generation_query = CYPHER_GENERATION_TEMPLATE.format(
-        query_str=query)
+def generate_cypher_query(query: str, graph: MemgraphGraph, *, samples: Optional[str]) -> str:
     prompt = CYPHER_GENERATION_PROMPT.format(
         schema=graph.get_schema,
-        prompt=cypher_generation_query,
+        # samples=samples,
+        prompt=query,
     )
     generated_cypher = ""
     for chunk in call_ollama_chat(
@@ -55,7 +54,10 @@ def generate_cypher_query(query: str, graph: MemgraphGraph) -> str:
                  "num_keep": 0, "num_predict": -1},
     ):
         generated_cypher += chunk
-    return generated_cypher
+
+    result = extract_cypher_block_content(generated_cypher)
+
+    return result
 
 
 def generate_query(query: str, cypher: str, graph_result_context: str, *, model=MODEL, context: str = "") -> str:

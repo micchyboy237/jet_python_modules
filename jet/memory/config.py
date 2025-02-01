@@ -1,12 +1,12 @@
 from langchain_core.prompts import PromptTemplate
 
-CYPHER_GENERATION_TEMPLATE = """
-Your task is to directly translate natural language inquiry into precise and executable Cypher query for Memgraph database. 
+CYPHER_QUERY_TEMPLATE = """
+Your task is to directly translate natural language inquiry into precise and executable Cypher queries for Memgraph database. 
 You will utilize a provided database schema to understand the structure, nodes and relationships within the Memgraph database.
 Instructions: 
 - Use provided node and relationship labels and property names from the
 schema which describes the database's structure. Upon receiving a user
-question, synthesize the schema to craft a precise Cypher query that
+question, synthesize the schema to craft precise Cypher queries that
 directly corresponds to the user's intent. 
 - Generate valid executable Cypher queries on top of Memgraph database. 
 Any explanation, context, or additional information that is not a part 
@@ -18,26 +18,39 @@ of the Cypher query syntax should be omitted entirely.
 generation of Cypher queries, use the Cypher query format to communicate
 limitations or capabilities. For example: RETURN "I am designed to generate
 Cypher queries based on the provided schema only."
+Use pattern matching (CONTAINS).
+Surround the response with code block ```cypher.
 Schema: 
 {schema}
 
-With all the above information and instructions, generate Cypher query for the
-user prompt. 
+Sample response format:
+<start_response>
+# Query 1
+```cypher
+MATCH (p:Person)-[:STUDIED_AT]->(e:Education)
+WHERE toLower(p.name) CONTAINS "Jethro"
+RETURN e.school, e.degree, e.start_year, e.end_year;
+```
+---
+# Query 2
+```cypher
+MATCH (c:Company)-[:OWNS]->(proj:Project)-[:PUBLISHED_AT]->(port:Portfolio_Link)
+WHERE toLower(c.name) CONTAINS "adec innovations" AND toLower(port.url) CONTAINS "adec"
+RETURN proj.name, port.url;
+```
+<end_response>
 
-The prompt is:
+With all the above information and instructions, generate multiple Cypher queries that will provide sensible data based on the user prompt.
+
+Prompt:
 {prompt}
+Response:
+<start_response>
 """.strip()
 
 CYPHER_GENERATION_PROMPT = PromptTemplate(
-    input_variables=["schema", "prompt"], template=CYPHER_GENERATION_TEMPLATE
+    input_variables=["schema", "prompt"], template=CYPHER_QUERY_TEMPLATE
 )
-
-CYPHER_GENERATION_TEMPLATE = """
-I want a more generic cypher query without filters.
-Do not include WHERE clauses.
-Generate the least code possible.
-Write one given this prompt "{query_str}".
-""".strip()
 
 
 CONTEXT_QA_TEMPLATE = """Your task is to form nice and human understandable answers. The context contains the cypher query result that you must use to construct an answer. The provided context is authoritative, you must never doubt it or try to use your internal knowledge to correct it. Make the answer sound as a response to the question. Do not mention that you based the result on the given context. Here is an example:
