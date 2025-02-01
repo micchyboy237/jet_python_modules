@@ -1,4 +1,5 @@
 from typing import Optional
+from jet.code.markdown_code_extractor import MarkdownCodeExtractor
 from jet.llm.main.generation import call_ollama_chat
 from jet.logger import logger
 from jet.llm.ollama import initialize_ollama_settings
@@ -39,7 +40,7 @@ def initialize_graph(url: str, username: str, password: str, data_query: Optiona
     return graph
 
 
-def generate_cypher_query(query: str, graph: MemgraphGraph, *, samples: Optional[str]) -> str:
+def generate_cypher_query(query: str, graph: MemgraphGraph, *, samples: Optional[str]) -> list[str]:
     prompt = CYPHER_GENERATION_PROMPT.format(
         schema=graph.get_schema,
         # samples=samples,
@@ -55,9 +56,11 @@ def generate_cypher_query(query: str, graph: MemgraphGraph, *, samples: Optional
     ):
         generated_cypher += chunk
 
-    result = extract_cypher_block_content(generated_cypher)
+    extractor = MarkdownCodeExtractor()
+    results = extractor.extract_code_blocks(generated_cypher)
+    transformed_results = [item['code'] for item in results if item['code']]
 
-    return result
+    return transformed_results
 
 
 def generate_query(query: str, cypher: str, graph_result_context: str, *, model=MODEL, context: str = "") -> str:

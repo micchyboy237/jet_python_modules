@@ -29,6 +29,7 @@ class MarkdownCodeExtractor:
         "ruby": ".rb",
         "go": ".go",
         "php": ".php",
+        "cypher": ".cypher",
         "text": ".txt",  # Added for 'text' blocks.
         "unknown": "",
     }
