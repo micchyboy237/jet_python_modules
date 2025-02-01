@@ -39,7 +39,7 @@ def initialize_graph(url: str, username: str, password: str, data_query: Optiona
     return graph
 
 
-def generate_cypher_query(query: str, graph: MemgraphGraph, tone_name: str = "a curious individual", *, num_of_queries=5, samples: Optional[str]) -> list[str]:
+def generate_cypher_query(query: str, graph: MemgraphGraph, tone_name: str = "an individual", *, num_of_queries=5, samples: Optional[str]) -> list[str]:
     prompt = CYPHER_GENERATION_PROMPT.format(
         # schema=graph.get_schema,
         schema=graph.get_structured_schema,
@@ -65,8 +65,9 @@ def generate_cypher_query(query: str, graph: MemgraphGraph, tone_name: str = "a 
     return transformed_results
 
 
-def generate_query(query: str, *, model=MODEL, context: str = "") -> str:
-    prompt = CONTEXT_QA_PROMPT.format(context=context, question=query)
+def generate_query(query: str, tone_name: str = "an individual", *, model=MODEL, context: str = "") -> str:
+    prompt = CONTEXT_QA_PROMPT.format(
+        context=context, question=query, tone_name=tone_name)
     result = ""
     for chunk in call_ollama_chat(
         prompt,

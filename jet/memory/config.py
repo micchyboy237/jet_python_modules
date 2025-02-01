@@ -51,7 +51,6 @@ RETURN proj.name, port.url;
 <end_response>
 
 With all the above information and instructions, generate {num_of_queries} Cypher queries that will provide sensible data based on the user prompt.
-Write the answer in the tone of {tone_name}.
 
 Prompt:
 {prompt}
@@ -71,6 +70,7 @@ Context: [manager:CTL LLC, manager:JANE STREET GROUP LLC]
 Helpful Answer: CTL LLC, JANE STREET GROUP LLC owns Neo4j stocks.
 
 Follow this example when generating answers. If the provided context is empty, say that you don't know the answer.
+Write the answer in the tone of {tone_name}.
 
 
 Question: {question}
