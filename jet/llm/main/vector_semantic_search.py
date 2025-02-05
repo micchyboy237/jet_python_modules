@@ -3,6 +3,8 @@ from jet.logger import logger, time_it
 
 from typing import List, Dict, Union
 
+from llama_index.core.schema import Document
+
 
 class VectorSemanticSearch:
     def __init__(self, candidates: list[str]):
@@ -111,7 +113,7 @@ class VectorSemanticSearch:
 
         # Initialize the retriever
         retriever = RerankerRetriever(
-            data=queries,
+            data=self.candidates,
             use_ollama=use_ollama,
             collection_name="example_collection",
             embed_batch_size=32,
@@ -171,12 +173,12 @@ class VectorSemanticSearch:
         return sorted_pagerank_results
 
     @time_it
-    def cross_encoder_search(self, query: list[str]) -> Dict[str, List[Dict[str, float]]]:
+    def cross_encoder_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
 
         cross_encoder = self.get_cross_encoder()
 
         # Generate pairs of query and candidate paths
-        pairs = [(q, path) for q in query for path in self.candidates]
+        pairs = [(q, path) for q in queries for path in self.candidates]
 
         # Predict the similarity scores
         scores = cross_encoder.predict(pairs)
@@ -189,7 +191,7 @@ class VectorSemanticSearch:
         # Organize the results by query line
         results = {}
         idx = 0
-        for query_line in query:
+        for query_line in queries:
             # Get the scores for this query
             query_scores = scores[idx:idx + len(self.candidates)]
             results[query_line] = [
@@ -200,6 +202,33 @@ class VectorSemanticSearch:
         sorted_results = {query_line: sorted(res, key=lambda x: x['score'], reverse=True)
                           for query_line, res in results.items()}
 
+        return sorted_results
+
+    @time_it
+    def fusion_search(self, queries: str | list[str]) -> Dict[str, List[Dict[str, float]]]:
+        from jet.llm.query import setup_index
+        from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
+
+        if type(queries) == str:
+            queries = [queries]
+
+        documents = [Document(text=candidate) for candidate in self.candidates]
+
+        chunk_size = 512
+        chunk_overlap = 0
+        top_k = 50
+
+        query_nodes = setup_index(
+            documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+
+        all_results = []
+        for query in queries:
+            result = query_nodes(query, FUSION_MODES.RELATIVE_SCORE)
+
+            all_results.extend(
+                [{"text": node.text, "score": node.score} for node in result["nodes"]])
+        sorted_results = sorted(
+            all_results, key=lambda x: x['score'], reverse=True)
         return sorted_results
 
     @staticmethod
