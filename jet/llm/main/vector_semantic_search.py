@@ -3,8 +3,6 @@ from jet.logger import logger, time_it
 
 from typing import List, Dict, Union
 
-from llama_index.core.schema import Document
-
 
 class VectorSemanticSearch:
     def __init__(self, candidates: list[str]):
@@ -206,8 +204,10 @@ class VectorSemanticSearch:
 
     @time_it
     def fusion_search(self, queries: str | list[str]) -> Dict[str, List[Dict[str, float]]]:
-        from jet.llm.query import setup_index
         from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
+        from llama_index.core.schema import Document
+        from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_LARGE_EMBED_MODEL
+        from jet.llm.query import setup_index
 
         if type(queries) == str:
             queries = [queries]
@@ -217,9 +217,14 @@ class VectorSemanticSearch:
         chunk_size = 512
         chunk_overlap = 0
         top_k = 50
+        embed_model = OLLAMA_SMALL_EMBED_MODEL
 
         query_nodes = setup_index(
-            documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            documents,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            embed_model=embed_model,
+        )
 
         all_results = []
         for query in queries:
