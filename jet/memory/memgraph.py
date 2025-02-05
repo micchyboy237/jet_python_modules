@@ -1,5 +1,6 @@
-from typing import Optional
+from typing import Generator, Optional, Union
 from jet.code.markdown_code_extractor import MarkdownCodeExtractor
+from jet.llm.llm_types import OllamaChatOptions, OllamaChatResponse
 from jet.llm.main.generation import call_ollama_chat
 from jet.logger import logger
 from jet.llm.ollama import initialize_ollama_settings
@@ -17,6 +18,10 @@ initialize_ollama_settings()
 
 # Setup LLM settings
 MODEL = "llama3.2"
+# CYPHER_SYSTEM_MESSAGE = """
+# You are an AI assistant that follows instructions. You generate cypher queries based on provided context and schema information.
+# """.strip()
+CYPHER_SYSTEM_MESSAGE = ""
 
 # Setup Memgraph variables
 URL = os.environ.get("MEMGRAPH_URI", "bolt://localhost:7687")
@@ -39,7 +44,7 @@ def initialize_graph(url: str, username: str, password: str, data_query: Optiona
     return graph
 
 
-def generate_cypher_query(query: str, graph: MemgraphGraph, tone_name: str = "an individual", *, num_of_queries=5, samples: Optional[str]) -> list[str]:
+def generate_cypher_query(query: str, graph: MemgraphGraph, tone_name: str = "an individual", *, num_of_queries=5, samples: Optional[str] = None) -> list[str]:
     prompt = CYPHER_GENERATION_PROMPT.format(
         # schema=graph.get_schema,
         schema=graph.get_structured_schema,
@@ -48,14 +53,14 @@ def generate_cypher_query(query: str, graph: MemgraphGraph, tone_name: str = "an
         num_of_queries=num_of_queries,
         tone_name=tone_name
     )
-    generated_cypher = ""
-    for chunk in call_ollama_chat(
+    response = generate_query(
         prompt,
-        stream=True,
         model=MODEL,
-        options={"seed": 42, "temperature": 0,
-                 "num_keep": 0, "num_predict": -1},
-    ):
+        system=CYPHER_SYSTEM_MESSAGE,
+    )
+
+    generated_cypher = ""
+    for chunk in response:
         generated_cypher += chunk
 
     extractor = MarkdownCodeExtractor()
@@ -65,16 +70,63 @@ def generate_cypher_query(query: str, graph: MemgraphGraph, tone_name: str = "an
     return transformed_results
 
 
-def generate_query(query: str, tone_name: str = "an individual", *, model=MODEL, context: str = "") -> str:
+def generate_query(query: str, tone_name: str = "an individual", *, context: str = "", model=MODEL, stream=False, options: OllamaChatOptions = {}, **kwargs) -> Generator[str | OllamaChatResponse, None, None]:
     prompt = CONTEXT_QA_PROMPT.format(
         context=context, question=query, tone_name=tone_name)
-    result = ""
-    for chunk in call_ollama_chat(
-        prompt,
-        stream=True,
-        model=model,
-        options={"seed": 42, "temperature": 0,
-                 "num_keep": 0, "num_predict": -1},
-    ):
-        result += chunk
-    return result
+
+    options = {
+        "stream": stream,
+        "options": {
+            "seed": 42,
+            "temperature": 0,
+            "num_keep": 0,
+            "num_predict": -1,
+            **options,
+        },
+        **kwargs,
+    }
+
+    response = call_ollama_chat(prompt, model, **options)
+
+    if stream:
+        for chunk in response:
+            yield chunk
+    else:
+        result = response['message']['content']
+        yield result
+
+
+def generate_cypher_context(query: str, graph: MemgraphGraph, tone_name: str, *, num_of_queries: int = 3, top_k: Optional[int] = None) -> str:
+    # Generate cypher query
+    generated_cypher_queries = generate_cypher_query(
+        query, graph, tone_name, num_of_queries=num_of_queries)
+
+    used_cypher_queries = []
+    graph_result_contexts = []
+    for idx, cypher_query in enumerate(generated_cypher_queries):
+        graph_result = graph.query(cypher_query)[:top_k]
+
+        if graph_result:
+            logger.newline()
+            logger.info(f"Graph Result {idx + 1}:")
+            logger.success(graph_result)
+
+            used_cypher_queries.append(cypher_query)
+            graph_result_contexts.append(json.dumps(graph_result))
+
+    # Generate query results
+    db_results = []
+    for item, result in zip(used_cypher_queries, graph_result_contexts):
+        db_results.append(f"Query: {item}\nResult: {result}")
+
+    db_results_str = CONTEXT_DB_TEMPLATE.format(
+        db_results_str="\n\n".join(db_results))
+
+    schema_str = CONTEXT_SCHEMA_TEMPLATE.format(
+        schema_str=graph.get_schema)
+
+    contexts = [
+        db_results_str,
+        schema_str
+    ]
+    context = "\n\n".join(contexts)
