@@ -2,17 +2,36 @@ from collections import defaultdict
 from typing import List, Dict, Any, Tuple
 
 
-def combine_paths(sample_arr: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], str, List[Dict[str, Any]]]]:
-    grouped_data = defaultdict(list)
-
+def combine_paths(sample_arr: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    results = []
     for entry in sample_arr:
-        path = entry["path"]
-        # Use frozenset to make dictionary hashable
-        key = (frozenset(path[0].items()), path[1])
-        grouped_data[key].append(path[2])
+        if "id" in entry:
+            results.append({
+                "_id": entry["id"],
+                "_labels": entry["labels"],
+                "_label": entry["labels"][-1],
+                **entry["properties"],
+            })
+        else:
+            source = entry.get("source", {})
+            action = entry.get("action", "")
+            targets = entry.get("targets", [])
 
-    result = []
-    for (source_obj, relation), target_objs in grouped_data.items():
-        result.append([dict(source_obj), relation, target_objs])
+            # Check if the path is valid and has at least 3 elements
+            results.append({
+                "source": {
+                    "_id": source["id"],
+                    "_labels": source["labels"],
+                    "_label": source["labels"][-1],
+                    **source["properties"],
+                },
+                "action": action,
+                "targets": [{
+                    "_id": target["id"],
+                    "_labels": target["labels"],
+                    "_label": target["labels"][-1],
+                    **target["properties"],
+                } for target in targets]
+            })
 
-    return result
+    return results

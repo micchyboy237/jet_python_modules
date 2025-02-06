@@ -177,7 +177,7 @@ def setup_index(
             query: str,
             fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
             threshold: float = 0.0,
-            top_k: int = 10,
+            top_k: Optional[int] = None,
         ):
             # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
             similarity_top_k = top_k if top_k and top_k < len(
@@ -226,7 +226,7 @@ def setup_index(
         def search_deeplake_func(
             query: str,
             threshold: float = 0.0,
-            top_k: int = 4,
+            top_k: Optional[int] = None,
         ):
             similarity_top_k = top_k if top_k and top_k < len(
                 all_nodes) else len(all_nodes)
@@ -267,7 +267,7 @@ def setup_index(
             query: str,
             fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
             threshold: float = 0.0,
-            top_k: int = 10,
+            top_k: Optional[int] = None,
         ):
 
             initial_similarity_k = top_k if top_k and top_k < len(

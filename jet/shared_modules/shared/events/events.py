@@ -6,7 +6,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Dict, Literal, Optional
 from jet.logger.config import configure_logger
-from shared.globals import EventData, initialize_import_tracker
+from shared.globals import EventData
 from jet.logger import logger
 from jet.utils.inspect_utils import inspect_original_script_path
 
@@ -100,7 +100,8 @@ def setup_events():
         from shared.events import EventSettings
 
         def pre_start_hook():
-            EventSettings.pre_start_hook(configure_logger)
+            # EventSettings.pre_start_hook(configure_logger)
+            EventSettings.pre_start_hook()
             logger.newline()
             logger.success("pre_start_hook triggered at: " +
                            EventSettings.event_data['pre_start_hook']['start_time'])

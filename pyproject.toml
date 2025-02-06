@@ -13,6 +13,7 @@ dependencies = []
 # Include editable dependencies from local paths
 packages = [
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/starlette",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/python-ghostscript",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/camelot",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/faiss",

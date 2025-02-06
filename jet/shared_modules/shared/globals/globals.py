@@ -1,4 +1,5 @@
 import builtins
+import inspect
 import json
 import logging
 import sys
@@ -8,7 +9,25 @@ import time
 from typing import Callable, Optional, TypedDict
 
 from jet.logger.timer import SleepInterruptible, SleepStatus, sleep_countdown
-from jet.utils.inspect_utils import find_stack_frames, get_stack_frames, print_inspect_original_script_path
+
+
+def find_stack_frames(text: str):
+    stack_info = inspect.stack()
+    frames = [frame for frame in stack_info
+              if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename]
+    frames = [
+        frame for frame in frames for code in frame.code_context if text in code]
+
+    stack_frames = [{
+        'index': frame.index,
+        'filename': frame.filename,
+        'lineno': frame.lineno,
+        'function': frame.function,
+        'code_context': frame.code_context
+    } for frame in frames]
+
+    return stack_frames
+
 
 # ANSI color codes
 BOLD = "\u001b[1m"

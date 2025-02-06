@@ -216,7 +216,8 @@ class VectorSemanticSearch:
 
         chunk_size = 512
         chunk_overlap = 0
-        top_k = 50
+        score_threshold = 0.0
+        top_k = None
         embed_model = OLLAMA_SMALL_EMBED_MODEL
 
         query_nodes = setup_index(
@@ -228,7 +229,8 @@ class VectorSemanticSearch:
 
         all_results = []
         for query in queries:
-            result = query_nodes(query, FUSION_MODES.RELATIVE_SCORE)
+            result = query_nodes(
+                query, fusion_mode=FUSION_MODES.RELATIVE_SCORE, threshold=score_threshold, top_k=top_k)
 
             all_results.extend(
                 [{"text": node.text, "score": node.score} for node in result["nodes"]])

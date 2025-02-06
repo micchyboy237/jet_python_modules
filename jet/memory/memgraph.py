@@ -1,3 +1,10 @@
+from jet.memory.httpx import HttpxClient
+from jet.memory.memgraph_types import GraphResponseData, GraphQueryRequest, AuthResponseData, LoginRequest
+from jet.transformers.object import make_serializable
+from pydantic import BaseModel
+from fastapi import HTTPException
+import httpx
+from typing import TypedDict
 from typing import Generator, Optional, Union
 from jet.code.markdown_code_extractor import MarkdownCodeExtractor
 from jet.llm.llm_types import OllamaChatOptions, OllamaChatResponse
@@ -130,3 +137,47 @@ def generate_cypher_context(query: str, graph: MemgraphGraph, tone_name: str, *,
         schema_str
     ]
     context = "\n\n".join(contexts)
+
+
+def authenticate_user(request_data: LoginRequest) -> AuthResponseData:
+    url = "http://localhost:3001/auth/login"
+    try:
+        client = HttpxClient()
+        response = client.post(url, json=request_data)
+        response.raise_for_status()
+        return response.json()["data"]
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error: {
+                     e.response.status_code} - {e.response.text}")
+        raise HTTPException(
+            status_code=e.response.status_code, detail=e.response.text
+        ) from e  # Raising the original error as context
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise e  # Re-raise the original exception
+
+
+def query_memgraph(request_data: GraphQueryRequest) -> GraphResponseData:
+    url = "http://localhost:3001/api/queries"
+    try:
+        client = HttpxClient()
+        response = client.post(url, json=request_data)
+        response.raise_for_status()
+        return response.json()["data"]
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error: {
+                     e.response.status_code} - {e.response.text}")
+        raise HTTPException(
+            status_code=e.response.status_code, detail=e.response.text
+        ) from e  # Raising the original error as context
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise e  # Re-raise the original exception
+
+
+def refresh_auth_token():
+    request_data = LoginRequest()
+    # Authenticate and get token
+    auth_response_data = authenticate_user(request_data)
+    new_token = auth_response_data['token']
+    return new_token
