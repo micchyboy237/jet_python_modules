@@ -216,7 +216,7 @@ class VectorSemanticSearch:
 
         chunk_size = 512
         chunk_overlap = 0
-        score_threshold = 0.0
+        score_threshold = 0.2
         top_k = None
         embed_model = OLLAMA_SMALL_EMBED_MODEL
 
