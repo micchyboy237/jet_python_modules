@@ -1,3 +1,4 @@
+import threading
 import json
 import requests
 import traceback
@@ -42,6 +43,8 @@ def call_ollama_chat(
     track: Track = None,
     full_stream_response: bool = False,
     max_tokens: Optional[int | float] = None,
+    # Parameter for cancellation
+    stop_event: Optional[threading.Event] = None,
 ) -> Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
     """
     Wraps call_ollama_chat to track the prompt and response using Aim.
@@ -61,6 +64,11 @@ def call_ollama_chat(
          Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
          Either the JSON response or a generator for streamed responses.
     """
+    # logger.info("pre stop_event:", stop_event)
+    # logger.orange(stop_event and stop_event.is_set())
+    # if stop_event and stop_event.is_set():
+    #     stop_event.clear()
+
     if track:
         from aim import Run, Text
 
@@ -128,7 +136,7 @@ def call_ollama_chat(
         "model": model,
         "messages": messages,
         "stream": stream,
-        "keep_alive": keep_alive,
+        # "keep_alive": keep_alive,
         "template": template,
         # "raw": False,
         "tools": tools,
@@ -178,6 +186,15 @@ def call_ollama_chat(
 
             def line_generator():
                 for line in r.iter_lines():
+                    # logger.info("post stop_event:", stop_event)
+                    # logger.orange(stop_event and stop_event.is_set())
+
+                    if stop_event and stop_event.is_set():  # Check if stop event is triggered
+                        logger.newline()
+                        logger.warning(
+                            "post stop_event: Streaming stopped by user.")
+                        break
+
                     if line:
                         decoded_line = line.decode("utf-8")
                         try:

@@ -423,6 +423,7 @@ def query_llm(
     template: PromptTemplate = PROMPT_TEMPLATE,
     max_tokens: Optional[int | float] = None,
     # retriever: QueryFusionRetriever,
+    **kwargs,
 ):
     # query_engine = RetrieverQueryEngine.from_args(retriever, text_qa_template=)
     # response = query_engine.query(query)
@@ -453,6 +454,7 @@ def query_llm(
         #         "type": "rag_retriever",
         #     }
         # }
+        **kwargs,
     )
 
 
