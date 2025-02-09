@@ -89,7 +89,8 @@ class VectorSemanticSearch:
         import faiss
         from jet.llm.main import faiss_search
 
-        top_k = 3
+        # top_k = top_k if top_k < len(self.candidates) else len(self.candidates)
+        top_k = len(self.candidates)
         nlist = 100
 
         results = faiss_search(queries, self.candidates,
@@ -214,8 +215,8 @@ class VectorSemanticSearch:
 
         documents = [Document(text=candidate) for candidate in self.candidates]
 
-        chunk_size = 512
-        chunk_overlap = 0
+        chunk_size = 256
+        chunk_overlap = 40
         score_threshold = 0.2
         top_k = None
         embed_model = OLLAMA_SMALL_EMBED_MODEL

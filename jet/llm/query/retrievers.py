@@ -10,6 +10,7 @@ from jet.llm.retrievers.recursive import (
     initialize_summary_nodes_and_retrievers,
     query_nodes as query_nodes_recursive
 )
+from jet.llm import VectorSemanticSearch
 from jet.token import filter_texts
 from jet.token.token_utils import get_ollama_tokenizer
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
@@ -111,6 +112,92 @@ def load_documents(data_dir: str, extensions: Optional[list[str]] = None):
     documents = SimpleDirectoryReader(
         data_dir, required_exts=extensions, recursive=True).load_data()
     return documents
+
+
+def setup_semantic_search(
+    path_or_docs: str | list[Document],
+    *,
+    extensions: Optional[list[str]] = None,
+    chunk_size: Optional[int] = None,
+    chunk_overlap: int = 40,
+    sub_chunk_sizes: Optional[list[int]] = None,
+    with_hierarchy: Optional[bool] = None,
+    embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
+    mode: Optional[Literal["faiss", "graph_nx"]] = "faiss",
+    split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
+    **kwargs
+):
+    documents: list[Document]
+    if type(path_or_docs) == str:
+        documents = load_documents(path_or_docs, extensions)
+    elif isinstance(path_or_docs, list):
+        documents = path_or_docs
+    else:
+        raise ValueError(f"'data_dir' must be of type str | list[Document]")
+
+    final_chunk_size: int = chunk_size if isinstance(
+        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
+
+    splitter = SentenceSplitter(
+        chunk_size=final_chunk_size,
+        chunk_overlap=chunk_overlap,
+        tokenizer=get_ollama_tokenizer(embed_model).encode
+    )
+    all_nodes = splitter.get_nodes_from_documents(
+        documents, show_progress=True)
+
+    texts = [node.text for node in all_nodes]
+    node_lookup = {node.text: node.metadata for node in all_nodes}
+
+    search = VectorSemanticSearch(texts)
+
+    def search_func(
+        query: str,
+        threshold: float = 0.0,
+        top_k: Optional[int] = None,
+    ):
+        if mode == "graph_nx":
+            results = search.graph_based_search([query])
+        else:
+            results = search.faiss_search([query])
+
+        search_results = results[query]
+
+        logger.info(
+            f"\n({mode.capitalize()}) Search Results ({len(search_results)}):")
+
+        logger.newline()
+        logger.info("Query:")
+        logger.debug(query)
+        for result in search_results:
+            logger.log(f"{result['text'][:50]}:", f"{
+                result['score']:.4f}", colors=["DEBUG", "SUCCESS"])
+
+        retrieved_nodes: list[NodeWithScore] = [
+            NodeWithScore(
+                node=TextNode(
+                    text=result['text'],
+                    metadata=node_lookup.get(result['text'], {})
+                ),
+                score=float(result['score'])
+            )
+            for result in search_results]
+
+        filtered_nodes: list[NodeWithScore] = [
+            node for node in retrieved_nodes if node.score > threshold]
+
+        filtered_nodes = filtered_nodes[:top_k]
+
+        texts = [node.text for node in filtered_nodes]
+
+        result = {
+            "nodes": filtered_nodes,
+            "texts": texts,
+        }
+
+        return result
+
+    return search_func
 
 
 def setup_index(

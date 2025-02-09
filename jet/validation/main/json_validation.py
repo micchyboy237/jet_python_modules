@@ -2,7 +2,6 @@ import json
 import random
 from typing import Optional
 from jet.validation import schema_validate_json, ValidationResponse
-from jet.llm import call_ollama_chat
 from jet.utils.markdown import extract_json_block_content
 from jet.logger import logger
 
@@ -35,6 +34,8 @@ Data guidelines:
 
 
 def validate_json(json_string: str | dict, schema: Optional[dict] = None, model: str = MODEL, attempt: int = 1, max_attempts: int = 10, original_json: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
+    from jet.llm import call_ollama_chat
+
     if isinstance(json_string, dict):
         json_string = json.dumps(json_string)
 
