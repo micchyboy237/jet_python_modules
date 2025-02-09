@@ -439,8 +439,7 @@ def query_llm(
     )
     options = {**options, **DEFAULT_CHAT_OPTIONS}
 
-    response = ""
-    for chunk in call_ollama_chat(
+    yield from call_ollama_chat(
         prompt,
         stream=True,
         model=model,
@@ -454,9 +453,7 @@ def query_llm(
         #         "type": "rag_retriever",
         #     }
         # }
-    ):
-        response += chunk
-    return response
+    )
 
 
 def read_file(file_path, start_index=None, end_index=None):
