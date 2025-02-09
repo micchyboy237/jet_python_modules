@@ -419,7 +419,7 @@ def query_llm(
     contexts: list[str],
     model: Optional[OLLAMA_MODEL_NAMES] = OLLAMA_SMALL_LLM_MODEL,
     options: OllamaChatOptions = {},
-    system: str = SYSTEM_MESSAGE,
+    system: Optional[str] = None,
     template: PromptTemplate = PROMPT_TEMPLATE,
     max_tokens: Optional[int | float] = None,
     # retriever: QueryFusionRetriever,
@@ -427,6 +427,9 @@ def query_llm(
     # query_engine = RetrieverQueryEngine.from_args(retriever, text_qa_template=)
     # response = query_engine.query(query)
     # return response
+
+    if not system:
+        system = SYSTEM_MESSAGE
 
     filtered_texts = filter_texts(
         contexts, model, max_tokens=max_tokens)
