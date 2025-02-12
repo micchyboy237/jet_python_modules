@@ -58,7 +58,7 @@ class ChatOllama(BaseChatOllama):
         stop: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
+        from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
         from jet.token.token_utils import token_counter
 
         max_token = 0.4

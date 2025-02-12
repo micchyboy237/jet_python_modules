@@ -2,7 +2,7 @@ from copy import deepcopy
 import logging
 from typing import Callable, List, Optional
 from jet.llm.ollama.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_NUM_OUTPUTS, DEFAULT_OLLAMA_MODEL
-from jet.llm.ollama.models import OLLAMA_MODEL_NAMES
+from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.helpers.token import OllamaTokenCounter
 from llama_index.core.node_parser.text.token import TokenTextSplitter
 from llama_index.core.indices.prompt_helper import PromptHelper

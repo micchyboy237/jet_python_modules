@@ -4,7 +4,7 @@ from llama_index.core.base.llms.types import ChatMessage
 import tiktoken
 from jet.llm.llm_types import Message
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
-from jet.llm.ollama.models import (
+from jet.llm.models import (
     OLLAMA_HF_MODEL_NAMES,
     OLLAMA_HF_MODELS,
     OLLAMA_MODEL_EMBEDDING_TOKENS,
@@ -64,7 +64,7 @@ def token_counter(
     prevent_total: bool = False
 ) -> int | list[int]:
     if not text:
-        raise ValueError("text cannot be None")
+        return 0
 
     # Get models only when needed
     OLLAMA_HF_MODELS, _ = get_ollama_models()

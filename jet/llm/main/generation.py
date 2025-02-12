@@ -65,7 +65,7 @@ def call_ollama_chat(
          Either the JSON response or a generator for streamed responses.
     """
 
-    from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
+    from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS
     from jet.token.token_utils import filter_texts, token_counter
 
     # logger.info("pre stop_event:", stop_event)

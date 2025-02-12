@@ -3,10 +3,12 @@ from typing import Any, Generator, List, Optional, TypedDict
 from jet.code.splitter_markdown_utils import extract_md_header_contents
 from jet.llm.llm_types import OllamaChatOptions
 from jet.llm.main.generation import call_ollama_chat
+from jet.llm.ollama.base import Ollama
 from jet.logger import logger
 from jet.token.token_utils import get_tokenizer, token_counter
+from llama_index.core.base.llms.types import ChatMessage
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
-from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
+from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS
 from tqdm import tqdm
 
 CHUNK_SIZE = 1024
@@ -14,12 +16,13 @@ OVERLAP = 128
 
 SETTINGS = {
     "seed": 42,
-    "temperature": 0.6,
-    "top_k": 40,
-    "top_p": 0.85,
+    "temperature": 0,
+    # "temperature": 0.6,
+    # "top_k": 40,
+    # "top_p": 0.85,
     "stop": None,
     "num_keep": 0,
-    "mirostat_tau": 5.0,
+    # "mirostat_tau": 5.0,
 }
 
 LOWER_CHAR_SUMMARY_MODEL = "mistral"
@@ -28,14 +31,14 @@ COMBINE_MODEL = "mistral"
 
 LOWER_CHAR_SYSTEM_MESSAGE = (
     "You are an AI assistant specialized in summarizing structured content. "
-    "Your goal is to generate fewer characters while retaining all key details. "
+    "Your goal is to generate fewer characters while retaining all relevant details. "
     "Format the output as structured markdown, maintaining proper headings and bullet points where applicable."
 )
 
 ROOT_SYSTEM_MESSAGE = (
     "You are an AI assistant specialized in summarizing unstructured content scraped from the internet. "
     "Your goal is to generate a clear, concise, and factual summary of the given information, "
-    "ensuring that no false information is introduced and that all key details are retained. "
+    "ensuring that no false information is introduced and that all relevant details are retained. "
     "The summary should always be shorter than the original content, conveying the key points efficiently. "
     "Format the output as structured markdown, maintaining proper headings and bullet points where applicable."
 )
@@ -43,7 +46,7 @@ ROOT_SYSTEM_MESSAGE = (
 COMBINE_SYSTEM_MESSAGE = (
     "You are an AI assistant refining and merging multiple summarized sections into a more concise and coherent summary. "
     "Your goal is to combine the given summaries while eliminating redundancy, ensuring factual accuracy, "
-    "and retaining all key details. The final summary should always be shorter than the combined input. "
+    "and retaining all relevant details. The final summary should always be shorter than the combined input. "
     "Ensure logical flow and clarity. Format the output in structured markdown where applicable."
 )
 
@@ -54,9 +57,17 @@ class TokenCounts(TypedDict):
     total_tokens: int
 
 
+class LLMSettings(TypedDict):
+    model: str
+    num_predict: int
+    num_ctx: int
+
+
 class SummaryResult(TypedDict):
+    system: str
     prompt: str
     response: str
+    llm_settings: LLMSettings
     token_counts: TokenCounts
 
 
@@ -72,123 +83,155 @@ class SummaryData(TypedDict):
     other_summaries: list[SummaryResultInfo]
 
 
-def generate_summary(prompt: str, model: str = "llama3.1", system: str = "", options: OllamaChatOptions = {}) -> SummaryResult:
-    prompt = prompt.strip()
-    system = system.strip()
+class SummaryTokens(TypedDict):
+    summary: str
+    tokens: int
 
-    prompt_tokens: int = token_counter(prompt, model)
-    system_tokens: int = token_counter(system, model)
-    prompt_tokens = prompt_tokens + system_tokens
+
+def group_summaries(summaries: list[str], model: str, system: str = "", separator: str = "\n\n\n") -> list[SummaryTokens]:
+    max_prediction_ratio_full = 0.5
 
     model_max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
-    num_predict = int(prompt_tokens * 0.75)
+    max_tokens_per_group = int(
+        model_max_tokens * (1 - max_prediction_ratio_full))
+
+    formatted_summaries = [
+        f"Summary {idx + 1}\n\n{text}"
+        for idx, text in enumerate(summaries)
+    ]
+
+    token_counts: list[int] = token_counter(
+        formatted_summaries, model, prevent_total=True)
+    system_token_count: int = token_counter(system, model)
+    separator_token_count: int = token_counter(separator, model)
+
+    current_group_summaries = []
+    current_group_tokens = [system_token_count]
+
+    grouped_summaries: list[SummaryTokens] = []
+    prev_group_summaries = []
+
+    for idx, token_count in enumerate(token_counts):
+        text = formatted_summaries[idx]
+        if sum(current_group_tokens) + token_count < max_tokens_per_group:
+            current_group_summaries.append(text)
+            current_group_tokens.append(token_count)
+        else:
+            separator_multi = len(prev_group_summaries) - 1
+            total_separator_token_count = separator_multi * separator_token_count
+            grouped_summaries.append({
+                "summary": separator.join(prev_group_summaries),
+                "tokens": sum(current_group_tokens) + total_separator_token_count
+            })
+
+            current_group_summaries = [text]
+            current_group_tokens = [system_token_count, token_count]
+
+        prev_group_summaries = current_group_summaries.copy()
+
+    if prev_group_summaries:
+        separator_multi = len(prev_group_summaries) - 1
+        total_separator_token_count = separator_multi * separator_token_count
+        grouped_summaries.append({
+            "summary": separator.join(prev_group_summaries),
+            "tokens": sum(current_group_tokens) + total_separator_token_count
+        })
+
+    return grouped_summaries
+
+
+def calculate_num_predict_ctx(prompt: str, model: str = "llama3.1", *, system: str = "", max_prediction_ratio: float = 0.75):
+    user_tokens: int = token_counter(prompt, model)
+    system_tokens: int = token_counter(system, model)
+    prompt_tokens = user_tokens + system_tokens
+    num_predict = int(prompt_tokens * max_prediction_ratio)
     num_ctx = prompt_tokens + num_predict
 
-    if num_ctx > model_max_tokens:
+    model_max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
 
+    if num_ctx > model_max_tokens:
         raise ValueError({
             "prompt_tokens": prompt_tokens,
             "num_predict": num_predict,
             "error": f"Context window size ({num_ctx}) exceeds model's maximum tokens ({model_max_tokens})",
         })
 
-    options = {**SETTINGS, **options}
-    options["num_predict"] = num_predict
-    options["num_ctx"] = num_ctx
+    return {
+        "user_tokens": user_tokens,
+        "system_tokens": system_tokens,
+        "prompt_tokens": prompt_tokens,
+        "num_predict": num_predict,
+        "num_ctx": num_ctx,
+    }
 
-    response_stream = call_ollama_chat(
-        prompt, model=model, system=system, stream=True, full_stream_response=True, options=options)
 
-    output = ""
-    for chunk in response_stream:
-        output += chunk.get("message", {}).get("content", "")
+def generate_summary(prompt: str, model: str = "llama3.1", system: str = "", options: OllamaChatOptions = {}) -> SummaryResult:
+    prompt = prompt.strip()
+    system = system.strip()
 
-    response_tokens: int = token_counter(output, model)
-    total_tokens: int = prompt_tokens + response_tokens
+    calc_result = calculate_num_predict_ctx(prompt, model, system=system)
+
+    options = {
+        **SETTINGS,
+        **options,
+        "num_predict": calc_result["num_predict"],
+        "num_ctx": calc_result["num_ctx"],
+    }
+
+    # response_stream = call_ollama_chat(
+    #     prompt, model=model, system=system, stream=True, full_stream_response=True, options=options)
+
+    # output = ""
+    # for chunk in response_stream:
+    #     output += chunk.get("message", {}).get("content", "")
+
+    llm = Ollama(model=model)
+    messages = [
+        ChatMessage(
+            role="system",
+            content=system,
+        ),
+        ChatMessage(role="user", content=prompt),
+    ]
+    response = llm.chat(messages, options=options)
+    output = response.message.content
+    token_counts = response.raw['usage']
 
     return {
+        "system": system,
         "prompt": prompt,
         "response": output,
-        "token_counts": {
-            "prompt_tokens": prompt_tokens,
-            "response_tokens": response_tokens,
-            "total_tokens": total_tokens,
-        }
+        "llm_settings": {
+            "model": model,
+            "num_predict": calc_result["num_predict"],
+            "num_ctx": calc_result["num_ctx"],
+        },
+        "token_counts": token_counts
     }
 
 
-def generate_combined_summary(summary1: str, summary2: str, model: str = COMBINE_MODEL, *, system: str = COMBINE_SYSTEM_MESSAGE, lower_char_model=LOWER_CHAR_SUMMARY_MODEL, lower_char_system=LOWER_CHAR_SYSTEM_MESSAGE) -> SummaryResult:
-    while True:
-        if not summary1.startswith("Summary 1:"):
-            summary1 = f"Summary 1:\n\n{summary1}"
-        if not summary2.startswith("Summary 2:"):
-            summary2 = f"Summary 2:\n\n{summary2}"
+def combine_summaries(summaries: list[SummaryResult], model: str = COMBINE_MODEL, *, system: str = COMBINE_SYSTEM_MESSAGE, depth: int = 1) -> Generator[SummaryResultInfo, None, None]:
+    summary_list = [summary['response'] for summary in summaries]
 
-        combined_text = f"{summary1}\n\n\n{summary2}"
-        prompt = combined_text
+    grouped_summaries = group_summaries(summary_list, model, system=system)
 
-        try:
-            summary = generate_summary(prompt, model, system=system)
-            return summary
-        except ValueError as e:
-            error_data = e.args[0]
-            error = error_data.get("error")
-            prompt_tokens = error_data.get("prompt_tokens")
-            num_predict = error_data.get("num_predict")
+    new_summaries = []
 
-            logger.log("Prompt tokens:", prompt_tokens,
-                       colors=["GRAY", "WARNING"])
-            logger.log("num_predict:", num_predict, colors=["GRAY", "WARNING"])
-            logger.warning(error)
+    for group in tqdm(grouped_summaries, desc="Combining summaries", unit="group"):
+        prompt = group["summary"]
 
-            lower_chunk_size = int(prompt_tokens * 0.6)
+        summary = generate_summary(prompt, model, system=system)
 
-            final_summary1: str
-            final_summary2: str
+        yield {"depth": depth, "summary": summary}
 
-            # Generate lower summaries for retry
-            for result in summarize_data(summary1, chunk_size=lower_chunk_size, model=lower_char_model, system=lower_char_system):
-                if "final_summary" in result:
-                    final_summary1 = result['final_summary']['summary']['response']
+        new_summaries.append(summary)
 
-            for result in summarize_data(summary2, chunk_size=lower_chunk_size, model=lower_char_model, system=lower_char_system):
-                if "final_summary" in result:
-                    final_summary2 = result['final_summary']['summary']['response']
-
-            return generate_combined_summary(final_summary1, final_summary2)
+    if len(new_summaries) > 1:
+        yield from combine_summaries(
+            new_summaries, model, system=system, depth=depth+1)
 
 
-def combine_summaries(summaries: list[SummaryResult], model: str = COMBINE_MODEL, *, system: str = COMBINE_SYSTEM_MESSAGE) -> Generator[SummaryResultInfo, None, None]:
-    current_depth = 1
-
-    # Iterative merging of summaries until one remains
-    while len(summaries) > 1:
-        new_summaries: list[SummaryResult] = []
-        for i in range(0, len(summaries), 2):
-            if i + 1 < len(summaries):
-                summary1 = summaries[i]['response']
-                summary2 = summaries[i + 1]['response']
-                summary = generate_combined_summary(
-                    summary1, summary2, model, system=system)
-                yield {
-                    "depth": current_depth,
-                    "summary": summary
-                }
-                new_summaries.append(summary)
-            else:
-                # Carry forward the last remaining summary as is
-                new_summaries.append(summaries[i])
-
-        current_depth += 1
-        summaries = new_summaries
-
-    yield {
-        "depth": current_depth,
-        "summary": summaries[0]
-    }
-
-
-def summarize_tree(chunks: List[str], model: str = ROOT_MODEL, *, system: str = ROOT_SYSTEM_MESSAGE, combine_model: str = COMBINE_MODEL, combine_system: str = COMBINE_SYSTEM_MESSAGE) -> Generator[SummaryResultInfo, None, None]:
+def summarize_tree(chunks: list[str], model: str = ROOT_MODEL, *, system: str = ROOT_SYSTEM_MESSAGE, combine_model: str = COMBINE_MODEL, combine_system: str = COMBINE_SYSTEM_MESSAGE) -> Generator[SummaryResultInfo, None, None]:
     summaries: list[SummaryResult] = []
 
     # Initial summarization at the leaf level

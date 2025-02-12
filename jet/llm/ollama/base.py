@@ -3,7 +3,7 @@ from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
 from jet.decorators.error import wrap_retry
 from jet.decorators.function import retry_on_error
 from jet.llm.ollama.constants import DEFAULT_BASE_URL, DEFAULT_CONTEXT_WINDOW, DEFAULT_REQUEST_TIMEOUT, OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
-from jet.llm.ollama.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.logger.timer import sleep_countdown
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse
 from llama_index.core.callbacks.base import CallbackManager
@@ -240,7 +240,7 @@ class Ollama(BaseOllama):
         tools = kwargs.get("tools", None)
         format = kwargs.get("format", "json" if self.json_mode else None)
         options = kwargs.get("options", {})
-        stream = not tools
+        stream = kwargs.get("stream", not tools)
 
         def run():
             response = call_ollama_chat(
@@ -296,8 +296,11 @@ class Ollama(BaseOllama):
                         response_token_count: int = token_counter(
                             content, self.model)
 
+                        updated_chunk = chunk.copy()
+                        updated_chunk["message"]["content"] = content
+
                         final_response = {
-                            **chunk.copy(),
+                            **updated_chunk,
                             "usage": {
                                 "prompt_tokens": prompt_token_count,
                                 "completion_tokens": response_token_count,
@@ -326,7 +329,7 @@ class Ollama(BaseOllama):
         tools = kwargs.get("tools", None)
         format = kwargs.get("format", "json" if self.json_mode else None)
         options = kwargs.get("options", {})
-        stream = not tools
+        stream = kwargs.get("stream", not tools)
 
         def run():
             response = call_ollama_chat(

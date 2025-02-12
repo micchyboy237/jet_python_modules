@@ -3,7 +3,7 @@ from typing import Any, Callable, Literal, Optional
 from jet.llm.ollama.base import OllamaEmbedding
 from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_SMALL_LLM_MODEL
 from jet.llm.ollama.embeddings import get_ollama_embedding_function
-from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
+from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.llm.query.cleaners import group_and_merge_texts_by_file_name
 from jet.llm.query.splitters import split_heirarchical_nodes, split_markdown_header_nodes, split_sub_nodes
 from jet.llm.retrievers.recursive import (

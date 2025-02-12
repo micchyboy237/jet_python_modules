@@ -1,5 +1,5 @@
 from jet.llm.ollama.base import OllamaEmbedding
-from jet.llm.ollama.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from sentence_transformers import SentenceTransformer
 import requests
 from typing import Optional, Callable, Union, List, TypedDict
