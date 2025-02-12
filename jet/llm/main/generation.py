@@ -111,10 +111,11 @@ def call_ollama_chat(
                DETERMINISTIC_LLM_SETTINGS, **(options or {})}
 
     logger.newline()
-    logger.log("Model:", model, colors=["GRAY", "INFO"])
-    logger.log("Prompt:", char_count, colors=["GRAY", "INFO"])
-    logger.log("Tokens:", token_count, colors=["GRAY", "INFO"])
     logger.log("Stream:", stream, colors=["GRAY", "INFO"])
+    logger.log("Model:", model, colors=["GRAY", "INFO"])
+    logger.log("Prompt Tokens:", token_count, colors=["GRAY", "INFO"])
+    logger.newline()
+
     logger.debug("Generating response...")
 
     if not any(message['role'] == MessageRole.USER for message in messages):
