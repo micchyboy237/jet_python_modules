@@ -117,7 +117,8 @@ def call_ollama_chat(
     logger.newline()
     logger.log("Stream:", stream, colors=["GRAY", "INFO"])
     logger.log("Model:", model, colors=["GRAY", "INFO"])
-    logger.log("Prompt Tokens:", token_count, colors=["GRAY", "INFO"])
+    logger.log("Prompt Tokens:",
+               f"{token_count} / {model_max_length}", colors=["GRAY", "INFO"])
     logger.newline()
 
     logger.debug("Generating response...")
