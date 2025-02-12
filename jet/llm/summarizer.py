@@ -1,5 +1,6 @@
 import json
 from typing import Any, Generator, List, Optional, TypedDict
+from jet.code.splitter_markdown_utils import extract_md_header_contents
 from jet.llm.llm_types import OllamaChatOptions
 from jet.llm.main.generation import call_ollama_chat
 from jet.logger import logger
@@ -23,8 +24,7 @@ SETTINGS = {
 
 LOWER_CHAR_SUMMARY_MODEL = "mistral"
 ROOT_MODEL = "llama3.2"
-# COMBINE_MODEL = "llama3.1"
-COMBINE_MODEL = LOWER_CHAR_SUMMARY_MODEL
+COMBINE_MODEL = "mistral"
 
 LOWER_CHAR_SYSTEM_MESSAGE = (
     "You are an AI assistant specialized in summarizing structured content. "
@@ -39,7 +39,6 @@ ROOT_SYSTEM_MESSAGE = (
     "The summary should always be shorter than the original content, conveying the key points efficiently. "
     "Format the output as structured markdown, maintaining proper headings and bullet points where applicable."
 )
-# ROOT_SYSTEM_MESSAGE = LOWER_CHAR_SYSTEM_MESSAGE
 
 COMBINE_SYSTEM_MESSAGE = (
     "You are an AI assistant refining and merging multiple summarized sections into a more concise and coherent summary. "
@@ -194,7 +193,6 @@ def summarize_tree(chunks: List[str], model: str = ROOT_MODEL, *, system: str = 
 
     # Initial summarization at the leaf level
     for summary_chunk in tqdm(chunks, desc="Summarizing chunks", unit="chunk"):
-        # prompt = generate_prompt(messages=[{"Role": "user", "Content": summary_chunk}])
         prompt = summary_chunk
         summary = generate_summary(prompt, model, system=system)
         yield {
@@ -210,12 +208,18 @@ def summarize_tree(chunks: List[str], model: str = ROOT_MODEL, *, system: str = 
 
 def summarize_data(content: str, *, model: str = ROOT_MODEL, system: str = ROOT_SYSTEM_MESSAGE, combine_model: str = COMBINE_MODEL, combine_system: str = COMBINE_SYSTEM_MESSAGE, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) -> Generator[SummaryResultInfo, None, None] | Generator[SummaryData, None, None]:
     tokenizer = get_tokenizer(model)
-    sentence_text_splitter = SentenceSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=overlap,
-        tokenizer=tokenizer.encode,
-    )
-    chunks = sentence_text_splitter.split_text(content)
+
+    buffer_size = overlap
+    header_contents = extract_md_header_contents(
+        content, tokenizer=tokenizer.encode, max_tokens_per_chunk=chunk_size - buffer_size)
+    chunks = []
+    for item in header_contents:
+        content = item['content']
+        chunk_context = ""
+        if item['parent_headers']:
+            chunk_context = "\n".join(item['parent_headers'])
+        chunk = f"{chunk_context}\n{content}"
+        chunks.append(chunk)
 
     logger.info(f"Processing {len(chunks)} chunks")
 
