@@ -233,6 +233,7 @@ class Ollama(BaseOllama):
     @llm_chat_callback()
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.llm import call_ollama_chat
+        from jet.token.token_utils import token_counter
 
         ollama_messages = self._convert_to_ollama_messages(messages)
 
@@ -262,10 +263,23 @@ class Ollama(BaseOllama):
                 content = response["message"]["content"]
                 role = response["message"]["role"]
                 tool_calls = response["message"].get("tool_calls", [])
-                token_counts = self._get_response_token_counts(response)
+
+                final_response_content = content
+                final_response_tool_calls = tool_calls
+                if final_response_tool_calls:
+                    final_response_content += f"\n{final_response_tool_calls}".strip()
+
+                prompt_token_count = token_counter(ollama_messages, self.model)
+                response_token_count = token_counter(
+                    final_response_content, self.model)
+
                 final_response = {
                     **response.copy(),
-                    "usage": token_counts,
+                    "usage": {
+                        "prompt_tokens": prompt_token_count,
+                        "completion_tokens": response_token_count,
+                        "total_tokens": prompt_token_count + response_token_count,
+                    }
                 }
 
             else:
@@ -277,11 +291,18 @@ class Ollama(BaseOllama):
                     if not role:
                         role = chunk["message"]["role"]
                     if chunk["done"]:
-                        token_counts = self._get_response_token_counts(
-                            response)
+                        prompt_token_count: int = token_counter(
+                            ollama_messages, self.model)
+                        response_token_count: int = token_counter(
+                            content, self.model)
+
                         final_response = {
                             **chunk.copy(),
-                            "usage": token_counts,
+                            "usage": {
+                                "prompt_tokens": prompt_token_count,
+                                "completion_tokens": response_token_count,
+                                "total_tokens": prompt_token_count + response_token_count,
+                            }
                         }
 
             return ChatResponse(
@@ -298,6 +319,7 @@ class Ollama(BaseOllama):
     @llm_chat_callback()
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.llm import call_ollama_chat
+        from jet.token.token_utils import token_counter
 
         ollama_messages = self._convert_to_ollama_messages(messages)
 
@@ -327,10 +349,24 @@ class Ollama(BaseOllama):
                 content = response["message"]["content"]
                 role = response["message"]["role"]
                 tool_calls = response["message"].get("tool_calls", [])
-                token_counts = self._get_response_token_counts(response)
+
+                final_response_content = content
+                final_response_tool_calls = tool_calls
+                if final_response_tool_calls:
+                    final_response_content += f"\n{final_response_tool_calls}".strip()
+
+                prompt_token_count: int = token_counter(
+                    ollama_messages, self.model)
+                response_token_count: int = token_counter(
+                    final_response_content, self.model)
+
                 final_response = {
                     **response.copy(),
-                    "usage": token_counts,
+                    "usage": {
+                        "prompt_tokens": prompt_token_count,
+                        "completion_tokens": response_token_count,
+                        "total_tokens": prompt_token_count + response_token_count,
+                    }
                 }
 
             else:
@@ -342,11 +378,18 @@ class Ollama(BaseOllama):
                     if not role:
                         role = chunk["message"]["role"]
                     if chunk["done"]:
-                        token_counts = self._get_response_token_counts(
-                            response)
+                        prompt_token_count = token_counter(
+                            ollama_messages, self.model)
+                        response_token_count = token_counter(
+                            content, self.model)
+
                         final_response = {
                             **chunk.copy(),
-                            "usage": token_counts,
+                            "usage": {
+                                "prompt_tokens": prompt_token_count,
+                                "completion_tokens": response_token_count,
+                                "total_tokens": prompt_token_count + response_token_count,
+                            }
                         }
 
             return ChatResponse(

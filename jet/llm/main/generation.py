@@ -64,6 +64,10 @@ def call_ollama_chat(
          Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
          Either the JSON response or a generator for streamed responses.
     """
+
+    from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
+    from jet.token.token_utils import filter_texts, token_counter
+
     # logger.info("pre stop_event:", stop_event)
     # logger.orange(stop_event and stop_event.is_set())
     # if stop_event and stop_event.is_set():
@@ -78,9 +82,6 @@ def call_ollama_chat(
         messages = [
             Message(content=messages, role=MessageRole.USER)
         ]
-
-    from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
-    from jet.token.token_utils import filter_texts, token_counter
 
     model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
     token_count = token_counter(messages, model)
@@ -112,8 +113,8 @@ def call_ollama_chat(
     logger.gray("LLM Settings:")
     for key, value in options.items():
         logger.log(f"{key}:", value, colors=["GRAY", "DEBUG"])
-    logger.newline()
 
+    logger.newline()
     logger.log("Stream:", stream, colors=["GRAY", "INFO"])
     logger.log("Model:", model, colors=["GRAY", "INFO"])
     logger.log("Prompt Tokens:", token_count, colors=["GRAY", "INFO"])
@@ -211,10 +212,18 @@ def call_ollama_chat(
 
                             if decoded_chunk.get("done"):
                                 output = "".join(response_chunks)
+
+                                # Calculate token counts
+                                prompt_token_count: int = token_counter(
+                                    messages, model)
+                                response_token_count: int = token_counter(
+                                    output, model)
+
+                                decoded_chunk['prompt_eval_count'] = prompt_token_count
+                                decoded_chunk['eval_count'] = response_token_count
+
                                 response_info: ChatResponseInfo = decoded_chunk.copy()
-                                if not content:
-                                    response_info["message"]["content"] = output
-                                    response_info["options"] = options
+                                response_info["options"] = options
 
                                 logger.newline()
                                 logger.newline()
@@ -320,10 +329,18 @@ def call_ollama_chat(
             response = r.json()
             response["options"] = options
 
-            response_info: ChatResponseInfo = response.copy()
-            output = response_info["message"]["content"]
-
+            output = response["message"]["content"]
             logger.success(output)
+
+            # Calculate token counts
+            prompt_token_count: int = token_counter(messages, model)
+            response_token_count: int = token_counter(output, model)
+
+            response['prompt_eval_count'] = prompt_token_count
+            response['eval_count'] = response_token_count
+
+            response_info: ChatResponseInfo = response.copy()
+            response_info["options"] = options
 
             logger.newline()
             logger.newline()
