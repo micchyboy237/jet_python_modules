@@ -79,8 +79,6 @@ def call_ollama_chat(
             Message(content=messages, role=MessageRole.USER)
         ]
 
-    char_count = len(str(messages))
-
     from jet.llm.ollama.models import OLLAMA_MODEL_EMBEDDING_TOKENS
     from jet.token.token_utils import filter_texts, token_counter
 
@@ -105,12 +103,17 @@ def call_ollama_chat(
             messages, model, max_tokens=max_tokens)
 
     derived_options = {
-        "num_ctx": model_max_length,
+        "num_ctx": options.get("num_ctx", model_max_length),
     }
     options = {**derived_options, **
                DETERMINISTIC_LLM_SETTINGS, **(options or {})}
 
     logger.newline()
+    logger.gray("LLM Settings:")
+    for key, value in options.items():
+        logger.log(f"{key}:", value, colors=["GRAY", "DEBUG"])
+    logger.newline()
+
     logger.log("Stream:", stream, colors=["GRAY", "INFO"])
     logger.log("Model:", model, colors=["GRAY", "INFO"])
     logger.log("Prompt Tokens:", token_count, colors=["GRAY", "INFO"])
