@@ -1,4 +1,6 @@
-from typing import Optional, List, Dict, TypedDict, Union
+import re
+from typing import Callable, Optional, List, Dict, TypedDict, Union
+from langchain_text_splitters import MarkdownHeaderTextSplitter
 
 
 class HeaderMetadata(TypedDict):
@@ -14,6 +16,12 @@ class HeaderNode(TypedDict, total=False):
     metadata: HeaderMetadata
     is_root: bool
     child_nodes: List["HeaderNode"]
+
+
+class HeaderItem(TypedDict):
+    level: int
+    header: str
+    parents: list[str]
 
 
 def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat_list: Optional[List[HeaderNode]] = None) -> List[HeaderNode]:
@@ -34,9 +42,20 @@ def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat
     return flat_list
 
 
-def get_header_level(header_line: str) -> int:
-    """Get the depth level of a markdown header."""
-    return header_line.count('#')
+def get_header_level(header: str) -> int:
+    """Get the header level of a markdown header or HTML header tag."""
+    if header.startswith("#"):
+        header_level = 0
+        for c in header:
+            if c == "#":
+                header_level += 1
+            else:
+                break
+        return header_level
+    elif header.startswith("h") and header[1].isdigit() and 1 <= int(header[1]) <= 6:
+        return int(header[1])
+    else:
+        raise ValueError(f"Invalid header format: {header}")
 
 
 def build_hierarchy(headers: List[HeaderNode]) -> List[HeaderNode]:
@@ -128,3 +147,131 @@ def get_header_contents(md_text: str,
             node["metadata"]["end_line_idx"] = end_line_idx
 
     return hierarchy
+
+
+def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[dict]:
+    markdown_splitter = MarkdownHeaderTextSplitter(
+        headers_to_split_on, strip_headers=False, return_each_line=False)
+    md_header_splits = markdown_splitter.split_text(md_text)
+    md_header_contents = []
+    for split in md_header_splits:
+        content = split.page_content
+        # metadata = split.metadata
+
+        md_header_contents.append({
+            "content": content.strip(),
+            "length": len(content.strip()),
+            "header_level": get_header_level(content),
+        })
+    return md_header_contents
+
+
+def merge_md_header_contents(header_contents: list[dict], max_tokens: int = 1000, tokenizer: Optional[Callable[[str], List]] = None) -> list[dict]:
+    merged_header_contents = []
+    merged_content = ""
+
+    extracted_contents = [header_content["content"]
+                          for header_content in header_contents]
+
+    all_header_stack: list[HeaderItem] = []
+    last_headers = []
+
+    for content in extracted_contents:
+        content_len = count_tokens(content, tokenizer)
+        merged_content_len = count_tokens(merged_content, tokenizer)
+        header_level = get_header_level(content)
+        header_line = content.splitlines()[0] if content else ""
+
+        if merged_content and merged_content_len + content_len > max_tokens:
+            header = merged_content.splitlines()[0]
+            parent_headers = [last_header.strip() for last_header in last_headers
+                              if get_header_level(last_header) < get_header_level(header)]
+            merged_header_contents.append({
+                "content": merged_content,
+                "length": count_tokens(merged_content, tokenizer),
+                "header": header,
+                "parent_headers": parent_headers,
+            })
+            merged_content = ""
+
+            last_header_line = list(all_header_stack_dict.keys())[-1]
+            last_headers = all_header_stack_dict[last_header_line]
+
+        if merged_content:
+            merged_content += "\n"  # Ensure newline between merged contents
+        merged_content += content
+
+        all_header_stack.append({"level": header_level, "header": header_line})
+        all_header_stack = add_parents(all_header_stack)
+        all_header_stack_dict: dict[str, list[str]] = {
+            item['header']: item['parents'] for item in all_header_stack}
+
+    if merged_content:
+        header = merged_content.splitlines()[0]
+        parent_headers = [last_header.strip() for last_header in last_headers
+                          if get_header_level(last_header) < get_header_level(header)]
+        merged_header_contents.append({
+            "content": merged_content,
+            "length": count_tokens(merged_content, tokenizer),
+            "header": merged_content.splitlines()[0],
+            "parent_headers": parent_headers,
+        })
+
+    return merged_header_contents
+
+
+def extract_md_header_contents(md_text: str, max_tokens_per_chunk: int = 1000, tokenizer: Optional[Callable[[str], List]] = None) -> list[dict]:
+    headers_to_split_on = [
+        ("#", "h1"),
+        ("##", "h2"),
+        ("###", "h3"),
+        ("####", "h4"),
+        ("#####", "h5"),
+        ("######", "h6"),
+    ]
+
+    header_contents = get_md_header_contents(md_text, headers_to_split_on)
+    header_contents = merge_md_header_contents(
+        header_contents, max_tokens=max_tokens_per_chunk, tokenizer=tokenizer)
+
+    # Clean newlines and extra spaces
+    for header_content in header_contents:
+        header_content["content"] = clean_newlines(header_content["content"])
+
+    return header_contents
+
+
+def clean_newlines(content):
+    """Remove consecutive newlines from the content."""
+    # Remove trailing whitespace for each line
+    content = '\n'.join([line.rstrip() for line in content.split('\n')])
+    # Reduce consecutive newlines to a single newline
+    content = re.sub(r'\n+', '\n', content)
+    return content
+
+
+def count_tokens(text: str, tokenizer: Optional[Callable[[str], List]] = None) -> int:
+    if tokenizer:
+        count = len(tokenizer(text))
+    else:
+        count = len(text)
+    return count
+
+
+def add_parents(items: list[HeaderItem]) -> list[HeaderItem]:
+    hierarchy = []  # Stack to keep track of parent headers
+
+    for item in items:
+        level = item["level"]
+
+        # Remove items from hierarchy that are no longer parents
+        while hierarchy and hierarchy[-1]["level"] >= level:
+            hierarchy.pop()
+
+        # Assign parents based on remaining hierarchy
+        item["parents"] = [parent["header"] for parent in hierarchy]
+
+        # Add the current item to hierarchy stack
+        hierarchy.append(item)
+
+    return items
