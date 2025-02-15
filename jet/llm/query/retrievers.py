@@ -146,9 +146,7 @@ def load_documents(
             documents.append(Document(
                 text=text_content,
                 metadata={
-                    "context": {
-                        key: item[key] for key in item if key not in json_attributes
-                    }
+                    key: item[key] for key in item if key not in json_attributes
                 }))
     else:
         documents = SimpleDirectoryReader(
@@ -311,6 +309,7 @@ def setup_index(
             fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
             threshold: float = 0.0,
             top_k: Optional[int] = None,
+            **kwargs,
         ):
             # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
             similarity_top_k = top_k if top_k and top_k < len(
@@ -360,6 +359,7 @@ def setup_index(
             query: str,
             threshold: float = 0.0,
             top_k: Optional[int] = None,
+            **kwargs,
         ):
             similarity_top_k = top_k if top_k and top_k < len(
                 all_nodes) else len(all_nodes)
@@ -401,6 +401,7 @@ def setup_index(
             fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
             threshold: float = 0.0,
             top_k: Optional[int] = None,
+            **kwargs,
         ):
 
             initial_similarity_k = top_k if top_k and top_k < len(
