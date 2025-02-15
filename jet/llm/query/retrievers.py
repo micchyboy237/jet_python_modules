@@ -6,7 +6,7 @@ from jet.file.utils import load_file
 from jet.llm.ollama.base import OllamaEmbedding
 from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_SMALL_LLM_MODEL
 from jet.llm.ollama.embeddings import get_ollama_embedding_function
-from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
+from jet.llm.models import OLLAMA_HF_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.llm.query.cleaners import group_and_merge_texts_by_file_name
 from jet.llm.query.splitters import split_heirarchical_nodes, split_markdown_header_nodes, split_sub_nodes
 from jet.llm.retrievers.recursive import (
@@ -294,15 +294,16 @@ def setup_index(
 ) -> SearchWrapper:
     global _active_search_wrappers
 
-    # Generate hash for the current set of arguments
-    cache_keys = [
-        "path_or_docs",
-        "mode",
-        "embed_model",
-        "json_attributes",
-    ]
     if isinstance(path_or_docs, str):
-        cache_values = [kwargs[key] for key in cache_keys if key in kwargs]
+        # Generate hash for the current set of arguments
+        cache_values = [
+            path_or_docs,
+            mode,
+            embed_model,
+            json_attributes,
+            chunk_size,
+            chunk_overlap,
+        ]
         current_hash_key = generate_key(*cache_values)
 
     if isinstance(path_or_docs, str) and current_hash_key in _active_search_wrappers:
@@ -344,6 +345,7 @@ def setup_index(
         index = VectorStoreIndex(
             all_nodes,
             show_progress=True,
+            embed_model=OllamaEmbedding(model_name=embed_model),
         )
 
         def search_hierarchy_func(
@@ -434,6 +436,7 @@ def setup_index(
         index = VectorStoreIndex(
             all_nodes,
             show_progress=True,
+            embed_model=OllamaEmbedding(model_name=embed_model),
         )
 
         def search_fusion_func(
