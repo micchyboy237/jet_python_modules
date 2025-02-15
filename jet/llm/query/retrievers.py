@@ -1,5 +1,7 @@
+import json
 import os
 from typing import Any, Callable, Literal, Optional
+from jet.file.utils import load_file
 from jet.llm.ollama.base import OllamaEmbedding
 from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_SMALL_LLM_MODEL
 from jet.llm.ollama.embeddings import get_ollama_embedding_function
@@ -108,9 +110,51 @@ def get_recursive_retriever(index: VectorStoreIndex, all_nodes: list[BaseNode], 
 # Now, we can plug our retriever into a query engine to synthesize natural language responses.
 
 
-def load_documents(data_dir: str, extensions: Optional[list[str]] = None):
-    documents = SimpleDirectoryReader(
-        data_dir, required_exts=extensions, recursive=True).load_data()
+def load_documents(
+    data_dir: str,
+    extensions: Optional[list[str]] = None,
+    json_attributes: Optional[list[str]] = None,
+):
+    arg = {}
+
+    is_file = os.path.isfile(data_dir)
+    if is_file:
+        arg['input_files'] = [data_dir]
+    else:
+        arg['input_dir'] = data_dir
+
+    is_json = is_file and data_dir.endswith('.json')
+
+    if is_json:
+        # Load JSON file
+        with open(data_dir, "r", encoding="utf-8") as f:
+            json_data = json.load(f)
+
+        # Convert each item in the JSON into a Document
+        documents = []
+        for item in json_data:
+            # Use all attributes if json_attributes is empty or None
+            if json_attributes:
+                text_parts = [str(item[attr])
+                              for attr in json_attributes if attr in item]
+            else:
+                # Use all attributes
+                text_parts = [str(value) for key, value in item.items()]
+
+            text_content = "\n".join(text_parts) if text_parts else ""
+
+            documents.append(Document(
+                text=text_content,
+                metadata={
+                    "context": {
+                        key: item[key] for key in item if key not in json_attributes
+                    }
+                }))
+    else:
+        documents = SimpleDirectoryReader(
+            **arg, required_exts=extensions, recursive=True
+        ).load_data()
+
     return documents
 
 
@@ -125,11 +169,12 @@ def setup_semantic_search(
     embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
     mode: Optional[Literal["faiss", "graph_nx"]] = "faiss",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
+    json_attributes: Optional[list[str]] = [],
     **kwargs
 ):
     documents: list[Document]
     if type(path_or_docs) == str:
-        documents = load_documents(path_or_docs, extensions)
+        documents = load_documents(path_or_docs, extensions, json_attributes)
     elif isinstance(path_or_docs, list):
         documents = path_or_docs
     else:
@@ -211,6 +256,7 @@ def setup_index(
     embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
     mode: Optional[Literal["fusion", "hierarchy", "deeplake"]] = "fusion",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
+    json_attributes: Optional[list[str]] = [],
     **kwargs
 ):
     search_func: Callable[..., dict[str, Any]]
@@ -220,7 +266,7 @@ def setup_index(
 
     documents: list[Document]
     if type(path_or_docs) == str:
-        documents = load_documents(path_or_docs, extensions)
+        documents = load_documents(path_or_docs, extensions, json_attributes)
     elif isinstance(path_or_docs, list):
         documents = path_or_docs
     else:
