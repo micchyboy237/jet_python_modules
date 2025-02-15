@@ -31,6 +31,7 @@ from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.core.retrievers.recursive_retriever import RecursiveRetriever
 from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode, ImageNode
 from jet.llm.utils import display_jet_source_nodes
+from utils.data import generate_key
 from jet.logger import logger
 from jet.llm import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
@@ -293,8 +294,19 @@ def setup_index(
 ) -> SearchWrapper:
     global _active_search_wrappers
 
-    if isinstance(path_or_docs, str) and path_or_docs in _active_search_wrappers:
-        return _active_search_wrappers[path_or_docs]
+    # Generate hash for the current set of arguments
+    cache_keys = [
+        "path_or_docs",
+        "mode",
+        "embed_model",
+        "json_attributes",
+    ]
+    if isinstance(path_or_docs, str):
+        cache_values = [kwargs[key] for key in cache_keys if key in kwargs]
+        current_hash_key = generate_key(*cache_values)
+
+    if isinstance(path_or_docs, str) and current_hash_key in _active_search_wrappers:
+        return _active_search_wrappers[current_hash_key]
 
     documents: list[Document]
     if isinstance(path_or_docs, str):
@@ -334,14 +346,38 @@ def setup_index(
             show_progress=True,
         )
 
-        def search_hierarchy_func(query: str, top_k: Optional[int] = None, threshold: float = 0.0, **kwargs):
-            similarity_top_k = min(top_k, len(all_nodes)
-                                   ) if top_k else len(all_nodes)
+        def search_hierarchy_func(
+            query: str,
+            threshold: float = 0.0,
+            top_k: Optional[int] = None,
+            **kwargs
+        ):
+            # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
+            similarity_top_k = top_k if top_k and top_k < len(
+                all_nodes) else len(all_nodes)
             combined_retriever = get_recursive_retriever(
                 index, all_nodes, similarity_top_k=similarity_top_k)
-            retrieved_nodes = [node for node in combined_retriever.retrieve(
-                query) if node.score > threshold]
-            return {"nodes": retrieved_nodes, "texts": [node.text for node in retrieved_nodes]}
+            # else:
+            # initial_similarity_k = len(documents)
+            # final_similarity_k = len(all_nodes)
+
+            retrieved_nodes: list[NodeWithScore] = combined_retriever.retrieve(
+                query)
+
+            filtered_nodes: list[NodeWithScore] = [
+                node for node in retrieved_nodes if node.score > threshold]
+
+            texts = [node.text for node in filtered_nodes]
+
+            # contexts = clean_texts(filtered_nodes)
+
+            result = {
+                "nodes": filtered_nodes,
+                "texts": texts,
+                # "contexts": contexts,
+            }
+
+            return result
 
         wrapper = SearchWrapper(path_or_docs, setup_index,
                                 search_hierarchy_func, **kwargs)
@@ -358,12 +394,38 @@ def setup_index(
             verbose=kwargs.get("verbose", False),
         )
 
-        def search_deeplake_func(query: str, top_k: Optional[int] = None, threshold: float = 0.0, **kwargs):
-            similarity_top_k = min(top_k, len(all_nodes)
-                                   ) if top_k else len(all_nodes)
+        def search_deeplake_func(
+            query: str,
+            threshold: float = 0.0,
+            top_k: Optional[int] = None,
+            **kwargs
+        ):
+            similarity_top_k = top_k if top_k and top_k < len(
+                all_nodes) else len(all_nodes)
             results = vector_store.search(
-                embedding_data=query, k=similarity_top_k)
-            return {"nodes": results, "texts": [str(text) for text in results["text"]]}
+                embedding_data=query,
+                k=similarity_top_k,
+            )
+            results["text"] = [str(text) for text in results["text"]]
+
+            # Process search results into NodeWithScore format
+            nodes_with_scores = [
+                NodeWithScore(
+                    node=TextNode(text=str(text), metadata=metadata),
+                    score=extract_score(score)
+                )
+                for text, metadata, score in zip(results["text"], results["metadata"], results["score"])
+            ]
+
+            # contexts = clean_texts(nodes_with_scores)
+
+            result = {
+                "nodes": nodes_with_scores,
+                "texts": results["text"],
+                # "contexts": contexts,
+            }
+
+            return result
 
         wrapper = SearchWrapper(path_or_docs, setup_index,
                                 search_deeplake_func, **kwargs)
@@ -374,22 +436,48 @@ def setup_index(
             show_progress=True,
         )
 
-        def search_fusion_func(query: str, top_k: Optional[int] = None, threshold: float = 0.0, fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE, **kwargs):
-            similarity_top_k = min(top_k, len(all_nodes)
-                                   ) if top_k else len(all_nodes)
+        def search_fusion_func(
+            query: str,
+            threshold: float = 0.0,
+            top_k: Optional[int] = None,
+            fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
+            **kwargs
+        ):
+
+            initial_similarity_k = top_k if top_k and top_k < len(
+                all_nodes) else len(all_nodes)
+            final_similarity_k = top_k if top_k and top_k < len(
+                all_nodes) else len(all_nodes)
             retrievers = setup_retrievers(
-                index, similarity_top_k, similarity_top_k)
+                index, initial_similarity_k, final_similarity_k)
             combined_retriever = get_fusion_retriever(
                 retrievers, fusion_mode, top_k)
-            retrieved_nodes = [node for node in combined_retriever.retrieve(
-                query) if node.score > threshold]
-            return {"nodes": retrieved_nodes, "texts": [node.text for node in retrieved_nodes]}
+
+            retrieved_nodes: list[NodeWithScore] = combined_retriever.retrieve(
+                query)
+
+            filtered_nodes: list[NodeWithScore] = [
+                node for node in retrieved_nodes if node.score > threshold]
+            if top_k:
+                filtered_nodes = filtered_nodes[:top_k]
+
+            texts = [node.text for node in filtered_nodes]
+
+            # contexts = clean_texts(filtered_nodes)
+
+            result = {
+                "nodes": filtered_nodes,
+                "texts": texts,
+                # "contexts": contexts,
+            }
+
+            return result
 
         wrapper = SearchWrapper(path_or_docs, setup_index,
                                 search_fusion_func, **kwargs)
 
     if isinstance(path_or_docs, str):
-        _active_search_wrappers[path_or_docs] = wrapper
+        _active_search_wrappers[current_hash_key] = wrapper
 
     return wrapper
 
