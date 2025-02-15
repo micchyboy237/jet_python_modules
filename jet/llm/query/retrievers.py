@@ -1,3 +1,4 @@
+from typing import Callable, Optional, Any
 import json
 import os
 from typing import Any, Callable, Literal, Optional
@@ -243,6 +244,39 @@ def setup_semantic_search(
     return search_func
 
 
+_active_search_wrappers = {}
+
+
+def get_file_timestamp(file_path: str) -> Optional[float]:
+    """Get the last modified time of a file."""
+    if os.path.isfile(file_path):
+        return os.path.getmtime(file_path)
+    return None
+
+
+class SearchWrapper:
+    def __init__(self, path_or_docs, setup_index_func, search_func, **kwargs):
+        self.path_or_docs = path_or_docs
+        self.setup_index_func = setup_index_func
+        self.search_func = search_func
+        self.kwargs = kwargs
+        self.last_modified = get_file_timestamp(
+            path_or_docs) if isinstance(path_or_docs, str) else None
+
+    def reload_if_needed(self):
+        if isinstance(self.path_or_docs, str):
+            current_modified = get_file_timestamp(self.path_or_docs)
+            if current_modified and self.last_modified and current_modified > self.last_modified:
+                print("File has changed, reloading index...")
+                self.search_func = self.setup_index_func(
+                    self.path_or_docs, **self.kwargs).search_func
+                self.last_modified = current_modified
+
+    def __call__(self, query: str, *args, **kwargs):
+        self.reload_if_needed()
+        return self.search_func(query, *args, **kwargs)
+
+
 def setup_index(
     path_or_docs: str | list[Document],
     *,
@@ -256,19 +290,22 @@ def setup_index(
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
     json_attributes: Optional[list[str]] = [],
     **kwargs
-):
-    search_func: Callable[..., dict[str, Any]]
+) -> SearchWrapper:
+    global _active_search_wrappers
 
-    final_chunk_size: int = chunk_size if isinstance(
-        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
+    if isinstance(path_or_docs, str) and path_or_docs in _active_search_wrappers:
+        return _active_search_wrappers[path_or_docs]
 
     documents: list[Document]
-    if type(path_or_docs) == str:
+    if isinstance(path_or_docs, str):
         documents = load_documents(path_or_docs, extensions, json_attributes)
     elif isinstance(path_or_docs, list):
         documents = path_or_docs
     else:
-        raise ValueError(f"'data_dir' must be of type str | list[Document]")
+        raise ValueError("'data_dir' must be of type str | list[Document]")
+
+    final_chunk_size: int = chunk_size if isinstance(
+        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
 
     if split_mode:
         if "markdown" in split_mode:
@@ -285,110 +322,51 @@ def setup_index(
     if with_hierarchy or mode == 'hierarchy' or (split_mode and "hierarchy" in split_mode):
         if not sub_chunk_sizes:
             sub_chunk_sizes = [final_chunk_size]
-        # sub_chunk_sizes = [chunk_size, *sub_chunk_sizes]
-        other_args = {}
-        if chunk_overlap:
-            other_args["chunk_overlap"] = chunk_overlap
-
+        other_args = {"chunk_overlap": chunk_overlap} if chunk_overlap else {}
         sub_nodes = split_heirarchical_nodes(
             all_nodes, sub_chunk_sizes, **other_args)
         jet_node_parser = JetHierarchicalNodeParser(sub_nodes, sub_chunk_sizes)
-        all_nodes = jet_node_parser.all_nodes
-        all_nodes = get_leaf_nodes(all_nodes)
+        all_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
 
-    # if mode == "summary":
-    # all_nodes = split_sub_nodes(all_nodes, [128, 256, 512], chunk_overlap)
     if mode == "hierarchy":
         index = VectorStoreIndex(
             all_nodes,
             show_progress=True,
         )
 
-        def search_hierarchy_func(
-            query: str,
-            fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
-            threshold: float = 0.0,
-            top_k: Optional[int] = None,
-            **kwargs,
-        ):
-            # First, we create our retrievers. Each will retrieve the top-10 most similar nodes.
-            similarity_top_k = top_k if top_k and top_k < len(
-                all_nodes) else len(all_nodes)
+        def search_hierarchy_func(query: str, top_k: Optional[int] = None, threshold: float = 0.0, **kwargs):
+            similarity_top_k = min(top_k, len(all_nodes)
+                                   ) if top_k else len(all_nodes)
             combined_retriever = get_recursive_retriever(
                 index, all_nodes, similarity_top_k=similarity_top_k)
-            # else:
-            # initial_similarity_k = len(documents)
-            # final_similarity_k = len(all_nodes)
+            retrieved_nodes = [node for node in combined_retriever.retrieve(
+                query) if node.score > threshold]
+            return {"nodes": retrieved_nodes, "texts": [node.text for node in retrieved_nodes]}
 
-            retrieved_nodes: list[NodeWithScore] = combined_retriever.retrieve(
-                query)
-
-            filtered_nodes: list[NodeWithScore] = [
-                node for node in retrieved_nodes if node.score > threshold]
-
-            texts = [node.text for node in filtered_nodes]
-
-            # contexts = clean_texts(filtered_nodes)
-
-            result = {
-                "nodes": filtered_nodes,
-                "texts": texts,
-                # "contexts": contexts,
-            }
-
-            return result
-
-        search_func = search_hierarchy_func
+        wrapper = SearchWrapper(path_or_docs, setup_index,
+                                search_hierarchy_func, **kwargs)
 
     elif mode == "deeplake":
         store_path = kwargs["store_path"]
-        texts = [node.text for node in all_nodes]
-        metadata = [node.metadata for node in all_nodes]
         embedding_function = get_ollama_embedding_function(embed_model)
-        args = {
-            "store_path": store_path,
-            "texts": texts,
-            "metadata": metadata,
-            "embedding_function": embedding_function,
-            "overwrite": kwargs.get("overwrite", True),
-            "verbose": kwargs.get("verbose", False),
-        }
-        vector_store = load_or_create_deeplake_vector_store(**args)
+        vector_store = load_or_create_deeplake_vector_store(
+            store_path=store_path,
+            texts=[node.text for node in all_nodes],
+            metadata=[node.metadata for node in all_nodes],
+            embedding_function=embedding_function,
+            overwrite=kwargs.get("overwrite", True),
+            verbose=kwargs.get("verbose", False),
+        )
 
-        def search_deeplake_func(
-            query: str,
-            threshold: float = 0.0,
-            top_k: Optional[int] = None,
-            **kwargs,
-        ):
-            similarity_top_k = top_k if top_k and top_k < len(
-                all_nodes) else len(all_nodes)
+        def search_deeplake_func(query: str, top_k: Optional[int] = None, threshold: float = 0.0, **kwargs):
+            similarity_top_k = min(top_k, len(all_nodes)
+                                   ) if top_k else len(all_nodes)
             results = vector_store.search(
-                embedding_data=query,
-                k=similarity_top_k,
-            )
-            results["text"] = [str(text) for text in results["text"]]
+                embedding_data=query, k=similarity_top_k)
+            return {"nodes": results, "texts": [str(text) for text in results["text"]]}
 
-            # Process search results into NodeWithScore format
-            nodes_with_scores = [
-                NodeWithScore(
-                    node=TextNode(text=str(text), metadata=metadata),
-                    score=extract_score(score)
-                )
-                for text, metadata, score in zip(results["text"], results["metadata"], results["score"])
-            ]
-
-            # contexts = clean_texts(nodes_with_scores)
-
-            result = {
-                "nodes": nodes_with_scores,
-                "texts": results["text"],
-                # "contexts": contexts,
-            }
-
-            return result
-
-        search_func = search_deeplake_func
+        wrapper = SearchWrapper(path_or_docs, setup_index,
+                                search_deeplake_func, **kwargs)
 
     else:
         index = VectorStoreIndex(
@@ -396,46 +374,24 @@ def setup_index(
             show_progress=True,
         )
 
-        def search_fusion_func(
-            query: str,
-            fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
-            threshold: float = 0.0,
-            top_k: Optional[int] = None,
-            **kwargs,
-        ):
-
-            initial_similarity_k = top_k if top_k and top_k < len(
-                all_nodes) else len(all_nodes)
-            final_similarity_k = top_k if top_k and top_k < len(
-                all_nodes) else len(all_nodes)
+        def search_fusion_func(query: str, top_k: Optional[int] = None, threshold: float = 0.0, fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE, **kwargs):
+            similarity_top_k = min(top_k, len(all_nodes)
+                                   ) if top_k else len(all_nodes)
             retrievers = setup_retrievers(
-                index, initial_similarity_k, final_similarity_k)
+                index, similarity_top_k, similarity_top_k)
             combined_retriever = get_fusion_retriever(
                 retrievers, fusion_mode, top_k)
+            retrieved_nodes = [node for node in combined_retriever.retrieve(
+                query) if node.score > threshold]
+            return {"nodes": retrieved_nodes, "texts": [node.text for node in retrieved_nodes]}
 
-            retrieved_nodes: list[NodeWithScore] = combined_retriever.retrieve(
-                query)
+        wrapper = SearchWrapper(path_or_docs, setup_index,
+                                search_fusion_func, **kwargs)
 
-            filtered_nodes: list[NodeWithScore] = [
-                node for node in retrieved_nodes if node.score > threshold]
-            if top_k:
-                filtered_nodes = filtered_nodes[:top_k]
+    if isinstance(path_or_docs, str):
+        _active_search_wrappers[path_or_docs] = wrapper
 
-            texts = [node.text for node in filtered_nodes]
-
-            # contexts = clean_texts(filtered_nodes)
-
-            result = {
-                "nodes": filtered_nodes,
-                "texts": texts,
-                # "contexts": contexts,
-            }
-
-            return result
-
-        search_func = search_fusion_func
-
-    return search_func
+    return wrapper
 
 
 def get_relative_path(abs_path: str, partial_path: str) -> str:
