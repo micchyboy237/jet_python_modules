@@ -3,12 +3,13 @@ import subprocess
 from typing import Generator, List
 
 
-def run_command(command: str, work_dir: str = None) -> Generator[str, None, None]:
+def run_command(command: str, *, work_dir: str = None, separator: str = " ") -> Generator[str, None, None]:
     """
     Execute a command and yield its output line by line.
 
     :param command: Command string to execute
     :param work_dir: Directory to execute the command in
+    :param separator: String used to split the command into parts (default: " ")
     :return: Generator yielding command output lines
     """
     if not command:
@@ -19,13 +20,19 @@ def run_command(command: str, work_dir: str = None) -> Generator[str, None, None
             work_dir = os.path.expanduser(work_dir)
             work_dir = os.path.abspath(work_dir)
 
-        cmd_parts = command.split()
+        cmd_parts = command.split(separator)
         process = subprocess.Popen(
             cmd_parts, cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
         for line in process.stdout:
-            yield f"data: {line.decode('utf-8').strip()}\n\n"
+            message = line.decode('utf-8').strip()
+            data = message
+
+            if message.startswith("result: "):
+                yield f"{data}\n\n"
+            else:
+                yield f"data: {data}\n\n"
         for line in process.stderr:
             yield f"error: {line.decode('utf-8').strip()}\n\n"
     except Exception as e:
