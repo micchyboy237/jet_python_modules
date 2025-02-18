@@ -1,7 +1,5 @@
 import json
-from typing import TypedDict
-from dataclasses import is_dataclass
-from types import MappingProxyType
+from typing import Any
 from jet.utils.class_utils import get_class_name
 
 
@@ -43,14 +41,46 @@ def print_types_recursive(obj):
         print(type(obj))
 
 
+def get_values_by_paths(data: dict[str, Any], attr_paths: list[str]) -> list[Any]:
+    values = []
+
+    for path in attr_paths:
+        keys = path.split('.')
+        value = data
+
+        # Traverse the dictionary based on the keys
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            else:
+                value = None
+                break
+
+        values.append(value)
+
+    return values
+
+
 __all__ = [
     "check_object_type",
-    "get_class_name",
     "print_types_recursive",
+    "get_values_by_paths",
 ]
 
 # Example usage
 if __name__ == "__main__":
+    attr_paths = ['name', 'age', 'address.country']
+    data = {
+        "name": None,
+        "age": "Thirty",
+        "address": {
+            "country": 0
+        }
+    }
+
+    result = get_values_by_paths(data, attr_paths)
+    print(result)  # Output: [None, 'Thirty', 0]
+
     # Check if an integer is of type 'int'
     number = 42
     print(check_object_type(number, 'int'))  # Output: True

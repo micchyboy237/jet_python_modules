@@ -2,8 +2,10 @@ import builtins
 
 from .modules import (
     logger,
+
     make_serializable,
     format_json,
+
     class_to_string,
     validate_class,
     get_class_name,
@@ -12,6 +14,10 @@ from .modules import (
     get_non_empty_attributes,
     get_internal_attributes,
     get_callable_attributes,
+
+    check_object_type,
+    print_types_recursive,
+    get_values_by_paths,
 )
 # from jet.utils.class_utils import get_internal_attributes, get_non_empty_attributes, validate_class
 
@@ -40,6 +46,12 @@ def inject_globals():
         builtins.get_internal_attributes = get_internal_attributes
     if not hasattr(builtins, "get_callable_attributes"):
         builtins.get_callable_attributes = get_callable_attributes
+    if not hasattr(builtins, "check_object_type"):
+        builtins.check_object_type = check_object_type
+    if not hasattr(builtins, "print_types_recursive"):
+        builtins.print_types_recursive = print_types_recursive
+    if not hasattr(builtins, "get_values_by_paths"):
+        builtins.get_values_by_paths = get_values_by_paths
 
 
 inject_globals()
