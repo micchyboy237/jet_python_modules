@@ -228,10 +228,17 @@ def create_embed_model(
 
 
 class Ollama(BaseOllama):
-    model: OLLAMA_MODEL_NAMES = Field(
-        "llama3.1", description="The model name to use.")
-    max_tokens: Optional[Union[int, float]] = Field(
-        None, description="Maximum number of tokens to generate.")
+    model: OLLAMA_MODEL_NAMES = "llama3.1"
+    max_tokens: Optional[Union[int, float]] = None
+    max_prediction_ratio: Optional[float] = None
+
+    def __init__(self, model: str, **kwargs) -> None:
+        super().__init__(model=model, **kwargs)
+
+        # Initialize and set tokenizer
+        from jet.token.token_utils import get_ollama_tokenizer
+        tokenizer = get_ollama_tokenizer(self.model)
+        set_global_tokenizer(tokenizer)
 
     @llm_chat_callback()
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
@@ -245,20 +252,23 @@ class Ollama(BaseOllama):
         options = kwargs.get("options", {})
         stream = kwargs.get("stream", not tools)
 
+        settings = {
+            **kwargs,
+            "model": self.model,
+            "messages": ollama_messages,
+            "stream": stream,
+            "format": format,
+            "tools": tools,
+            "keep_alive": self.keep_alive,
+            "full_stream_response": True,
+            "options": {
+                **self._model_kwargs,
+                **options,
+            },
+        }
+
         def run():
-            response = call_ollama_chat(
-                model=self.model,
-                messages=ollama_messages,
-                stream=stream,
-                format=format,
-                tools=tools,
-                options={
-                    **self._model_kwargs,
-                    **options,
-                },
-                keep_alive=self.keep_alive,
-                full_stream_response=True,
-            )
+            response = call_ollama_chat(**settings)
 
             final_response = {}
 
@@ -340,20 +350,23 @@ class Ollama(BaseOllama):
         options = kwargs.get("options", {})
         stream = kwargs.get("stream", not tools)
 
+        settings = {
+            **kwargs,
+            "model": self.model,
+            "messages": ollama_messages,
+            "stream": stream,
+            "format": format,
+            "tools": tools,
+            "keep_alive": self.keep_alive,
+            "full_stream_response": True,
+            "options": {
+                **self._model_kwargs,
+                **options,
+            },
+        }
+
         def run():
-            response = call_ollama_chat(
-                model=self.model,
-                messages=ollama_messages,
-                stream=stream,
-                format=format,
-                tools=tools,
-                options={
-                    **self._model_kwargs,
-                    **options,
-                },
-                keep_alive=self.keep_alive,
-                full_stream_response=True,
-            )
+            response = call_ollama_chat(**settings)
 
             final_response = {}
 

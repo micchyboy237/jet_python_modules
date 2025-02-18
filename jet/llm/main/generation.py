@@ -1,5 +1,6 @@
 import threading
 import json
+from llama_index.core.utils import set_global_tokenizer
 import requests
 import traceback
 from enum import Enum
@@ -43,6 +44,7 @@ def call_ollama_chat(
     track: Track = None,
     full_stream_response: bool = False,
     max_tokens: Optional[int | float] = None,
+    max_prediction_ratio: Optional[float] = None,
     # Parameter for cancellation
     stop_event: Optional[threading.Event] = None,
 ) -> Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
@@ -64,9 +66,10 @@ def call_ollama_chat(
          Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
          Either the JSON response or a generator for streamed responses.
     """
-
     from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS
-    from jet.token.token_utils import filter_texts, token_counter
+    from jet.token.token_utils import get_ollama_tokenizer, filter_texts, token_counter, calculate_num_predict_ctx
+    tokenizer = get_ollama_tokenizer(model)
+    set_global_tokenizer(tokenizer)
 
     # logger.info("pre stop_event:", stop_event)
     # logger.orange(stop_event and stop_event.is_set())
@@ -84,7 +87,7 @@ def call_ollama_chat(
         ]
 
     model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
-    token_count = token_counter(messages, model)
+    token_count: int = token_counter(messages, model)
 
     logger.newline()
     logger.orange("Calling Ollama chat...")
@@ -103,11 +106,25 @@ def call_ollama_chat(
         messages = filter_texts(
             messages, model, max_tokens=max_tokens)
 
+    num_predict = options.get("num_predict", -1)
+    if max_prediction_ratio and (not num_predict or num_predict <= 0):
+        calc_result = calculate_num_predict_ctx(messages, model, system=system)
+        num_predict = calc_result["num_predict"]
+        num_ctx = calc_result["num_ctx"]
+
+        predict_tokens = num_predict
+    else:
+        num_ctx = options.get("num_ctx", model_max_length)
+        predict_tokens = num_ctx - token_count
     derived_options = {
-        "num_ctx": options.get("num_ctx", model_max_length),
+        "num_predict": num_predict,
+        "num_ctx": num_ctx,
     }
-    options = {**derived_options, **
-               DETERMINISTIC_LLM_SETTINGS, **(options or {})}
+    options = {
+        **DETERMINISTIC_LLM_SETTINGS,
+        **(options or {}),
+        **derived_options,
+    }
 
     logger.newline()
     logger.gray("LLM Settings:")
@@ -117,8 +134,10 @@ def call_ollama_chat(
     logger.newline()
     logger.log("Stream:", stream, colors=["GRAY", "INFO"])
     logger.log("Model:", model, colors=["GRAY", "INFO"])
-    logger.log("Prompt Tokens:",
-               f"{token_count} / {model_max_length}", colors=["GRAY", "INFO"])
+    logger.log("num_ctx:", num_ctx, colors=["GRAY", "ORANGE"])
+    logger.log("Prompt Tokens:", token_count, colors=["GRAY", "ORANGE"])
+    logger.log("Predict Tokens:", predict_tokens, colors=["GRAY", "ORANGE"])
+    logger.log("Max Tokens:", model_max_length, colors=["GRAY", "ORANGE"])
     logger.newline()
 
     logger.debug("Generating response...")
@@ -146,7 +165,8 @@ def call_ollama_chat(
         "template": template,
         # "raw": False,
         "tools": tools,
-        "format": str(format) if format else None,
+        # "format": str(format) if format else None,
+        "format": format,
         "options": options,
     }
     body = make_serializable(body)

@@ -2,10 +2,8 @@ import json
 from typing import Any, Generator, List, Optional, TypedDict
 from jet.code.splitter_markdown_utils import extract_md_header_contents
 from jet.llm.llm_types import OllamaChatOptions
-from jet.llm.main.generation import call_ollama_chat
 from jet.llm.ollama.base import Ollama
 from jet.logger import logger
-from jet.token.token_utils import get_tokenizer, token_counter
 from llama_index.core.base.llms.types import ChatMessage
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS
@@ -89,6 +87,8 @@ class SummaryTokens(TypedDict):
 
 
 def group_summaries(summaries: list[str], model: str, system: str = "", separator: str = "\n\n\n") -> list[SummaryTokens]:
+    from jet.token.token_utils import token_counter
+
     max_prediction_ratio_full = 0.5
 
     model_max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
@@ -140,32 +140,9 @@ def group_summaries(summaries: list[str], model: str, system: str = "", separato
     return grouped_summaries
 
 
-def calculate_num_predict_ctx(prompt: str, model: str = "llama3.1", *, system: str = "", max_prediction_ratio: float = 0.75):
-    user_tokens: int = token_counter(prompt, model)
-    system_tokens: int = token_counter(system, model)
-    prompt_tokens = user_tokens + system_tokens
-    num_predict = int(prompt_tokens * max_prediction_ratio)
-    num_ctx = prompt_tokens + num_predict
-
-    model_max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
-
-    if num_ctx > model_max_tokens:
-        raise ValueError({
-            "prompt_tokens": prompt_tokens,
-            "num_predict": num_predict,
-            "error": f"Context window size ({num_ctx}) exceeds model's maximum tokens ({model_max_tokens})",
-        })
-
-    return {
-        "user_tokens": user_tokens,
-        "system_tokens": system_tokens,
-        "prompt_tokens": prompt_tokens,
-        "num_predict": num_predict,
-        "num_ctx": num_ctx,
-    }
-
-
 def generate_summary(prompt: str, model: str = "llama3.1", system: str = "", options: OllamaChatOptions = {}) -> SummaryResult:
+    from jet.token.token_utils import calculate_num_predict_ctx
+
     prompt = prompt.strip()
     system = system.strip()
 
@@ -250,6 +227,8 @@ def summarize_tree(chunks: list[str], model: str = ROOT_MODEL, *, system: str = 
 
 
 def summarize_data(content: str, *, model: str = ROOT_MODEL, system: str = ROOT_SYSTEM_MESSAGE, combine_model: str = COMBINE_MODEL, combine_system: str = COMBINE_SYSTEM_MESSAGE, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) -> Generator[SummaryResultInfo, None, None] | Generator[SummaryData, None, None]:
+    from jet.token.token_utils import get_tokenizer
+
     tokenizer = get_tokenizer(model)
 
     buffer_size = overlap

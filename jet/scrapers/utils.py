@@ -45,8 +45,8 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def clean_newlines(content):
-    """Remove consecutive newlines from the content."""
+def clean_newlines(content) -> str:
+    """Merge consecutive newlines from the content."""
     # Remove trailing whitespace for each line
     content = '\n'.join([line.rstrip() for line in content.split('\n')])
     # Reduce consecutive newlines to a single newline
@@ -66,7 +66,7 @@ def clean_other_characters(content: str) -> str:
 
 def extract_sentences(content: str) -> list[str]:
     """Extract sentences from the content."""
-    from txtai.pipeline import Textractor
+    from jet.data.extractor import Textractor
     minlength = None
     textractor_sentences = Textractor(sentences=True, minlength=minlength)
     sentences = textractor_sentences(content)
@@ -75,7 +75,7 @@ def extract_sentences(content: str) -> list[str]:
 
 def extract_paragraphs(content: str) -> list[str]:
     """Extract paragraphs from the content."""
-    from txtai.pipeline import Textractor
+    from jet.data.extractor import Textractor
     minlength = None
     textractor_paragraphs = Textractor(paragraphs=True, minlength=minlength)
     paragraphs = textractor_paragraphs(content)
@@ -84,7 +84,7 @@ def extract_paragraphs(content: str) -> list[str]:
 
 def extract_sections(content: str) -> list[str]:
     """Extract sections from the content."""
-    from txtai.pipeline import Textractor
+    from jet.data.extractor import Textractor
     minlength = None
     textractor_sections = Textractor(sections=True, minlength=minlength)
     sections = textractor_sections(content)
@@ -146,6 +146,22 @@ def split_text(text: str, chunk_size: int, overlap: int) -> List[str]:
             break
         start += chunk_size - overlap
     return chunks
+
+
+__all__ = [
+    "get_max_prompt_char_length",
+    "clean_tags",
+    "clean_text",
+    "clean_newlines",
+    "clean_non_ascii",
+    "clean_other_characters",
+    "extract_sentences",
+    "extract_paragraphs",
+    "extract_sections",
+    "merge_texts",
+    "merge_texts_with_overlap",
+    "split_text",
+]
 
 
 if __name__ == "__main__":

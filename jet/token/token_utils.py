@@ -149,6 +149,31 @@ def filter_texts(
             return messages
 
 
+def calculate_num_predict_ctx(prompt: str | list[str] | list[ChatMessage] | list[Message], model: str = "llama3.1", *, system: str = "", max_prediction_ratio: float = 0.75):
+    user_tokens: int = token_counter(prompt, model)
+    system_tokens: int = token_counter(system, model)
+    prompt_tokens = user_tokens + system_tokens
+    num_predict = int(prompt_tokens * max_prediction_ratio)
+    num_ctx = prompt_tokens + num_predict
+
+    model_max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+
+    if num_ctx > model_max_tokens:
+        raise ValueError({
+            "prompt_tokens": prompt_tokens,
+            "num_predict": num_predict,
+            "error": f"Context window size ({num_ctx}) exceeds model's maximum tokens ({model_max_tokens})",
+        })
+
+    return {
+        "user_tokens": user_tokens,
+        "system_tokens": system_tokens,
+        "prompt_tokens": prompt_tokens,
+        "num_predict": num_predict,
+        "num_ctx": num_ctx,
+    }
+
+
 if __name__ == "__main__":
     models = ["llama3.1"]
     ollama_models = {}
