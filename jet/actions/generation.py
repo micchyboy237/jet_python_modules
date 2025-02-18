@@ -134,9 +134,9 @@ def call_ollama_chat(
     logger.newline()
     logger.log("Stream:", stream, colors=["GRAY", "INFO"])
     logger.log("Model:", model, colors=["GRAY", "INFO"])
-    logger.log("num_ctx:", num_ctx, colors=["GRAY", "ORANGE"])
     logger.log("Prompt Tokens:", token_count, colors=["GRAY", "ORANGE"])
-    logger.log("Predict Tokens:", predict_tokens, colors=["GRAY", "ORANGE"])
+    logger.log("Remaining Tokens:", predict_tokens, colors=["GRAY", "ORANGE"])
+    logger.log("num_ctx:", num_ctx, colors=["GRAY", "ORANGE"])
     logger.log("Max Tokens:", model_max_length, colors=["GRAY", "ORANGE"])
     logger.newline()
 
