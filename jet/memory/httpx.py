@@ -17,10 +17,11 @@ class HttpxClient:
         )
 
     def get(self, url: str):
-        return self.client.get(url)
+        return self.client.get(url, timeout=300.0)
 
     def post(self, url: str, json: dict | BaseModel):
-        return self.client.post(url, json=make_serializable(json))
+        serialized_json = make_serializable(json)
+        return self.client.post(url, json=serialized_json, timeout=300.0)
 
 
 if __name__ == "__main__":
