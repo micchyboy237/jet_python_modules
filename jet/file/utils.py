@@ -1,5 +1,6 @@
 import os
 import json
+from typing import Optional
 from jet.logger import logger
 from pydantic.main import BaseModel
 
@@ -66,7 +67,7 @@ def save_json(results, file_path="generated/results.json"):
         raise e
 
 
-def load_file(input_file: str) -> str | dict | list:
+def load_file(input_file: str) -> Optional[str | dict | list]:
     import os
     import json
     from jet.logger import logger  # Ensure this is your logger module
@@ -79,7 +80,10 @@ def load_file(input_file: str) -> str | dict | list:
     try:
         if input_file.endswith(".json"):
             with open(input_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+                try:
+                    data = json.load(f)
+                except:
+                    data = None
             logger.log(
                 "Loaded JSON data from:",
                 input_file,
