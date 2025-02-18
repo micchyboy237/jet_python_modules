@@ -10,26 +10,25 @@ from jet.logger import logger
 
 MODEL = "llama3.1"
 PROMPT_TEMPLATE = """
-Model:
-[base_model]
+Schema:
+[schema]
+
 JSON to validate:
 [prompt]
-Validation Errors:
+
+Error log:
 [errors]
-Corrected JSON:
+
+Response:
 """
 
 SYSTEM = f"""
 System:
-You are a JSON corrector. Analyze the provided model, JSON to validate and validation errors then provide a corrected JSON object that is valid according to the model.
-Surround the generated object with JSON block ```json\n<generated_json>\n```.
-Generated response should only have one JSON block.
-Do not include any other text in the response except the JSON block.
-
-Data guidelines:
-- Follow validation errors to correct the JSON object
-- Ensure the corrected JSON object has valid syntax
-- Enumerated values should match case and spelling in the model
+You are a JSON corrector. Analyze the provided schema, JSON to validate and validation errors then generate the fixed JSON that is valid according to the schema.
+Surround the generated object with JSON block ```json\n<generated_json>\n```
+Generated response should only have one JSON block
+Do not include any other text in the response except the JSON block
+Output only the fixed JSON.
 """.strip()
 
 

@@ -1,16 +1,17 @@
 import json
 from typing import Optional, List, TypedDict
+from jet.transformers.formatters import format_json
 from pydantic import BaseModel, ValidationError
 from jet.validation import ValidationResponse
 
 
-def format_error(error: ValidationError) -> str:
+def format_error(error: dict) -> str:
     """Format the error message to include the path to the error."""
-    error_path = ".".join([str(p) for p in error["loc"]])
-    error_chunks = [error["msg"]]
-    if error_path:
-        error_chunks.insert(0, error_path)
-    return ": ".join(error_chunks)
+    error = error.copy()
+    error_path = ".".join([str(p) for p in error.pop("loc")])
+    # error['path'] = error_path
+    # return format_json(error)
+    return f"{error_path}: {format_json(error)}"
 
 
 def pydantic_validate_json(json_string: str, model: BaseModel) -> ValidationResponse:
@@ -24,8 +25,7 @@ def pydantic_validate_json(json_string: str, model: BaseModel) -> ValidationResp
 
     except ValidationError as e:
         errors = e.errors().copy()
-        for error in errors:
-            error.pop('url', None)
+
         error_messages = [format_error(e) for e in errors]
         return ValidationResponse(is_valid=False, data=None, errors=error_messages)
 

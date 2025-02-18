@@ -14,6 +14,7 @@ from llama_index.core.llms import (
     ChatResponseGen,
     CompletionResponseGen,
 )
+from llama_index.core.utils import set_global_tokenizer
 from llama_index.postprocessor.flag_embedding_reranker import FlagEmbeddingReranker
 from llama_index.core.postprocessor.rankGPT_rerank import RankGPTRerank
 from llama_index.core.postprocessor.sbert_rerank import SentenceTransformerRerank
@@ -76,6 +77,10 @@ class SettingsManager:
             model=settings["llm_model"],
             base_url=settings["base_url"],
         )
+
+        from jet.token.token_utils import get_ollama_tokenizer
+        tokenizer = get_ollama_tokenizer(settings["llm_model"])
+        set_global_tokenizer(tokenizer)
         return Settings
 
     @staticmethod

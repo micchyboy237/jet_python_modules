@@ -15,6 +15,7 @@ from llama_index.core.llms.callbacks import llm_chat_callback
 from llama_index.core.llms.llm import LLM
 from llama_index.core.prompts.base import PromptTemplate
 from llama_index.core.types import PydanticProgramMode
+from llama_index.core.utils import set_global_tokenizer
 from llama_index.llms.ollama import Ollama as BaseOllama
 from llama_index.embeddings.ollama import OllamaEmbedding as BaseOllamaEmbedding
 from llama_index.core import Settings
@@ -147,8 +148,10 @@ def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings
     EnhancedSettings.embedding_model = embedding_model
     EnhancedSettings.count_tokens = count_tokens
 
-    # from jet.token.token_utils import get_ollama_tokenizer
-    # EnhancedSettings.tokenizer = get_ollama_tokenizer(embed_model).encode
+    from jet.token.token_utils import get_ollama_tokenizer
+    tokenizer = get_ollama_tokenizer(llm_model)
+    set_global_tokenizer(tokenizer)
+    # EnhancedSettings.tokenizer = get_ollama_tokenizer(llm_model).encode
 
     from jet.helpers.prompt.custom_prompt_helpers import OllamaPromptHelper
     EnhancedSettings.prompt_helper = OllamaPromptHelper(llm_model)
@@ -286,7 +289,13 @@ class Ollama(BaseOllama):
                 content = ""
                 role = ""
                 tool_calls = []
+
+                if isinstance(response, dict) and "error" in response:
+                    raise ValueError(
+                        f"Ollama API error:\n{response['error']}")
+
                 for chunk in response:
+
                     content += chunk["message"]["content"]
                     if not role:
                         role = chunk["message"]["role"]
@@ -376,7 +385,13 @@ class Ollama(BaseOllama):
                 content = ""
                 role = ""
                 tool_calls = []
+
+                if isinstance(response, dict) and "error" in response:
+                    raise ValueError(
+                        f"Ollama API error:\n{response['error']}")
+
                 for chunk in response:
+
                     content += chunk["message"]["content"]
                     if not role:
                         role = chunk["message"]["role"]

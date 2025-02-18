@@ -115,7 +115,9 @@ def get_recursive_retriever(index: VectorStoreIndex, all_nodes: list[BaseNode], 
 def load_documents(
     data_dir: str,
     extensions: Optional[list[str]] = None,
-    json_attributes: Optional[list[str]] = None,
+    json_attributes: Optional[list[str]] = [],
+    exclude_json_attributes: Optional[list[str]] = [],
+    metadata_attributes: Optional[list[str]] = [],
 ):
     arg = {}
 
@@ -137,19 +139,28 @@ def load_documents(
         for item in json_data:
             # Use all attributes if json_attributes is empty or None
             if json_attributes:
-                text_parts = [str(item[attr])
-                              for attr in json_attributes if attr in item]
+                text_parts = [f"{attr.title().replace('_', ' ')}: {str(item[attr])}"
+                              for attr in json_attributes
+                              if attr in item and item[attr]]
             else:
                 # Use all attributes
-                text_parts = [str(value) for key, value in item.items()]
+                text_parts = [f"{key.title().replace('_', ' ')}: {str(value)}"
+                              for key, value in item.items()
+                              if key not in exclude_json_attributes and value]
 
             text_content = "\n".join(text_parts) if text_parts else ""
 
+            metadata = {
+                attr: item[attr]
+                for attr in metadata_attributes
+                if attr in item and item[attr]
+            }
+
             documents.append(Document(
                 text=text_content,
-                metadata={
-                    key: item[key] for key in item if key not in json_attributes
-                }))
+                metadata=metadata
+            ))
+
     else:
         documents = SimpleDirectoryReader(
             **arg, required_exts=extensions, recursive=True
@@ -170,11 +181,14 @@ def setup_semantic_search(
     mode: Optional[Literal["faiss", "graph_nx"]] = "faiss",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
     json_attributes: Optional[list[str]] = [],
+    exclude_json_attributes: Optional[list[str]] = [],
+    metadata_attributes: Optional[list[str]] = [],
     **kwargs
 ):
     documents: list[Document]
     if type(path_or_docs) == str:
-        documents = load_documents(path_or_docs, extensions, json_attributes)
+        documents = load_documents(
+            path_or_docs, extensions, json_attributes, exclude_json_attributes, metadata_attributes)
     elif isinstance(path_or_docs, list):
         documents = path_or_docs
     else:
@@ -290,6 +304,8 @@ def setup_index(
     mode: Optional[Literal["fusion", "hierarchy", "deeplake"]] = "fusion",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
     json_attributes: Optional[list[str]] = [],
+    exclude_json_attributes: Optional[list[str]] = [],
+    metadata_attributes: Optional[list[str]] = [],
     **kwargs
 ) -> SearchWrapper:
     global _active_search_wrappers
@@ -303,6 +319,9 @@ def setup_index(
             json_attributes,
             chunk_size,
             chunk_overlap,
+            json_attributes,
+            exclude_json_attributes,
+            metadata_attributes,
         ]
         current_hash_key = generate_key(*cache_values)
 
@@ -311,7 +330,8 @@ def setup_index(
 
     documents: list[Document]
     if isinstance(path_or_docs, str):
-        documents = load_documents(path_or_docs, extensions, json_attributes)
+        documents = load_documents(
+            path_or_docs, extensions, json_attributes, exclude_json_attributes, metadata_attributes)
     elif isinstance(path_or_docs, list):
         documents = path_or_docs
     else:
@@ -344,7 +364,7 @@ def setup_index(
     if mode == "hierarchy":
         index = VectorStoreIndex(
             all_nodes,
-            show_progress=True,
+            show_progress=False,
             embed_model=OllamaEmbedding(model_name=embed_model),
         )
 
@@ -435,7 +455,7 @@ def setup_index(
     else:
         index = VectorStoreIndex(
             all_nodes,
-            show_progress=True,
+            show_progress=False,
             embed_model=OllamaEmbedding(model_name=embed_model),
         )
 
