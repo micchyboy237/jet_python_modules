@@ -212,7 +212,7 @@ def setup_semantic_search(
 
     def search_func(
         query: str,
-        threshold: float = 0.0,
+        score_threshold: float = 0.0,
         top_k: Optional[int] = None,
     ):
         if mode == "graph_nx":
@@ -243,7 +243,7 @@ def setup_semantic_search(
             for result in search_results]
 
         filtered_nodes: list[NodeWithScore] = [
-            node for node in retrieved_nodes if node.score > threshold]
+            node for node in retrieved_nodes if node.score > score_threshold]
 
         filtered_nodes = filtered_nodes[:top_k]
 
@@ -364,13 +364,13 @@ def setup_index(
     if mode == "hierarchy":
         index = VectorStoreIndex(
             all_nodes,
-            show_progress=False,
+            show_progress=True,
             embed_model=OllamaEmbedding(model_name=embed_model),
         )
 
         def search_hierarchy_func(
             query: str,
-            threshold: float = 0.0,
+            score_threshold: float = 0.0,
             top_k: Optional[int] = None,
             **kwargs
         ):
@@ -387,7 +387,7 @@ def setup_index(
                 query)
 
             filtered_nodes: list[NodeWithScore] = [
-                node for node in retrieved_nodes if node.score > threshold]
+                node for node in retrieved_nodes if node.score > score_threshold]
 
             texts = [node.text for node in filtered_nodes]
 
@@ -418,7 +418,7 @@ def setup_index(
 
         def search_deeplake_func(
             query: str,
-            threshold: float = 0.0,
+            score_threshold: float = 0.0,
             top_k: Optional[int] = None,
             **kwargs
         ):
@@ -455,13 +455,13 @@ def setup_index(
     else:
         index = VectorStoreIndex(
             all_nodes,
-            show_progress=False,
+            show_progress=True,
             embed_model=OllamaEmbedding(model_name=embed_model),
         )
 
         def search_fusion_func(
             query: str,
-            threshold: float = 0.0,
+            score_threshold: float = 0.0,
             top_k: Optional[int] = None,
             fusion_mode: FUSION_MODES = FUSION_MODES.RELATIVE_SCORE,
             **kwargs
@@ -480,7 +480,7 @@ def setup_index(
                 query)
 
             filtered_nodes: list[NodeWithScore] = [
-                node for node in retrieved_nodes if node.score > threshold]
+                node for node in retrieved_nodes if node.score > score_threshold]
             if top_k:
                 filtered_nodes = filtered_nodes[:top_k]
 
@@ -597,7 +597,7 @@ def setup_recursive_query(
 
     def query_nodes_func(
         query: str,
-        threshold: float = 0.0,
+        score_threshold: float = 0.0,
         top_k: int = 4,
     ):
         retrieved_nodes = query_nodes_recursive(
@@ -609,7 +609,7 @@ def setup_recursive_query(
         )
 
         filtered_nodes: list[NodeWithScore] = [
-            node for node in retrieved_nodes if node.score > threshold]
+            node for node in retrieved_nodes if node.score > score_threshold]
 
         texts = [node.text for node in filtered_nodes]
 
@@ -668,7 +668,7 @@ def setup_deeplake_query(
 
     def query_nodes_func(
         query: str,
-        threshold: float = 0.0,
+        score_threshold: float = 0.0,
         top_k: int = 4,
     ):
         search_results = search_deeplake_store(
@@ -801,7 +801,7 @@ if __name__ == "__main__":
     logger.newline()
     logger.info("RELATIVE_SCORE: sample query...")
     result = query_nodes(
-        sample_query, FUSION_MODES.RELATIVE_SCORE, threshold=0.2)
+        sample_query, FUSION_MODES.RELATIVE_SCORE, score_threshold=0.2)
     logger.info(f"RETRIEVED NODES ({len(result["nodes"])})")
     display_jet_source_nodes(sample_query, result["nodes"])
 
