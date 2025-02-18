@@ -1,6 +1,6 @@
 from typing import Any, Callable, Dict, List, Optional, Sequence, cast
 
-from jet.llm.main.intervew_qa_generator import InterviewQAGenerator
+from jet.actions.intervew_qa_generator import InterviewQAGenerator
 from jet.llm.ollama.base import Ollama
 from llama_index.core.async_utils import DEFAULT_NUM_WORKERS, run_jobs
 from llama_index.core.bridge.pydantic import (

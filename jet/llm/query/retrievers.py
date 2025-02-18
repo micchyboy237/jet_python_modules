@@ -13,7 +13,7 @@ from jet.llm.retrievers.recursive import (
     initialize_summary_nodes_and_retrievers,
     query_nodes as query_nodes_recursive
 )
-from jet.llm import VectorSemanticSearch
+from jet.actions import VectorSemanticSearch
 from jet.token import filter_texts
 from jet.token.token_utils import get_ollama_tokenizer
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
@@ -33,10 +33,10 @@ from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode,
 from jet.llm.utils import display_jet_source_nodes
 from utils.data import generate_key
 from jet.logger import logger
-from jet.llm import call_ollama_chat
+from jet.actions import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
-from jet.llm.ollama import initialize_ollama_settings
-initialize_ollama_settings()
+# from jet.llm.ollama import initialize_ollama_settings
+# initialize_ollama_settings()
 
 
 SYSTEM_MESSAGE = "You are a helpful AI Assistant."

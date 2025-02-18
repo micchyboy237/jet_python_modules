@@ -8,7 +8,7 @@ from typing import TypedDict
 from typing import Generator, Optional, Union
 from jet.code.markdown_code_extractor import MarkdownCodeExtractor
 from jet.llm.llm_types import OllamaChatOptions, OllamaChatResponse
-from jet.llm.main.generation import call_ollama_chat
+from jet.actions.generation import call_ollama_chat
 from jet.logger import logger
 from jet.llm.ollama import initialize_ollama_settings
 import os

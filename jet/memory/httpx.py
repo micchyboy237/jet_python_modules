@@ -11,7 +11,7 @@ class HttpxClient:
     def __init__(self, headers: Optional[HeaderTypes] = {}):
         self.client = httpx.Client(
             headers={
-                **settings['request']['headers'],
+                # **settings['request']['headers'],
                 **headers
             }
         )

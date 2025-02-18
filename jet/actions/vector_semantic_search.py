@@ -87,7 +87,7 @@ class VectorSemanticSearch:
     @time_it
     def faiss_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
         import faiss
-        from jet.llm.main import faiss_search
+        from jet.actions import faiss_search
 
         # top_k = top_k if top_k < len(self.candidates) else len(self.candidates)
         top_k = len(self.candidates)
