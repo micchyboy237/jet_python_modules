@@ -16,6 +16,7 @@ from jet.llm.retrievers.recursive import (
 from jet.actions import VectorSemanticSearch
 from jet.token import filter_texts
 from jet.token.token_utils import get_ollama_tokenizer
+from jet.utils.object import extract_values_by_paths
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
 from jet.vectors.utils import get_source_node_attributes
 from llama_index.core.callbacks.base import CallbackManager
@@ -150,11 +151,8 @@ def load_documents(
 
             text_content = "\n".join(text_parts) if text_parts else ""
 
-            metadata = {
-                attr: item[attr]
-                for attr in metadata_attributes
-                if attr in item and item[attr]
-            }
+            metadata = extract_values_by_paths(
+                item, metadata_attributes) if metadata_attributes else None
 
             documents.append(Document(
                 text=text_content,
