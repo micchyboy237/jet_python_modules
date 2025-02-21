@@ -148,9 +148,11 @@ def load_documents(
         for item in json_data:
             # Use all attributes if json_attributes is empty or None
             if json_attributes:
-                text_parts = [f"{attr.title().replace('_', ' ')}: {str(item[attr])}"
-                              for attr in json_attributes
-                              if attr in item and item[attr]]
+                json_parts_dict = extract_values_by_paths(
+                    item, json_attributes) if json_attributes else None
+                text_parts = [f"{attr.title().replace('_', ' ')}: {str(value)}"
+                              for attr, value in json_parts_dict.items()
+                              if attr in item and value]
             else:
                 # Use all attributes
                 text_parts = [f"{key.title().replace('_', ' ')}: {str(value)}"
