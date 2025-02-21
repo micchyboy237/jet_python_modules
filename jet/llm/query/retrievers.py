@@ -149,7 +149,7 @@ def load_documents(
             # Use all attributes if json_attributes is empty or None
             if json_attributes:
                 json_parts_dict = extract_values_by_paths(
-                    item, json_attributes) if json_attributes else None
+                    item, json_attributes, is_flattened=True) if json_attributes else None
                 text_parts = [f"{attr.title().replace('_', ' ')}: {str(value)}"
                               for attr, value in json_parts_dict.items()
                               if attr in item and value]
@@ -162,7 +162,7 @@ def load_documents(
             text_content = "\n".join(text_parts) if text_parts else ""
 
             metadata = extract_values_by_paths(
-                item, metadata_attributes) if metadata_attributes else None
+                item, metadata_attributes, is_flattened=True) if metadata_attributes else None
 
             documents.append(Document(
                 text=text_content,
