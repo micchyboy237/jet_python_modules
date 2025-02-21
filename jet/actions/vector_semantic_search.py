@@ -1,6 +1,5 @@
 from jet.logger import logger, time_it
 
-
 from typing import List, Dict, Union
 
 
@@ -17,7 +16,7 @@ class VectorSemanticSearch:
     def get_model(self):
         if self.model is None:
             from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            self.model = SentenceTransformer('all-MiniLM-L12-v2')
         return self.model
 
     def get_cross_encoder(self):
@@ -50,9 +49,9 @@ class VectorSemanticSearch:
 
     @time_it
     def vector_based_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
+        """Performs a batch search using vector similarity."""
         model = self.get_model()
 
-        # Get embeddings for both candidates and queries
         data_embeddings = model.encode(
             self.candidates, convert_to_tensor=True, clean_up_tokenization_spaces=True)
         query_embeddings = model.encode(
@@ -86,21 +85,99 @@ class VectorSemanticSearch:
 
     @time_it
     def faiss_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
+        """Performs FAISS-based batch search for efficiency."""
         import faiss
         from jet.actions import faiss_search
 
-        # top_k = top_k if top_k < len(self.candidates) else len(self.candidates)
         top_k = len(self.candidates)
         nlist = 100
 
         results = faiss_search(queries, self.candidates,
                                top_k=top_k, nlist=nlist)
 
-        # Sort results in reverse order of score
         sorted_results = {query_line: sorted(res, key=lambda x: x['score'], reverse=True)
                           for query_line, res in results.items()}
 
         return sorted_results
+
+    @time_it
+    def bm25_search(self, queries: str | list[str]) -> Dict[str, List[Dict[str, float]]]:
+        """Executes a bm25-based retrieval, aggregating search results."""
+        from llama_index.core.schema import Document
+        from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_LARGE_EMBED_MODEL
+        from jet.llm.query import setup_index
+
+        if isinstance(queries, str):
+            queries = [queries]
+
+        documents = [Document(text=candidate) for candidate in self.candidates]
+
+        mode = "bm25"
+        chunk_size = 256
+        chunk_overlap = 40
+        score_threshold = 0.2
+        top_k = None
+        embed_model = OLLAMA_SMALL_EMBED_MODEL
+
+        query_nodes = setup_index(
+            documents,
+            mode=mode,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            embed_model=embed_model,
+        )
+
+        results_dict = {}
+        for query in queries:
+            result = query_nodes(
+                query, score_threshold=score_threshold, top_k=top_k)
+
+            results = [{"text": node.text, "score": node.score}
+                       for node in result["nodes"]]
+            results_dict[query] = sorted(
+                results, key=lambda x: x['score'], reverse=True)
+
+        return results_dict
+
+    @time_it
+    def fusion_search(self, queries: str | list[str]) -> Dict[str, List[Dict[str, float]]]:
+        """Executes a fusion-based retrieval, aggregating search results."""
+        from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
+        from llama_index.core.schema import Document
+        from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_LARGE_EMBED_MODEL
+        from jet.llm.query import setup_index
+
+        if isinstance(queries, str):
+            queries = [queries]
+
+        documents = [Document(text=candidate) for candidate in self.candidates]
+
+        mode = "fusion"
+        chunk_size = 256
+        chunk_overlap = 40
+        score_threshold = 0.2
+        top_k = None
+        embed_model = OLLAMA_SMALL_EMBED_MODEL
+
+        query_nodes = setup_index(
+            documents,
+            mode=mode,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            embed_model=embed_model,
+        )
+
+        results_dict = {}
+        for query in queries:
+            result = query_nodes(
+                query, fusion_mode=FUSION_MODES.RELATIVE_SCORE, score_threshold=score_threshold, top_k=top_k)
+
+            results = [{"text": node.text, "score": node.score}
+                       for node in result["nodes"]]
+            results_dict[query] = sorted(
+                results, key=lambda x: x['score'], reverse=True)
+
+        return results_dict
 
     @time_it
     def rerank_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
@@ -135,8 +212,11 @@ class VectorSemanticSearch:
             queries, top_k=top_k, rerank_threshold=rerank_threshold)
 
         # Organize results in the same format as other search methods
-        sorted_results = {query_line: sorted(res, key=lambda x: x['score'], reverse=True)
-                          for query_line, res in zip(queries, search_results_with_reranking)}
+        sorted_results = {
+            query_line: [{'text': res['document'], 'score': res['score']}
+                         for res in sorted(res_list, key=lambda x: x['score'], reverse=True)]
+            for query_line, res_list in zip(queries, search_results_with_reranking)
+        }
 
         return sorted_results
 
@@ -203,44 +283,9 @@ class VectorSemanticSearch:
 
         return sorted_results
 
-    @time_it
-    def fusion_search(self, queries: str | list[str]) -> Dict[str, List[Dict[str, float]]]:
-        from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
-        from llama_index.core.schema import Document
-        from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_LARGE_EMBED_MODEL
-        from jet.llm.query import setup_index
-
-        if type(queries) == str:
-            queries = [queries]
-
-        documents = [Document(text=candidate) for candidate in self.candidates]
-
-        chunk_size = 256
-        chunk_overlap = 40
-        score_threshold = 0.2
-        top_k = None
-        embed_model = OLLAMA_SMALL_EMBED_MODEL
-
-        query_nodes = setup_index(
-            documents,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            embed_model=embed_model,
-        )
-
-        all_results = []
-        for query in queries:
-            result = query_nodes(
-                query, fusion_mode=FUSION_MODES.RELATIVE_SCORE, threshold=score_threshold, top_k=top_k)
-
-            all_results.extend(
-                [{"text": node.text, "score": node.score} for node in result["nodes"]])
-        sorted_results = sorted(
-            all_results, key=lambda x: x['score'], reverse=True)
-        return sorted_results
-
     @staticmethod
     def parallel_tokenize(paths):
+        """Tokenizes paths using multiprocessing."""
         from multiprocessing import Pool
         with Pool(processes=4) as pool:
             chunk_size = len(paths) // 4

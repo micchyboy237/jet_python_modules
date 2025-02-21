@@ -70,11 +70,19 @@ def setup_retrievers(index: VectorStoreIndex, initial_similarity_k: int, final_s
         similarity_top_k=initial_similarity_k,
     )
 
-    bm25_retriever = BM25Retriever.from_defaults(
-        docstore=index.docstore, similarity_top_k=final_similarity_k
-    )
+    bm25_retriever = get_bm25_retriever(index, initial_similarity_k)
 
     return [vector_retriever, bm25_retriever]
+
+
+def get_bm25_retriever(index: VectorStoreIndex, similarity_k: int):
+    from llama_index.retrievers.bm25 import BM25Retriever
+
+    retriever = BM25Retriever.from_defaults(
+        docstore=index.docstore, similarity_top_k=similarity_k
+    )
+
+    return retriever
 
 
 def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MODES, final_similarity_k: int):
@@ -299,7 +307,8 @@ def setup_index(
     sub_chunk_sizes: Optional[list[int]] = None,
     with_hierarchy: Optional[bool] = None,
     embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
-    mode: Optional[Literal["fusion", "hierarchy", "deeplake"]] = "fusion",
+    mode: Optional[Literal["fusion", "bm25",
+                           "hierarchy", "deeplake"]] = "fusion",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
     json_attributes: Optional[list[str]] = [],
     exclude_json_attributes: Optional[list[str]] = [],
@@ -366,7 +375,7 @@ def setup_index(
             embed_model=OllamaEmbedding(model_name=embed_model),
         )
 
-        def search_hierarchy_func(
+        def search_func(
             query: str,
             score_threshold: float = 0.0,
             top_k: Optional[int] = None,
@@ -400,7 +409,7 @@ def setup_index(
             return result
 
         wrapper = SearchWrapper(path_or_docs, setup_index,
-                                search_hierarchy_func, **kwargs)
+                                search_func, **kwargs)
 
     elif mode == "deeplake":
         store_path = kwargs["store_path"]
@@ -414,7 +423,7 @@ def setup_index(
             verbose=kwargs.get("verbose", False),
         )
 
-        def search_deeplake_func(
+        def search_func(
             query: str,
             score_threshold: float = 0.0,
             top_k: Optional[int] = None,
@@ -448,7 +457,46 @@ def setup_index(
             return result
 
         wrapper = SearchWrapper(path_or_docs, setup_index,
-                                search_deeplake_func, **kwargs)
+                                search_func, **kwargs)
+
+    elif mode == "bm25":
+        index = VectorStoreIndex(
+            all_nodes,
+            show_progress=True,
+            embed_model=OllamaEmbedding(model_name=embed_model),
+        )
+
+        def search_func(
+            query: str,
+            score_threshold: float = 0.0,
+            top_k: Optional[int] = None,
+            **kwargs
+        ):
+            similarity_k = top_k if top_k and top_k < len(
+                all_nodes) else len(all_nodes)
+            retriever = get_bm25_retriever(index, similarity_k)
+
+            retrieved_nodes: list[NodeWithScore] = retriever.retrieve(query)
+
+            filtered_nodes: list[NodeWithScore] = [
+                node for node in retrieved_nodes if node.score > score_threshold]
+            if top_k:
+                filtered_nodes = filtered_nodes[:top_k]
+
+            texts = [node.text for node in filtered_nodes]
+
+            # contexts = clean_texts(filtered_nodes)
+
+            result = {
+                "nodes": filtered_nodes,
+                "texts": texts,
+                # "contexts": contexts,
+            }
+
+            return result
+
+        wrapper = SearchWrapper(path_or_docs, setup_index,
+                                search_func, **kwargs)
 
     else:
         index = VectorStoreIndex(
@@ -457,7 +505,7 @@ def setup_index(
             embed_model=OllamaEmbedding(model_name=embed_model),
         )
 
-        def search_fusion_func(
+        def search_func(
             query: str,
             score_threshold: float = 0.0,
             top_k: Optional[int] = None,
@@ -495,7 +543,7 @@ def setup_index(
             return result
 
         wrapper = SearchWrapper(path_or_docs, setup_index,
-                                search_fusion_func, **kwargs)
+                                search_func, **kwargs)
 
     if isinstance(path_or_docs, str):
         _active_search_wrappers[current_hash_key] = wrapper
