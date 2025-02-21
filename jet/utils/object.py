@@ -61,10 +61,35 @@ def get_values_by_paths(data: dict[str, Any], attr_paths: list[str]) -> list[Any
     return values
 
 
+def extract_values_by_paths(data: dict[str, Any], attr_paths: list[str]) -> dict[str, Any]:
+    result = {}
+
+    for path in attr_paths:
+        keys = path.split('.')
+        value = data
+        current_dict = result
+
+        for i, key in enumerate(keys):
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+
+                if i == len(keys) - 1:
+                    current_dict[key] = value
+                else:
+                    if key not in current_dict:
+                        current_dict[key] = {}
+                    current_dict = current_dict[key]
+            else:
+                break
+
+    return result
+
+
 __all__ = [
     "check_object_type",
     "print_types_recursive",
     "get_values_by_paths",
+    "extract_values_by_paths",
 ]
 
 # Example usage
@@ -80,6 +105,10 @@ if __name__ == "__main__":
 
     result = get_values_by_paths(data, attr_paths)
     print(result)  # Output: [None, 'Thirty', 0]
+
+    result = extract_values_by_paths(data, attr_paths)
+    # Output: {'name': None, 'age': 'Thirty', 'address': {'country': 0}}
+    print(result)
 
     # Check if an integer is of type 'int'
     number = 42

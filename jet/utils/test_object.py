@@ -2,7 +2,7 @@ import json
 import unittest
 from typing import TypedDict
 from dataclasses import dataclass
-from jet.utils.object import check_object_type, get_class_name
+from jet.utils.object import check_object_type, get_class_name, extract_values_by_paths
 
 
 class TestCheckObjectType(unittest.TestCase):
@@ -88,6 +88,42 @@ class TestGetClassName(unittest.TestCase):
     def test_non_typed_dict(self):
         obj = {"key1": "value1", "key2": 123}
         self.assertEqual(get_class_name(obj), "dict")
+
+
+class TesExtractValuesByPaths(unittest.TestCase):
+    def test_basic_user_info(self):
+        data = {"user": {"name": "Alice", "age": 30, "email": "alice@example.com"}}
+        paths = ["user.name", "user.age"]
+        expected = {"user": {"name": "Alice", "age": 30}}
+        self.assertEqual(extract_values_by_paths(data, paths), expected)
+
+    def test_nested_order_details(self):
+        data = {"order": {"id": 123, "items": {"item1": {"name": "Laptop",
+                                                         "price": 999}, "item2": {"name": "Mouse", "price": 49}}, "total": 1048}}
+        paths = ["order.items.item1.name", "order.total"]
+        expected = {
+            "order": {"items": {"item1": {"name": "Laptop"}}, "total": 1048}}
+        self.assertEqual(extract_values_by_paths(data, paths), expected)
+
+    def test_missing_keys(self):
+        data = {"profile": {"username": "john_doe", "location": "USA"}}
+        paths = ["profile.username", "profile.email", "settings.theme"]
+        expected = {"profile": {"username": "john_doe"}}
+        self.assertEqual(extract_values_by_paths(data, paths), expected)
+
+    def test_partial_user_address(self):
+        data = {"user": {"address": {"city": "New York",
+                                     "zipcode": "10001"}, "phone": "123-456-7890"}}
+        paths = ["user.address", "user.phone"]
+        expected = {"user": {"address": {"city": "New York",
+                                         "zipcode": "10001"}, "phone": "123-456-7890"}}
+        self.assertEqual(extract_values_by_paths(data, paths), expected)
+
+    def test_root_level_keys(self):
+        data = {"id": 1, "name": "Sample", "details": {"category": "Tech"}}
+        paths = ["id", "details"]
+        expected = {"id": 1, "details": {"category": "Tech"}}
+        self.assertEqual(extract_values_by_paths(data, paths), expected)
 
 
 if __name__ == "__main__":
