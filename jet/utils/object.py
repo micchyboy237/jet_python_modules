@@ -61,24 +61,31 @@ def get_values_by_paths(data: dict[str, Any], attr_paths: list[str]) -> list[Any
     return values
 
 
-def extract_values_by_paths(data: dict[str, Any], attr_paths: list[str]) -> dict[str, Any]:
+def extract_values_by_paths(data: dict[str, Any], attr_paths: list[str], is_flattened: bool = False) -> dict[str, Any]:
     result = {}
 
     for path in attr_paths:
         keys = path.split('.')
         value = data
-        current_dict = result
 
         for i, key in enumerate(keys):
             if isinstance(value, dict) and key in value:
                 value = value[key]
 
                 if i == len(keys) - 1:
-                    current_dict[key] = value
-                else:
-                    if key not in current_dict:
-                        current_dict[key] = {}
-                    current_dict = current_dict[key]
+                    last_key = keys[-1]
+                    if is_flattened:
+                        if last_key in result:
+                            raise ValueError(
+                                f"Duplicate key conflict in flattened result: {last_key}")
+                        result[last_key] = value
+                    else:
+                        current_dict = result
+                        for k in keys[:-1]:
+                            if k not in current_dict:
+                                current_dict[k] = {}
+                            current_dict = current_dict[k]
+                        current_dict[last_key] = value
             else:
                 break
 

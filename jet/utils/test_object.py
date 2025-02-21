@@ -90,12 +90,15 @@ class TestGetClassName(unittest.TestCase):
         self.assertEqual(get_class_name(obj), "dict")
 
 
-class TesExtractValuesByPaths(unittest.TestCase):
+class TestExtractValuesByPaths(unittest.TestCase):
     def test_basic_user_info(self):
         data = {"user": {"name": "Alice", "age": 30, "email": "alice@example.com"}}
         paths = ["user.name", "user.age"]
         expected = {"user": {"name": "Alice", "age": 30}}
+        expected_flattened = {"name": "Alice", "age": 30}
         self.assertEqual(extract_values_by_paths(data, paths), expected)
+        self.assertEqual(extract_values_by_paths(
+            data, paths, True), expected_flattened)
 
     def test_nested_order_details(self):
         data = {"order": {"id": 123, "items": {"item1": {"name": "Laptop",
@@ -103,27 +106,46 @@ class TesExtractValuesByPaths(unittest.TestCase):
         paths = ["order.items.item1.name", "order.total"]
         expected = {
             "order": {"items": {"item1": {"name": "Laptop"}}, "total": 1048}}
+        expected_flattened = {"name": "Laptop", "total": 1048}
         self.assertEqual(extract_values_by_paths(data, paths), expected)
+        self.assertEqual(extract_values_by_paths(
+            data, paths, True), expected_flattened)
 
     def test_missing_keys(self):
         data = {"profile": {"username": "john_doe", "location": "USA"}}
         paths = ["profile.username", "profile.email", "settings.theme"]
         expected = {"profile": {"username": "john_doe"}}
+        expected_flattened = {"username": "john_doe"}
         self.assertEqual(extract_values_by_paths(data, paths), expected)
+        self.assertEqual(extract_values_by_paths(
+            data, paths, True), expected_flattened)
 
     def test_partial_user_address(self):
         data = {"user": {"address": {"city": "New York",
                                      "zipcode": "10001"}, "phone": "123-456-7890"}}
-        paths = ["user.address", "user.phone"]
+        paths = ["user.address.city", "user.address.zipcode", "user.phone"]
         expected = {"user": {"address": {"city": "New York",
                                          "zipcode": "10001"}, "phone": "123-456-7890"}}
+        expected_flattened = {"city": "New York",
+                              "zipcode": "10001", "phone": "123-456-7890"}
         self.assertEqual(extract_values_by_paths(data, paths), expected)
+        self.assertEqual(extract_values_by_paths(
+            data, paths, True), expected_flattened)
 
     def test_root_level_keys(self):
         data = {"id": 1, "name": "Sample", "details": {"category": "Tech"}}
-        paths = ["id", "details"]
+        paths = ["id", "details.category"]
         expected = {"id": 1, "details": {"category": "Tech"}}
+        expected_flattened = {"id": 1, "category": "Tech"}
         self.assertEqual(extract_values_by_paths(data, paths), expected)
+        self.assertEqual(extract_values_by_paths(
+            data, paths, True), expected_flattened)
+
+    def test_duplicate_keys_error(self):
+        data = {"order": {"item": {"name": "Laptop", "total": 100}, "total": 200}}
+        paths = ["order.item.name", "order.item.total", "order.total"]
+        with self.assertRaises(ValueError):
+            extract_values_by_paths(data, paths, True)
 
 
 if __name__ == "__main__":
