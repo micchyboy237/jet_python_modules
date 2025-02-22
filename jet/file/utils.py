@@ -74,8 +74,9 @@ def load_file(input_file: str) -> Optional[str | dict | list]:
 
     # Check if file exists
     if not os.path.exists(input_file):
-        logger.error(f"File does not exist: {input_file}")
-        raise FileNotFoundError(f"File not found: {input_file}")
+        logger.warning(f"File does not exist: {input_file}")
+        # raise FileNotFoundError(f"File not found: {input_file}")
+        return None
 
     try:
         if input_file.endswith(".json"):
