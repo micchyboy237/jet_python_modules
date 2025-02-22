@@ -300,7 +300,7 @@ class SearchWrapper:
             if current_modified and self.last_modified and current_modified > self.last_modified:
                 logger.warning("File has changed, reloading index...")
                 self.search_func = self.setup_index_func(
-                    self.path_or_docs, **self.kwargs).search_func
+                    self.path_or_docs, **self.kwargs)
                 self.last_modified = current_modified
 
     def __call__(self, query: str, *args, **kwargs):
