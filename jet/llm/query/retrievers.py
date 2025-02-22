@@ -318,7 +318,7 @@ def setup_index(
     with_hierarchy: Optional[bool] = None,
     embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
     mode: Optional[Literal["annoy", "fusion", "bm25",
-                           "hierarchy", "deeplake"]] = "annoy",
+                           "hierarchy", "deeplake"]] = "fusion",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
     json_attributes: Optional[list[str]] = [],
     exclude_json_attributes: Optional[list[str]] = [],
