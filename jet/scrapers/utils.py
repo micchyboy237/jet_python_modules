@@ -66,7 +66,7 @@ def clean_other_characters(content: str) -> str:
 
 def extract_sentences(content: str) -> list[str]:
     """Extract sentences from the content."""
-    from jet.data.extractor import Textractor
+    from jet.libs.txtai.pipeline import Textractor
     minlength = None
     textractor_sentences = Textractor(sentences=True, minlength=minlength)
     sentences = textractor_sentences(content)
@@ -75,7 +75,7 @@ def extract_sentences(content: str) -> list[str]:
 
 def extract_paragraphs(content: str) -> list[str]:
     """Extract paragraphs from the content."""
-    from jet.data.extractor import Textractor
+    from jet.libs.txtai.pipeline import Textractor
     minlength = None
     textractor_paragraphs = Textractor(paragraphs=True, minlength=minlength)
     paragraphs = textractor_paragraphs(content)
@@ -84,7 +84,7 @@ def extract_paragraphs(content: str) -> list[str]:
 
 def extract_sections(content: str) -> list[str]:
     """Extract sections from the content."""
-    from jet.data.extractor import Textractor
+    from jet.libs.txtai.pipeline import Textractor
     minlength = None
     textractor_sections = Textractor(sections=True, minlength=minlength)
     sections = textractor_sections(content)

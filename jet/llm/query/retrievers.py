@@ -36,6 +36,9 @@ from utils.data import generate_key
 from jet.logger import logger
 from jet.actions import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
+
+from helpers.cache import LRUCache
+
 # from jet.llm.ollama import initialize_ollama_settings
 # initialize_ollama_settings()
 
@@ -150,9 +153,13 @@ def load_documents(
             if json_attributes:
                 json_parts_dict = extract_values_by_paths(
                     item, json_attributes, is_flattened=True) if json_attributes else None
-                text_parts = [f"{attr.title().replace('_', ' ')}: {str(value)}"
-                              for attr, value in json_parts_dict.items()
-                              if attr in item and value]
+                text_parts = []
+                for key, value in json_parts_dict.items():
+                    value_str = str(value)
+                    if isinstance(value, list):
+                        value_str = ", ".join(value)
+                    text_parts.append(
+                        f"{key.title().replace('_', ' ')}: {value_str}")
             else:
                 # Use all attributes
                 text_parts = [f"{key.title().replace('_', ' ')}: {str(value)}"
@@ -267,7 +274,8 @@ def setup_semantic_search(
     return search_func
 
 
-_active_search_wrappers = {}
+# _active_search_wrappers = {}
+_active_search_wrappers = LRUCache(max_size=5)
 
 
 def get_file_timestamp(file_path: str) -> Optional[float]:
@@ -290,7 +298,7 @@ class SearchWrapper:
         if isinstance(self.path_or_docs, str):
             current_modified = get_file_timestamp(self.path_or_docs)
             if current_modified and self.last_modified and current_modified > self.last_modified:
-                print("File has changed, reloading index...")
+                logger.warning("File has changed, reloading index...")
                 self.search_func = self.setup_index_func(
                     self.path_or_docs, **self.kwargs).search_func
                 self.last_modified = current_modified
@@ -309,8 +317,8 @@ def setup_index(
     sub_chunk_sizes: Optional[list[int]] = None,
     with_hierarchy: Optional[bool] = None,
     embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
-    mode: Optional[Literal["fusion", "bm25",
-                           "hierarchy", "deeplake"]] = "fusion",
+    mode: Optional[Literal["annoy", "fusion", "bm25",
+                           "hierarchy", "deeplake"]] = "annoy",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
     json_attributes: Optional[list[str]] = [],
     exclude_json_attributes: Optional[list[str]] = [],
@@ -335,7 +343,7 @@ def setup_index(
         current_hash_key = generate_key(*cache_values)
 
     if isinstance(path_or_docs, str) and current_hash_key in _active_search_wrappers:
-        return _active_search_wrappers[current_hash_key]
+        return _active_search_wrappers.get(current_hash_key)
 
     documents: list[Document]
     if isinstance(path_or_docs, str):
@@ -448,11 +456,58 @@ def setup_index(
                 for text, metadata, score in zip(results["text"], results["metadata"], results["score"])
             ]
 
+            filtered_nodes: list[NodeWithScore] = [
+                node for node in nodes_with_scores if node.score > score_threshold]
+
             # contexts = clean_texts(nodes_with_scores)
 
             result = {
-                "nodes": nodes_with_scores,
+                "nodes": filtered_nodes,
                 "texts": results["text"],
+                # "contexts": contexts,
+            }
+
+            return result
+
+        wrapper = SearchWrapper(path_or_docs, setup_index,
+                                search_func, **kwargs)
+
+    elif mode == "annoy":
+        from langchain_community.vectorstores import Annoy
+        from langchain_huggingface import HuggingFaceEmbeddings
+
+        model_name = "sentence-transformers/all-mpnet-base-v2"
+        embeddings_func = HuggingFaceEmbeddings(model_name=model_name)
+
+        texts = [doc.text for doc in all_nodes]
+        metadatas = [doc.metadata for doc in all_nodes]
+        vector_store = Annoy.from_texts(
+            texts, embeddings_func, metadatas=metadatas)
+
+        def search_func(
+            query: str,
+            score_threshold: float = 0.0,
+            top_k: Optional[int] = None,
+            **kwargs
+        ):
+            similarity_top_k = top_k if top_k and top_k < len(
+                all_nodes) else len(all_nodes)
+            results = vector_store.similarity_search_with_score(
+                query, k=similarity_top_k)
+            nodes_with_scores = [
+                NodeWithScore(
+                    node=TextNode(text=doc.page_content,
+                                  metadata=doc.metadata),
+                    score=score
+                )
+                for doc, score in results
+            ]
+            filtered_nodes: list[NodeWithScore] = [
+                node for node in nodes_with_scores if node.score > score_threshold]
+
+            result = {
+                "nodes": filtered_nodes,
+                "texts": texts,
                 # "contexts": contexts,
             }
 
@@ -548,7 +603,7 @@ def setup_index(
                                 search_func, **kwargs)
 
     if isinstance(path_or_docs, str):
-        _active_search_wrappers[current_hash_key] = wrapper
+        _active_search_wrappers.put(current_hash_key, wrapper)
 
     return wrapper
 

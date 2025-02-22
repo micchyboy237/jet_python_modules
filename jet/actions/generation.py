@@ -17,10 +17,10 @@ from jet.llm.llm_types import (
     MessageRole,
     Track,
 )
-from shared.events import EventSettings
 from jet.utils.class_utils import get_class_name
 from jet.logger import logger
 from jet.transformers import make_serializable
+from shared.setup.events import EventSettings
 
 DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,

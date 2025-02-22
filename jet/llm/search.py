@@ -3,9 +3,9 @@ import json
 import os
 import numpy as np
 from datasets import Dataset
-from txtai.vectors import VectorsFactory
-from txtai.ann import ANNFactory
-from txtai.scoring import ScoringFactory
+from jet.libs.txtai.vectors import VectorsFactory
+from jet.libs.txtai.ann import ANNFactory
+from jet.libs.txtai.scoring import ScoringFactory
 from jet.logger import logger
 
 

@@ -3,7 +3,7 @@ import httpx
 from httpx._types import HeaderTypes
 from jet.transformers.object import make_serializable
 from pydantic.main import BaseModel
-from shared.globals import settings
+from shared.setup.api_config import api_request_headers
 
 
 # Create an HTTPX Client with global headers
@@ -12,6 +12,7 @@ class HttpxClient:
         self.client = httpx.Client(
             headers={
                 # **settings['request']['headers'],
+                **api_request_headers,
                 **headers
             }
         )

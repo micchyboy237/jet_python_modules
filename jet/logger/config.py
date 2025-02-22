@@ -48,7 +48,7 @@ class ColoredFormatter(logging.Formatter):
 
 # Configure logger
 def configure_logger():
-    from shared.globals import import_tracker, RefreshableLoggerHandler
+    from shared.setup.logger_hooks import import_tracker, RefreshableLoggerHandler
 
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)

@@ -9,7 +9,7 @@ from langchain_core.outputs import ChatGeneration
 from jet.decorators.error import wrap_retry
 from ollama import AsyncClient, Client, Message, Options
 
-from shared.events import EventSettings
+from shared.setup.events import EventSettings
 
 DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,

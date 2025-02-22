@@ -4,7 +4,7 @@ Embeddings Load Function Module
 
 import os
 import torch
-from txtai.embeddings import (
+from jet.libs.txtai.embeddings import (
     Embeddings as TxtaiEmbeddings,
     Configuration,
     Reducer,
