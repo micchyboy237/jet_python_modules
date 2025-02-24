@@ -12,7 +12,7 @@ from llama_index.core.readers.file.base import SimpleDirectoryReader
 from llama_index.core.retrievers.recursive_retriever import RecursiveRetriever
 from llama_index.core.schema import IndexNode, TransformComponent
 from tqdm import tqdm
-from jet.llm.utils import display_jet_source_nodes
+from jet.llm.utils.llama_index_utils import display_jet_source_nodes
 from jet.logger import logger
 
 

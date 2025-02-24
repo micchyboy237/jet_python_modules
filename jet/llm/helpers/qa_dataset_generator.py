@@ -14,7 +14,7 @@ from llama_index.core.llama_dataset.rag import LabelledRagDataExample, LabelledR
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.core.schema import Document
-from jet.llm.utils import display_jet_source_nodes
+from jet.llm.utils.llama_index_utils import display_jet_source_nodes
 import sys
 import logging
 from llama_index.core.evaluation import EvaluationResult, LabelledQADataset

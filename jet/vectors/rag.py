@@ -24,7 +24,7 @@ from llama_index.core.indices.query.query_transform.base import (
     StepDecomposeQueryTransform,
 )
 from llama_index.core.query_engine import BaseQueryEngine, MultiStepQueryEngine
-from jet.llm.utils import display_jet_source_node
+from jet.llm.utils.llama_index_utils import display_jet_source_node
 
 
 DEFAULT_SETTINGS = {

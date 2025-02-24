@@ -1,8 +1,10 @@
+from jet.data.utils import generate_unique_hash
+from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from collections import defaultdict
 from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
 from jet.decorators.error import wrap_retry
 from jet.decorators.function import retry_on_error
-from jet.llm.ollama.constants import DEFAULT_BASE_URL, DEFAULT_CONTEXT_WINDOW, DEFAULT_REQUEST_TIMEOUT, OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
+from jet.llm.ollama.constants import DEFAULT_BASE_URL, DEFAULT_CONTEXT_WINDOW, DEFAULT_EMBED_BATCH_SIZE, DEFAULT_REQUEST_TIMEOUT, OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.logger.timer import sleep_countdown
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse
@@ -14,6 +16,7 @@ from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms.callbacks import llm_chat_callback
 from llama_index.core.llms.llm import LLM
 from llama_index.core.prompts.base import PromptTemplate
+from llama_index.core.schema import BaseNode, TextNode
 from llama_index.core.types import PydanticProgramMode
 from llama_index.core.utils import set_global_tokenizer
 from llama_index.llms.ollama import Ollama as BaseOllama
@@ -462,6 +465,25 @@ class Ollama(BaseOllama):
 
 
 class OllamaEmbedding(BaseOllamaEmbedding):
+    base_url: str = Field(
+        default="http://localhost:11434",
+        description="Base url the model is hosted by Ollama",
+    )
+    model_name: Optional[OLLAMA_EMBED_MODELS] = Field(
+        default="mxbai-embed-large",
+        description="The Ollama model to use.",
+    )
+    embed_batch_size: int = Field(
+        default=DEFAULT_EMBED_BATCH_SIZE,
+        description="The batch size for embedding calls.",
+        gt=0,
+        le=2048,
+    )
+
+    def embed(self, texts: Union[str, Sequence[str]] = '') -> list[float] | list[list[float]]:
+        """Calls get_general_text_embedding to get the embeddings."""
+        return self.get_general_text_embedding(texts)
+
     def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float] | list[list[float]]:
         """Get Ollama embedding with retry mechanism."""
         logger.orange("Calling OllamaEmbedding embed...")
@@ -496,6 +518,139 @@ class OllamaEmbedding(BaseOllamaEmbedding):
             return embeddings
 
         return wrap_retry(run)
+
+
+def embed_nodes(
+    nodes: Sequence[BaseNode] | Sequence[str], embed_model: OLLAMA_EMBED_MODELS | str, show_progress: bool = False
+) -> dict[str, list[float]]:
+    """Get embeddings of the given nodes, run embedding model if necessary.
+
+    Args:
+        nodes (Sequence[BaseNode] | Sequence[str]): The nodes or texts to embed.
+        embed_model (OLLAMA_EMBED_MODELS): The embedding model to use.
+        show_progress (bool): Whether to show progress bar.
+
+    Returns:
+        dict[str, list[float]]: A map from node id to embedding.
+    """
+    from jet.llm.utils.embeddings import get_ollama_embedding_function
+
+    id_to_embed_map: dict[str, list[float]] = {}
+
+    texts_to_embed: list[str] = []
+    ids_to_embed: list[str] = []
+
+    if isinstance(nodes[0], BaseNode):
+        texts_to_embed = [node.text for node in nodes]
+        ids_to_embed = [node.node_id for node in nodes]
+    else:
+        texts_to_embed = nodes
+        ids_to_embed = [generate_unique_hash(text) for text in nodes]
+
+    embedding_function = get_ollama_embedding_function(
+        model=embed_model
+    )
+    new_embeddings = embedding_function(texts_to_embed)
+
+    for new_id, text_embedding in zip(ids_to_embed, new_embeddings):
+        id_to_embed_map[new_id] = text_embedding
+
+    return id_to_embed_map
+
+
+async def async_embed_nodes(
+    nodes: Sequence[BaseNode] | Sequence[str], embed_model: OLLAMA_EMBED_MODELS | str, show_progress: bool = False
+) -> dict[str, list[float]]:
+    """Async get embeddings of the given nodes, run embedding model if necessary.
+
+    Args:
+        nodes (Sequence[BaseNode] | Sequence[str]): The nodes or texts to embed.
+        embed_model (OLLAMA_EMBED_MODELS): The embedding model to use.
+        show_progress (bool): Whether to show progress bar.
+
+    Returns:
+        dict[str, list[float]]: A map from node id to embedding.
+    """
+    from jet.llm.utils.embeddings import get_ollama_embedding_function
+
+    id_to_embed_map: dict[str, list[float]] = {}
+
+    texts_to_embed: list[str] = []
+    ids_to_embed: list[str] = []
+
+    if isinstance(nodes[0], BaseNode):
+        texts_to_embed = [node.text for node in nodes]
+        ids_to_embed = [node.node_id for node in nodes]
+    else:
+        texts_to_embed = nodes
+        ids_to_embed = [generate_unique_hash(text) for text in nodes]
+
+    embedding_function = get_ollama_embedding_function(
+        model=embed_model
+    )
+    new_embeddings = embedding_function(texts_to_embed)
+
+    for new_id, text_embedding in zip(ids_to_embed, new_embeddings):
+        id_to_embed_map[new_id] = text_embedding
+
+    return id_to_embed_map
+
+
+class VectorStoreIndex(BaseVectorStoreIndex):
+    model_name: OLLAMA_EMBED_MODELS = Field(
+        default="mxbai-embed-large",
+        description="The Ollama model to use.",
+    )
+
+    def _get_node_with_embedding(
+        self,
+        nodes: Sequence[BaseNode],
+        show_progress: bool = False,
+    ) -> list[BaseNode]:
+        """
+        Get tuples of id, node, and embedding.
+
+        Allows us to store these nodes in a vector store.
+        Embeddings are called in batches.
+
+        """
+        id_to_embed_map = embed_nodes(
+            nodes, self._embed_model.model_name, show_progress=show_progress
+        )
+
+        results = []
+        for node in nodes:
+            embedding = id_to_embed_map[node.node_id]
+            result = node.model_copy()
+            result.embedding = embedding
+            results.append(result)
+        return results
+
+    async def _aget_node_with_embedding(
+        self,
+        nodes: Sequence[BaseNode],
+        show_progress: bool = False,
+    ) -> list[BaseNode]:
+        """
+        Asynchronously get tuples of id, node, and embedding.
+
+        Allows us to store these nodes in a vector store.
+        Embeddings are called in batches.
+
+        """
+        id_to_embed_map = await async_embed_nodes(
+            nodes=nodes,
+            embed_model=self._embed_model.model_name,
+            show_progress=show_progress,
+        )
+
+        results = []
+        for node in nodes:
+            embedding = id_to_embed_map[node.node_id]
+            result = node.model_copy()
+            result.embedding = embedding
+            results.append(result)
+        return results
 
 
 class StreamCallbackHandler(BaseCallbackHandler):

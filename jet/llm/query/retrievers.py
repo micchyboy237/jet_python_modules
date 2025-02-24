@@ -3,10 +3,10 @@ import json
 import os
 from typing import Any, Callable, Literal, Optional
 from jet.file.utils import load_file
-from jet.llm.ollama.base import OllamaEmbedding
+from jet.llm.ollama.base import OllamaEmbedding, VectorStoreIndex
 from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_SMALL_LLM_MODEL
-from jet.llm.ollama.embeddings import get_ollama_embedding_function
-from jet.llm.models import OLLAMA_HF_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
+from jet.llm.utils.embeddings import get_ollama_embedding_function
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_HF_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.llm.query.cleaners import group_and_merge_texts_by_file_name
 from jet.llm.query.splitters import split_heirarchical_nodes, split_markdown_header_nodes, split_sub_nodes
 from jet.llm.retrievers.recursive import (
@@ -23,7 +23,7 @@ from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.schema import CBEventType
 from llama_index.core.indices import vector_store
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
+from llama_index.core import SimpleDirectoryReader, PromptTemplate
 from llama_index.core.node_parser.relational.hierarchical import get_leaf_nodes
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.base.base_retriever import BaseRetriever
@@ -31,7 +31,7 @@ from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.core.retrievers.recursive_retriever import RecursiveRetriever
 from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode, ImageNode
-from jet.llm.utils import display_jet_source_nodes
+from jet.llm.utils.llama_index_utils import display_jet_source_nodes
 from utils.data import generate_key
 from jet.logger import logger
 from jet.actions import call_ollama_chat
@@ -316,7 +316,7 @@ def setup_index(
     chunk_overlap: int = 40,
     sub_chunk_sizes: Optional[list[int]] = None,
     with_hierarchy: Optional[bool] = None,
-    embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
+    embed_model: Optional[OLLAMA_EMBED_MODELS] = OLLAMA_SMALL_EMBED_MODEL,
     mode: Optional[Literal["annoy", "fusion", "bm25",
                            "hierarchy", "deeplake"]] = "fusion",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],

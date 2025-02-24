@@ -11,7 +11,7 @@ from llama_index.core.llama_dataset.legacy.embedding import EmbeddingQAFinetuneD
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.core.schema import BaseNode, Document, MetadataMode
-from jet.llm.utils import display_jet_source_nodes
+from jet.llm.utils.llama_index_utils import display_jet_source_nodes
 import sys
 import logging
 from llama_index.core.evaluation import EvaluationResult
