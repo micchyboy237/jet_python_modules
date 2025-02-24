@@ -323,6 +323,7 @@ def setup_index(
     json_attributes: Optional[list[str]] = [],
     exclude_json_attributes: Optional[list[str]] = [],
     metadata_attributes: Optional[list[str]] = [],
+    disable_chunking: Optional[bool] = False,
     **kwargs
 ) -> SearchWrapper:
     global _active_search_wrappers
@@ -357,7 +358,10 @@ def setup_index(
     final_chunk_size: int = chunk_size if isinstance(
         chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
 
-    if split_mode:
+    if disable_chunking:
+        all_nodes = [TextNode(text=doc.text, metadata=doc.metadata)
+                     for doc in documents]
+    elif split_mode:
         if "markdown" in split_mode:
             all_nodes = split_markdown_header_nodes(documents)
     else:
