@@ -1,75 +1,59 @@
-from typing import Optional
-from jet.executor.command import run_command
-from jet.logger import logger
-import json
-import os
+from typing import List, Dict
+import spacy
 
-NER_MODEL = "urchade/gliner_small-v2.1"
-NER_STYLE = "ent"
-NER_LABELS = ["role", "application", "technology stack", "qualifications"]
+# Global cache for storing the loaded pipeline
+nlp_cache = None
 
 
-def determine_chunk_size(text: str) -> int:
-    """Dynamically set chunk size based on text length."""
-    length = len(text)
-    if length < 1000:
-        return 250
-    elif length < 3000:
-        return 350
-    else:
-        return 500
+def load_nlp_pipeline(model: str, labels: List[str], style: str, chunk_size: int):
+    global nlp_cache
+    if nlp_cache is None:
+        custom_spacy_config = {
+            "gliner_model": model,
+            "chunk_size": chunk_size,
+            "labels": labels,
+            "style": style
+        }
+        nlp_cache = spacy.blank("en")
+        nlp_cache.add_pipe("gliner_spacy", config=custom_spacy_config)
+    return nlp_cache
 
 
-def extract_named_entities(texts: list[str], *, model: str = NER_MODEL,
-                           labels: list[str] = NER_LABELS,
-                           style: str = NER_STYLE, chunk_size: Optional[int] = None) -> list[dict[str, str]]:
-    """Extract named entities from the given list of texts."""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    execute_file = os.path.join(current_dir, "ner_execute_file.py")
-
-    # Prepare texts in a way that they can be processed as a list
-    logger.info(f"Dynamic chunk size set to: {chunk_size}")
-    labels_json = json.dumps(labels)
-    texts_json = json.dumps(texts)
-
-    command_separator = "<sep>"
-    command_args = [
-        "python",
-        execute_file,
-        model,
-        texts_json,
-        labels_json,
-        style,
-    ]
-    command = command_separator.join(command_args)
-
-    error_lines = []
-    debug_lines = []
-    entities = []
-
-    logger.newline()
-    logger.debug("Extracted Entities:")
-
-    for line in run_command(command, separator=command_separator):
-        if line.startswith('error: '):
-            message = line[7:-2]
-            error_lines.append(message)
-            logger.error(message)
-        elif line.startswith('result: '):
-            message = line[8:-2]
-            try:
-                result = json.loads(message)
-
-                entities.append(result)
-            except json.JSONDecodeError:
-                logger.error(f"Failed to parse JSON result: {message}")
+def merge_dot_prefixed_words(text: str) -> str:
+    tokens = text.split()
+    merged_tokens = []
+    for i, token in enumerate(tokens):
+        if token.startswith(".") and merged_tokens and not merged_tokens[-1].startswith("."):
+            merged_tokens[-1] += token
+        elif merged_tokens and merged_tokens[-1].endswith("."):
+            merged_tokens[-1] += token
         else:
-            message = line[6:-2]
-            debug_lines.append(message)
-            logger.debug(message)
+            merged_tokens.append(token)
+    return " ".join(merged_tokens)
 
-    if not entities and debug_lines:
-        logger.debug("\n".join(debug_lines))
-        logger.error("\n".join(error_lines))
 
-    return entities
+def get_unique_entities(entities: List[Dict]) -> List[Dict]:
+    best_entities = {}
+    for entity in entities:
+        text = entity["text"]
+        words = [t.replace(" ", "") for t in text.split(" ") if t]
+        normalized_text = " ".join(words)
+        label = entity["label"]
+        score = float(entity["score"])
+        entity["text"] = normalized_text
+        key = f"{label}-{str(normalized_text)}"
+        if key not in best_entities or score > float(best_entities[key]["score"]):
+            entity["score"] = score
+            best_entities[key] = entity
+    return list(best_entities.values())
+
+
+def extract_entities_from_text(nlp, text: str) -> List[Dict]:
+    doc = nlp(text)
+    return get_unique_entities([
+        {
+            "text": merge_dot_prefixed_words(entity.text),
+            "label": entity.label_,
+            "score": float(entity._.score)
+        } for entity in doc.ents
+    ])
