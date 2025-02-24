@@ -1,8 +1,15 @@
-from typing import List, Dict
+from typing import List, Dict, TypedDict
+from shared.data_types.job import JobEntity
 import spacy
 
 # Global cache for storing the loaded pipeline
 nlp_cache = None
+
+
+class Entity(TypedDict):
+    text: str
+    label: str
+    score: float
 
 
 def load_nlp_pipeline(model: str, labels: List[str], style: str, chunk_size: int):
@@ -32,8 +39,8 @@ def merge_dot_prefixed_words(text: str) -> str:
     return " ".join(merged_tokens)
 
 
-def get_unique_entities(entities: List[Dict]) -> List[Dict]:
-    best_entities = {}
+def get_unique_entities(entities: List[Entity]) -> List[Entity]:
+    best_entities: Dict[str, Entity] = {}
     for entity in entities:
         text = entity["text"]
         words = [t.replace(" ", "") for t in text.split(" ") if t]
@@ -48,12 +55,30 @@ def get_unique_entities(entities: List[Dict]) -> List[Dict]:
     return list(best_entities.values())
 
 
-def extract_entities_from_text(nlp, text: str) -> List[Dict]:
+def extract_entities_from_text(nlp, text: str) -> JobEntity:
     doc = nlp(text)
-    return get_unique_entities([
+    results = get_unique_entities([
         {
             "text": merge_dot_prefixed_words(entity.text),
             "label": entity.label_,
             "score": float(entity._.score)
         } for entity in doc.ents
     ])
+
+    entities_dict = {}
+
+    # Loop through the results
+    for entity in results:
+        # Get the label for grouping (assuming it's the 'label' label or another key)
+        label = entity['label']
+        label = label.lower().replace(" ", "_")
+
+        # If the label key does not exist in the dictionary, create it
+        if label not in entities_dict:
+            entities_dict[label] = []
+
+        # Append the entity to the respective label group
+        if entity['text'] not in entities_dict[label]:
+            entities_dict[label].append(entity['text'])
+
+    return entities_dict
