@@ -6,6 +6,13 @@ from .import_modules import (
     make_serializable,
     format_json,
 
+    inspect_original_script_path,
+    print_inspect_original_script_path,
+    print_inspect_original_script_path_grouped,
+    get_stack_frames,
+    find_stack_frames,
+    get_current_running_function,
+
     class_to_string,
     validate_class,
     get_class_name,
@@ -46,6 +53,18 @@ def inject_globals():
         builtins.make_serializable = make_serializable
     if not hasattr(builtins, "format_json"):
         builtins.format_json = format_json
+    if not hasattr(builtins, "inspect_original_script_path"):
+        builtins.inspect_original_script_path = inspect_original_script_path
+    if not hasattr(builtins, "print_inspect_original_script_path"):
+        builtins.print_inspect_original_script_path = print_inspect_original_script_path
+    if not hasattr(builtins, "print_inspect_original_script_path_grouped"):
+        builtins.print_inspect_original_script_path_grouped = print_inspect_original_script_path_grouped
+    if not hasattr(builtins, "get_stack_frames"):
+        builtins.get_stack_frames = get_stack_frames
+    if not hasattr(builtins, "find_stack_frames"):
+        builtins.find_stack_frames = find_stack_frames
+    if not hasattr(builtins, "get_current_running_function"):
+        builtins.get_current_running_function = get_current_running_function
     if not hasattr(builtins, "class_to_string"):
         builtins.class_to_string = class_to_string
     if not hasattr(builtins, "validate_class"):

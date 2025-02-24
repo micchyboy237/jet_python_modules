@@ -5,7 +5,6 @@ from typing import Optional, TypedDict
 
 from shared.setup.types import BaseEventData
 from jet.logger import logger
-from jet.transformers.object import make_serializable
 
 
 class INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE(TypedDict):
@@ -152,6 +151,15 @@ def get_current_running_function():
         print(f"Currently running function: {current_function}")
         return current_function
 
+
+__all__ = [
+    "inspect_original_script_path",
+    "print_inspect_original_script_path",
+    "print_inspect_original_script_path_grouped",
+    "get_stack_frames",
+    "find_stack_frames",
+    "get_current_running_function",
+]
 
 # Example usage
 if __name__ == "__main__":

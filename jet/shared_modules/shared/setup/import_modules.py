@@ -2,10 +2,15 @@
 # Shared modules should be on top
 from jet.logger import logger
 
+from jet.transformers import *
+
+from jet.utils.inspect_utils import *
 from jet.utils.class_utils import *
 from jet.utils.commands import *
 from jet.utils.object import *
+
 # from jet.validation import *
-from jet.transformers import *
+
 # from jet.file import *
+
 from jet.scrapers.utils import *

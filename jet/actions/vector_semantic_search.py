@@ -50,6 +50,8 @@ class VectorSemanticSearch:
     @time_it
     def vector_based_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
         """Performs a batch search using vector similarity."""
+        from sentence_transformers import util
+
         model = self.get_model()
 
         data_embeddings = model.encode(
@@ -57,31 +59,16 @@ class VectorSemanticSearch:
         query_embeddings = model.encode(
             queries, convert_to_tensor=True, clean_up_tokenization_spaces=True)
 
-        from sentence_transformers import util
-        scores = [util.cos_sim(q_emb, data_embeddings)[0].cpu().numpy()
-                  for q_emb in query_embeddings]
+        results = {}
+        for query, q_emb in zip(queries, query_embeddings):
+            scores = util.cos_sim(q_emb, data_embeddings)[0].cpu().numpy()
+            sorted_results = sorted(
+                zip(self.candidates, scores), key=lambda x: x[1], reverse=True
+            )
+            results[query] = [{'text': text, 'score': score}
+                              for text, score in sorted_results]
 
-        results = [(self.candidates[i], score)
-                   for score_list in scores for i, score in enumerate(score_list)]
-
-        def group_list(input_list):
-            query_results = [input_list[i:i + 3]
-                             for i in range(0, len(input_list), 3)]
-
-            results_dict = {}
-            for group_idx, groups in enumerate(query_results):
-                query_line = self.candidates[group_idx]
-                sorted_results = sorted(
-                    groups, key=lambda x: x[1], reverse=True)
-
-                results = [{'text': text, 'score': score}
-                           for text, score in sorted_results]
-                results_dict[query_line] = results
-            return results_dict
-
-        sorted_results = group_list(results)
-
-        return sorted_results
+        return results
 
     @time_it
     def faiss_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
@@ -99,6 +86,45 @@ class VectorSemanticSearch:
                           for query_line, res in results.items()}
 
         return sorted_results
+
+    @time_it
+    def annoy_search(self, queries: str | list[str]) -> Dict[str, List[Dict[str, float]]]:
+        """Executes a annoy-based retrieval, aggregating search results."""
+        from llama_index.core.schema import Document
+        from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_LARGE_EMBED_MODEL
+        from jet.llm.query import setup_index
+
+        if isinstance(queries, str):
+            queries = [queries]
+
+        documents = [Document(text=candidate) for candidate in self.candidates]
+
+        mode = "annoy"
+        chunk_size = 256
+        chunk_overlap = 40
+        score_threshold = 0.2
+        top_k = None
+        embed_model = OLLAMA_SMALL_EMBED_MODEL
+
+        query_nodes = setup_index(
+            documents,
+            mode=mode,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            embed_model=embed_model,
+        )
+
+        results_dict = {}
+        for query in queries:
+            result = query_nodes(
+                query, score_threshold=score_threshold, top_k=top_k)
+
+            results = [{"text": node.text, "score": node.score}
+                       for node in result["nodes"]]
+            results_dict[query] = sorted(
+                results, key=lambda x: x['score'], reverse=True)
+
+        return results_dict
 
     @time_it
     def bm25_search(self, queries: str | list[str]) -> Dict[str, List[Dict[str, float]]]:
