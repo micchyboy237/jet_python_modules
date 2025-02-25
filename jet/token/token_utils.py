@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal, Optional, TypedDict, Union
 from jet.logger import logger
 from llama_index.core.base.llms.types import ChatMessage
 import tiktoken
@@ -79,6 +79,36 @@ def token_counter(
     else:
         token_counts = [len(item) for item in tokenized]
         return sum(token_counts) if not prevent_total else token_counts
+
+
+class TokenCountsInfoResult(TypedDict):
+    tokens: int
+    text: str
+
+
+class TokenCountsInfo(TypedDict):
+    total: int
+    max: TokenCountsInfoResult
+    min: TokenCountsInfoResult
+    results: list[TokenCountsInfoResult]
+
+
+def get_token_counts_info(texts: list[str], model: OLLAMA_MODEL_NAMES) -> TokenCountsInfo:
+    token_counts: list[int] = token_counter(
+        texts, model, prevent_total=True)
+    total_count = sum(token_counts)
+    results: list[TokenCountsInfoResult] = [{"tokens": count, "text": text}
+                                            for count, text in zip(token_counts, texts)]
+
+    max_result = max(results, key=lambda x: x["tokens"])
+    min_result = min(results, key=lambda x: x["tokens"])
+
+    return {
+        "total": total_count,
+        "max": max_result,
+        "min": min_result,
+        "results": results
+    }
 
 
 def get_model_max_tokens(
