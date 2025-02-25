@@ -5,6 +5,11 @@ from jet.logger import logger
 from pydantic.main import BaseModel
 
 
+def get_file_last_modified(file_path: str) -> float:
+    """Get the last modified time of a file."""
+    return os.path.getmtime(file_path)
+
+
 def load_json(file_path):
     """Load existing results from the JSON file."""
     try:

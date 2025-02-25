@@ -37,7 +37,7 @@ from jet.logger import logger
 from jet.actions import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
 
-from helpers.cache import LRUCache
+# from jet.memory.lru_cache import LRUCache
 
 # from jet.llm.ollama import initialize_ollama_settings
 # initialize_ollama_settings()
@@ -130,6 +130,7 @@ def load_documents(
     json_attributes: Optional[list[str]] = [],
     exclude_json_attributes: Optional[list[str]] = [],
     metadata_attributes: Optional[list[str]] = [],
+    **kwargs
 ):
     arg = {}
 
@@ -184,98 +185,8 @@ def load_documents(
     return documents
 
 
-def setup_semantic_search(
-    path_or_docs: str | list[Document],
-    *,
-    extensions: Optional[list[str]] = None,
-    chunk_size: Optional[int] = None,
-    chunk_overlap: int = 40,
-    sub_chunk_sizes: Optional[list[int]] = None,
-    with_hierarchy: Optional[bool] = None,
-    embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
-    mode: Optional[Literal["faiss", "graph_nx"]] = "faiss",
-    split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
-    json_attributes: Optional[list[str]] = [],
-    exclude_json_attributes: Optional[list[str]] = [],
-    metadata_attributes: Optional[list[str]] = [],
-    **kwargs
-):
-    documents: list[Document]
-    if type(path_or_docs) == str:
-        documents = load_documents(
-            path_or_docs, extensions, json_attributes, exclude_json_attributes, metadata_attributes)
-    elif isinstance(path_or_docs, list):
-        documents = path_or_docs
-    else:
-        raise ValueError(f"'data_dir' must be of type str | list[Document]")
-
-    final_chunk_size: int = chunk_size if isinstance(
-        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
-
-    splitter = SentenceSplitter(
-        chunk_size=final_chunk_size,
-        chunk_overlap=chunk_overlap,
-        tokenizer=get_ollama_tokenizer(embed_model).encode
-    )
-    all_nodes = splitter.get_nodes_from_documents(
-        documents, show_progress=True)
-
-    texts = [node.text for node in all_nodes]
-    node_lookup = {node.text: node.metadata for node in all_nodes}
-
-    search = VectorSemanticSearch(texts)
-
-    def search_func(
-        query: str,
-        score_threshold: float = 0.0,
-        top_k: Optional[int] = None,
-    ):
-        if mode == "graph_nx":
-            results = search.graph_based_search([query])
-        else:
-            results = search.faiss_search([query])
-
-        search_results = results[query]
-
-        logger.info(
-            f"\n({mode.capitalize()}) Search Results ({len(search_results)}):")
-
-        logger.newline()
-        logger.info("Query:")
-        logger.debug(query)
-        for result in search_results:
-            logger.log(f"{result['text'][:50]}:", f"{
-                result['score']:.4f}", colors=["DEBUG", "SUCCESS"])
-
-        retrieved_nodes: list[NodeWithScore] = [
-            NodeWithScore(
-                node=TextNode(
-                    text=result['text'],
-                    metadata=node_lookup.get(result['text'], {})
-                ),
-                score=float(result['score'])
-            )
-            for result in search_results]
-
-        filtered_nodes: list[NodeWithScore] = [
-            node for node in retrieved_nodes if node.score > score_threshold]
-
-        filtered_nodes = filtered_nodes[:top_k]
-
-        texts = [node.text for node in filtered_nodes]
-
-        result = {
-            "nodes": filtered_nodes,
-            "texts": texts,
-        }
-
-        return result
-
-    return search_func
-
-
 # _active_search_wrappers = {}
-_active_search_wrappers = LRUCache(max_size=5)
+# _active_search_wrappers = LRUCache(max_size=5)
 
 
 def get_file_timestamp(file_path: str) -> Optional[float]:
@@ -304,7 +215,7 @@ class SearchWrapper:
                 self.last_modified = current_modified
 
     def __call__(self, query: str, *args, **kwargs):
-        self.reload_if_needed()
+        # self.reload_if_needed()
         return self.search_func(query, *args, **kwargs)
 
 
@@ -326,25 +237,25 @@ def setup_index(
     disable_chunking: Optional[bool] = False,
     **kwargs
 ) -> SearchWrapper:
-    global _active_search_wrappers
+    # global _active_search_wrappers
 
-    if isinstance(path_or_docs, str):
-        # Generate hash for the current set of arguments
-        cache_values = [
-            path_or_docs,
-            mode,
-            embed_model,
-            json_attributes,
-            chunk_size,
-            chunk_overlap,
-            json_attributes,
-            exclude_json_attributes,
-            metadata_attributes,
-        ]
-        current_hash_key = generate_key(*cache_values)
+    # if isinstance(path_or_docs, str):
+    #     # Generate hash for the current set of arguments
+    #     cache_values = [
+    #         path_or_docs,
+    #         mode,
+    #         embed_model,
+    #         json_attributes,
+    #         chunk_size,
+    #         chunk_overlap,
+    #         json_attributes,
+    #         exclude_json_attributes,
+    #         metadata_attributes,
+    #     ]
+    #     current_hash_key = generate_key(*cache_values)
 
-    if isinstance(path_or_docs, str) and current_hash_key in _active_search_wrappers:
-        return _active_search_wrappers.get(current_hash_key)
+    # if isinstance(path_or_docs, str) and current_hash_key in _active_search_wrappers:
+    #     return _active_search_wrappers.get(current_hash_key)
 
     documents: list[Document]
     if isinstance(path_or_docs, str):
@@ -606,10 +517,100 @@ def setup_index(
         wrapper = SearchWrapper(path_or_docs, setup_index,
                                 search_func, **kwargs)
 
-    if isinstance(path_or_docs, str):
-        _active_search_wrappers.put(current_hash_key, wrapper)
+    # if isinstance(path_or_docs, str):
+    #     _active_search_wrappers.put(current_hash_key, wrapper)
 
     return wrapper
+
+
+def setup_semantic_search(
+    path_or_docs: str | list[Document],
+    *,
+    extensions: Optional[list[str]] = None,
+    chunk_size: Optional[int] = None,
+    chunk_overlap: int = 40,
+    sub_chunk_sizes: Optional[list[int]] = None,
+    with_hierarchy: Optional[bool] = None,
+    embed_model: Optional[str] = OLLAMA_SMALL_EMBED_MODEL,
+    mode: Optional[Literal["faiss", "graph_nx"]] = "faiss",
+    split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
+    json_attributes: Optional[list[str]] = [],
+    exclude_json_attributes: Optional[list[str]] = [],
+    metadata_attributes: Optional[list[str]] = [],
+    **kwargs
+):
+    documents: list[Document]
+    if type(path_or_docs) == str:
+        documents = load_documents(
+            path_or_docs, extensions, json_attributes, exclude_json_attributes, metadata_attributes)
+    elif isinstance(path_or_docs, list):
+        documents = path_or_docs
+    else:
+        raise ValueError(f"'data_dir' must be of type str | list[Document]")
+
+    final_chunk_size: int = chunk_size if isinstance(
+        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
+
+    splitter = SentenceSplitter(
+        chunk_size=final_chunk_size,
+        chunk_overlap=chunk_overlap,
+        tokenizer=get_ollama_tokenizer(embed_model).encode
+    )
+    all_nodes = splitter.get_nodes_from_documents(
+        documents, show_progress=True)
+
+    texts = [node.text for node in all_nodes]
+    node_lookup = {node.text: node.metadata for node in all_nodes}
+
+    search = VectorSemanticSearch(texts)
+
+    def search_func(
+        query: str,
+        score_threshold: float = 0.0,
+        top_k: Optional[int] = None,
+    ):
+        if mode == "graph_nx":
+            results = search.graph_based_search([query])
+        else:
+            results = search.faiss_search([query])
+
+        search_results = results[query]
+
+        logger.info(
+            f"\n({mode.capitalize()}) Search Results ({len(search_results)}):")
+
+        logger.newline()
+        logger.info("Query:")
+        logger.debug(query)
+        for result in search_results:
+            logger.log(f"{result['text'][:50]}:", f"{
+                result['score']:.4f}", colors=["DEBUG", "SUCCESS"])
+
+        retrieved_nodes: list[NodeWithScore] = [
+            NodeWithScore(
+                node=TextNode(
+                    text=result['text'],
+                    metadata=node_lookup.get(result['text'], {})
+                ),
+                score=float(result['score'])
+            )
+            for result in search_results]
+
+        filtered_nodes: list[NodeWithScore] = [
+            node for node in retrieved_nodes if node.score > score_threshold]
+
+        filtered_nodes = filtered_nodes[:top_k]
+
+        texts = [node.text for node in filtered_nodes]
+
+        result = {
+            "nodes": filtered_nodes,
+            "texts": texts,
+        }
+
+        return result
+
+    return search_func
 
 
 def get_relative_path(abs_path: str, partial_path: str) -> str:
