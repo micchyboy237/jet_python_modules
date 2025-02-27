@@ -4,7 +4,6 @@ import parsel
 import unidecode
 
 from typing import List
-from jet.libs.txtai.pipeline.lemmatizer import lemmatize_text
 
 
 def get_max_prompt_char_length(context_length: int, avg_chars_per_token: float = 4.0) -> int:
@@ -46,10 +45,10 @@ def clean_text(text: str) -> str:
     # Convert Unicode characters to closest ASCII equivalent
     text = unidecode.unidecode(text)
 
-    lemmas = lemmatize_text(text)
-    text = ' '.join(lemmas).strip()
+    # lemmas = lemmatize_text(text)
+    # text = ' '.join(lemmas).strip()
     text = clean_newlines(text)
-    text = clean_spaces(text, exclude_chars=["-", "\n"])
+    # text = clean_spaces(text, exclude_chars=["-", "\n"])
     text = clean_non_ascii(text)
     text = clean_other_characters(text)
 
