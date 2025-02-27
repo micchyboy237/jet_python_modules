@@ -25,6 +25,7 @@ OLLAMA_MODEL_NAMES = Literal[
 ]
 
 OLLAMA_HF_MODEL_NAMES = Literal[
+    # LLM
     "meta-llama/Llama-3.1-8B",
     "meta-llama/Llama-3.2-3B",
     "mistralai/Mistral-7B-Instruct-v0.3",
@@ -33,6 +34,7 @@ OLLAMA_HF_MODEL_NAMES = Literal[
     "google/gemma-2-9b",
     "meta-llama/CodeLlama-7b-hf",
     "Qwen/Qwen2.5-Coder-7B-Instruct",
+    # Embed
     "nomic-ai/nomic-embed-text-v1.5",
     "mixedbread-ai/mxbai-embed-large-v1",
 ]
@@ -70,6 +72,7 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
 
 
 OLLAMA_HF_MODELS = {
+    # LLM
     "llama3.1": "meta-llama/Llama-3.1-8B",
     "llama3.2": "meta-llama/Llama-3.2-3B",
     "mistral": "mistralai/Mistral-7B-Instruct-v0.3",
@@ -78,6 +81,7 @@ OLLAMA_HF_MODELS = {
     "gemma2:9b": "google/gemma-2-9b",
     "codellama": "meta-llama/CodeLlama-7b-hf",
     "qwen2.5-coder": "Qwen/Qwen2.5-Coder-7B-Instruct",
+    # Embed
     "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
     "mxbai-embed-large": "mixedbread-ai/mxbai-embed-large-v1",
 }

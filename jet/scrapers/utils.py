@@ -1,7 +1,10 @@
 import re
+import string
 import parsel
-from typing import List
 import unidecode
+
+from typing import List
+from jet.libs.txtai.pipeline.lemmatizer import lemmatize_text
 
 
 def get_max_prompt_char_length(context_length: int, avg_chars_per_token: float = 4.0) -> int:
@@ -43,7 +46,10 @@ def clean_text(text: str) -> str:
     # Convert Unicode characters to closest ASCII equivalent
     text = unidecode.unidecode(text)
 
+    lemmas = lemmatize_text(text)
+    text = ' '.join(lemmas).strip()
     text = clean_newlines(text)
+    text = clean_spaces(text, exclude_chars=["-", "\n"])
     text = clean_non_ascii(text)
     text = clean_other_characters(text)
 
@@ -59,6 +65,26 @@ def clean_newlines(content) -> str:
     return content
 
 
+def clean_spaces(content: str, exclude_chars: List[str] = []) -> str:
+    """Removes consecutive spaces and ensures proper spacing around punctuation, 
+    with an option to exclude specific punctuation from spacing adjustments."""
+
+    # Create a regex pattern for excluded punctuation characters
+    punctuation_pattern = f"[{re.escape(string.punctuation)}]"
+
+    # Ensure single spacing around punctuation except for excluded characters
+    def spacing_match(m):
+        char = m.group(1)
+        return char if char in exclude_chars else f"{char} "
+
+    content = re.sub(f'\s*({punctuation_pattern})\s*', spacing_match, content)
+
+    # Remove consecutive spaces
+    content = re.sub(r' +', ' ', content).strip()
+
+    return content
+
+
 def clean_non_ascii(content: str) -> str:
     """Remove non-ASCII characters from the content."""
     return ''.join(i for i in content if ord(i) < 128)
@@ -67,6 +93,23 @@ def clean_non_ascii(content: str) -> str:
 def clean_other_characters(content: str) -> str:
     """Remove double backslashes from the content."""
     return content.replace("\\", "")
+
+
+def clean_non_alphanumeric(text: str, include_chars: list[str] = []) -> str:
+    """
+    Removes all non-alphanumeric characters from the input string, except for optional included characters.
+
+    :param text: The input string.
+    :param include_chars: A list of additional characters to allow in the output.
+    :return: A cleaned string with only alphanumeric characters and optional included characters.
+    """
+    if include_chars:
+        allowed_chars = ''.join(re.escape(char) for char in include_chars)
+        pattern = f"[^a-zA-Z0-9{allowed_chars}]"
+    else:
+        pattern = r"[^a-zA-Z0-9]"
+
+    return re.sub(pattern, "", text)
 
 
 def extract_sentences(content: str) -> list[str]:
