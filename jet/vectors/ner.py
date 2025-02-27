@@ -1,9 +1,14 @@
+import spacy
+import hashlib
+import json
+
 from typing import List, Dict, TypedDict
 from shared.data_types.job import JobEntity
-import spacy
+from jet.logger import logger
 
-# Global cache for storing the loaded pipeline
+# Global cache for storing the loaded pipeline and its hash
 nlp_cache = None
+nlp_cache_hash = None
 
 
 class Entity(TypedDict):
@@ -12,17 +17,33 @@ class Entity(TypedDict):
     score: float
 
 
+def compute_config_hash(config: dict) -> str:
+    """Compute a hash for the given configuration dictionary."""
+    config_str = json.dumps(config, sort_keys=True)
+    return hashlib.md5(config_str.encode()).hexdigest()
+
+
 def load_nlp_pipeline(model: str, labels: List[str], style: str, chunk_size: int):
-    global nlp_cache
-    if nlp_cache is None:
-        custom_spacy_config = {
-            "gliner_model": model,
-            "chunk_size": chunk_size,
-            "labels": labels,
-            "style": style
-        }
+    global nlp_cache, nlp_cache_hash
+    custom_spacy_config = {
+        "gliner_model": model,
+        "chunk_size": chunk_size,
+        "labels": labels,
+        "style": style
+    }
+    new_hash = compute_config_hash(custom_spacy_config)
+
+    if nlp_cache is None or nlp_cache_hash != new_hash:
+        if not nlp_cache:
+            logger.orange("Creating nlp_cache...")
+        else:
+            logger.warning("Config changed, recreating nlp_cache...")
         nlp_cache = spacy.blank("en")
         nlp_cache.add_pipe("gliner_spacy", config=custom_spacy_config)
+        nlp_cache_hash = new_hash
+    else:
+        logger.debug("Reusing nlp_cache")
+
     return nlp_cache
 
 
@@ -66,18 +87,10 @@ def extract_entities_from_text(nlp, text: str) -> JobEntity:
     ])
 
     entities_dict = {}
-
-    # Loop through the results
     for entity in results:
-        # Get the label for grouping (assuming it's the 'label' label or another key)
-        label = entity['label']
-        label = label.lower().replace(" ", "_")
-
-        # If the label key does not exist in the dictionary, create it
+        label = entity['label'].lower().replace(" ", "_")
         if label not in entities_dict:
             entities_dict[label] = []
-
-        # Append the entity to the respective label group
         if entity['text'] not in entities_dict[label]:
             entities_dict[label].append(entity['text'])
 
