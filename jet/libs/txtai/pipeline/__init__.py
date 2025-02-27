@@ -2,6 +2,7 @@
 Segment imports
 """
 
+from .base import Pipeline
 from .filetohtml import FileToHTML
 from .htmltomd import HTMLToMarkdown
 from .segmentation import Segmentation

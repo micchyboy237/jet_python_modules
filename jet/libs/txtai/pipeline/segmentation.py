@@ -4,6 +4,8 @@ Segmentation module
 
 import re
 
+from jet.libs.txtai.pipeline.base import Pipeline
+
 # Conditional import
 try:
     from nltk import sent_tokenize
@@ -19,8 +21,6 @@ try:
     CHONKIE = True
 except ImportError:
     CHONKIE = False
-
-from .base import Pipeline
 
 
 class Segmentation(Pipeline):
