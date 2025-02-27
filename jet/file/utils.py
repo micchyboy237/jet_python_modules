@@ -90,8 +90,14 @@ def load_file(input_file: str) -> Optional[str | dict | list]:
                     data = json.load(f)
                 except:
                     data = None
+
+            if isinstance(data, list):
+                prefix = f"Loaded JSON data {len(data)} from:"
+            else:
+                prefix = "Loaded JSON data from:"
+
             logger.log(
-                "Loaded JSON data from:",
+                prefix,
                 input_file,
                 colors=["INFO", "BRIGHT_INFO"]
             )
@@ -125,8 +131,14 @@ def save_file(data: str | dict | list | BaseModel, output_file: str):
                 data = make_serializable(data)
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
+
+            if isinstance(data, list):
+                prefix = f"Save JSON data {len(data)} to:"
+            else:
+                prefix = "Save JSON data to:"
+
             logger.log(
-                "Save JSON data to:",
+                prefix,
                 output_file,
                 colors=["SUCCESS", "BRIGHT_SUCCESS"]
             )

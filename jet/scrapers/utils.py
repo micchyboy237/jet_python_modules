@@ -1,6 +1,7 @@
 import re
 import parsel
 from typing import List
+import unidecode
 
 
 def get_max_prompt_char_length(context_length: int, avg_chars_per_token: float = 4.0) -> int:
@@ -39,9 +40,13 @@ def clean_text(text: str) -> str:
     """
     Clean the text by removing newlines, non-ASCII characters, and other characters.
     """
+    # Convert Unicode characters to closest ASCII equivalent
+    text = unidecode.unidecode(text)
+
     text = clean_newlines(text)
     text = clean_non_ascii(text)
     text = clean_other_characters(text)
+
     return text.strip()
 
 
