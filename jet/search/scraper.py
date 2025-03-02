@@ -1,4 +1,4 @@
-from jet.scrapers.selenium import UrlScraper
+from jet.scrapers.browser.selenium import UrlScraper
 from jet.scrapers.preprocessor import scrape_markdown
 import hashlib
 import os

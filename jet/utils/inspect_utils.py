@@ -18,11 +18,12 @@ def inspect_original_script_path() -> Optional[INSPECT_ORIGINAL_SCRIPT_PATH_RESP
 
     # Filter frames that contain "JetScripts/" or "jet_python_modules/" in the filename
     matching_frames = [
-        frame for frame in stack_info if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename]
+        frame for frame in stack_info if "Jet_Projects/" in frame.filename]
     matching_functions = [
         frame for frame in matching_frames
         if not frame.function.startswith('_') and
-        frame.function != "<module>"
+        frame.function != "<module>" and
+        os.path.basename(__file__) not in frame.function
     ]
 
     if matching_functions:

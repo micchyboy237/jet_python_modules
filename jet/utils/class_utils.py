@@ -99,9 +99,9 @@ def get_iterable_class_name(obj: Any, full_class_name=False) -> str:
 
 def get_non_empty_attributes(obj: Any) -> Dict[str, Any]:
     """
-    Extracts the non-empty attributes of an object (excluding those starting with "_")
-    and returns them in a dictionary, filtering out attributes with values that are
-    considered empty or falsy.
+    Extracts the non-empty attributes of an object (excluding those starting with "_"
+    and methods) and returns them in a dictionary, filtering out attributes with values
+    that are considered empty or falsy.
 
     Args:
         obj: The object from which to extract attributes.
@@ -110,11 +110,12 @@ def get_non_empty_attributes(obj: Any) -> Dict[str, Any]:
         A dictionary with attribute names as keys and their corresponding
         non-falsy values as values.
     """
-    # Filter out attributes that are falsy (None, False, 0, "", [], {}, set()) and those starting with "_"
     return {
-        attr: getattr(obj, attr)
+        attr: value
         for attr in dir(obj)
-        if not attr.startswith('_') and getattr(obj, attr) not in [None, False, 0, "", [], {}, set()]
+        if not attr.startswith('_')
+        and (value := getattr(obj, attr))
+        and not callable(value)  # Exclude methods
     }
 
 
@@ -149,6 +150,7 @@ def get_callable_attributes(obj: Any) -> Dict[str, Any]:
         attr: getattr(obj, attr)
         for attr in dir(obj)
         if callable(getattr(obj, attr))  # Filter for callable attributes
+        and not attr.startswith('_')
     }
 
 
