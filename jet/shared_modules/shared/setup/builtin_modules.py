@@ -41,6 +41,19 @@ from .import_modules import (
     merge_texts,
     merge_texts_with_overlap,
     split_text,
+
+    convert_html_to_markdown,
+    html_to_markdown,
+    scrape_markdown,
+
+    get_flat_header_list,
+    get_header_level,
+    build_nodes_hierarchy,
+    collect_nodes_full_content,
+    get_header_contents,
+    get_md_header_contents,
+    merge_md_header_contents,
+    extract_md_header_contents,
 )
 # from jet.utils.class_utils import get_internal_attributes, get_non_empty_attributes, validate_class
 
@@ -115,6 +128,28 @@ def inject_globals():
         builtins.merge_texts_with_overlap = merge_texts_with_overlap
     if not hasattr(builtins, "split_text"):
         builtins.split_text = split_text
+    if not hasattr(builtins, "convert_html_to_markdown"):
+        builtins.convert_html_to_markdown = convert_html_to_markdown
+    if not hasattr(builtins, "html_to_markdown"):
+        builtins.html_to_markdown = html_to_markdown
+    if not hasattr(builtins, "scrape_markdown"):
+        builtins.scrape_markdown = scrape_markdown
+    if not hasattr(builtins, "get_flat_header_list"):
+        builtins.get_flat_header_list = get_flat_header_list
+    if not hasattr(builtins, "get_header_level"):
+        builtins.get_header_level = get_header_level
+    if not hasattr(builtins, "build_nodes_hierarchy"):
+        builtins.build_nodes_hierarchy = build_nodes_hierarchy
+    if not hasattr(builtins, "collect_nodes_full_content"):
+        builtins.collect_nodes_full_content = collect_nodes_full_content
+    if not hasattr(builtins, "get_header_contents"):
+        builtins.get_header_contents = get_header_contents
+    if not hasattr(builtins, "get_md_header_contents"):
+        builtins.get_md_header_contents = get_md_header_contents
+    if not hasattr(builtins, "merge_md_header_contents"):
+        builtins.merge_md_header_contents = merge_md_header_contents
+    if not hasattr(builtins, "extract_md_header_contents"):
+        builtins.extract_md_header_contents = extract_md_header_contents
 
 
 inject_globals()

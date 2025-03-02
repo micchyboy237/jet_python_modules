@@ -3,7 +3,6 @@ import html2text
 import parsel
 import math
 from .utils import clean_newlines, clean_tags, clean_text
-from langchain_text_splitters import MarkdownHeaderTextSplitter
 from jet.logger import logger
 
 
@@ -41,6 +40,8 @@ def get_header_level(header: str) -> int:
 
 
 def get_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[dict]:
+    from langchain_text_splitters import MarkdownHeaderTextSplitter
+
     markdown_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on, strip_headers=False, return_each_line=False)
     md_header_splits = markdown_splitter.split_text(md_text)
@@ -317,6 +318,16 @@ def scrape_markdown(html_str: str) -> dict:
         "headings": headings,
     }
 
+
+__all__ = [
+    "convert_html_to_markdown",
+    # "get_header_level",
+    # "get_header_contents",
+    # "merge_header_contents",
+    # "extract_header_contents",
+    "html_to_markdown",
+    "scrape_markdown",
+]
 
 if __name__ == '__main__':
     valid_id = "passport"

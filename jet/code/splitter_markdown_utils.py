@@ -1,6 +1,7 @@
 import re
 from typing import Callable, Optional, List, Dict, TypedDict, Union
-from langchain_text_splitters import MarkdownHeaderTextSplitter
+
+from jet.scrapers.preprocessor import scrape_markdown
 
 
 class HeaderMetadata(TypedDict):
@@ -42,8 +43,22 @@ def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat
     return flat_list
 
 
+def get_header_text(header: str) -> str:
+    """Extract the header text from a markdown or HTML header tag."""
+    header = header.splitlines()[0]
+    header = header.strip()
+    if header.startswith("#"):
+        return header.lstrip("#").strip()
+    elif header.startswith("h") and header[1].isdigit() and 1 <= int(header[1]) <= 6:
+        return header[2:].strip()
+    else:
+        raise ValueError(f"Invalid header format: {header}")
+
+
 def get_header_level(header: str) -> int:
     """Get the header level of a markdown header or HTML header tag."""
+    header = header.splitlines()[0]
+    header = header.strip()
     if header.startswith("#"):
         header_level = 0
         for c in header:
@@ -58,7 +73,7 @@ def get_header_level(header: str) -> int:
         raise ValueError(f"Invalid header format: {header}")
 
 
-def build_hierarchy(headers: List[HeaderNode]) -> List[HeaderNode]:
+def build_nodes_hierarchy(headers: List[HeaderNode]) -> List[HeaderNode]:
     """Convert flat header list to a nested hierarchy based on depth."""
     stack: List[HeaderNode] = []
 
@@ -79,11 +94,11 @@ def build_hierarchy(headers: List[HeaderNode]) -> List[HeaderNode]:
     return [header for header in headers if header.get("is_root")]
 
 
-def collect_full_content(node: HeaderNode) -> str:
+def collect_nodes_full_content(node: HeaderNode) -> str:
     """Recursively collect content from a node and its children."""
     content = node["content"]
     if "child_nodes" in node:
-        child_content = "\n".join(collect_full_content(child)
+        child_content = "\n".join(collect_nodes_full_content(child)
                                   for child in node["child_nodes"])
         content += child_content
     return content.rstrip()
@@ -134,11 +149,11 @@ def get_header_contents(md_text: str,
             },
         })
 
-    hierarchy = build_hierarchy(header_nodes)
+    hierarchy = build_nodes_hierarchy(header_nodes)
 
     if include_child_contents:
         for node in header_nodes:
-            full_content = collect_full_content(node)
+            full_content = collect_nodes_full_content(node)
             full_content_lines = full_content.splitlines()
             start_line_idx = all_lines.index(full_content_lines[0])
             end_line_idx = all_lines.index(full_content_lines[-1]) + 1
@@ -150,6 +165,8 @@ def get_header_contents(md_text: str,
 
 
 def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[dict]:
+    from langchain_text_splitters import MarkdownHeaderTextSplitter
+
     markdown_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on, strip_headers=False, return_each_line=False)
     md_header_splits = markdown_splitter.split_text(md_text)
@@ -161,6 +178,7 @@ def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, st
         md_header_contents.append({
             "content": content.strip(),
             "length": len(content.strip()),
+            "header": get_header_text(content),
             "header_level": get_header_level(content),
         })
     return md_header_contents
@@ -241,6 +259,23 @@ def extract_md_header_contents(md_text: str, max_tokens_per_chunk: int = 1000, t
     return header_contents
 
 
+def extract_html_header_contents(html_str: str) -> list[dict]:
+    headers_to_split_on = [
+        ("#", "h1"),
+        ("##", "h2"),
+        ("###", "h3"),
+        ("####", "h4"),
+        ("#####", "h5"),
+        ("######", "h6"),
+    ]
+
+    scraped_result = scrape_markdown(html_str)
+    header_contents = get_md_header_contents(
+        scraped_result['content'], headers_to_split_on)
+
+    return header_contents
+
+
 def clean_newlines(content):
     """Remove consecutive newlines from the content."""
     # Remove trailing whitespace for each line
@@ -275,3 +310,15 @@ def add_parents(items: list[HeaderItem]) -> list[HeaderItem]:
         hierarchy.append(item)
 
     return items
+
+
+__all__ = [
+    "get_flat_header_list",
+    "get_header_level",
+    "build_nodes_hierarchy",
+    "collect_nodes_full_content",
+    "get_header_contents",
+    "get_md_header_contents",
+    "merge_md_header_contents",
+    "extract_md_header_contents",
+]

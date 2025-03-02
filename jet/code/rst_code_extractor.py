@@ -1,6 +1,4 @@
-import os
 from typing import TypedDict
-from docutils import core
 
 
 class CodeBlock(TypedDict):
@@ -19,6 +17,7 @@ def rst_to_code_blocks(rst_file_path: str) -> list[CodeBlock]:
     Returns:
     - list[dict]: A list of dictionaries containing 'type' (language type) and 'code' (code content).
     """
+    from docutils import core
 
     # Read the contents of the .rst file
     with open(rst_file_path, 'r') as rst_file:

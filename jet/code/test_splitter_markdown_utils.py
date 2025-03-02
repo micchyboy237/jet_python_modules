@@ -1,6 +1,5 @@
 import unittest
-from jet.code import get_header_contents, collect_full_content
-from jet.code.splitter_markdown_utils import get_flat_header_list
+from jet.code.splitter_markdown_utils import get_flat_header_list, get_header_contents, collect_nodes_full_content
 
 
 class TestGetHeaderContents(unittest.TestCase):
@@ -72,7 +71,7 @@ class TestGetHeaderContents(unittest.TestCase):
 
         # Test full content for Header 1 and its child nodes
         header_1 = result[0]
-        full_content_1 = collect_full_content(header_1)
+        full_content_1 = collect_nodes_full_content(header_1)
         self.assertIn("Content under header 1.", full_content_1)
         self.assertIn("Content under subheader 1.1.", full_content_1)
         self.assertIn("Content under subheader 1.1.1.", full_content_1)
@@ -80,7 +79,7 @@ class TestGetHeaderContents(unittest.TestCase):
 
         # Test full content for Header 2
         header_2 = result[1]
-        full_content_2 = collect_full_content(header_2)
+        full_content_2 = collect_nodes_full_content(header_2)
         self.assertIn("Content under header 2.", full_content_2)
 
     def test_skip_heading_levels(self):
