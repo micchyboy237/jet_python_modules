@@ -121,10 +121,10 @@ async def setup_browser_pool(max_pages: int = 2, headless: bool = False) -> List
     return [await browser.new_page() for _ in range(max_pages)]
 
 
-async def scrape_async_limited(urls: List[str], max_concurrent_tasks: int = 2, max_pages: int = 2, headless: bool = False) -> List[PageContent]:
+async def scrape_async_limited(urls: List[str], max_concurrent_tasks: int = 2, headless: bool = False) -> List[PageContent]:
     """Scrapes multiple URLs asynchronously, limiting concurrent tasks while sharing browser pages."""
 
-    pages = await setup_browser_pool(max_pages, headless)
+    pages = await setup_browser_pool(max_concurrent_tasks, headless)
     page_queue = asyncio.Queue()
 
     # Populate the queue with available pages
@@ -172,7 +172,6 @@ if __name__ == "__main__":
 
     asyncio.run(scrape_async_limited(
         urls=urls_to_scrape,
-        max_concurrent_tasks=4,  # More concurrent tasks
-        max_pages=2,  # Limited browser pages
+        max_concurrent_tasks=2,  # More concurrent tasks
         headless=True
     ))
