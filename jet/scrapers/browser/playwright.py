@@ -1,8 +1,11 @@
+from tqdm.asyncio import tqdm
+import asyncio
 import os
+
 from typing import TypedDict, List, Optional, Union
-from jet.logger import logger
 from playwright.sync_api import sync_playwright, Browser as SyncBrowser, Page as SyncPage
 from playwright.async_api import async_playwright, Browser as AsyncBrowser, Page as AsyncPage
+from jet.logger import logger
 
 GENERATED_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/my-jobs/generated"
 os.makedirs(GENERATED_DIR, exist_ok=True)
@@ -18,10 +21,6 @@ class PageContent(TypedDict):
     dimensions: PageDimensions
     screenshot: str
     html: str
-
-
-class ScrapeHTMLResult(PageContent):
-    browser_page: Union[SyncPage, AsyncPage]
 
 
 def setup_sync_browser_session(*, headless: bool = False) -> SyncBrowser:
@@ -99,25 +98,67 @@ async def fetch_page_content_async(browser_page, wait_for_css: Optional[List[str
     }
 
 
-def scrape_sync(url: str, wait_for_css: Optional[List[str]] = None, browser_page: Optional[SyncPage] = None) -> ScrapeHTMLResult:
+def scrape_sync(url: str, wait_for_css: Optional[List[str]] = None, browser_page: Optional[SyncPage] = None) -> PageContent:
     """Scrapes a webpage synchronously."""
     browser_page = browser_page or setup_sync_browser_page()
     browser_page.goto(url)
     result = fetch_page_content_sync(browser_page, wait_for_css)
 
-    return {
-        "browser_page": browser_page,
-        **result
-    }
+    return result
 
 
-async def scrape_async(url: str, wait_for_css: Optional[List[str]] = None, browser_page: Optional[AsyncPage] = None) -> ScrapeHTMLResult:
+async def scrape_async(url: str, wait_for_css: Optional[List[str]] = None, browser_page: Optional[AsyncPage] = None) -> PageContent:
     """Scrapes a webpage asynchronously."""
     browser_page = browser_page or await setup_async_browser_page()
     await browser_page.goto(url)
     result = await fetch_page_content_async(browser_page, wait_for_css)
 
-    return {
-        "browser_page": browser_page,
-        **result
-    }
+    return result
+
+
+async def setup_browser_pool(max_pages: int = 2, headless: bool = False) -> List[AsyncPage]:
+    """Creates a pool of browser pages to be shared among tasks."""
+    browser = await setup_async_browser_session(headless=headless)
+    return [await browser.new_page() for _ in range(max_pages)]
+
+
+async def scrape_async_limited(urls: List[str], max_concurrent_tasks: int = 2, headless: bool = False) -> List[PageContent]:
+    """Scrapes multiple URLs asynchronously, limiting concurrent tasks and tracking progress."""
+
+    pages = await setup_browser_pool(max_concurrent_tasks, headless)
+    page_queue = asyncio.Queue()
+
+    for page in pages:
+        await page_queue.put(page)  # Add pages to queue
+
+    results = []
+    progress_bar = tqdm(total=len(urls), desc="Scraping Progress", unit="url")
+
+    async def bound_scrape(url) -> PageContent:
+        page = await page_queue.get()  # Get a page from the queue
+        try:
+            result = await scrape_async(url, browser_page=page)
+            results.append(result)
+            progress_bar.update(1)  # Update progress
+        finally:
+            await page_queue.put(page)  # Return the page to the queue
+        return result
+
+    await asyncio.gather(*(bound_scrape(url) for url in urls))
+
+    # Close browser pages after scraping
+    for page in pages:
+        await page.close()
+
+    progress_bar.close()  # Close tqdm progress bar
+    return results
+
+# Example Usage
+if __name__ == "__main__":
+    urls_to_scrape = [
+        "https://example.com",
+        "https://example.org",
+        "https://example.net"
+    ]
+
+    asyncio.run(scrape_async_limited(urls_to_scrape))
