@@ -2,7 +2,7 @@ from tqdm.asyncio import tqdm
 import asyncio
 import os
 
-from typing import TypedDict, List, Optional, Union
+from typing import TypedDict, List, Optional
 from playwright.sync_api import sync_playwright, Browser as SyncBrowser, Page as SyncPage
 from playwright.async_api import async_playwright, Browser as AsyncBrowser, Page as AsyncPage
 from jet.logger import logger
@@ -18,6 +18,7 @@ class PageDimensions(TypedDict):
 
 
 class PageContent(TypedDict):
+    url: str
     dimensions: PageDimensions
     screenshot: str
     html: str
@@ -49,7 +50,7 @@ async def setup_async_browser_page(*, headless: bool = False) -> AsyncPage:
     return await browser.new_page()
 
 
-def fetch_page_content_sync(browser_page, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
+def fetch_page_content_sync(browser_page, url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
     """Fetches page content synchronously, including screenshot and HTML."""
     if wait_for_css:
         logger.log("Waiting for elements css:",
@@ -68,13 +69,14 @@ def fetch_page_content_sync(browser_page, wait_for_css: Optional[List[str]], max
     })''')
 
     return {
+        "url": url,
         "dimensions": dimensions,
         "screenshot": os.path.realpath(screenshot_path),
         "html": browser_page.content()
     }
 
 
-async def fetch_page_content_async(browser_page, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
+async def fetch_page_content_async(browser_page, url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
     """Fetches page content asynchronously, including screenshot and HTML."""
     if wait_for_css:
         logger.log("Waiting for elements css:",
@@ -92,6 +94,7 @@ async def fetch_page_content_async(browser_page, wait_for_css: Optional[List[str
     })''')
 
     return {
+        "url": url,
         "dimensions": dimensions,
         "screenshot": os.path.realpath(screenshot_path),
         "html": await browser_page.content()
@@ -102,18 +105,14 @@ def scrape_sync(url: str, wait_for_css: Optional[List[str]] = None, browser_page
     """Scrapes a webpage synchronously."""
     browser_page = browser_page or setup_sync_browser_page()
     browser_page.goto(url)
-    result = fetch_page_content_sync(browser_page, wait_for_css)
-
-    return result
+    return fetch_page_content_sync(browser_page, url, wait_for_css)
 
 
 async def scrape_async(url: str, wait_for_css: Optional[List[str]] = None, browser_page: Optional[AsyncPage] = None) -> PageContent:
     """Scrapes a webpage asynchronously."""
     browser_page = browser_page or await setup_async_browser_page()
     await browser_page.goto(url)
-    result = await fetch_page_content_async(browser_page, wait_for_css)
-
-    return result
+    return await fetch_page_content_async(browser_page, url, wait_for_css)
 
 
 async def setup_browser_pool(max_pages: int = 2, headless: bool = False) -> List[AsyncPage]:
@@ -122,29 +121,38 @@ async def setup_browser_pool(max_pages: int = 2, headless: bool = False) -> List
     return [await browser.new_page() for _ in range(max_pages)]
 
 
-async def scrape_async_limited(urls: List[str], max_concurrent_tasks: int = 2, headless: bool = False) -> List[PageContent]:
-    """Scrapes multiple URLs asynchronously, limiting concurrent tasks and tracking progress."""
+async def scrape_async_limited(urls: List[str], max_concurrent_tasks: int = 2, max_pages: int = 2, headless: bool = False) -> List[PageContent]:
+    """Scrapes multiple URLs asynchronously, limiting concurrent tasks while sharing browser pages."""
 
-    pages = await setup_browser_pool(max_concurrent_tasks, headless)
+    pages = await setup_browser_pool(max_pages, headless)
     page_queue = asyncio.Queue()
 
+    # Populate the queue with available pages
     for page in pages:
-        await page_queue.put(page)  # Add pages to queue
+        await page_queue.put(page)
 
     results = []
     progress_bar = tqdm(total=len(urls), desc="Scraping Progress", unit="url")
 
     async def bound_scrape(url) -> PageContent:
-        page = await page_queue.get()  # Get a page from the queue
+        """Scrape a single URL using an available browser page from the queue."""
+        page = await page_queue.get()  # Get an available page
         try:
             result = await scrape_async(url, browser_page=page)
             results.append(result)
-            progress_bar.update(1)  # Update progress
+            progress_bar.update(1)  # Update progress bar
         finally:
-            await page_queue.put(page)  # Return the page to the queue
+            await page_queue.put(page)  # Return the page for reuse
         return result
 
-    await asyncio.gather(*(bound_scrape(url) for url in urls))
+    # Use asyncio.Semaphore to control concurrency
+    semaphore = asyncio.Semaphore(max_concurrent_tasks)
+
+    async def controlled_scrape(url):
+        async with semaphore:
+            return await bound_scrape(url)
+
+    await asyncio.gather(*(controlled_scrape(url) for url in urls))
 
     # Close browser pages after scraping
     for page in pages:
@@ -158,7 +166,13 @@ if __name__ == "__main__":
     urls_to_scrape = [
         "https://example.com",
         "https://example.org",
-        "https://example.net"
+        "https://example.net",
+        "https://example.info"
     ]
 
-    asyncio.run(scrape_async_limited(urls_to_scrape))
+    asyncio.run(scrape_async_limited(
+        urls=urls_to_scrape,
+        max_concurrent_tasks=4,  # More concurrent tasks
+        max_pages=2,  # Limited browser pages
+        headless=True
+    ))
