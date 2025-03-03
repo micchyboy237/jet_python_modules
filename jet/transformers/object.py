@@ -1,6 +1,7 @@
 from enum import Enum
 import json
 import base64
+from jet.utils.class_utils import get_non_empty_attributes
 import numpy as np
 import json
 import base64
@@ -39,7 +40,7 @@ def make_serializable(obj):
     elif isinstance(obj, BaseModel):
         return make_serializable(vars(obj))
     elif hasattr(obj, "__dict__"):
-        return make_serializable(vars(obj))
+        return make_serializable(get_non_empty_attributes(obj))
     elif isinstance(obj, tuple):
         return tuple(make_serializable(item) for item in obj)
     elif isinstance(obj, set):
