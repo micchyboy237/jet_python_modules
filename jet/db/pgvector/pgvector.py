@@ -65,6 +65,38 @@ class PgVectorClient:
         """Generate a unique UUID v4 string."""
         return str(uuid.uuid4())
 
+    def get_vectors(self, table_name: str) -> Optional[list[np.ndarray]]:
+        """Retrieve all vectors."""
+        query = f"SELECT embedding FROM {table_name};"
+        with self.conn.cursor() as cur:
+            cur.execute(query)
+            results = cur.fetchall()
+            return [np.array(row["embedding"]) for row in results] if results else None
+
+    def count_vectors(self, table_name: str) -> Optional[int]:
+        """Count the total number of vectors in the table."""
+        query = f"SELECT COUNT(*) FROM {table_name};"
+        with self.conn.cursor() as cur:
+            cur.execute(query)
+            result = cur.fetchone()
+            return result["count"] if result else None
+
+    def get_vector_by_id(self, table_name: str, vector_id: str) -> Optional[np.ndarray]:
+        """Retrieve a vector by its hash ID."""
+        query = f"SELECT embedding FROM {table_name} WHERE id = %s;"
+        with self.conn.cursor() as cur:
+            cur.execute(query, (vector_id,))
+            result = cur.fetchone()
+            return np.array(result["embedding"]) if result else None
+
+    def get_vectors_by_ids(self, table_name: str, vector_ids: List[str]) -> Dict[str, np.ndarray]:
+        """Retrieve multiple vectors by their hash-based IDs."""
+        query = f"SELECT id, embedding FROM {table_name} WHERE id = ANY(%s);"
+        with self.conn.cursor() as cur:
+            cur.execute(query, (vector_ids,))
+            results = cur.fetchall()
+            return {row["id"]: np.array(row["embedding"]) for row in results}
+
     def insert_vector(self, table_name: str, vector: List[float]) -> str:
         """Insert a vector into the table with a hash-based ID."""
         vector_id = self.generate_unique_hash()
@@ -104,22 +136,6 @@ class PgVectorClient:
 
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, formatted_vectors))
-
-    def get_vector_by_id(self, table_name: str, vector_id: str) -> Optional[np.ndarray]:
-        """Retrieve a vector by its hash ID."""
-        query = f"SELECT embedding FROM {table_name} WHERE id = %s;"
-        with self.conn.cursor() as cur:
-            cur.execute(query, (vector_id,))
-            result = cur.fetchone()
-            return np.array(result["embedding"]) if result else None
-
-    def get_vectors_by_ids(self, table_name: str, vector_ids: List[str]) -> Dict[str, np.ndarray]:
-        """Retrieve multiple vectors by their hash-based IDs."""
-        query = f"SELECT id, embedding FROM {table_name} WHERE id = ANY(%s);"
-        with self.conn.cursor() as cur:
-            cur.execute(query, (vector_ids,))
-            results = cur.fetchall()
-            return {row["id"]: np.array(row["embedding"]) for row in results}
 
     def update_vector_by_id(self, table_name: str, vector_id: str, new_vector: List[float]) -> None:
         """Update a vector by its hash ID."""
