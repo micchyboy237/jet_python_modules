@@ -2,13 +2,8 @@ import psycopg
 from pgvector.psycopg import register_vector
 import numpy as np
 import uuid
-from typing import List, Dict, Optional, Tuple, TypedDict
-from psycopg.rows import dict_row, tuple_row
-
-
-class VectorRecord(TypedDict):
-    id: str
-    embedding: np.ndarray
+from typing import List, Dict, Optional, Tuple
+from psycopg.rows import dict_row
 
 
 class PgVectorClient:
@@ -23,8 +18,8 @@ class PgVectorClient:
             autocommit=False,  # Enable manual transaction control
             row_factory=dict_row
         )
-        register_vector(self.conn)
         self._initialize_extension()
+        register_vector(self.conn)
 
     def _initialize_extension(self) -> None:
         """Ensure the pgvector extension is enabled."""
