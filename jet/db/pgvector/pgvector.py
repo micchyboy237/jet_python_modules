@@ -1,10 +1,18 @@
 import psycopg
 from pgvector.psycopg import register_vector
 import numpy as np
+from typing import List, Dict, Optional, Tuple
+from psycopg.rows import dict_row
+from typing_extensions import TypedDict
+
+
+class VectorRecord(TypedDict):
+    id: int
+    embedding: np.ndarray
 
 
 class PgVectorClient:
-    def __init__(self, dbname, user, password, host='localhost', port=5432):
+    def __init__(self, dbname: str, user: str, password: str, host: str = 'localhost', port: int = 5432) -> None:
         """Initialize the database connection."""
         self.conn = psycopg.connect(
             dbname=dbname,
@@ -12,17 +20,18 @@ class PgVectorClient:
             password=password,
             host=host,
             port=port,
-            autocommit=True
+            autocommit=True,
+            row_factory=dict_row
         )
         register_vector(self.conn)
         self._initialize_extension()
 
-    def _initialize_extension(self):
+    def _initialize_extension(self) -> None:
         """Ensure the pgvector extension is enabled."""
         with self.conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
-    def create_table(self, table_name, dimension):
+    def create_table(self, table_name: str, dimension: int) -> None:
         """Create a table with a vector column."""
         query = f"""
         CREATE TABLE IF NOT EXISTS {table_name} (
@@ -33,36 +42,36 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query)
 
-    def insert_vector(self, table_name, vector):
-        """Insert a vector into the table."""
+    def insert_vector(self, table_name: str, vector: List[float]) -> int:
+        """Insert a vector into the table and return its ID."""
         query = f"INSERT INTO {table_name} (embedding) VALUES (%s) RETURNING id;"
         with self.conn.cursor() as cur:
             cur.execute(query, (vector,))
-            return cur.fetchone()[0]
+            return cur.fetchone()["id"]
 
-    def get_vector_by_id(self, table_name, vector_id):
+    def get_vector_by_id(self, table_name: str, vector_id: int) -> Optional[np.ndarray]:
         """Retrieve a vector by its ID."""
         query = f"SELECT embedding FROM {table_name} WHERE id = %s;"
         with self.conn.cursor() as cur:
             cur.execute(query, (vector_id,))
             result = cur.fetchone()
-            return np.array(result[0]) if result else None
+            return np.array(result["embedding"]) if result else None
 
-    def get_vectors_by_ids(self, table_name, vector_ids):
+    def get_vectors_by_ids(self, table_name: str, vector_ids: List[int]) -> Dict[int, np.ndarray]:
         """Retrieve multiple vectors by their IDs."""
         query = f"SELECT id, embedding FROM {table_name} WHERE id = ANY(%s);"
         with self.conn.cursor() as cur:
             cur.execute(query, (vector_ids,))
             results = cur.fetchall()
-            return {row[0]: np.array(row[1]) for row in results}
+            return {row["id"]: np.array(row["embedding"]) for row in results}
 
-    def update_vector_by_id(self, table_name, vector_id, new_vector):
+    def update_vector_by_id(self, table_name: str, vector_id: int, new_vector: List[float]) -> None:
         """Update a vector by its ID."""
         query = f"UPDATE {table_name} SET embedding = %s WHERE id = %s;"
         with self.conn.cursor() as cur:
             cur.execute(query, (new_vector, vector_id))
 
-    def search_similar(self, table_name, query_vector, top_k=5):
+    def search_similar(self, table_name: str, query_vector: List[float], top_k: int = 5) -> List[Tuple[int, float]]:
         """Find the top-K most similar vectors using L2 distance."""
         query = f"""
         SELECT id, embedding <-> %s::vector AS distance
@@ -72,15 +81,15 @@ class PgVectorClient:
         """
         with self.conn.cursor() as cur:
             cur.execute(query, (query_vector,))
-            return cur.fetchall()
+            return [(row["id"], row["distance"]) for row in cur.fetchall()]
 
-    def drop_all_rows(self, table_name):
+    def drop_all_rows(self, table_name: str) -> None:
         """Delete all rows from a table."""
         query = f"DELETE FROM {table_name};"
         with self.conn.cursor() as cur:
             cur.execute(query)
 
-    def delete_all_tables(self):
+    def delete_all_tables(self) -> None:
         """Drop all tables in the database."""
         query = """
         DO $$ DECLARE 
@@ -95,6 +104,6 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query)
 
-    def close(self):
+    def close(self) -> None:
         """Close the database connection."""
         self.conn.close()
