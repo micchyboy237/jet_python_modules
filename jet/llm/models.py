@@ -66,8 +66,8 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "gemma2:9b": 3584,
     "codellama": 4096,
     "qwen2.5-coder": 3584,
-    "nomic-embed-text": 2048,
-    "mxbai-embed-large": 512,
+    "nomic-embed-text": 768,
+    "mxbai-embed-large": 1024,
 }
 
 
@@ -153,7 +153,7 @@ def get_chat_template(model_name: str) -> str:
 
 
 # Main function to build the OLLAMA_MODEL_CONTEXTS dictionary
-def build_ollama_models():
+def build_ollama_model_contexts():
     models = get_local_models()
     ollama_models = {}
 
@@ -166,6 +166,23 @@ def build_ollama_models():
             model_info.keys()) if "context_length" in key][0]
 
         ollama_models[model_name] = context_length
+
+    return ollama_models
+
+
+def build_ollama_model_embeddings():
+    models = get_local_models()
+    ollama_models = {}
+
+    for model in models:
+        model_name = model["name"]
+        details = get_model_details(model_name)
+        # Extract context length from the details
+        model_info = details.get("model_info", {})
+        embedding_length = [model_info[key] for key in list(
+            model_info.keys()) if "embedding_length" in key][0]
+
+        ollama_models[model_name] = embedding_length
 
     return ollama_models
 
@@ -216,5 +233,7 @@ def count_encoded_tokens(model_name: str, text: str | list[str]) -> int:
 
 # Run the script and print the result
 if __name__ == "__main__":
-    ollama_models = build_ollama_models()
-    logger.success(json.dumps(ollama_models, indent=2))
+    ollama_model_contexts = build_ollama_model_contexts()
+    ollama_model_embeddings = build_ollama_model_embeddings()
+    logger.success(json.dumps(ollama_model_contexts, indent=2))
+    logger.success(json.dumps(ollama_model_embeddings, indent=2))

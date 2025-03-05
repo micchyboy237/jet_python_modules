@@ -5,7 +5,7 @@ from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
 from jet.decorators.error import wrap_retry
 from jet.decorators.function import retry_on_error
 from jet.llm.ollama.constants import DEFAULT_BASE_URL, DEFAULT_CONTEXT_WINDOW, DEFAULT_EMBED_BATCH_SIZE, DEFAULT_REQUEST_TIMEOUT, OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
-from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.logger.timer import sleep_countdown, time_it
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse
 from llama_index.core.callbacks.base import CallbackManager
@@ -493,6 +493,9 @@ class OllamaEmbedding(BaseOllamaEmbedding):
             f"({OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]})",
             colors=["GRAY", "DEBUG", "DEBUG"],
         )
+        logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
+        logger.debug(
+            f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
 
         def run():
             with self.callback_manager.event(

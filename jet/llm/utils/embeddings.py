@@ -3,7 +3,7 @@ import numpy as np
 from jet.logger import logger
 from jet.logger.timer import time_it
 from tqdm import tqdm
-from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from sentence_transformers import SentenceTransformer
 import requests
 from typing import Any, Optional, Callable, Sequence, Union, List, TypedDict
@@ -44,7 +44,13 @@ class SFEmbeddingFunction():
         tokenized = self.tokenize(documents)
         return [len(tokens) for tokens in tokenized]
 
+    @time_it(function_name="generate_sf_batch_embeddings")
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
+        logger.info(f"Generating SF embeddings...")
+        logger.debug(f"Model: {self.model_name}")
+        logger.debug(f"Texts: {len(input)}")
+        logger.debug(f"Batch size: {self.batch_size}")
+
         if isinstance(input, str):
             input = [input]
         # Tokenize the input and calculate token counts for each document
@@ -89,8 +95,16 @@ class OllamaEmbeddingFunction():
         self.batch_size = batch_size
         self.key = key
 
-    @time_it(function_name="generate_batch_embeddings")
+    @time_it(function_name="generate_ollama_batch_embeddings")
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
+        logger.info(f"Generating Ollama embeddings...")
+        logger.debug(f"Model: {self.model_name}")
+        logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
+        logger.debug(
+            f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
+        logger.debug(f"Texts: {len(input)}")
+        logger.debug(f"Batch size: {self.batch_size}")
+
         def func(query: str | list[str]): return generate_embeddings(
             model=self.model_name,
             text=query,
