@@ -2,8 +2,13 @@ import psycopg
 from pgvector.psycopg import register_vector
 import numpy as np
 import uuid
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, TypedDict
 from psycopg.rows import dict_row
+
+
+class SearchResult(TypedDict):
+    id: str
+    score: float
 
 
 class PgVectorClient:
@@ -159,7 +164,10 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, embeddings))
 
-    def search_similar(self, table_name: str, query_vector: List[float], top_k: int = 5) -> List[Tuple[str, float]]:
+    def calculate_vector_scores(self, distances: List[float]) -> List[float]:
+        return [1 - distance for distance in distances]
+
+    def search_similar(self, table_name: str, query_vector: List[float], top_k: int = 5) -> List[Dict]:
         """Find the top-K most similar vectors using L2 distance."""
         query = f"""
         SELECT id, embedding <-> %s::vector AS distance
@@ -169,7 +177,19 @@ class PgVectorClient:
         """
         with self.conn.cursor() as cur:
             cur.execute(query, (query_vector,))
-            return [(row["id"], row["distance"]) for row in cur.fetchall()]
+            db_results = cur.fetchall()
+            results = [{"id": row["id"], "distance": row["distance"]}
+                       for row in db_results]
+
+        # Compute similarity scores
+        distances = [res["distance"] for res in results]
+        scores = self.calculate_vector_scores(distances)
+
+        # Attach scores to results
+        for res, score in zip(results, scores):
+            res["score"] = score
+
+        return sorted(results, key=lambda x: x['score'], reverse=True)
 
     def drop_all_rows(self, table_name: str) -> None:
         """Delete all rows from a table."""
