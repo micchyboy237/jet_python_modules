@@ -175,12 +175,16 @@ def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, st
         content = split.page_content
         # metadata = split.metadata
 
-        md_header_contents.append({
-            "content": content.strip(),
-            "length": len(content.strip()),
-            "header": get_header_text(content),
-            "header_level": get_header_level(content),
-        })
+        if content.strip():
+            try:
+                md_header_contents.append({
+                    "content": content.strip(),
+                    "length": len(content.strip()),
+                    "header": get_header_text(content),
+                    "header_level": get_header_level(content),
+                })
+            except ValueError:
+                continue
     return md_header_contents
 
 
