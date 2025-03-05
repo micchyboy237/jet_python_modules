@@ -78,6 +78,38 @@ class PgVectorClient:
             cur.execute(query, (vector_id, vector))
         return vector_id
 
+    def insert_vectors(self, table_name: str, vectors: List[List[float]]) -> List[str]:
+        """Insert multiple vectors into the table and return their generated hash-based IDs."""
+        vector_ids = [self.generate_unique_hash() for _ in vectors]
+        formatted_vectors = [f"[{', '.join(map(str, v))}]" for v in vectors]
+
+        query = f"INSERT INTO {table_name} (id, embedding) SELECT UNNEST(%s::text[]), UNNEST(%s::vector[]);"
+
+        with self.conn.cursor() as cur:
+            cur.execute(query, (vector_ids, formatted_vectors))
+
+        return vector_ids
+
+    def insert_vector_by_id(self, table_name: str, vector_id: str, vector: List[float]) -> None:
+        """Insert a vector with a specific ID."""
+        formatted_vector = f"[{', '.join(map(str, vector))}]"
+
+        query = f"INSERT INTO {table_name} (id, embedding) VALUES (%s, %s::vector);"
+
+        with self.conn.cursor() as cur:
+            cur.execute(query, (vector_id, formatted_vector))
+
+    def insert_vector_by_ids(self, table_name: str, vector_data: Dict[str, List[float]]) -> None:
+        """Insert multiple vectors with specific IDs."""
+        ids = list(vector_data.keys())
+        formatted_vectors = [
+            f"[{', '.join(map(str, v))}]" for v in vector_data.values()]
+
+        query = f"INSERT INTO {table_name} (id, embedding) SELECT UNNEST(%s::text[]), UNNEST(%s::vector[]);"
+
+        with self.conn.cursor() as cur:
+            cur.execute(query, (ids, formatted_vectors))
+
     def get_vector_by_id(self, table_name: str, vector_id: str) -> Optional[np.ndarray]:
         """Retrieve a vector by its hash ID."""
         query = f"SELECT embedding FROM {table_name} WHERE id = %s;"
