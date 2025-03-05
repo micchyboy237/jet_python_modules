@@ -1,5 +1,6 @@
 import psycopg
 from pgvector.psycopg import register_vector
+import numpy as np
 
 
 class PgVectorClient:
@@ -38,6 +39,28 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query, (vector,))
             return cur.fetchone()[0]
+
+    def get_vector_by_id(self, table_name, vector_id):
+        """Retrieve a vector by its ID."""
+        query = f"SELECT embedding FROM {table_name} WHERE id = %s;"
+        with self.conn.cursor() as cur:
+            cur.execute(query, (vector_id,))
+            result = cur.fetchone()
+            return np.array(result[0]) if result else None
+
+    def get_vectors_by_ids(self, table_name, vector_ids):
+        """Retrieve multiple vectors by their IDs."""
+        query = f"SELECT id, embedding FROM {table_name} WHERE id = ANY(%s);"
+        with self.conn.cursor() as cur:
+            cur.execute(query, (vector_ids,))
+            results = cur.fetchall()
+            return {row[0]: np.array(row[1]) for row in results}
+
+    def update_vector_by_id(self, table_name, vector_id, new_vector):
+        """Update a vector by its ID."""
+        query = f"UPDATE {table_name} SET embedding = %s WHERE id = %s;"
+        with self.conn.cursor() as cur:
+            cur.execute(query, (new_vector, vector_id))
 
     def search_similar(self, table_name, query_vector, top_k=5):
         """Find the top-K most similar vectors using L2 distance."""

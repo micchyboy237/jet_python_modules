@@ -1,7 +1,10 @@
+from jet.logger import logger
+from jet.logger.timer import time_it
+from tqdm import tqdm
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from sentence_transformers import SentenceTransformer
 import requests
-from typing import Optional, Callable, Union, List, TypedDict
+from typing import Optional, Callable, Sequence, Union, List, TypedDict
 from chromadb import Documents, EmbeddingFunction, Embeddings
 from jet.llm.ollama import (
     large_embed_model,
@@ -17,7 +20,8 @@ class MemoryEmbedding(TypedDict):
     metadata: str        # Any associated metadata (if applicable)
 
 
-GenerateEmbeddingsReturnType = Union[MemoryEmbedding, List[MemoryEmbedding]]
+# GenerateEmbeddingsReturnType = Union[MemoryEmbedding, List[MemoryEmbedding]]
+GenerateEmbeddingsReturnType = list[float] | list[list[float]]
 
 GenerateMultipleReturnType = Callable[[
     Union[str, List[str]]], List[MemoryEmbedding]]
@@ -81,8 +85,9 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
         self.batch_size = batch_size
         self.key = key
 
-    def __call__(self, input: Documents) -> Embeddings:
-        def func(query): return generate_embeddings(
+    @time_it(function_name="generate_batch_embeddings")
+    def __call__(self, input: list[str]) -> Embeddings:
+        def func(query: str | list[str]): return generate_embeddings(
             model=self.model_name,
             text=query,
             url=base_url,
@@ -94,10 +99,10 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
 
 
 def get_embedding_function(
-    model_name: str,
+    model_name: str | OLLAMA_EMBED_MODELS,
     batch_size: int = 32,
-    use_ollama: bool = True,
 ) -> EmbeddingFunction:
+    use_ollama = model_name in OLLAMA_EMBED_MODELS.__args__
     if use_ollama:
         return OllamaEmbeddingFunction(model_name=model_name, batch_size=batch_size)
     else:
@@ -131,13 +136,17 @@ def get_ollama_embedding_function(model: OLLAMA_EMBED_MODELS | str):
 
 
 def generate_multiple(
-    query: Union[str, list[str]],
-    func: GenerateMultipleReturnType,
+    query: str | list[str],
+    func: Callable[[str | list[str]], list],  # Replace with the correct type
     batch_size: int = 32,
-) -> list[MemoryEmbedding]:
+) -> list:
     if isinstance(query, list):
         embeddings = []
-        for i in range(0, len(query), batch_size):
+        pbar = tqdm(range(0, len(query), batch_size),
+                    desc="Generating embeddings")
+        for i in pbar:
+            pbar.set_description(
+                f"Generating embeddings batch {i // batch_size + 1}")
             embeddings.extend(func(query[i: i + batch_size]))
         return embeddings
     else:
@@ -162,7 +171,7 @@ def generate_embeddings(
 
 def generate_ollama_batch_embeddings(
     model: str, texts: list[str], url: str, key: str = ""
-) -> Optional[list[list[float]]]:
+) -> list[list[float]]:
     try:
         r = requests.post(
             f"{url}/api/embed",
@@ -177,8 +186,6 @@ def generate_ollama_batch_embeddings(
 
         if "embeddings" in data:
             return data["embeddings"]
-        else:
-            raise "Something went wrong :/"
     except Exception as e:
-        print(e)
-        return None
+        logger.error(e)
+        raise e

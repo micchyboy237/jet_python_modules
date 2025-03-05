@@ -159,8 +159,9 @@ def load_documents(
                     value_str = str(value)
                     if isinstance(value, list):
                         value_str = ", ".join(value)
-                    text_parts.append(
-                        f"{key.title().replace('_', ' ')}: {value_str}")
+                    if value_str.strip():
+                        text_parts.append(
+                            f"{key.title().replace('_', ' ')}: {value_str}")
             else:
                 # Use all attributes
                 text_parts = [f"{key.title().replace('_', ' ')}: {str(value)}"
