@@ -1,10 +1,12 @@
+import numpy as np
+
 from jet.logger import logger
 from jet.logger.timer import time_it
 from tqdm import tqdm
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from sentence_transformers import SentenceTransformer
 import requests
-from typing import Optional, Callable, Sequence, Union, List, TypedDict
+from typing import Any, Optional, Callable, Sequence, Union, List, TypedDict
 from chromadb import Documents, EmbeddingFunction, Embeddings
 from jet.llm.ollama import (
     large_embed_model,
@@ -27,7 +29,7 @@ GenerateMultipleReturnType = Callable[[
     Union[str, List[str]]], List[MemoryEmbedding]]
 
 
-class SFEmbeddingFunction(EmbeddingFunction):
+class SFEmbeddingFunction():
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", batch_size: int = 32) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
@@ -42,7 +44,9 @@ class SFEmbeddingFunction(EmbeddingFunction):
         tokenized = self.tokenize(documents)
         return [len(tokens) for tokens in tokenized]
 
-    def __call__(self, input: Documents) -> Embeddings:
+    def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
+        if isinstance(input, str):
+            input = [input]
         # Tokenize the input and calculate token counts for each document
         token_counts = self.calculate_tokens(input)
 
@@ -74,7 +78,7 @@ class SFEmbeddingFunction(EmbeddingFunction):
         return all_embeddings
 
 
-class OllamaEmbeddingFunction(EmbeddingFunction):
+class OllamaEmbeddingFunction():
     def __init__(
             self,
             model_name: str = large_embed_model,
@@ -86,7 +90,7 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
         self.key = key
 
     @time_it(function_name="generate_batch_embeddings")
-    def __call__(self, input: list[str]) -> Embeddings:
+    def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
         def func(query: str | list[str]): return generate_embeddings(
             model=self.model_name,
             text=query,
@@ -95,13 +99,16 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
         )
 
         batch_embeddings = generate_multiple(input, func, self.batch_size)
+
+        if isinstance(input, str):
+            return batch_embeddings[0]
         return batch_embeddings
 
 
 def get_embedding_function(
     model_name: str | OLLAMA_EMBED_MODELS,
     batch_size: int = 32,
-) -> EmbeddingFunction:
+) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
     use_ollama = model_name in OLLAMA_EMBED_MODELS.__args__
     if use_ollama:
         return OllamaEmbeddingFunction(model_name=model_name, batch_size=batch_size)
@@ -139,7 +146,7 @@ def generate_multiple(
     query: str | list[str],
     func: Callable[[str | list[str]], list],  # Replace with the correct type
     batch_size: int = 32,
-) -> list:
+) -> list[list[float]]:
     if isinstance(query, list):
         embeddings = []
         pbar = tqdm(range(0, len(query), batch_size),
@@ -150,7 +157,8 @@ def generate_multiple(
             embeddings.extend(func(query[i: i + batch_size]))
         return embeddings
     else:
-        return func(query)
+        embeddings = func(query)
+        return embeddings
 
 
 def generate_embeddings(

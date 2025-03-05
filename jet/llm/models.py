@@ -66,8 +66,8 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "gemma2:9b": 3584,
     "codellama": 4096,
     "qwen2.5-coder": 3584,
-    "nomic-embed-text": 768,
-    "mxbai-embed-large": 1024,
+    "nomic-embed-text": 2048,
+    "mxbai-embed-large": 512,
 }
 
 
