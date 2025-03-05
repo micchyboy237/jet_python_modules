@@ -167,7 +167,7 @@ class PgVectorClient:
     def calculate_vector_scores(self, distances: List[float]) -> List[float]:
         return [1 - distance for distance in distances]
 
-    def search_similar(self, table_name: str, query_vector: List[float], top_k: int = 5) -> List[Dict]:
+    def search_similar(self, table_name: str, query_vector: List[float], top_k: int = 5) -> List[SearchResult]:
         """Find the top-K most similar vectors using L2 distance."""
         query = f"""
         SELECT id, embedding <-> %s::vector AS distance
@@ -186,10 +186,14 @@ class PgVectorClient:
         scores = self.calculate_vector_scores(distances)
 
         # Attach scores to results
+        final_results: List[SearchResult] = []
         for res, score in zip(results, scores):
-            res["score"] = score
+            final_results.append({
+                "id": res["id"],
+                "score": score
+            })
 
-        return sorted(results, key=lambda x: x['score'], reverse=True)
+        return sorted(final_results, key=lambda x: x['score'], reverse=True)
 
     def drop_all_rows(self, table_name: str) -> None:
         """Delete all rows from a table."""
