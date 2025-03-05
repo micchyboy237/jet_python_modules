@@ -2,6 +2,8 @@ import os
 import logging
 from typing import List, Callable, Optional, Any
 from jet.logger.config import COLORS, RESET
+from jet.transformers.formatters import format_json
+from jet.transformers.json_parsers import parse_json
 
 
 class CustomLogger:
@@ -36,6 +38,8 @@ class CustomLogger:
             end: str = None,
             colors: list[str] = None,
         ) -> None:
+            messages = list(messages)  # Convert tuple to list
+
             actual_level = f"BRIGHT_{level}" if bright else level
 
             if colors is None:
@@ -43,6 +47,11 @@ class CustomLogger:
             else:
                 colors = colors * \
                     ((len(messages) + len(colors) - 1) // len(colors))
+
+            if len(messages) == 1:
+                parsed_message = parse_json(messages[0])
+                if isinstance(parsed_message, (dict, list)):
+                    messages[0] = format_json(parsed_message)
 
             formatted_messages = [
                 f"{COLORS.get(color, COLORS['LOG'])}{message}{RESET}" for message, color in zip(messages, colors)
@@ -109,6 +118,11 @@ class CustomLogger:
         prompt_log = _inner(prompt, level)
         print(prompt_log)
 
+        # Save raw (unformatted) message to file
+        if self.log_file:
+            with open(self.log_file, "a") as file:
+                file.write(format_json(prompt) + "\n")
+
     def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
         if name.upper() in COLORS:
             return self.custom_logger_method(name.upper())
@@ -154,6 +168,18 @@ def logger_examples(logger: CustomLogger):
                colors=["WHITE", "BRIGHT_DEBUG", "BRIGHT_SUCCESS"])
     logger.log("3 multi-color with repeat", "Message 2", "Message 3",
                colors=["INFO", "DEBUG"])
+    logger.info({
+        "user": "Alice",
+        "attributes": {
+            "age": 30,
+            "preferences": ["running", "cycling", {"nested": "value"}],
+            "contact": {
+                "email": "alice@example.com",
+                "phone": "123-456-7890"
+            }
+        },
+        "status": "active"
+    })
     logger.pretty({
         "user": "Alice",
         "attributes": {
