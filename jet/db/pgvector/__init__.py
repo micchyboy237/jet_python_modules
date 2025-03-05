@@ -1,1 +1,2 @@
-from .pgvector import PgVectorClient
+from .pgvector import *
+from .utils import *

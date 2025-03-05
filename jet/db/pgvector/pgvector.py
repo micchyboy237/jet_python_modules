@@ -195,11 +195,24 @@ class PgVectorClient:
 
         return sorted(final_results, key=lambda x: x['score'], reverse=True)
 
-    def drop_all_rows(self, table_name: str) -> None:
-        """Delete all rows from a table."""
-        query = f"DELETE FROM {table_name};"
+    def drop_all_rows(self, table_name: Optional[str] = None) -> None:
+        """Delete all rows from a specific table or all tables if no table is provided."""
         with self.conn.cursor() as cur:
-            cur.execute(query)
+            if table_name:
+                query = f"DELETE FROM {table_name};"
+                cur.execute(query)
+            else:
+                # Get all user-defined table names
+                cur.execute("""
+                    SELECT tablename 
+                    FROM pg_tables 
+                    WHERE schemaname = 'public';
+                """)
+                tables = [row["tablename"] for row in cur.fetchall()]
+
+                # Delete all rows from each table
+                for table in tables:
+                    cur.execute(f"DELETE FROM {table};")
 
     def delete_all_tables(self) -> None:
         """Drop all tables in the database."""
@@ -219,3 +232,9 @@ class PgVectorClient:
     def close(self) -> None:
         """Close the database connection."""
         self.conn.close()
+
+
+__all__ = [
+    "SearchResult",
+    "PgVectorClient",
+]
