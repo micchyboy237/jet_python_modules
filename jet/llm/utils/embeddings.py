@@ -2,6 +2,7 @@ import numpy as np
 
 from jet.logger import logger
 from jet.logger.timer import time_it
+import sentence_transformers
 from tqdm import tqdm
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from sentence_transformers import SentenceTransformer
@@ -29,11 +30,50 @@ GenerateMultipleReturnType = Callable[[
     Union[str, List[str]]], List[MemoryEmbedding]]
 
 
+class OllamaEmbeddingFunction():
+    def __init__(
+            self,
+            model_name: str = large_embed_model,
+            batch_size: int = 32,
+            key: str = "",
+    ) -> None:
+        self.model_name = model_name
+        self.batch_size = batch_size
+        self.key = key
+
+    @time_it(function_name="generate_ollama_batch_embeddings")
+    def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
+        logger.info(f"Generating Ollama embeddings...")
+        logger.debug(f"Model: {self.model_name}")
+        logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
+        logger.debug(
+            f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
+        logger.debug(f"Texts: {len(input)}")
+        logger.debug(f"Batch size: {self.batch_size}")
+
+        def func(query: str | list[str]): return generate_embeddings(
+            model=self.model_name,
+            text=query,
+            url=base_url,
+            key=self.key,
+        )
+
+        batch_embeddings = generate_multiple(input, func, self.batch_size)
+
+        if isinstance(input, str):
+            return batch_embeddings[0]
+        return batch_embeddings
+
+
 class SFEmbeddingFunction():
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", batch_size: int = 32) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
         self.model = SentenceTransformer(model_name)
+
+    def __getattr__(self, name):
+        """Delegate attribute/method calls to self.model if not found in SFEmbeddingFunction."""
+        return getattr(self.model, name)
 
     def tokenize(self, documents: List[str]) -> List[List[str]]:
         # Tokenize documents into words using the sentence transformer tokenizer
@@ -84,39 +124,63 @@ class SFEmbeddingFunction():
         return all_embeddings
 
 
-class OllamaEmbeddingFunction():
-    def __init__(
-            self,
-            model_name: str = large_embed_model,
-            batch_size: int = 32,
-            key: str = "",
-    ) -> None:
+class SFRerankingFunction:
+    def __init__(self, model_name: str = "all-MiniLM-L12-v2", batch_size: int = 32) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
-        self.key = key
+        self.model = sentence_transformers.CrossEncoder(model_name)
 
-    @time_it(function_name="generate_ollama_batch_embeddings")
+    def __getattr__(self, name):
+        """Delegate attribute/method calls to self.model if not found in SFEmbeddingFunction."""
+        return getattr(self.model, name)
+
+    def tokenize(self, documents: List[str]) -> List[List[str]]:
+        """Tokenize documents using the sentence transformer tokenizer."""
+        return [self.model.tokenize(doc) for doc in documents]
+
+    def calculate_tokens(self, documents: List[str]) -> List[int]:
+        """Calculate token count for each document using the model's tokenizer."""
+        tokenized = self.tokenize(documents)
+        return [len(tokens) for tokens in tokenized]
+
+    @time_it(function_name="generate_sf_batch_embeddings")
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
-        logger.info(f"Generating Ollama embeddings...")
+        logger.info(f"Generating SF embeddings...")
         logger.debug(f"Model: {self.model_name}")
-        logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
-        logger.debug(
-            f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
         logger.debug(f"Texts: {len(input)}")
         logger.debug(f"Batch size: {self.batch_size}")
 
-        def func(query: str | list[str]): return generate_embeddings(
-            model=self.model_name,
-            text=query,
-            url=base_url,
-            key=self.key,
-        )
-
-        batch_embeddings = generate_multiple(input, func, self.batch_size)
-
         if isinstance(input, str):
-            return batch_embeddings[0]
-        return batch_embeddings
+            input = [input]
+        # Tokenize the input and calculate token counts for each document
+        token_counts = self.calculate_tokens(input)
+
+        batched_input = []
+        current_batch = []
+        current_token_count = 0
+
+        # Split the input into batches based on the batch_size
+        for doc, token_count in zip(input, token_counts):
+            # Start a new batch when the batch size limit is reached
+            if len(current_batch) >= self.batch_size:
+                batched_input.append(current_batch)
+                current_batch = [doc]
+                current_token_count = token_count
+            else:
+                current_batch.append(doc)
+                current_token_count += token_count
+
+        if current_batch:  # Don't forget to add the last batch
+            batched_input.append(current_batch)
+
+        # Embed each batch using encode and decode methods
+        all_embeddings = []
+        for batch in batched_input:
+            # Encode documents into embeddings
+            embeddings = self.model.encode(batch, show_progress_bar=True)
+            all_embeddings.extend(embeddings)
+
+        return all_embeddings
 
 
 def get_embedding_function(
@@ -128,6 +192,17 @@ def get_embedding_function(
         return OllamaEmbeddingFunction(model_name=model_name, batch_size=batch_size)
     else:
         return SFEmbeddingFunction(model_name=model_name, batch_size=batch_size)
+
+
+def get_reranking_function(
+    model_name: str | OLLAMA_EMBED_MODELS,
+    batch_size: int = 32,
+) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
+    use_ollama = model_name in OLLAMA_EMBED_MODELS.__args__
+    if use_ollama:
+        return OllamaEmbeddingFunction(model_name=model_name, batch_size=batch_size)
+    else:
+        return SFRerankingFunction(model_name=model_name, batch_size=batch_size)
 
 
 def ollama_embedding_function(texts, model) -> list[float] | list[list[float]]:

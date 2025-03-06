@@ -4,6 +4,7 @@ import numpy as np
 import uuid
 from typing import List, Dict, Optional, Tuple, TypedDict
 from psycopg.rows import dict_row
+from jet.db.pgvector.scoring import calculate_vector_scores
 
 
 class SearchResult(TypedDict):
@@ -164,9 +165,6 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, embeddings))
 
-    def calculate_vector_scores(self, distances: List[float]) -> List[float]:
-        return [1 - distance for distance in distances]
-
     def search_similar(self, table_name: str, query_vector: List[float], top_k: int = 5) -> List[SearchResult]:
         """Find the top-K most similar vectors using L2 distance."""
         query = f"""
@@ -183,7 +181,7 @@ class PgVectorClient:
 
         # Compute similarity scores
         distances = [res["distance"] for res in results]
-        scores = self.calculate_vector_scores(distances)
+        scores = calculate_vector_scores(distances)
 
         # Attach scores to results
         final_results: List[SearchResult] = []
