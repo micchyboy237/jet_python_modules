@@ -2,7 +2,7 @@ from typing import Optional, TypedDict
 
 
 class JobEntities(TypedDict, total=False):
-    coding_libraries: list[str]
+    technology_stack: list[str]
     role: list[str]
     application: list[str]
     qualifications: list[str]
