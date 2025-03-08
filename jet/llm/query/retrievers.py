@@ -294,6 +294,12 @@ def setup_index(
         jet_node_parser = JetHierarchicalNodeParser(sub_nodes, sub_chunk_sizes)
         all_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
 
+    if not all_nodes:
+        error = "No documents found"
+        if isinstance(path_or_docs, str):
+            error += f" on path: {path_or_docs}"
+        raise ValueError(error)
+
     if mode == "hierarchy":
         index = VectorStoreIndex(
             all_nodes,

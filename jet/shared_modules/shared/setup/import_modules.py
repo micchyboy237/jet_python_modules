@@ -2,6 +2,9 @@
 # Shared modules should be on top
 from jet.logger import logger
 
+from jet.decorators.error import *
+from jet.decorators.function import *
+
 from jet.transformers import *
 
 from jet.utils.inspect_utils import *

@@ -1,5 +1,7 @@
 import os
 import logging
+import unidecode
+
 from typing import List, Callable, Optional, Any
 from jet.logger.config import COLORS, RESET
 from jet.transformers.formatters import format_json
@@ -52,6 +54,13 @@ class CustomLogger:
                 parsed_message = parse_json(messages[0])
                 if isinstance(parsed_message, (dict, list)):
                     messages[0] = format_json(parsed_message)
+
+            # Decode unicode characters if any
+            messages = [
+                unidecode.unidecode(message)
+                if isinstance(message, str) else message
+                for message in messages
+            ]
 
             formatted_messages = [
                 f"{COLORS.get(color, COLORS['LOG'])}{message}{RESET}" for message, color in zip(messages, colors)
@@ -113,6 +122,9 @@ class CustomLogger:
                         # Use color for list items
                         prompt_log += f"{line_prefix}{LIST_ITEM_COLOR}{item}{RESET}\n"
 
+            # Decode unicode characters if any
+            prompt_log = unidecode.unidecode(prompt_log)
+
             return prompt_log
 
         prompt_log = _inner(prompt, level)
@@ -154,10 +166,14 @@ def logger_examples(logger: CustomLogger):
     logger.purple("This is a bright purple message.", bright=True)
     logger.lime("This is a lime message.")
     logger.lime("This is a bright lime message.", bright=True)
+    logger.log("Unicode message:", "Playwright Team \u2551 \u255a",
+               colors=["WHITE", "DEBUG"])
+    logger.newline()
     logger.log("Flush word 1.", flush=True)
     logger.log("Flush word 2.", flush=True)
     logger.log("Word 1", flush=False)
     logger.log("Word 2", flush=False)
+    logger.newline()
     logger.log("multi-color default", "Message 2",
                "Message 3", "Message 4", "Message 5")
     logger.log("2 multi-color with colors",
@@ -168,6 +184,7 @@ def logger_examples(logger: CustomLogger):
                colors=["WHITE", "BRIGHT_DEBUG", "BRIGHT_SUCCESS"])
     logger.log("3 multi-color with repeat", "Message 2", "Message 3",
                colors=["INFO", "DEBUG"])
+    logger.newline()
     logger.info({
         "user": "Alice",
         "attributes": {
@@ -180,6 +197,7 @@ def logger_examples(logger: CustomLogger):
         },
         "status": "active"
     })
+    logger.newline()
     logger.pretty({
         "user": "Alice",
         "attributes": {

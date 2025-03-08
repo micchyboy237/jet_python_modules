@@ -275,3 +275,9 @@ def llm_chat_callback() -> Callable:
                 return wrapped_llm_chat
 
     return wrap
+
+
+__all__ = [
+    "retry_on_error",
+    "llm_chat_callback",
+]
