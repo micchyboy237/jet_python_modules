@@ -482,7 +482,9 @@ class OllamaEmbedding(BaseOllamaEmbedding):
 
     def embed(self, texts: Union[str, Sequence[str]] = '') -> list[float] | list[list[float]]:
         """Calls get_general_text_embedding to get the embeddings."""
-        return self.get_general_text_embedding(texts)
+        embed_func = get_embedding_function(self.model_name)
+        embed_results = embed_func(texts)
+        return embed_results
 
     def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float] | list[list[float]]:
         """Get Ollama embedding with retry mechanism."""
