@@ -16,9 +16,10 @@ def inspect_original_script_path() -> Optional[INSPECT_ORIGINAL_SCRIPT_PATH_RESP
     # Get the stack frames
     stack_info = inspect.stack()
 
-    # Filter frames that contain "JetScripts/" or "jet_python_modules/" in the filename
     matching_frames = [
-        frame for frame in stack_info if "Jet_Projects/" in frame.filename]
+        frame for frame in stack_info
+        if any(partial_path in frame.filename for partial_path in ["Jet_Projects/", "repo-libs"]) and "site-packages/" not in frame.filename
+    ]
     matching_functions = [
         frame for frame in matching_frames
         if not frame.function.startswith('_') and
@@ -64,8 +65,7 @@ def print_inspect_original_script_path():
     stack_info = inspect.stack()
     print("Inspecting stack frames:\n")
     for idx, frame in enumerate(stack_info):
-        # Only print frames that have "JetScripts/" or "jet_python_modules/" in the filename
-        if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename:
+        if any(partial_path in frame.filename for partial_path in ["Jet_Projects/", "repo-libs"]) and "site-packages/" not in frame.filename:
             logger.info(f"Frame #{idx}:")
             logger.log("  File:", frame.filename,
                        colors=["WHITE", "DEBUG"])
@@ -112,8 +112,10 @@ def print_inspect_original_script_path_grouped():
 
 def get_stack_frames(max_frames: Optional[int] = None):
     stack_info = inspect.stack()
-    frames = [frame for frame in stack_info
-              if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename]
+    frames = [
+        frame for frame in stack_info
+        if any(partial_path in frame.filename for partial_path in ["Jet_Projects/", "repo-libs"]) and "site-packages/" not in frame.filename
+    ]
     frames = frames[-max_frames:] if max_frames else frames
 
     stack_frames = [{
@@ -129,8 +131,10 @@ def get_stack_frames(max_frames: Optional[int] = None):
 
 def find_stack_frames(text: str):
     stack_info = inspect.stack()
-    frames = [frame for frame in stack_info
-              if "JetScripts/" in frame.filename or "jet_python_modules/" in frame.filename]
+    frames = [
+        frame for frame in stack_info
+        if any(partial_path in frame.filename for partial_path in ["Jet_Projects/", "repo-libs"]) and "site-packages/" not in frame.filename
+    ]
     frames = [
         frame for frame in frames for code in frame.code_context if text in code]
 

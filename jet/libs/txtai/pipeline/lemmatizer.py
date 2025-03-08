@@ -4,11 +4,13 @@ import unidecode
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 
+from jet.utils.text import fix_and_unidecode
+
 
 def lemmatize_text(text: str) -> list[str]:
     """Lemmatizes tokens in a given text, converting special characters to ASCII equivalents."""
     # Convert Unicode characters to closest ASCII equivalent
-    text = unidecode.unidecode(text)
+    text = fix_and_unidecode(text)
     lemmatizer = WordNetLemmatizer()
     tokens = word_tokenize(text)
     return [lemmatizer.lemmatize(token) for token in tokens]
@@ -20,6 +22,6 @@ def lemmatize_text(text: str) -> list[str]:
 
 
 # def lemmatize_text(text: str) -> list[str]:
-#     text = unidecode.unidecode(text)
+#     text = fix_and_unidecode(text)
 #     doc = nlp(text)
 #     return [token.text for token in doc]

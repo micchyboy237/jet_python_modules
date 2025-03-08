@@ -6,6 +6,7 @@ from typing import List, Callable, Optional, Any
 from jet.logger.config import COLORS, RESET
 from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
+from jet.utils.text import fix_and_unidecode
 
 
 class CustomLogger:
@@ -57,7 +58,7 @@ class CustomLogger:
 
             # Decode unicode characters if any
             messages = [
-                unidecode.unidecode(message)
+                fix_and_unidecode(message)
                 if isinstance(message, str) else message
                 for message in messages
             ]
@@ -123,7 +124,7 @@ class CustomLogger:
                         prompt_log += f"{line_prefix}{LIST_ITEM_COLOR}{item}{RESET}\n"
 
             # Decode unicode characters if any
-            prompt_log = unidecode.unidecode(prompt_log)
+            prompt_log = fix_and_unidecode(prompt_log)
 
             return prompt_log
 

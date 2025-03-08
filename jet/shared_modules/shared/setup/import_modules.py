@@ -1,5 +1,7 @@
 # Sort these imports that prevents circular dependencies
 # Shared modules should be on top
+from jet.utils.text import *
+
 from jet.logger import logger
 
 from jet.decorators.error import *

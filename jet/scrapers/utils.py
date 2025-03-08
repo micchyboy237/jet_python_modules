@@ -1,5 +1,6 @@
 import re
 import string
+from jet.utils.text import fix_and_unidecode
 import parsel
 import unidecode
 
@@ -43,7 +44,7 @@ def clean_text(text: str) -> str:
     Clean the text by removing newlines, non-ASCII characters, and other characters.
     """
     # Convert Unicode characters to closest ASCII equivalent
-    text = unidecode.unidecode(text)
+    text = fix_and_unidecode(text)
 
     # lemmas = lemmatize_text(text)
     # text = ' '.join(lemmas).strip()

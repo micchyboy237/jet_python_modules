@@ -1,6 +1,8 @@
 import builtins
 
 from .import_modules import (
+    fix_and_unidecode,
+
     logger,
 
     make_serializable,
@@ -60,6 +62,8 @@ from .import_modules import (
 
 # Injects global methods/variables only once
 def inject_globals():
+    if not hasattr(builtins, "fix_and_unidecode"):
+        builtins.fix_and_unidecode = fix_and_unidecode
     if not hasattr(builtins, "logger"):
         builtins.logger = logger
     if not hasattr(builtins, "make_serializable"):
