@@ -1,7 +1,7 @@
 # Custom
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/starlette
--e git+ssh://git@github.com/run-llama/llama_index.git@637c79de64109b7579f6fe1cc81690b975000975#egg=llama_index_core&subdirectory=llama-index-core
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core
 
 # .venv/bin/python
 aim==3.26.1
