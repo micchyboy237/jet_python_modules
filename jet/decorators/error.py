@@ -82,11 +82,11 @@ def wrap_retry(
     """Retries a function on failure, logging exceptions and applying exponential backoff."""
 
     # Wrap the function with log_exceptions
-    wrapped_func = log_exceptions(func)
+    wrapped_func = log_exceptions()(func)
 
     for attempt in range(max_retries):
         try:
-            return wrapped_func()  # Execute the wrapped function
+            return wrapped_func()  # This would fail if the function requires arguments
         except Exception as e:
             if attempt < max_retries - 1:
                 logger.warning(
@@ -95,11 +95,6 @@ def wrap_retry(
                 sleep_countdown(delay)
             else:
                 logger.error(
-                    f"Max retries ({max_retries}) reached. Raising the exception.")
+                    f"Max retries ({max_retries}) reached. Raising the exception."
+                )
                 raise  # Reraise after max retries
-
-
-__all__ = [
-    "log_exceptions",
-    "wrap_retry",
-]
