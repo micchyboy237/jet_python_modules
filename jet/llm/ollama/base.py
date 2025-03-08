@@ -525,7 +525,6 @@ class OllamaEmbedding(BaseOllamaEmbedding):
         return wrap_retry(run)
 
 
-@time_it
 def embed_nodes(
     nodes: Sequence[BaseNode] | Sequence[str], embed_model: OLLAMA_EMBED_MODELS | str, show_progress: bool = False
 ) -> dict[str, list[float]]:
