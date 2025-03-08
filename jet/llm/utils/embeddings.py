@@ -216,19 +216,11 @@ def ollama_embedding_function(texts, model) -> list[float] | list[list[float]]:
     return results
 
 
-def get_ollama_embedding_function(model: OLLAMA_EMBED_MODELS | str):
-    from jet.llm.ollama.base import OllamaEmbedding
-
-    embed_model = OllamaEmbedding(model_name=model)
-
-    def embedding_function(texts: list[str]):
-        if isinstance(texts, str):
-            texts = [texts]
-
-        results = embed_model.get_general_text_embedding(texts)
-        return results
-
-    return embedding_function
+def get_ollama_embedding_function(
+    model: OLLAMA_EMBED_MODELS,
+    batch_size: int = 32,
+):
+    return OllamaEmbeddingFunction(model_name=model, batch_size=batch_size)
 
 
 def generate_multiple(
