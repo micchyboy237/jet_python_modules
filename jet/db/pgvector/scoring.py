@@ -1,6 +1,7 @@
 from chromadb.api.types import QueryResult
 from jet.db.chroma import SearchResult
 from jet.data.utils import generate_key
+from jet.transformers import make_serializable
 
 
 def calculate_vector_scores(distances: list[float]) -> list[float]:
@@ -10,6 +11,8 @@ def calculate_vector_scores(distances: list[float]) -> list[float]:
 def convert_search_results(query_result: QueryResult) -> list[SearchResult]:
     # Initialize an empty list to hold the converted query_result
     converted_results = []
+
+    query_result = make_serializable(query_result)
 
     # Extract the values from the query_result dictionary
     documents = query_result.get('documents', [])[0]
@@ -27,7 +30,7 @@ def convert_search_results(query_result: QueryResult) -> list[SearchResult]:
             'id': ids[i],
             'document': doc,
             # Use empty dict if metadata is None
-            'metadata': metadatas[i] if metadatas[i] is not None else {},
+            'metadata': metadatas[i],
             'score': scores[i]  # Use the calculated score
         }
         converted_results.append(converted_result)
