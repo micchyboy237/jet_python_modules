@@ -1,6 +1,5 @@
 import unittest
 
-# Import the decorator
 from jet.decorators.error import log_exceptions, LoggedException
 
 
@@ -44,6 +43,22 @@ class TestLogExceptionsDecorator(unittest.TestCase):
         with self.assertRaises(ValueError):
             next(gen)
 
+    def test_catch_multiple_exceptions(self):
+        @log_exceptions(AttributeError, TypeError)
+        def raise_multiple_errors(x):
+            if x == 1:
+                raise AttributeError("Attr Error")
+            elif x == 2:
+                raise TypeError("Type Error")
+            raise ValueError("Other Error")  # Should not be caught
+
+        with self.assertRaises(AttributeError):
+            raise_multiple_errors(1)
+        with self.assertRaises(TypeError):
+            raise_multiple_errors(2)
+        with self.assertRaises(ValueError):
+            raise_multiple_errors(3)  # Not in decorator, should not be caught
+
 
 class TestLogExceptionsReturnedArgs(unittest.TestCase):
 
@@ -78,8 +93,41 @@ class TestLogExceptionsReturnedArgs(unittest.TestCase):
 
         result = gen_func(42, name="Alice")
         self.assertIsInstance(result, LoggedException)
-        self.assertEqual(result.args_data, (42,))  # Ensure tuple format
+        self.assertEqual(result.args_data, (42,))
         self.assertEqual(result.kwargs_data, {'name': "Alice"})
+
+    def test_function_without_exceptions_runs_normally(self):
+        @log_exceptions()
+        def normal_function(x):
+            return x * 2
+
+        self.assertEqual(normal_function(10), 20)
+
+    def test_function_that_returns_none(self):
+        @log_exceptions()
+        def none_function():
+            return None
+
+        self.assertIsNone(none_function())
+
+    def test_generator_without_exceptions_runs_normally(self):
+        @log_exceptions()
+        def gen_func():
+            yield 1
+            yield 2
+            yield 3
+
+        gen = gen_func()
+        self.assertEqual(next(gen), 1)
+        self.assertEqual(next(gen), 2)
+        self.assertEqual(next(gen), 3)
+
+    def test_empty_function_executes_without_error(self):
+        @log_exceptions()
+        def empty_func():
+            pass
+
+        self.assertIsNone(empty_func())
 
 
 if __name__ == '__main__':

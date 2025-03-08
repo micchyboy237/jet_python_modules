@@ -1,7 +1,7 @@
 import traceback
 
 from functools import wraps
-from typing import Callable
+from typing import Callable, Generator, Any, Type
 
 from jet.logger import logger
 from jet.logger.timer import sleep_countdown
@@ -11,32 +11,39 @@ from jet.utils.class_utils import get_class_name
 
 
 class LoggedException(Exception):
-    def __init__(self, original_exception, *args, **kwargs):
+    """A wrapper for logging exceptions while preserving original exception data."""
+
+    def __init__(self, original_exception: Exception, *args, **kwargs):
         super().__init__(str(original_exception))
         self.original_exception = original_exception
         self.args_data = args
         self.kwargs_data = kwargs
 
 
-def log_exceptions(*exception_types, raise_exception=True):
-    """Decorator to log unhandled exceptions and either re-raise or return an Exception instance.
+def log_exceptions(*exception_types: Type[Exception], raise_exception: bool = True):
+    """Decorator to log unhandled exceptions and either re-raise or return a LoggedException.
 
     Args:
-        *exception_types: Specific exception types to catch. If empty, catches all exceptions.
-        raise_exception (bool): If True, re-raises the exception. If False, returns an instance of LoggedException.
+        *exception_types (Type[Exception]): Exception types to catch. If empty, catches all exceptions.
+        raise_exception (bool): If True, re-raises the exception. If False, returns a LoggedException instance.
     """
-    def decorator(func):
+    # If no exception types are passed, default to catching all exceptions
+    if not exception_types:
+        # Catch all if no specific types provided
+        exception_types = (Exception,)
+
+    def decorator(func: Callable):
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
                 result = func(*args, **kwargs)
 
-                # Handle generators separately
-                if hasattr(result, "__iter__") and not isinstance(result, (str, bytes, dict, list, tuple)):
+                # If function returns a generator, handle exceptions inside it
+                if isinstance(result, Generator):
                     return _handle_generator(result, args, kwargs, exception_types, raise_exception)
 
                 return result
-            except exception_types or Exception as exc:
+            except exception_types as exc:
                 _log_exception(exc)
 
                 if raise_exception:
@@ -46,24 +53,25 @@ def log_exceptions(*exception_types, raise_exception=True):
 
         return wrapper
 
-    def _handle_generator(gen, args, kwargs, exception_types, raise_exception):
-        """Handles exceptions inside generators."""
+    def _handle_generator(gen: Generator, args, kwargs, exception_types, raise_exception):
+        """Handles exceptions inside a generator."""
         try:
             for item in gen:
                 yield item
-        except exception_types or Exception as exc:
+        except exception_types as exc:
             _log_exception(exc)
             if raise_exception:
                 raise
             yield LoggedException(exc, *args, **kwargs)
 
-    def _log_exception(exc):
-        """Logs exception details."""
+    def _log_exception(exc: Exception):
+        """Logs exception details in different formats."""
         logger.error(format_json(make_serializable(exc)))
         logger.gray(traceback.format_exc())
         logger.warning(f"Global: Handled {get_class_name(exc)}")
 
-    return decorator
+    # Return decorator even if exception_types is empty
+    return decorator if exception_types else decorator
 
 
 def wrap_retry(
