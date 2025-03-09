@@ -296,8 +296,8 @@ def setup_index(
         sub_nodes = split_heirarchical_nodes(
             all_nodes, sub_chunk_sizes, **other_args)
         jet_node_parser = JetHierarchicalNodeParser(sub_nodes, sub_chunk_sizes)
-        all_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
-        # all_nodes = jet_node_parser.all_nodes
+        # all_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
+        all_nodes = jet_node_parser.all_nodes
 
     if not all_nodes:
         error = "No documents found"
