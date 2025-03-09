@@ -57,11 +57,11 @@ def clean_text(text: str) -> str:
 
 
 def clean_newlines(content) -> str:
-    """Merge consecutive newlines from the content."""
+    """Merge consecutive newlines from the content, but limit to at most 3 consecutive newlines."""
     # Remove trailing whitespace for each line
     content = '\n'.join([line.rstrip() for line in content.split('\n')])
-    # Reduce consecutive newlines to a single newline
-    content = re.sub(r'\n+', '\n', content)
+    # Reduce consecutive newlines to at most 3 newlines
+    content = re.sub(r'(\n{4,})', '\n\n\n', content)
     return content
 
 

@@ -105,8 +105,8 @@ def get_token_counts_info(texts: list[str], model: OLLAMA_MODEL_NAMES) -> TokenC
 
     return {
         "total": total_count,
-        "max": max_result,
         "min": min_result,
+        "max": max_result,
         "results": results
     }
 

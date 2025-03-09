@@ -67,11 +67,24 @@ class JetHierarchicalNodeParser:
                     node.metadata["chunk_size"] = chunk_size
                     node.metadata["depth"] = idx
 
-    def _generate_nodes_tree(self, nodes: Optional[list[BaseNode] | list[RelatedNodeInfo]] = None, depth=0, nodes_tree: dict = {}):
+    def _generate_nodes_tree(self, nodes: Optional[List[BaseNode] | List[RelatedNodeInfo]] = None, depth=0, nodes_tree: dict = {}, visited: set = set()):
         nodes = get_deeper_nodes(self.all_nodes, depth=depth)
+
         for node in nodes:
+            # Prevent infinite recursion by checking if the node has already been visited
+            if node.node_id in visited:
+                continue
+
+            visited.add(node.node_id)
+
+            # Check if a node with the same text already exists at this depth
+            # This will deduplicate nodes with identical text at the current depth
+            if any(existing_node["text"] == node.text for existing_node in nodes_tree.values()):
+                continue
+
             metadata = node.metadata.copy()
             sub_nodes_tree = {}
+
             nodes_tree[node.node_id] = {
                 "node_id": node.node_id,
                 "text": node.text,
@@ -80,9 +93,11 @@ class JetHierarchicalNodeParser:
                 "metadata": metadata,
                 "sub_nodes": sub_nodes_tree
             }
+
             child_nodes = node.child_nodes
             self._generate_nodes_tree(
-                child_nodes, depth=depth+1, nodes_tree=sub_nodes_tree)
+                child_nodes, depth=depth + 1, nodes_tree=sub_nodes_tree, visited=visited)
+
         return nodes_tree
 
     @property

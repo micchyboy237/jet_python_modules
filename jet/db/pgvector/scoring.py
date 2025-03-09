@@ -19,7 +19,7 @@ def convert_search_results(query_result: QueryResult) -> list[SearchResult]:
     metadatas = query_result.get('metadatas', [])[0]
     distances = query_result.get('distances', [])[0]
     ids = query_result.get('ids', [])[0] if 'ids' in query_result else [
-        generate_key(doc) for doc in documents]
+        doc.id for doc in documents]
 
     # Calculate the scores using the calculate_vector_scores function
     scores = calculate_vector_scores(distances)

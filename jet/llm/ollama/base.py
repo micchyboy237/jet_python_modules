@@ -482,12 +482,16 @@ class OllamaEmbedding(BaseOllamaEmbedding):
 
     def embed(self, texts: Union[str, Sequence[str]] = '') -> list[float] | list[list[float]]:
         """Calls get_general_text_embedding to get the embeddings."""
-        embed_func = get_embedding_function(self.model_name)
+        from jet.llm.utils.embeddings import get_ollama_embedding_function
+
+        embed_func = get_ollama_embedding_function(self.model_name)
         embed_results = embed_func(texts)
         return embed_results
 
     def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float] | list[list[float]]:
         """Get Ollama embedding with retry mechanism."""
+        from jet.llm.utils.embeddings import get_ollama_embedding_function
+
         logger.orange("Calling OllamaEmbedding embed...")
         logger.debug(
             "Embed model:",
@@ -504,13 +508,11 @@ class OllamaEmbedding(BaseOllamaEmbedding):
                 CBEventType.EMBEDDING,
                 payload={EventPayload.SERIALIZED: self.to_dict()},
             ) as event:
-                result = self._client.embed(
-                    model=self.model_name, input=texts, options=self.ollama_additional_kwargs
+                embed_func = get_ollama_embedding_function(
+                    model=self.model_name
                 )
-                if len(result["embeddings"]) > 1:
-                    embeddings = result["embeddings"]
-                else:
-                    embeddings = result["embeddings"][0]
+                embeddings = embed_func(texts)
+
                 event.on_end(
                     payload={
                         EventPayload.CHUNKS: [texts] if isinstance(texts, str) else texts,

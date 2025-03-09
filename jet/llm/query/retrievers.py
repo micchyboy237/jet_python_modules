@@ -32,6 +32,7 @@ from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.core.retrievers.recursive_retriever import RecursiveRetriever
 from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode, ImageNode
 from jet.llm.utils.llama_index_utils import display_jet_source_nodes
+from llama_index.core.utils import set_global_tokenizer
 from utils.data import generate_key
 from jet.logger import logger
 from jet.actions import call_ollama_chat
@@ -277,10 +278,13 @@ def setup_index(
         if "markdown" in split_mode:
             all_nodes = split_markdown_header_nodes(documents)
     else:
+        tokenizer = get_ollama_tokenizer(embed_model)
+        set_global_tokenizer(tokenizer)
+
         splitter = SentenceSplitter(
             chunk_size=final_chunk_size,
             chunk_overlap=chunk_overlap,
-            tokenizer=get_ollama_tokenizer(embed_model).encode
+            tokenizer=tokenizer.encode
         )
         all_nodes = splitter.get_nodes_from_documents(
             documents, show_progress=True)
@@ -293,6 +297,7 @@ def setup_index(
             all_nodes, sub_chunk_sizes, **other_args)
         jet_node_parser = JetHierarchicalNodeParser(sub_nodes, sub_chunk_sizes)
         all_nodes = get_leaf_nodes(jet_node_parser.all_nodes)
+        # all_nodes = jet_node_parser.all_nodes
 
     if not all_nodes:
         error = "No documents found"

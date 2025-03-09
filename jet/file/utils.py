@@ -1,5 +1,8 @@
 import os
 import json
+import pickle
+import pandas as pd
+
 from typing import Optional
 from jet.logger import logger
 from pydantic.main import BaseModel
@@ -186,6 +189,99 @@ def main():
     ]
     save_json(sample_results_1, file_path=file_path1)
     save_json(sample_results_2, file_path=file_path2)
+
+
+def load_data(file_path: str, is_binary=False):
+    has_no_extension = not os.path.splitext(file_path)[1]
+    if has_no_extension or file_path.endswith(".bin"):
+        is_binary = True
+
+    if is_binary:
+        with open(file_path, 'rb') as file:
+            data = pickle.load(file)
+    elif file_path.endswith(".csv"):
+        data = pd.read_csv(file_path).to_dict(orient='records')
+    elif file_path.endswith(".txt") or file_path.endswith(".md"):
+        with open(file_path, 'r', encoding='utf-8') as file:
+            data = file.read()
+    elif not os.path.isdir(file_path):
+        with open(file_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+    else:
+        data = load_data_from_directories([file_path])
+
+    return data
+
+
+def load_data_from_directories(source_directories, includes=None, excludes=None):
+    data = []
+
+    for directory in source_directories:
+        # Check if directory is a json file
+        if os.path.isfile(directory) and directory.endswith(".json"):
+            source_file = directory
+            with open(source_file, 'r') as file:
+                data.extend(json.load(file))
+            continue
+        for filename in os.listdir(directory):
+            # Apply include and exclude filters
+            if (not includes or any(fnmatch.fnmatch(filename, pattern) for pattern in includes)) and \
+               (not excludes or not any(fnmatch.fnmatch(filename, pattern) for pattern in excludes)):
+                source_file = os.path.join(directory, filename)
+                data.extend(load_data(source_file))
+
+    return data
+
+
+def save_data(output_file, data, write=False, key='id', is_binary=False):
+    if not data:
+        print(f"No data to save for {output_file}")
+        return
+    # Check if the output file has no extension
+    has_no_extension = not os.path.splitext(output_file)[1]
+    if has_no_extension or output_file.endswith(".bin"):
+        is_binary = True
+
+    if write or not os.path.exists(output_file):
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        # data = [dict(t) for t in {tuple(d.items()) for d in data}]
+
+        print(f"Writing {len(data)} items to {output_file}")
+
+        if is_binary:
+            with open(output_file, 'wb') as f:
+                pickle.dump(data, f)
+        else:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+    else:
+        with open(output_file, 'r', encoding='utf-8') as f:
+            existing_data = json.load(f)
+
+        # Update existing data array with matching data array based on item['key]
+        updated_data_dict = {
+            item[key]: item for item in existing_data if key in item}
+        for idx, item in enumerate(data):
+            if item.get(key, None) in updated_data_dict:
+                existing_data_index = next(
+                    (i for i, x in enumerate(existing_data) if x[key] == item[key]), None)
+                existing_data[existing_data_index] = {
+                    **existing_data[existing_data_index],
+                    **item
+                }
+            else:
+                existing_data.append(item)
+
+        # Deduplicate by key
+        # existing_data = [dict(t) for t in {tuple(d.items()) for d in existing_data}]
+        print(f"Writing {len(existing_data)} items to {output_file}")
+
+        if is_binary:
+            with open(output_file, 'wb') as f:
+                pickle.dump(existing_data, f)
+        else:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(existing_data, f, indent=2, ensure_ascii=False)
 
 
 if __name__ == "__main__":
