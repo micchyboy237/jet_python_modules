@@ -221,14 +221,60 @@ def truncate_texts(texts: list[str], model: str, max_tokens: int) -> list[str]:
 
     for text, tokens in zip(texts, tokenized_texts):
         if len(tokens) > max_tokens:
-            truncated_text = get_tokenizer(model).decode(
-                tokens[:max_tokens], skip_special_tokens=True)
+            truncated_text = get_tokenizer(model).decode(tokens[:max_tokens])
             truncated_texts.append(truncated_text)
             logger.debug(f"Truncated text: {truncated_text}")
         else:
             truncated_texts.append(text)
 
     return truncated_texts
+
+
+def split_texts(
+    texts: str | list[str],
+    model: str,
+    max_tokens: int,
+    overlap: int
+) -> list[str]:
+    """
+    Splits a list of texts into smaller chunks based on max_tokens and overlap.
+
+    Args:
+        texts (str | list[str]): list of input texts to be split.
+        model (str): Model name for tokenization.
+        max_tokens (int): Maximum tokens allowed per chunk.
+        overlap (int): Number of overlapping tokens between chunks.
+
+    Returns:
+        list[str]: A list of split text chunks.
+    """
+    tokenizer = get_tokenizer(model)
+    split_chunks = []
+
+    if isinstance(texts, str):
+        texts = [texts]
+
+    for text in texts:
+        tokens = tokenizer.encode(text)
+        total_tokens = len(tokens)
+
+        if total_tokens <= max_tokens:
+            split_chunks.append(text)
+            continue
+
+        start = 0
+        while start < total_tokens:
+            end = min(start + max_tokens, total_tokens)
+            chunk_tokens = tokens[start:end]
+            chunk_text = tokenizer.decode(chunk_tokens)
+            split_chunks.append(chunk_text)
+
+            if end == total_tokens:
+                break
+            start = end - overlap  # Ensure overlap in the next chunk
+
+    logger.debug(f"Split {len(texts)} texts into {len(split_chunks)} chunks.")
+    return split_chunks
 
 
 if __name__ == "__main__":
