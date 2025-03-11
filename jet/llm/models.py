@@ -1,74 +1,124 @@
 from typing import Literal
 from enum import Enum
 import json
+from jet.transformers.formatters import format_json
 import requests
 import tiktoken
 from transformers import AutoTokenizer
 from jet.logger import logger
 from jet.cache.redis import RedisCache, RedisConfigParams
 
-# Enum to define model types
-
 
 # Get the list of ollama models
 OLLAMA_MODEL_NAMES = Literal[
-    "llama3.1",
-    "llama3.2",
-    "mistral",
-    "deepseek-r1",
+    "granite-embedding:278m",
+    "granite-embedding:latest",
+    "paraphrase-multilingual:latest",
+    "bge-large:latest",
+    "all-minilm:33m",
+    "all-minilm:22m",
+    "snowflake-arctic-embed:33m",
+    "snowflake-arctic-embed:137m",
+    "snowflake-arctic-embed:latest",
+    "deepseek-r1:latest",
     "gemma2:2b",
     "gemma2:9b",
-    "codellama",
-    "qwen2.5-coder",
-    "nomic-embed-text",
-    "mxbai-embed-large",
+    "qwen2.5-coder:latest",
+    "nomic-embed-text:latest",
+    "mistral:latest",
+    "mxbai-embed-large:latest",
+    "llama3.1:latest",
+    "codellama:latest",
+    "llava:latest",
+    "llama3.2:latest"
 ]
 
-OLLAMA_HF_MODEL_NAMES = Literal[
-    # LLM
-    "meta-llama/Llama-3.1-8B",
-    "meta-llama/Llama-3.2-3B",
-    "mistralai/Mistral-7B-Instruct-v0.3",
-    "deepseek-ai/DeepSeek-R1",
-    "google/gemma-2-2b",
-    "google/gemma-2-9b",
-    "meta-llama/CodeLlama-7b-hf",
-    "Qwen/Qwen2.5-Coder-7B-Instruct",
-    # Embed
-    "nomic-ai/nomic-embed-text-v1.5",
-    "mixedbread-ai/mxbai-embed-large-v1",
-]
-
-OLLAMA_EMBED_MODELS = Literal[
-    "nomic-embed-text",
-    "mxbai-embed-large",
-]
 
 # Map models to context window sizes
 OLLAMA_MODEL_CONTEXTS = {
-    "llama3.1": 131072,
-    "llama3.2": 131072,
-    "mistral": 32768,
+    "granite-embedding:278m": 512,
+    "granite-embedding:latest": 512,
+    "paraphrase-multilingual:latest": 512,
+    "bge-large:latest": 512,
+    "all-minilm:33m": 512,
+    "all-minilm:22m": 512,
+    "snowflake-arctic-embed:33m": 512,
+    "snowflake-arctic-embed:137m": 2048,
+    "snowflake-arctic-embed:latest": 512,
+    "deepseek-r1:latest": 131072,
     "gemma2:2b": 8192,
     "gemma2:9b": 8192,
-    "codellama": 16384,
-    "qwen2.5-coder": 32768,
-    "nomic-embed-text": 2048,
-    "mxbai-embed-large": 512,
+    "qwen2.5-coder:latest": 32768,
+    "nomic-embed-text:latest": 2048,
+    "mistral:latest": 32768,
+    "mxbai-embed-large:latest": 512,
+    "llama3.1:latest": 131072,
+    "codellama:latest": 16384,
+    "llava:latest": 32768,
+    "llama3.2:latest": 131072
 }
 
 # Map models to embedding sizes
 OLLAMA_MODEL_EMBEDDING_TOKENS = {
-    "llama3.1": 4096,
-    "llama3.2": 3072,
-    "mistral": 4096,
+    "granite-embedding:278m": 768,
+    "granite-embedding:latest": 384,
+    "paraphrase-multilingual:latest": 768,
+    "bge-large:latest": 1024,
+    "all-minilm:33m": 384,
+    "all-minilm:22m": 384,
+    "snowflake-arctic-embed:33m": 384,
+    "snowflake-arctic-embed:137m": 768,
+    "snowflake-arctic-embed:latest": 1024,
+    "deepseek-r1:latest": 3584,
     "gemma2:2b": 2304,
     "gemma2:9b": 3584,
-    "codellama": 4096,
-    "qwen2.5-coder": 3584,
-    "nomic-embed-text": 768,
-    "mxbai-embed-large": 1024,
+    "qwen2.5-coder:latest": 3584,
+    "nomic-embed-text:latest": 768,
+    "mistral:latest": 4096,
+    "mxbai-embed-large:latest": 1024,
+    "llama3.1:latest": 4096,
+    "codellama:latest": 4096,
+    "llava:latest": 4096,
+    "llama3.2:latest": 3072
 }
+
+
+OLLAMA_EMBED_MODELS = Literal[
+    "granite-embedding:278m",
+    "granite-embedding:latest",
+    "paraphrase-multilingual:latest",
+    "bge-large:latest",
+    "all-minilm:33m",
+    "all-minilm:22m",
+    "snowflake-arctic-embed:33m",
+    "snowflake-arctic-embed:137m",
+    "snowflake-arctic-embed:latest",
+    "deepseek-r1:latest",
+    "gemma2:2b",
+    "gemma2:9b",
+    "qwen2.5-coder:latest",
+    "nomic-embed-text:latest",
+    "mistral:latest",
+    "mxbai-embed-large:latest",
+    "llama3.1:latest",
+    "codellama:latest",
+    "llava:latest",
+    "llama3.2:latest",
+]
+
+OLLAMA_BERT_MODELS = Literal[
+    "nomic-embed-text"
+    "mxbai-embed-large",
+    "snowflake-arctic-embed",
+    "snowflake-arctic-embed:137m",
+    "snowflake-arctic-embed:33m",
+    "all-minilm:22m",
+    "all-minilm:33m",
+    "bge-large",
+    "paraphrase-multilingual",
+    "granite-embedding",
+    "granite-embedding:278m",
+]
 
 
 OLLAMA_HF_MODELS = {
@@ -84,7 +134,40 @@ OLLAMA_HF_MODELS = {
     # Embed
     "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
     "mxbai-embed-large": "mixedbread-ai/mxbai-embed-large-v1",
+    "granite-embedding": "ibm-granite/granite-embedding-30m-english",
+    "granite-embedding:278m": "ibm-granite/granite-embedding-278m-multilingual",
+    "all-minilm:22m": "sentence-transformers/all-MiniLM-L6-v2",
+    "all-minilm:33m": "sentence-transformers/all-MiniLM-L12-v2",
+    "snowflake-arctic-embed:33m": "Snowflake/snowflake-arctic-embed-s",
+    "snowflake-arctic-embed:137m": "Snowflake/snowflake-arctic-embed-m-long",
+    "snowflake-arctic-embed": "Snowflake/snowflake-arctic-embed-l",
+    "paraphrase-multilingual": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "bge-large": "BAAI/bge-large-en-v1.5",
 }
+
+OLLAMA_HF_MODEL_NAMES = Literal[
+    # LLM
+    "meta-llama/Llama-3.1-8B",
+    "meta-llama/Llama-3.2-3B",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "deepseek-ai/DeepSeek-R1",
+    "google/gemma-2-2b",
+    "google/gemma-2-9b",
+    "meta-llama/CodeLlama-7b-hf",
+    "Qwen/Qwen2.5-Coder-7B-Instruct",
+    # Embed
+    "nomic-ai/nomic-embed-text-v1.5",
+    "mixedbread-ai/mxbai-embed-large-v1",
+    "ibm-granite/granite-embedding-30m-english",
+    "ibm-granite/granite-embedding-278m-multilingual",
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "sentence-transformers/all-MiniLM-L12-v2",
+    "Snowflake/snowflake-arctic-embed-s",
+    "Snowflake/snowflake-arctic-embed-m-long",
+    "Snowflake/snowflake-arctic-embed-l",
+    "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "BAAI/bge-large-en-v1.5",
+]
 
 OLLAMA_HF_MODEL_CHAT_TEMPLATES = {}
 
@@ -235,5 +318,16 @@ def count_encoded_tokens(model_name: str, text: str | list[str]) -> int:
 if __name__ == "__main__":
     ollama_model_contexts = build_ollama_model_contexts()
     ollama_model_embeddings = build_ollama_model_embeddings()
-    logger.success(json.dumps(ollama_model_contexts, indent=2))
-    logger.success(json.dumps(ollama_model_embeddings, indent=2))
+    ollama_model_names = list(ollama_model_contexts.keys())
+
+    logger.newline()
+    logger.debug(f"ollama_model_contexts ({len(ollama_model_contexts)})")
+    logger.success(format_json(ollama_model_contexts))
+
+    logger.newline()
+    logger.debug(f"ollama_model_embeddings ({len(ollama_model_embeddings)})")
+    logger.success(format_json(ollama_model_embeddings))
+
+    logger.newline()
+    logger.debug(f"ollama_model_names ({len(ollama_model_names)})")
+    logger.success(format_json(ollama_model_names))
