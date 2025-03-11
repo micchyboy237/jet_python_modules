@@ -15,16 +15,16 @@ from jet.cache.redis import RedisConfigParams
 DEFAULT_REDIS_PORT = 3101
 
 
-class Result(TypedDict, total=False):
+class SearchResult(TypedDict):
     url: str
     title: str
     content: str
-    thumbnail: str
     engine: str
-    parsed_url: list[str]
     template: str
+    parsed_url: list[str]
     engines: list[str]
     positions: list[int]
+    publishedDate: str  # Alternatively, use datetime if you plan to parse it
     score: float
     category: str
 
@@ -32,7 +32,7 @@ class Result(TypedDict, total=False):
 class QueryResponse(TypedDict, total=False):
     query: str
     number_of_results: int
-    results: list[Result]
+    results: list[SearchResult]
     answers: list[str]
     corrections: list[str]
     infoboxes: list[str]
@@ -82,7 +82,7 @@ def format_min_date(min_date: datetime) -> datetime:
     return result
 
 
-def filter_unique_hosts(results: list[Result]) -> list[Result]:
+def filter_unique_hosts(results: list[SearchResult]) -> list[SearchResult]:
     """
     Filter results to ensure unique hosts with the highest score.
     """
@@ -94,7 +94,7 @@ def filter_unique_hosts(results: list[Result]) -> list[Result]:
     return list(host_map.values())
 
 
-def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.2, filter_sites: Optional[list[str]] = None, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, **kwargs) -> list[Result]:
+def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.2, filter_sites: Optional[list[str]] = None, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, **kwargs) -> list[SearchResult]:
     query = decode_encoded_characters(query)
     try:
         params = {
@@ -104,7 +104,7 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
             "safesearch": kwargs.get("safesearch", 2),
             "language": kwargs.get("language", "en"),
             "categories": ",".join(kwargs.get("categories", ["general"])),
-            "engines": ",".join(kwargs.get("engines", ["google", "brave", "duckduckgo", "bing"])),
+            "engines": ",".join(kwargs.get("engines", ["google", "brave", "duckduckgo", "bing", "yahoo"])),
         }
         if not min_date:
             years_ago = kwargs.get("years_ago", 1)
@@ -113,8 +113,8 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
         min_date = format_min_date(min_date)
         min_date_iso = min_date.isoformat()
         if filter_sites:
-            site_filters = " ".join(filter_sites)
-            query = f"{site_filters} {query}"
+            site_filters = ", ".join(filter_sites)
+            query = f"{site_filters} - {query}"
             params["q"] = query
         query_url = build_query_url(query_url, params)
         headers = {"Accept": "application/json"}

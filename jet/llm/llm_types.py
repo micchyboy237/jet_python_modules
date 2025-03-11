@@ -37,8 +37,20 @@ class ToolCall(TypedDict):
     function: ToolCallFunction
 
 
+class MessageRole(str, Enum):
+    """Message role."""
+
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    FUNCTION = "function"
+    TOOL = "tool"
+    CHATBOT = "chatbot"
+    MODEL = "model"
+
+
 class Message(TypedDict):
-    role: Literal['user', 'assistant', 'system', 'tool']
+    role: Literal['user', 'assistant', 'system', 'tool'] | MessageRole
     content: NotRequired[str]
     images: NotRequired[Sequence[Any]]
     tool_calls: NotRequired[Sequence[ToolCall]]
@@ -135,17 +147,6 @@ class ResponseError(Exception):
 
 
 # Custom Types
-class MessageRole(str, Enum):
-    """Message role."""
-
-    SYSTEM = "system"
-    USER = "user"
-    ASSISTANT = "assistant"
-    FUNCTION = "function"
-    TOOL = "tool"
-    CHATBOT = "chatbot"
-    MODEL = "model"
-
 
 class Track(TypedDict):
     repo: str

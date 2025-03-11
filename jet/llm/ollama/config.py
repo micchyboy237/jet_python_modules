@@ -41,8 +41,15 @@ DEFAULT_EMBED_SETTINGS = {
 }
 
 DETERMINISTIC_LLM_SETTINGS = {
+    "seed": 0,
+    "temperature": 0.3,
+    "num_keep": 0,
+    "num_predict": -1,
+}
+
+REPRODUCIBLE_LLM_SETTINGS = {
     "seed": 42,
-    "temperature": 0,
+    "temperature": 0.3,
     "num_keep": 0,
     "num_predict": -1,
 }

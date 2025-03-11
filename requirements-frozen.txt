@@ -2,6 +2,8 @@
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/starlette
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/text-splitters
 
 # .venv/bin/python
 aim==3.26.1

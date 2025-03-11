@@ -84,7 +84,7 @@ def generate_query(query: str, tone_name: str = "an individual", *, context: str
     options = {
         "stream": stream,
         "options": {
-            "seed": 42,
+            "seed": 0,
             "temperature": 0,
             "num_keep": 0,
             "num_predict": -1,

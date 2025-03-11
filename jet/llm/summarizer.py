@@ -13,7 +13,7 @@ CHUNK_SIZE = 1024
 OVERLAP = 128
 
 SETTINGS = {
-    "seed": 42,
+    "seed": 0,
     "temperature": 0,
     # "temperature": 0.6,
     # "top_k": 40,

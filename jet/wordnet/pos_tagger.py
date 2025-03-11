@@ -1,7 +1,7 @@
 import spacy
 import json
 from collections import defaultdict
-from jet.utils.sentence import adaptive_split
+from jet.wordnet.sentence import adaptive_split
 from jet.file.utils import load_data
 from typing import Optional
 

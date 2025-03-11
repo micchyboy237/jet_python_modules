@@ -23,7 +23,7 @@ from jet.transformers import make_serializable
 from shared.setup.events import EventSettings
 
 DETERMINISTIC_LLM_SETTINGS = {
-    "seed": 42,
+    "seed": 0,
     "temperature": 0,
     "num_keep": 0,
     "num_predict": -1,
@@ -37,7 +37,7 @@ def call_ollama_chat(
     system: str = "",
     tools: list[Tool] = None,
     format: Union[str, dict] = None,
-    options: OllamaChatOptions = None,
+    options: OllamaChatOptions = {},
     stream: bool = True,
     keep_alive: Union[str, int] = "15m",
     template: str = None,

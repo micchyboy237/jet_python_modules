@@ -1,4 +1,6 @@
 from typing import Iterator, Mapping, Optional, Dict, Any, Union, cast
+from jet.actions.generation import call_ollama_chat
+from jet.transformers.object import make_serializable
 from langchain_ollama import ChatOllama as BaseChatOllama, OllamaEmbeddings as BaseOllamaEmbeddings
 from jet.logger import logger
 from langchain_core.language_models import LanguageModelInput
@@ -7,8 +9,10 @@ from langchain_core.messages import BaseMessage
 from langchain_core.runnables.config import ensure_config
 from langchain_core.outputs import ChatGeneration
 from jet.decorators.error import wrap_retry
-from ollama import AsyncClient, Client, Message, Options
+from ollama import AsyncClient, Client, Message as OllamaMessage, Options
 
+from jet.llm.llm_types import Message
+from ollama._types import ChatResponse
 from shared.setup.events import EventSettings
 
 DETERMINISTIC_LLM_SETTINGS = {
@@ -76,28 +80,49 @@ class ChatOllama(BaseChatOllama):
         max_length = int(model_max_length * max_token)
         token_count = token_counter(messages, model)
 
-        if token_count > max_length:
-            raise ValueError(
-                f"token_count ({token_count}) must be less than max_length ({max_length})")
+        if token_count > model_max_length:
+            error = f"token_count ({token_count}) must be less than model ({model}) max length ({model_max_length})"
+            logger.warning(error)
+            # raise ValueError(error)
 
         options.num_ctx = model_max_length
         return params
 
-    # def _create_chat_stream(
-    #     self,
-    #     messages: list[BaseMessage],
-    #     stop: Optional[list[str]] = None,
-    #     **kwargs: Any,
-    # ) -> Iterator[Union[Mapping[str, Any], str]]:
-    #     chat_params = self._chat_params(messages, stop, **kwargs)
+    def _create_chat_stream(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> Iterator[Union[Mapping[str, Any], str]]:
+        chat_params = self._chat_params(messages, stop, **kwargs)
+        chat_messages: list[OllamaMessage] = chat_params["messages"]
+        messages: list[Message] = make_serializable(chat_messages)
 
-    #     def run():
-    #         if chat_params["stream"]:
-    #             yield from self._client.chat(**chat_params)
-    #         else:
-    #             yield self._client.chat(**chat_params)
+        def run():
+            if chat_params["stream"]:
+                logger.newline()
+                logger.info("With stream response:")
+                response = ""
+                for chunk in call_ollama_chat(messages, self.model):
+                    response += chunk
+                yield ChatResponse(
+                    message=OllamaMessage(
+                        content=response,
+                        role='assistant'
+                    )
+                )
+            else:
+                logger.newline()
+                logger.info("No stream response:")
+                response = call_ollama_chat(messages, self.model, stream=False)
+                yield ChatResponse(
+                    message=OllamaMessage(
+                        content=response["message"],
+                        role='assistant'
+                    )
+                )
 
-    #     yield from wrap_retry(run)
+        yield from wrap_retry(run)
 
     # def invoke(
     #     self,

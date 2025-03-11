@@ -204,6 +204,33 @@ def calculate_num_predict_ctx(prompt: str | list[str] | list[ChatMessage] | list
     }
 
 
+def truncate_texts(texts: list[str], model: str, max_tokens: int) -> list[str]:
+    """
+    Truncates texts that exceed the max_tokens limit.
+
+    Args:
+        texts (list[str]): A list of texts to be truncated.
+        model (str): The model name for tokenization.
+        max_tokens (int): The maximum number of tokens allowed per text.
+
+    Returns:
+        list[str]: A list of truncated texts.
+    """
+    tokenized_texts = tokenize(model, texts)
+    truncated_texts = []
+
+    for text, tokens in zip(texts, tokenized_texts):
+        if len(tokens) > max_tokens:
+            truncated_text = get_tokenizer(model).decode(
+                tokens[:max_tokens], skip_special_tokens=True)
+            truncated_texts.append(truncated_text)
+            logger.debug(f"Truncated text: {truncated_text}")
+        else:
+            truncated_texts.append(text)
+
+    return truncated_texts
+
+
 if __name__ == "__main__":
     models = ["llama3.1"]
     ollama_models = {}

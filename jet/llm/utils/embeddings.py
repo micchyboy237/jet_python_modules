@@ -1,3 +1,4 @@
+from jet.token.token_utils import get_model_max_tokens, token_counter, truncate_texts
 import numpy as np
 
 from jet.logger import logger
@@ -66,7 +67,7 @@ class OllamaEmbeddingFunction():
 
 
 class SFEmbeddingFunction():
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", batch_size: int = 32) -> None:
+    def __init__(self, model_name: str = "all-MiniLM-L12-v2", batch_size: int = 32) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
         self.model = SentenceTransformer(model_name)
@@ -187,7 +188,8 @@ def get_embedding_function(
     model_name: str | OLLAMA_EMBED_MODELS,
     batch_size: int = 32,
 ) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
-    use_ollama = model_name in OLLAMA_EMBED_MODELS.__args__
+    use_ollama = model_name in [
+        *OLLAMA_EMBED_MODELS.__args__, *OLLAMA_MODEL_NAMES.__args__]
     if use_ollama:
         return OllamaEmbeddingFunction(model_name=model_name, batch_size=batch_size)
     else:
@@ -259,22 +261,58 @@ def generate_embeddings(
 
 
 def generate_ollama_batch_embeddings(
-    model: str, texts: list[str], url: str, key: str = ""
+    model: OLLAMA_MODEL_NAMES,
+    texts: list[str], url: str,
+    key: str = "",
+    max_tokens: Optional[int | float] = None,
 ) -> list[list[float]]:
+    if not max_tokens:
+        max_tokens = 0.4
+
+    model_max_tokens: int = get_model_max_tokens(model)
+
+    if isinstance(max_tokens, float) and max_tokens < 1:
+        max_tokens = int(model_max_tokens * max_tokens)
+    else:
+        max_tokens = int(max_tokens or model_max_tokens)
+
+    token_counts: list[int] = token_counter(texts, model, prevent_total=True)
+
+    # Identify texts that exceed the max token limit
+    exceeded_texts = [
+        (text, count) for text, count in zip(texts, token_counts) if count > max_tokens
+    ]
+
+    if exceeded_texts:
+        logger.warning(
+            "Some texts exceed the model's max token limit:\n" +
+            "\n".join(
+                f"- {count} tokens: {text[:50].replace("\n", " ")}..." for text, count in exceeded_texts)
+        )
+        # raise ValueError(
+        #     f"{len(exceeded_texts)} texts exceed max token limit")
+        texts = truncate_texts(texts, model, max_tokens)
+
     try:
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+
         r = requests.post(
             f"{url}/api/embed",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {key}",
-            },
-            json={"input": texts, "model": model},
+            headers=headers,
+            json={"model": model, "input": texts},
+            timeout=300  # Set a timeout for reliability
         )
         r.raise_for_status()
         data = r.json()
 
         if "embeddings" in data:
             return data["embeddings"]
-    except Exception as e:
-        logger.error(e)
+        else:
+            logger.error("No embeddings found in response.")
+            raise ValueError("Invalid response: missing embeddings")
+
+    except requests.RequestException as e:
+        logger.error(f"Request error: {e}")
         raise e

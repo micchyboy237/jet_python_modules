@@ -1,6 +1,6 @@
 import re
 from nltk.tokenize import sent_tokenize
-from jet.utils.words import count_words
+from jet.wordnet.words import count_words
 
 # nltk.download('punkt')
 
