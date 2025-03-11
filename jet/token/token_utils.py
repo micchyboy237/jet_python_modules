@@ -254,6 +254,11 @@ def split_texts(
     Returns:
         list[str]: A list of split text chunks.
     """
+
+    if max_tokens <= overlap:
+        raise ValueError(
+            f"Max tokens ({max_tokens}) must be greater than overlap ({overlap})")
+
     tokenizer = get_tokenizer(model)
     split_chunks = []
 
