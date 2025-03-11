@@ -1,9 +1,32 @@
 import os
 import joblib
 from jet.logger import logger
-from typing import Type, TypeVar, Optional, TypedDict
+from typing import Any, Type, TypeVar, Optional, TypedDict
 
 from pydantic.main import BaseModel
+
+
+def save_data(filename: str, data: Any) -> None:
+    """
+    Save data to a file using joblib.
+
+    :param filename: Path to save the file.
+    :param data: Python object to be saved.
+    """
+    joblib.dump(data, filename)
+    logger.success(f"Data saved successfully to {filename}")
+
+
+def load_data(filename: str) -> Any:
+    """
+    Load data from a file using joblib.
+
+    :param filename: Path to the saved file.
+    :return: The loaded Python object, or None if an error occurs.
+    """
+    data: Any = joblib.load(filename)
+    logger.orange(f"Data loaded successfully from {filename}")
+    return data
 
 
 def load_or_save_cache(
