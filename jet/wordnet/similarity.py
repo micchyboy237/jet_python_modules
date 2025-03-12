@@ -1,7 +1,7 @@
 import re
 import json
 
-from typing import List, TypedDict, Union
+from typing import List, Optional, TypedDict, Union
 from jet.llm.models import OLLAMA_EMBED_MODELS
 from jet.llm.utils.embeddings import get_ollama_embedding_function
 from sentence_transformers import SentenceTransformer
@@ -38,7 +38,7 @@ def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, Lis
 
 
 @time_it
-def filter_highest_similarity(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL) -> FilterResult:
+def filter_highest_similarity(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL, threshold: Optional[float] = None) -> FilterResult:
     if not candidates:
         raise ValueError("No candidates provided for comparison.")
 
@@ -54,7 +54,9 @@ def filter_highest_similarity(query: str, candidates: List[str], *, model_name: 
             'score': similarities[i],
             'percent_difference': 100 * (highest_similarity_score - similarities[i]) / highest_similarity_score
         }
-        for i in range(len(candidates)) if candidates[i] != highest_similarity_text
+        for i in range(len(candidates))
+        if candidates[i] != highest_similarity_text
+        and (not threshold or similarities[i] >= threshold)
     ]
     others.sort(key=lambda x: x['score'], reverse=True)
 
@@ -66,7 +68,7 @@ def filter_highest_similarity(query: str, candidates: List[str], *, model_name: 
 
 
 @time_it
-def search_similarities(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL) -> List[SimilarityResult]:
+def search_similarities(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL, threshold: Optional[float] = None) -> List[SimilarityResult]:
     if not candidates:
         raise ValueError("No candidates provided for comparison.")
 
@@ -82,7 +84,9 @@ def search_similarities(query: str, candidates: List[str], *, model_name: str = 
             'score': similarities[i],
             'percent_difference': 100 * (highest_similarity_score - similarities[i]) / highest_similarity_score
         }
-        for i in range(len(candidates)) if candidates[i] != highest_similarity_text
+        for i in range(len(candidates))
+        if candidates[i] != highest_similarity_text
+        and (not threshold or similarities[i] >= threshold)
     ]
     results.sort(key=lambda x: x['score'], reverse=True)
 

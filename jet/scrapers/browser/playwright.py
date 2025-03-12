@@ -16,6 +16,8 @@ REDIS_CONFIG = RedisConfigParams(
     port=3102
 )
 
+browser_page = None
+
 
 class PageDimensions(TypedDict):
     width: int
@@ -28,6 +30,15 @@ class PageContent(TypedDict):
     dimensions: PageDimensions
     screenshot: str
     html: str
+
+
+def setup_browser_page():
+    global browser_page
+
+    if not browser_page:
+        browser_page = setup_sync_browser_page()
+
+    return browser_page
 
 
 def setup_sync_browser_session(*, headless: bool = False) -> SyncBrowser:
@@ -56,11 +67,13 @@ async def setup_async_browser_page(*, headless: bool = False) -> AsyncPage:
     return await browser.new_page()
 
 
-def fetch_page_content_sync(browser_page, url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
+def fetch_page_content_sync(url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
     """Fetches page content synchronously, including screenshot and HTML."""
     cache = RedisCache(config=REDIS_CONFIG)
     cache_key = url
     cached_result = cache.get(cache_key)
+
+    browser_page = setup_browser_page()
 
     if cached_result:
         logger.log(f"scrape_url: Cache hit for", cache_key,
@@ -95,11 +108,13 @@ def fetch_page_content_sync(browser_page, url: str, wait_for_css: Optional[List[
     return result
 
 
-async def fetch_page_content_async(browser_page, url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
+async def fetch_page_content_async(url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
     """Fetches page content asynchronously, including screenshot and HTML."""
     cache = RedisCache(config=REDIS_CONFIG)
     cache_key = url
     cached_result = cache.get(cache_key)
+
+    browser_page = setup_browser_page()
 
     if cached_result:
         logger.log(f"scrape_url: Cache hit for", cache_key,
@@ -133,18 +148,18 @@ async def fetch_page_content_async(browser_page, url: str, wait_for_css: Optiona
     return result
 
 
-def scrape_sync(url: str, wait_for_css: Optional[List[str]] = None, browser_page: Optional[SyncPage] = None) -> PageContent:
+def scrape_sync(url: str, wait_for_css: Optional[List[str]] = None) -> PageContent:
     """Scrapes a webpage synchronously."""
-    browser_page = browser_page or setup_sync_browser_page()
+    browser_page = setup_browser_page()
     browser_page.goto(url)
-    return fetch_page_content_sync(browser_page, url, wait_for_css)
+    return fetch_page_content_sync(url, wait_for_css)
 
 
-async def scrape_async(url: str, wait_for_css: Optional[List[str]] = None, browser_page: Optional[AsyncPage] = None) -> PageContent:
+async def scrape_async(url: str, wait_for_css: Optional[List[str]] = None) -> PageContent:
     """Scrapes a webpage asynchronously."""
-    browser_page = browser_page or await setup_async_browser_page()
+    browser_page = setup_browser_page()
     await browser_page.goto(url)
-    return await fetch_page_content_async(browser_page, url, wait_for_css)
+    return await fetch_page_content_async(url, wait_for_css)
 
 
 async def setup_browser_pool(max_pages: int = 2, headless: bool = False) -> List[AsyncPage]:
@@ -170,7 +185,7 @@ async def scrape_async_limited(urls: List[str], max_concurrent_tasks: int = 2, h
         """Scrape a single URL using an available browser page from the queue."""
         page = await page_queue.get()  # Get an available page
         try:
-            result = await scrape_async(url, browser_page=page)
+            result = await scrape_async(url)
             results.append(result)
             progress_bar.update(1)  # Update progress bar
         finally:

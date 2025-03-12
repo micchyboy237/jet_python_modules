@@ -1,3 +1,4 @@
+from jet.scrapers.browser.playwright import scrape_sync, setup_browser_page, setup_sync_browser_page
 from jet.scrapers.browser.selenium import UrlScraper
 from jet.scrapers.preprocessor import scrape_markdown
 import hashlib
@@ -58,7 +59,8 @@ def scrape_url(url: str, config: RedisConfigParams = REDIS_CONFIG, show_browser:
     logger.info(f"scrape_url: Cache miss for {cache_key}")
 
     if show_browser:
-        html_str = main_selenium(url)
+        # html_str = main_selenium(url)
+        html_str = scrape_sync(url)["html"]
     else:
         html_str = main_hrequests(url)
 

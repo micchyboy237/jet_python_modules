@@ -228,7 +228,6 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
             truncated_text = tokenizer.decode(
                 tokens[:max_tokens], skip_special_tokens=True)
             truncated_texts.append(truncated_text)
-            logger.debug(f"Truncated text: {truncated_text}")
         else:
             truncated_texts.append(text)
 
