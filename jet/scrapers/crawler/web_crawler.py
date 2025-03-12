@@ -1,6 +1,7 @@
 import re
 import time
 import fnmatch
+from jet.logger.timer import sleep_countdown
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -28,13 +29,22 @@ class SeleniumScraper:
     def _setup_driver(self) -> webdriver.Chrome:
         """Sets up the Chrome WebDriver with options."""
         chrome_options: Options = Options()
-        # Configure options as needed, e.g., headless mode.
         driver: webdriver.Chrome = webdriver.Chrome(options=chrome_options)
         return driver
 
     def navigate_to_url(self, url: str):
-        """Navigate the browser to the given URL."""
+        """Navigate the browser to the given URL, wait for the body element, and add extra delay."""
         self.driver.get(url)
+
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+
+        logger.info(f"Loaded {url}")
+
+    def get_page_content(self) -> str:
+        """Extract the text content of the page after ensuring the body is present."""
+        return self.driver.find_element(By.TAG_NAME, "body").text
 
     def close(self):
         """Closes the browser and cleans up the driver."""
@@ -78,21 +88,21 @@ class WebCrawler(SeleniumScraper):
 
         self.visited_urls.add(url)
 
+        logger.info(f"Crawling (Depth {depth}): {url}")
+        self.change_url(url)
+
         if self._should_exclude(url):
             return
 
         self.passed_urls.add(url)
         yield url
 
-        logger.info(f"Crawling (Depth {depth}): {url}")
-        self.change_url(url)
-
         extension = url.split('.')[-1].lower()
         if extension in ["pdf", "doc", "docx", "ppt", "pptx"]:
             return
 
         try:
-            time.sleep(1)
+            sleep_countdown(1)
             anchor_elements = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_all_elements_located((By.TAG_NAME, "a"))
             )
@@ -121,14 +131,14 @@ class WebCrawler(SeleniumScraper):
     def _should_exclude(self, url: str) -> bool:
         """Check if a URL should be excluded based on filtering rules."""
         failed_includes = self.includes and not any(
-            fnmatch.fnmatch(url, pattern) for pattern in self.includes)
+            fnmatch.fnmatch(url.lower(), pattern.lower()) for pattern in self.includes)
         failed_excludes = self.excludes and any(
-            fnmatch.fnmatch(url, pattern) for pattern in self.excludes)
+            fnmatch.fnmatch(url.lower(), pattern.lower()) for pattern in self.excludes)
 
         failed_includes_all = self.includes_all and not all(
-            fnmatch.fnmatch(url, pattern) for pattern in self.includes_all)
+            fnmatch.fnmatch(url.lower(), pattern.lower()) for pattern in self.includes_all)
         failed_excludes_all = self.excludes_all and all(
-            fnmatch.fnmatch(url, pattern) for pattern in self.excludes_all)
+            fnmatch.fnmatch(url.lower(), pattern.lower()) for pattern in self.excludes_all)
 
         return failed_includes or failed_excludes or failed_includes_all or failed_excludes_all
 
@@ -157,8 +167,8 @@ if __name__ == "__main__":
         "https://www.bilibili.tv/video/4794017678102528"
     ]
 
-    includes_all = ["*villainess*", "*history*"]
-    excludes = ["*login*", "*signup*"]
+    includes_all = ["*villainess*", "*down*", "*history*"]
+    excludes = []
     max_depth = None
 
     for start_url in urls:
