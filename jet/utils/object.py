@@ -82,7 +82,7 @@ def extract_null_keys(data: Union[dict, list], parent_key: str = "") -> list[str
 
     elif isinstance(data, list):
         for index, item in enumerate(data):
-            full_key = f"{parent_key}[{index}]"
+            full_key = f"{parent_key}"
             if item is None:
                 null_keys.append(full_key)
             else:
