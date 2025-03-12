@@ -1,3 +1,5 @@
+from jet.cache.redis.types import RedisConfigParams
+from jet.cache.redis.utils import RedisCache
 from tqdm.asyncio import tqdm
 import asyncio
 import os
@@ -9,6 +11,10 @@ from jet.logger import logger
 
 GENERATED_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/my-jobs/generated"
 os.makedirs(GENERATED_DIR, exist_ok=True)
+
+REDIS_CONFIG = RedisConfigParams(
+    port=3102
+)
 
 
 class PageDimensions(TypedDict):
@@ -52,6 +58,15 @@ async def setup_async_browser_page(*, headless: bool = False) -> AsyncPage:
 
 def fetch_page_content_sync(browser_page, url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
     """Fetches page content synchronously, including screenshot and HTML."""
+    cache = RedisCache(config=REDIS_CONFIG)
+    cache_key = url
+    cached_result = cache.get(cache_key)
+
+    if cached_result:
+        logger.log(f"scrape_url: Cache hit for", cache_key,
+                   colors=["LOG", "BRIGHT_SUCCESS"])
+        return cached_result
+
     if wait_for_css:
         logger.log("Waiting for elements css:",
                    wait_for_css, colors=["GRAY", "DEBUG"])
@@ -68,16 +83,29 @@ def fetch_page_content_sync(browser_page, url: str, wait_for_css: Optional[List[
         deviceScaleFactor: window.devicePixelRatio
     })''')
 
-    return {
+    result: PageContent = {
         "url": url,
         "dimensions": dimensions,
         "screenshot": os.path.realpath(screenshot_path),
         "html": browser_page.content()
     }
 
+    cache.set(cache_key, result)
+
+    return result
+
 
 async def fetch_page_content_async(browser_page, url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
     """Fetches page content asynchronously, including screenshot and HTML."""
+    cache = RedisCache(config=REDIS_CONFIG)
+    cache_key = url
+    cached_result = cache.get(cache_key)
+
+    if cached_result:
+        logger.log(f"scrape_url: Cache hit for", cache_key,
+                   colors=["LOG", "BRIGHT_SUCCESS"])
+        return cached_result
+
     if wait_for_css:
         logger.log("Waiting for elements css:",
                    wait_for_css, colors=["GRAY", "DEBUG"])
@@ -93,12 +121,16 @@ async def fetch_page_content_async(browser_page, url: str, wait_for_css: Optiona
         deviceScaleFactor: window.devicePixelRatio
     })''')
 
-    return {
+    result: PageContent = {
         "url": url,
         "dimensions": dimensions,
         "screenshot": os.path.realpath(screenshot_path),
         "html": await browser_page.content()
     }
+
+    cache.set(cache_key, result)
+
+    return result
 
 
 def scrape_sync(url: str, wait_for_css: Optional[List[str]] = None, browser_page: Optional[SyncPage] = None) -> PageContent:

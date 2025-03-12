@@ -30,6 +30,7 @@ from .import_modules import (
     print_types_recursive,
     get_values_by_paths,
     extract_values_by_paths,
+    extract_null_keys,
 
     get_max_prompt_char_length,
     clean_tags,
@@ -108,6 +109,8 @@ def inject_globals():
         builtins.get_values_by_paths = get_values_by_paths
     if not hasattr(builtins, "extract_values_by_paths"):
         builtins.extract_values_by_paths = extract_values_by_paths
+    if not hasattr(builtins, "extract_null_keys"):
+        builtins.extract_null_keys = extract_null_keys
     if not hasattr(builtins, "get_max_prompt_char_length"):
         builtins.get_max_prompt_char_length = get_max_prompt_char_length
     if not hasattr(builtins, "clean_tags"):

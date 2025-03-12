@@ -291,7 +291,8 @@ def generate_ollama_batch_embeddings(
         )
         # raise ValueError(
         #     f"{len(exceeded_texts)} texts exceed max token limit")
-        texts = split_texts(texts, model, max_tokens, 100)
+        # texts = split_texts(texts, model, max_tokens, 100)
+        texts = truncate_texts(texts, model, max_tokens)
 
     try:
         headers = {"Content-Type": "application/json"}

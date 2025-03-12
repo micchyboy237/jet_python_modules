@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, Union
 from jet.utils.class_utils import get_class_name
 
 
@@ -8,29 +8,6 @@ def check_object_type(obj: object, target_type: str) -> bool:
         return True
     else:
         return False
-
-
-# Function to get the class name
-# def get_class_name(cls: Type | object) -> str:
-#     # If the input is an object, get its class first
-#     if not isinstance(cls, type):
-#         cls = cls.__class__
-
-#     # Return the class name
-#     return cls.__name__
-
-
-# def validate_class_object(obj) -> bool:
-#     if obj.__class__.__name__ in ['dict', 'list']:
-#         return False
-
-#     # Check if the object is an instance of a TypedDict
-#     if isinstance(obj, dict) and hasattr(obj, "__annotations__"):
-#         for base in obj.__class__.__bases__:
-#             if isinstance(base.__dict__, MappingProxyType) and "__annotations__" in base.__dict__:
-#                 return bool(obj.__class__.__name__)
-
-#     return bool(obj.__class__.__name__)
 
 
 def print_types_recursive(obj):
@@ -92,11 +69,34 @@ def extract_values_by_paths(data: dict[str, Any], attr_paths: list[str], is_flat
     return result
 
 
+def extract_null_keys(data: Union[dict, list], parent_key: str = "") -> list[str]:
+    null_keys = []
+
+    if isinstance(data, dict):
+        for key, value in data.items():
+            full_key = f"{parent_key}.{key}" if parent_key else key
+            if value is None:
+                null_keys.append(full_key)
+            else:
+                null_keys.extend(extract_null_keys(value, full_key))
+
+    elif isinstance(data, list):
+        for index, item in enumerate(data):
+            full_key = f"{parent_key}[{index}]"
+            if item is None:
+                null_keys.append(full_key)
+            else:
+                null_keys.extend(extract_null_keys(item, full_key))
+
+    return null_keys
+
+
 __all__ = [
     "check_object_type",
     "print_types_recursive",
     "get_values_by_paths",
     "extract_values_by_paths",
+    "extract_null_keys",
 ]
 
 # Example usage
@@ -106,7 +106,8 @@ if __name__ == "__main__":
         "name": None,
         "age": "Thirty",
         "address": {
-            "country": 0
+            "country": 0,
+            "state": None
         }
     }
 
@@ -115,6 +116,10 @@ if __name__ == "__main__":
 
     result = extract_values_by_paths(data, attr_paths)
     # Output: {'name': None, 'age': 'Thirty', 'address': {'country': 0}}
+    print(result)
+
+    result = extract_null_keys(data)
+    # Output: ["name", "address.state"]
     print(result)
 
     # Check if an integer is of type 'int'

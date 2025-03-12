@@ -238,7 +238,7 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
 def split_texts(
     texts: str | list[str],
     model: str,
-    chunk_size: int,
+    chunk_size: Optional[int] = None,
     chunk_overlap: int = 0,
     *,
     buffer: int = 0
@@ -256,6 +256,8 @@ def split_texts(
     Returns:
         list[str]: A list of split text chunks.
     """
+    if not chunk_size:
+        chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
 
     if chunk_size <= chunk_overlap:
         raise ValueError(

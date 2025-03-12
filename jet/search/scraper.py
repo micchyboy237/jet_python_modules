@@ -7,6 +7,10 @@ from jet.cache.redis import RedisCache, RedisConfigParams
 from jet.logger import logger
 from jet.scrapers.hrequests import request_url
 
+REDIS_CONFIG = RedisConfigParams(
+    port=3102
+)
+
 # cache_dir = os.path.join(os.getcwd(), "cache")
 # os.makedirs(cache_dir, exist_ok=True)
 
@@ -41,7 +45,7 @@ def main_hrequests(url):
     return html_str
 
 
-def scrape_url(url: str, config: RedisConfigParams = {}, show_browser: bool = False) -> str:
+def scrape_url(url: str, config: RedisConfigParams = REDIS_CONFIG, show_browser: bool = False) -> str:
     cache = RedisCache(config=config)
     cache_key = url
     cached_result = cache.get(cache_key)
