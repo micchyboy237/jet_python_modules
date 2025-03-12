@@ -1,3 +1,4 @@
+import random
 import threading
 import json
 from llama_index.core.utils import set_global_tokenizer
@@ -23,8 +24,8 @@ from jet.transformers import make_serializable
 from shared.setup.events import EventSettings
 
 DETERMINISTIC_LLM_SETTINGS = {
-    "seed": 0,
-    "temperature": 0,
+    "seed": random.randint(0, 1000),
+    "temperature": 0.3,
     "num_keep": 0,
     "num_predict": -1,
 }

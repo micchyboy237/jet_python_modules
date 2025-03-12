@@ -99,7 +99,7 @@ def merge_header_contents(header_contents: list[dict], max_chars: int = 1000) ->
     return merged_header_contents
 
 
-def extract_header_contents(md_text: str, max_chars_per_chunk: int = None) -> list[dict]:
+def extract_header_contents(md_text: str, max_chars_per_chunk: int = 1000) -> list[dict]:
     headers_to_split_on = [
         ("#", "h1"),
         ("##", "h2"),
