@@ -42,9 +42,13 @@ class SeleniumScraper:
 
         logger.info(f"Loaded {url}")
 
-    def get_page_content(self) -> str:
-        """Extract the text content of the page after ensuring the body is present."""
-        return self.driver.find_element(By.TAG_NAME, "body").text
+    def get_html(self, wait_time: int = 10) -> str:
+        """Waits for full page load and returns the updated page source."""
+        WebDriverWait(self.driver, wait_time).until(
+            lambda driver: driver.execute_script(
+                "return document.readyState") == "complete"
+        )
+        return self.driver.page_source
 
     def close(self):
         """Closes the browser and cleans up the driver."""
@@ -91,11 +95,15 @@ class WebCrawler(SeleniumScraper):
         logger.info(f"Crawling (Depth {depth}): {url}")
         self.change_url(url)
 
-        if self._should_exclude(url):
+        if url != self.base_url and self._should_exclude(url):
             return
 
         self.passed_urls.add(url)
-        yield url
+        html_str = self.get_html()
+        yield {
+            "url": url,
+            "html": html_str,
+        }
 
         extension = url.split('.')[-1].lower()
         if extension in ["pdf", "doc", "docx", "ppt", "pptx"]:
@@ -179,18 +187,11 @@ if __name__ == "__main__":
         batch_size = 5
         batch_count = 0
 
-        for url in crawler.crawl(crawler.base_url):
-            batch_count += 1
-            if batch_count % batch_size == 0:
-                batch_count = 0
-                logger.info(
-                    f"Saving {len(crawler.passed_urls)} pages to {output_file}")
-                sorted_urls = sort_urls_numerically(crawler.passed_urls)
-                save_data(output_file, sorted_urls, write=True)
-
-        logger.info(
-            f"Final save: {len(crawler.passed_urls)} pages to {output_file}")
-        sorted_urls = sort_urls_numerically(crawler.passed_urls)
-        save_data(output_file, sorted_urls, write=True)
+        results = []
+        for result in crawler.crawl(crawler.base_url):
+            logger.info(
+                f"Saving {len(crawler.passed_urls)} pages to {output_file}")
+            results.append(result)
+            save_data(output_file, results, write=True)
 
         crawler.close()
