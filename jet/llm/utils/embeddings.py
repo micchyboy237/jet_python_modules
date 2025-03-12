@@ -1,4 +1,4 @@
-from jet.token.token_utils import get_model_max_tokens, token_counter, truncate_texts
+from jet.token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
 import numpy as np
 
 from jet.logger import logger
@@ -280,7 +280,7 @@ def generate_ollama_batch_embeddings(
 
     # Identify texts that exceed the max token limit
     exceeded_texts = [
-        (text, count) for text, count in zip(texts, token_counts) if count > max_tokens
+        (text, count) for text, count in zip(texts, token_counts) if count > model_max_tokens
     ]
 
     if exceeded_texts:
@@ -291,7 +291,7 @@ def generate_ollama_batch_embeddings(
         )
         # raise ValueError(
         #     f"{len(exceeded_texts)} texts exceed max token limit")
-        texts = truncate_texts(texts, model, max_tokens)
+        texts = split_texts(texts, model, max_tokens, 100)
 
     try:
         headers = {"Content-Type": "application/json"}

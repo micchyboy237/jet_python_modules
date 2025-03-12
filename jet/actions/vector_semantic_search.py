@@ -1,17 +1,24 @@
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS
 from jet.logger import logger, time_it
 
 from typing import List, Dict, Union
 
 
 class VectorSemanticSearch:
-    def __init__(self, candidates: list[str]):
+    def __init__(
+        self,
+        candidates: list[str],
+        *,
+        embed_model: OLLAMA_EMBED_MODELS = "mxbai-embed-large",
+        reranking_model: OLLAMA_EMBED_MODELS = "all-minilm:33m",
+    ):
         self.candidates = candidates
         self.model = None
         self.cross_encoder = None
         self.tokenized_paths = [path.split('.') for path in candidates]
         self.graph = None
-        query_embeddings = None
-        self.reranking_model = None
+        self.embed_model = embed_model
+        self.reranking_model = reranking_model
 
     def get_model(self):
         if self.model is None:
@@ -179,11 +186,11 @@ class VectorSemanticSearch:
         documents = [Document(text=candidate) for candidate in self.candidates]
 
         mode = "fusion"
-        chunk_size = 256
+        chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[self.embed_model]
         chunk_overlap = 40
         score_threshold = 0.2
         top_k = None
-        embed_model = OLLAMA_SMALL_EMBED_MODEL
+        embed_model = self.embed_model
 
         query_nodes = setup_index(
             documents,

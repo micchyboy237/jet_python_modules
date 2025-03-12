@@ -36,12 +36,16 @@ def get_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) 
 
     if model_name in OLLAMA_HF_MODEL_NAMES.__args__:
         return get_ollama_tokenizer(model_name)
-    else:
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        return tokenizer
+    except Exception:
         encoding = tiktoken.get_encoding("cl100k_base")
         return encoding
 
 
-def tokenize(model_name: str, text: str | list[str] | list[dict]):
+def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | list[str] | list[dict]):
     tokenizer = get_tokenizer(model_name)
 
     if isinstance(text, list):
@@ -66,14 +70,7 @@ def token_counter(
     if not text:
         return 0
 
-    # Get models only when needed
-    OLLAMA_HF_MODELS, _ = get_ollama_models()
-
-    if model not in OLLAMA_HF_MODELS:
-        raise ValueError(f"Model can only be one of the ff: {
-                         [tuple(OLLAMA_HF_MODEL_NAMES.__args__)]}")
-
-    tokenized = tokenize(OLLAMA_HF_MODELS[model], text)
+    tokenized = tokenize(model, text)
     if isinstance(text, str):
         return len(tokenized)
     else:
@@ -112,21 +109,22 @@ def get_token_counts_info(texts: list[str], model: OLLAMA_MODEL_NAMES) -> TokenC
 
 
 def get_model_max_tokens(
-    model: Optional[OLLAMA_MODEL_NAMES] = "mistral",
+    model: Optional[str | OLLAMA_MODEL_NAMES] = "mistral",
 ) -> int:
-    # Get models only when needed
-    _, OLLAMA_MODEL_EMBEDDING_TOKENS = get_ollama_models()
+    if model in OLLAMA_MODEL_EMBEDDING_TOKENS:
+        return OLLAMA_MODEL_EMBEDDING_TOKENS[model]
 
-    if model not in OLLAMA_MODEL_EMBEDDING_TOKENS:
-        raise ValueError(f"Model can only be one of the ff: {
-                         [tuple(OLLAMA_MODEL_EMBEDDING_TOKENS.keys())]}")
-
-    return OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        return tokenizer.model_max_length
+    except Exception:
+        encoding = tiktoken.get_encoding("cl100k_base")
+        return encoding.max_token_value
 
 
 def filter_texts(
     text: str | list[str] | list[ChatMessage] | list[Message],
-    model: OLLAMA_MODEL_NAMES = "mistral",
+    model: str | OLLAMA_MODEL_NAMES = "mistral",
     max_tokens: Optional[int | float] = None,
 ) -> str | list[str] | list[dict] | list[ChatMessage]:
     if not max_tokens:
@@ -155,10 +153,10 @@ def filter_texts(
             # Precompute token counts for all text in a single batch for efficiency
             text_token_counts = token_counter(text, model, prevent_total=True)
 
-            for text, token_count in zip(text, text_token_counts):
+            for t, token_count in zip(text, text_token_counts):
                 # Check if adding this text will exceed the max_tokens limit
                 if current_token_count + token_count <= max_tokens:
-                    filtered_texts.append(text)
+                    filtered_texts.append(t)
                     current_token_count += token_count
                 else:
                     break  # Stop early since texts are already sorted by score
@@ -221,7 +219,8 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
     if isinstance(texts, str):
         texts = [texts]
 
-    tokenized_texts = tokenizer.encode(texts)
+    tokenized_texts = tokenizer.batch_encode_plus(texts, return_tensors=None)
+    tokenized_texts = tokenized_texts["input_ids"]
     truncated_texts = []
 
     for text, tokens in zip(texts, tokenized_texts):
@@ -239,25 +238,33 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
 def split_texts(
     texts: str | list[str],
     model: str,
-    max_tokens: int,
-    overlap: int
+    chunk_size: int,
+    chunk_overlap: int = 0,
+    *,
+    buffer: int = 0
 ) -> list[str]:
     """
-    Splits a list of texts into smaller chunks based on max_tokens and overlap.
+    Splits a list of texts into smaller chunks based on chunk_size, chunk_overlap, and buffer.
 
     Args:
-        texts (str | list[str]): list of input texts to be split.
+        texts (str | list[str]): List of input texts to be split.
         model (str): Model name for tokenization.
-        max_tokens (int): Maximum tokens allowed per chunk.
-        overlap (int): Number of overlapping tokens between chunks.
+        chunk_size (int): Maximum tokens allowed per chunk.
+        chunk_overlap (int): Number of overlapping tokens between chunks.
+        buffer (int, optional): Extra space reserved to avoid exceeding chunk_size. Default is 0.
 
     Returns:
         list[str]: A list of split text chunks.
     """
 
-    if max_tokens <= overlap:
+    if chunk_size <= chunk_overlap:
         raise ValueError(
-            f"Max tokens ({max_tokens}) must be greater than overlap ({overlap})")
+            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})")
+
+    effective_max_tokens = chunk_size - buffer
+    if effective_max_tokens <= chunk_overlap:
+        raise ValueError(
+            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})")
 
     tokenizer = get_tokenizer(model)
     split_chunks = []
@@ -269,13 +276,13 @@ def split_texts(
         tokens = tokenizer.encode(text)
         total_tokens = len(tokens)
 
-        if total_tokens <= max_tokens:
+        if total_tokens <= effective_max_tokens:
             split_chunks.append(text)
             continue
 
         start = 0
         while start < total_tokens:
-            end = min(start + max_tokens, total_tokens)
+            end = min(start + effective_max_tokens, total_tokens)
             chunk_tokens = tokens[start:end]
             chunk_text = tokenizer.decode(
                 chunk_tokens, skip_special_tokens=True)
@@ -283,9 +290,10 @@ def split_texts(
 
             if end == total_tokens:
                 break
-            start = end - overlap  # Ensure overlap in the next chunk
+            start = end - chunk_overlap  # Ensure overlap in the next chunk
 
-    logger.debug(f"Split {len(texts)} texts into {len(split_chunks)} chunks.")
+    logger.debug(
+        f"Split {len(texts)} texts into {len(split_chunks)} chunks with buffer={buffer}.")
     return split_chunks
 
 

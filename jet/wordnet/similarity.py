@@ -1,7 +1,9 @@
-from typing import List, Set
 import re
 import json
+
 from typing import List, TypedDict, Union
+from jet.llm.models import OLLAMA_EMBED_MODELS
+from jet.llm.utils.embeddings import get_ollama_embedding_function
 from sentence_transformers import SentenceTransformer
 from scipy.spatial.distance import cosine
 from jet.wordnet.words import get_words
@@ -9,45 +11,50 @@ from jet.logger import logger, time_it
 from difflib import SequenceMatcher, ndiff, get_close_matches, unified_diff
 from tqdm import tqdm
 # from instruction_generator.wordnet.SpellingCorrectorNorvig import SpellingCorrectorNorvig
-from jet.wordnet.wordnet_types import FilterResult
+from jet.wordnet.wordnet_types import FilterResult, SimilarityResult
+
+DEFAULT_SENTENCE_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
 
 
-def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, List[str]], *, model_name: str = "paraphrase-MiniLM-L12-v2") -> List[float]:
-    # model = SentenceTransformer('Ramos-Ramos/xlm-roberta-base-en-tl-4-end')
-    # model = SentenceTransformer("danjohnvelasco/filipino-sentence-roberta-v1")
-    # model = SentenceTransformer('meedan/paraphrase-filipino-mpnet-base-v2')
-    model = SentenceTransformer(model_name)
-    base_embedding = model.encode([base_sentence])[0]
-
+def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, List[str]], *, model_name: str | OLLAMA_EMBED_MODELS = DEFAULT_SENTENCE_EMBED_MODEL) -> List[float]:
     # Convert a single string to a list
     if isinstance(sentences_to_compare, str):
         sentences_to_compare = [sentences_to_compare]
 
-    if isinstance(sentences_to_compare, list):
+    if model_name not in OLLAMA_EMBED_MODELS.__args__:
+        # model = SentenceTransformer('Ramos-Ramos/xlm-roberta-base-en-tl-4-end')
+        # model = SentenceTransformer("danjohnvelasco/filipino-sentence-roberta-v1")
+        # model = SentenceTransformer('meedan/paraphrase-filipino-mpnet-base-v2')
+        model = SentenceTransformer(model_name)
+        base_embedding = model.encode([base_sentence])[0]
         embeddings = model.encode(sentences_to_compare)
-        return [1 - cosine(base_embedding, emb) for emb in embeddings]
     else:
-        raise ValueError(
-            "sentences_to_compare must be a string or a list of strings")
+        model_name: OLLAMA_EMBED_MODELS = model_name
+        embed_func = get_ollama_embedding_function(model_name)
+        base_embedding = embed_func(base_sentence)
+        embeddings = embed_func(sentences_to_compare)
+
+    return [1 - cosine(base_embedding, emb) for emb in embeddings]
 
 
 @time_it
-def filter_highest_similarity(original_text: str, generated_texts: List[str]) -> FilterResult:
-    if not generated_texts:
-        raise ValueError("No generated texts provided for comparison.")
+def filter_highest_similarity(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL) -> FilterResult:
+    if not candidates:
+        raise ValueError("No candidates provided for comparison.")
 
-    similarities = sentence_similarity(original_text, generated_texts)
+    similarities = sentence_similarity(
+        query, candidates, model_name=model_name)
     highest_similarity_score = max(similarities)
-    highest_similarity_text = generated_texts[similarities.index(
+    highest_similarity_text = candidates[similarities.index(
         highest_similarity_score)]
 
     others = [
         {
-            'text': generated_texts[i],
+            'text': candidates[i],
             'score': similarities[i],
             'percent_difference': 100 * (highest_similarity_score - similarities[i]) / highest_similarity_score
         }
-        for i in range(len(generated_texts)) if generated_texts[i] != highest_similarity_text
+        for i in range(len(candidates)) if candidates[i] != highest_similarity_text
     ]
     others.sort(key=lambda x: x['score'], reverse=True)
 
@@ -56,6 +63,30 @@ def filter_highest_similarity(original_text: str, generated_texts: List[str]) ->
         'score': highest_similarity_score,
         'others': others
     }
+
+
+@time_it
+def search_similarities(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL) -> List[SimilarityResult]:
+    if not candidates:
+        raise ValueError("No candidates provided for comparison.")
+
+    similarities = sentence_similarity(
+        query, candidates, model_name=model_name)
+    highest_similarity_score = max(similarities)
+    highest_similarity_text = candidates[similarities.index(
+        highest_similarity_score)]
+
+    results = [
+        {
+            'text': candidates[i],
+            'score': similarities[i],
+            'percent_difference': 100 * (highest_similarity_score - similarities[i]) / highest_similarity_score
+        }
+        for i in range(len(candidates)) if candidates[i] != highest_similarity_text
+    ]
+    results.sort(key=lambda x: x['score'], reverse=True)
+
+    return results
 
 
 def is_not_alnum(s):
