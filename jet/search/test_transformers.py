@@ -1,5 +1,5 @@
 import unittest
-from transformers import unescape, decode_encoded_characters
+from jet.search.transformers import unescape, decode_encoded_characters, clean_string
 
 
 class TestTransformers(unittest.TestCase):
@@ -37,5 +37,55 @@ class TestTransformers(unittest.TestCase):
         self.assertEqual(decode_encoded_characters(text), expected)
 
 
-if __name__ == '__main__':
+class TestDecodeEncodedCharacters(unittest.TestCase):
+    def test_html_entities(self):
+        self.assertEqual(decode_encoded_characters(
+            "Tom &amp; Jerry"), "Tom & Jerry")
+        self.assertEqual(decode_encoded_characters(
+            "3 &lt; 5 &gt; 2"), "3 < 5 > 2")
+        self.assertEqual(decode_encoded_characters(
+            "It&#39;s a sunny day"), "It's a sunny day")
+
+    def test_special_characters(self):
+        self.assertEqual(decode_encoded_characters(
+            "Hello，world。"), "Hello, world.")
+        self.assertEqual(decode_encoded_characters(
+            "He said, “Hello”"), 'He said, "Hello"')
+        self.assertEqual(decode_encoded_characters(
+            "Price is １００％"), "Price is 100%")
+
+    def test_punctuation_and_numbers(self):
+        self.assertEqual(decode_encoded_characters("１＋１＝２"), "1＋1＝2")
+        self.assertEqual(decode_encoded_characters("～Special～"), "~Special~")
+        self.assertEqual(decode_encoded_characters("〈Title〉"), "<Title>")
+
+
+class TestCleanString(unittest.TestCase):
+    def test_removes_unmatched_quotes(self):
+        self.assertEqual(clean_string('Hello "World'), 'Hello World')
+        self.assertEqual(clean_string('Hello World"'), 'Hello World')
+        self.assertEqual(clean_string('"Hello World"'), 'Hello World')
+
+    def test_removes_unmatched_parentheses(self):
+        self.assertEqual(clean_string("Hello (World"), "Hello World")
+        self.assertEqual(clean_string("Hello World)"), "Hello World")
+        self.assertEqual(clean_string("(Hello) World"), "(Hello) World")
+
+    def test_removes_unmatched_brackets(self):
+        self.assertEqual(clean_string("Text [brackets"), "Text brackets")
+        self.assertEqual(clean_string("Text brackets]"), "Text brackets")
+        self.assertEqual(clean_string("[Text] brackets"), "[Text] brackets")
+
+    def test_removes_leading_and_trailing_commas(self):
+        self.assertEqual(clean_string(",Hello, World,"), "Hello, World")
+        self.assertEqual(clean_string(",Test String,"), "Test String")
+
+    def test_handles_multiple_cases(self):
+        self.assertEqual(clean_string(' "Hello [World]!" '), 'Hello [World]!')
+        self.assertEqual(clean_string("'Test'"), "Test")
+        self.assertEqual(clean_string('"A mismatched "quote'),
+                         "A mismatched quote")
+
+
+if __name__ == "__main__":
     unittest.main()

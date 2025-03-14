@@ -164,15 +164,7 @@ class WebCrawler(SeleniumScraper):
 # Example usage
 if __name__ == "__main__":
     urls = [
-        "https://www.justwatch.com/us/tv-show/ill-become-a-villainess-that-will-go-down-in-history-the-more-of-a-villainess-i-become-the-more-the-prince-will-dote-on-me",
-        "https://en.wikipedia.org/wiki/I%27ll_Become_a_Villainess_Who_Goes_Down_in_History",
-        "https://www.imdb.com/title/tt32812118/",
         "https://reelgood.com/show/ill-become-a-villainess-who-goes-down-in-history-2024",
-        "https://www.crunchyroll.com/series/GQWH0M17X/ill-become-a-villainess-who-goes-down-in-history",
-        "https://www.primevideo.com/detail/I%E2%80%99ll-Become-a-Villainess-Who-Goes-Down-in-History/0TXGYPVOUNWCF3MHBTVH493HSK",
-        "https://myanimelist.net/anime/56228/Rekishi_ni_Nokoru_Akujo_ni_Naru_zo",
-        "https://www.anime-planet.com/anime/ill-become-a-villainess-who-goes-down-in-history",
-        "https://www.bilibili.tv/video/4794017678102528"
     ]
 
     includes_all = ["*villainess*", "*down*", "*history*"]

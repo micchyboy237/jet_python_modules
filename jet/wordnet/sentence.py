@@ -193,6 +193,16 @@ def get_sentences(text: str, n: int) -> list[str]:
     return sentences[:n]
 
 
+def split_by_punctuations(text: str, punctuations: list[str]) -> list[str]:
+    if not text:
+        raise ValueError("Text cannot be empty or None.")
+    if not punctuations:
+        raise ValueError("Punctuation list cannot be empty or None.")
+
+    pattern = f"[{''.join(map(re.escape, punctuations))}]"
+    return [segment.strip() for segment in re.split(pattern, text) if segment.strip()]
+
+
 if __name__ == "__main__":
     text = 'Ang mga pang-uri o adjectives sa Ingles ay salitang nagbibigay turing o naglalarawan sa isang pangngalan o panghalip. Ito ay nagsasaad ng uri o katangian ng tao, bagay, hayop, pook, o pangyayari.'
 

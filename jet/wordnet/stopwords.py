@@ -14,7 +14,7 @@ class StopWords:
 
         # Tagalog stop words organized by type
         tl_stopwords = load_data(
-            "instruction_generator/wordnet/datasets/tl_stopwords.json")
+            "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/wordnet/data/tl_stopwords.json")
         # flatten the list of lists
         tl_stopwords = [word.lower() for sublist in tl_stopwords.values()
                         for word in sublist]

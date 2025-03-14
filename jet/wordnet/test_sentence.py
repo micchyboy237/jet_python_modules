@@ -5,7 +5,8 @@ from jet.wordnet.sentence import (
     is_ordered_list_marker,
     is_ordered_list_sentence,
     count_sentences,
-    get_sentences
+    get_sentences,
+    split_by_punctuations
 )
 from jet.wordnet.words import count_words
 
@@ -234,5 +235,54 @@ class TestGetSentences(unittest.TestCase):
         self.assertEqual(result, expected)
 
 
-if __name__ == '__main__':
+class TestSplitByPunctuations(unittest.TestCase):
+    def test_basic_split(self):
+        text = "Hello, world! How are you?"
+        punctuations = [",", "!", "?"]
+        expected = ["Hello", "world", "How are you"]
+        result = split_by_punctuations(text, punctuations)
+        self.assertEqual(result, expected)
+
+    def test_multiple_punctuations(self):
+        text = "This is a test; really, a test!"
+        punctuations = [";", ",", "!"]
+        expected = ["This is a test", "really", "a test"]
+        result = split_by_punctuations(text, punctuations)
+        self.assertEqual(result, expected)
+
+    def test_only_punctuations(self):
+        text = ",,,!!!???"
+        punctuations = [",", "!", "?"]
+        expected = []
+        result = split_by_punctuations(text, punctuations)
+        self.assertEqual(result, expected)
+
+    def test_text_with_spaces_around_punctuations(self):
+        text = "Hello , world ! How are you ?"
+        punctuations = [",", "!", "?"]
+        expected = ["Hello", "world", "How are you"]
+        result = split_by_punctuations(text, punctuations)
+        self.assertEqual(result, expected)
+
+    def test_special_characters(self):
+        text = "Test#1&2@3"
+        punctuations = ["#", "&", "@"]
+        expected = ["Test", "1", "2", "3"]
+        result = split_by_punctuations(text, punctuations)
+        self.assertEqual(result, expected)
+
+    def test_empty_text_raises_error(self):
+        with self.assertRaises(ValueError) as context:
+            split_by_punctuations("", [",", ".", "!"])
+        self.assertEqual(str(context.exception),
+                         "Text cannot be empty or None.")
+
+    def test_empty_punctuation_list_raises_error(self):
+        with self.assertRaises(ValueError) as context:
+            split_by_punctuations("Hello, world!", [])
+        self.assertEqual(str(context.exception),
+                         "Punctuation list cannot be empty or None.")
+
+
+if __name__ == "__main__":
     unittest.main()
