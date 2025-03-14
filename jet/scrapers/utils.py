@@ -46,7 +46,6 @@ def clean_text(text: str) -> str:
     # Convert Unicode characters to closest ASCII equivalent
     text = fix_and_unidecode(text)
 
-    # lemmas = lemmatize_text(text)
     # text = ' '.join(lemmas).strip()
     text = clean_newlines(text)
     # text = clean_spaces(text, exclude_chars=["-", "\n"])

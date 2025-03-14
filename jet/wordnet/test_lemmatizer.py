@@ -1,5 +1,5 @@
 import unittest
-from jet.libs.txtai.pipeline.lemmatizer import lemmatize_text
+from jet.wordnet.lemmatizer import lemmatize_text
 
 
 class TestLemmatizeText(unittest.TestCase):

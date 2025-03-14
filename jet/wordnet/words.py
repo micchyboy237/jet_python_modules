@@ -1,3 +1,4 @@
+import nltk
 import re
 import string
 from nltk.tokenize import sent_tokenize
@@ -5,7 +6,25 @@ import json
 from transformers import AutoTokenizer
 import spacy
 from nltk import word_tokenize, pos_tag
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, TypedDict
+
+# nltk.download('punkt')
+# nltk.download('averaged_perceptron_tagger')
+# nltk.download('maxent_ne_chunker')
+# nltk.download('maxent_ne_chunker_tab')
+# nltk.download('words')
+
+# Load the English NLP model
+nlp = None
+
+
+def setup_nlp():
+    global nlp
+
+    if not nlp:
+        nlp = spacy.load("en_core_web_sm")
+
+    return nlp
 
 
 def pos_tag_nltk(text):
@@ -16,8 +35,7 @@ def pos_tag_nltk(text):
 
 
 def pos_tag_spacy(sentence):
-    # Load the English NLP model
-    nlp = spacy.load("en_core_web_sm")
+    nlp = setup_nlp()
 
     # Process English sentence
     doc = nlp(sentence)
@@ -127,7 +145,8 @@ def process_all_datasets(tasks, max_length, model):
 
 
 def list_all_spacy_pos_tags():
-    nlp = spacy.load("en_core_web_sm")
+    nlp = setup_nlp()
+
     for tag in nlp.get_pipe("tagger").labels:
         print(tag)
 
@@ -167,6 +186,61 @@ def count_syllables(word: str) -> int:
 def split_by_syllables(word: str) -> List[str]:
     """Splits a word into syllables based on simple heuristics for English and Tagalog."""
     pass
+
+
+def get_named_words(text):
+    from nltk import ne_chunk, pos_tag, word_tokenize
+    from nltk.tree import Tree
+
+    chunked = ne_chunk(pos_tag(word_tokenize(text)))
+    current_chunk = []
+    contiguous_chunk = []
+    contiguous_chunks = []
+
+    for i in chunked:
+        print(f"{type(i)}: {i}")
+        if type(i) == Tree:
+            current_chunk = ' '.join([token for token, pos in i.leaves()])
+            # Apparently, Tony and Morrison are two separate items,
+            # but "Random House" and "New York City" are single items.
+            contiguous_chunk.append(current_chunk)
+        else:
+            # discontiguous, append to known contiguous chunks.
+            if len(contiguous_chunk) > 0:
+                contiguous_chunks.append(' '.join(contiguous_chunk))
+                contiguous_chunk = []
+                current_chunk = []
+
+    return contiguous_chunks
+
+
+class SpacyWord(TypedDict):
+    text: str
+    lemma: str
+    score: float
+    start_idx: int
+    end_idx: int
+
+
+def get_spacy_words(text: str) -> List[SpacyWord]:
+    nlp = setup_nlp()
+
+    # Process the input text
+    doc = nlp(text)
+
+    # Extract words with their attributes
+    words = [
+        {
+            "text": token.text,
+            "lemma": token.lemma_,
+            "score": token.prob if hasattr(token, "prob") else 0.0,
+            "start_idx": token.idx,
+            "end_idx": token.idx + len(token.text)
+        }
+        for token in doc
+    ]
+
+    return words
 
 
 if __name__ == "__main__":
