@@ -27,7 +27,15 @@ def transform_queries(queries: list[str]):
     return transformed_queries
 
 
-def get_bm25_similarities(queries: list[str], corpus: list[list[str]]) -> list[SimilarityResult]:
+def transform_corpus(sentences: list[str]):
+    corpus = []
+    for sentence in sentences:
+        corpus.append(get_words(sentence))
+    return corpus
+
+
+def get_bm25_similarities(queries: list[str], sentences: list[str]) -> list[SimilarityResult]:
+    corpus = transform_corpus(sentences)
     queries = transform_queries(queries)
 
     dictionary = Dictionary(corpus)
@@ -54,7 +62,8 @@ def get_bm25_similarities(queries: list[str], corpus: list[list[str]]) -> list[S
     return results
 
 
-def get_cosine_similarities(queries: list[str], corpus: list[list[str]]) -> list[SimilarityResult]:
+def get_cosine_similarities(queries: list[str], sentences: list[str]) -> list[SimilarityResult]:
+    corpus = transform_corpus(sentences)
     queries = transform_queries(queries)
 
     dictionary = Dictionary(corpus)
@@ -75,7 +84,8 @@ def get_cosine_similarities(queries: list[str], corpus: list[list[str]]) -> list
     return results
 
 
-def get_annoy_similarities(queries: list[str], corpus: list[list[str]]) -> list[SimilarityResult]:
+def get_annoy_similarities(queries: list[str], sentences: list[str]) -> list[SimilarityResult]:
+    corpus = transform_corpus(sentences)
     queries = transform_queries(queries)
 
     model = Word2Vec(sentences=corpus, vector_size=100,

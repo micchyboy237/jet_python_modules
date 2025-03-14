@@ -1,6 +1,5 @@
 from typing import Optional, TypedDict
 from jet.logger import time_it
-from jet.search.transformers import clean_string
 from jet.wordnet.sentence import split_by_punctuations, split_sentences
 from jet.wordnet.words import get_words
 from gensim.models.phrases import Phrases
@@ -57,14 +56,10 @@ class PhraseDetector:
             if not sentences or len(sentences) < 2:
                 raise ValueError("'sentences' must have at least 2 items.")
 
-            cleaned_sentences = [
-                clean_string(sentence.lower())
-                for sentence in sentences
-            ]
-            cleaned_sentences = list(set(cleaned_sentences))
+            sentences = list(set(sentences))
 
             lower_words = []
-            for sentence in cleaned_sentences:
+            for sentence in sentences:
                 sub_sentences = split_by_punctuations(
                     sentence, self.punctuations_split)
                 for sub_sentence in sub_sentences:
@@ -121,13 +116,9 @@ class PhraseDetector:
 
         for idx, text in enumerate(texts):
             sentences = split_sentences(text)
-            cleaned_sentences = [
-                clean_string(sentence.lower())
-                for sentence in sentences
-            ]
-            cleaned_sentences = list(set(cleaned_sentences))
+            sentences = list(set(sentences))
 
-            for sentence in cleaned_sentences:
+            for sentence in sentences:
                 sentence_dict = {}
                 sub_sentences = split_by_punctuations(
                     sentence, self.punctuations_split)
