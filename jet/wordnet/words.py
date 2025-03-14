@@ -175,7 +175,7 @@ if __name__ == "__main__":
     word_length = count_words(sentence)
     print(f"Word length: {word_length}")
 
-    words = get_words(sentence)
+    words = [*get_words(sentence)]
     print(f"Words: {words}")
 
     pos_tag_nltk(sentence)
