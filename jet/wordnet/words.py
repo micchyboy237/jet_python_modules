@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 import nltk
 import re
 import string
@@ -214,12 +215,16 @@ def get_named_words(text):
     return contiguous_chunks
 
 
-class SpacyWord(TypedDict):
+class SpacyWord(BaseModel):
     text: str
     lemma: str
-    score: float
     start_idx: int
     end_idx: int
+    score: float  # Normalized score
+
+    def __str__(self) -> str:
+        """Return a readable string representation of the word."""
+        return self.text
 
 
 def get_spacy_words(text: str) -> List[SpacyWord]:
@@ -228,15 +233,23 @@ def get_spacy_words(text: str) -> List[SpacyWord]:
     # Process the input text
     doc = nlp(text)
 
-    # Extract words with their attributes
+    # Extract vector norms
+    vector_norms = [token.vector_norm for token in doc]
+
+    if not vector_norms:
+        return []
+
+    max_norm = max(vector_norms)  # Find the max vector norm
+
+    # Extract words with their normalized scores
     words = [
-        {
-            "text": token.text,
-            "lemma": token.lemma_,
-            "score": token.prob if hasattr(token, "prob") else 0.0,
-            "start_idx": token.idx,
-            "end_idx": token.idx + len(token.text)
-        }
+        SpacyWord(
+            text=token.text,
+            lemma=token.lemma_,
+            start_idx=token.idx,
+            end_idx=token.idx + len(token.text),
+            score=(token.vector_norm / max_norm if max_norm > 0 else 0),
+        )
         for token in doc
     ]
 

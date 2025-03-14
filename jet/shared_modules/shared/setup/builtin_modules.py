@@ -23,6 +23,7 @@ from .import_modules import (
     get_non_empty_attributes,
     get_internal_attributes,
     get_callable_attributes,
+    get_non_callable_attributes,
 
     copy_to_clipboard,
 
@@ -99,6 +100,8 @@ def inject_globals():
         builtins.get_internal_attributes = get_internal_attributes
     if not hasattr(builtins, "get_callable_attributes"):
         builtins.get_callable_attributes = get_callable_attributes
+    if not hasattr(builtins, "get_non_callable_attributes"):
+        builtins.get_non_callable_attributes = get_non_callable_attributes
     if not hasattr(builtins, "copy_to_clipboard"):
         builtins.copy_to_clipboard = copy_to_clipboard
     if not hasattr(builtins, "check_object_type"):

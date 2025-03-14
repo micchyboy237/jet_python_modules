@@ -98,60 +98,55 @@ def get_iterable_class_name(obj: Any, full_class_name=False) -> str:
 
 
 def get_non_empty_attributes(obj: Any) -> Dict[str, Any]:
-    """
-    Extracts the non-empty attributes of an object (excluding those starting with "_"
-    and methods) and returns them in a dictionary, filtering out attributes with values
-    that are considered empty or falsy.
-
-    Args:
-        obj: The object from which to extract attributes.
-
-    Returns:
-        A dictionary with attribute names as keys and their corresponding
-        non-falsy values as values.
-    """
-    return {
-        attr: value
-        for attr in dir(obj)
-        if not attr.startswith('_')
-        and (value := getattr(obj, attr))
-        and not callable(value)  # Exclude methods
-    }
+    """Returns non-callable attributes that are not empty or private (_attr)."""
+    attributes = {}
+    for attr in dir(obj):
+        if not attr.startswith('_'):  # Exclude private and dunder attributes
+            try:
+                value = getattr(obj, attr, None)  # Safely get attribute
+                if value is not None and value not in ['', [], {}, ()] and not callable(value):
+                    attributes[attr] = value
+            except AttributeError as e:
+                print(f"Skipping attribute {attr} due to error: {e}")
+            except Exception as e:
+                print(f"Unexpected error for attribute {attr}: {e}")
+    return attributes
 
 
 def get_internal_attributes(obj: Any) -> Dict[str, Any]:
-    """
-    Extracts the attributes of an object that start with "_" and returns them in a dictionary.
-
-    Args:
-        obj: The object from which to extract attributes.
-
-    Returns:
-        A dictionary with attribute names starting with "_" as keys and their corresponding values.
-    """
-    return {
-        attr: getattr(obj, attr)
-        for attr in dir(obj)
-        if attr.startswith('_')
-    }
+    """Returns private/internal attributes (_attr, __attr__)."""
+    attributes = {}
+    for attr in dir(obj):
+        if attr.startswith('_'):  # Includes private and dunder attributes
+            try:
+                # Handle potential errors
+                attributes[attr] = getattr(obj, attr, None)
+            except Exception as e:
+                print(f"Skipping attribute {attr} due to error: {e}")
+    return attributes
 
 
 def get_callable_attributes(obj: Any) -> Dict[str, Any]:
-    """
-    Extracts the callable attributes of an object and returns them in a dictionary.
+    """Returns callable attributes (methods) that are not private (_attr)."""
+    callables = {}
+    for attr in dir(obj):
+        if not attr.startswith('_'):  # Exclude private methods
+            try:
+                value = getattr(obj, attr, None)
+                if callable(value):
+                    callables[attr] = value
+            except Exception as e:
+                print(f"Skipping attribute {attr} due to error: {e}")
+    return callables
 
-    Args:
-        obj: The object from which to extract callable attributes.
 
-    Returns:
-        A dictionary with attribute names as keys and the callable objects as values.
-    """
-    return {
-        attr: getattr(obj, attr)
-        for attr in dir(obj)
-        if callable(getattr(obj, attr))  # Filter for callable attributes
-        and not attr.startswith('_')
-    }
+def get_non_callable_attributes(obj: Any) -> Dict[str, Any]:
+    attributes = {}
+    for attr in dir(obj):
+        value = getattr(obj, attr)
+        if not callable(value):  # Exclude methods
+            attributes[attr] = value
+    return attributes
 
 
 __all__ = [
@@ -163,6 +158,7 @@ __all__ = [
     "get_non_empty_attributes",
     "get_internal_attributes",
     "get_callable_attributes",
+    "get_non_callable_attributes",
 ]
 
 # Real-world usage examples
