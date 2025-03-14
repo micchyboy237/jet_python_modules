@@ -17,13 +17,15 @@ from typing import Callable, List, Optional, TypedDict
 
 # Load the English NLP model
 nlp = None
+spacy_model = "en_core_web_sm"
 
 
-def setup_nlp():
-    global nlp
+def setup_nlp(model: str = spacy_model):
+    global nlp, spacy_model
 
-    if not nlp:
-        nlp = spacy.load("en_core_web_sm")
+    if not nlp or model != spacy_model:
+        nlp = spacy.load(model)
+        spacy_model = model
 
     return nlp
 
@@ -35,8 +37,8 @@ def pos_tag_nltk(text):
         print(word, "-", tag)
 
 
-def pos_tag_spacy(sentence):
-    nlp = setup_nlp()
+def pos_tag_spacy(sentence, model: str = spacy_model):
+    nlp = setup_nlp(model)
 
     # Process English sentence
     doc = nlp(sentence)
@@ -145,8 +147,8 @@ def process_all_datasets(tasks, max_length, model):
         process_dataset(task, max_length, tokenizer)
 
 
-def list_all_spacy_pos_tags():
-    nlp = setup_nlp()
+def list_all_spacy_pos_tags(model: str = spacy_model):
+    nlp = setup_nlp(model)
 
     for tag in nlp.get_pipe("tagger").labels:
         print(tag)
@@ -227,8 +229,8 @@ class SpacyWord(BaseModel):
         return self.text
 
 
-def get_spacy_words(text: str) -> List[SpacyWord]:
-    nlp = setup_nlp()
+def get_spacy_words(text: str, model: str = spacy_model) -> List[SpacyWord]:
+    nlp = setup_nlp(model)
 
     # Process the input text
     doc = nlp(text)

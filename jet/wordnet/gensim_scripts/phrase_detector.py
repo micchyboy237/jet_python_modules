@@ -38,6 +38,12 @@ class PhraseGram(TypedDict):
     score: float
 
 
+class QueryPhraseResult(TypedDict):
+    query: str
+    phrase: str
+    score: float
+
+
 class PhraseDetector:
     phrasegrams: dict[str, float]
 
@@ -47,6 +53,9 @@ class PhraseDetector:
 
         if not os.path.exists(model_path):
             print("Preprocessing sentences")
+
+            if not sentences or len(sentences) < 2:
+                raise ValueError("'sentences' must have at least 2 items.")
 
             cleaned_sentences = [
                 clean_string(sentence.lower())
@@ -165,6 +174,24 @@ class PhraseDetector:
                 entry for entry in results if entry["score"] >= threshold]
 
         return {result["phrase"]: result["score"] for result in results}
+
+    @time_it
+    def query(self, queries: str | list[str]) -> list[QueryPhraseResult]:
+        if isinstance(queries, str):
+            queries = [queries]
+
+        phrase_grams = self.get_phrase_grams()
+
+        results: list[QueryPhraseResult] = []
+        for phrase, score in phrase_grams.items():
+            for query in queries:
+                if query in phrase:
+                    results.append({
+                        "query": query,
+                        "phrase": phrase,
+                        "score": score,
+                    })
+        return results
 
 
 def detect_common_phrase_sentences(

@@ -21,7 +21,15 @@ class SimilarityResult(TypedDict):
     score: float
 
 
+def transform_queries(queries: list[str]):
+    transformed_queries = [
+        word.lower() for query in queries for word in get_words(query)]
+    return transformed_queries
+
+
 def get_bm25_similarities(queries: list[str], corpus: list[list[str]]) -> list[SimilarityResult]:
+    queries = transform_queries(queries)
+
     dictionary = Dictionary(corpus)
     query_model = TfidfModel(dictionary=dictionary, smartirs='bnn')
     document_model = OkapiBM25Model(dictionary=dictionary)
@@ -47,6 +55,8 @@ def get_bm25_similarities(queries: list[str], corpus: list[list[str]]) -> list[S
 
 
 def get_cosine_similarities(queries: list[str], corpus: list[list[str]]) -> list[SimilarityResult]:
+    queries = transform_queries(queries)
+
     dictionary = Dictionary(corpus)
     bow_corpus = [dictionary.doc2bow(line) for line in corpus]
     index = SparseMatrixSimilarity(
@@ -66,6 +76,8 @@ def get_cosine_similarities(queries: list[str], corpus: list[list[str]]) -> list
 
 
 def get_annoy_similarities(queries: list[str], corpus: list[list[str]]) -> list[SimilarityResult]:
+    queries = transform_queries(queries)
+
     model = Word2Vec(sentences=corpus, vector_size=100,
                      window=5, min_count=1, workers=4)
 
