@@ -180,6 +180,9 @@ class PhraseDetector:
         if isinstance(queries, str):
             queries = [queries]
 
+        # Lowercase all queries
+        queries = [query.lower() for query in queries]
+
         phrase_grams = self.get_phrase_grams()
 
         results: list[QueryPhraseResult] = []
