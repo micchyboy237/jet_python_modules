@@ -32,11 +32,11 @@ class PageContent(TypedDict):
     html: str
 
 
-def setup_browser_page():
+def setup_browser_page(page: Optional[SyncPage] = None):
     global browser_page
 
     if not browser_page:
-        browser_page = setup_sync_browser_page()
+        browser_page = page or setup_sync_browser_page()
 
     return browser_page
 
