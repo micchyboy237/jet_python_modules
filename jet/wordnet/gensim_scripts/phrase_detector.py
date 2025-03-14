@@ -40,7 +40,7 @@ class PhraseGram(TypedDict):
 
 class PhraseDetector:
     @time_it
-    def __init__(self, model_path: str, sentences: list[str], min_count=3, threshold: float = 0.1, *args, punctuations_split: list[str] = [',', '/', ':'], **kwargs):
+    def __init__(self, model_path: str, sentences: list[str] = [], min_count=3, threshold: float = 0.1, *args, punctuations_split: list[str] = [',', '/', ':'], **kwargs):
         self.punctuations_split = punctuations_split
 
         if not os.path.exists(model_path):
