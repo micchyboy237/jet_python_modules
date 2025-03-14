@@ -39,6 +39,8 @@ class PhraseGram(TypedDict):
 
 
 class PhraseDetector:
+    phrasegrams: dict[str, float]
+
     @time_it
     def __init__(self, model_path: str, sentences: list[str] = [], min_count=3, threshold: float = 0.1, *args, punctuations_split: list[str] = [',', '/', ':'], **kwargs):
         self.punctuations_split = punctuations_split
@@ -73,7 +75,7 @@ class PhraseDetector:
             self.save_model(model_path)
 
         print(f"Loading model from {model_path}")
-        self.model = self.load_model(model_path, *args, **kwargs)
+        self.load_model(model_path, *args, **kwargs)
 
     def __getattr__(self, name):
         """
@@ -94,9 +96,10 @@ class PhraseDetector:
                 f"'Phrases' object has no attribute '{name}'")
 
     @time_it
-    def load_model(self, model_path, *args, **kwargs) -> Phrases:
+    def load_model(self, model_path, *args, **kwargs) -> None:
         model = Phrases.load(model_path, *args, **kwargs)
-        return model
+        self.phrasegrams = model.phrasegrams
+        self.model = model
 
     @time_it
     def save_model(self, model_path):
@@ -146,7 +149,7 @@ class PhraseDetector:
 
     @time_it
     def get_phrase_grams(self, threshold: Optional[float] = None) -> dict[str, float]:
-        phrase_grams: dict[str, float] = self.model.phrasegrams
+        phrase_grams: dict[str, float] = self.phrasegrams
 
         # Sort by values (scores) in descending order
         sorted_phrase_grams = sorted(
