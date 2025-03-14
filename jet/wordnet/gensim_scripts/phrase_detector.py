@@ -1,5 +1,5 @@
-from typing import Optional, TypedDict
-from jet.logger import time_it
+from typing import Generator, Optional, TypedDict
+from jet.logger import logger, time_it
 from jet.wordnet.sentence import split_by_punctuations, split_sentences
 from jet.wordnet.words import get_words
 from gensim.models.phrases import Phrases
@@ -37,6 +37,15 @@ class PhraseGram(TypedDict):
     score: float
 
 
+class DetectedPhrase(TypedDict):
+    index: int  # Index of the sentence
+    sentence: str  # The actual sentence text
+    # A list of PhraseGram objects with 'phrase' and 'score'
+    phrases: list[str]
+    # A list of detailed results with 'phrase' and 'score'
+    results: list[PhraseGram]
+
+
 class QueryPhraseResult(TypedDict):
     query: str
     phrase: str
@@ -47,11 +56,11 @@ class PhraseDetector:
     phrasegrams: dict[str, float]
 
     @time_it
-    def __init__(self, model_path: str, sentences: list[str] = [], min_count=3, threshold: float = 0.1, *args, punctuations_split: list[str] = [',', '/', ':'], **kwargs):
+    def __init__(self, model_path: str, sentences: list[str] = [], min_count=3, threshold: float = 0.1, *args, punctuations_split: list[str] = [',', '/', ':'], reset_cache: bool = False, **kwargs):
         self.punctuations_split = punctuations_split
 
-        if not os.path.exists(model_path):
-            print("Preprocessing sentences")
+        if not os.path.exists(model_path) or reset_cache:
+            logger.info("Preprocessing sentences")
 
             if not sentences or len(sentences) < 2:
                 raise ValueError("'sentences' must have at least 2 items.")
@@ -66,7 +75,7 @@ class PhraseDetector:
                     words = get_words(sub_sentence)
                     words = [word.lower() for word in words]
                     lower_words.append(words)
-            print("Creating new model")
+            logger.info("Creating new model")
             self.model = Phrases(
                 lower_words,
                 *args,
@@ -75,10 +84,10 @@ class PhraseDetector:
                 scoring='npmi',
                 connector_words=CONNECTOR_WORDS,
                 **kwargs)
-            print(f"Saving model to {model_path}")
+            logger.success(f"Saving model to {model_path}")
             self.save_model(model_path)
 
-        print(f"Loading model from {model_path}")
+        logger.debug(f"Loading model from {model_path}")
         self.load_model(model_path, *args, **kwargs)
 
     def __getattr__(self, name):
@@ -111,9 +120,7 @@ class PhraseDetector:
         frozen_model.save(model_path)
 
     @time_it
-    def detect_phrases(self, texts: list[str]) -> list:
-        phrases = []
-
+    def detect_phrases(self, texts: list[str]) -> Generator[DetectedPhrase, None, None]:
         for idx, text in enumerate(texts):
             sentences = split_sentences(text)
             sentences = list(set(sentences))
@@ -144,8 +151,6 @@ class PhraseDetector:
                         # Sorted results
                         "results": [item[1] for item in sorted_items]
                     }
-
-        return phrases
 
     @time_it
     def get_phrase_grams(self, threshold: Optional[float] = None) -> dict[str, float]:

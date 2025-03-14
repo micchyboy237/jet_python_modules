@@ -21,12 +21,6 @@ class SimilarityResult(TypedDict):
     score: float
 
 
-def transform_queries(queries: list[str]):
-    transformed_queries = [
-        word.lower() for query in queries for word in get_words(query)]
-    return transformed_queries
-
-
 def transform_corpus(sentences: list[str]):
     corpus = []
     for sentence in sentences:
@@ -36,7 +30,6 @@ def transform_corpus(sentences: list[str]):
 
 def get_bm25_similarities(queries: list[str], sentences: list[str]) -> list[SimilarityResult]:
     corpus = transform_corpus(sentences)
-    queries = transform_queries(queries)
 
     dictionary = Dictionary(corpus)
     query_model = TfidfModel(dictionary=dictionary, smartirs='bnn')
@@ -64,7 +57,6 @@ def get_bm25_similarities(queries: list[str], sentences: list[str]) -> list[Simi
 
 def get_cosine_similarities(queries: list[str], sentences: list[str]) -> list[SimilarityResult]:
     corpus = transform_corpus(sentences)
-    queries = transform_queries(queries)
 
     dictionary = Dictionary(corpus)
     bow_corpus = [dictionary.doc2bow(line) for line in corpus]
@@ -86,7 +78,6 @@ def get_cosine_similarities(queries: list[str], sentences: list[str]) -> list[Si
 
 def get_annoy_similarities(queries: list[str], sentences: list[str]) -> list[SimilarityResult]:
     corpus = transform_corpus(sentences)
-    queries = transform_queries(queries)
 
     model = Word2Vec(sentences=corpus, vector_size=100,
                      window=5, min_count=1, workers=4)
