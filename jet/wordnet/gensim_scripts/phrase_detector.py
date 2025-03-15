@@ -40,7 +40,7 @@ class PhraseGram(TypedDict):
 class DetectedPhrase(TypedDict):
     index: int  # Index of the sentence
     sentence: str  # The actual sentence text
-    # A list of PhraseGram objects with 'phrase' and 'score'
+    # A list of phrases
     phrases: list[str]
     # A list of detailed results with 'phrase' and 'score'
     results: list[PhraseGram]

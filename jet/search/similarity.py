@@ -57,7 +57,8 @@ def get_bm25_similarities(queries: list[str], sentences: list[str]) -> list[BM25
 
     results: list[BM25SimilarityResult] = sorted(
         [{"text": " ".join(corpus[i]), "score": float(score / max_similarity), "similarity": float(score)}
-         for i, score in enumerate(similarities)],
+         # Filter out scores of 0
+         for i, score in enumerate(similarities) if score > 0],
         key=lambda x: x["score"], reverse=True
     )
 
@@ -78,7 +79,8 @@ def get_cosine_similarities(queries: list[str], sentences: list[str]) -> list[Si
 
     results: list[SimilarityResult] = sorted(
         [{"text": " ".join(corpus[i]), "score": float(score)}
-         for i, score in enumerate(similarities)],
+         # Filter out scores of 0
+         for i, score in enumerate(similarities) if score > 0],
         key=lambda x: x["score"], reverse=True
     )
 
@@ -117,7 +119,8 @@ def get_annoy_similarities(queries: list[str], sentences: list[str]) -> list[Sim
 
         ranked_results = sorted(
             [{"text": " ".join(corpus[i]), "score": float(score)}
-             for i, score in enumerate(sims)],
+             # Filter out scores of 0
+             for i, score in enumerate(sims) if score > 0],
             key=lambda x: x["score"], reverse=True
         )
         results.extend(ranked_results)
