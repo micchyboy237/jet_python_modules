@@ -52,6 +52,9 @@ def get_bm25_similarities(queries: list[str], sentences: list[str]) -> list[BM25
 
     max_similarity = max(similarities)
 
+    if not max_similarity:
+        return []
+
     results: list[BM25SimilarityResult] = sorted(
         [{"text": " ".join(corpus[i]), "score": float(score / max_similarity), "similarity": float(score)}
          for i, score in enumerate(similarities)],
