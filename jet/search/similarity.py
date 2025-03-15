@@ -3,7 +3,7 @@ from gensim.similarities.annoy import AnnoyIndexer
 from gensim.models import TfidfModel
 from gensim.similarities import SoftCosineSimilarity, SparseTermSimilarityMatrix, WordEmbeddingSimilarityIndex
 from gensim.models import Word2Vec
-from typing import TypedDict
+from typing import Optional, TypedDict
 from gensim.corpora import Dictionary
 from gensim.models import TfidfModel, OkapiBM25Model
 from gensim.similarities import SparseMatrixSimilarity
@@ -21,6 +21,10 @@ class SimilarityResult(TypedDict):
     score: float
 
 
+class BM25SimilarityResult(SimilarityResult):
+    similarity: Optional[float]
+
+
 def transform_corpus(sentences: list[str]):
     corpus = []
     for sentence in sentences:
@@ -28,7 +32,7 @@ def transform_corpus(sentences: list[str]):
     return corpus
 
 
-def get_bm25_similarities(queries: list[str], sentences: list[str]) -> list[SimilarityResult]:
+def get_bm25_similarities(queries: list[str], sentences: list[str]) -> list[BM25SimilarityResult]:
     corpus = transform_corpus(sentences)
 
     dictionary = Dictionary(corpus)
@@ -46,8 +50,10 @@ def get_bm25_similarities(queries: list[str], sentences: list[str]) -> list[Simi
     bm25_query = query_model[bow_query]
     similarities = index[bm25_query]
 
-    results: list[SimilarityResult] = sorted(
-        [{"text": " ".join(corpus[i]), "score": float(score)}
+    max_similarity = max(similarities)
+
+    results: list[BM25SimilarityResult] = sorted(
+        [{"text": " ".join(corpus[i]), "score": float(score / max_similarity), "similarity": float(score)}
          for i, score in enumerate(similarities)],
         key=lambda x: x["score"], reverse=True
     )
