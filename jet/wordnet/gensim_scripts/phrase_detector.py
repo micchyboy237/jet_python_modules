@@ -153,6 +153,39 @@ class PhraseDetector:
                     }
 
     @time_it
+    def extract_phrases(self, texts: list[str]) -> list[str]:
+        results: list[str] = []
+
+        # Lower texts
+        texts = [text.lower() for text in texts]
+
+        for idx, text in enumerate(texts):
+            sentences = split_sentences(text)
+            sentences = list(set(sentences))
+
+            for sentence in sentences:
+                sentence_dict = {}
+                sub_sentences = split_by_punctuations(
+                    sentence, self.punctuations_split)
+                for sub_sentence in sub_sentences:
+                    for phrase, score in self.model.analyze_sentence(get_words(sub_sentence)):
+                        if score:
+                            obj = {
+                                "phrase": phrase,
+                                "score": score
+                            }
+                            sentence_dict[phrase] = obj
+
+                if sentence_dict:
+                    # Sort by score in descending order
+                    sorted_items = sorted(sentence_dict.items(
+                    ), key=lambda x: x[1]['score'], reverse=True)
+
+                    results.extend([item[0] for item in sorted_items])
+
+        return results
+
+    @time_it
     def get_phrase_grams(self, threshold: Optional[float] = None) -> dict[str, float]:
         phrase_grams: dict[str, float] = self.phrasegrams
 
@@ -176,6 +209,8 @@ class PhraseDetector:
         if isinstance(queries, str):
             queries = [queries]
 
+        queries = self.transform_queries(queries)
+
         # Lowercase all queries
         queries = [query.lower() for query in queries]
 
@@ -191,6 +226,14 @@ class PhraseDetector:
                         "score": score,
                     })
         return results
+
+    def transform_queries(self, queries: str | list[str]):
+        if isinstance(queries, str):
+            queries = [queries]
+
+        transformed_queries = ["_".join(get_words(query.lower()))
+                               for query in queries]
+        return transformed_queries
 
 
 def detect_common_phrase_sentences(
