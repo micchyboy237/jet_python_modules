@@ -19,6 +19,7 @@ from shared.data_types.job import JobData
 class SimilarityResult(TypedDict):
     text: str
     score: float
+    matched: list[str]
 
 
 class BM25SimilarityResult(SimilarityResult):
@@ -56,9 +57,15 @@ def get_bm25_similarities(queries: list[str], sentences: list[str]) -> list[BM25
         return []
 
     results: list[BM25SimilarityResult] = sorted(
-        [{"text": " ".join(corpus[i]), "score": float(score / max_similarity), "similarity": float(score)}
-         # Filter out scores of 0
-         for i, score in enumerate(similarities) if score > 0],
+        [
+            {
+                "score": float(score / max_similarity),
+                "similarity": float(score),
+                "matched": [query for query in queries if query in " ".join(corpus[i])],
+                "text": " ".join(corpus[i]),
+            }
+            for i, score in enumerate(similarities) if score > 0
+        ],
         key=lambda x: x["score"], reverse=True
     )
 
@@ -78,12 +85,16 @@ def get_cosine_similarities(queries: list[str], sentences: list[str]) -> list[Si
     similarities = index[bow_query]
 
     results: list[SimilarityResult] = sorted(
-        [{"text": " ".join(corpus[i]), "score": float(score)}
-         # Filter out scores of 0
-         for i, score in enumerate(similarities) if score > 0],
+        [
+            {
+                "score": float(score),
+                "matched": [query for query in queries if query in " ".join(corpus[i])],
+                "text": " ".join(corpus[i]),
+            }
+            for i, score in enumerate(similarities) if score > 0
+        ],
         key=lambda x: x["score"], reverse=True
     )
-
     return results
 
 
@@ -115,12 +126,17 @@ def get_annoy_similarities(queries: list[str], sentences: list[str]) -> list[Sim
             continue
 
         # Ensure sims is always an iterable array
-        sims = np.atleast_1d(docsim_index[bow_query])
+        similarities = np.atleast_1d(docsim_index[bow_query])
 
         ranked_results = sorted(
-            [{"text": " ".join(corpus[i]), "score": float(score)}
-             # Filter out scores of 0
-             for i, score in enumerate(sims) if score > 0],
+            [
+                {
+                    "score": float(score),
+                    "matched": [query for query in queries if query in " ".join(corpus[i])],
+                    "text": " ".join(corpus[i]),
+                }
+                for i, score in enumerate(similarities) if score > 0
+            ],
             key=lambda x: x["score"], reverse=True
         )
         results.extend(ranked_results)
