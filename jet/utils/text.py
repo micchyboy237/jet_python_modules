@@ -1,5 +1,5 @@
 import re
-import unidecode
+from unidecode import unidecode
 
 
 def fix_and_unidecode(text: str) -> str:
@@ -13,7 +13,11 @@ def fix_and_unidecode(text: str) -> str:
     fixed_text = re.sub(
         r'\\u[0-9A-Fa-f]{4}|\\x[0-9A-Fa-f]{2}', decode_match, text)
 
-    return unidecode.unidecode(fixed_text)
+    return unidecode(fixed_text)
+
+
+def has_non_ascii(text: str) -> bool:
+    return any(ord(char) >= 128 for char in text)
 
 
 __all__ = [

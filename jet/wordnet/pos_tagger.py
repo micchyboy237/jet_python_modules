@@ -1,9 +1,36 @@
+from enum import Enum
 import spacy
 import json
 from collections import defaultdict
 from jet.wordnet.sentence import adaptive_split
 from jet.file.utils import load_data
-from typing import Optional
+from typing import Literal, Optional, Set, TypedDict
+
+
+POSTag = Literal[
+    "PROPN",  # Proper noun
+    "NOUN",   # Noun
+    "VERB",   # Verb
+    "ADJ",    # Adjective
+    "ADV",    # Adverb
+    "PRON",   # Pronoun
+    "DET",    # Determiner
+    "ADP",    # Adposition
+    "AUX",    # Auxiliary verb
+    "SCONJ",  # Subordinating conjunction
+    "CCONJ",  # Coordinating conjunction
+    "NUM",    # Numeral
+    "PART",   # Particle
+    "INTJ",   # Interjection
+    "PUNCT",  # Punctuation
+    "SYM",    # Symbol
+    "X",      # Other
+]
+
+
+class POSItem(TypedDict):
+    word: str
+    pos: list[POSTag]  # Using Enum for controlled POS tags
 
 
 class POSTagger:
@@ -32,7 +59,7 @@ class POSTagger:
             self.nlp_models['en'] = nlp_lambda()
         return self.nlp_models['en']
 
-    def process_and_tag(self, text):
+    def process_and_tag(self, text) -> list[POSItem]:
         # Split text into sentences
         sentences = adaptive_split(text)
 
@@ -48,7 +75,7 @@ class POSTagger:
         pos_results = self.tag_string(word)
         return pos_results[0]['pos']
 
-    def tag_string(self, string):
+    def tag_string(self, string) -> list[POSItem]:
         # Use cached results if available
         if string in self.cache['en']:
             pos_results = self.cache['en'][string]
@@ -63,8 +90,8 @@ class POSTagger:
 
         return pos_results
 
-    def merge_multi_word_pos(self, pos_results):
-        merged_results = []
+    def merge_multi_word_pos(self, pos_results: list[POSItem]) -> list[POSItem]:
+        merged_results: list[POSItem] = []
         i = 0
         while i < len(pos_results):
             current_word = pos_results[i]['word']
@@ -190,7 +217,7 @@ class POSTagger:
 
         return filtered_en_pos == filtered_en_pos
 
-    def filter_pos(self, text: str, includes: str | list[str] = None, excludes: str | list[str] = None) -> list[dict]:
+    def filter_pos(self, text: str, includes: str | list[str] = None, excludes: str | list[str] = None) -> list[POSItem]:
         pos_results = self.process_and_tag(text)
         filtered_pos = [pos_result for pos_result in pos_results if
                         (not includes or pos_result['pos'] in includes) and

@@ -1,6 +1,8 @@
 
+from jet.wordnet.pos_tagger import POSItem, POSTagger
 from itertools import tee, islice
 from typing import List
+from jet.wordnet.sentence import split_by_punctuations, split_sentences
 from nltk import word_tokenize, ngrams
 import string
 from collections import Counter
@@ -16,55 +18,90 @@ from jet.wordnet.stopwords import StopWords
 from jet.wordnet.similarity import filter_different_texts
 
 
-def get_ngrams(text, n=1):
-    # Tokenize and filter out punctuation in one step
-    words = get_words(text, n)
-    return words
+def separate_ngram_lines(texts: str | list[str],  punctuations_split: list[str] = [',', '/', ':']) -> list[str]:
+    if isinstance(texts, str):
+        texts = [texts]
+
+    results: list[str] = []
+    for text in texts:
+        sentences = split_sentences(text)
+        sentences = list(set(sentences))
+        for sentence in sentences:
+            sub_sentences = split_by_punctuations(sentence, punctuations_split)
+            results.extend(sub_sentences)
+    return results
 
 
-def count_ngrams(texts: Union[str, List[str]], n: Union[int, Tuple[int, int]]):
-    if isinstance(texts, list):
-        texts = "\n".join(texts)
+def extract_ngrams(texts: Union[str, List[str]], min_words: int = 1, max_words: int = 1):
+    if isinstance(texts, str):
+        texts = [texts]
 
-    ngram_counter = Counter()
-    n_min = n
-    n_max = None
+    texts = separate_ngram_lines(texts)
 
-    # Check if n is a tuple
-    if isinstance(n, tuple):
-        if len(n) == 2:
-            n_min, n_max = n
-        else:
-            n_min = n[0]
+    ngrams: list[str] = []
+    for text in texts:
+        n_min = min_words
+        n_max = max_words
 
-    if n_max:
         if n_max > n_min:
             for n_val in range(n_min, n_max + 1):
-                ngram_counter.update(Counter(get_ngrams(texts, n_val)))
-    else:
-        ngram_counter.update(Counter(get_ngrams(texts, n_min)))
+                ngrams.extend(get_words(text, n_val))
+        else:
+            ngrams.extend(get_words(text, n_min))
 
-    return ngram_counter
+    return ngrams
 
 
-def filter_sentences_by_pos_tags(sentences, pos_tags):
-    print("Filtering sentences by POS tags...")
+def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: int = 1):
+    ngrams = extract_ngrams(texts, min_words=min_words, max_words=max_words)
+
+    ngram_counter = Counter(ngrams)
+
+    result = {ngram: count for ngram,
+              count in ngram_counter.items() if not min_count or count >= min_count}
+
+    return result
+
+
+def get_most_common_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: int = 1, max_words: int = 5) -> dict[str, int]:
+    stopwords = StopWords()
+
+    if isinstance(texts, str):
+        texts = [texts]
+
+    # Lowercase
+    texts = [text.lower() for text in texts]
+
+    ngrams = count_ngrams(texts, min_words=min_words,
+                          min_count=min_count, max_words=max_words)
+    filtered_ngrams = {}
+    for (ngram, count) in ngrams.items():
+        ngram_words = get_words(ngram)
+        start = ngram_words[0]
+        end = ngram_words[-1]
+
+        if start in stopwords.english_stop_words or end in stopwords.english_stop_words:
+            continue
+
+        filtered_ngrams[ngram] = count
+
+    return filtered_ngrams
 
 
 def group_sentences_by_ngram(
         sentences: list,
-        n: int = 2,
+        min_words: int = 2,
         top_n: int = 2,
         is_start_ngrams: bool = True) -> dict:
     sentence_ngrams = defaultdict(list)
     for sentence in tqdm(sentences, desc="Grouping sentences"):
-        ngrams_list = get_ngrams(sentence, n)
+        ngrams_list = get_words(sentence, min_words)
         if is_start_ngrams and ngrams_list:
-            sentence_ngrams[" ".join(ngrams_list[0])].append(sentence)
+            sentence_ngrams[ngrams_list[0]].append(sentence)
         elif not is_start_ngrams:
             unique_ngrams = set(ngrams_list)
             for ngram in unique_ngrams:
-                sentence_ngrams[" ".join(ngram)].append(sentence)
+                sentence_ngrams[ngram].append(sentence)
 
     optimized_groups = {}
     for ngram, group_sentences in tqdm(sentence_ngrams.items(), desc="Optimizing groups"):
@@ -99,7 +136,7 @@ def sort_sentences(sentences, n):
 
     # Precompute n-grams for each sentence
     for sentence in tqdm(sentences, desc="Precomputing n-grams"):
-        ngram_list = get_ngrams(sentence, n)
+        ngram_list = get_words(sentence, n)
         all_ngrams.update(ngram_list)
         sentence_ngrams_dict[sentence] = ngram_list
 
@@ -108,7 +145,7 @@ def sort_sentences(sentences, n):
     # Adding tqdm progress bar
     for _ in tqdm(range(len(sentences)), desc="Sorting sentences"):
         if sorted_sentences:
-            previous_ngrams = set(get_ngrams(sorted_sentences[-1], n))
+            previous_ngrams = set(get_words(sorted_sentences[-1], n))
         else:
             previous_ngrams = set()
 
@@ -124,13 +161,13 @@ def sort_sentences(sentences, n):
     return sorted_sentences
 
 
-def filter_and_sort_sentences_by_ngrams(sentences: List[str], n: int = 2, top_n: int = 2, is_start_ngrams=True) -> List[str]:
+def filter_and_sort_sentences_by_ngrams(sentences: List[str], min_words: int = 2, top_n: int = 2, is_start_ngrams=True) -> List[str]:
     sentence_ngrams = defaultdict(list)
     all_ngrams = Counter()
 
     # Combine grouping and ngram counting in a single loop
     for sentence in tqdm(sentences, desc="Grouping sentences"):
-        ngrams_list = get_ngrams(sentence, n)
+        ngrams_list = get_words(sentence, min_words)
         all_ngrams.update(ngrams_list)
 
         if is_start_ngrams and ngrams_list:
@@ -148,14 +185,14 @@ def filter_and_sort_sentences_by_ngrams(sentences: List[str], n: int = 2, top_n:
         itertools.chain.from_iterable(optimized_groups.values()))
 
     # Sort sentences by unique ngram weights
-    sorted_sentences = sort_sentences(list(flattened_sentences), n)
+    sorted_sentences = sort_sentences(list(flattened_sentences), min_words)
 
     return sorted_sentences
 
 
-def filter_and_sort_sentences_by_similarity(sentences: List[str], n=2, threshold=0.8) -> List[str]:
+def filter_and_sort_sentences_by_similarity(sentences: List[str], min_words=2, threshold=0.8) -> List[str]:
     filtered_sentences = filter_different_texts(sentences, threshold)
-    sorted_sentences = sort_sentences(filtered_sentences, n)
+    sorted_sentences = sort_sentences(filtered_sentences, min_words)
     return sorted_sentences
 
 
@@ -190,44 +227,6 @@ def recursive_filter(texts: List[str], max_n: int, depth: int = 0, max_depth: in
     return passed_texts, failed_texts
 
 
-def get_most_common_ngrams(texts: str | List[str], min_count: int = 2, n: Union[int, Tuple[int, int]] = (2,)) -> dict:
-    if isinstance(texts, list):
-        text = " ".join(texts)
-    else:
-        text = texts
-    n_min = n[0] if isinstance(n, tuple) else n
-    most_common_results = []
-
-    while True:
-        if isinstance(n, tuple) and len(n) == 2:
-            n_max = n[1]
-            ngram_counter = count_ngrams(text, n=(n_min, n_max))
-        else:
-            ngram_counter = count_ngrams(text, n=(n_min,))
-        filtered_results = [(ngram, count) for ngram,
-                            count in ngram_counter.items() if count >= min_count]
-        if filtered_results:
-            most_common_results.extend(filtered_results)
-            n_min += 1
-        else:
-            break
-
-    # Filter out n-grams that are substrings of other n-grams
-    filtered_results = []
-    for ngram, count in most_common_results:
-        is_substring = False
-        for other_ngram, other_count in most_common_results:
-            if ngram != other_ngram and count == other_count and other_ngram.startswith(ngram):
-                is_substring = True
-                break
-        if not is_substring:
-            filtered_results.append((ngram, count))
-
-    # Sort by count descending, then by ngram ascending
-    filtered_results.sort(key=lambda x: (-x[1], x[0]))
-    return dict(filtered_results)
-
-
 def get_total_unique_ngrams(ngram_counter):
     return len(ngram_counter)
 
@@ -242,15 +241,17 @@ def get_specific_ngram_count(ngram_counter, specific_ngram):
 
 def get_ngrams_by_range(
     texts: Union[str, List[str]],
-    n: Union[int, Tuple[int, int]],
+    min_words: int,
     count: Optional[Union[int, Tuple[int, int]]] = None,
+    max_words: int = 1,
     show_count: bool = False
 ) -> Union[List[str], List[Dict[str, int]]]:
     is_texts_list = isinstance(texts, list)
     if is_texts_list:
         texts = " ".join(texts)
 
-    ngram_counter = count_ngrams(texts, n)
+    ngram_counter = count_ngrams(
+        texts, min_words=min_words, max_words=max_words)
 
     if is_texts_list:
         pbar = tqdm(ngram_counter.items(), desc="Processing ngrams")
@@ -281,11 +282,13 @@ def get_ngrams_by_range(
 
 def filter_texts_by_multi_ngram_count(
         texts: List[str],
-        n: int,
+        min_words: int,
         count: Union[int, Tuple[int, int]],
+        max_words: int = 1,
         count_all_ngrams: bool = True,
 ) -> List[str]:
-    ngrams_list = get_ngrams_by_range(texts, n, count, show_count=True)
+    ngrams_list = get_ngrams_by_range(
+        texts, min_words=min_words, count=count, max_words=max_words, show_count=True)
     ngrams_dict = {ngram_dict['ngram']: ngram_dict['count']
                    for ngram_dict in ngrams_list}
 
@@ -300,7 +303,7 @@ def filter_texts_by_multi_ngram_count(
 
     if count_all_ngrams:
         for text in tqdm(texts, desc="Filtering texts"):
-            text_words = get_words(text, n=n)
+            text_words = get_words(text, min_words)
             # Check if all text_words exist in ngrams_dict
             if all(word in ngrams_dict for word in text_words):
                 filtered_texts.append(text)
@@ -336,15 +339,15 @@ def nwise(iterable, n=1):
 
 if __name__ == "__main__":
     texts = [
-        "Ilarawan ang istruktura na mahalaga",
-        "Magbigay ng tatlong tip",
-        "Paano natin mababawasan?",
-        "Kailangan mong gumawa ng isang mahirap na desisyon.",
-        "Kilalanin ang kakaiba.",
-        "Ipaliwanag kung bakit",
-        "Sumulat ng isang maikling kuwento",
-        "Ilarawan ang istruktura sa buhok",
-        "Dahil ang istruktura na mahalaga",
+        "Describe the structure of an important roadmap.",
+        "Give three tips",
+        "How can we reduce this?",
+        "You need to make a tough decision for an important roadmap.",
+        "Identify the odd one out.",
+        "Explain why",
+        "Write a short story",
+        "Describe the structure of hair",
+        "Because the structure is important",
     ]
 
     # stopwords = StopWords()
@@ -355,34 +358,42 @@ if __name__ == "__main__":
 
     # All n-grams count
     print("\nAll n-grams:")
-    ngram_counter = count_ngrams(text.lower(), n=1)
-    for ngram, count in ngram_counter.items():
+    all_ngrams = count_ngrams(text.lower(), min_words=1)
+    for ngram, count in all_ngrams.items():
+        print(f"{ngram}: {count}")
+
+    # Filtered n-grams by min_count
+    print(f"\nFiltered n-grams by min_count:")
+    filtered_ngrams = count_ngrams(text.lower(), min_count=2)
+    for ngram, count in filtered_ngrams.items():
         print(f"{ngram}: {count}")
 
     print("\nMost Common n-grams:")
-    print(get_most_common_ngrams(texts))
+    result = get_most_common_ngrams(text.lower())
+    print(result)
 
     # Specific n-grams count
-    ngram_counter = count_ngrams(text, (1, 4))
+    specific_ngrams = count_ngrams(text.lower(), min_words=1, max_words=3)
 
-    print(f"\nTotal unique n-grams: {get_total_unique_ngrams(ngram_counter)}")
     print(
-        f"\nTotal counts of all n-grams: {get_total_counts_of_ngrams(ngram_counter)}")
+        f"\nTotal unique n-grams: {get_total_unique_ngrams(specific_ngrams)}")
+    print(
+        f"\nTotal counts of all n-grams: {get_total_counts_of_ngrams(specific_ngrams)}")
 
     specific_ngram = ('This', 'is')  # Example specific n-gram
     print(
-        f"\nCount of {specific_ngram}: {get_specific_ngram_count(ngram_counter, specific_ngram)}")
+        f"\nCount of {specific_ngram}: {get_specific_ngram_count(specific_ngrams, specific_ngram)}")
 
     print("\nN-grams of Specific Range:")
-    for ngram_dict in get_ngrams_by_range(texts, n=(1, 2), count=(2, ), show_count=True):
+    for ngram_dict in get_ngrams_by_range(texts, min_words=1, max_words=2, count=(2, ), show_count=True):
         print(f"{ngram_dict['ngram']}: {ngram_dict['count']}")
 
     print("\nN-grams of Specific Count:")
-    for ngram in get_ngrams_by_range(texts, n=2, count=2, show_count=True):
+    for ngram in get_ngrams_by_range(texts, min_words=2, count=2, show_count=True):
         print(f"{ngram}")
 
     results = filter_texts_by_multi_ngram_count(
-        texts, n=1, count=(2, ), count_all_ngrams=True)
+        texts, min_words=1, count=(2, ), count_all_ngrams=True)
     print(
         f"\nFilter texts by multi-ngram count: {len(results)}\nOriginal: {len(texts)}")
     print(results)
