@@ -83,10 +83,12 @@ def setup_cohere_model():
 def setup_t5_model():
     global t5_model, t5_tokenizer
 
+    model = "castorini/monot5-small-msmarco-10k"
+    # model = "ramsrigouthamg/t5-small-relevance"
+    # model = "boost/pt-t5-small-msmarco"
+
     if t5_model is None:
-        t5_tokenizer = AutoTokenizer.from_pretrained(
-            "castorini/monot5-base-msmarco")
-        t5_model = AutoModelForSeq2SeqLM.from_pretrained(
-            "castorini/monot5-base-msmarco")
+        t5_tokenizer = AutoTokenizer.from_pretrained(model)
+        t5_model = AutoModelForSeq2SeqLM.from_pretrained(model)
 
     return t5_model, t5_tokenizer
