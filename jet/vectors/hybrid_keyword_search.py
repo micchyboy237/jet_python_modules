@@ -1,71 +1,128 @@
-import numpy as np
+from typing import Any, Optional
 from sklearn.feature_extraction.text import TfidfVectorizer
-from gensim.models import Word2Vec
+from bs4 import BeautifulSoup
+from jet.file.utils import load_file
+from jet.logger import logger
+from jet.logger.timer import time_it
+from jet.search.transformers import clean_string
+from jet.token.token_utils import get_token_counts_info, split_texts, token_counter
+from jet.transformers.formatters import format_json
+from jet.utils.commands import copy_to_clipboard
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+import faiss
+import numpy as np
 
 
-def compute_cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
-    """Compute cosine similarity between two vectors."""
-    norm1 = np.linalg.norm(vec1)
-    norm2 = np.linalg.norm(vec2)
-    return np.dot(vec1, vec2) / (norm1 * norm2) if norm1 and norm2 else 0.0
+class BertSearch:
+    def __init__(self, model_name="paraphrase-MiniLM-L12-v2"):
+        self.model_name = model_name
+        self.model = SentenceTransformer(model_name)
+        self.index = None
+        self.doc_texts = []
+        self.tfidf_vectorizer = None
+        self.tfidf_matrix = None
 
+    def build_index(self, docs, batch_size=32):
+        self.doc_texts = split_texts(
+            docs, self.model_name, chunk_size=200, chunk_overlap=50)
 
-def search_tfidf(texts: list[str], query: str, top_n: int = 5) -> list[tuple[str, float]]:
-    """TF-IDF search using cosine similarity."""
-    vectorizer = TfidfVectorizer()
-    tfidf_matrix = vectorizer.fit_transform(texts + [query])
-    query_vector = tfidf_matrix[-1]
-    similarity_scores = cosine_similarity(
-        query_vector, tfidf_matrix[:-1]).flatten()
-    top_indices = np.argsort(similarity_scores)[::-1][:top_n]
-    return [(texts[i], similarity_scores[i]) for i in top_indices]
+        # Generate embeddings
+        embeddings = self.model.encode(
+            self.doc_texts, batch_size=batch_size, convert_to_numpy=True, normalize_embeddings=True
+        )
 
+        # Create FAISS index
+        d = embeddings.shape[1]
+        self.index = faiss.IndexFlatIP(d)
+        self.index.add(embeddings)
 
-def search_word2vec(texts: list[str], query: str, model: Word2Vec, top_n: int = 5) -> list[tuple[str, float]]:
-    """Word2Vec search using cosine similarity."""
-    def get_embedding(text):
-        words = text.split()
-        vectors = [model.wv[word] for word in words if word in model.wv]
-        return np.mean(vectors, axis=0) if vectors else np.zeros(model.vector_size)
-    text_vectors = np.array([get_embedding(text) for text in texts])
-    query_vector = get_embedding(query)
-    similarity_scores = np.array(
-        [compute_cosine_similarity(query_vector, vec) for vec in text_vectors])
-    top_indices = np.argsort(similarity_scores)[::-1][:top_n]
-    return [(texts[i], similarity_scores[i]) for i in top_indices]
+        # Build TF-IDF Index
+        self.tfidf_vectorizer = TfidfVectorizer()
+        self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(self.doc_texts)
 
+    def search(self, query: str, top_k: Optional[int] = None, alpha=0.7):
+        if self.index is None:
+            raise ValueError("Index is empty! Call build_index() first.")
 
-def search_sbert(texts: list[str], query: str, model_name: str = 'all-MiniLM-L6-v2', top_n: int = 5) -> list[tuple[str, float]]:
-    """SBERT search using cosine similarity."""
-    model = SentenceTransformer(model_name)
-    text_vectors = model.encode(texts, convert_to_tensor=True).cpu().numpy()
-    query_vector = model.encode(
-        [query], convert_to_tensor=True).cpu().numpy()[0]
-    similarity_scores = np.array(
-        [compute_cosine_similarity(query_vector, vec) for vec in text_vectors])
-    top_indices = np.argsort(similarity_scores)[::-1][:top_n]
-    return [(texts[i], similarity_scores[i]) for i in top_indices]
+        top_k = min(top_k or len(self.doc_texts), len(self.doc_texts))
 
+        # Encode query
+        query_embedding = self.model.encode(
+            [query], convert_to_numpy=True, normalize_embeddings=True
+        )
 
-def main():
-    texts = ["Machine learning is great", "Deep learning advances AI",
-             "Natural language processing is cool"]
-    query = "AI and machine learning"
+        # Perform FAISS search
+        scores, indices = self.index.search(query_embedding, top_k)
 
-    print("TF-IDF Search:")
-    print(search_tfidf(texts, query))
+        # Extract top documents
+        top_texts = [self.doc_texts[idx]
+                     for idx in indices[0] if idx < len(self.doc_texts)]
 
-    # Train a simple Word2Vec model
-    sentences = [text.split() for text in texts]
-    w2v_model = Word2Vec(sentences, vector_size=100, min_count=1, workers=4)
-    print("\nWord2Vec Search:")
-    print(search_word2vec(texts, query, w2v_model))
+        # Compute TF-IDF Scores
+        query_tfidf = self.tfidf_vectorizer.transform([query])
+        tfidf_scores = np.array(
+            (query_tfidf @ self.tfidf_matrix.T).toarray()).flatten()
 
-    print("\nSBERT Search:")
-    print(search_sbert(texts, query))
+        # Combine FAISS + TF-IDF scores (weighted)
+        combined_scores = alpha * scores[0] + \
+            (1 - alpha) * tfidf_scores[indices[0]]
+
+        # Sort by combined score
+        sorted_indices = np.argsort(combined_scores)[::-1]
+        results = [
+            {
+                "score": round(float(combined_scores[i]), 4),
+                "tokens": token_counter(top_texts[i], self.model_name),
+                "text": top_texts[i],
+            }
+            for i in sorted_indices
+        ]
+
+        return [{"rank": i + 1, **result} for i, result in enumerate(results)]
 
 
 if __name__ == "__main__":
-    main()
+    # data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/my-jobs/saved/jobs.json"
+    data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/generated/search_web_data/scraped_texts.json"
+    data = load_file(data_file)
+    docs = []
+    for item in data:
+        cleaned_sentence = clean_string(item)
+        docs.append(cleaned_sentence)
+
+    # Sample HTML docs
+    # docs = [
+    #     "<html><body><p>AI is transforming the world with deep learning.</p></body></html>",
+    #     "<html><body><p>Quantum computing is the future of high-performance computing.</p></body></html>",
+    #     "<html><body><p>Neural networks are a crucial part of artificial intelligence.</p></body></html>"
+    # ]
+
+    # Initialize search system
+    search_engine = BertSearch()
+
+    # Index the documents
+    search_engine.build_index(docs)
+
+    # Perform a search
+    query = "title, season, episode, synopsis, genre, release date, end date of \"I'll Become a Villainess Who Goes Down in History\" anime"
+    top_k = 10
+
+    results = search_engine.search(query, top_k=top_k)
+
+    logger.info("Token Info:")
+    token_info = get_token_counts_info(
+        search_engine.doc_texts, search_engine.model_name)
+    del token_info["results"]
+    logger.debug(format_json(token_info))
+
+    copy_to_clipboard({
+        "query": query,
+        "count": len(results),
+        **token_info,
+        "data": results[:50]
+    })
+
+    for idx, result in enumerate(results[:10]):
+        logger.log(f"{idx + 1}:", result["text"]
+                   [:30], colors=["WHITE", "DEBUG"])
+        logger.success(f"{result['score']:.2f}")

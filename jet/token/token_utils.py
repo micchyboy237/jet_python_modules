@@ -84,27 +84,25 @@ class TokenCountsInfoResult(TypedDict):
 
 
 class TokenCountsInfo(TypedDict):
-    total: int
-    max: TokenCountsInfoResult
-    min: TokenCountsInfoResult
+    average: float
+    max: int
+    min: int
     results: list[TokenCountsInfoResult]
 
 
 def get_token_counts_info(texts: list[str], model: OLLAMA_MODEL_NAMES) -> TokenCountsInfo:
-    token_counts: list[int] = token_counter(
-        texts, model, prevent_total=True)
+    token_counts: list[int] = token_counter(texts, model, prevent_total=True)
     total_count = sum(token_counts)
+    avg_count = round(total_count / len(token_counts),
+                      2) if token_counts else 0.0  # Rounded average
     results: list[TokenCountsInfoResult] = [{"tokens": count, "text": text}
                                             for count, text in zip(token_counts, texts)]
 
-    max_result = max(results, key=lambda x: x["tokens"])
-    min_result = min(results, key=lambda x: x["tokens"])
-
     return {
-        "total": total_count,
-        "min": min_result,
-        "max": max_result,
-        "results": results
+        "min": min(token_counts) if token_counts else 0,
+        "max": max(token_counts) if token_counts else 0,
+        "average": avg_count,
+        "results": sorted(results, key=lambda x: x["tokens"])
     }
 
 
@@ -236,7 +234,7 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
 
 def split_texts(
     texts: str | list[str],
-    model: str | Callable,
+    model: str,
     chunk_size: Optional[int] = None,
     chunk_overlap: int = 0,
     *,
@@ -262,12 +260,12 @@ def split_texts(
         raise ValueError(
             f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})")
 
-    effective_max_tokens = chunk_size - buffer
+    effective_max_tokens = max(chunk_size - buffer, 1)  # Ensure positive value
     if effective_max_tokens <= chunk_overlap:
         raise ValueError(
             f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})")
 
-    tokenizer = get_tokenizer(model) if isinstance(model, str) else model
+    tokenizer = get_tokenizer(model)
     split_chunks = []
 
     if isinstance(texts, str):
@@ -286,31 +284,53 @@ def split_texts(
         while start < total_tokens:
             end = min(start + effective_max_tokens, total_tokens)
             chunk_tokens = tokens[start:end]
-            chunk_text = tokenizer.decode(
-                chunk_tokens, skip_special_tokens=True)
-            split_chunks.append(chunk_text)
+            try:
+                chunk_text = tokenizer.decode(
+                    chunk_tokens, skip_special_tokens=True)
+            except:
+                chunk_text = tokenizer.decode(chunk_tokens)
+
+            chunk_text = chunk_text.strip()
+
+            if chunk_text:  # Ensure non-empty chunks are added
+                split_chunks.append(chunk_text)
 
             if end == total_tokens:
                 break
-            start = end - chunk_overlap  # Ensure overlap in the next chunk
+            start = max(end - chunk_overlap, 0)  # Prevent negative index
 
     logger.debug(
-        f"Split {len(texts)} texts into {len(split_chunks)} chunks with buffer={buffer}.")
+        f"Split {len(texts)} texts into {len(split_chunks)} chunks (buffer={buffer}, overlap={chunk_overlap}).")
     return split_chunks
 
 
 if __name__ == "__main__":
-    models = ["paraphrase-MiniLM-L12-v2", "llama3.1"]
+    from jet.file.utils import load_file
+    from jet.search.transformers import clean_string
+    from jet.transformers.formatters import format_json
+
+    # models = ["llama3.1"]
+    models = ["paraphrase-MiniLM-L12-v2"]
     ollama_models = {}
+
+    data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/generated/search_web_data/scraped_texts.json"
+    data = load_file(data_file)
+    docs = []
+    for item in data:
+        cleaned_sentence = clean_string(item)
+        docs.append(cleaned_sentence)
+
     sample_text = "Text 1, Text 2"
-    sample_texts = ["Text 1", "Text 2"]
+    sample_texts = docs
 
     logger.info("Count tokens for: str")
     for model_name in models:
         result = token_counter(sample_text, model_name)
-        logger.log("Count:", result, colors=["DEBUG", "SUCCESS"])
+        logger.log("Count:", format_json(result), colors=["DEBUG", "SUCCESS"])
 
     logger.info("Count tokens info for: str")
     for model_name in models:
-        result = get_token_counts_info(sample_texts, model_name)
-        logger.log("Count:", result, colors=["DEBUG", "SUCCESS"])
+        splitted_texts = split_texts(
+            docs, model_name, chunk_size=200, chunk_overlap=50)
+        result = get_token_counts_info(splitted_texts, model_name)
+        logger.log("Count:", format_json(result), colors=["DEBUG", "SUCCESS"])
