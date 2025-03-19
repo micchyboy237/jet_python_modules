@@ -1,6 +1,10 @@
+from io import StringIO
 import re
+from typing import Callable, Optional
+
+from tqdm import tqdm
 from nltk.tokenize import sent_tokenize
-from jet.wordnet.words import count_words
+from jet.wordnet.words import count_words, get_words
 
 # nltk.download('punkt')
 
@@ -34,24 +38,37 @@ def process_sentence_newlines(sentences):
 
 def handle_long_sentence(sentence, count_tokens_func, max_tokens):
     words = sentence.split()
-    sub_sentence = ''
-    segment = ''
+    n = len(words)
 
-    for word in words:
-        combined_text = sub_sentence + (' ' if sub_sentence else '') + word
-        if count_tokens_func(combined_text) <= max_tokens:
-            sub_sentence = combined_text
+    # Generate all possible incremental substrings
+    substrings = [' '.join(words[:i + 1]) for i in range(n)]
+
+    # Count tokens for all substrings at once
+    token_counts = count_tokens_func(substrings)
+
+    segments = []
+    start = 0
+
+    progress_bar = tqdm(
+        total=n, desc="Processing long sentence", unit="word", mininterval=0.1)
+
+    while start < n:
+        # Find the longest valid substring within max_tokens
+        end = start
+        while end < n and token_counts[end] - (token_counts[start - 1] if start > 0 else 0) <= max_tokens:
+            end += 1
+
+        if end == start:  # If a single word exceeds max_tokens
+            segments.append(words[start])
+            start += 1
         else:
-            if sub_sentence:
-                segment += (' ' + sub_sentence) if segment else sub_sentence
-                sub_sentence = word
-            else:
-                # If a single word exceeds max_tokens, consider it as a segment
-                segment += (' ' + word) if segment else word
-                sub_sentence = ''
+            segments.append(' '.join(words[start:end]))
+            start = end  # Move to the next segment
 
-    # Return the last sub-sentence if it's not empty
-    return segment + (' ' + sub_sentence) if sub_sentence else segment
+        progress_bar.update(end - start)
+
+    progress_bar.close()
+    return ' '.join(segments)
 
 
 def ngrams(sentence, n):
@@ -108,14 +125,19 @@ def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
     segments = []
     current_segment = ''
 
-    for sentence in processed_sentences:
+    for sentence in tqdm(processed_sentences):
         # Skip empty sentences
         if not sentence.strip():
             continue
 
+        # Convert NEWLINE_TOKEN to \n before counting tokens
+        sentence_for_token_count = sentence.replace('NEWLINE_TOKEN', '\n')
+        current_segment_for_token_count = current_segment.replace(
+            'NEWLINE_TOKEN', '\n')
+
         # Calculate token counts
-        current_tokens_len = count_tokens_func(current_segment)
-        tokens_len = count_tokens_func(sentence)
+        current_tokens_len = count_tokens_func(current_segment_for_token_count)
+        tokens_len = count_tokens_func(sentence_for_token_count)
 
         stripped_sentence = sentence.replace('NEWLINE_TOKEN', '')
         # Check if the sentence is a continuation of an ordered list item
@@ -124,7 +146,6 @@ def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
                 # Append the current segment if it's not empty
                 if current_segment:
                     segments.append(current_segment)
-
                     current_segment = ''
 
                 segments.append(sentence)
@@ -137,8 +158,8 @@ def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
             # Append the current segment if it's not empty
             if current_segment and not is_ordered_list_marker(current_segment):
                 segments.append(current_segment)
-
                 current_segment = ''
+
             # Handle the next sentence
             if tokens_len <= max_tokens:
                 current_segment = sentence
@@ -155,8 +176,7 @@ def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
         segments.append(current_segment)
 
     # Replace NEWLINE_TOKEN with \n on all segments
-    segments = [segment.replace('NEWLINE_TOKEN', '\n')
-                for segment in segments]
+    segments = [segment.replace('NEWLINE_TOKEN', '\n') for segment in segments]
 
     return segments
 
@@ -201,6 +221,23 @@ def split_by_punctuations(text: str, punctuations: list[str]) -> list[str]:
 
     pattern = f"[{''.join(map(re.escape, punctuations))}]"
     return [segment.strip() for segment in re.split(pattern, text) if segment.strip()]
+
+
+def encode_text_to_strings(text: str, tokenize: Optional[Callable] = None) -> list[str]:
+    """
+    Tokenizes text and returns a list of token strings.
+
+    Uses existing sentence splitting and token counting for consistency.
+    """
+    if not text.strip():
+        return []
+
+    if not tokenize:
+        tokens = get_words(text)
+    else:
+        tokens = tokenize(text)
+
+    return tokens
 
 
 if __name__ == "__main__":

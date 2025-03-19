@@ -1,13 +1,17 @@
 from typing import Any, Optional
 from sklearn.feature_extraction.text import TfidfVectorizer
+from llama_index.core.node_parser.text.sentence import SentenceSplitter
+from llama_index.core.schema import Document
+from tqdm import tqdm
 from bs4 import BeautifulSoup
 from jet.file.utils import load_file
 from jet.logger import logger
 from jet.logger.timer import time_it
 from jet.search.transformers import clean_string
-from jet.token.token_utils import get_token_counts_info, split_texts, token_counter
+from jet.token.token_utils import get_token_counts_info, get_tokenizer, split_texts, token_counter
 from jet.transformers.formatters import format_json
 from jet.utils.commands import copy_to_clipboard
+from jet.wordnet.sentence import adaptive_split
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
@@ -16,15 +20,30 @@ import numpy as np
 class BertSearch:
     def __init__(self, model_name="paraphrase-MiniLM-L12-v2"):
         self.model_name = model_name
-        self.model = SentenceTransformer(model_name)
+        self.model = SentenceTransformer(self.model_name)
         self.index = None
         self.doc_texts = []
         self.tfidf_vectorizer = None
         self.tfidf_matrix = None
 
-    def build_index(self, docs, batch_size=32):
-        self.doc_texts = split_texts(
-            docs, self.model_name, chunk_size=200, chunk_overlap=50)
+    def _setup_doc_texts(self, docs, chunk_size, chunk_overlap):
+        for i, doc in tqdm(enumerate(docs), total=len(docs)):
+            tokens: int = token_counter(doc, self.model_name)
+            if tokens > chunk_size:
+                splitter = SentenceSplitter(
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    tokenizer=get_tokenizer(self.model_name).encode
+                )
+                splitted_docs = splitter.split_text(doc)
+                self.doc_texts.extend(splitted_docs)
+            else:
+                self.doc_texts.append(doc)
+
+    def build_index(self, docs, batch_size=32, chunk_size=200, chunk_overlap=50):
+        self.doc_texts = []
+
+        self._setup_doc_texts(docs, chunk_size, chunk_overlap)
 
         # Generate embeddings
         embeddings = self.model.encode(

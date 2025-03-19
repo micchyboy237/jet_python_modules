@@ -1,5 +1,6 @@
 import unittest
 from jet.wordnet.sentence import (
+    handle_long_sentence,
     process_sentence_newlines,
     adaptive_split,
     is_ordered_list_marker,
@@ -284,5 +285,66 @@ class TestSplitByPunctuations(unittest.TestCase):
                          "Punctuation list cannot be empty or None.")
 
 
-if __name__ == "__main__":
+def mock_count_tokens_func(texts):
+    """
+    Mock token counting function that approximates the number of tokens
+    by counting words in the input text or list of texts.
+    """
+    if isinstance(texts, str):
+        return len(texts.split())  # Single string case
+    return [len(text.split()) for text in texts]  # Batch processing
+
+
+class TestHandleLongSentence(unittest.TestCase):
+
+    def test_normal_case(self):
+        sentence = "This is a simple test sentence to check the function."
+        max_tokens = 5
+        expected = "This is a simple test sentence to check the function."
+        result = handle_long_sentence(
+            sentence, mock_count_tokens_func, max_tokens)
+        self.assertEqual(result, expected)
+
+    def test_long_sentence(self):
+        sentence = "This is a very long sentence that needs to be split into multiple segments based on the max token limit."
+        max_tokens = 6
+        expected = "This is a very long sentence that needs to be split into multiple segments based on the max token limit."
+        result = handle_long_sentence(
+            sentence, mock_count_tokens_func, max_tokens)
+        self.assertEqual(result, expected)
+
+    def test_single_long_word(self):
+        sentence = "Supercalifragilisticexpialidocious"
+        max_tokens = 2  # Word itself is longer than max tokens
+        expected = "Supercalifragilisticexpialidocious"
+        result = handle_long_sentence(
+            sentence, mock_count_tokens_func, max_tokens)
+        self.assertEqual(result, expected)
+
+    def test_mixed_length_words(self):
+        sentence = "Short words and looooooooongwordsthatneverend should be split correctly."
+        max_tokens = 3
+        expected = "Short words and looooooooongwordsthatneverend should be split correctly."
+        result = handle_long_sentence(
+            sentence, mock_count_tokens_func, max_tokens)
+        self.assertEqual(result, expected)
+
+    def test_empty_sentence(self):
+        sentence = ""
+        max_tokens = 5
+        expected = ""
+        result = handle_long_sentence(
+            sentence, mock_count_tokens_func, max_tokens)
+        self.assertEqual(result, expected)
+
+    def test_one_word_sentences(self):
+        sentence = "One Two Three Four Five Six Seven Eight Nine Ten"
+        max_tokens = 2
+        expected = "One Two Three Four Five Six Seven Eight Nine Ten"
+        result = handle_long_sentence(
+            sentence, mock_count_tokens_func, max_tokens)
+        self.assertEqual(result, expected)
+
+
+if __name__ == '__main__':
     unittest.main()
