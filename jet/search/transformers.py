@@ -134,12 +134,9 @@ def clean_string(text: str) -> str:
         text = text[:-1]
 
     import re
-    print(text)  # Remove leading/trailing whitespace for each line
     text = '\n'.join([line.strip() for line in text.split('\n')])
-    print(text)
     # Reduce consecutive newlines to a single newline
     text = re.sub(r'\n{2,}', '\n', text)
-    print(text)
 
     return text.strip()
 

@@ -1,4 +1,4 @@
-from typing import Literal, Optional, TypedDict, Union
+from typing import Callable, Literal, Optional, TypedDict, Union
 from jet.logger import logger
 from llama_index.core.base.llms.types import ChatMessage
 import tiktoken
@@ -236,7 +236,7 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
 
 def split_texts(
     texts: str | list[str],
-    model: str,
+    model: str | Callable,
     chunk_size: Optional[int] = None,
     chunk_overlap: int = 0,
     *,
@@ -267,14 +267,15 @@ def split_texts(
         raise ValueError(
             f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})")
 
-    tokenizer = get_tokenizer(model)
+    tokenizer = get_tokenizer(model) if isinstance(model, str) else model
     split_chunks = []
 
     if isinstance(texts, str):
         texts = [texts]
 
     for text in texts:
-        tokens = tokenizer.encode(text)
+        tokens = tokenizer.encode(text) if hasattr(
+            tokenizer, "encode") else tokenizer(text)
         total_tokens = len(tokens)
 
         if total_tokens <= effective_max_tokens:
@@ -299,7 +300,7 @@ def split_texts(
 
 
 if __name__ == "__main__":
-    models = ["llama3.1"]
+    models = ["paraphrase-MiniLM-L12-v2", "llama3.1"]
     ollama_models = {}
     sample_text = "Text 1, Text 2"
     sample_texts = ["Text 1", "Text 2"]
@@ -309,7 +310,7 @@ if __name__ == "__main__":
         result = token_counter(sample_text, model_name)
         logger.log("Count:", result, colors=["DEBUG", "SUCCESS"])
 
-    logger.info("Count batch tokens for: list[str]")
+    logger.info("Count tokens info for: str")
     for model_name in models:
-        result = token_counter(sample_texts, model_name)
+        result = get_token_counts_info(sample_texts, model_name)
         logger.log("Count:", result, colors=["DEBUG", "SUCCESS"])
