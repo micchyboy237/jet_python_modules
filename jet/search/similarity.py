@@ -1,4 +1,5 @@
 import math
+from jet.data.utils import generate_unique_hash
 from jet.wordnet.sentence import split_sentences
 import numpy as np
 from typing import List
@@ -74,7 +75,16 @@ def adjust_score_with_rewards_and_penalties(base_score: float, match_count: int,
     return base_score * (1 + boost_factor - penalty_factor)
 
 
-def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[str], *, k1=1.2, b=0.75, delta=1.0) -> List[SimilarityResult]:
+def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optional[List[str]] = None, *, k1=1.2, b=0.75, delta=1.0) -> List[SimilarityResult]:
+    if not queries or not documents:
+        raise ValueError("queries and documents must not be empty")
+
+    if ids is None:
+        ids = [generate_unique_hash()
+               for _ in documents]  # Generate unique IDs
+    elif len(documents) != len(ids):
+        raise ValueError("documents and ids must have the same lengths")
+
     lowered_queries = [query.lower() for query in queries]
     lowered_documents = [doc_text.lower() for doc_text in documents]
 
@@ -95,6 +105,7 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[st
 
     for idx, doc_text in enumerate(lowered_documents):
         orig_doc_text = documents[idx]
+        doc_id = ids[idx]  # Use provided ID or generated unique ID
         sentences: list[str] = split_sentences(doc_text)
         doc_length = doc_lengths[idx]
         term_frequencies = Counter(tokenized_docs[idx])
@@ -137,9 +148,8 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[st
 
             if query_score > 0 and matched_sentence_list:
                 matched_sentences[query] = matched_sentence_list
-                # Store query match count
                 matched[query] = len(matched_sentence_list)
-                match_count += 1  # Increment match count if query contributed to score
+                match_count += 1
 
             score += query_score
 
@@ -152,10 +162,10 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[st
             )
 
             all_scores.append(SimilarityResult(
-                id=ids[idx],
+                id=doc_id,  # Use provided or generated unique ID
                 score=adjusted_score,
-                similarity=score,  # Keep original BM25 score for reference
-                matched=matched,  # Store match counts
+                similarity=score,
+                matched=matched,
                 matched_sentences=matched_sentences,
                 text=doc_text
             ))

@@ -1,6 +1,7 @@
 import re
 import time
 import fnmatch
+from typing import Generator, TypedDict
 from jet.logger.timer import sleep_countdown
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -84,6 +85,11 @@ class SeleniumScraper:
         self.driver.quit()
 
 
+class PageResult(TypedDict):
+    url: str
+    html: str
+
+
 class WebCrawler(SeleniumScraper):
     def __init__(self, url: str = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: int = None):
         super().__init__()
@@ -115,7 +121,7 @@ class WebCrawler(SeleniumScraper):
 
         yield from self._crawl_recursive(url, depth=0)
 
-    def _crawl_recursive(self, url: str, depth: int):
+    def _crawl_recursive(self, url: str, depth: int) -> Generator[PageResult, None, None]:
         if self.max_depth is not None and depth > self.max_depth:
             logger.info(f"Max depth reached for {url}")
             return

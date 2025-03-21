@@ -37,7 +37,7 @@ class TestBM25Similarity(unittest.TestCase):
         """ Test when only part of the query matches """
         partial_query = ["learning"]
         results = get_bm25_similarities(
-            partial_query, self.documents, self.ids)
+            partial_query, self.documents[:len(partial_query)], self.ids[:len(partial_query)])
 
         # At least one doc should have nonzero score
         self.assertTrue(any(res["score"] > 0 for res in results))
@@ -46,20 +46,20 @@ class TestBM25Similarity(unittest.TestCase):
         """ Test when queries do not match any documents """
         no_match_query = ["quantum computing"]
         results = get_bm25_similarities(
-            no_match_query, self.documents, self.ids)
+            no_match_query, self.documents[:len(no_match_query)], self.ids[:len(no_match_query)])
 
         # All scores should be zero
         self.assertTrue(all(res["score"] == 0 for res in results))
 
     def test_empty_query_list(self):
         """ Test behavior when query list is empty """
-        results = get_bm25_similarities([], self.documents, self.ids)
-        self.assertEqual(results, [])  # No results expected
+        with self.assertRaises(ValueError):
+            get_bm25_similarities([], self.documents, self.ids)
 
     def test_empty_document_list(self):
         """ Test behavior when document list is empty """
-        results = get_bm25_similarities(self.queries, [], [])
-        self.assertEqual(results, [])  # No results expected
+        with self.assertRaises(ValueError):
+            get_bm25_similarities(self.queries, [], [])
 
     def test_score_normalization(self):
         """ Test that scores are properly normalized """

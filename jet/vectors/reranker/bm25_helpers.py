@@ -202,7 +202,8 @@ class HybridSearch:
 
         self.data = texts
         self.docs = split_text_by_docs(preprocessed_texts, max_tokens)
-        self.ids = [str(idx) for idx, doc in enumerate(self.docs)]
+        # self.ids = [str(idx) for idx, doc in enumerate(self.docs)]
+        self.ids = [generate_unique_hash()for _ in self.docs]
         self.doc_texts = [doc.text for doc in self.docs]
 
         self.ngrams = count_ngrams(
