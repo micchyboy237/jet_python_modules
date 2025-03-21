@@ -31,7 +31,8 @@ class SimilarityResult(TypedDict):
     text: str  # The document's content/text
     score: float  # Normalized similarity score
     similarity: Optional[float]  # Raw BM25 similarity score
-    matched: dict[str, List[Match]]  # Query to sentence matches
+    matched: dict[str, int]  # Query match counts
+    matched_sentences: dict[str, List[Match]]  # Query to sentence matches
 
 
 def preprocess_reranker_texts(texts: str | list[str]) -> list[str]:
@@ -74,22 +75,6 @@ def adjust_score_with_rewards_and_penalties(base_score: float, match_count: int,
 
 
 def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[str], *, k1=1.2, b=0.75, delta=1.0) -> List[SimilarityResult]:
-    """
-    Compute BM25+ similarities between queries and documents, tracking matched sentences.
-    The final score is adjusted using adjust_score_with_rewards_and_penalties.
-
-    Args:
-        queries (List[str]): List of query strings.
-        documents (List[str]): List of document strings.
-        ids (List[str]): List of document ids corresponding to the documents.
-        k1 (float): Term frequency scaling factor.
-        b (float): Length normalization parameter.
-        delta (float): BM25+ correction factor.
-
-    Returns:
-        List[SimilarityResult]: List of results containing scores, similarities, matched queries, ids, and text.
-    """
-
     lowered_queries = [query.lower() for query in queries]
     lowered_documents = [doc_text.lower() for doc_text in documents]
 
@@ -114,14 +99,15 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[st
         doc_length = doc_lengths[idx]
         term_frequencies = Counter(tokenized_docs[idx])
         score = 0
-        matched_queries: dict[str, List[Match]] = {}
+        matched: dict[str, int] = {}  # Query match counts
+        matched_sentences: dict[str, List[Match]] = {}
 
         match_count = 0  # Count of queries that matched in the document
 
         for query in lowered_queries:
             query_terms = query.split()
             query_score = 0
-            matched_sentences: List[Match] = []
+            matched_sentence_list: List[Match] = []
 
             for sentence_idx, sentence in enumerate(sentences):
                 sentence_terms = sentence.split()
@@ -139,7 +125,7 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[st
                     start_idx = orig_doc_text.lower().index(sentence)
                     end_idx = start_idx + len(sentence)
                     sentence = orig_doc_text[start_idx:end_idx]
-                    matched_sentences.append(Match(
+                    matched_sentence_list.append(Match(
                         score=sentence_score,
                         start_idx=start_idx,
                         end_idx=end_idx,
@@ -150,7 +136,9 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[st
                 query_score += sentence_score
 
             if query_score > 0:
-                matched_queries[query] = matched_sentences
+                matched_sentences[query] = matched_sentence_list
+                # Store query match count
+                matched[query] = len(matched_sentence_list)
                 match_count += 1  # Increment match count if query contributed to score
 
             score += query_score
@@ -167,7 +155,8 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[st
                 id=ids[idx],
                 score=adjusted_score,
                 similarity=score,  # Keep original BM25 score for reference
-                matched=matched_queries,
+                matched=matched,  # Store match counts
+                matched_sentences=matched_sentences,
                 text=doc_text
             ))
 

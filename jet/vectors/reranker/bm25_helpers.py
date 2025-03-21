@@ -319,12 +319,12 @@ class HybridSearch:
 
         # return response
 
-    def search(self, query: str, top_k: Optional[int] = None) -> List[SearchResult]:
+    def search(self, query: str, top_k: Optional[int] = None) -> SimilarityResultData:
         semantic_results = self.semantic_search(
             query, top_k=top_k)
         reranked_results = self.rerank(query)
 
-        return semantic_results
+        return reranked_results
 
 
 if __name__ == "__main__":
