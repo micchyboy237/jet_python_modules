@@ -4,7 +4,6 @@ import re
 import string
 from nltk.tokenize import sent_tokenize
 import json
-from transformers import AutoTokenizer
 import spacy
 from nltk import word_tokenize, pos_tag
 from typing import Callable, List, Optional, TypedDict
@@ -141,24 +140,12 @@ def process_dataset(task_name, max_length, tokenizer):
 
 
 def process_all_datasets(tasks, max_length, model):
+    from transformers import AutoTokenizer
+
     tokenizer = AutoTokenizer.from_pretrained(model)
 
     for task in tasks:
         process_dataset(task, max_length, tokenizer)
-
-
-def list_all_spacy_pos_tags(model: str = spacy_model):
-    nlp = setup_nlp(model)
-
-    for tag in nlp.get_pipe("tagger").labels:
-        print(tag)
-
-
-def get_unique_sentences(data: List[str]):
-    unique_words = list(set(data)) if all(isinstance(d, str)
-                                          for d in data) else data
-
-    return unique_words
 
 
 def compare_words(word1: str, word2: str, case_sensitive: bool = False) -> bool:
@@ -256,6 +243,34 @@ def get_spacy_words(text: str, model: str = spacy_model) -> List[SpacyWord]:
     ]
 
     return words
+
+
+def list_all_spacy_pos_tags(model: str = spacy_model):
+    nlp = setup_nlp(model)
+
+    for tag in nlp.get_pipe("tagger").labels:
+        print(tag)
+
+
+__all__ = [
+    "setup_nlp",
+    "pos_tag_nltk",
+    "pos_tag_spacy",
+    "split_words",
+    "get_words",
+    "get_non_words",
+    "count_words",
+    "count_non_words",
+    "process_dataset",
+    "process_all_datasets",
+    "compare_words",
+    "count_syllables",
+    "split_by_syllables",
+    "get_named_words",
+    "SpacyWord",
+    "get_spacy_words",
+    "list_all_spacy_pos_tags",
+]
 
 
 if __name__ == "__main__":

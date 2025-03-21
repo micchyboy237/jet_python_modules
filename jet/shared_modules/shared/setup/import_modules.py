@@ -25,3 +25,6 @@ from jet.scrapers.preprocessor import *
 from jet.code.splitter_markdown_utils import *
 
 from jet.cache.joblib import *
+
+from jet.wordnet.words import *
+from jet.wordnet.sentence import *

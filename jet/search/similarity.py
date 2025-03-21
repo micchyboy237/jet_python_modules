@@ -1,4 +1,5 @@
 import math
+from jet.wordnet.sentence import split_sentences
 import numpy as np
 from typing import List
 from collections import Counter
@@ -10,30 +11,72 @@ from typing import Optional, TypedDict
 from gensim.corpora import Dictionary
 from gensim.models import TfidfModel, OkapiBM25Model
 from gensim.similarities import SparseMatrixSimilarity
-from jet.utils.commands import copy_to_clipboard
 from jet.wordnet.gensim_scripts.phrase_detector import PhraseDetector
-from jet.file.utils import load_file
 from jet.logger import logger
-from jet.transformers.formatters import format_json
-from jet.wordnet.words import get_words
-from shared.data_types.job import JobData
+from jet.scrapers.utils import clean_newlines, clean_punctuations, clean_spaces
+from jet.search.transformers import clean_string
+from jet.wordnet.lemmatizer import lemmatize_text
+
+
+class Match(TypedDict):
+    score: float
+    start_idx: int
+    end_idx: int
+    sentence: str
+    text: str
 
 
 class SimilarityResult(TypedDict):
     id: str  # Document ID
     text: str  # The document's content/text
-    score: float  # The score for how relevant the document is to the query
-    similarity: float
-    matched: list[str]  # List of queries that matched with this document
+    score: float  # Normalized similarity score
+    similarity: Optional[float]  # Raw BM25 similarity score
+    matched: dict[str, List[Match]]  # Query to sentence matches
 
 
-class BM25SimilarityResult(SimilarityResult):
-    similarity: Optional[float]  # Similarity score for BM25 calculation
+def preprocess_reranker_texts(texts: str | list[str]) -> list[str]:
+    if isinstance(texts, str):
+        texts = [texts]
+    preprocessed_texts: list[str] = texts.copy()
+
+    for idx, text in enumerate(preprocessed_texts):
+        text = clean_newlines(text, max_newlines=1)
+        text = clean_spaces(text)
+        text = clean_string(text)
+        text = clean_punctuations(text)
+        text = lemmatize_text(text)
+
+        preprocessed_texts[idx] = text
+
+    return preprocessed_texts
 
 
-def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[str], *, k1=1.2, b=0.75, delta=1.0) -> List[BM25SimilarityResult]:
+def adjust_score_with_rewards_and_penalties(base_score: float, match_count: int, max_query_count: int) -> float:
     """
-    Compute BM25+ similarities between queries and a list of documents.
+    Adjusts the score based on query match count using rewards and penalties.
+
+    - Rewards: Boost score if more queries match (up to 50% boost).
+    - Penalties: Reduce score if fewer queries match (up to 30% penalty).
+
+    :param base_score: Original BM25 similarity score.
+    :param match_count: Number of matched n-grams.
+    :param max_query_count: Total number of queries.
+    :return: Adjusted similarity score.
+    """
+    if max_query_count == 0:
+        return base_score  # Avoid division by zero
+
+    boost_factor = (match_count / max_query_count) * 0.5  # Max 50% boost
+    penalty_factor = (1 - match_count / max_query_count) * \
+        0.3  # Max 30% penalty
+
+    return base_score * (1 + boost_factor - penalty_factor)
+
+
+def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[str], *, k1=1.2, b=0.75, delta=1.0) -> List[SimilarityResult]:
+    """
+    Compute BM25+ similarities between queries and documents, tracking matched sentences.
+    The final score is adjusted using adjust_score_with_rewards_and_penalties.
 
     Args:
         queries (List[str]): List of query strings.
@@ -41,91 +84,105 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[st
         ids (List[str]): List of document ids corresponding to the documents.
         k1 (float): Term frequency scaling factor.
         b (float): Length normalization parameter.
-        delta (float): BM25+ correction factor to reduce the bias against short documents.
+        delta (float): BM25+ correction factor.
 
     Returns:
-        List[BM25SimilarityResult]: A list of dictionaries containing scores, similarities, matched queries, ids, and text.
+        List[SimilarityResult]: List of results containing scores, similarities, matched queries, ids, and text.
     """
 
-    # Tokenize documents into words
-    tokenized_docs = [doc.split() for doc in documents]
+    lowered_queries = [query.lower() for query in queries]
+    lowered_documents = [doc_text.lower() for doc_text in documents]
 
-    # Calculate the length of each document (i.e., number of tokens in it)
+    tokenized_docs = [doc.split() for doc in lowered_documents]
     doc_lengths = [len(doc) for doc in tokenized_docs]
-
-    # Compute the average document length across all documents
     avg_doc_len = sum(doc_lengths) / len(doc_lengths)
 
-    # Compute document frequency (DF) for each term across all documents
     df = {}
-    total_docs = len(documents)
-
-    # Calculate document frequency for each unique term in the corpus
+    total_docs = len(lowered_documents)
     for doc in tokenized_docs:
         unique_terms = set(doc)
         for term in unique_terms:
             df[term] = df.get(term, 0) + 1
 
-    # Precompute inverse document frequency (IDF) for each term
     idf = {term: math.log((total_docs - freq + 0.5) / (freq + 0.5) + 1)
            for term, freq in df.items()}
+    all_scores: List[SimilarityResult] = []
 
-    # This will store the final results
-    all_scores: list[BM25SimilarityResult] = []
+    for idx, doc_text in enumerate(lowered_documents):
+        orig_doc_text = documents[idx]
+        sentences: list[str] = split_sentences(doc_text)
+        doc_length = doc_lengths[idx]
+        term_frequencies = Counter(tokenized_docs[idx])
+        score = 0
+        matched_queries: dict[str, List[Match]] = {}
 
-    # Iterate through each document to compute its BM25 score
-    for idx, doc in enumerate(tokenized_docs):
-        doc_length = doc_lengths[idx]  # Length of the current document
-        term_frequencies = Counter(doc)  # Frequency of terms in the document
-        score = 0  # Accumulator for the total BM25 score for this document
-        matched_queries = []  # List to track which queries matched with the document
+        match_count = 0  # Count of queries that matched in the document
 
-        # Iterate through each query to compute its BM25 score against this document
-        for query in queries:
-            query_terms = query.split()  # Tokenize the query
-            query_score = 0  # Accumulator for the query's score
+        for query in lowered_queries:
+            query_terms = query.split()
+            query_score = 0
+            matched_sentences: List[Match] = []
 
-            # Iterate through each term in the query and compute its contribution to the score
-            for term in query_terms:
-                if term in idf:  # Only process terms that appear in the IDF dictionary
-                    # Term frequency in the document
-                    tf = term_frequencies[term]
-                    # BM25+ formula: TF-IDF component for the term
-                    numerator = tf * (k1 + 1)
-                    denominator = tf + k1 * \
-                        (1 - b + b * (doc_length / avg_doc_len)) + delta
-                    query_score += idf[term] * (numerator / denominator)
+            for sentence_idx, sentence in enumerate(sentences):
+                sentence_terms = sentence.split()
+                sentence_score = 0
 
-            # If the query has a non-zero score, consider it as a matched query
+                for term in query_terms:
+                    if term in idf and term in sentence_terms:
+                        tf = term_frequencies[term]
+                        numerator = tf * (k1 + 1)
+                        denominator = tf + k1 * \
+                            (1 - b + b * (doc_length / avg_doc_len)) + delta
+                        sentence_score += idf[term] * (numerator / denominator)
+
+                if query in sentence:
+                    start_idx = orig_doc_text.lower().index(sentence)
+                    end_idx = start_idx + len(sentence)
+                    sentence = orig_doc_text[start_idx:end_idx]
+                    matched_sentences.append(Match(
+                        score=sentence_score,
+                        start_idx=start_idx,
+                        end_idx=end_idx,
+                        sentence=sentence,
+                        text=doc_text,
+                    ))
+
+                query_score += sentence_score
+
             if query_score > 0:
-                matched_queries.append(query)
+                matched_queries[query] = matched_sentences
+                match_count += 1  # Increment match count if query contributed to score
 
-            # Add the query's score to the total document score
             score += query_score
 
-        # If the document has any relevance (score > 0), add it to the results
         if score > 0:
-            all_scores.append({
-                "id": ids[idx],  # Store the document ID
-                "score": score,  # Raw BM25+ score (before normalization)
-                "similarity": score,  # Retain original similarity for reference
-                "matched": matched_queries,  # List of queries that matched
-                "text": documents[idx]  # Store the document text itself
-            })
+            max_query_count = len(lowered_queries)
+            adjusted_score = adjust_score_with_rewards_and_penalties(
+                base_score=score,
+                match_count=match_count,
+                max_query_count=max_query_count
+            )
 
-    # Normalize the scores to the range [0, 1] based on the maximum score
+            all_scores.append(SimilarityResult(
+                id=ids[idx],
+                score=adjusted_score,
+                similarity=score,  # Keep original BM25 score for reference
+                matched=matched_queries,
+                text=doc_text
+            ))
+
     if all_scores:
-        max_similarity = max(entry["score"]
-                             for entry in all_scores)  # Find the maximum score
+        max_similarity = max(entry["score"] for entry in all_scores)
         for entry in all_scores:
             entry["score"] = entry["score"] / \
-                max_similarity if max_similarity > 0 else 0  # Normalize score
+                max_similarity if max_similarity > 0 else 0
 
-    # Sort the results by the normalized score in descending order (higher score first)
     return sorted(all_scores, key=lambda x: x["score"], reverse=True)
 
 
 def transform_corpus(sentences: list[str]):
+    from jet.wordnet.words import get_words
+
     corpus = []
     for sentence in sentences:
         corpus.append(get_words(sentence))

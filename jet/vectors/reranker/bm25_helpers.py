@@ -1,4 +1,5 @@
 import faiss
+from jet.search.similarity import preprocess_reranker_texts
 from jet.wordnet.n_grams import count_ngrams, get_most_common_ngrams, get_ngrams
 import numpy as np
 from numpy import ndarray
@@ -14,7 +15,11 @@ from jet.file.utils import load_file
 from jet.search.transformers import clean_string
 from jet.transformers.formatters import format_json
 from jet.utils.commands import copy_to_clipboard
-from jet.vectors.reranker.bm25 import SimilarityDataItem, SimilarityResultData, rerank_bm25
+from jet.vectors.reranker.bm25 import (
+    # SimilarityDataItem,
+    SimilarityResultData,
+    rerank_bm25,
+)
 from jet.logger import logger
 from jet.wordnet.sentence import group_sentences, merge_sentences, split_sentences
 from jet.wordnet.words import count_words, get_words
@@ -26,34 +31,21 @@ class SearchResult(TypedDict):
     score: float
 
 
-class RerankResult(SimilarityDataItem):
-    metadata: dict[str, Any]
-    _matched_sentences: dict[str, list[str]]
-    _data: str
+# class RerankResult(SimilarityDataItem):
+#     metadata: dict[str, Any]
+#     _matched_sentences: dict[str, list[str]]
+#     _data: str
 
 
-class QueryResult(TypedDict):
-    queries: list[str]
-    count: int
-    matched: dict[str, int]
-    data: List[RerankResult]
+# class QueryResult(TypedDict):
+#     queries: list[str]
+#     count: int
+#     matched: dict[str, int]
+#     data: List[RerankResult]
 
 
 def preprocess_texts(texts: str | list[str]) -> list[str]:
-    if isinstance(texts, str):
-        texts = [texts]
-    preprocessed_texts: list[str] = texts.copy()
-
-    for idx, text in enumerate(preprocessed_texts):
-        text = clean_newlines(text, max_newlines=1)
-        text = clean_spaces(text)
-        text = clean_string(text)
-        text = clean_punctuations(text)
-        # text = " ".join(lemmatize_text(text))
-
-        preprocessed_texts[idx] = text
-
-    return preprocessed_texts
+    return preprocess_reranker_texts(texts)
 
 
 def split_text_by_docs(texts: list[str], max_tokens: int) -> list[Document]:
@@ -117,72 +109,72 @@ def transform_queries_to_ngrams(query: str | list[str], ngrams: dict[str, int]) 
     return transformed_queries
 
 
-def search_and_rerank(query: str | List[str], texts: List[str], *, max_tokens: int = 200) -> QueryResult:
-    queries = query
-    if isinstance(queries, str):
-        queries = [queries]
+# def search_and_rerank(query: str | List[str], texts: List[str], *, max_tokens: int = 200) -> QueryResult:
+#     queries = query
+#     if isinstance(queries, str):
+#         queries = [queries]
 
-    data = preprocess_texts(texts)
+#     data = preprocess_texts(texts)
 
-    docs = split_text_by_docs(data, max_tokens)
+#     docs = split_text_by_docs(data, max_tokens)
 
-    doc_texts = [doc.text for doc in docs]
+#     doc_texts = [doc.text for doc in docs]
 
-    queries = [
-        "Season",
-        "episode",
-        "synopsis",
-    ]
+#     queries = [
+#         "Season",
+#         "episode",
+#         "synopsis",
+#     ]
 
-    queries = preprocess_texts(queries)
+#     queries = preprocess_texts(queries)
 
-    # ids: List[str] = [doc.node_id for doc in docs]
-    ids: List[str] = [str(idx) for idx, doc in enumerate(docs)]
+#     # ids: List[str] = [doc.node_id for doc in docs]
+#     ids: List[str] = [str(idx) for idx, doc in enumerate(docs)]
 
-    reranked_results = rerank_bm25(queries, doc_texts, ids)
+#     reranked_results = rerank_bm25(queries, doc_texts, ids)
 
-    results = []
-    for result in reranked_results["data"]:
-        idx = int(result["id"])
-        doc = docs[idx]
-        orig_data: str = data[doc.metadata["data_id"]]
+#     results = []
+#     for result in reranked_results["data"]:
+#         idx = int(result["id"])
+#         doc = docs[idx]
+#         orig_data: str = data[doc.metadata["data_id"]]
 
-        matched = result["matched"]
-        matched_sentences: dict[str, list[str]] = {
-            key.lower(): [] for key in matched.keys()
-        }
-        for ngram, count in matched.items():
-            lowered_ngram = ngram.lower()
-            sentence_indexes = find_sentence_indexes(
-                orig_data.lower(), lowered_ngram)
-            word_sentences = extract_substrings(orig_data, sentence_indexes)
-            matched_sentences[lowered_ngram] = [
-                word_sentence for word_sentence in word_sentences
-                if word_sentence.lower() in result["text"].lower()
-            ]
+#         matched = result["matched"]
+#         matched_sentences: dict[str, list[str]] = {
+#             key.lower(): [] for key in matched.keys()
+#         }
+#         for ngram, count in matched.items():
+#             lowered_ngram = ngram.lower()
+#             sentence_indexes = find_sentence_indexes(
+#                 orig_data.lower(), lowered_ngram)
+#             word_sentences = extract_substrings(orig_data, sentence_indexes)
+#             matched_sentences[lowered_ngram] = [
+#                 word_sentence for word_sentence in word_sentences
+#                 if word_sentence.lower() in result["text"].lower()
+#             ]
 
-        results.append({
-            **result,
-            "metadata": doc.metadata,
-            "_matched_sentences": matched_sentences,
-            "_data": orig_data,
-        })
+#         results.append({
+#             **result,
+#             "metadata": doc.metadata,
+#             "_matched_sentences": matched_sentences,
+#             "_data": orig_data,
+#         })
 
-    copy_to_clipboard({
-        "query": " ".join(queries),
-        "count": reranked_results["count"],
-        "matched": reranked_results["matched"],
-        "data": results
-    })
+#     copy_to_clipboard({
+#         "query": " ".join(queries),
+#         "count": reranked_results["count"],
+#         "matched": reranked_results["matched"],
+#         "data": results
+#     })
 
-    response = QueryResult(
-        query=" ".join(queries),
-        count=reranked_results["count"],
-        matched=reranked_results["matched"],
-        data=results
-    )
+#     response = QueryResult(
+#         query=" ".join(queries),
+#         count=reranked_results["count"],
+#         matched=reranked_results["matched"],
+#         data=results
+#     )
 
-    return response
+#     return response
 
 
 class HybridSearch:
@@ -276,7 +268,7 @@ class HybridSearch:
         return results
 
     @time_it
-    def rerank(self, query: str | List[str]) -> QueryResult:
+    def rerank(self, query: str | List[str]) -> SimilarityResultData:
         queries = self._preprocess_text(query)
 
         # queries = query
@@ -289,42 +281,43 @@ class HybridSearch:
 
         reranked_results = rerank_bm25(queries, self.doc_texts, self.ids)
 
-        results: list[RerankResult] = []
-        for result in reranked_results["data"]:
-            idx = int(result["id"])
-            doc = self.docs[idx]
-            orig_data: str = self.data[doc.metadata["data_id"]]
+        return reranked_results
+        # results: list[RerankResult] = []
+        # for result in reranked_results["data"]:
+        #     idx = int(result["id"])
+        #     doc = self.docs[idx]
+        #     orig_data: str = self.data[doc.metadata["data_id"]]
 
-            matched = result["matched"]
-            matched_sentences: dict[str, list[str]] = {
-                key.lower(): [] for key in matched.keys()
-            }
-            for ngram, count in matched.items():
-                lowered_ngram = ngram.lower()
-                sentence_indexes = find_sentence_indexes(
-                    orig_data.lower(), lowered_ngram)
-                word_sentences = extract_substrings(
-                    orig_data, sentence_indexes)
-                matched_sentences[lowered_ngram] = [
-                    word_sentence for word_sentence in word_sentences
-                    if word_sentence.lower() in result["text"].lower()
-                ]
+        #     matched = result["matched"]
+        #     matched_sentences: dict[str, list[str]] = {
+        #         key.lower(): [] for key in matched.keys()
+        #     }
+        #     for ngram, count in matched.items():
+        #         lowered_ngram = ngram.lower()
+        #         sentence_indexes = find_sentence_indexes(
+        #             orig_data.lower(), lowered_ngram)
+        #         word_sentences = extract_substrings(
+        #             orig_data, sentence_indexes)
+        #         matched_sentences[lowered_ngram] = [
+        #             word_sentence for word_sentence in word_sentences
+        #             if word_sentence.lower() in result["text"].lower()
+        #         ]
 
-            results.append({
-                **result,
-                "metadata": doc.metadata,
-                "_matched_sentences": matched_sentences,
-                "_data": orig_data,
-            })
+        #     results.append({
+        #         **result,
+        #         "metadata": doc.metadata,
+        #         "_matched_sentences": matched_sentences,
+        #         "_data": orig_data,
+        #     })
 
-        response = QueryResult(
-            queries=queries,
-            count=reranked_results["count"],
-            matched=reranked_results["matched"],
-            data=results
-        )
+        # response = QueryResult(
+        #     queries=queries,
+        #     count=reranked_results["count"],
+        #     matched=reranked_results["matched"],
+        #     data=results
+        # )
 
-        return response
+        # return response
 
     def search(self, query: str, top_k: Optional[int] = None) -> List[SearchResult]:
         semantic_results = self.semantic_search(

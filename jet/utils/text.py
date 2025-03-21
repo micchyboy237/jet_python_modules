@@ -15,7 +15,8 @@ def fix_and_unidecode(text: str) -> str:
         return bytes(match.group(0), "utf-8").decode("unicode_escape")
 
     fixed_text = re.sub(
-        r'\\u[0-9A-Fa-f]{4}|\\x[0-9A-Fa-f]{2}', decode_match, text)
+        r'\\u[0-9A-Fa-f]{4}|\\x[0-9A-Fa-f]{2}', decode_match, text
+    )
 
     return unidecode(fixed_text)
 

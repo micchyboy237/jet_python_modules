@@ -64,6 +64,40 @@ from .import_modules import (
     load_cache,
     load_or_save_cache,
     load_from_cache_or_compute,
+
+    setup_nlp,
+    pos_tag_nltk,
+    pos_tag_spacy,
+    split_words,
+    get_words,
+    get_non_words,
+    count_words,
+    count_non_words,
+    process_dataset,
+    process_all_datasets,
+    compare_words,
+    count_syllables,
+    split_by_syllables,
+    get_named_words,
+    SpacyWord,
+    get_spacy_words,
+    list_all_spacy_pos_tags,
+
+    process_sentence_newlines,
+    handle_long_sentence,
+    get_list_marker_pattern_substring,
+    get_list_marker_pattern,
+    get_list_sentence_pattern,
+    is_ordered_list_marker,
+    is_ordered_list_sentence,
+    adaptive_split,
+    split_sentences,
+    merge_sentences,
+    group_sentences,
+    count_sentences,
+    get_sentences,
+    split_by_punctuations,
+    encode_text_to_strings,
 )
 # from jet.utils.class_utils import get_internal_attributes, get_non_empty_attributes, validate_class
 
@@ -176,6 +210,70 @@ def inject_globals():
         builtins.load_or_save_cache = load_or_save_cache
     if not hasattr(builtins, "load_from_cache_or_compute"):
         builtins.load_from_cache_or_compute = load_from_cache_or_compute
+    if not hasattr(builtins, "setup_nlp"):
+        builtins.setup_nlp = setup_nlp
+    if not hasattr(builtins, "pos_tag_nltk"):
+        builtins.pos_tag_nltk = pos_tag_nltk
+    if not hasattr(builtins, "pos_tag_spacy"):
+        builtins.pos_tag_spacy = pos_tag_spacy
+    if not hasattr(builtins, "split_words"):
+        builtins.split_words = split_words
+    if not hasattr(builtins, "get_words"):
+        builtins.get_words = get_words
+    if not hasattr(builtins, "get_non_words"):
+        builtins.get_non_words = get_non_words
+    if not hasattr(builtins, "count_words"):
+        builtins.count_words = count_words
+    if not hasattr(builtins, "count_non_words"):
+        builtins.count_non_words = count_non_words
+    if not hasattr(builtins, "process_dataset"):
+        builtins.process_dataset = process_dataset
+    if not hasattr(builtins, "process_all_datasets"):
+        builtins.process_all_datasets = process_all_datasets
+    if not hasattr(builtins, "compare_words"):
+        builtins.compare_words = compare_words
+    if not hasattr(builtins, "count_syllables"):
+        builtins.count_syllables = count_syllables
+    if not hasattr(builtins, "split_by_syllables"):
+        builtins.split_by_syllables = split_by_syllables
+    if not hasattr(builtins, "get_named_words"):
+        builtins.get_named_words = get_named_words
+    if not hasattr(builtins, "SpacyWord"):
+        builtins.SpacyWord = SpacyWord
+    if not hasattr(builtins, "get_spacy_words"):
+        builtins.get_spacy_words = get_spacy_words
+    if not hasattr(builtins, "list_all_spacy_pos_tags"):
+        builtins.list_all_spacy_pos_tags = list_all_spacy_pos_tags
+    if not hasattr(builtins, "process_sentence_newlines"):
+        builtins.process_sentence_newlines = process_sentence_newlines
+    if not hasattr(builtins, "handle_long_sentence"):
+        builtins.handle_long_sentence = handle_long_sentence
+    if not hasattr(builtins, "get_list_marker_pattern_substring"):
+        builtins.get_list_marker_pattern_substring = get_list_marker_pattern_substring
+    if not hasattr(builtins, "get_list_marker_pattern"):
+        builtins.get_list_marker_pattern = get_list_marker_pattern
+    if not hasattr(builtins, "get_list_sentence_pattern"):
+        builtins.get_list_sentence_pattern = get_list_sentence_pattern
+    if not hasattr(builtins, "is_ordered_list_marker"):
+        builtins.is_ordered_list_marker = is_ordered_list_marker
+    if not hasattr(builtins, "is_ordered_list_sentence"):
+        builtins.is_ordered_list_sentence = is_ordered_list_sentence
+    if not hasattr(builtins, "adaptive_split"):
+        builtins.adaptive_split = adaptive_split
+    if not hasattr(builtins, "split_sentences"):
+        builtins.split_sentences = split_sentences
+    if not hasattr(builtins, "merge_sentences"):
+        builtins.merge_sentences = merge_sentences
+    if not hasattr(builtins, "group_sentences"):
+        builtins.group_sentences = group_sentences
+    if not hasattr(builtins, "count_sentences"):
+        builtins.count_sentences = count_sentences
+    if not hasattr(builtins, "get_sentences"):
+        builtins.get_sentences = get_sentences
+    if not hasattr(builtins, "split_by_punctuations"):
+        builtins.split_by_punctuations = split_by_punctuations
+    if not hasattr(builtins, "encode_text_to_strings"):
+        builtins.encode_text_to_strings = encode_text_to_strings
 
 
 inject_globals()

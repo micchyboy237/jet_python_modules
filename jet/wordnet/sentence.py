@@ -71,12 +71,6 @@ def handle_long_sentence(sentence, count_tokens_func, max_tokens):
     return ' '.join(segments)
 
 
-def ngrams(sentence, n):
-    """Generate n-grams from a sentence."""
-    words = sentence.split()
-    return [' '.join(words[i:i+n]) for i in range(len(words)-n+1)]
-
-
 def get_list_marker_pattern_substring():
     roman_numeral = r'(X{0,3}(IX|IV|V?I{0,3}))'
     pattern = r'^(\d+|[a-zA-Z]|' + roman_numeral + r')[\.\)]+\s?'
@@ -269,6 +263,24 @@ def encode_text_to_strings(text: str, tokenize: Optional[Callable] = None) -> li
 
     return tokens
 
+
+__all__ = [
+    "process_sentence_newlines",
+    "handle_long_sentence",
+    "get_list_marker_pattern_substring",
+    "get_list_marker_pattern",
+    "get_list_sentence_pattern",
+    "is_ordered_list_marker",
+    "is_ordered_list_sentence",
+    "adaptive_split",
+    "split_sentences",
+    "merge_sentences",
+    "group_sentences",
+    "count_sentences",
+    "get_sentences",
+    "split_by_punctuations",
+    "encode_text_to_strings",
+]
 
 if __name__ == "__main__":
     text = 'Ang mga pang-uri o adjectives sa Ingles ay salitang nagbibigay turing o naglalarawan sa isang pangngalan o panghalip. Ito ay nagsasaad ng uri o katangian ng tao, bagay, hayop, pook, o pangyayari.'

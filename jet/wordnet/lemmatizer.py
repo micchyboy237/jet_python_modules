@@ -1,27 +1,32 @@
-
-import unidecode
-
+import re
 from nltk.stem import WordNetLemmatizer
-from nltk.tokenize import word_tokenize
+from nltk.tokenize import word_tokenize, sent_tokenize
+from nltk.tokenize.treebank import TreebankWordDetokenizer
 
 from jet.utils.text import fix_and_unidecode
 
 
-def lemmatize_text(text: str) -> list[str]:
-    """Lemmatizes tokens in a given text, converting special characters to ASCII equivalents."""
-    # Convert Unicode characters to closest ASCII equivalent
+def lemmatize_text(text: str) -> str:
+    """Lemmatizes text while preserving contractions, punctuation, spaces, and newlines."""
+
     text = fix_and_unidecode(text)
     lemmatizer = WordNetLemmatizer()
-    tokens = word_tokenize(text)
-    return [lemmatizer.lemmatize(token) for token in tokens]
 
+    # Match sentence splits while keeping leading/trailing spaces & newlines
+    # Split but keep whitespace as separate tokens
+    sentences = re.split(r'(\s+)', text)
 
-# import spacy
+    processed_sentences = []
 
-# nlp = spacy.load("en_core_web_sm")
+    for segment in sentences:
+        if segment.strip():  # If it's a sentence (not just whitespace)
+            tokens = word_tokenize(segment)
+            lemmatized_tokens = [
+                lemmatizer.lemmatize(token) for token in tokens]
+            detokenized = TreebankWordDetokenizer().detokenize(lemmatized_tokens)
+            processed_sentences.append(detokenized)
+        else:
+            processed_sentences.append(segment)  # Preserve whitespace exactly
 
-
-# def lemmatize_text(text: str) -> list[str]:
-#     text = fix_and_unidecode(text)
-#     doc = nlp(text)
-#     return [token.text for token in doc]
+    # Reassemble text with spaces & newlines intact
+    return "".join(processed_sentences)
