@@ -27,7 +27,6 @@ from sentence_transformers import SentenceTransformer
 
 
 class SearchResult(TypedDict):
-    rank: int
     text: str
     score: float
     similarity: Optional[float]
@@ -97,6 +96,11 @@ def transform_queries_to_ngrams(query: str | list[str], ngrams: dict[str, int]) 
 
     # Lowercase
     queries = [text.lower() for text in queries]
+    for query in queries:
+        query_words = get_words(query)
+        for word in query_words:
+            if word not in ngrams:
+                ngrams[word] = 1
 
     query_ngrams = get_most_common_ngrams(queries, min_count=1, min_words=1)
     query_ngrams = dict(sorted(query_ngrams.items(),
@@ -116,14 +120,19 @@ def validate_matches_complete(results: List[SearchResult], queries: list[str], m
     """Processes BM25+ similarity search by handling cache, cleaning data, generating n-grams, and computing similarities."""
 
     # Aggregate all "matched"
-    matched = {query.lower(): 0 for query in queries}
+    matched = {}
     for result in results:
         result_matched = result["matched"]
         for match_query, match in result_matched.items():
+            if match_query not in matched:
+                matched[match_query] = 0
             matched[match_query] += 1
 
-    all_terms = list(matched.keys())
-    matched_terms = [term for term in all_terms if matched[term] >= min_count]
+    all_terms = queries
+    matched_terms = [
+        term for term in all_terms
+        if term in matched and matched[term] >= min_count
+    ]
 
     return all_terms == matched_terms
 
@@ -308,12 +317,6 @@ class HybridSearch:
     @time_it
     def rerank_search(self, query: str | List[str]) -> SimilarityResultData:
         queries = self._preprocess_text(query)
-
-        # queries = query
-        # if isinstance(queries, str):
-        #     queries = [queries]
-
-        # Transform queries
         queries = transform_queries_to_ngrams(
             [query.lower() for query in queries], self.ngrams)
 
@@ -363,13 +366,12 @@ class HybridSearch:
         reranked_results = self.rerank_search(query)
         results: List[SearchResult] = [
             {
-                "rank": idx + 1,
                 "score": item["score"],
                 "similarity": item["similarity"],
                 "text": item["text"],
                 "matched": item["matched"],
             }
-            for idx, item in enumerate(reranked_results["data"])
+            for item in reranked_results["data"]
             if item["score"] >= threshold
         ]
 
