@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
 from sklearn.feature_extraction.text import TfidfVectorizer
 from tqdm import tqdm
 from bs4 import BeautifulSoup
@@ -14,6 +14,11 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 from collections import Counter
+
+
+class SearchResult(TypedDict):
+    text: str
+    score: float
 
 
 class BertSearch:
@@ -70,6 +75,12 @@ class BertSearch:
 
         # Perform FAISS search
         scores, indices = self.index.search(query_embedding, top_k)
+
+        # Extract top results with scores
+        results: list[SearchResult] = [
+            {"text": self.doc_texts[idx], "score": scores[0][i]}
+            for i, idx in enumerate(indices[0]) if idx < len(self.doc_texts)
+        ]
 
         # Extract top documents
         top_texts = [self.doc_texts[idx]

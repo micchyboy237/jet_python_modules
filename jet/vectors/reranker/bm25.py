@@ -5,7 +5,7 @@ from jet.search.similarity import BM25SimilarityResult, get_bm25_similarities
 from jet.search.transformers import clean_string
 from typing import List, Dict, Any, Optional, TypedDict
 from jet.transformers.formatters import format_json
-from jet.wordnet.n_grams import extract_ngrams, get_most_common_ngrams
+from jet.wordnet.n_grams import count_ngrams, extract_ngrams, get_most_common_ngrams
 from jet.wordnet.words import count_words, get_words
 from shared.data_types.job import JobData
 from jet.cache.cache_manager import CacheManager
@@ -72,7 +72,7 @@ def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> Sim
     if not cache_manager.is_cache_valid():
         # Generate n-grams
         common_texts_ngrams: List[List[str]] = [
-            list(get_most_common_ngrams(sentence, max_words=5).keys()) for sentence in sentences
+            list(count_ngrams(sentence, min_count=1, max_words=5).keys()) for sentence in sentences
         ]
 
         # Update cache
@@ -82,18 +82,13 @@ def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> Sim
                                   ] = cache_data["common_texts_ngrams"]
 
     # Preprocess queries
-    query_ngrams: List[List[str]] = [
-        list(get_most_common_ngrams(query, min_count=1, max_words=5)) for query in queries
-    ]
-
     formatted_queries: List[str] = [
-        "_".join(text.split())
-        for formatted_queries in query_ngrams
-        for text in formatted_queries
+        " ".join(text.split())
+        for text in queries
     ]
 
     common_texts: List[str] = [" ".join(
-        ["_".join(text.split()) for text in texts]) for texts in common_texts_ngrams]
+        [" ".join(text.split()) for text in texts]) for texts in common_texts_ngrams]
 
     # Compute BM25+ similarities
     similarities: List[BM25SimilarityResult] = get_bm25_similarities(
@@ -109,10 +104,10 @@ def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> Sim
 
         # Count n-gram matches per query
         matched_ngrams = {
-            ngram: count for ngram, count in get_most_common_ngrams(
+            ngram: count for ngram, count in count_ngrams(
                 text, min_count=1, max_words=max(count_words(text) for text in formatted_queries)
             ).items()
-            if ngram in extract_ngrams(formatted_queries)
+            if ngram in formatted_queries
         }
 
         match_count = len(matched_ngrams)  # Number of matched n-grams

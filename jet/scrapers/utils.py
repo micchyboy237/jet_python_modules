@@ -71,19 +71,28 @@ def clean_newlines(content, max_newlines: int = 3) -> str:
     return content
 
 
-def clean_spaces(content: str, exclude_chars: List[str] = []) -> str:
-    """Removes consecutive spaces and ensures proper spacing around punctuation, 
-    with an option to exclude specific punctuation from spacing adjustments."""
+def clean_punctuations(content: str) -> str:
+    """
+    Replace consecutive and mixed punctuation marks (.?!), ensuring that each valid group 
+    is replaced with its last occurring punctuation.
 
-    # Create a regex pattern for excluded punctuation characters
-    punctuation_pattern = f"[{re.escape(string.punctuation)}]"
+    Example:
+        "Hello!!! How are you???" -> "Hello! How are you?"
+        "Wait... What.!?" -> "Wait. What?"
+        "Really...?!? Are you sure???" -> "Really. Are you sure?"
 
-    # Ensure single spacing around punctuation except for excluded characters
-    def spacing_match(m):
-        char = m.group(1)
-        return char if char in exclude_chars else f"{char} "
+    :param content: Input string with possible consecutive punctuations.
+    :return: String with cleaned punctuation.
+    """
+    return re.sub(r'([.?!#-]+)', lambda match: match.group()[-1], content)
 
-    content = re.sub(f'\s*({punctuation_pattern})\s*', spacing_match, content)
+
+def clean_spaces(content: str) -> str:
+    # Remove spaces before .?!,;:\]\)}
+    content = re.sub(r'\s*([.?!,;:\]\)}])', r'\1', content)
+
+    # Ensure single spacing on the right of .?!,;:\]\)} only if the next character is alphanumeric
+    content = re.sub(r'([.?!,;:\]\)}])(\w)', r'\1 \2', content)
 
     # Remove consecutive spaces
     content = re.sub(r' +', ' ', content).strip()
@@ -206,6 +215,7 @@ __all__ = [
     "get_max_prompt_char_length",
     "clean_tags",
     "clean_text",
+    "clean_spaces",
     "clean_newlines",
     "clean_non_ascii",
     "clean_other_characters",

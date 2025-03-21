@@ -36,6 +36,7 @@ from .import_modules import (
     get_max_prompt_char_length,
     clean_tags,
     clean_text,
+    clean_spaces,
     clean_newlines,
     clean_non_ascii,
     clean_other_characters,
@@ -58,6 +59,11 @@ from .import_modules import (
     get_md_header_contents,
     merge_md_header_contents,
     extract_md_header_contents,
+
+    save_cache,
+    load_cache,
+    load_or_save_cache,
+    load_from_cache_or_compute,
 )
 # from jet.utils.class_utils import get_internal_attributes, get_non_empty_attributes, validate_class
 
@@ -120,6 +126,8 @@ def inject_globals():
         builtins.clean_tags = clean_tags
     if not hasattr(builtins, "clean_text"):
         builtins.clean_text = clean_text
+    if not hasattr(builtins, "clean_spaces"):
+        builtins.clean_spaces = clean_spaces
     if not hasattr(builtins, "clean_newlines"):
         builtins.clean_newlines = clean_newlines
     if not hasattr(builtins, "clean_non_ascii"):
@@ -160,6 +168,14 @@ def inject_globals():
         builtins.merge_md_header_contents = merge_md_header_contents
     if not hasattr(builtins, "extract_md_header_contents"):
         builtins.extract_md_header_contents = extract_md_header_contents
+    if not hasattr(builtins, "save_cache"):
+        builtins.save_cache = save_cache
+    if not hasattr(builtins, "load_cache"):
+        builtins.load_cache = load_cache
+    if not hasattr(builtins, "load_or_save_cache"):
+        builtins.load_or_save_cache = load_or_save_cache
+    if not hasattr(builtins, "load_from_cache_or_compute"):
+        builtins.load_from_cache_or_compute = load_from_cache_or_compute
 
 
 inject_globals()

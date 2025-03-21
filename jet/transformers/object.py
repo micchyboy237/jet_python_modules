@@ -8,6 +8,7 @@ import base64
 import numpy as np
 from pydantic.main import BaseModel
 # from jet.validation.object import is_iterable_but_not_primitive
+from jet.logger import logger
 
 
 def make_serializable(obj):
@@ -38,7 +39,11 @@ def make_serializable(obj):
             serialized_dict[serialized_key] = serialized_value
         return serialized_dict
     elif isinstance(obj, BaseModel):
-        return make_serializable(vars(obj))
+        try:
+            return make_serializable(obj.model_dump())
+        except (AttributeError, TypeError) as e:
+            logger.warning(e)
+            return make_serializable(vars(obj))
     elif hasattr(obj, "__dict__"):
         return make_serializable(get_non_empty_attributes(obj))
     elif isinstance(obj, tuple):

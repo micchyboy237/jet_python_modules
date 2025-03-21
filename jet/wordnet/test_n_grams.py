@@ -7,6 +7,7 @@ from jet.wordnet.n_grams import (
     filter_texts_by_multi_ngram_count,
     get_most_common_ngrams,
     get_ngram_weight,
+    get_ngrams,
     get_ngrams_by_range,
     get_specific_ngram_count,
     get_total_counts_of_ngrams,
@@ -123,13 +124,21 @@ class TestCountNgrams(unittest.TestCase):
     def test_count_single_word_ngram(self):
         texts = "Hello world Hello"
         result = count_ngrams(texts, min_words=1, min_count=1)
-        expected = {"Hello": 2, "world": 1}
+        expected = {"Hello": 2, "world": 1, "Hello world": 1,
+                    "world Hello": 1, "Hello world Hello": 1}
         self.assertEqual(result, expected)
 
     def test_count_multiple_word_ngram(self):
         texts = "I am learning Python, I am learning"
         result = count_ngrams(texts, min_words=2, min_count=1)
-        expected = {"I am": 2, "am learning": 2, "learning Python": 1}
+        expected = {
+            "I am": 2,
+            "am learning": 2,
+            "learning Python": 1,
+            "I am learning": 2,
+            "am learning Python": 1,
+            "I am learning Python": 1
+        }
         self.assertEqual(result, expected)
 
     def test_ngram_with_min_count(self):
@@ -146,7 +155,8 @@ class TestCountNgrams(unittest.TestCase):
     def test_list_input(self):
         texts = ["I am learning", "Python is fun"]
         result = count_ngrams(texts, min_words=2, min_count=1)
-        expected = {"I am": 1, "am learning": 1, "Python is": 1, "is fun": 1}
+        expected = {"I am": 1, "am learning": 1, "I am learning": 1,
+                    "Python is": 1, "is fun": 1, "Python is fun": 1}
         self.assertEqual(result, expected)
 
 
@@ -171,9 +181,10 @@ class TestGetMostCommonNgrams(unittest.TestCase):
         self.assertEqual(result, {})
 
     def test_list_input(self):
-        texts = ["I am learning", "Python is fun"]
+        texts = ["I am learning Python", "I am having fun learning Python"]
         result = get_most_common_ngrams(texts, min_count=1, max_words=2)
-        expected = {"learning": 1, "python": 1, "fun": 1}
+        expected = {"learning": 2, "python": 2,
+                    "learning python": 2, "fun": 1, "fun learning": 1}
         self.assertEqual(result, expected)
 
 
@@ -186,21 +197,8 @@ class TestGetMostCommonNgrams2(unittest.TestCase):
             "The night is dark.",
             "The sun rose and the night fell."
         ]
-        expected_output = {
-            "sun": 2,
-            "risen": 1,
-            "sun has risen": 1,
-            "night": 2,
-            "dark": 1,
-            "night is dark": 1,
-            "rose": 1,
-            "fell": 1,
-            "sun rose": 1,
-            "night fell": 1,
-            "rose and the night": 1,
-            "sun rose and the night": 1,
-            "rose and the night fell": 1
-        }
+        expected_output = {"sun": 2, "risen": 1, "sun has risen": 1, "night": 2, "dark": 1, "night is dark": 1, "rose": 1, "fell": 1, "sun rose": 1,
+                           "night fell": 1, "rose and the night": 1, "sun rose and the night": 1, "rose and the night fell": 1, "sun rose and the night fell": 1}
         result = get_most_common_ngrams(sample_texts, min_count=1)
         self.assertEqual(result, expected_output)
 
@@ -530,5 +528,46 @@ class TestNwise(unittest.TestCase):
 #         result = filter_sentences_by_pos_tags(sentences, pos_tags)
 #         self.assertEqual(result, expected,
 #                          "Sentences are not filtered correctly.")
+
+
+class TestGetNgrams(unittest.TestCase):
+
+    def test_single_word(self):
+        sample = "hello"
+        expected = ["hello"]
+        result = get_ngrams(sample)
+        self.assertEqual(result, expected)
+
+    def test_multiple_words(self):
+        sample = "hello world"
+        expected = ["hello", "world", "hello world"]
+        result = get_ngrams(sample, min_words=1, max_words=2)
+        self.assertCountEqual(result, expected)
+
+    def test_min_words(self):
+        sample = "hello world example"
+        expected = ["hello world", "world example", "hello world example"]
+        result = get_ngrams(sample, min_words=2)
+        self.assertCountEqual(result, expected)
+
+    def test_min_count(self):
+        sample = ["hello world", "hello world", "example"]
+        expected = ["hello world"]
+        result = get_ngrams(sample, min_words=2, min_count=2)
+        self.assertEqual(result, expected)
+
+    def test_max_words(self):
+        sample = "this is a test"
+        expected = ["this", "is", "a", "test", "this is", "is a", "a test"]
+        result = get_ngrams(sample, max_words=2)
+        self.assertCountEqual(result, expected)
+
+    def test_empty_input(self):
+        sample = ""
+        expected = []
+        result = get_ngrams(sample)
+        self.assertEqual(result, expected)
+
+
 if __name__ == '__main__':
     unittest.main()

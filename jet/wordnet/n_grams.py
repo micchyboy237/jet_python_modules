@@ -18,6 +18,13 @@ from jet.wordnet.stopwords import StopWords
 from jet.wordnet.similarity import filter_different_texts
 
 
+def get_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: Optional[int] = None):
+    ngrams_dict = count_ngrams(
+        texts, min_words=min_words, min_count=min_count, max_words=max_words)
+
+    return list(ngrams_dict.keys())
+
+
 def separate_ngram_lines(texts: str | list[str],  punctuations_split: list[str] = [',', '/', ':']) -> list[str]:
     if isinstance(texts, str):
         texts = [texts]
@@ -52,9 +59,12 @@ def extract_ngrams(texts: Union[str, List[str]], min_words: int = 1, max_words: 
     return ngrams
 
 
-def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: int = 1):
+def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: Optional[int] = None):
     if isinstance(texts, str):
         texts = [texts]
+
+    if not max_words:
+        max_words = count_words(sorted(texts, reverse=True)[0])
 
     ngrams = extract_ngrams(texts, min_words=min_words, max_words=max_words)
 
@@ -66,23 +76,26 @@ def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Op
     return ngrams_dict
 
 
-def get_most_common_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: int = 1, max_words: int = 5) -> dict[str, int]:
+def get_most_common_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: int = 2, max_words: Optional[int] = None) -> dict[str, int]:
     if isinstance(texts, str):
         texts = [texts]
 
+    # Lowercase
+    texts = [text.lower() for text in texts]
+
     ngrams_dict = count_ngrams(texts, min_words=min_words,
                                min_count=min_count, max_words=max_words)
-    return ngrams_dict
-    # stopwords = StopWords()
-    # filtered_ngrams = {}
-    # for (ngram, count) in ngrams.items():
-    #     ngram_words = get_words(ngram)
-    #     start = ngram_words[0]
-    #     end = ngram_words[-1]
-    #     if start in stopwords.english_stop_words or end in stopwords.english_stop_words:
-    #         continue
-    #     filtered_ngrams[ngram] = count
-    # return filtered_ngrams
+    # return ngrams_dict
+    stopwords = StopWords()
+    filtered_ngrams = {}
+    for (ngram, count) in ngrams_dict.items():
+        ngram_words = get_words(ngram)
+        start = ngram_words[0]
+        end = ngram_words[-1]
+        if start in stopwords.english_stop_words or end in stopwords.english_stop_words:
+            continue
+        filtered_ngrams[ngram] = count
+    return filtered_ngrams
 
 
 def group_sentences_by_ngram(
@@ -351,26 +364,26 @@ if __name__ == "__main__":
     # Remove stopwords
     # texts = [stopwords.remove_stop_words(text, 'tagalog') for text in texts]
 
-    text = " ".join(texts)
-
     # All n-grams count
     print("\nAll n-grams:")
-    all_ngrams = count_ngrams(text.lower(), min_words=1)
+    all_ngrams = count_ngrams([text.lower() for text in texts], min_words=1)
     for ngram, count in all_ngrams.items():
         print(f"{ngram}: {count}")
 
     # Filtered n-grams by min_count
     print(f"\nFiltered n-grams by min_count:")
-    filtered_ngrams = count_ngrams(text.lower(), min_count=2)
+    filtered_ngrams = count_ngrams([text.lower()
+                                   for text in texts], min_count=2)
     for ngram, count in filtered_ngrams.items():
         print(f"{ngram}: {count}")
 
     print("\nMost Common n-grams:")
-    result = get_most_common_ngrams(text.lower())
+    result = get_most_common_ngrams([text.lower() for text in texts])
     print(result)
 
     # Specific n-grams count
-    specific_ngrams = count_ngrams(text.lower(), min_words=1, max_words=3)
+    specific_ngrams = count_ngrams([text.lower()
+                                   for text in texts], min_words=1, max_words=3)
 
     print(
         f"\nTotal unique n-grams: {get_total_unique_ngrams(specific_ngrams)}")
