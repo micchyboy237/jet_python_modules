@@ -29,11 +29,7 @@ class SimilarityDataItem(TypedDict):
 
 class SimilarityResultData(TypedDict):
     count: int
-    data: List[SimilarityDataItem]
-
-
-class BM25SimilarityResultData(TypedDict):
-    count: int
+    matched: dict[str, int]
     data: List[SimilarityDataItem]
 
 
@@ -59,8 +55,12 @@ def adjust_score_with_rewards_and_penalties(base_score: float, match_count: int,
     return base_score * (1 + boost_factor - penalty_factor)
 
 
-def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> BM25SimilarityResultData:
+def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> SimilarityResultData:
     """Processes BM25+ similarity search by handling cache, cleaning data, generating n-grams, and computing similarities."""
+
+    # Lowercase
+    queries = [text.lower() for text in queries]
+    sentences = [text.lower() for text in sentences]
 
     if not queries or not sentences or not ids:
         raise ValueError("All inputs most not be empty")
@@ -132,4 +132,11 @@ def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> BM2
     # Sort by adjusted scores (higher is better)
     results.sort(key=lambda x: x["score"], reverse=True)
 
-    return {"count": len(results), "data": results}
+    # Aggregate all "matched"
+    matched = {query: 0 for query in queries}
+    for result in results:
+        result_matched = result["matched"]
+        for match, count in result_matched.items():
+            matched[match] += count
+
+    return {"count": len(results), "matched": matched, "data": results}

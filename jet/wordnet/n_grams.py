@@ -69,8 +69,7 @@ def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Op
 def get_most_common_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: int = 1, max_words: int = 5) -> dict[str, int]:
     if isinstance(texts, str):
         texts = [texts]
-    # Lowercase
-    texts = [text.lower() for text in texts]
+
     ngrams_dict = count_ngrams(texts, min_words=min_words,
                                min_count=min_count, max_words=max_words)
     return ngrams_dict
