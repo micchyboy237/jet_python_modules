@@ -27,8 +27,10 @@ from sentence_transformers import SentenceTransformer
 
 
 class SearchResult(TypedDict):
+    rank: int
     text: str
     score: float
+    similarity: Optional[float]
     matched: dict[str, int]
 
 
@@ -110,6 +112,22 @@ def transform_queries_to_ngrams(query: str | list[str], ngrams: dict[str, int]) 
     return transformed_queries
 
 
+def validate_matches_complete(results: List[SearchResult], queries: list[str], min_count: int = 1) -> bool:
+    """Processes BM25+ similarity search by handling cache, cleaning data, generating n-grams, and computing similarities."""
+
+    # Aggregate all "matched"
+    matched = {query.lower(): 0 for query in queries}
+    for result in results:
+        result_matched = result["matched"]
+        for match_query, match in result_matched.items():
+            matched[match_query] += 1
+
+    all_terms = list(matched.keys())
+    matched_terms = [term for term in all_terms if matched[term] >= min_count]
+
+    return all_terms == matched_terms
+
+
 # def search_and_rerank(query: str | List[str], texts: List[str], *, max_tokens: int = 200) -> QueryResult:
 #     queries = query
 #     if isinstance(queries, str):
@@ -176,6 +194,11 @@ def transform_queries_to_ngrams(query: str | list[str], ngrams: dict[str, int]) 
 #     )
 
 #     return response
+
+
+class SearchResultData(TypedDict):
+    queries: list[str]
+    results: list[SearchResult]
 
 
 class HybridSearch:
@@ -334,21 +357,26 @@ class HybridSearch:
 
         # return response
 
-    def search(self, query: str, *, top_k: Optional[int] = None, threshold: float = 0.0) -> List[SearchResult]:
+    def search(self, query: str, *, top_k: Optional[int] = None, threshold: float = 0.0) -> SearchResultData:
         # semantic_results = self.semantic_search(
         #     query, top_k=top_k)
         reranked_results = self.rerank_search(query)
         results: List[SearchResult] = [
             {
+                "rank": idx + 1,
                 "score": item["score"],
+                "similarity": item["similarity"],
                 "text": item["text"],
                 "matched": item["matched"],
             }
-            for item in reranked_results["data"]
+            for idx, item in enumerate(reranked_results["data"])
             if item["score"] >= threshold
         ]
 
-        return results
+        return {
+            "queries": reranked_results["queries"],
+            "results": results
+        }
 
 
 if __name__ == "__main__":

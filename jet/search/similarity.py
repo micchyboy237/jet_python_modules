@@ -53,26 +53,24 @@ def preprocess_reranker_texts(texts: str | list[str]) -> list[str]:
     return preprocessed_texts
 
 
-def adjust_score_with_rewards_and_penalties(base_score: float, match_count: int, max_query_count: int) -> float:
+def adjust_score_with_rewards_and_penalties(base_score: float, unique_match_count: int, max_query_count: int) -> float:
     """
-    Adjusts the score based on query match count using rewards and penalties.
+    Adjusts the score to prioritize the number of different queries matched.
 
-    - Rewards: Boost score if more queries match (up to 50% boost).
-    - Penalties: Reduce score if fewer queries match (up to 30% penalty).
+    - Rewards: Strong boost based on unique query matches (up to 100% boost).
+    - Penalties: Minimal penalty for fewer matches.
 
     :param base_score: Original BM25 similarity score.
-    :param match_count: Number of matched n-grams.
+    :param unique_match_count: Number of unique queries matched.
     :param max_query_count: Total number of queries.
     :return: Adjusted similarity score.
     """
     if max_query_count == 0:
         return base_score  # Avoid division by zero
 
-    boost_factor = (match_count / max_query_count) * 0.5  # Max 50% boost
-    penalty_factor = (1 - match_count / max_query_count) * \
-        0.3  # Max 30% penalty
-
-    return base_score * (1 + boost_factor - penalty_factor)
+    # Stronger boost effect
+    diversity_boost = unique_match_count ** 1.5
+    return base_score * (1 + diversity_boost * 0.8)  # Max 80% boost
 
 
 def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optional[List[str]] = None, *, k1=1.2, b=0.75, delta=1.0) -> List[SimilarityResult]:
@@ -154,11 +152,13 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
             score += query_score
 
         if score > 0:
-            max_query_count = len(lowered_queries)
+            # Count unique queries matched
+            unique_match_count = len(matched.keys())
+
             adjusted_score = adjust_score_with_rewards_and_penalties(
                 base_score=score,
-                match_count=match_count,
-                max_query_count=max_query_count
+                unique_match_count=unique_match_count,
+                max_query_count=len(lowered_queries)
             )
 
             all_scores.append(SimilarityResult(
