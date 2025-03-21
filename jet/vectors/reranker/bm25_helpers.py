@@ -29,6 +29,7 @@ from sentence_transformers import SentenceTransformer
 class SearchResult(TypedDict):
     text: str
     score: float
+    matched: dict[str, int]
 
 
 # class RerankResult(SimilarityDataItem):
@@ -333,12 +334,21 @@ class HybridSearch:
 
         # return response
 
-    def search(self, query: str, top_k: Optional[int] = None) -> SimilarityResultData:
+    def search(self, query: str, *, top_k: Optional[int] = None, threshold: float = 0.0) -> List[SearchResult]:
         # semantic_results = self.semantic_search(
         #     query, top_k=top_k)
         reranked_results = self.rerank_search(query)
+        results: List[SearchResult] = [
+            {
+                "score": item["score"],
+                "text": item["text"],
+                "matched": item["matched"],
+            }
+            for item in reranked_results["data"]
+            if item["score"] >= threshold
+        ]
 
-        return reranked_results
+        return results
 
 
 if __name__ == "__main__":

@@ -167,7 +167,7 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
                 similarity=score,
                 matched=matched,
                 matched_sentences=matched_sentences,
-                text=doc_text
+                text=orig_doc_text
             ))
 
     if all_scores:
