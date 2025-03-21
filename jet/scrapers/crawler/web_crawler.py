@@ -27,10 +27,39 @@ class SeleniumScraper:
         self.driver: webdriver.Chrome = self._setup_driver()
 
     def _setup_driver(self) -> webdriver.Chrome:
-        """Sets up the Chrome WebDriver with options."""
+        """Sets up the Chrome WebDriver with optimized options for reliability and speed."""
         chrome_options: Options = Options()
-        driver: webdriver.Chrome = webdriver.Chrome(options=chrome_options)
-        return driver
+
+        # Use "eager" to start interacting with the page sooner (use "normal" if required)
+        chrome_options.page_load_strategy = "eager"
+
+        # Reduce resource load (optional: remove headless mode if debugging)
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-infobars")
+        chrome_options.add_argument("--no-sandbox")  # For Linux servers
+        # Prevent crashes on low-memory systems
+        chrome_options.add_argument("--disable-dev-shm-usage")
+
+        # Ensure a clean profile for performance (optional)
+        chrome_options.add_argument("--incognito")
+
+        # Set user-agent to avoid bot detection
+        chrome_options.add_argument(
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        )
+
+        # Initialize the driver with error handling
+        try:
+            driver: webdriver.Chrome = webdriver.Chrome(options=chrome_options)
+            # Increase timeout to handle slow pages
+            driver.set_page_load_timeout(60)
+            # Increase JavaScript execution timeout
+            driver.set_script_timeout(30)
+            return driver
+        except Exception as e:
+            logger.error(f"Failed to initialize WebDriver: {e}")
+            raise
 
     def navigate_to_url(self, url: str):
         """Navigate the browser to the given URL, wait for the body element, and add extra delay."""
@@ -44,10 +73,10 @@ class SeleniumScraper:
 
     def get_html(self, wait_time: int = 10) -> str:
         """Waits for full page load and returns the updated page source."""
-        WebDriverWait(self.driver, wait_time).until(
-            lambda driver: driver.execute_script(
-                "return document.readyState") == "complete"
-        )
+        # WebDriverWait(self.driver, wait_time).until(
+        #     lambda driver: driver.execute_script(
+        #         "return document.readyState") == "complete"
+        # )
         return self.driver.page_source
 
     def close(self):
@@ -59,12 +88,12 @@ class WebCrawler(SeleniumScraper):
     def __init__(self, url: str = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: int = None):
         super().__init__()
 
-        self.non_crawlable = ".php" in url
+        self.non_crawlable = False
         self.base_url: str = self.normalize_url(url)
         self.host_name = urlparse(self.base_url).hostname
+        self.seen_urls: set[str] = {self.base_url}
         self.visited_urls: set[str] = set(visited) if visited else set()
         self.passed_urls: set[str] = set()
-        self.seen_urls: set[str] = {self.base_url}
         self.includes = includes or []
         self.excludes = excludes or []
         self.includes_all = includes_all or []  # NEW: AND condition includes
@@ -79,6 +108,11 @@ class WebCrawler(SeleniumScraper):
             logger.error(f"Error navigating to URL {url}: {e}")
 
     def crawl(self, url: str):
+        self.non_crawlable = ".php" in url
+        self.base_url: str = self.normalize_url(url)
+        self.host_name = urlparse(self.base_url).hostname
+        self.seen_urls: set[str] = {self.base_url}
+
         yield from self._crawl_recursive(url, depth=0)
 
     def _crawl_recursive(self, url: str, depth: int):
@@ -171,19 +205,19 @@ if __name__ == "__main__":
     excludes = []
     max_depth = None
 
-    for start_url in urls:
-        crawler = WebCrawler(start_url,
-                             excludes=excludes, includes_all=includes_all, max_depth=max_depth)
+    crawler = WebCrawler(
+        excludes=excludes, includes_all=includes_all, max_depth=max_depth)
 
-        output_file = f"generated/crawl/{crawler.host_name}_urls.json"
+    for start_url in urls:
         batch_size = 5
         batch_count = 0
 
         results = []
-        for result in crawler.crawl(crawler.base_url):
+        for result in crawler.crawl(start_url):
+            output_file = f"generated/crawl/{crawler.host_name}_urls.json"
             logger.info(
                 f"Saving {len(crawler.passed_urls)} pages to {output_file}")
             results.append(result)
             save_data(output_file, results, write=True)
 
-        crawler.close()
+    crawler.close()
