@@ -4,7 +4,7 @@ from jet.wordnet.n_grams import count_ngrams, get_most_common_ngrams, get_ngrams
 import numpy as np
 from numpy import ndarray
 
-from typing import Any, List, Optional, TypedDict
+from typing import Any, List, Literal, Optional, TypedDict
 from jet.data.utils import generate_key, generate_unique_hash
 from jet.logger.timer import time_it
 from jet.scrapers.utils import clean_newlines, clean_punctuations, clean_spaces
@@ -180,7 +180,7 @@ def transform_queries_to_ngrams(query: str | list[str], ngrams: dict[str, int]) 
 class HybridSearch:
     def __init__(self, model_name="paraphrase-MiniLM-L12-v2"):
         self.model_name = model_name
-        self.model = SentenceTransformer(model_name)
+        self.model = SentenceTransformer(self.model_name)
         self.index = None
         self.data: list[str] = []
         self.docs: list[Document] = []
@@ -194,21 +194,7 @@ class HybridSearch:
         return preprocessed_texts
 
     @time_it
-    def build_index(self, texts: list[str], max_tokens: Optional[int] = None, *, batch_size: int = 32):
-        preprocessed_texts = self._preprocess_text(texts)
-
-        if not max_tokens:
-            max_tokens = self.model.max_seq_length
-
-        self.data = texts
-        self.docs = split_text_by_docs(preprocessed_texts, max_tokens)
-        # self.ids = [str(idx) for idx, doc in enumerate(self.docs)]
-        self.ids = [generate_unique_hash()for _ in self.docs]
-        self.doc_texts = [doc.text for doc in self.docs]
-
-        self.ngrams = count_ngrams(
-            [text.lower() for text in self.doc_texts], min_words=1)
-
+    def _setup_build_semantic_index(self, batch_size: int = 32):
         # Generate embeddings
         self.embeddings = self.model.encode(
             self.doc_texts, batch_size=batch_size, convert_to_numpy=True, normalize_embeddings=True
@@ -218,6 +204,33 @@ class HybridSearch:
         d = self.embeddings.shape[1]
         self.index = faiss.IndexFlatIP(d)
         self.index.add(self.embeddings)
+
+    def _setup_index(self, texts: list[str], max_tokens: Optional[int] = None):
+        self.data = texts
+
+        @time_it
+        def run_preprocess_texts():
+            nonlocal max_tokens
+            preprocessed_texts = self._preprocess_text(texts)
+            if not max_tokens:
+                max_tokens = self.model.max_seq_length
+
+            self.docs = split_text_by_docs(preprocessed_texts, max_tokens)
+
+        @time_it
+        def run_setup_search():
+            # self.ids = [str(idx) for idx, doc in enumerate(self.docs)]
+            self.ids = [generate_unique_hash()for _ in self.docs]
+            self.doc_texts = [doc.text for doc in self.docs]
+            self.ngrams = count_ngrams(
+                [text.lower() for text in self.doc_texts], min_words=1)
+
+        run_preprocess_texts()
+        run_setup_search()
+
+    def build_index(self, texts: list[str] = [], max_tokens: Optional[int] = None, batch_size: int = 32):
+        self._setup_index(texts, max_tokens)
+        # self._setup_build_semantic_index(batch_size=batch_size)
 
     # @time_it
     # def semantic_search(self, query: str | List[str], top_k: Optional[int] = None) -> List[SearchResult]:
@@ -269,7 +282,7 @@ class HybridSearch:
         return results
 
     @time_it
-    def rerank(self, query: str | List[str]) -> SimilarityResultData:
+    def rerank_search(self, query: str | List[str]) -> SimilarityResultData:
         queries = self._preprocess_text(query)
 
         # queries = query
@@ -321,9 +334,9 @@ class HybridSearch:
         # return response
 
     def search(self, query: str, top_k: Optional[int] = None) -> SimilarityResultData:
-        semantic_results = self.semantic_search(
-            query, top_k=top_k)
-        reranked_results = self.rerank(query)
+        # semantic_results = self.semantic_search(
+        #     query, top_k=top_k)
+        reranked_results = self.rerank_search(query)
 
         return reranked_results
 
