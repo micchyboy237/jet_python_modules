@@ -135,7 +135,7 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: List[st
 
                 query_score += sentence_score
 
-            if query_score > 0:
+            if query_score > 0 and matched_sentence_list:
                 matched_sentences[query] = matched_sentence_list
                 # Store query match count
                 matched[query] = len(matched_sentence_list)
