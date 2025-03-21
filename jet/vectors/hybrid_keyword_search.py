@@ -1,53 +1,50 @@
 from typing import Any, Optional
 from sklearn.feature_extraction.text import TfidfVectorizer
-from llama_index.core.node_parser.text.sentence import SentenceSplitter
-from llama_index.core.schema import Document
 from tqdm import tqdm
 from bs4 import BeautifulSoup
 from jet.file.utils import load_file
 from jet.logger import logger
 from jet.logger.timer import time_it
 from jet.search.transformers import clean_string
-from jet.token.token_utils import get_token_counts_info, get_tokenizer, split_texts, token_counter
+from jet.token.token_utils import get_token_counts_info, split_texts, token_counter
 from jet.transformers.formatters import format_json
 from jet.utils.commands import copy_to_clipboard
-from jet.wordnet.sentence import adaptive_split
+from jet.wordnet.n_grams import extract_ngrams, get_most_common_ngrams
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
+from collections import Counter
 
 
 class BertSearch:
     def __init__(self, model_name="paraphrase-MiniLM-L12-v2"):
         self.model_name = model_name
-        self.model = SentenceTransformer(self.model_name)
+        self.model = SentenceTransformer(model_name)
         self.index = None
         self.doc_texts = []
+        self.ngrams = {}
         self.tfidf_vectorizer = None
         self.tfidf_matrix = None
 
-    def _setup_doc_texts(self, docs, chunk_size, chunk_overlap):
-        for i, doc in tqdm(enumerate(docs), total=len(docs)):
-            tokens: int = token_counter(doc, self.model_name)
-            if tokens > chunk_size:
-                splitter = SentenceSplitter(
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
-                    tokenizer=get_tokenizer(self.model_name).encode
-                )
-                splitted_docs = splitter.split_text(doc)
-                self.doc_texts.extend(splitted_docs)
-            else:
-                self.doc_texts.append(doc)
+    def _preprocess_text(self, texts: str | list[str]) -> list[str]:
+        if isinstance(texts, str):
+            texts = [texts]
+        ngrams = extract_ngrams([text.lower() for text in texts])
+        return ngrams
 
-    def build_index(self, docs, batch_size=32, chunk_size=200, chunk_overlap=50):
-        self.doc_texts = []
+    @time_it
+    def build_index(self, docs: list[str], batch_size=32):
+        self.doc_texts = split_texts(
+            docs, self.model_name, chunk_size=200, chunk_overlap=50)
 
-        self._setup_doc_texts(docs, chunk_size, chunk_overlap)
+        self.ngrams = [self._preprocess_text(
+            text) for text in tqdm(self.doc_texts)]
+        ngrams_texts = [
+            " ".join(ngrams) for ngrams in self.ngrams]
 
         # Generate embeddings
         embeddings = self.model.encode(
-            self.doc_texts, batch_size=batch_size, convert_to_numpy=True, normalize_embeddings=True
+            ngrams_texts, batch_size=batch_size, convert_to_numpy=True, normalize_embeddings=True
         )
 
         # Create FAISS index
@@ -57,8 +54,9 @@ class BertSearch:
 
         # Build TF-IDF Index
         self.tfidf_vectorizer = TfidfVectorizer()
-        self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(self.doc_texts)
+        self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(ngrams_texts)
 
+    @time_it
     def search(self, query: str, top_k: Optional[int] = None, alpha=0.7):
         if self.index is None:
             raise ValueError("Index is empty! Call build_index() first.")
@@ -78,7 +76,8 @@ class BertSearch:
                      for idx in indices[0] if idx < len(self.doc_texts)]
 
         # Compute TF-IDF Scores
-        query_tfidf = self.tfidf_vectorizer.transform([query])
+        query_ngrams = self._preprocess_text(query)
+        query_tfidf = self.tfidf_vectorizer.transform(query_ngrams)
         tfidf_scores = np.array(
             (query_tfidf @ self.tfidf_matrix.T).toarray()).flatten()
 
@@ -93,6 +92,7 @@ class BertSearch:
                 "score": round(float(combined_scores[i]), 4),
                 "tokens": token_counter(top_texts[i], self.model_name),
                 "text": top_texts[i],
+                "matched": get_most_common_ngrams([query, top_texts[i]], min_words=1, min_count=2)
             }
             for i in sorted_indices
         ]
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     search_engine.build_index(docs)
 
     # Perform a search
-    query = "title, season, episode, synopsis, genre, release date, end date of \"I'll Become a Villainess Who Goes Down in History\" anime"
+    query = "Season and episode of \"I'll Become a Villainess Who Goes Down in History\" anime"
     top_k = 10
 
     results = search_engine.search(query, top_k=top_k)

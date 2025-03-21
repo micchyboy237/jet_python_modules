@@ -44,7 +44,7 @@ def handle_long_sentence(sentence, count_tokens_func, max_tokens):
     substrings = [' '.join(words[:i + 1]) for i in range(n)]
 
     # Count tokens for all substrings at once
-    token_counts = count_tokens_func(substrings)
+    token_counts = [count_tokens_func(substring) for substring in substrings]
 
     segments = []
     start = 0
@@ -181,7 +181,7 @@ def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
     return segments
 
 
-def split_sentences(text):
+def split_sentences(text: str):
     sentences = sent_tokenize(text)
     adjusted_sentences = []
 
@@ -199,6 +199,36 @@ def split_sentences(text):
             i += 1
 
     return adjusted_sentences
+
+
+def merge_sentences(sentences: list[str], max_tokens: int) -> list[str]:
+    merged_sentences: list[str] = []
+    current_group: list[str] = []
+    current_count: int = 0
+
+    for sentence in sentences:
+        sentence_count: int = count_words(sentence)
+
+        # If adding the next sentence exceeds the limit, finalize the current group
+        if current_group and current_count + sentence_count > max_tokens:
+            merged_sentences.append('\n'.join(current_group))
+            current_group = []
+            current_count = 0
+
+        current_group.append(sentence)
+        current_count += sentence_count
+
+    # Add any remaining sentences
+    if current_group:
+        merged_sentences.append('\n'.join(current_group))
+
+    return merged_sentences
+
+
+def group_sentences(text: str, max_tokens: int):
+    splitted_sentences = split_sentences(text)
+    grouped_sentences = merge_sentences(splitted_sentences, max_tokens)
+    return grouped_sentences
 
 
 def count_sentences(text):

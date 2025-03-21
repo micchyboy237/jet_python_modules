@@ -23,6 +23,7 @@ class SimilarityResult(TypedDict):
     id: str  # Document ID
     text: str  # The document's content/text
     score: float  # The score for how relevant the document is to the query
+    similarity: float
     matched: list[str]  # List of queries that matched with this document
 
 

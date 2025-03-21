@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import patch
 from jet.wordnet.sentence import (
     handle_long_sentence,
+    merge_sentences,
     process_sentence_newlines,
     adaptive_split,
     is_ordered_list_marker,
@@ -343,6 +345,70 @@ class TestHandleLongSentence(unittest.TestCase):
         expected = "One Two Three Four Five Six Seven Eight Nine Ten"
         result = handle_long_sentence(
             sentence, mock_count_tokens_func, max_tokens)
+        self.assertEqual(result, expected)
+
+
+class TestMergeSentences(unittest.TestCase):
+
+    def mock_count_words(self, sentence: str) -> int:
+        """Mock function to count words by splitting on spaces."""
+        return len(sentence.split())
+
+    @patch("__main__.count_words", side_effect=mock_count_words)
+    def test_basic_merge(self, mock_count):
+        sentences = [
+            "This is a test.",
+            "Another sentence.",
+            "Short one.",
+            "Final statement here."
+        ]
+        max_tokens = 6
+        expected = ["This is a test.\nAnother sentence.",
+                    "Short one.\nFinal statement here."]
+        result = merge_sentences(sentences, max_tokens)
+        self.assertEqual(result, expected)
+
+    @patch("__main__.count_words", side_effect=mock_count_words)
+    def test_single_long_sentence(self, mock_count):
+        sentences = [
+            "This is an extremely long sentence that exceeds the limit."]
+        max_tokens = 5
+        expected = [
+            "This is an extremely long sentence that exceeds the limit."]
+        result = merge_sentences(sentences, max_tokens)
+        self.assertEqual(result, expected)
+
+    @patch("__main__.count_words", side_effect=mock_count_words)
+    def test_exact_fit(self, mock_count):
+        sentences = ["One two three.", "Four five six.", "Seven eight nine."]
+        max_tokens = 3
+        expected = ["One two three.", "Four five six.", "Seven eight nine."]
+        result = merge_sentences(sentences, max_tokens)
+        self.assertEqual(result, expected)
+
+    @patch("__main__.count_words", side_effect=mock_count_words)
+    def test_merging_until_limit(self, mock_count):
+        sentences = [
+            "This is one.",  # 3 words
+            "A second sentence.",  # 3 words
+            "Third sentence here.",  # 3 words
+            "Last one.",  # 2 words
+        ]
+        max_tokens = 5
+        expected = [
+            "This is one.",
+            "A second sentence.",
+            "Third sentence here.\nLast one."
+        ]
+        result = merge_sentences(sentences, max_tokens)
+        self.assertEqual(result, expected)
+
+    @patch("__main__.count_words", side_effect=mock_count_words)
+    def test_empty_list(self, mock_count):
+        sentences = []
+        max_tokens = 10
+        expected = []
+        result = merge_sentences(sentences, max_tokens)
         self.assertEqual(result, expected)
 
 

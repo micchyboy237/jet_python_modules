@@ -53,39 +53,37 @@ def extract_ngrams(texts: Union[str, List[str]], min_words: int = 1, max_words: 
 
 
 def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: int = 1):
+    if isinstance(texts, str):
+        texts = [texts]
+
     ngrams = extract_ngrams(texts, min_words=min_words, max_words=max_words)
 
     ngram_counter = Counter(ngrams)
 
-    result = {ngram: count for ngram,
-              count in ngram_counter.items() if not min_count or count >= min_count}
+    ngrams_dict = {ngram: count for ngram,
+                   count in ngram_counter.items() if not min_count or count >= min_count}
 
-    return result
+    return ngrams_dict
 
 
 def get_most_common_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: int = 1, max_words: int = 5) -> dict[str, int]:
-    stopwords = StopWords()
-
     if isinstance(texts, str):
         texts = [texts]
-
     # Lowercase
     texts = [text.lower() for text in texts]
-
-    ngrams = count_ngrams(texts, min_words=min_words,
-                          min_count=min_count, max_words=max_words)
-    filtered_ngrams = {}
-    for (ngram, count) in ngrams.items():
-        ngram_words = get_words(ngram)
-        start = ngram_words[0]
-        end = ngram_words[-1]
-
-        if start in stopwords.english_stop_words or end in stopwords.english_stop_words:
-            continue
-
-        filtered_ngrams[ngram] = count
-
-    return filtered_ngrams
+    ngrams_dict = count_ngrams(texts, min_words=min_words,
+                               min_count=min_count, max_words=max_words)
+    return ngrams_dict
+    # stopwords = StopWords()
+    # filtered_ngrams = {}
+    # for (ngram, count) in ngrams.items():
+    #     ngram_words = get_words(ngram)
+    #     start = ngram_words[0]
+    #     end = ngram_words[-1]
+    #     if start in stopwords.english_stop_words or end in stopwords.english_stop_words:
+    #         continue
+    #     filtered_ngrams[ngram] = count
+    # return filtered_ngrams
 
 
 def group_sentences_by_ngram(
