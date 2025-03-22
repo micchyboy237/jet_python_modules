@@ -131,6 +131,7 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
                         sentence_score += idf[term] * (numerator / denominator)
 
                 if query in sentence:
+                    sentence_score += 0.5
                     start_idx = orig_doc_text.lower().index(
                         sentence.splitlines()[0])
                     end_idx = start_idx + len(sentence)

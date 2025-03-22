@@ -91,7 +91,7 @@ class PageResult(TypedDict):
 
 
 class WebCrawler(SeleniumScraper):
-    def __init__(self, url: str = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: int = None):
+    def __init__(self, url: str = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: int = 0, max_visited: int = None):
         super().__init__()
 
         self.non_crawlable = False
@@ -106,6 +106,7 @@ class WebCrawler(SeleniumScraper):
         self.excludes_all = excludes_all or []  # NEW: AND condition excludes
         # NEW: Optional max depth (None = unlimited)
         self.max_depth = max_depth
+        self.max_visited = max_visited
 
     def change_url(self, url: str):
         try:
@@ -131,6 +132,9 @@ class WebCrawler(SeleniumScraper):
             return
 
         self.visited_urls.add(url)
+
+        if self.max_visited and len(self.visited_urls) >= self.max_visited:
+            return
 
         logger.info(f"Crawling (Depth {depth}): {url}")
         self.change_url(url)
@@ -167,6 +171,11 @@ class WebCrawler(SeleniumScraper):
                 full_url = anchor.get_attribute("href")
                 if full_url:
                     full_url = self.normalize_url(full_url)
+
+                    # Ensure URLs always start with the base URL
+                    if not full_url.startswith(self.base_url):
+                        full_url = f"{self.base_url.rstrip('/')}/{full_url.lstrip('/')}"
+
                     if self.host_name in full_url and not self._should_exclude(full_url):
                         full_urls.add(full_url)
             except Exception as e:
@@ -193,10 +202,16 @@ class WebCrawler(SeleniumScraper):
     def normalize_url(self, url: str) -> str:
         if not url:
             return ""
+
         if self.non_crawlable:
             return url
 
         parsed = urlparse(url)
+
+        # If the URL is relative, append it to base URL
+        if not parsed.scheme or not parsed.netloc:
+            return f"{self.base_url.rstrip('/')}/{url.lstrip('/')}"
+
         normalized_url = parsed.scheme + "://" + parsed.netloc + parsed.path
         return unquote(normalized_url.rstrip('/'))
 

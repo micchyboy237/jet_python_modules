@@ -206,7 +206,9 @@ def validate_matches_complete(results: List[SearchResult], queries: list[str], m
 
 
 class SearchResultData(TypedDict):
+    count: int
     queries: list[str]
+    matched: dict[str, int]
     results: list[SearchResult]
 
 
@@ -263,7 +265,7 @@ class HybridSearch:
 
     def build_index(self, texts: list[str] = [], max_tokens: Optional[int] = None, batch_size: int = 32):
         self._setup_index(texts, max_tokens)
-        # self._setup_build_semantic_index(batch_size=batch_size)
+        self._setup_build_semantic_index(batch_size=batch_size)
 
     # @time_it
     # def semantic_search(self, query: str | List[str], top_k: Optional[int] = None) -> List[SearchResult]:
@@ -323,46 +325,9 @@ class HybridSearch:
         reranked_results = rerank_bm25(queries, self.doc_texts, self.ids)
 
         return reranked_results
-        # results: list[RerankResult] = []
-        # for result in reranked_results["data"]:
-        #     idx = int(result["id"])
-        #     doc = self.docs[idx]
-        #     orig_data: str = self.data[doc.metadata["data_id"]]
-
-        #     matched = result["matched"]
-        #     matched_sentences: dict[str, list[str]] = {
-        #         key.lower(): [] for key in matched.keys()
-        #     }
-        #     for ngram, count in matched.items():
-        #         lowered_ngram = ngram.lower()
-        #         sentence_indexes = find_sentence_indexes(
-        #             orig_data.lower(), lowered_ngram)
-        #         word_sentences = extract_substrings(
-        #             orig_data, sentence_indexes)
-        #         matched_sentences[lowered_ngram] = [
-        #             word_sentence for word_sentence in word_sentences
-        #             if word_sentence.lower() in result["text"].lower()
-        #         ]
-
-        #     results.append({
-        #         **result,
-        #         "metadata": doc.metadata,
-        #         "_matched_sentences": matched_sentences,
-        #         "_data": orig_data,
-        #     })
-
-        # response = QueryResult(
-        #     queries=queries,
-        #     count=reranked_results["count"],
-        #     matched=reranked_results["matched"],
-        #     data=results
-        # )
-
-        # return response
 
     def search(self, query: str, *, top_k: Optional[int] = None, threshold: float = 0.0) -> SearchResultData:
-        # semantic_results = self.semantic_search(
-        #     query, top_k=top_k)
+        semantic_results = self.semantic_search(query, top_k=top_k)
         reranked_results = self.rerank_search(query)
         results: List[SearchResult] = [
             {
@@ -376,7 +341,9 @@ class HybridSearch:
         ]
 
         return {
+            "count": reranked_results["count"],
             "queries": reranked_results["queries"],
+            "matched": reranked_results["matched"],
             "results": results
         }
 

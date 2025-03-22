@@ -247,7 +247,7 @@ def save_data(output_file, data, write=False, key='id', is_binary=False):
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         # data = [dict(t) for t in {tuple(d.items()) for d in data}]
 
-        print(f"Writing {len(data)} items to {output_file}")
+        logger.success(f"Writing {len(data)} items to {output_file}")
 
         if is_binary:
             with open(output_file, 'wb') as f:
@@ -275,7 +275,7 @@ def save_data(output_file, data, write=False, key='id', is_binary=False):
 
         # Deduplicate by key
         # existing_data = [dict(t) for t in {tuple(d.items()) for d in existing_data}]
-        print(f"Writing {len(existing_data)} items to {output_file}")
+        logger.success(f"Writing {len(existing_data)} items to {output_file}")
 
         if is_binary:
             with open(output_file, 'wb') as f:
