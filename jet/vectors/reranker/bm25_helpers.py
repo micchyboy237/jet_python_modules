@@ -364,31 +364,32 @@ class HybridSearch:
     def search(self, query: str | List[str], *, top_k: Optional[int] = None, threshold: float = 0.0) -> SearchResultData:
         results = self.semantic_search(
             query, top_k=top_k, threshold=threshold)
+
         semantic_doc_texts = [result["text"]
                               for result in results]
         semantic_doc_ids = [result["id"]
                             for result in results]
 
-        # reranked_results = self.rerank_search(
-        #     query, semantic_doc_texts, semantic_doc_ids)
-        # results: List[SearchResult] = [
-        #     {
-        #         "id": item["id"],
-        #         "score": item["score"],
-        #         "similarity": item["similarity"],
-        #         "matched": item["matched"],
-        #         "text": item["text"],
-        #     }
-        #     for item in reranked_results["data"]
-        #     if item["score"] >= threshold
-        # ]
+        reranked_results = self.rerank_search(
+            query, semantic_doc_texts, semantic_doc_ids)
+        results: List[SearchResult] = [
+            {
+                "id": item["id"],
+                "score": item["score"],
+                "similarity": item["similarity"],
+                "matched": item["matched"],
+                "text": item["text"],
+            }
+            for item in reranked_results["data"]
+            if item["score"] >= threshold
+        ]
 
         # Aggregate all "matched"
-
         queries = self._preprocess_text(query)
         queries = transform_queries_to_ngrams(
             [query.lower() for query in queries], self.ngrams)
         matched = {query.lower(): 0 for query in queries}
+
         for result in results:
             result_matched = result["matched"]
             for match_query, match in result_matched.items():
