@@ -41,7 +41,7 @@ def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> Sim
 
     # Filter out results without matches
     similarity_results = [
-        result for result in similarity_results if result_matched]
+        result for result in similarity_results if result["matched"]]
 
     # Aggregate all "matched"
     matched = {query.lower(): 0 for query in queries}
