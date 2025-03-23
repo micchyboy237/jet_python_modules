@@ -728,7 +728,7 @@ def query_llm_structured(
     **kwargs,
 ):
     if not max_tokens:
-        max_tokens = 0.8
+        max_tokens = 0.75
 
     if not system:
         system = SYSTEM_MESSAGE
@@ -764,7 +764,13 @@ def query_llm_structured(
             },
         )
         response_dict = make_serializable(response)
-        yield response_dict
+        yield {
+            "system": system,
+            "context": context,
+            "query": query,
+            "template": str(qa_prompt),
+            "response": response_dict
+        }
 
 
 def read_file(file_path, start_index=None, end_index=None):
