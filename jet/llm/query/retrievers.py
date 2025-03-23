@@ -1,9 +1,13 @@
-from typing import Callable, Optional, Any, TypedDict
+from typing import Callable, Optional, Any, TypedDict, Type
 import json
 import os
 from typing import Any, Callable, Literal, Optional
+
+from tqdm import tqdm
+from jet.transformers.object import make_serializable
+from pydantic.main import BaseModel
 from jet.file.utils import load_file
-from jet.llm.ollama.base import OllamaEmbedding, VectorStoreIndex
+from jet.llm.ollama.base import Ollama, OllamaEmbedding, VectorStoreIndex
 from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_SMALL_LLM_MODEL
 from jet.llm.utils.embeddings import get_ollama_embedding_function
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_HF_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
@@ -60,10 +64,16 @@ Answer: \
 
 DEFAULT_CHAT_OPTIONS: OllamaChatOptions = {
     "seed": 44,
-    "num_ctx": 4096,
-    "num_keep": 0,
+    "temperature": 0.3,
+    "num_keep": 40,
     "num_predict": -1,
-    "temperature": 0,
+}
+
+DETERMINISTIC_LLM_SETTINGS = {
+    "seed": 42,
+    "temperature": 0.3,
+    "num_keep": 40,
+    "num_predict": -1,
 }
 
 
@@ -703,6 +713,58 @@ def query_llm(
             # }
             **kwargs,
         )
+
+
+def query_llm_structured(
+    query: str,
+    texts: list[str],
+    model: OLLAMA_MODEL_NAMES = OLLAMA_SMALL_LLM_MODEL,
+    options: OllamaChatOptions = {},
+    system: Optional[str] = None,
+    template: Optional[PromptTemplate] = None,
+    max_tokens: Optional[int | float] = None,
+    output_cls: Optional[Type[BaseModel]] = None,
+    # retriever: QueryFusionRetriever,
+    **kwargs,
+):
+    if not max_tokens:
+        max_tokens = 0.5
+
+    if not system:
+        system = SYSTEM_MESSAGE
+
+    llm = Ollama(model=model)
+    grouped_texts = group_texts(texts, model, max_tokens=max_tokens)
+    for texts in tqdm(grouped_texts, desc="Generating structured response"):
+        context = "\n\n".join(texts)
+
+        qa_prompt = template or PromptTemplate(
+            "Context information is below.\n"
+            "---------------------\n"
+            "{context_str}\n"
+            "---------------------\n"
+            "Given the context information, schema and not prior knowledge, "
+            "answer the query.\n"
+            "The generated JSON must pass the provided schema when validated.\n"
+            "Use null for unavailable values.\n"
+            "Query: {query_str}\n"
+            "Answer: "
+        )
+        response = llm.structured_predict(
+            output_cls=output_cls,
+            prompt=qa_prompt,
+            context_str=context,
+            query_str=query,
+            llm_kwargs={
+                "options": {
+                    **DETERMINISTIC_LLM_SETTINGS,
+                    **options,
+                },
+                # "max_prediction_ratio": 0.5
+            },
+        )
+        response_dict = make_serializable(response)
+        yield response_dict
 
 
 def read_file(file_path, start_index=None, end_index=None):
