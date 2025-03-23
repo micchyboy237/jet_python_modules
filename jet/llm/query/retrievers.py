@@ -65,14 +65,14 @@ Answer: \
 DEFAULT_CHAT_OPTIONS: OllamaChatOptions = {
     "seed": 44,
     "temperature": 0.3,
-    "num_keep": 40,
+    "num_keep": 0,
     "num_predict": -1,
 }
 
 DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,
     "temperature": 0.3,
-    "num_keep": 40,
+    "num_keep": 0,
     "num_predict": -1,
 }
 
@@ -728,7 +728,7 @@ def query_llm_structured(
     **kwargs,
 ):
     if not max_tokens:
-        max_tokens = 0.6
+        max_tokens = 0.75
 
     if not system:
         system = SYSTEM_MESSAGE
