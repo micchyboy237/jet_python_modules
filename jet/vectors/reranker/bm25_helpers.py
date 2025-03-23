@@ -194,6 +194,7 @@ class SearchResultData(TypedDict):
     count: int
     queries: list[str]
     matched: dict[str, int]
+    semantic_results: list[SearchResult]
     results: list[SearchResult]
 
 
@@ -362,13 +363,13 @@ class HybridSearch:
         return reranked_results
 
     def search(self, query: str | List[str], *, top_k: Optional[int] = None, threshold: float = 0.0) -> SearchResultData:
-        results = self.semantic_search(
+        semantic_results = self.semantic_search(
             query, top_k=top_k, threshold=threshold)
 
         semantic_doc_texts = [result["text"]
-                              for result in results]
+                              for result in semantic_results]
         semantic_doc_ids = [result["id"]
-                            for result in results]
+                            for result in semantic_results]
 
         reranked_results = self.rerank_search(
             query, semantic_doc_texts, semantic_doc_ids)
@@ -399,6 +400,7 @@ class HybridSearch:
             "count": len(results),
             "queries": queries,
             "matched": matched,
+            "semantic_results": semantic_results,
             "results": results
         }
 
