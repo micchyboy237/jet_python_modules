@@ -333,7 +333,7 @@ def generate_ollama_batch_embeddings(
     max_tokens: Optional[int | float] = None,
 ) -> list[list[float]]:
     if not max_tokens:
-        max_tokens = 0.4
+        max_tokens = 0.5
 
     model_max_tokens: int = get_model_max_tokens(model)
 

@@ -15,7 +15,7 @@ from jet.llm.retrievers.recursive import (
 )
 from jet.actions import VectorSemanticSearch
 from jet.token import filter_texts
-from jet.token.token_utils import get_ollama_tokenizer
+from jet.token.token_utils import get_model_max_tokens, get_ollama_tokenizer, group_texts
 from jet.utils.object import extract_values_by_paths
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
 from jet.vectors.utils import get_source_node_attributes
@@ -656,7 +656,7 @@ def clean_texts(nodes: list[NodeWithScore]) -> list[str]:
 def query_llm(
     query: str,
     contexts: list[str],
-    model: Optional[OLLAMA_MODEL_NAMES] = OLLAMA_SMALL_LLM_MODEL,
+    model: OLLAMA_MODEL_NAMES = OLLAMA_SMALL_LLM_MODEL,
     options: OllamaChatOptions = {},
     system: Optional[str] = None,
     template: PromptTemplate = PROMPT_TEMPLATE,
@@ -671,30 +671,38 @@ def query_llm(
     if not system:
         system = SYSTEM_MESSAGE
 
-    filtered_texts = filter_texts(
-        contexts, model, max_tokens=max_tokens)
-    context = "\n\n".join(filtered_texts)
-    prompt = template.format(
-        context_str=context, query_str=query
-    )
-    options = {**options, **DEFAULT_CHAT_OPTIONS}
+    # filtered_texts = filter_texts(
+    #     contexts, model, max_tokens=max_tokens)
+    # context = "\n\n".join(filtered_texts)
 
-    yield from call_ollama_chat(
-        prompt,
-        stream=True,
-        model=model,
-        system=system,
-        options=options,
-        # track={
-        #     "repo": "~/aim-logs",
-        #     "experiment": "RAG Retriever Test",
-        #     "run_name": "Run Fusion Relative Score",
-        #     "metadata": {
-        #         "type": "rag_retriever",
-        #     }
-        # }
-        **kwargs,
-    )
+    model_max_length = get_model_max_tokens(model)
+    max_tokens = int(model_max_length * 0.5)
+    grouped_texts = group_texts(contexts, model, max_tokens=max_tokens)
+    for idx, texts in enumerate(grouped_texts):
+        context = "\n\n".join(texts)
+        prompt = template.format(
+            context_str=context, query_str=query
+        )
+        options = {**options, **DEFAULT_CHAT_OPTIONS}
+
+        yield f"\n\n## Answer {idx + 1}\n\n"
+
+        yield from call_ollama_chat(
+            prompt,
+            stream=True,
+            model=model,
+            system=system,
+            options=options,
+            # track={
+            #     "repo": "~/aim-logs",
+            #     "experiment": "RAG Retriever Test",
+            #     "run_name": "Run Fusion Relative Score",
+            #     "metadata": {
+            #         "type": "rag_retriever",
+            #     }
+            # }
+            **kwargs,
+        )
 
 
 def read_file(file_path, start_index=None, end_index=None):

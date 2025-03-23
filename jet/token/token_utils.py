@@ -126,7 +126,7 @@ def filter_texts(
     max_tokens: Optional[int | float] = None,
 ) -> str | list[str] | list[dict] | list[ChatMessage]:
     if not max_tokens:
-        max_tokens = 0.4
+        max_tokens = 0.5
 
     tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
     if isinstance(max_tokens, float) and max_tokens < 1:
@@ -173,6 +173,56 @@ def filter_texts(
                 token_count = token_counter(str(messages), model)
 
             return messages
+
+
+def group_texts(
+    text: str | list[str] | list[ChatMessage] | list[Message],
+    model: str | OLLAMA_MODEL_NAMES = "mistral",
+    max_tokens: Optional[int | float] = None,
+) -> list[list[str]]:
+    if not max_tokens:
+        max_tokens = 0.5
+
+    tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
+    if isinstance(max_tokens, float) and max_tokens < 1:
+        max_tokens = int(get_model_max_tokens(model) * max_tokens)
+    else:
+        max_tokens = max_tokens or get_model_max_tokens(model)
+
+    if isinstance(text, str):
+        tokens = tokenize(OLLAMA_HF_MODELS[model], text)
+        grouped_texts = []
+
+        for i in range(0, len(tokens), max_tokens):
+            chunk = tokens[i:i + max_tokens]
+            grouped_texts.append(tokenizer.decode(
+                chunk, skip_special_tokens=False))
+
+        return grouped_texts
+
+    elif isinstance(text, list) and isinstance(text[0], str):
+        grouped_texts = []
+        current_group = []
+        current_token_count = 0
+
+        text_token_counts = token_counter(text, model, prevent_total=True)
+
+        for t, token_count in zip(text, text_token_counts):
+            if current_token_count + token_count > max_tokens:
+                grouped_texts.append(current_group)
+                current_group = []
+                current_token_count = 0
+
+            current_group.append(t)
+            current_token_count += token_count
+
+        if current_group:
+            grouped_texts.append(current_group)
+
+        return grouped_texts
+
+    else:
+        raise TypeError("Unsupported input type for group_texts")
 
 
 def calculate_num_predict_ctx(prompt: str | list[str] | list[ChatMessage] | list[Message], model: str = "llama3.1", *, system: str = "", max_prediction_ratio: float = 0.75):
@@ -234,7 +284,7 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
 
 def split_texts(
     texts: str | list[str],
-    model: str,
+    model: str | OLLAMA_MODEL_NAMES,
     chunk_size: Optional[int] = None,
     chunk_overlap: int = 0,
     *,
