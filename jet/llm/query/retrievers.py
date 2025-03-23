@@ -728,7 +728,7 @@ def query_llm_structured(
     **kwargs,
 ):
     if not max_tokens:
-        max_tokens = 0.75
+        max_tokens = 0.5
 
     if not system:
         system = SYSTEM_MESSAGE
