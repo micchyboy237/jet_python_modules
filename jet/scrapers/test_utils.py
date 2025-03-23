@@ -54,8 +54,8 @@ class TestCleanPunctuations(unittest.TestCase):
         self.assertEqual(result, expected)
 
     def test_mixed_punctuations(self):
-        sample = "Really..?!?. Are you sure???"
-        expected = "Really. Are you sure?"
+        sample = "Really..?!?.) Are you sure???"
+        expected = "Really) Are you sure?"
         result = clean_punctuations(sample)
         self.assertEqual(result, expected)
 

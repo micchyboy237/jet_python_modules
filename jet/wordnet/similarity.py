@@ -1,8 +1,11 @@
+from typing import List, Optional, Literal
+from sentence_transformers import SentenceTransformer, util
+import torch
 from typing import Callable, List
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import numpy as np
-from jet.llm.utils.embeddings import SFEmbeddingFunction
+from jet.llm.utils.embeddings import SFEmbeddingFunction, get_embedding_function
 from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Dict, Callable, Optional, TypedDict
 from sklearn.cluster import KMeans
@@ -29,24 +32,14 @@ def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, Lis
     if isinstance(sentences_to_compare, str):
         sentences_to_compare = [sentences_to_compare]
 
-    if model_name not in OLLAMA_EMBED_MODELS.__args__:
-        # model = SentenceTransformer('Ramos-Ramos/xlm-roberta-base-en-tl-4-end')
-        # model = SentenceTransformer("danjohnvelasco/filipino-sentence-roberta-v1")
-        # model = SentenceTransformer('meedan/paraphrase-filipino-mpnet-base-v2')
-        model = SentenceTransformer(model_name)
-        base_embedding = model.encode([base_sentence])[0]
-        embeddings = model.encode(sentences_to_compare)
-    else:
-        model_name: OLLAMA_EMBED_MODELS = model_name
-        embed_func = get_ollama_embedding_function(model_name)
-        base_embedding = embed_func(base_sentence)
-        embeddings = embed_func(sentences_to_compare)
+    embed_func = get_embedding_function(model_name)
+    base_embedding = embed_func(base_sentence)
+    embeddings = embed_func(sentences_to_compare)
 
     return [1 - cosine(base_embedding, emb) for emb in embeddings]
 
 
-@time_it
-def filter_highest_similarity(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL, threshold: Optional[float] = None) -> FilterResult:
+def filter_highest_similarity_old(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL, threshold: Optional[float] = None) -> FilterResult:
     if not candidates:
         raise ValueError("No candidates provided for comparison.")
 
@@ -72,6 +65,67 @@ def filter_highest_similarity(query: str, candidates: List[str], *, model_name: 
         'text': highest_similarity_text,
         'score': highest_similarity_score,
         'others': others
+    }
+
+
+def filter_highest_similarity(
+    query: str,
+    candidates: List[str],
+    *,
+    model_name: str = "paraphrase-MiniLM-L12-v2",
+    similarity_metric: Literal["cosine", "dot", "euclidean"] = "cosine",
+    threshold: Optional[float] = None
+) -> FilterResult:
+    if not candidates:
+        raise ValueError("No candidates provided for comparison.")
+
+    embed_func = get_embedding_function(model_name)
+
+    # Compute embeddings (keeping original list format)
+    query_embedding: list[float] = embed_func(query)  # 1D list
+    candidate_embeddings: list[list[float]] = embed_func(candidates)  # 2D list
+
+    # Convert to tensors for calculations
+    query_tensor = torch.tensor(query_embedding)  # (D,)
+    candidate_tensor = torch.tensor(candidate_embeddings)  # (N, D)
+
+    # Compute similarity scores based on chosen metric
+    if similarity_metric == "cosine":
+        similarities = util.pytorch_cos_sim(
+            query_tensor, candidate_tensor)[0].tolist()
+    elif similarity_metric == "dot":
+        similarities = torch.matmul(query_tensor, candidate_tensor.T).tolist()
+    elif similarity_metric == "euclidean":
+        similarities = (-torch.cdist(query_tensor.unsqueeze(0),
+                        candidate_tensor.unsqueeze(0), p=2)[0]).tolist()
+        # Negative because lower Euclidean distance means higher similarity
+    else:
+        raise ValueError(
+            "Invalid similarity metric. Choose 'cosine', 'dot', or 'euclidean'.")
+
+    # Find the best match
+    sorted_results = sorted(zip(candidates, similarities),
+                            key=lambda x: x[1], reverse=True)
+    best_text, best_score = sorted_results[0]
+
+    # Compute percent differences
+    others = [
+        {
+            "text": text,
+            "score": score,
+            "percent_difference": (best_score - score) / best_score * 100 if best_score != 0 else 0
+        }
+        for text, score in sorted_results[1:]
+    ]
+
+    # Apply threshold filtering
+    if threshold is not None:
+        others = [item for item in others if item["score"] >= threshold]
+
+    return {
+        "text": best_text,
+        "score": best_score,
+        "others": others
     }
 
 
@@ -522,3 +576,30 @@ if __name__ == '__main__':
     result = filter_highest_similarity(base_sentence, sentences_to_compare)
     print("Highest similarity result:")
     print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+__all__ = [
+    "sentence_similarity",
+    "filter_highest_similarity",
+    "search_similarities",
+    "is_not_alnum",
+    "score_texts_similarity",
+    "are_texts_similar",
+    "filter_similar_texts",
+    "filter_different_texts",
+    "get_similar_texts",
+    "get_different_texts",
+    "differences",
+    "similars",
+    "compare_text_pairs",
+    "has_close_match",
+    "get_word_index_from_ngrams",
+    "get_ngrams_by_word",
+    "score_word_placement_similarity",
+    "has_approximately_same_word_placement",
+    "TextComparator",
+    "plot_text_embeddings",
+    "cluster_texts",
+    "SimilarResult",
+    "find_most_similar_texts",
+]

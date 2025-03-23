@@ -1,7 +1,7 @@
 from enum import Enum
 import json
 import base64
-from jet.utils.class_utils import get_non_empty_attributes
+from jet.utils.class_utils import get_non_empty_attributes, is_class_instance
 import numpy as np
 import json
 import base64
@@ -27,33 +27,6 @@ def make_serializable(obj):
         except UnicodeDecodeError:
             decoded_str = base64.b64encode(obj).decode('utf-8')
         return make_serializable(decoded_str)
-    elif isinstance(obj, set):
-        return list(obj)
-    elif isinstance(obj, list):
-        return [make_serializable(item) for item in obj]
-    elif isinstance(obj, dict):
-        serialized_dict = {}
-        for key, value in obj.items():
-            serialized_key = make_serializable(key)
-            serialized_value = make_serializable(value)
-            serialized_dict[serialized_key] = serialized_value
-        return serialized_dict
-    elif isinstance(obj, BaseModel):
-        try:
-            return make_serializable(obj.model_dump())
-        except (AttributeError, TypeError) as e:
-            logger.warning(e)
-            return make_serializable(vars(obj))
-    elif hasattr(obj, "__dict__"):
-        return make_serializable(get_non_empty_attributes(obj))
-    elif isinstance(obj, tuple):
-        return tuple(make_serializable(item) for item in obj)
-    elif isinstance(obj, set):
-        return {make_serializable(item) for item in obj}
-    elif isinstance(obj, (np.integer, np.floating)):
-        return obj.item()  # Convert numpy types to native Python types
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()  # Convert numpy arrays to lists
     elif isinstance(obj, (int, float, bool, type(None))):
         return obj
     elif isinstance(obj, str):
@@ -65,6 +38,34 @@ def make_serializable(obj):
             return obj  # Keep as string if it's a valid number or boolean
         except json.JSONDecodeError:
             return obj
+    elif isinstance(obj, set):
+        return make_serializable(list(obj))
+    elif isinstance(obj, tuple):
+        return [make_serializable(item) for item in obj]
+    elif isinstance(obj, list):
+        return [make_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        serialized_dict = {}
+        for key, value in obj.items():
+            serialized_key = make_serializable(key)
+            serialized_value = make_serializable(value)
+            if not isinstance(serialized_key, str) or callable(serialized_value):
+                serialized_key = key
+                serialized_value = {}
+            serialized_dict[serialized_key] = serialized_value
+        return serialized_dict
+    elif isinstance(obj, BaseModel):
+        try:
+            return make_serializable(obj.model_dump())
+        except (AttributeError, TypeError) as e:
+            logger.warning(e)
+            return make_serializable(vars(obj))
+    elif isinstance(obj, (np.integer, np.floating)):
+        return obj.item()  # Convert numpy types to native Python types
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()  # Convert numpy arrays to lists
+    elif hasattr(obj, "__dict__"):  # Check this only after primitive and known types
+        return make_serializable(get_non_empty_attributes(obj))
     else:
         return str(obj)  # Fallback for unsupported types
 

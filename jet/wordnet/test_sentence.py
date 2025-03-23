@@ -412,5 +412,48 @@ class TestMergeSentences(unittest.TestCase):
         self.assertEqual(result, expected)
 
 
-if __name__ == '__main__':
+class TestOrderedListDetection(unittest.TestCase):
+
+    def test_is_ordered_list_marker(self):
+        test_cases = [
+            ("1.", True),
+            ("1000.", True),
+            ("X.", True),
+            ("iv)", True),
+            ("a)", True),
+            ("A)", True),
+            ("iii.", True),
+            ("IV.", True),
+            ("10)", True),
+            ("1", False),
+            ("1000", False),
+            ("Hello", False),
+            ("1. Hello", False),
+            ("(1)", False)
+        ]
+        for marker, expected in test_cases:
+            with self.subTest(marker=marker):
+                self.assertEqual(is_ordered_list_marker(marker), expected)
+
+    def test_is_ordered_list_sentence(self):
+        test_cases = [
+            ("1. Hello", True),
+            ("1000. World", True),
+            ("X. Example", True),
+            ("iv) Example", True),
+            ("a) Example", True),
+            ("A) Sample text", True),
+            ("III. Something", True),
+            ("1.", False),
+            ("1000.", False),
+            ("Hello 1. World", False),
+            ("1 Example", False),
+            ("(1) Something", False),
+        ]
+        for sentence, expected in test_cases:
+            with self.subTest(sentence=sentence):
+                self.assertEqual(is_ordered_list_sentence(sentence), expected)
+
+
+if __name__ == "__main__":
     unittest.main()

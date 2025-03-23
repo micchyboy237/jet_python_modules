@@ -6,6 +6,10 @@ from unidecode import unidecode
 # nltk.download("punkt")
 
 
+def remove_non_alphanumeric(text):
+    return re.sub(r'[^a-zA-Z0-9]', '', text)
+
+
 def fix_and_unidecode(text: str) -> str:
     """Converts escaped sequences to actual characters before unidecoding,
     while preserving direct Unicode characters."""

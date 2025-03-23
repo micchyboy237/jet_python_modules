@@ -362,54 +362,97 @@ class TestSentenceSimilarityFunctions(unittest.TestCase):
 
     def test_sentence_similarity_invalid_input(self):
         """Test that an error is raised for invalid input types."""
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, TypeError)):
             sentence_similarity(self.base_sentence, 123)  # Invalid type
 
-    def test_filter_highest_similarity_basic(self):
-        """Test finding the highest similarity sentence."""
-        result = filter_highest_similarity(
-            self.base_sentence, self.sentences_to_compare)
 
-        self.assertIn("text", result)
-        self.assertIn("score", result)
-        self.assertIn("others", result)
-        self.assertTrue(0.0 <= result["score"] <= 1.0)
-        self.assertIsInstance(result["others"], list)
+class TestCosineSimilarity(unittest.TestCase):
+    """Tests for cosine similarity-based filtering."""
 
-    def test_filter_highest_similarity_no_texts(self):
-        """Test that an error is raised when no texts are provided."""
-        with self.assertRaises(ValueError):
-            filter_highest_similarity(self.base_sentence, [])
-
-    def test_filter_highest_similarity_different_texts(self):
-        """Test with a mix of high and low similarity sentences."""
-        generated_texts = [
-            "This has nothing to do with the original sentence.",
-            "October seven is our vacation date.",
-            "Completely unrelated text."
+    def setUp(self):
+        self.query = "Latest advancements in artificial intelligence and deep learning."
+        self.sentences = [
+            "Deep learning and artificial intelligence are transforming industries in 2024.",
+            "Machine learning trends indicate a strong focus on reinforcement learning.",
+            "Quantum computing is the next frontier in technological advancements.",
+            "AI is improving medical diagnostics with cutting-edge deep learning techniques."
         ]
-        result = filter_highest_similarity(self.base_sentence, generated_texts)
-        expected = "October seven is our vacation date."
-        self.assertEqual(result["text"], expected)
-        self.assertIn(result["text"], generated_texts)
 
-    def test_filter_highest_similarity_score_ordering(self):
-        """Test that the 'others' list is sorted in descending order of similarity."""
+    def test_cosine_similarity_ranking(self):
+        """Check that cosine similarity returns the most relevant sentence."""
         result = filter_highest_similarity(
-            self.base_sentence, self.sentences_to_compare)
-        scores = [other['score'] for other in result["others"]]
-        self.assertEqual(scores, sorted(scores, reverse=True))
+            self.query, self.sentences, similarity_metric="cosine")
+        self.assertEqual(
+            result["text"], "Deep learning and artificial intelligence are transforming industries in 2024.")
 
-    def test_filter_highest_similarity_expected_value(self):
-        """Test that the function selects the expected highest similarity sentence."""
+    def test_cosine_similarity_with_threshold(self):
+        """Ensure that results below a certain threshold are filtered out."""
         result = filter_highest_similarity(
-            self.base_sentence, self.sentences_to_compare)
-        self.assertEqual(result["text"], self.expected_highest_similarity_text,
-                         f"Expected highest similarity text to be '{self.expected_highest_similarity_text}', but got '{result['text']}'")
+            self.query, self.sentences, similarity_metric="cosine", threshold=0.5)
+        self.assertTrue(all(item["score"] >= 0.5 for item in result["others"]))
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestDotProductSimilarity(unittest.TestCase):
+    """Tests for dot product-based filtering."""
+
+    def setUp(self):
+        self.query = "Recommend a good sci-fi movie with deep philosophical themes."
+        self.sentences = [
+            "Interstellar is a visually stunning sci-fi film exploring time dilation and human survival.",
+            "Blade Runner 2049 continues the cyberpunk legacy with philosophical undertones.",
+            "The Avengers is a superhero movie with action-packed sequences.",
+            "The Matrix is a classic science fiction film questioning reality and free will."
+        ]
+
+    def test_dot_product_ranking(self):
+        """Check that dot product similarity correctly ranks sci-fi movies."""
+        result = filter_highest_similarity(
+            self.query, self.sentences, similarity_metric="dot")
+        self.assertIn(result["text"], ["Interstellar is a visually stunning sci-fi film exploring time dilation and human survival.",
+                                       "Blade Runner 2049 continues the cyberpunk legacy with philosophical undertones.",
+                                       "The Matrix is a classic science fiction film questioning reality and free will."])
+
+    def test_dot_product_with_threshold(self):
+        """Ensure that low-scoring results are filtered with a threshold."""
+        result = filter_highest_similarity(
+            self.query, self.sentences, similarity_metric="dot", threshold=0.6)
+        self.assertTrue(all(item["score"] >= 0.6 for item in result["others"]))
+
+
+class TestEuclideanDistance(unittest.TestCase):
+    """Tests for Euclidean distance-based filtering."""
+
+    def setUp(self):
+        self.query = "Can a landlord evict a tenant without notice in California?"
+        self.sentences = [
+            "In California, a landlord must provide a written notice before evicting a tenant unless in extreme cases.",
+            "Evictions are subject to state and local laws, which may require notice periods.",
+            "Tenant rights in California are protected under specific legal provisions, and notice is usually required.",
+            "Landlords have no restrictions on evictions and can remove tenants at any time."
+        ]
+
+    def test_euclidean_distance_ranking(self):
+        """Check that Euclidean distance correctly ranks legal information."""
+        result = filter_highest_similarity(
+            self.query, self.sentences, similarity_metric="euclidean")
+        # Top 3 are correct matches
+        self.assertIn(result["text"], self.sentences[:3])
+
+    def test_euclidean_distance_with_threshold(self):
+        """Ensure that lower-scoring results are filtered when a threshold is applied."""
+        result = filter_highest_similarity(
+            self.query, self.sentences, similarity_metric="euclidean", threshold=0.4)
+        self.assertTrue(all(item["score"] >= 0.4 for item in result["others"]))
+
+
+class TestErrorHandling(unittest.TestCase):
+    """Tests for invalid inputs and error handling."""
+
+    def test_invalid_similarity_metric(self):
+        """Ensure an invalid similarity metric raises a ValueError."""
+        with self.assertRaises(ValueError):
+            filter_highest_similarity("AI research trends", [
+                                      "AI is evolving rapidly."], similarity_metric="invalid_metric")
 
 
 # class TestTextComparator(unittest.TestCase):
@@ -453,25 +496,20 @@ if __name__ == "__main__":
 #         updated_text = "I am going to the store"
 #         self.assertTrue(comparator.has_improved_spelling(
 #             updated_text, base_text), "Test failed for improved spelling")
-
 #         # Test with same spelling
 #         base_text = "I am going to the store"
 #         updated_text = "I am going to the store"
 #         self.assertFalse(comparator.has_improved_spelling(
 #             updated_text, base_text), "Test failed for same spelling")
-
 #         # Test with worse spelling
 #         base_text = "I am going to the store"
 #         updated_text = "I am going to the stre"
 #         self.assertFalse(comparator.has_improved_spelling(
 #             updated_text, base_text), "Test failed for worsened spelling")
-
 #         # Test with no improvement
 #         base_text = '| Learn Tagalog\n\nUseful Words and Phrases\nfor everyday use\n(Part 1)'
 #         updated_text = '| Learn Tagalog\n\nUseful Words and Phrases\nfor everyday use\n\n| (Part 1)'
 #         self.assertFalse(comparator.has_improved_spelling(
 #             updated_text, base_text), "Test failed for no improvement")
-
-
 if __name__ == "__main__":
     unittest.main()

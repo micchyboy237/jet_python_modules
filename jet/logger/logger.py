@@ -108,9 +108,8 @@ class CustomLogger:
 
             if isinstance(prompt, dict):
                 for key, value in prompt.items():
-                    capitalized_key = key.capitalize()
                     # Use color for dictionary keys
-                    prompt_log += f"{line_prefix}{KEY_COLOR}{capitalized_key}{RESET}: "
+                    prompt_log += f"{line_prefix}{KEY_COLOR}{key}{RESET}: "
                     if isinstance(value, (dict, list)):  # If nested structure
                         prompt_log += f"\n{_inner(value, level + 1)}"
                     else:  # Primitive value

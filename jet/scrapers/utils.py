@@ -84,7 +84,7 @@ def clean_punctuations(content: str) -> str:
     :param content: Input string with possible consecutive punctuations.
     :return: String with cleaned punctuation.
     """
-    return re.sub(r'([.?!#-]+)', lambda match: match.group()[-1], content)
+    return re.sub(r'([.?!#-)]+)', lambda match: match.group()[-1], content)
 
 
 def clean_spaces(content: str) -> str:

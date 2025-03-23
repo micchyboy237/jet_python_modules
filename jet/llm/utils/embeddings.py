@@ -1,3 +1,5 @@
+from jet.cache.joblib.utils import ttl_cache
+from jet.data.utils import hash_text
 from jet.token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
 import numpy as np
 
@@ -5,7 +7,7 @@ from jet.logger import logger
 from jet.logger.timer import time_it
 import sentence_transformers
 from tqdm import tqdm
-from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
+from jet.llm.models import DEFAULT_SF_EMBED_MODEL, OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from sentence_transformers import SentenceTransformer
 import requests
 from typing import Any, Optional, Callable, Sequence, Union, List, TypedDict
@@ -67,7 +69,7 @@ class OllamaEmbeddingFunction():
 
 
 class SFEmbeddingFunction():
-    def __init__(self, model_name: str = "all-MiniLM-L12-v2", batch_size: int = 32) -> None:
+    def __init__(self, model_name: str = DEFAULT_SF_EMBED_MODEL, batch_size: int = 32) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
         self.model = SentenceTransformer(model_name)
@@ -87,46 +89,52 @@ class SFEmbeddingFunction():
 
     @time_it(function_name="generate_sf_batch_embeddings")
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
+        base_input = input
+
         logger.info(f"Generating SF embeddings...")
         logger.debug(f"Model: {self.model_name}")
-        logger.debug(f"Texts: {len(input)}")
+        logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
         logger.debug(f"Batch size: {self.batch_size}")
 
-        if isinstance(input, str):
-            input = [input]
-        # Tokenize the input and calculate token counts for each document
-        token_counts = self.calculate_tokens(input)
+        # if isinstance(input, str):
+        #     input = [input]
 
-        batched_input = []
-        current_batch = []
-        current_token_count = 0
+        # # Tokenize the input and calculate token counts for each document
+        # token_counts = self.calculate_tokens(input)
 
-        # Split the input into batches based on the batch_size
-        for doc, token_count in zip(input, token_counts):
-            # Start a new batch when the batch size limit is reached
-            if len(current_batch) >= self.batch_size:
-                batched_input.append(current_batch)
-                current_batch = [doc]
-                current_token_count = token_count
-            else:
-                current_batch.append(doc)
-                current_token_count += token_count
+        # batched_input = []
+        # current_batch = []
+        # current_token_count = 0
 
-        if current_batch:  # Don't forget to add the last batch
-            batched_input.append(current_batch)
+        # # Split the input into batches based on the batch_size
+        # for doc, token_count in zip(input, token_counts):
+        #     # Start a new batch when the batch size limit is reached
+        #     if len(current_batch) >= self.batch_size:
+        #         batched_input.append(current_batch)
+        #         current_batch = [doc]
+        #         current_token_count = token_count
+        #     else:
+        #         current_batch.append(doc)
+        #         current_token_count += token_count
 
-        # Embed each batch using encode and decode methods
-        all_embeddings = []
-        for batch in batched_input:
-            # Encode documents into embeddings
-            embeddings = self.model.encode(batch, show_progress_bar=True)
-            all_embeddings.extend(embeddings)
+        # if current_batch:  # Don't forget to add the last batch
+        #     batched_input.append(current_batch)
 
-        return all_embeddings
+        # # Embed each batch using encode and decode methods
+        # all_embeddings = []
+        # for batch in batched_input:
+        #     # Encode documents into embeddings
+        #     embeddings = self.model.encode(batch, show_progress_bar=False)
+        #     all_embeddings.extend(embeddings)
+
+        all_embeddings = self.model.encode(
+            base_input, convert_to_tensor=True, show_progress_bar=False)
+
+        return all_embeddings.tolist()
 
 
 class SFRerankingFunction:
-    def __init__(self, model_name: str = "all-MiniLM-L12-v2", batch_size: int = 32) -> None:
+    def __init__(self, model_name: str = DEFAULT_SF_EMBED_MODEL, batch_size: int = 32) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
         self.model = sentence_transformers.CrossEncoder(model_name)
@@ -184,16 +192,77 @@ class SFRerankingFunction:
         return all_embeddings
 
 
-def get_embedding_function(
-    model_name: str | OLLAMA_EMBED_MODELS,
-    batch_size: int = 32,
+global_embed_model_func = None
+global_embed_model_name = None
+global_embed_batch_size = 32
+
+
+def initialize_embed_function(
+    model_name: str, batch_size: int
 ) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
-    use_ollama = model_name in [
-        *OLLAMA_EMBED_MODELS.__args__, *OLLAMA_MODEL_NAMES.__args__]
-    if use_ollama:
-        return OllamaEmbeddingFunction(model_name=model_name, batch_size=batch_size)
-    else:
-        return SFEmbeddingFunction(model_name=model_name, batch_size=batch_size)
+    """Initialize and cache embedding functions globally."""
+    global global_embed_model_func, global_embed_model_name, global_embed_batch_size
+
+    if not global_embed_model_func or global_embed_model_name != model_name or global_embed_batch_size != batch_size:
+        use_ollama = model_name in OLLAMA_EMBED_MODELS
+
+        if use_ollama:
+            embed_func = OllamaEmbeddingFunction(model_name, batch_size)
+        else:
+            embed_func = SFEmbeddingFunction(model_name, batch_size)
+
+        global_embed_model_func = embed_func
+        global_embed_model_name = model_name
+        global_embed_batch_size = batch_size
+
+    return global_embed_model_func
+
+
+def get_embedding_function(
+    model_name: str, batch_size: int = 32
+) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
+    """Retrieve or cache embeddings with optional TTLCache."""
+    embed_func = initialize_embed_function(model_name, batch_size)
+
+    def cached_embedding(input_text: str | list[str]):
+        """Fetch embedding from cache or compute if not cached."""
+
+        # Ensure input is treated as a list
+        single_input = False
+        if isinstance(input_text, str):
+            input_text = [input_text]  # Convert to list for consistency
+            single_input = True
+
+        # Placeholder list to maintain order
+        results = [None] * len(input_text)
+        missing_texts = []
+        missing_indices = []
+
+        # First, check cache for each text
+        for idx, text in enumerate(input_text):
+            text_hash = hash_text(text)
+
+            if ttl_cache is not None and text_hash in ttl_cache:
+                results[idx] = ttl_cache[text_hash]  # Retrieve from cache
+            else:
+                missing_texts.append(text)  # Mark as missing
+                missing_indices.append(idx)
+
+        # Compute embeddings only for missing texts
+        if missing_texts:
+            computed_embeddings = embed_func(missing_texts)  # Call API once
+
+            # Store results in cache and maintain order
+            for idx, (text, embedding) in zip(missing_indices, zip(missing_texts, computed_embeddings)):
+                text_hash = hash_text(text)
+                if ttl_cache is not None:
+                    ttl_cache[text_hash] = embedding
+                results[idx] = embedding
+
+        # Return single embedding if the original input was a string
+        return results[0] if single_input else results
+
+    return cached_embedding
 
 
 def get_reranking_function(

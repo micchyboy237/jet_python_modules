@@ -1,8 +1,10 @@
+import traceback
 import inspect
 import os
 from collections import defaultdict
 from typing import Optional, TypedDict
 
+from jet.transformers.object import make_serializable
 from shared.setup.types import BaseEventData
 from jet.logger import logger
 
@@ -12,13 +14,92 @@ class INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE(TypedDict):
     last: BaseEventData
 
 
+# Paths to include and exclude in logs
+INCLUDE_PATHS = ["Jet_Projects/", "repo-libs/"]
+EXCLUDE_PATHS = ["site-packages/"]
+
+MAX_LOG_LENGTH = 100  # Max length for logged values
+
+
+def validate_filepath(file_path: str) -> bool:
+    # Check if path should be included
+    if not any(path in file_path for path in INCLUDE_PATHS):
+        return False  # Skip if not in allowed paths
+
+    # Check if path should be excluded
+    if any(path in file_path for path in EXCLUDE_PATHS):
+        return False  # Skip if in excluded paths
+
+    return True
+
+
+def truncate_value(value):
+    """Truncates long strings and collections for logging."""
+    serialized = make_serializable(value)
+    max_list_items = 2
+
+    if isinstance(serialized, str):
+        return serialized[:MAX_LOG_LENGTH] + "..." if len(serialized) > MAX_LOG_LENGTH else serialized
+    elif isinstance(serialized, list):
+        return [truncate_value(item) for item in serialized[:max_list_items]] + (["..."] if len(serialized) > max_list_items else [])
+    elif isinstance(serialized, dict):
+        # Log first 5 key-value pairs
+        return {k: truncate_value(v) for k, v in list(serialized.items())[:5]}
+    return serialized  # Return unchanged for numbers, bools, etc.
+
+
+def log_filtered_stack_trace(exc: Exception):
+    """Logs only relevant stack trace frames based on include/exclude filters, with truncated function argument values."""
+
+    tb = traceback.extract_tb(exc.__traceback__)
+    stack = inspect.trace()  # Get full stack for local variables
+    error_message = str(exc)  # Extract error message
+
+    for i, frame in enumerate(tb):
+        filename = frame.filename
+
+        if not validate_filepath(filename):
+            continue
+
+        line_number = frame.lineno
+        function_name = frame.name
+        code_context = frame.line  # Code that triggered the error
+
+        logger.newline()
+        logger.warning(
+            f"Stack [{i}]: File \"{filename}\", line {line_number}, in {function_name}"
+        )
+
+        logger.newline()
+        logger.warning(f"Code (Line {line_number}):")  # Include line number
+        logger.error(code_context)
+
+        logger.newline()
+        logger.warning("Error Message:")
+        logger.error(error_message)  # Log error message
+
+        # Find matching function frame to extract argument names + values
+        for stack_frame in stack:
+            if stack_frame.function == function_name and stack_frame.filename == filename:
+                # Extract function args (name + values)
+                local_vars = stack_frame.frame.f_locals
+                truncated_args = {k: truncate_value(
+                    v) for k, v in local_vars.items()}  # Truncate long values
+
+                logger.newline()
+                logger.warning("Args:")
+                logger.pretty(truncated_args)
+
+                break  # Stop after finding the matching function
+
+
 def inspect_original_script_path() -> Optional[INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE]:
     # Get the stack frames
     stack_info = inspect.stack()
 
     matching_frames = [
         frame for frame in stack_info
-        if any(partial_path in frame.filename for partial_path in ["Jet_Projects/", "repo-libs"]) and "site-packages/" not in frame.filename
+        if validate_filepath(frame.filename)
     ]
     matching_functions = [
         frame for frame in matching_frames
@@ -65,7 +146,7 @@ def print_inspect_original_script_path():
     stack_info = inspect.stack()
     print("Inspecting stack frames:\n")
     for idx, frame in enumerate(stack_info):
-        if any(partial_path in frame.filename for partial_path in ["Jet_Projects/", "repo-libs"]) and "site-packages/" not in frame.filename:
+        if validate_filepath(frame.filename):
             logger.info(f"Frame #{idx}:")
             logger.log("  File:", frame.filename,
                        colors=["WHITE", "DEBUG"])
@@ -114,7 +195,7 @@ def get_stack_frames(max_frames: Optional[int] = None):
     stack_info = inspect.stack()
     frames = [
         frame for frame in stack_info
-        if any(partial_path in frame.filename for partial_path in ["Jet_Projects/", "repo-libs"]) and "site-packages/" not in frame.filename
+        if validate_filepath(frame.filename)
     ]
     frames = frames[-max_frames:] if max_frames else frames
 
@@ -133,7 +214,7 @@ def find_stack_frames(text: str):
     stack_info = inspect.stack()
     frames = [
         frame for frame in stack_info
-        if any(partial_path in frame.filename for partial_path in ["Jet_Projects/", "repo-libs"]) and "site-packages/" not in frame.filename
+        if validate_filepath(frame.filename)
     ]
     frames = [
         frame for frame in frames for code in frame.code_context if text in code]

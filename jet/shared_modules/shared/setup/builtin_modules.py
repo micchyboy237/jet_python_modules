@@ -15,6 +15,8 @@ from .import_modules import (
     find_stack_frames,
     get_current_running_function,
 
+    is_class_instance,
+    is_dictionary,
     class_to_string,
     validate_class,
     get_class_name,
@@ -124,6 +126,10 @@ def inject_globals():
         builtins.find_stack_frames = find_stack_frames
     if not hasattr(builtins, "get_current_running_function"):
         builtins.get_current_running_function = get_current_running_function
+    if not hasattr(builtins, "is_class_instance"):
+        builtins.is_class_instance = is_class_instance
+    if not hasattr(builtins, "is_dictionary"):
+        builtins.is_dictionary = is_dictionary
     if not hasattr(builtins, "class_to_string"):
         builtins.class_to_string = class_to_string
     if not hasattr(builtins, "validate_class"):

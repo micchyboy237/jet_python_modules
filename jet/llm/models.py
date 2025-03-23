@@ -8,6 +8,7 @@ from transformers import AutoTokenizer
 from jet.logger import logger
 from jet.cache.redis import RedisCache, RedisConfigParams
 
+DEFAULT_SF_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
 
 # Get the list of ollama models
 OLLAMA_MODEL_NAMES = Literal[

@@ -1,6 +1,8 @@
 import math
 from jet.data.utils import generate_unique_hash
-from jet.wordnet.sentence import split_sentences
+from jet.utils.text import remove_non_alphanumeric
+from jet.wordnet.sentence import adaptive_split, split_sentences
+from jet.wordnet.similarity import filter_highest_similarity
 import numpy as np
 from typing import List
 from collections import Counter
@@ -39,6 +41,9 @@ class SimilarityResult(TypedDict):
 def preprocess_reranker_texts(texts: str | list[str]) -> list[str]:
     if isinstance(texts, str):
         texts = [texts]
+
+    # Lowercase
+    texts = [text.lower() for text in texts]
     preprocessed_texts: list[str] = texts.copy()
 
     for idx, text in enumerate(preprocessed_texts):
@@ -130,10 +135,16 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
                             (1 - b + b * (doc_length / avg_doc_len)) + delta
                         sentence_score += idf[term] * (numerator / denominator)
 
+                # If the entire query appears in the sentence, give a small boost to its score.
+                # This ensures exact phrase matches are slightly favored.
                 if query in sentence:
-                    sentence_score += 0.5
+                    sentence_score += 1.0  # Increased from 0.5 to 1.0 for stronger emphasis on exact matches
+                    lowered_orig_sentences = split_sentences(
+                        orig_doc_text.lower())
+                    matched_orig_sentence = filter_highest_similarity(
+                        sentence, lowered_orig_sentences)
                     start_idx = orig_doc_text.lower().index(
-                        sentence.splitlines()[0])
+                        matched_orig_sentence["text"])
                     end_idx = start_idx + len(sentence)
                     sentence = orig_doc_text[start_idx:end_idx]
                     matched_sentence_list.append(Match(
@@ -170,6 +181,90 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
                 matched=matched,
                 matched_sentences=matched_sentences,
                 text=orig_doc_text
+            ))
+
+    if all_scores:
+        max_similarity = max(entry["score"] for entry in all_scores)
+        for entry in all_scores:
+            entry["score"] = entry["score"] / \
+                max_similarity if max_similarity > 0 else 0
+
+    return sorted(all_scores, key=lambda x: x["score"], reverse=True)
+
+
+def get_bm25_similarities_old(
+    queries: List[str], documents: List[str], ids: List[str], *, k1=1.2, b=0.75, delta=1.0
+) -> List[SimilarityResult]:
+    """
+    Compute BM25+ similarities between queries and a list of documents.
+
+    Args:
+        queries (List[str]): List of query strings.
+        documents (List[str]): List of document strings.
+        ids (List[str]): List of document ids corresponding to the documents.
+        k1 (float): Term frequency scaling factor.
+        b (float): Length normalization parameter.
+        delta (float): BM25+ correction factor to reduce the bias against short documents.
+
+    Returns:
+        List[SimilarityResult]: A list of similarity results with scores and match details.
+    """
+
+    if not queries or not documents:
+        raise ValueError("queries and documents must not be empty")
+
+    if len(documents) != len(ids):
+        raise ValueError("documents and ids must have the same lengths")
+
+    tokenized_docs = [doc.split() for doc in documents]
+    doc_lengths = [len(doc) for doc in tokenized_docs]
+    avg_doc_len = sum(doc_lengths) / len(doc_lengths)
+
+    df = {}
+    total_docs = len(documents)
+    for doc in tokenized_docs:
+        unique_terms = set(doc)
+        for term in unique_terms:
+            df[term] = df.get(term, 0) + 1
+
+    idf = {term: math.log((total_docs - freq + 0.5) / (freq + 0.5) + 1)
+           for term, freq in df.items()}
+    all_scores: List[SimilarityResult] = []
+
+    for idx, doc in enumerate(tokenized_docs):
+        doc_length = doc_lengths[idx]
+        term_frequencies = Counter(doc)
+        score = 0
+        matched: dict[str, int] = {}
+        matched_sentences: dict[str, List[Match]] = {}
+
+        for query in queries:
+            query_terms = query.split()
+            query_score = 0
+
+            for term in query_terms:
+                if term in idf:
+                    tf = term_frequencies[term]
+                    numerator = tf * (k1 + 1)
+                    denominator = tf + k1 * \
+                        (1 - b + b * (doc_length / avg_doc_len)) + delta
+                    query_score += idf[term] * (numerator / denominator)
+
+            if query_score > 0:
+                matched[query] = matched.get(
+                    query, 0) + 1  # Count query occurrences
+
+            score += query_score
+
+        if score > 0:
+            all_scores.append(SimilarityResult(
+                id=ids[idx],
+                score=score,
+                similarity=score,
+                matched=matched,
+                # Empty since old version lacks sentence matching
+                matched_sentences=matched_sentences,
+                text=documents[idx],
             ))
 
     if all_scores:

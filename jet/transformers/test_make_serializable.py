@@ -109,8 +109,8 @@ class TestMakeSerializable(unittest.TestCase):
         self.assertEqual(
             json.dumps(result),
             json.dumps({
-                "http_version": "1.0",
                 "host": 'localhost',
+                "http_version": "1.0",
                 "port": 8080,
             }))
 
@@ -155,13 +155,13 @@ class TestMakeSerializable(unittest.TestCase):
     def test_serializable_complex_structure(self):
         byte_val_dict = {"model": "llama3.2:latest"}
         byte_val = b'{"model": "llama3.2:latest"}'
-        dict_bytes_val = {
+        nested_bytes_val = {
             "key":  byte_val,
             "nested_bytes": {
                 "nested_key":  byte_val
             }
         }
-        dict_bytes_val_dict = {
+        nested_bytes_val_dict = {
             "key":  byte_val_dict,
             "nested_bytes": {
                 "nested_key":  byte_val_dict
@@ -170,23 +170,26 @@ class TestMakeSerializable(unittest.TestCase):
 
         obj = {
             "list": [4, 2, 3, 2, 5],
-            "list_bytes": [byte_val, dict_bytes_val],
+            "list_bytes": [byte_val, nested_bytes_val],
             "tuple": (4, 2, 3, 2, 5),
-            "tuple_bytes": (byte_val, dict_bytes_val),
+            "tuple_bytes": (byte_val, nested_bytes_val),
             "set": {4, 2, 3, 2, 5},
             "set_bytes": {byte_val, byte_val},
-            "dict_bytes": dict_bytes_val
+            "dict_bytes": nested_bytes_val
         }
         result = make_serializable(obj)
-        self.assertEqual(json.dumps(result), json.dumps({
+        expected = {
             "list": [4, 2, 3, 2, 5],
-            "list_bytes": [byte_val_dict, dict_bytes_val_dict],
-            "tuple": (4, 2, 3, 2, 5),
-            "tuple_bytes": (byte_val_dict, dict_bytes_val_dict),
+            "list_bytes": [byte_val_dict, nested_bytes_val_dict],
+            "tuple": [4, 2, 3, 2, 5],
+            "tuple_bytes": [byte_val_dict, nested_bytes_val_dict],
             "set": [2, 3, 4, 5],
             "set_bytes": [byte_val_dict],
-            "dict_bytes": dict_bytes_val_dict
-        }))
+            "dict_bytes": nested_bytes_val_dict
+        }
+
+        for key in result.keys():
+            self.assertEqual(result[key], expected[key], f"Error with {key}")
 
 
 if __name__ == "__main__":

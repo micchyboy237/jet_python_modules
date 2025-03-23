@@ -5,6 +5,17 @@ from typing import Any, Iterable, Type
 from jet.logger import logger
 
 
+# Function to check if an object is an instance of a user-defined class
+def is_class_instance(obj):
+    return isinstance(obj, object) and not isinstance(obj, dict)
+
+
+# Function to check if an object is a dictionary
+def is_dictionary(obj):
+    # Ensures it's exactly a dictionary, not a subclass
+    return type(obj) is dict
+
+
 def class_to_string(cls: Type | object) -> str:
     # If the input is an object, get its class first
     if not isinstance(cls, type):
@@ -148,18 +159,6 @@ def get_non_callable_attributes(obj: Any) -> Dict[str, Any]:
             attributes[attr] = value
     return attributes
 
-
-__all__ = [
-    "class_to_string",
-    "validate_class",
-    "get_class_name",
-    "validate_iterable_class",
-    "get_iterable_class_name",
-    "get_non_empty_attributes",
-    "get_internal_attributes",
-    "get_callable_attributes",
-    "get_non_callable_attributes",
-]
 
 # Real-world usage examples
 # Example usage 1:
@@ -307,3 +306,18 @@ if __name__ == "__main__":
             print(f"Assertion passed: Class name of dog is 'Dog'.")
     except TypeError as e:
         assert get_class_name(e) == "TypeError"
+
+
+__all__ = [
+    "is_class_instance",
+    "is_dictionary",
+    "class_to_string",
+    "validate_class",
+    "get_class_name",
+    "validate_iterable_class",
+    "get_iterable_class_name",
+    "get_non_empty_attributes",
+    "get_internal_attributes",
+    "get_callable_attributes",
+    "get_non_callable_attributes",
+]

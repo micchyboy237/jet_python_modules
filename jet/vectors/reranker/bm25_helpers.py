@@ -116,27 +116,6 @@ def transform_queries_to_ngrams(query: str | list[str], ngrams: dict[str, int]) 
     return transformed_queries
 
 
-def validate_matches_complete(results: List[SearchResult], queries: list[str], min_count: int = 1) -> bool:
-    """Processes BM25+ similarity search by handling cache, cleaning data, generating n-grams, and computing similarities."""
-
-    # Aggregate all "matched"
-    matched = {}
-    for result in results:
-        result_matched = result["matched"]
-        for match_query, match in result_matched.items():
-            if match_query not in matched:
-                matched[match_query] = 0
-            matched[match_query] += 1
-
-    all_terms = queries
-    matched_terms = [
-        term for term in all_terms
-        if term in matched and matched[term] >= min_count
-    ]
-
-    return all_terms == matched_terms
-
-
 # def search_and_rerank(query: str | List[str], texts: List[str], *, max_tokens: int = 200) -> QueryResult:
 #     queries = query
 #     if isinstance(queries, str):
@@ -265,7 +244,7 @@ class HybridSearch:
 
     def build_index(self, texts: list[str] = [], max_tokens: Optional[int] = None, batch_size: int = 32):
         self._setup_index(texts, max_tokens)
-        self._setup_build_semantic_index(batch_size=batch_size)
+        # self._setup_build_semantic_index(batch_size=batch_size)
 
     # @time_it
     # def semantic_search(self, query: str | List[str], top_k: Optional[int] = None) -> List[SearchResult]:
@@ -326,8 +305,8 @@ class HybridSearch:
 
         return reranked_results
 
-    def search(self, query: str, *, top_k: Optional[int] = None, threshold: float = 0.0) -> SearchResultData:
-        semantic_results = self.semantic_search(query, top_k=top_k)
+    def search(self, query: str | List[str], *, top_k: Optional[int] = None, threshold: float = 0.0) -> SearchResultData:
+        # semantic_results = self.semantic_search(query, top_k=top_k)
         reranked_results = self.rerank_search(query)
         results: List[SearchResult] = [
             {

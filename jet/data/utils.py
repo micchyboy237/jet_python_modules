@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 import json
 from typing import Any
@@ -26,3 +27,8 @@ def generate_key(*args: Any) -> str:
         return str(key)
     except TypeError as e:
         raise ValueError(f"Invalid argument provided: {e}")
+
+
+def hash_text(text: str | list[str]) -> str:
+    """Generate a unique hash for a given text input."""
+    return hashlib.sha256(json.dumps(text, sort_keys=True).encode()).hexdigest()

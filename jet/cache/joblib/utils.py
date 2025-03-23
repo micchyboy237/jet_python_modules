@@ -1,63 +1,104 @@
 import os
-from jet.transformers.object import make_serializable
+import time
+import threading
 import joblib
+from cachetools import TTLCache
+from jet.transformers.object import make_serializable
 from jet.logger import logger
-from typing import Any, Type, TypeVar, Optional, TypedDict
+from typing import Any, Type, Optional
 
 from pydantic.main import BaseModel
 
+import os
+import time
+import threading
+import atexit
+from cachetools import TTLCache
+from jet.logger import logger
+
+# ✅ Cache Configuration
+# Directory for persistent cache
+CACHE_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/cache/joblib/.cache"
+CACHE_TTL = 3600  # Time-to-live for cache files (in seconds)
+CACHE_SIZE = 10000  # Max TTLCache items
+CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
+
+# ✅ Initialize TTLCache
+ttl_cache: TTLCache = TTLCache(
+    maxsize=CACHE_SIZE, ttl=CACHE_TTL)
+
 
 def save_cache(file_path: str, data: Any) -> None:
-    """
-    Save data to a file using joblib.
-
-    :param file_path: Path to save the file.
-    :param data: Python object to be saved.
-    """
-    # Create directories if they don't exist
+    """Save data persistently using joblib and optionally to TTLCache."""
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    # Serialize the model to a dictionary
     joblib.dump(make_serializable(data), file_path)
     logger.success(f"Data saved successfully to {file_path}")
 
+    # ✅ Store in TTLCache if enabled
+    if ttl_cache is not None:
+        ttl_cache[file_path] = data
+
 
 def load_cache(file_path: str) -> Any:
-    """
-    Load data from a file using joblib.
+    """Load data from TTLCache (if enabled) or from file using joblib."""
 
-    :param file_path: Path to the saved file.
-    :return: The loaded Python object, or None if an error occurs.
-    """
-    data: Any = joblib.load(file_path)
-    logger.orange(f"Data loaded successfully from {file_path}")
-    return data
+    # ✅ Check TTLCache first
+    if ttl_cache is not None and file_path in ttl_cache:
+        logger.info(f"Loading from TTL cache: {file_path}")
+        return ttl_cache[file_path]
+
+    # ✅ Otherwise, load from file
+    if os.path.exists(file_path):
+        file_age = time.time() - os.stat(file_path).st_mtime
+        if file_age > CACHE_TTL:
+            os.remove(file_path)
+            logger.warning(f"Deleted expired cache file: {file_path}")
+            return None  # File expired
+
+        data = joblib.load(file_path)
+        logger.orange(f"Data loaded successfully from {file_path}")
+
+        # ✅ Store in TTLCache if enabled
+        if ttl_cache is not None:
+            ttl_cache[file_path] = data
+
+        return data
+
+    return None  # If file does not exist
 
 
 def load_or_save_cache(
     file_path: str,
     data: Optional[Any | BaseModel] = None,
     model: Optional[Type[BaseModel]] = None
-) -> BaseModel:
+) -> Any:
     """
-    Load data from or save data to a cache file, with the model type determined at runtime.
-    Creates directories if they do not exist.
-
-    Args:
-        file_path (str): The path to the cache file (must end with '.pkl').
-        data (Optional[BaseModel]): The data to save. If None, the function loads data instead.
-        model (Optional[Type[BaseModel]]): The Pydantic model class used to validate the data when loading. 
-                                           If not provided, the function will not attempt to load data.
-
-    Returns:
-        BaseModel: The loaded data if data is None and model is provided; otherwise, the saved data.
-
-    Raises:
-        ValueError: If the file path does not end with '.pkl', or if loading data without providing a model.
+    Load data from or save data to a cache file, with optional TTLCache support.
     """
+
+    # ✅ Check TTLCache first if enabled
+    if ttl_cache is not None and file_path in ttl_cache:
+        logger.info(f"Loaded from TTL cache: {file_path}")
+        return ttl_cache[file_path]
+
+    # ✅ Load from file if TTLCache is disabled or cache is missing
     if os.path.exists(file_path):
-        return load_cache(file_path)
+        loaded_data = load_cache(file_path)
+
+        # ✅ Store in TTLCache if enabled
+        if ttl_cache is not None:
+            ttl_cache[file_path] = loaded_data
+
+        return loaded_data
+
+    # ✅ Save new data to file and TTLCache if provided
     elif data:
         save_cache(file_path, data)
+
+        # ✅ Store in TTLCache if enabled
+        if ttl_cache is not None:
+            ttl_cache[file_path] = data
+
         return data
 
 
@@ -90,6 +131,71 @@ def load_from_cache_or_compute(func, *args, file_path: str = "", use_cache: bool
     joblib.dump(result, file_path)
     logger.success(f"Saved cache to: {file_path}")
     return result
+
+
+# ✅ Cleanup Functions
+def cleanup_persistent_cache():
+    """Deletes expired cache files from disk."""
+    logger.gray(CACHE_DIR)
+
+    if not os.path.exists(CACHE_DIR):
+        return
+
+    now = time.time()
+    for file in os.listdir(CACHE_DIR):
+        file_path = os.path.join(CACHE_DIR, file)
+
+        if file.endswith(".pkl"):
+            file_age = now - os.stat(file_path).st_mtime
+            if file_age > CACHE_TTL:
+                os.remove(file_path)
+                logger.warning(f"Deleted expired cache file: {file_path}")
+
+
+def cleanup_ttl_cache():
+    """Manually triggers cleanup for TTLCache."""
+    if ttl_cache:
+        logger.info("Running TTLCache cleanup...")
+        ttl_cache.expire()  # ✅ Explicitly expire old entries
+
+
+def background_cleanup():
+    """Background thread to clean TTLCache & persistent cache periodically."""
+    while True:
+        logger.info("Running cache cleanup...")
+        cleanup_ttl_cache()
+        cleanup_persistent_cache()
+        time.sleep(CACHE_CLEANUP_INTERVAL)  # Wait before running again
+
+
+_cleanup_thread = None  # Global variable to track the cleanup thread
+
+
+def start_cleanup_thread():
+    """Starts a background cleanup thread if not already running."""
+    global _cleanup_thread
+
+    if _cleanup_thread and _cleanup_thread.is_alive():
+        logger.info("Cleanup thread is already running.")
+        return
+
+    logger.info("Starting cache cleanup thread...")
+    _cleanup_thread = threading.Thread(target=background_cleanup, daemon=True)
+    _cleanup_thread.start()
+
+
+def cleanup_on_exit():
+    """Ensures cache cleanup when the program exits."""
+    logger.info("Performing final cache cleanup before exit...")
+    cleanup_ttl_cache()
+    cleanup_persistent_cache()
+
+
+# ✅ Register cleanup to run on exit
+atexit.register(cleanup_on_exit)
+
+# ✅ Start cleanup thread safely
+start_cleanup_thread()
 
 
 __all__ = [
