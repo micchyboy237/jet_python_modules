@@ -1,4 +1,7 @@
 import math
+
+from jet.wordnet.words import get_words
+from tqdm import tqdm
 from jet.data.utils import generate_unique_hash
 from jet.utils.text import remove_non_alphanumeric
 from jet.wordnet.sentence import adaptive_split, split_sentences
@@ -106,7 +109,7 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
            for term, freq in df.items()}
     all_scores: List[SimilarityResult] = []
 
-    for idx, doc_text in enumerate(lowered_documents):
+    for idx, doc_text in tqdm(enumerate(lowered_documents), total=len(lowered_documents), unit="doc"):
         orig_doc_text = documents[idx]
         doc_id = ids[idx]  # Use provided ID or generated unique ID
         sentences: list[str] = split_sentences(doc_text)
@@ -139,12 +142,17 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
                 # This ensures exact phrase matches are slightly favored.
                 if query in sentence:
                     sentence_score += 1.0  # Increased from 0.5 to 1.0 for stronger emphasis on exact matches
-                    lowered_orig_sentences = split_sentences(
-                        orig_doc_text.lower())
-                    matched_orig_sentence = filter_highest_similarity(
-                        sentence, lowered_orig_sentences)
-                    start_idx = orig_doc_text.lower().index(
-                        matched_orig_sentence["text"])
+
+                    sentence_to_match = adaptive_split(sentence)[0]
+                    try:
+                        start_idx = orig_doc_text.lower().index(sentence_to_match)
+                    except:
+                        lowered_orig_sentences = split_sentences(
+                            orig_doc_text.lower())
+                        matched_orig_sentence = filter_highest_similarity(
+                            sentence_to_match, lowered_orig_sentences)
+                        start_idx = orig_doc_text.lower().index(
+                            matched_orig_sentence["text"])
                     end_idx = start_idx + len(sentence)
                     sentence = orig_doc_text[start_idx:end_idx]
                     matched_sentence_list.append(Match(

@@ -16,16 +16,38 @@ import atexit
 from cachetools import TTLCache
 from jet.logger import logger
 
+
 # ✅ Cache Configuration
-# Directory for persistent cache
 CACHE_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/cache/joblib/.cache"
-CACHE_TTL = 3600  # Time-to-live for cache files (in seconds)
-CACHE_SIZE = 10000  # Max TTLCache items
+CACHE_FILE = f"{CACHE_DIR}/ttl_cache_1.pkl"
+CACHE_TTL = 3600  # Time-to-live for TTLCache (seconds)
+CACHE_SIZE = 10000  # Max number of items in TTLCache
 CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
 
 # ✅ Initialize TTLCache
-ttl_cache: TTLCache = TTLCache(
-    maxsize=CACHE_SIZE, ttl=CACHE_TTL)
+ttl_cache: TTLCache = TTLCache(maxsize=CACHE_SIZE, ttl=CACHE_TTL)
+
+
+def load_persistent_cache():
+    """Load the embeddings cache from the persistent cache file."""
+    if os.path.exists(CACHE_FILE):
+        try:
+            cache_data = joblib.load(CACHE_FILE)
+            if isinstance(cache_data, dict):
+                ttl_cache.update(cache_data)  # Load into TTL cache
+                logger.success(
+                    f"Loaded {len(cache_data)} embeddings from cache.")
+        except Exception as e:
+            logger.error(f"Failed to load cache: {e}")
+
+
+def save_persistent_cache():
+    """Save the current TTL cache to the persistent cache file."""
+    try:
+        joblib.dump(dict(ttl_cache), CACHE_FILE)
+        logger.success(f"Saved {len(ttl_cache)} embeddings to {CACHE_FILE}")
+    except Exception as e:
+        logger.error(f"Failed to save cache: {e}")
 
 
 def save_cache(file_path: str, data: Any) -> None:
@@ -51,8 +73,10 @@ def load_cache(file_path: str) -> Any:
     if os.path.exists(file_path):
         file_age = time.time() - os.stat(file_path).st_mtime
         if file_age > CACHE_TTL:
-            os.remove(file_path)
-            logger.warning(f"Deleted expired cache file: {file_path}")
+            # os.remove(file_path)
+            # ✅ Clear file instead of deleting
+            open(file_path, 'w').close()
+            logger.warning(f"Cleared expired cache file: {file_path}")
             return None  # File expired
 
         data = joblib.load(file_path)
@@ -148,8 +172,10 @@ def cleanup_persistent_cache():
         if file.endswith(".pkl"):
             file_age = now - os.stat(file_path).st_mtime
             if file_age > CACHE_TTL:
-                os.remove(file_path)
-                logger.warning(f"Deleted expired cache file: {file_path}")
+                # os.remove(file_path)
+                # ✅ Clear file instead of deleting
+                open(file_path, 'w').close()
+                logger.warning(f"Cleared expired cache file: {file_path}")
 
 
 def cleanup_ttl_cache():
@@ -192,10 +218,12 @@ def cleanup_on_exit():
 
 
 # ✅ Register cleanup to run on exit
-atexit.register(cleanup_on_exit)
+# atexit.register(cleanup_on_exit)
 
 # ✅ Start cleanup thread safely
 start_cleanup_thread()
+# ✅ Load existing cache on startup
+load_persistent_cache()
 
 
 __all__ = [

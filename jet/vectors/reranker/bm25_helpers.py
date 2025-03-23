@@ -1,6 +1,11 @@
 import faiss
+from jet.llm.models import OLLAMA_EMBED_MODELS
+from jet.llm.query.retrievers import setup_index, SearchResult as SemanticSearchResult
 from jet.search.similarity import preprocess_reranker_texts
+from jet.token.token_utils import get_model_max_tokens
 from jet.wordnet.n_grams import count_ngrams, get_most_common_ngrams, get_ngrams
+from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
+from llama_index.core.schema import NodeWithScore
 import numpy as np
 from numpy import ndarray
 
@@ -27,6 +32,7 @@ from sentence_transformers import SentenceTransformer
 
 
 class SearchResult(TypedDict):
+    id: str
     text: str
     score: float
     similarity: Optional[float]
@@ -192,9 +198,10 @@ class SearchResultData(TypedDict):
 
 
 class HybridSearch:
-    def __init__(self, model_name="paraphrase-MiniLM-L12-v2"):
+    def __init__(self, model_name: str | OLLAMA_EMBED_MODELS = "mxbai-embed-large"):
         self.model_name = model_name
-        self.model = SentenceTransformer(self.model_name)
+        if self.model_name not in OLLAMA_EMBED_MODELS.__args__:
+            self.model = SentenceTransformer(self.model_name)
         self.index = None
         self.data: list[str] = []
         self.docs: list[Document] = []
@@ -207,17 +214,28 @@ class HybridSearch:
         preprocessed_texts = preprocess_texts(texts)
         return preprocessed_texts
 
-    @time_it
-    def _setup_build_semantic_index(self, batch_size: int = 32):
-        # Generate embeddings
-        self.embeddings = self.model.encode(
-            self.doc_texts, batch_size=batch_size, convert_to_numpy=True, normalize_embeddings=True
-        )
+    # @time_it
+    # def _setup_build_semantic_index(self, *, doc_texts: Optional[list[str]] = None, batch_size: int = 32):
+    #     doc_texts = doc_texts or self.doc_texts
 
-        # Create FAISS index
-        d = self.embeddings.shape[1]
-        self.index = faiss.IndexFlatIP(d)
-        self.index.add(self.embeddings)
+    #     # Generate embeddings
+    #     self.embeddings = self.model.encode(
+    #         doc_texts, batch_size=batch_size, convert_to_numpy=True, normalize_embeddings=True
+    #     )
+
+    #     # Create FAISS index
+    #     d = self.embeddings.shape[1]
+    #     self.index = faiss.IndexFlatIP(d)
+    #     self.index.add(self.embeddings)
+
+    @time_it
+    def _setup_build_semantic_index(self, *, doc_texts: Optional[list[str]] = None, batch_size: int = 32):
+        system = None
+        documents = [Document(node_id=self.ids[idx], text=text)
+                     for idx, text in enumerate(self.doc_texts)]
+        # Setup index
+        query_nodes = setup_index(documents, embed_model=self.model_name)
+        self.index = query_nodes
 
     def _setup_index(self, texts: list[str], max_tokens: Optional[int] = None):
         self.data = texts
@@ -227,7 +245,7 @@ class HybridSearch:
             nonlocal max_tokens
             preprocessed_texts = self._preprocess_text(texts)
             if not max_tokens:
-                max_tokens = self.model.max_seq_length
+                max_tokens = get_model_max_tokens(self.model_name)
 
             self.docs = split_text_by_docs(preprocessed_texts, max_tokens)
 
@@ -269,60 +287,117 @@ class HybridSearch:
     #         for idx in top_results
     #     ]
 
-    @time_it
-    def semantic_search(self, query: str | List[str], top_k: Optional[int] = None) -> List[SearchResult]:
-        queries = self._preprocess_text(query)
+    # @time_it
+    # def semantic_search(self, query: str | List[str], doc_texts: Optional[list[str]] = None, ids: Optional[list[str]] = None, top_k: Optional[int] = None, batch_size: int = 32) -> List[SearchResult]:
+    #     doc_texts = doc_texts or self.doc_texts
+    #     doc_ids = ids or self.ids
 
-        # queries = query
-        # if isinstance(queries, str):
-        #     queries = [queries]
+    #     if not self.index or doc_texts != self.doc_texts:
+    #         self._setup_build_semantic_index(batch_size=batch_size)
+
+    #     queries = self._preprocess_text(query)
+
+    #     top_k = min(top_k or len(self.doc_texts), len(self.doc_texts))
+
+    #     # Encode query
+    #     query_embedding = self.model.encode(
+    #         queries, convert_to_numpy=True, normalize_embeddings=True
+    #     )
+
+    #     # Perform FAISS search
+    #     scores, indices = self.index.search(query_embedding, top_k)
+
+    #     # Extract top results with scores and IDs
+    #     results: List[SearchResult] = [
+    #         {"id": doc_ids[idx], "text": doc_texts[idx],
+    #             "score": scores[0][i]}
+    #         for i, idx in enumerate(indices[0]) if idx < len(self.doc_texts)
+    #     ]
+
+    #     return results
+
+    @time_it
+    def semantic_search(self, query: str | List[str], doc_texts: Optional[list[str]] = None, ids: Optional[list[str]] = None, top_k: Optional[int] = None, threshold: float = 0.0, batch_size: int = 32) -> List[SearchResult]:
+        if not self.index or not self.doc_texts:
+            self._setup_build_semantic_index(batch_size=batch_size)
 
         top_k = min(top_k or len(self.doc_texts), len(self.doc_texts))
 
-        # Encode query
-        query_embedding = self.model.encode(
-            queries, convert_to_numpy=True, normalize_embeddings=True
+        # Perform FAISS search
+        node_results: SemanticSearchResult = self.index(
+            query, top_k=top_k, score_threshold=threshold, fusion_mode=FUSION_MODES.RELATIVE_SCORE
         )
 
-        # Perform FAISS search
-        scores, indices = self.index.search(query_embedding, top_k)
+        results: List[SearchResult] = []
 
-        # Extract top results with scores
-        results: List[SearchResult] = [
-            {"text": self.doc_texts[idx], "score": scores[0][i]}
-            for i, idx in enumerate(indices[0]) if idx < len(self.doc_texts)
-        ]
+        preprocessed_queries = self._preprocess_text(query)
+        preprocessed_queries = transform_queries_to_ngrams(
+            [query.lower() for query in preprocessed_queries], self.ngrams)
+
+        for node in node_results["nodes"]:
+            node_text_lower = node.text.lower()
+            matched = {q: node_text_lower.count(
+                q) for q in preprocessed_queries if q in node_text_lower}
+
+            results.append({
+                "id": node.node_id,
+                "text": node.text,
+                "score": node.score,
+                "matched": matched,
+            })
 
         return results
 
     @time_it
-    def rerank_search(self, query: str | List[str]) -> SimilarityResultData:
+    def rerank_search(self, query: str | List[str], doc_texts: Optional[list[str]] = None, ids: Optional[list[str]] = None) -> SimilarityResultData:
+        doc_texts = doc_texts or self.doc_texts
+        doc_ids = ids or self.ids
+
         queries = self._preprocess_text(query)
         queries = transform_queries_to_ngrams(
             [query.lower() for query in queries], self.ngrams)
 
-        reranked_results = rerank_bm25(queries, self.doc_texts, self.ids)
+        reranked_results = rerank_bm25(queries, doc_texts, doc_ids)
 
         return reranked_results
 
     def search(self, query: str | List[str], *, top_k: Optional[int] = None, threshold: float = 0.0) -> SearchResultData:
-        # semantic_results = self.semantic_search(query, top_k=top_k)
-        reranked_results = self.rerank_search(query)
-        results: List[SearchResult] = [
-            {
-                "score": item["score"],
-                "similarity": item["similarity"],
-                "text": item["text"],
-                "matched": item["matched"],
-            }
-            for item in reranked_results["data"]
-            if item["score"] >= threshold
-        ]
+        results = self.semantic_search(
+            query, top_k=top_k, threshold=threshold)
+        semantic_doc_texts = [result["text"]
+                              for result in results]
+        semantic_doc_ids = [result["id"]
+                            for result in results]
+
+        # reranked_results = self.rerank_search(
+        #     query, semantic_doc_texts, semantic_doc_ids)
+        # results: List[SearchResult] = [
+        #     {
+        #         "id": item["id"],
+        #         "score": item["score"],
+        #         "similarity": item["similarity"],
+        #         "matched": item["matched"],
+        #         "text": item["text"],
+        #     }
+        #     for item in reranked_results["data"]
+        #     if item["score"] >= threshold
+        # ]
+
+        # Aggregate all "matched"
+
+        queries = self._preprocess_text(query)
+        queries = transform_queries_to_ngrams(
+            [query.lower() for query in queries], self.ngrams)
+        matched = {query.lower(): 0 for query in queries}
+        for result in results:
+            result_matched = result["matched"]
+            for match_query, match in result_matched.items():
+                matched[match_query] += 1
 
         return {
-            "count": reranked_results["count"],
-            "queries": reranked_results["queries"],
-            "matched": reranked_results["matched"],
+            "count": len(results),
+            "queries": queries,
+            "matched": matched,
             "results": results
         }
 

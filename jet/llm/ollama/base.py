@@ -1,4 +1,5 @@
 from jet.data.utils import generate_unique_hash
+from jet.llm.utils.embeddings import get_embedding_function
 from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from collections import defaultdict
 from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
@@ -554,8 +555,8 @@ def embed_nodes(
         texts_to_embed = nodes
         ids_to_embed = [generate_unique_hash(text) for text in nodes]
 
-    embedding_function = get_ollama_embedding_function(
-        model=embed_model
+    embedding_function = get_embedding_function(
+        model_name=embed_model,
     )
     new_embeddings = embedding_function(texts_to_embed)
 

@@ -1,4 +1,4 @@
-from jet.cache.joblib.utils import ttl_cache
+from jet.cache.joblib.utils import save_persistent_cache, ttl_cache
 from jet.data.utils import hash_text
 from jet.token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
 import numpy as np
@@ -204,7 +204,7 @@ def initialize_embed_function(
     global global_embed_model_func, global_embed_model_name, global_embed_batch_size
 
     if not global_embed_model_func or global_embed_model_name != model_name or global_embed_batch_size != batch_size:
-        use_ollama = model_name in OLLAMA_EMBED_MODELS
+        use_ollama = model_name in OLLAMA_EMBED_MODELS.__args__
 
         if use_ollama:
             embed_func = OllamaEmbeddingFunction(model_name, batch_size)
@@ -221,45 +221,42 @@ def initialize_embed_function(
 def get_embedding_function(
     model_name: str, batch_size: int = 32
 ) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
-    """Retrieve or cache embeddings with optional TTLCache."""
+    """Retrieve or cache embeddings using TTLCache and persistent storage."""
     embed_func = initialize_embed_function(model_name, batch_size)
 
     def cached_embedding(input_text: str | list[str]):
         """Fetch embedding from cache or compute if not cached."""
-
-        # Ensure input is treated as a list
         single_input = False
         if isinstance(input_text, str):
-            input_text = [input_text]  # Convert to list for consistency
+            input_text = [input_text]
             single_input = True
 
-        # Placeholder list to maintain order
         results = [None] * len(input_text)
-        missing_texts = []
-        missing_indices = []
+        missing_texts, missing_indices = [], []
 
-        # First, check cache for each text
+        # ✅ Check TTLCache first
         for idx, text in enumerate(input_text):
             text_hash = hash_text(text)
 
-            if ttl_cache is not None and text_hash in ttl_cache:
-                results[idx] = ttl_cache[text_hash]  # Retrieve from cache
+            if text_hash in ttl_cache:
+                results[idx] = ttl_cache[text_hash]
+                logger.success(f"Cache hit: Embedding {idx} - {text[:30]}")
             else:
-                missing_texts.append(text)  # Mark as missing
+                missing_texts.append(text)
                 missing_indices.append(idx)
+                logger.debug(f"Cache miss: Embedding {idx} - {text[:30]}")
 
-        # Compute embeddings only for missing texts
+        # ✅ Compute missing embeddings
         if missing_texts:
-            computed_embeddings = embed_func(missing_texts)  # Call API once
+            computed_embeddings = embed_func(missing_texts)
 
-            # Store results in cache and maintain order
             for idx, (text, embedding) in zip(missing_indices, zip(missing_texts, computed_embeddings)):
                 text_hash = hash_text(text)
-                if ttl_cache is not None:
-                    ttl_cache[text_hash] = embedding
+                ttl_cache[text_hash] = embedding  # ✅ Store in TTLCache
                 results[idx] = embedding
 
-        # Return single embedding if the original input was a string
+            save_persistent_cache()  # ✅ Save updated cache to embeddings.pkl
+
         return results[0] if single_input else results
 
     return cached_embedding

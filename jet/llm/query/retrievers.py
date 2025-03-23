@@ -1,4 +1,4 @@
-from typing import Callable, Optional, Any
+from typing import Callable, Optional, Any, TypedDict
 import json
 import os
 from typing import Any, Callable, Literal, Optional
@@ -198,6 +198,11 @@ def get_file_timestamp(file_path: str) -> Optional[float]:
     return None
 
 
+class SearchResult(TypedDict):
+    nodes: list[NodeWithScore]
+    texts: list[str]
+
+
 class SearchWrapper:
     def __init__(self, path_or_docs, setup_index_func, search_func, **kwargs):
         self.path_or_docs = path_or_docs
@@ -216,7 +221,7 @@ class SearchWrapper:
                     self.path_or_docs, **self.kwargs)
                 self.last_modified = current_modified
 
-    def __call__(self, query: str, *args, **kwargs):
+    def __call__(self, query: str, *args, **kwargs) -> SearchResult:
         # self.reload_if_needed()
         return self.search_func(query, *args, **kwargs)
 

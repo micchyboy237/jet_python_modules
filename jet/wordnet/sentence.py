@@ -49,9 +49,6 @@ def handle_long_sentence(sentence, count_tokens_func, max_tokens):
     segments = []
     start = 0
 
-    progress_bar = tqdm(
-        total=n, desc="Processing long sentence", unit="word", mininterval=0.1)
-
     while start < n:
         # Find the longest valid substring within max_tokens
         end = start
@@ -65,9 +62,6 @@ def handle_long_sentence(sentence, count_tokens_func, max_tokens):
             segments.append(' '.join(words[start:end]))
             start = end  # Move to the next segment
 
-        progress_bar.update(end - start)
-
-    progress_bar.close()
     return ' '.join(segments)
 
 

@@ -336,7 +336,6 @@ class TestSentenceSimilarityFunctions(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Runs once before all tests. Loads model only once."""
-        cls.model = SentenceTransformer("paraphrase-MiniLM-L12-v2")
         cls.base_sentence = "October seven is the date of our vacation to Camarines Sur."
         cls.sentences_to_compare = [
             "October 7 is our holiday in Camarines Sur.",
