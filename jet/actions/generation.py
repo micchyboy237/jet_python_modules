@@ -107,8 +107,7 @@ def call_ollama_chat(
         messages = filter_texts(
             messages, model, max_tokens=max_tokens)
 
-    # num_predict = options.get("num_predict", -1)
-    num_predict = -2
+    num_predict = options.get("num_predict", -1)
     num_ctx = model_max_length
     # if max_prediction_ratio and (not num_predict or num_predict <= 0):
     # calc_result = calculate_num_predict_ctx(messages, model, system=system)
