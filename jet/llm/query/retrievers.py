@@ -747,7 +747,6 @@ def query_llm_structured(
             "answer the query.\n"
             "The generated JSON must pass the provided schema when validated.\n"
             "Generate all information that can be inferred from context.\n"
-            "Do not include unavailable values.\n"
             "Query: {query_str}\n"
             "Answer: "
         )
