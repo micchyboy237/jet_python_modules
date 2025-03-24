@@ -3,7 +3,7 @@ import re
 import os
 from jet.file.utils import load_data, load_data_from_directories
 from typing import Optional, List
-from jet.search.transformers import decode_encoded_characters
+from jet.search.formatters import decode_encoded_characters
 from tqdm import tqdm
 from jet.logger import time_it
 from jet.wordnet.words import get_words

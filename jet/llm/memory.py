@@ -10,7 +10,7 @@ from jet.actions import call_ollama_chat
 from jet.utils.class_utils import get_class_name
 from jet.db.chroma import ChromaClient, VectorItem, InitialDataEntry, SearchResult
 from jet.logger import logger
-from jet.llm.ollama import initialize_ollama_settings, OllamaEmbeddingFunction
+from jet.llm.ollama.base import initialize_ollama_settings, OllamaEmbeddingFunction
 initialize_ollama_settings()
 
 

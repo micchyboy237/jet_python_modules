@@ -25,7 +25,7 @@ from llama_index.embeddings.ollama import OllamaEmbedding as BaseOllamaEmbedding
 from llama_index.core import Settings
 from llama_index.core.settings import _Settings
 
-from jet.llm.ollama import (
+from jet.llm.ollama.config import (
     base_url,
     base_embed_url,
     large_embed_model,

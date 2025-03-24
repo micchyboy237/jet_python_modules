@@ -1,5 +1,5 @@
 from typing import List, Optional, Literal
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import util
 import torch
 from typing import Callable, List
 from sklearn.decomposition import PCA

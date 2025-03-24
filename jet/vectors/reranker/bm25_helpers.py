@@ -17,7 +17,7 @@ from jet.utils.text import extract_substrings, find_sentence_indexes
 from jet.wordnet.lemmatizer import lemmatize_text
 from llama_index.core import Document
 from jet.file.utils import load_file
-from jet.search.transformers import clean_string
+from jet.search.formatters import clean_string
 from jet.transformers.formatters import format_json
 from jet.utils.commands import copy_to_clipboard
 from jet.vectors.reranker.bm25 import (
@@ -363,27 +363,28 @@ class HybridSearch:
         return reranked_results
 
     def search(self, query: str | List[str], *, top_k: Optional[int] = None, threshold: float = 0.0) -> SearchResultData:
-        semantic_results = self.semantic_search(
+        results = self.semantic_search(
             query, top_k=top_k, threshold=threshold)
-
+        semantic_results = results
         semantic_doc_texts = [result["text"]
                               for result in semantic_results]
         semantic_doc_ids = [result["id"]
                             for result in semantic_results]
 
-        reranked_results = self.rerank_search(
-            query, semantic_doc_texts, semantic_doc_ids)
-        results: List[SearchResult] = [
-            {
-                "id": item["id"],
-                "score": item["score"],
-                "similarity": item["similarity"],
-                "matched": item["matched"],
-                "text": item["text"],
-            }
-            for item in reranked_results["data"]
-            if item["score"] >= threshold
-        ]
+        # reranked_results = self.rerank_search(
+        #     query, semantic_doc_texts, semantic_doc_ids)
+        reranked_results = self.rerank_search(query)
+        # results: List[SearchResult] = [
+        #     {
+        #         "id": item["id"],
+        #         "score": item["score"],
+        #         "similarity": item["similarity"],
+        #         "matched": item["matched"],
+        #         "text": item["text"],
+        #     }
+        #     for item in reranked_results["data"]
+        #     if item["score"] >= threshold
+        # ]
 
         # Aggregate all "matched"
         queries = self._preprocess_text(query)
@@ -401,13 +402,14 @@ class HybridSearch:
             "queries": queries,
             "matched": matched,
             "semantic_results": semantic_results,
-            "results": results
+            "results": reranked_results["data"]
         }
 
 
 if __name__ == "__main__":
     from jet.token.token_utils import get_token_counts_info
 
+    embed_model = "mxbai-embed-large"
     # data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/my-jobs/saved/jobs.json"
     data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/generated/search_web_data/scraped_texts.json"
     data = load_file(data_file)
@@ -424,7 +426,7 @@ if __name__ == "__main__":
     # ]
 
     # Initialize search system
-    search_engine = HybridSearch()
+    search_engine = HybridSearch(model_name=embed_model)
 
     # Index the documents
     search_engine.build_index(docs)

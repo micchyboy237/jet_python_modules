@@ -1,5 +1,5 @@
 import unittest
-from jet.search.transformers import unescape, decode_encoded_characters, clean_string
+from jet.search.formatters import unescape, decode_encoded_characters, clean_string
 
 
 class TestTransformers(unittest.TestCase):

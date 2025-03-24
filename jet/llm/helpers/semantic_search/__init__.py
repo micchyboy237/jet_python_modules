@@ -10,7 +10,7 @@ from jet.db.chroma import (
     InitialDataEntry,
     SearchResult,
 )
-from jet.llm.ollama import get_embedding_function
+from jet.llm.ollama.base import get_embedding_function
 from jet.llm.model import get_model_path
 from jet.transformers import make_serializable
 from jet.logger import logger

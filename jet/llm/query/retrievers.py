@@ -44,7 +44,7 @@ from jet.llm.llm_types import OllamaChatOptions
 
 # from jet.memory.lru_cache import LRUCache
 
-# from jet.llm.ollama import initialize_ollama_settings
+# from jet.llm.ollama.base import initialize_ollama_settings
 # initialize_ollama_settings()
 
 

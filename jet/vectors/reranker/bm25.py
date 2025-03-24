@@ -2,7 +2,7 @@ import os
 from jet.file.utils import load_file
 
 from jet.search.similarity import SimilarityResult, get_bm25_similarities
-from jet.search.transformers import clean_string
+from jet.search.formatters import clean_string
 from typing import List, Dict, Any, Optional, TypedDict
 from jet.transformers.formatters import format_json
 from jet.wordnet.n_grams import count_ngrams, extract_ngrams, get_most_common_ngrams

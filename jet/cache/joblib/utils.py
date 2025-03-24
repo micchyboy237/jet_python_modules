@@ -29,14 +29,14 @@ ttl_cache: TTLCache = TTLCache(maxsize=CACHE_SIZE, ttl=CACHE_TTL)
 
 
 def load_persistent_cache():
-    """Load the embeddings cache from the persistent cache file."""
+    """Load the key-value cache from the persistent cache file."""
     if os.path.exists(CACHE_FILE):
         try:
             cache_data = joblib.load(CACHE_FILE)
             if isinstance(cache_data, dict):
                 ttl_cache.update(cache_data)  # Load into TTL cache
                 logger.success(
-                    f"Loaded {len(cache_data)} embeddings from cache.")
+                    f"Loaded {len(cache_data)} key-value from cache.\n{CACHE_FILE}")
         except Exception as e:
             logger.error(f"Failed to load cache: {e}")
 
@@ -45,7 +45,7 @@ def save_persistent_cache():
     """Save the current TTL cache to the persistent cache file."""
     try:
         joblib.dump(dict(ttl_cache), CACHE_FILE)
-        logger.success(f"Saved {len(ttl_cache)} embeddings to {CACHE_FILE}")
+        logger.success(f"Saved {len(ttl_cache)} key-value to {CACHE_FILE}")
     except Exception as e:
         logger.error(f"Failed to save cache: {e}")
 

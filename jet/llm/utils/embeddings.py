@@ -1,5 +1,5 @@
 from jet.cache.joblib.utils import save_persistent_cache, ttl_cache
-from jet.data.utils import hash_text
+from jet.data.utils import generate_key, hash_text
 from jet.token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
 import numpy as np
 
@@ -12,7 +12,7 @@ from sentence_transformers import SentenceTransformer
 import requests
 from typing import Any, Optional, Callable, Sequence, Union, List, TypedDict
 from chromadb import Documents, EmbeddingFunction, Embeddings
-from jet.llm.ollama import (
+from jet.llm.ollama.config import (
     large_embed_model,
     base_url,
 
@@ -236,10 +236,10 @@ def get_embedding_function(
 
         # ✅ Check TTLCache first
         for idx, text in enumerate(input_text):
-            text_hash = hash_text(text)
+            text_key = generate_key(model_name, text)
 
-            if text_hash in ttl_cache:
-                results[idx] = ttl_cache[text_hash]
+            if text_key in ttl_cache:
+                results[idx] = ttl_cache[text_key]
                 logger.success(f"Cache hit: Embedding {idx} - {text[:30]}")
             else:
                 missing_texts.append(text)
@@ -251,8 +251,8 @@ def get_embedding_function(
             computed_embeddings = embed_func(missing_texts)
 
             for idx, (text, embedding) in zip(missing_indices, zip(missing_texts, computed_embeddings)):
-                text_hash = hash_text(text)
-                ttl_cache[text_hash] = embedding  # ✅ Store in TTLCache
+                text_key = generate_key(model_name, text)
+                ttl_cache[text_key] = embedding  # ✅ Store in TTLCache
                 results[idx] = embedding
 
             save_persistent_cache()  # ✅ Save updated cache to embeddings.pkl

@@ -1,6 +1,6 @@
 # Reusable constants
 from jet.llm.helpers.dataset_utils import EnhancedLabelledRagDataset, EnhancedQADataset
-from jet.llm.ollama import initialize_ollama_settings
+from jet.llm.ollama.base import initialize_ollama_settings
 from jet.llm.ollama.constants import OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_LLM_MODEL
 from jet.llm.query.retrievers import get_fusion_retriever, setup_retrievers
 from jet.logger import logger

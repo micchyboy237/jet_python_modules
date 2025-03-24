@@ -20,7 +20,7 @@ from gensim.similarities import SparseMatrixSimilarity
 from jet.wordnet.gensim_scripts.phrase_detector import PhraseDetector
 from jet.logger import logger
 from jet.scrapers.utils import clean_newlines, clean_punctuations, clean_spaces
-from jet.search.transformers import clean_string
+from jet.search.formatters import clean_string
 from jet.wordnet.lemmatizer import lemmatize_text
 
 
@@ -46,7 +46,7 @@ def preprocess_reranker_texts(texts: str | list[str]) -> list[str]:
         texts = [texts]
 
     # Lowercase
-    texts = [text.lower() for text in texts]
+    # texts = [text.lower() for text in texts]
     preprocessed_texts: list[str] = texts.copy()
 
     for idx, text in enumerate(preprocessed_texts):

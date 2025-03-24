@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from pydantic import BaseModel
 from jet.logger import logger
 from .filters import filter_relevant, filter_by_date, deduplicate_results, sort_by_score
-from .transformers import decode_encoded_characters
+from .formatters import decode_encoded_characters
 from jet.cache.redis import RedisConfigParams
 
 
@@ -94,9 +94,22 @@ def filter_unique_hosts(results: list[SearchResult]) -> list[SearchResult]:
     return list(host_map.values())
 
 
-def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.2, filter_sites: Optional[list[str]] = None, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, **kwargs) -> list[SearchResult]:
+def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.2, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, **kwargs) -> list[SearchResult]:
     query = decode_encoded_characters(query)
     try:
+        # Add the include_sites filter if provided
+        if include_sites:
+            include_query = " OR ".join(
+                [f"site:{site}" for site in include_sites])
+            query += " " + include_query
+
+        # Add the exclude_sites filter if provided
+        if exclude_sites:
+            exclude_query = " ".join(
+                [f"-site:{site}" for site in exclude_sites])
+            query += " " + exclude_query
+
+        # Start building the base query params
         params = {
             "q": query,
             "format": "json",
@@ -106,16 +119,16 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
             "categories": ",".join(kwargs.get("categories", ["general"])),
             "engines": ",".join(kwargs.get("engines", ["google", "brave", "duckduckgo", "bing", "yahoo"])),
         }
+
+        # Handling min_date (optional)
         if not min_date:
             years_ago = kwargs.get("years_ago", 1)
             current_date = datetime.now()
             min_date = current_date.replace(year=current_date.year - years_ago)
         min_date = format_min_date(min_date)
         min_date_iso = min_date.isoformat()
-        if filter_sites:
-            site_filters = ", ".join(filter_sites)
-            query = f"{site_filters} - {query}"
-            params["q"] = query
+
+        # Prepare the query URL
         query_url = build_query_url(query_url, params)
         headers = {"Accept": "application/json"}
 
@@ -126,16 +139,18 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
             cached_results = cache.get(cache_key)
 
             if cached_results:
-                logger.log(f"search_searxng: Cache hit for", cache_key,
-                           colors=["LOG", "BRIGHT_SUCCESS"])
+                logger.log(f"search_searxng: Cache hit for",
+                           cache_key, colors=["LOG", "BRIGHT_SUCCESS"])
                 return cached_results["results"]
 
             logger.info(f"search_searxng: Cache miss for {cache_key}")
 
+        # Fetch search results
         result = fetch_search_results(query_url, headers, params)
         result['number_of_results'] = len(result.get("results", []))
         result = remove_empty_attributes(result)
 
+        # Filter and sort results
         results = result.get("results", [])
         results = filter_relevant(results, threshold=min_score)
         results = deduplicate_results(results)
@@ -144,9 +159,11 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
         results = results[:count] if count is not None else results
         result["results"] = results
 
+        # Cache the result if caching is enabled
         if use_cache:
             cache.set(cache_key, result)
         return results
+
     except (requests.exceptions.RequestException, KeyError, TypeError) as e:
         logger.error(f"Error in search_searxng: {e}")
         return []

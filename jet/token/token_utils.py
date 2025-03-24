@@ -356,7 +356,7 @@ def split_texts(
 
 if __name__ == "__main__":
     from jet.file.utils import load_file
-    from jet.search.transformers import clean_string
+    from jet.search.formatters import clean_string
     from jet.transformers.formatters import format_json
 
     # models = ["llama3.1"]

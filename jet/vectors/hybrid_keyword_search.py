@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from jet.file.utils import load_file
 from jet.logger import logger
 from jet.logger.timer import time_it
-from jet.search.transformers import clean_string
+from jet.search.formatters import clean_string
 from jet.token.token_utils import get_token_counts_info, split_texts, token_counter
 from jet.transformers.formatters import format_json
 from jet.utils.commands import copy_to_clipboard

@@ -10,7 +10,7 @@ from jet.code.markdown_code_extractor import MarkdownCodeExtractor
 from jet.llm.llm_types import OllamaChatOptions, OllamaChatResponse
 from jet.actions.generation import call_ollama_chat
 from jet.logger import logger
-from jet.llm.ollama import initialize_ollama_settings
+from jet.llm.ollama.base import initialize_ollama_settings
 import os
 from jet.validation.graph_validation import extract_cypher_block_content
 from langchain_community.graphs import MemgraphGraph
