@@ -107,17 +107,16 @@ def call_ollama_chat(
         messages = filter_texts(
             messages, model, max_tokens=max_tokens)
 
-    num_predict = options.get("num_predict", -1)
+    # num_predict = options.get("num_predict", -1)
+    num_predict = -2
     num_ctx = model_max_length
-    if max_prediction_ratio and (not num_predict or num_predict <= 0):
-        # calc_result = calculate_num_predict_ctx(messages, model, system=system)
-        # num_predict = calc_result["num_predict"]
-        # num_ctx = calc_result["num_ctx"]
-
-        predict_tokens = num_predict
-    else:
-        # num_ctx = options.get("num_ctx", model_max_length)
-        predict_tokens = num_ctx - token_count
+    # if max_prediction_ratio and (not num_predict or num_predict <= 0):
+    # calc_result = calculate_num_predict_ctx(messages, model, system=system)
+    # num_predict = calc_result["num_predict"]
+    # num_ctx = calc_result["num_ctx"]
+    # else:
+    # num_ctx = options.get("num_ctx", model_max_length)
+    predict_tokens = num_ctx - token_count
     derived_options = {
         "num_predict": num_predict,
         "num_ctx": num_ctx,
