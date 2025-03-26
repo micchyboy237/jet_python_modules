@@ -16,13 +16,25 @@ class SeleniumScraper:
 
     def _setup_driver(self, headless: bool) -> webdriver.Chrome:
         """Sets up the Chrome WebDriver with options."""
-        chrome_options = Options()
-        if headless:
-            chrome_options.add_argument("--headless")
+        chrome_options: Options = Options()
+
+        # Use "eager" to start interacting with the page sooner (use "normal" if required)
+        chrome_options.page_load_strategy = "eager"
+
+        # Reduce resource load (optional: remove headless mode if debugging)
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-infobars")
+        chrome_options.add_argument("--no-sandbox")  # For Linux servers
+        # Prevent crashes on low-memory systems
+        chrome_options.add_argument("--disable-dev-shm-usage")
+
+        # Ensure a clean profile for performance (optional)
+        chrome_options.add_argument("--incognito")
+
+        # Set user-agent to avoid bot detection
         chrome_options.add_argument(
-            f"user-agent={self._get_random_user_agent()}"
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
         return webdriver.Chrome(options=chrome_options)
 

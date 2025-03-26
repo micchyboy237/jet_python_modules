@@ -108,6 +108,12 @@ def get_iterable_class_name(obj: Any, full_class_name=False) -> str:
     return class_name
 
 
+def get_builtin_attributes(obj: Any) -> list[str]:
+    """Returns built-in attributes."""
+    built_in_attrs = set(dir(type(obj)))
+    return list(built_in_attrs)
+
+
 def get_non_empty_attributes(obj: Any) -> Dict[str, Any]:
     """Returns non-callable attributes that are not empty or private (_attr)."""
     attributes = {}
@@ -125,15 +131,18 @@ def get_non_empty_attributes(obj: Any) -> Dict[str, Any]:
 
 
 def get_internal_attributes(obj: Any) -> Dict[str, Any]:
-    """Returns private/internal attributes (_attr, __attr__)."""
+    """Returns private/internal attributes (_attr) but excludes built-in dunder attributes (__attr__)."""
     attributes = {}
+    built_in_attrs = set(dir(type(obj)))  # Built-in attributes of the class
+
     for attr in dir(obj):
-        if attr.startswith('_'):  # Includes private and dunder attributes
+        # Exclude built-in dunder attributes
+        if attr.startswith('_') and attr not in built_in_attrs:
             try:
-                # Handle potential errors
                 attributes[attr] = getattr(obj, attr, None)
             except Exception as e:
                 print(f"Skipping attribute {attr} due to error: {e}")
+
     return attributes
 
 

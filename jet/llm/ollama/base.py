@@ -245,11 +245,12 @@ class Ollama(BaseOllama):
         set_global_tokenizer(tokenizer)
 
     @llm_chat_callback()
-    def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
+    def chat(self, messages: str | Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.actions import call_ollama_chat
         from jet.token.token_utils import token_counter
 
-        ollama_messages = self._convert_to_ollama_messages(messages)
+        ollama_messages = self._convert_to_ollama_messages(
+            messages) if not isinstance(messages, str) else messages
 
         tools = kwargs.get("tools", None)
         format = kwargs.get("format", "json" if self.json_mode else None)
