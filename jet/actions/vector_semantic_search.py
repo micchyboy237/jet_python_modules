@@ -84,7 +84,7 @@ class VectorSemanticSearch:
         from jet.actions import faiss_search
 
         top_k = len(self.candidates)
-        nlist = 100
+        nlist = None
 
         results = faiss_search(queries, self.candidates,
                                top_k=top_k, nlist=nlist)

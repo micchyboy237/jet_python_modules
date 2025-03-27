@@ -31,7 +31,6 @@ def make_serializable(obj):
         return obj
     elif isinstance(obj, str):
         try:
-            # Avoid parsing strings that look like numbers or booleans
             parsed_obj = json.loads(obj)
             if isinstance(parsed_obj, (dict, list)):  # Only parse JSON objects or arrays
                 return parsed_obj
@@ -47,12 +46,10 @@ def make_serializable(obj):
     elif isinstance(obj, dict):
         serialized_dict = {}
         for key, value in obj.items():
-            serialized_key = make_serializable(key)
-            serialized_value = make_serializable(value)
-            if not isinstance(serialized_key, str) or callable(serialized_value):
-                serialized_key = key
-                serialized_value = {}
-            serialized_dict[serialized_key] = serialized_value
+            serialized_key = str(key) if not isinstance(
+                key, str) else key  # Ensure keys are strings
+            serialized_dict[serialized_key] = make_serializable(
+                value)  # Properly process values
         return serialized_dict
     elif isinstance(obj, BaseModel):
         try:

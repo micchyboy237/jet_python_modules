@@ -61,7 +61,6 @@ class RerankerRetriever():
         self.embedding_function = get_embedding_function(
             model_name=self.embed_model,
             batch_size=self.embed_batch_size,
-            use_ollama=use_ollama,
         )
         # self.embedding_function = get_model_path(self.embed_model)
 

@@ -1,4 +1,5 @@
 import math
+import re
 
 from jet.wordnet.words import get_words
 from tqdm import tqdm
@@ -140,7 +141,7 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
 
                 # If the entire query appears in the sentence, give a small boost to its score.
                 # This ensures exact phrase matches are slightly favored.
-                if query in sentence:
+                if re.search(rf'\b{re.escape(query)}\b', sentence):
                     sentence_score += 1.0  # Increased from 0.5 to 1.0 for stronger emphasis on exact matches
 
                     sentence_to_match = adaptive_split(sentence)[0]

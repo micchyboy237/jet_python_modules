@@ -191,6 +191,18 @@ class TestMakeSerializable(unittest.TestCase):
         for key in result.keys():
             self.assertEqual(result[key], expected[key], f"Error with {key}")
 
+    def test_serializable_dict_with_string_keys(self):
+        obj = {
+            0: ["Sample 1", "Sample 2"],
+            1: ["Sample 3"]
+        }
+        result = make_serializable(obj)
+        expected = {
+            "0": ["Sample 1", "Sample 2"],
+            "1": ["Sample 3"]
+        }
+        self.assertEqual(result, expected)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,7 @@ import numpy as np
 from jet.llm.utils.embeddings import SFEmbeddingFunction, get_embedding_function
 from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Dict, Callable, Optional, TypedDict
-from sklearn.cluster import KMeans
+from sklearn.cluster import AgglomerativeClustering, KMeans
 import re
 import json
 
@@ -33,10 +33,81 @@ def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, Lis
         sentences_to_compare = [sentences_to_compare]
 
     embed_func = get_embedding_function(model_name)
-    base_embedding = embed_func(base_sentence)
-    embeddings = embed_func(sentences_to_compare)
+    base_embedding: list[float] = embed_func(base_sentence)
+    embeddings: list[list[float]] = embed_func(sentences_to_compare)
 
     return [1 - cosine(base_embedding, emb) for emb in embeddings]
+
+
+class QuerySimilarityResult(TypedDict):
+    query: str
+    results: Dict[str, float]
+
+
+class QuerySimilarityResult(TypedDict):
+    query: str
+    results: Dict[str, float]
+
+
+def get_query_similarity_scores(
+    query: Union[str, List[str]],
+    texts: Union[str, List[str]],
+    threshold: float = 0.0,
+    model_name: str = "all-MiniLM-L6-v2"
+) -> List[QuerySimilarityResult]:
+    """
+    Computes similarity scores for a query (or list of queries) against a set of texts.
+
+    Args:
+        query (str | list[str]): Single query or a list of queries.
+        texts (str | list[str]): Single text or a list of texts to compare against.
+        threshold (float): Minimum similarity score required to be included in the results. Default is 0.0.
+        model_name (str): The embedding model name.
+
+    Returns:
+        List[QuerySimilarityResult]: A list containing similarity scores for each query.
+    """
+    if isinstance(query, str):
+        query = [query]
+    if isinstance(texts, str):
+        texts = [texts]
+
+    if not query or not texts:
+        raise ValueError("Both query and texts must be non-empty.")
+
+    # Get embedding function once
+    embed_func = get_embedding_function(model_name)
+
+    # Compute embeddings (batch processing)
+    query_embeddings = np.array(embed_func(query))
+    text_embeddings = np.array(embed_func(texts))
+
+    # Normalize embeddings to speed up cosine similarity computation
+    query_embeddings /= np.linalg.norm(query_embeddings, axis=1, keepdims=True)
+    text_embeddings /= np.linalg.norm(text_embeddings, axis=1, keepdims=True)
+
+    # Compute cosine similarity using NumPy's dot product
+    similarity_matrix = np.dot(query_embeddings, text_embeddings.T)
+
+    # Construct results
+    query_similarity_results = []
+    for i, query_text in enumerate(query):
+        similarity_scores = similarity_matrix[i]
+
+        # Apply threshold
+        mask = similarity_scores >= threshold
+        filtered_texts = np.array(texts)[mask]
+        filtered_scores = similarity_scores[mask]
+
+        # Sort by similarity
+        sorted_indices = np.argsort(filtered_scores)[::-1]
+        sorted_results = {
+            filtered_texts[j]: filtered_scores[j] for j in sorted_indices}
+
+        query_similarity_results.append(
+            {"query": query_text, "results": sorted_results})
+
+    return query_similarity_results
 
 
 def filter_highest_similarity_old(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL, threshold: Optional[float] = None) -> FilterResult:
@@ -423,40 +494,123 @@ def plot_text_embeddings(texts: List[str], embeddings: List[List[float]], title:
     plt.show()
 
 
-def cluster_texts(
-    texts: List[str],
-    embedding_function: Callable[[List[str]], List[List[float]]],
-    num_clusters: Optional[int] = None
+def group_similar_texts(texts: List[str], threshold: float = 0.7, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL) -> List[List[str]]:
+    """
+    Groups similar texts based on cosine similarity score.
+
+    Args:
+        texts (List[str]): List of input texts to be grouped.
+        threshold (float): Similarity threshold for clustering. Default is 0.7.
+        model_name (str): Sentence transformer model to use for embedding.
+
+    Returns:
+        List[List[str]]: List of grouped similar texts.
+    """
+    if not texts:
+        return []
+
+    # Load the embedding model
+    model = SentenceTransformer(model_name)
+    embeddings = model.encode(texts, convert_to_tensor=True)
+
+    # Compute cosine similarity matrix
+    similarity_matrix = util.pytorch_cos_sim(
+        embeddings, embeddings).cpu().numpy()
+
+    # Perform clustering using Agglomerative Clustering
+    clustering = AgglomerativeClustering(
+        n_clusters=None,
+        affinity="precomputed",
+        linkage="average",
+        distance_threshold=1 - threshold
+    ).fit(1 - similarity_matrix)
+
+    # Organize texts into clusters
+    clusters = {}
+    for idx, label in enumerate(clustering.labels_):
+        clusters.setdefault(label, []).append(texts[idx])
+
+    return list(clusters.values())
+
+
+def filter_low_similarity_clusters(
+    cluster_texts: Dict[int, List[str]],
+    embed_fn: Callable[[List[str]], List[List[float]]],
+    min_similarity: float
 ) -> Dict[int, List[str]]:
     """
-    Groups similar texts into clusters based on embeddings.
+    Removes clusters where the average similarity is below `min_similarity`.
+
+    Args:
+        cluster_texts (Dict[int, List[str]]): Clustered texts.
+        embed_fn (Callable[[List[str]], List[List[float]]]): Function to generate embeddings.
+        min_similarity (float): Minimum similarity required to keep a cluster.
+
+    Returns:
+        Dict[int, List[str]]: Filtered clusters.
+    """
+    filtered_clusters: Dict[int, List[str]] = {}
+
+    for cluster_id, texts in cluster_texts.items():
+        if len(texts) < 2:
+            filtered_clusters[cluster_id] = texts  # Keep single-text clusters
+            continue
+
+        embeddings: np.ndarray = np.array(embed_fn(texts))
+        similarity_matrix: np.ndarray = cosine_similarity(embeddings)
+        avg_similarity: float = float(
+            # Ignore diagonal
+            np.mean(similarity_matrix[np.triu_indices(len(texts), k=1)]))
+
+        if avg_similarity >= min_similarity:
+            # Keep high-similarity clusters
+            filtered_clusters[cluster_id] = texts
+
+    return filtered_clusters
+
+
+def cluster_texts(
+    texts: List[str],
+    embed_fn: Callable[[List[str]], List[List[float]]],
+    num_clusters: Optional[int] = None,
+    *,
+    min_similarity: float = 0.5  # New threshold parameter
+) -> Dict[int, List[str]]:
+    """
+    Groups similar texts into clusters based on embeddings, filtering based on similarity.
 
     Args:
         texts (List[str]): List of text inputs.
-        embedding_function (Callable): Function to generate text embeddings.
-        num_clusters (int, optional): Number of clusters. If None, it will be auto-determined.
+        embed_fn (Callable[[List[str]], List[List[float]]]): Function to generate text embeddings.
+        num_clusters (Optional[int]): Number of clusters. If None, it will be auto-determined.
+        min_similarity (float): Minimum average similarity required to keep a cluster.
 
     Returns:
         Dict[int, List[str]]: Dictionary mapping cluster IDs to lists of similar texts.
     """
+    if not texts:
+        return {}
 
-    # Generate embeddings
-    embeddings = np.array(embedding_function(texts))
+    embeddings: List[List[float]] = embed_fn(texts)
 
-    # Auto-determine number of clusters if not provided
-    if num_clusters is None:
-        num_clusters = max(2, min(len(texts) // 3, 10))  # Dynamic selection
+    num_clusters = max(2, min(len(texts) // 3, 10)
+                       ) if num_clusters is None else num_clusters
+    # Ensure it doesn't exceed text count
+    num_clusters = min(num_clusters, len(texts))
 
-    # Clustering using KMeans
     kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
-    cluster_labels = kmeans.fit_predict(embeddings)
+    cluster_labels: List[int] = kmeans.fit_predict(embeddings)
 
-    # Organize texts into clusters
-    clustered_texts = {}
-    for i, label in enumerate(cluster_labels):
-        clustered_texts.setdefault(label, []).append(texts[i])
+    clustered_texts: Dict[int, List[str]] = {
+        i: [] for i in range(num_clusters)}
+    for text, label in zip(texts, cluster_labels):
+        clustered_texts[label].append(text)
 
-    return clustered_texts
+    # Filter out clusters with low similarity
+    filtered_clusters = filter_low_similarity_clusters(
+        clustered_texts, embed_fn, min_similarity)
+
+    return filtered_clusters
 
 
 class SimilarResult(TypedDict):

@@ -195,7 +195,8 @@ class SearchResultData(TypedDict):
     queries: list[str]
     matched: dict[str, int]
     semantic_results: list[SearchResult]
-    results: list[SearchResult]
+    hybrid_results: list[SearchResult]
+    reranked_results: list[SearchResult]
 
 
 class HybridSearch:
@@ -238,7 +239,7 @@ class HybridSearch:
         query_nodes = setup_index(documents, embed_model=self.model_name)
         self.index = query_nodes
 
-    def _setup_index(self, texts: list[str], max_tokens: Optional[int] = None):
+    def _setup_index(self, texts: list[str], ids: Optional[list[str]] = None, max_tokens: Optional[int] = None):
         self.data = texts
 
         @time_it
@@ -253,7 +254,7 @@ class HybridSearch:
         @time_it
         def run_setup_search():
             # self.ids = [str(idx) for idx, doc in enumerate(self.docs)]
-            self.ids = [generate_unique_hash()for _ in self.docs]
+            self.ids = ids or [generate_unique_hash()for _ in self.docs]
             self.doc_texts = [doc.text for doc in self.docs]
             self.ngrams = count_ngrams(
                 [text.lower() for text in self.doc_texts], min_words=1)
@@ -261,8 +262,8 @@ class HybridSearch:
         run_preprocess_texts()
         run_setup_search()
 
-    def build_index(self, texts: list[str] = [], max_tokens: Optional[int] = None, batch_size: int = 32):
-        self._setup_index(texts, max_tokens)
+    def build_index(self, texts: list[str] = [], ids: Optional[list[str]] = None, max_tokens: Optional[int] = None, batch_size: int = 32):
+        self._setup_index(texts, ids=ids, max_tokens=max_tokens)
         # self._setup_build_semantic_index(batch_size=batch_size)
 
     # @time_it
@@ -319,6 +320,9 @@ class HybridSearch:
 
     @time_it
     def semantic_search(self, query: str | List[str], doc_texts: Optional[list[str]] = None, ids: Optional[list[str]] = None, top_k: Optional[int] = None, threshold: float = 0.0, batch_size: int = 32) -> List[SearchResult]:
+        if isinstance(query, list):
+            query = "\n".join(query)
+
         if not self.index or not self.doc_texts:
             self._setup_build_semantic_index(batch_size=batch_size)
 
@@ -386,6 +390,9 @@ class HybridSearch:
         #     if item["score"] >= threshold
         # ]
 
+        hybrid_results = self.rerank_search(
+            query, semantic_doc_texts, semantic_doc_ids)
+
         # Aggregate all "matched"
         queries = self._preprocess_text(query)
         queries = transform_queries_to_ngrams(
@@ -402,7 +409,8 @@ class HybridSearch:
             "queries": queries,
             "matched": matched,
             "semantic_results": semantic_results,
-            "results": reranked_results["data"]
+            "hybrid_results": hybrid_results["data"],
+            "reranked_results": reranked_results["data"]
         }
 
 

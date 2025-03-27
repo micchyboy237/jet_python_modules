@@ -1,6 +1,8 @@
 from sentence_transformers import SentenceTransformer
 from jet.wordnet.similarity import (
     filter_highest_similarity,
+    get_query_similarity_scores,
+    group_similar_texts,
     score_texts_similarity,
     get_similar_texts,
     differences,
@@ -11,7 +13,8 @@ from jet.wordnet.similarity import (
     score_word_placement_similarity,
     has_approximately_same_word_placement,
     are_texts_similar,
-    filter_similar_texts
+    filter_similar_texts,
+    cluster_texts,
 )
 # from jet.wordnet.spelling import TextComparator
 import unittest
@@ -454,6 +457,238 @@ class TestErrorHandling(unittest.TestCase):
                                       "AI is evolving rapidly."], similarity_metric="invalid_metric")
 
 
+class TestClusterTexts(unittest.TestCase):
+
+    def setUp(self):
+        # Mock embedding function that returns fixed embeddings for testing
+        self.mock_embedding_function = lambda texts: [
+            [i, i + 1] for i in range(len(texts))
+        ]
+
+    def test_basic_clustering(self):
+        texts = ["apple", "banana", "cherry", "dog", "elephant", "frog"]
+        num_clusters = 2
+
+        expected_clusters = {
+            0: ["apple", "banana", "cherry"],
+            1: ["dog", "elephant", "frog"]
+        }
+
+        clustered_texts = cluster_texts(
+            texts, self.mock_embedding_function, num_clusters)
+        actual_clusters = {k: sorted(v) for k, v in clustered_texts.items()}
+
+        self.assertEqual(len(actual_clusters), num_clusters)
+        self.assertEqual(actual_clusters, expected_clusters)
+
+    def test_auto_cluster_count(self):
+        texts = ["text1", "text2", "text3", "text4", "text5", "text6"]
+
+        # Since len(texts) = 6, expected_clusters = max(2, min(6//3, 10)) = 2
+        expected_clusters = 2
+
+        clustered_texts = cluster_texts(
+            texts, self.mock_embedding_function, num_clusters=None)
+
+        self.assertEqual(len(clustered_texts), expected_clusters)
+
+    def test_empty_input(self):
+        texts = []
+        expected_clusters = {}
+
+        clustered_texts = cluster_texts(texts, self.mock_embedding_function)
+
+        self.assertEqual(clustered_texts, expected_clusters)
+
+    def test_single_text(self):
+        texts = ["only one text"]
+        expected_clusters = {0: ["only one text"]}
+
+        clustered_texts = cluster_texts(texts, self.mock_embedding_function)
+
+        self.assertEqual(clustered_texts, expected_clusters)
+
+    def test_different_number_of_clusters(self):
+        texts = ["a", "b", "c", "d", "e", "f", "g", "h"]
+
+        test_cases = {
+            2: {0: ["a", "b", "c", "d"], 1: ["e", "f", "g", "h"]},
+            3: {0: ["a", "b", "c"], 1: ["d", "e", "f"], 2: ["g", "h"]},
+            4: {0: ["a", "b"], 1: ["c", "d"], 2: ["e", "f"], 3: ["g", "h"]}
+        }
+
+        for num_clusters, expected_clusters in test_cases.items():
+            clustered_texts = cluster_texts(
+                texts, self.mock_embedding_function, num_clusters)
+            actual_clusters = {k: sorted(v)
+                               for k, v in clustered_texts.items()}
+
+            self.assertEqual(len(actual_clusters), num_clusters)
+            self.assertEqual(actual_clusters, expected_clusters)
+
+    def test_consistency_with_fixed_random_state(self):
+        texts = ["one", "two", "three", "four", "five"]
+        num_clusters = 2
+
+        expected_clusters = {
+            0: ["one", "two", "three"],
+            1: ["four", "five"]
+        }
+
+        clustered_texts_1 = cluster_texts(
+            texts, self.mock_embedding_function, num_clusters)
+        clustered_texts_2 = cluster_texts(
+            texts, self.mock_embedding_function, num_clusters)
+
+        actual_clusters_1 = {k: sorted(v)
+                             for k, v in clustered_texts_1.items()}
+        actual_clusters_2 = {k: sorted(v)
+                             for k, v in clustered_texts_2.items()}
+
+        self.assertEqual(actual_clusters_1, actual_clusters_2)
+        self.assertEqual(actual_clusters_1, expected_clusters)
+
+
+class TestGroupSimilarTexts(unittest.TestCase):
+    def setUp(self):
+        self.sample_texts = [
+            "I love programming in Python.",
+            "Python is my favorite programming language.",
+            "The weather is great today.",
+            "It's a sunny and beautiful day.",
+            "I enjoy coding in Python.",
+            "Machine learning is fascinating.",
+            "Artificial Intelligence is evolving rapidly."
+        ]
+
+    def test_grouping(self):
+        grouped_texts = group_similar_texts(self.sample_texts, threshold=0.7)
+
+        expected = [
+            ["I love programming in Python.",
+                "Python is my favorite programming language.", "I enjoy coding in Python."],
+            ["The weather is great today.", "It's a sunny and beautiful day."],
+            ["Machine learning is fascinating."],
+            ["Artificial Intelligence is evolving rapidly."]
+        ]
+
+        # Verify that each text appears in exactly one group
+        all_grouped_texts = [text for group in grouped_texts for text in group]
+        self.assertCountEqual(all_grouped_texts, self.sample_texts)
+
+    def test_empty_list(self):
+        self.assertEqual(group_similar_texts([]), [])
+
+    def test_single_text(self):
+        self.assertEqual(group_similar_texts(
+            ["Hello world!"]), [["Hello world!"]])
+
+
+class TestGetQuerySimilarityScores(unittest.TestCase):
+    def setUp(self):
+        self.queries = [
+            "I love programming in Python.",
+            "The weather is nice today."
+        ]
+        self.texts = [
+            "Python is my favorite language.",
+            "I enjoy coding in Python.",
+            "It's a beautiful sunny day.",
+            "Artificial Intelligence is evolving rapidly."
+        ]
+
+    def test_single_query(self):
+        expected = {
+            "query": self.queries[0],
+            "results": [
+                {"text": "I enjoy coding in Python.",
+                    "score": 0.8, "percent_difference": 0.0},
+                {"text": "Python is my favorite language.",
+                    "score": 0.75, "percent_difference": 6.25}
+            ]
+        }
+        result = get_query_similarity_scores(
+            self.queries[0], self.texts, threshold=0.5)[0]
+
+        self.assertEqual(result["query"], expected["query"])
+        self.assertTrue(len(result["results"]) > 0)
+
+    def test_multiple_queries(self):
+        expected = [
+            {
+                "query": self.queries[0],
+                "results": [
+                    {"text": "I enjoy coding in Python.",
+                        "score": 0.8, "percent_difference": 0.0},
+                    {"text": "Python is my favorite language.",
+                        "score": 0.75, "percent_difference": 6.25}
+                ]
+            },
+            {
+                "query": self.queries[1],
+                "results": [
+                    {"text": "It's a beautiful sunny day.",
+                        "score": 0.85, "percent_difference": 0.0}
+                ]
+            }
+        ]
+        result = get_query_similarity_scores(
+            self.queries, self.texts, threshold=0.5)
+
+        self.assertEqual(len(result), len(expected))
+        for i in range(len(expected)):
+            self.assertEqual(result[i]["query"], expected[i]["query"])
+
+            query_results = result[i]["results"]
+            expected_results = expected[i]["results"]
+
+            self.assertTrue(len(query_results) > 0)
+
+            for i2 in range(expected_results):
+                self.assertEqual(
+                    query_results[i2]["text"], expected_results[i2]["text"])
+
+    def test_empty_texts(self):
+        expected_error = ValueError
+        with self.assertRaises(expected_error):
+            get_query_similarity_scores(self.queries, [])
+
+    def test_empty_queries(self):
+        expected_error = ValueError
+        with self.assertRaises(expected_error):
+            get_query_similarity_scores([], self.texts)
+
+    def test_threshold_filtering(self):
+        expected = [
+            {
+                "query": self.queries[0],
+                "results": [
+                    {"text": "I enjoy coding in Python.",
+                        "score": 0.8, "percent_difference": 0.0}
+                ]
+            },
+            {
+                "query": self.queries[1],
+                "results": []
+            }
+        ]
+        result = get_query_similarity_scores(
+            self.queries, self.texts, threshold=0.8)
+
+        self.assertEqual(len(result), len(expected))
+        for i in range(len(expected)):
+            self.assertEqual(result[i]["query"], expected[i]["query"])
+
+            query_results = result[i]["results"]
+            expected_results = expected[i]["results"]
+
+            self.assertTrue(len(query_results) > 0)
+
+            for i2 in range(expected_results):
+                self.assertEqual(
+                    query_results[i2]["text"], expected_results[i2]["text"])
+
+
 # class TestTextComparator(unittest.TestCase):
 #     def test_text_comparator_1(self):
 #         comparator = TextComparator()
@@ -489,7 +724,6 @@ class TestErrorHandling(unittest.TestCase):
 
 #     def test_has_improved_spelling(self):
 #         comparator = TextComparator()
-
 #         # Test with improved spelling
 #         base_text = "I am going to the stre."
 #         updated_text = "I am going to the store"
