@@ -19,9 +19,12 @@ from jet.logger import logger
 
 # ✅ Cache Configuration
 CACHE_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/cache/joblib/.cache"
-CACHE_TTL = 3600  # Time-to-live for TTLCache (seconds)
+CACHE_TTL = 86400  # Time-to-live for TTLCache (seconds) (1 day)
 CACHE_SIZE = 10000  # Max number of items in TTLCache
 CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
+
+# ✅ Ensure cache directory exists
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 # ✅ Initialize TTLCache
 ttl_cache: TTLCache = TTLCache(maxsize=CACHE_SIZE, ttl=CACHE_TTL)
@@ -39,23 +42,30 @@ def load_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
         cache_files = [os.path.join(CACHE_DIR, f) for f in os.listdir(
             CACHE_DIR) if f.endswith(".pkl")]
     elif isinstance(cache_files, str):
-        cache_files = cache_files if os.path.isabs(
-            cache_files) else os.path.join(CACHE_DIR, cache_files)
         cache_files = [cache_files]
 
     for cache_file in cache_files:
-        if cache_file in loaded_caches:
+        cache_key = cache_file
+        cache_file = cache_file if os.path.isabs(
+            cache_file) else os.path.join(CACHE_DIR, cache_file)
+
+        if cache_key in loaded_caches:
             continue  # ✅ Skip if already loaded
 
         if os.path.exists(cache_file):
             try:
                 cache_data = joblib.load(cache_file)
-                if isinstance(cache_data, dict):
+                if isinstance(cache_data, dict) and cache_data:
                     ttl_cache.update(cache_data)
-                    loaded_caches.add(cache_file)
-                    original_cache_data[cache_file] = cache_data.copy()
+                    loaded_caches.add(cache_key)
+                    original_cache_data[cache_key] = cache_data.copy()
                     logger.success(
-                        f"Loaded {len(cache_data)} items from {cache_file}")
+                        f"Loaded {cache_key} - {len(cache_data)} items from {cache_file}")
+                else:
+                    logger.warning(
+                        f"Skipping {cache_file}: Not a valid dictionary or empty")
+            except EOFError as e:
+                logger.warning(f"Error loading {cache_file}: {e}")
             except Exception as e:
                 logger.error(f"Error loading {cache_file}: {e}")
 
@@ -67,18 +77,16 @@ def save_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
     elif isinstance(cache_files, str):
         cache_files = [cache_files]
 
-    # ✅ Ensure paths are absolute
-    cache_files = [
-        file if os.path.isabs(file) else os.path.join(CACHE_DIR, file)
-        for file in cache_files
-    ]
-
     for cache_file in cache_files:
+        cache_key = cache_file
+        cache_file = cache_file if os.path.isabs(
+            cache_file) else os.path.join(CACHE_DIR, cache_file)
+
         current_cache_data = dict(ttl_cache)
 
         # ✅ Save if cache was loaded and modified
-        if cache_file in loaded_caches:
-            if original_cache_data.get(cache_file) != current_cache_data:
+        if cache_key in loaded_caches:
+            if original_cache_data.get(cache_key) != current_cache_data.get(cache_key):
                 try:
                     joblib.dump(current_cache_data, cache_file)
                     logger.success(
@@ -87,10 +95,11 @@ def save_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
                     logger.error(f"Error saving {cache_file}: {e}")
 
         # ✅ Create new cache file if it doesn't exist
-        elif not os.path.exists(cache_file):
+        else:
             try:
                 os.makedirs(os.path.dirname(cache_file), exist_ok=True)
                 joblib.dump(current_cache_data, cache_file)
+                loaded_caches.add(cache_key)
                 logger.success(f"Created and saved new cache: {cache_file}")
             except Exception as e:
                 logger.error(f"Error creating cache file {cache_file}: {e}")
@@ -126,10 +135,14 @@ def load_cache(file_path: str) -> Any:
             return None  # File expired
 
         data = joblib.load(file_path)
-        logger.orange(f"Data loaded successfully from {file_path}")
+        try:
+            data = joblib.load(cache_file)
+            logger.orange(f"Data loaded successfully from {file_path}")
+        except EOFError:
+            data = None
 
         # ✅ Store in TTLCache if enabled
-        if ttl_cache is not None:
+        if data and ttl_cache is not None:
             ttl_cache[file_path] = data
 
         return data
