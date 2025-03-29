@@ -7,7 +7,8 @@ settings = Settings()
 
 # Configure scrapy settings
 settings.set('HTTPCACHE_ENABLED', True)
-settings.set('HTTPCACHE_EXPIRATION_SECS', 3600)  # Cache expires in 1 hour
+# Cache expires every 12 hours
+settings.set('HTTPCACHE_EXPIRATION_SECS', 43200)
 settings.set('HTTPCACHE_DIR', '/Users/jethroestrada/Library/Caches/Scrapy')
 settings.set('HTTPCACHE_STORAGE',
              'scrapy.extensions.httpcache.FilesystemCacheStorage')
