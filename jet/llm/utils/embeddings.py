@@ -1,4 +1,4 @@
-from jet.cache.joblib.utils import save_persistent_cache, ttl_cache
+from jet.cache.joblib.utils import load_persistent_cache, save_persistent_cache, ttl_cache
 from jet.data.utils import generate_key, hash_text
 from jet.token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
 import numpy as np
@@ -219,9 +219,14 @@ def initialize_embed_function(
 
 
 def get_embedding_function(
-    model_name: str, batch_size: int = 32
+    model_name: str, batch_size: int = 64
 ) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
     """Retrieve or cache embeddings using TTLCache and persistent storage."""
+
+    # ✅ Load cache from embeddings.pkl
+    cache_file = "embeddings.pkl"
+    load_persistent_cache(cache_file)
+
     embed_func = initialize_embed_function(model_name, batch_size)
 
     def cached_embedding(input_text: str | list[str]):
@@ -255,7 +260,8 @@ def get_embedding_function(
                 ttl_cache[text_key] = embedding  # ✅ Store in TTLCache
                 results[idx] = embedding
 
-            save_persistent_cache()  # ✅ Save updated cache to embeddings.pkl
+            # ✅ Save updated cache to embeddings.pkl
+            save_persistent_cache(cache_file)
 
         return results[0] if single_input else results
 

@@ -5,7 +5,7 @@ import joblib
 from cachetools import TTLCache
 from jet.transformers.object import make_serializable
 from jet.logger import logger
-from typing import Any, Type, Optional
+from typing import Any, Type, Optional, Union
 
 from pydantic.main import BaseModel
 
@@ -19,7 +19,6 @@ from jet.logger import logger
 
 # ✅ Cache Configuration
 CACHE_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/cache/joblib/.cache"
-CACHE_FILE = f"{CACHE_DIR}/ttl_cache_1.pkl"
 CACHE_TTL = 3600  # Time-to-live for TTLCache (seconds)
 CACHE_SIZE = 10000  # Max number of items in TTLCache
 CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
@@ -27,27 +26,74 @@ CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
 # ✅ Initialize TTLCache
 ttl_cache: TTLCache = TTLCache(maxsize=CACHE_SIZE, ttl=CACHE_TTL)
 
-
-def load_persistent_cache():
-    """Load the key-value cache from the persistent cache file."""
-    if os.path.exists(CACHE_FILE):
-        try:
-            cache_data = joblib.load(CACHE_FILE)
-            if isinstance(cache_data, dict):
-                ttl_cache.update(cache_data)  # Load into TTL cache
-                logger.success(
-                    f"Loaded {len(cache_data)} key-value from cache.\n{CACHE_FILE}")
-        except Exception as e:
-            logger.error(f"Failed to load cache: {e}")
+# ✅ Track loaded caches and original cache states
+loaded_caches = set()
+original_cache_data = {}
 
 
-def save_persistent_cache():
-    """Save the current TTL cache to the persistent cache file."""
-    try:
-        joblib.dump(dict(ttl_cache), CACHE_FILE)
-        logger.success(f"Saved {len(ttl_cache)} key-value to {CACHE_FILE}")
-    except Exception as e:
-        logger.error(f"Failed to save cache: {e}")
+def load_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
+    """Load the key-value cache from one or more persistent cache files."""
+    global loaded_caches, original_cache_data
+
+    if cache_files is None:
+        cache_files = [os.path.join(CACHE_DIR, f) for f in os.listdir(
+            CACHE_DIR) if f.endswith(".pkl")]
+    elif isinstance(cache_files, str):
+        cache_files = cache_files if os.path.isabs(
+            cache_files) else os.path.join(CACHE_DIR, cache_files)
+        cache_files = [cache_files]
+
+    for cache_file in cache_files:
+        if cache_file in loaded_caches:
+            continue  # ✅ Skip if already loaded
+
+        if os.path.exists(cache_file):
+            try:
+                cache_data = joblib.load(cache_file)
+                if isinstance(cache_data, dict):
+                    ttl_cache.update(cache_data)
+                    loaded_caches.add(cache_file)
+                    original_cache_data[cache_file] = cache_data.copy()
+                    logger.success(
+                        f"Loaded {len(cache_data)} items from {cache_file}")
+            except Exception as e:
+                logger.error(f"Error loading {cache_file}: {e}")
+
+
+def save_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
+    """Save only modified loaded caches, or create new cache files if they don't exist."""
+    if cache_files is None:
+        cache_files = list(loaded_caches)
+    elif isinstance(cache_files, str):
+        cache_files = [cache_files]
+
+    # ✅ Ensure paths are absolute
+    cache_files = [
+        file if os.path.isabs(file) else os.path.join(CACHE_DIR, file)
+        for file in cache_files
+    ]
+
+    for cache_file in cache_files:
+        current_cache_data = dict(ttl_cache)
+
+        # ✅ Save if cache was loaded and modified
+        if cache_file in loaded_caches:
+            if original_cache_data.get(cache_file) != current_cache_data:
+                try:
+                    joblib.dump(current_cache_data, cache_file)
+                    logger.success(
+                        f"Saved {len(ttl_cache)} items to {cache_file}")
+                except Exception as e:
+                    logger.error(f"Error saving {cache_file}: {e}")
+
+        # ✅ Create new cache file if it doesn't exist
+        elif not os.path.exists(cache_file):
+            try:
+                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                joblib.dump(current_cache_data, cache_file)
+                logger.success(f"Created and saved new cache: {cache_file}")
+            except Exception as e:
+                logger.error(f"Error creating cache file {cache_file}: {e}")
 
 
 def save_cache(file_path: str, data: Any) -> None:
@@ -169,13 +215,12 @@ def cleanup_persistent_cache():
     for file in os.listdir(CACHE_DIR):
         file_path = os.path.join(CACHE_DIR, file)
 
-        if file.endswith(".pkl"):
-            file_age = now - os.stat(file_path).st_mtime
-            if file_age > CACHE_TTL:
-                # os.remove(file_path)
-                # ✅ Clear file instead of deleting
-                open(file_path, 'w').close()
-                logger.warning(f"Cleared expired cache file: {file_path}")
+        file_age = now - os.stat(file_path).st_mtime
+        if file_age > CACHE_TTL:
+            # os.remove(file_path)
+            # ✅ Clear file instead of deleting
+            open(file_path, 'w').close()
+            logger.warning(f"Cleared expired cache file: {file_path}")
 
 
 def cleanup_ttl_cache():
@@ -197,6 +242,7 @@ def background_cleanup():
 _cleanup_thread = None  # Global variable to track the cleanup thread
 
 
+# ✅ Start cleanup thread safely
 def start_cleanup_thread():
     """Starts a background cleanup thread if not already running."""
     global _cleanup_thread
@@ -223,7 +269,7 @@ def cleanup_on_exit():
 # ✅ Start cleanup thread safely
 start_cleanup_thread()
 # ✅ Load existing cache on startup
-load_persistent_cache()
+# load_persistent_cache()
 
 
 __all__ = [

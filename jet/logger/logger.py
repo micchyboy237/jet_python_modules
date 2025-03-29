@@ -87,6 +87,8 @@ class CustomLogger:
                 file.write("\n")
 
     def pretty(self, prompt, level=0):
+        MAX_STRING_LENGTH = 100  # Maximum allowed string length
+
         def _inner(prompt, level):
             """
             Recursively builds a formatted log string from a nested dictionary or list with readable colors using ANSI escape codes.
@@ -106,31 +108,33 @@ class CustomLogger:
             VALUE_COLOR = COLORS["SUCCESS"]
             LIST_ITEM_COLOR = COLORS["SUCCESS"]
 
-            if isinstance(prompt, dict):
+            def truncate_string(s):
+                """Truncates strings exceeding MAX_STRING_LENGTH."""
+                return s if len(s) <= MAX_STRING_LENGTH else s[:MAX_STRING_LENGTH] + "..."
+
+            if isinstance(prompt, dict):  # Use color for dictionary keys
                 for key, value in prompt.items():
-                    # Use color for dictionary keys
                     prompt_log += f"{line_prefix}{KEY_COLOR}{key}{RESET}: "
-                    if isinstance(value, (dict, list)):  # If nested structure
+                    if isinstance(value, (dict, list)):
                         prompt_log += f"\n{_inner(value, level + 1)}"
                     else:  # Primitive value
-                        prompt_log += f"{VALUE_COLOR}{value}{RESET}\n"
-            elif isinstance(prompt, list):
+                        # Convert to str before truncating
+                        truncated_value = truncate_string(str(value))
+                        prompt_log += f"{VALUE_COLOR}{truncated_value}{RESET}\n"
+            elif isinstance(prompt, list):  # Use color for list items
                 for item in prompt:
                     if isinstance(item, (dict, list)):  # If nested structure
                         prompt_log += f"\n{_inner(item, level + 1)}"
                     else:  # Primitive value
-                        # Use color for list items
-                        prompt_log += f"{line_prefix}{LIST_ITEM_COLOR}{item}{RESET}\n"
+                        truncated_item = truncate_string(str(item))
+                        prompt_log += f"{line_prefix}{LIST_ITEM_COLOR}{truncated_item}{RESET}\n"
 
-            # Decode unicode characters if any
             prompt_log = fix_and_unidecode(prompt_log)
-
             return prompt_log
 
         prompt_log = _inner(prompt, level)
         print(prompt_log)
 
-        # Save raw (unformatted) message to file
         if self.log_file:
             with open(self.log_file, "a") as file:
                 file.write(format_json(prompt) + "\n")

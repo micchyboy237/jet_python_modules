@@ -1,5 +1,6 @@
 from jet.data.utils import generate_unique_hash
 from jet.llm.utils.embeddings import get_embedding_function
+from jet.token.token_utils import get_model_max_tokens
 from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from collections import defaultdict
 from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
@@ -124,7 +125,7 @@ def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings
         temperature=settings.get(
             "temperature", DEFAULT_LLM_SETTINGS['temperature']),
         context_window=settings.get(
-            "context_window", DEFAULT_LLM_SETTINGS['context_window']),
+            "context_window", get_model_max_tokens(llm_model)),
         request_timeout=settings.get(
             "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
     )
