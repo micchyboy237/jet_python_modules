@@ -13,6 +13,7 @@ from scrapy.http import HtmlResponse
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.chrome.options import Options
 
 from .http import SeleniumRequest
 
@@ -60,7 +61,7 @@ class SeleniumMiddleware:
         driver_options_module = import_module(f'{webdriver_base_path}.options')
         driver_options_klass = getattr(driver_options_module, 'Options')
 
-        driver_options = driver_options_klass()
+        driver_options: Options = driver_options_klass()
 
         if browser_executable_path:
             driver_options.binary_location = browser_executable_path

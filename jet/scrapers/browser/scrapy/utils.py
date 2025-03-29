@@ -1,9 +1,10 @@
 import re
+from urllib.parse import quote
 
 
 def normalize_url(url: str) -> str:
-    """Removes unnecessary characters from anime URLs."""
-    return re.sub(r'[^a-zA-Z0-9:/._-]', '', url.split("?")[0])  # Remove non-standard chars
+    """Removes unnecessary characters from anime URLs and trims trailing slashes."""
+    return quote(url.rstrip('/'), safe=":/")
 
 
 __all__ = [
