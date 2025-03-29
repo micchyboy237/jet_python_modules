@@ -1,6 +1,6 @@
 from jet.data.utils import generate_unique_hash
 from jet.llm.utils.embeddings import get_embedding_function
-from jet.token.token_utils import get_model_max_tokens
+from jet.token.token_utils import get_model_max_tokens, tokenize
 from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from collections import defaultdict
 from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
@@ -245,6 +245,11 @@ class Ollama(BaseOllama):
         tokenizer = get_ollama_tokenizer(self.model)
         set_global_tokenizer(tokenizer)
 
+    def encode(self, texts: Union[str, Sequence[str]] = ''):
+        """Calls get_general_text_embedding to get the embeddings."""
+        tokens = tokenize(self.model, texts)
+        return tokens
+
     @llm_chat_callback()
     def chat(self, messages: str | Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.actions import call_ollama_chat
@@ -472,7 +477,7 @@ class OllamaEmbedding(BaseOllamaEmbedding):
         default="http://localhost:11434",
         description="Base url the model is hosted by Ollama",
     )
-    model_name: Optional[OLLAMA_EMBED_MODELS] = Field(
+    model_name: OLLAMA_EMBED_MODELS = Field(
         default="mxbai-embed-large",
         description="The Ollama model to use.",
     )
@@ -483,18 +488,13 @@ class OllamaEmbedding(BaseOllamaEmbedding):
         le=2048,
     )
 
-    def embed(self, texts: Union[str, Sequence[str]] = '') -> list[float] | list[list[float]]:
+    def encode(self, texts: Union[str, Sequence[str]] = ''):
         """Calls get_general_text_embedding to get the embeddings."""
-        from jet.llm.utils.embeddings import get_ollama_embedding_function
-
-        embed_func = get_ollama_embedding_function(self.model_name)
-        embed_results = embed_func(texts)
-        return embed_results
+        tokens = tokenize(self.model_name, texts)
+        return tokens
 
     def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float] | list[list[float]]:
         """Get Ollama embedding with retry mechanism."""
-        from jet.llm.utils.embeddings import get_ollama_embedding_function
-
         logger.orange("Calling OllamaEmbedding embed...")
         logger.debug(
             "Embed model:",
@@ -511,8 +511,8 @@ class OllamaEmbedding(BaseOllamaEmbedding):
                 CBEventType.EMBEDDING,
                 payload={EventPayload.SERIALIZED: self.to_dict()},
             ) as event:
-                embed_func = get_ollama_embedding_function(
-                    model=self.model_name
+                embed_func = get_embedding_function(
+                    model_name=self.model_name
                 )
                 embeddings = embed_func(texts)
 
@@ -543,8 +543,6 @@ def embed_nodes(
     Returns:
         dict[str, list[float]]: A map from node id to embedding.
     """
-    from jet.llm.utils.embeddings import get_ollama_embedding_function
-
     id_to_embed_map: dict[str, list[float]] = {}
 
     texts_to_embed: list[str] = []
@@ -581,8 +579,6 @@ async def async_embed_nodes(
     Returns:
         dict[str, list[float]]: A map from node id to embedding.
     """
-    from jet.llm.utils.embeddings import get_ollama_embedding_function
-
     id_to_embed_map: dict[str, list[float]] = {}
 
     texts_to_embed: list[str] = []
@@ -595,8 +591,8 @@ async def async_embed_nodes(
         texts_to_embed = nodes
         ids_to_embed = [generate_unique_hash(text) for text in nodes]
 
-    embedding_function = get_ollama_embedding_function(
-        model=embed_model
+    embedding_function = get_embedding_function(
+        model_name=embed_model
     )
     new_embeddings = embedding_function(texts_to_embed)
 

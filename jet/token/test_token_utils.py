@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock
 
-from jet.token.token_utils import split_texts
+from jet.token.token_utils import group_texts, split_texts, token_counter
 
 # Mock dependencies
 OLLAMA_MODEL_EMBEDDING_TOKENS = {
@@ -78,6 +78,105 @@ class TestSplitTexts(unittest.TestCase):
     def test_empty_list_input(self):
         result = split_texts([], self.tokenizer, chunk_size=10)
         self.assertEqual(result, [])
+
+
+class TestGroupTextsOptimized(unittest.TestCase):
+
+    def test_empty_input(self):
+        result = group_texts([], "mistral", 100)
+        self.assertEqual(result, [])
+
+    def test_single_short_text(self):
+        texts = ["Hello world!"]
+        result = group_texts(texts, "mistral", 100)
+        self.assertEqual(result, [["Hello world!"]])
+
+    def test_multiple_short_texts(self):
+        texts = ["Text 1", "Text 2", "Text 3"]
+        max_tokens = 50
+        token_counts = token_counter(texts, "mistral", prevent_total=True)
+        result = group_texts(texts, "mistral", max_tokens)
+        expected_groups = []
+        current_group = []
+        current_token_count = 0
+
+        for text, token_count in zip(texts, token_counts):
+            if current_token_count + token_count > max_tokens:
+                expected_groups.append(current_group)
+                current_group = []
+                current_token_count = 0
+            current_group.append(text)
+            current_token_count += token_count
+        if current_group:
+            expected_groups.append(current_group)
+
+        self.assertEqual(result, expected_groups)
+
+    def test_large_text_splits_correctly(self):
+        texts = ["Large text 1", "Small text", "Large text 2", "Tiny"]
+        max_tokens = 100
+        token_counts = token_counter(texts, "mistral", prevent_total=True)
+        result = group_texts(texts, "mistral", max_tokens)
+
+        expected_groups = []
+        current_group = []
+        current_token_count = 0
+
+        for text, token_count in zip(texts, token_counts):
+            if current_token_count + token_count > max_tokens:
+                expected_groups.append(current_group)
+                current_group = []
+                current_token_count = 0
+            current_group.append(text)
+            current_token_count += token_count
+        if current_group:
+            expected_groups.append(current_group)
+
+        self.assertEqual(result, expected_groups)
+
+    def test_edge_case_exact_fit(self):
+        texts = ["Text A", "Text B", "Text C"]
+        max_tokens = 100
+        token_counts = token_counter(texts, "mistral", prevent_total=True)
+        result = group_texts(texts, "mistral", max_tokens)
+
+        expected_groups = []
+        current_group = []
+        current_token_count = 0
+
+        for text, token_count in zip(texts, token_counts):
+            if current_token_count + token_count > max_tokens:
+                expected_groups.append(current_group)
+                current_group = []
+                current_token_count = 0
+            current_group.append(text)
+            current_token_count += token_count
+        if current_group:
+            expected_groups.append(current_group)
+
+        self.assertEqual(result, expected_groups)
+
+    def test_edge_case_max_token(self):
+        texts = ["Exact max token text"]
+        max_tokens = 100
+        token_counts = token_counter(texts, "mistral", prevent_total=True)
+        result = group_texts(texts, "mistral", max_tokens)
+
+        expected_groups = []
+        current_group = []
+        current_token_count = 0
+
+        for text, token_count in zip(texts, token_counts):
+            if current_token_count + token_count > max_tokens:
+                expected_groups.append(current_group)
+                current_group = []
+                current_token_count = 0
+            current_group.append(text)
+            current_token_count += token_count
+        if current_group:
+            expected_groups.append(current_group)
+
+        self.assertEqual(result, expected_groups)
 
 
 if __name__ == "__main__":

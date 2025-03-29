@@ -44,7 +44,6 @@ class OllamaEmbeddingFunction():
         self.batch_size = batch_size
         self.key = key
 
-    @time_it(function_name="generate_ollama_batch_embeddings")
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
         logger.info(f"Generating Ollama embeddings...")
         logger.debug(f"Model: {self.model_name}")
@@ -53,6 +52,8 @@ class OllamaEmbeddingFunction():
             f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
         logger.debug(f"Texts: {len(input)}")
         logger.debug(f"Batch size: {self.batch_size}")
+        logger.info(
+            f"Total batches: {len(input) // self.batch_size + bool(len(input) % self.batch_size)}")
 
         def func(query: str | list[str]): return generate_embeddings(
             model=self.model_name,
@@ -332,6 +333,7 @@ def generate_embeddings(
     return embeddings[0] if isinstance(text, str) else embeddings
 
 
+@time_it
 def generate_ollama_batch_embeddings(
     model: OLLAMA_MODEL_NAMES,
     texts: list[str], url: str,

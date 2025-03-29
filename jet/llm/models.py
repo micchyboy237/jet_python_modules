@@ -35,6 +35,22 @@ OLLAMA_MODEL_NAMES = Literal[
 ]
 
 
+OLLAMA_EMBED_MODELS = OLLAMA_MODEL_NAMES
+
+OLLAMA_BERT_MODELS = Literal[
+    "nomic-embed-text"
+    "mxbai-embed-large",
+    "snowflake-arctic-embed",
+    "snowflake-arctic-embed:137m",
+    "snowflake-arctic-embed:33m",
+    "all-minilm:22m",
+    "all-minilm:33m",
+    "bge-large",
+    "paraphrase-multilingual",
+    "granite-embedding",
+    "granite-embedding:278m",
+]
+
 # Map models to context window sizes
 OLLAMA_MODEL_CONTEXTS = {
     "granite-embedding:278m": 512,
@@ -82,44 +98,6 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "llava": 4096,
     "llama3.2": 3072
 }
-
-
-OLLAMA_EMBED_MODELS = Literal[
-    "granite-embedding:278m",
-    "granite-embedding",
-    "paraphrase-multilingual",
-    "bge-large",
-    "all-minilm:33m",
-    "all-minilm:22m",
-    "snowflake-arctic-embed:33m",
-    "snowflake-arctic-embed:137m",
-    "snowflake-arctic-embed",
-    "deepseek-r1",
-    "gemma2:2b",
-    "gemma2:9b",
-    "qwen2.5-coder",
-    "nomic-embed-text",
-    "mistral",
-    "mxbai-embed-large",
-    "llama3.1",
-    "codellama",
-    "llava",
-    "llama3.2",
-]
-
-OLLAMA_BERT_MODELS = Literal[
-    "nomic-embed-text"
-    "mxbai-embed-large",
-    "snowflake-arctic-embed",
-    "snowflake-arctic-embed:137m",
-    "snowflake-arctic-embed:33m",
-    "all-minilm:22m",
-    "all-minilm:33m",
-    "bge-large",
-    "paraphrase-multilingual",
-    "granite-embedding",
-    "granite-embedding:278m",
-]
 
 
 OLLAMA_HF_MODELS = {
