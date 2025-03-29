@@ -17,7 +17,7 @@ from jet.llm.retrievers.recursive import (
     initialize_summary_nodes_and_retrievers,
     query_nodes as query_nodes_recursive
 )
-from jet.actions import VectorSemanticSearch
+from jet.actions.vector_semantic_search import VectorSemanticSearch
 from jet.token import filter_texts
 from jet.token.token_utils import get_model_max_tokens, get_ollama_tokenizer, group_texts
 from jet.utils.object import extract_values_by_paths
@@ -39,8 +39,9 @@ from jet.llm.utils.llama_index_utils import display_jet_source_nodes
 from llama_index.core.utils import set_global_tokenizer
 from utils.data import generate_key
 from jet.logger import logger
-from jet.actions import call_ollama_chat
+from jet.actions.generation import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
+from llama_index.core.llms.llm import LLM
 
 # from jet.memory.lru_cache import LRUCache
 
@@ -99,8 +100,8 @@ def get_bm25_retriever(index: VectorStoreIndex, similarity_k: int):
     return retriever
 
 
-def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MODES, final_similarity_k: int):
-
+def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MODES, final_similarity_k: int, llm_model: OLLAMA_MODEL_NAMES = OLLAMA_SMALL_LLM_MODEL):
+    llm = Ollama(model=llm_model)
     retriever = QueryFusionRetriever(
         retrievers,
         retriever_weights=[0.6, 0.4],
@@ -109,7 +110,7 @@ def get_fusion_retriever(retrievers: list[BaseRetriever], fusion_mode: FUSION_MO
         mode=fusion_mode,
         use_async=False,
         verbose=True,
-
+        llm=llm
     )
 
     return retriever
@@ -245,6 +246,7 @@ def setup_index(
     sub_chunk_sizes: Optional[list[int]] = None,
     with_hierarchy: Optional[bool] = None,
     embed_model: Optional[OLLAMA_EMBED_MODELS] = OLLAMA_SMALL_EMBED_MODEL,
+    llm_model: OLLAMA_MODEL_NAMES = OLLAMA_SMALL_LLM_MODEL,
     mode: Optional[Literal["annoy", "fusion", "bm25",
                            "hierarchy", "deeplake"]] = "fusion",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
@@ -518,8 +520,9 @@ def setup_index(
                 all_nodes) else len(all_nodes)
             retrievers = setup_retrievers(
                 index, initial_similarity_k, final_similarity_k)
+
             combined_retriever = get_fusion_retriever(
-                retrievers, fusion_mode, top_k)
+                retrievers, fusion_mode, top_k, llm_model)
 
             retrieved_nodes: list[NodeWithScore] = combined_retriever.retrieve(
                 query)

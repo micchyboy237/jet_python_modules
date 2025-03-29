@@ -12,7 +12,7 @@ from llama_index.core.node_parser import TokenTextSplitter
 from jet.llm.utils import display_jet_source_nodes
 from jet.vectors import get_source_node_attributes
 from jet.logger import logger
-from jet.actions import call_ollama_chat
+from jet.actions.generation import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
 from jet.llm.query import setup_index, query_llm
 from jet.llm.ollama.base import initialize_ollama_settings, large_llm_model

@@ -39,7 +39,7 @@ def separate_ngram_lines(texts: str | list[str],  punctuations_split: list[str] 
     return results
 
 
-def extract_ngrams(texts: Union[str, List[str]], min_words: int = 1, max_words: int = 1):
+def extract_ngrams(texts: Union[str, List[str]], min_words: int = 1, max_words: int = 1) -> list[str]:
     if isinstance(texts, str):
         texts = [texts]
 

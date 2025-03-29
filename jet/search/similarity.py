@@ -62,24 +62,34 @@ def preprocess_reranker_texts(texts: str | list[str]) -> list[str]:
     return preprocessed_texts
 
 
-def adjust_score_with_rewards_and_penalties(base_score: float, unique_match_count: int, max_query_count: int) -> float:
+def adjust_score_with_rewards_and_penalties(base_score: float, matched_terms: dict[str, int], query_terms: List[str], idf: dict[str, float]) -> float:
     """
-    Adjusts the score to prioritize the number of different queries matched.
-
-    - Rewards: Strong boost based on unique query matches (up to 100% boost).
-    - Penalties: Minimal penalty for fewer matches.
+    Adjusts the BM25 score by:
+    - Rewarding high-IDF (rare & important) term matches.
+    - Applying a logarithmic penalty for missing query terms.
 
     :param base_score: Original BM25 similarity score.
-    :param unique_match_count: Number of unique queries matched.
-    :param max_query_count: Total number of queries.
+    :param matched_terms: Dictionary of matched terms and their frequencies.
+    :param query_terms: List of query terms.
+    :param idf: Dictionary of IDF values for terms.
     :return: Adjusted similarity score.
     """
-    if max_query_count == 0:
+    if not query_terms:
         return base_score  # Avoid division by zero
 
-    # Stronger boost effect
-    diversity_boost = unique_match_count ** 1.5
-    return base_score * (1 + diversity_boost * 0.8)  # Max 80% boost
+    # Reward: Higher influence for rare (high-IDF) terms
+    reward = sum(idf.get(term, 0) for term in matched_terms) * \
+        0.8  # Increased multiplier for rare terms
+
+    # Penalty: Logarithmic scaling (avoids over-penalizing long queries)
+    missing_terms_count = len(query_terms) - len(matched_terms)
+    penalty = math.log1p(missing_terms_count) / \
+        math.log1p(len(query_terms))  # Smoother penalty curve
+
+    # Adjusted score calculation
+    adjusted_score = base_score * (1 + reward) * (1 - penalty)
+
+    return max(adjusted_score, 0)  # Prevent negative scores
 
 
 def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optional[List[str]] = None, *, k1=1.2, b=0.75, delta=1.0) -> List[SimilarityResult]:
@@ -87,8 +97,7 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
         raise ValueError("queries and documents must not be empty")
 
     if ids is None:
-        ids = [generate_unique_hash()
-               for _ in documents]  # Generate unique IDs
+        ids = [generate_unique_hash() for _ in documents]
     elif len(documents) != len(ids):
         raise ValueError("documents and ids must have the same lengths")
 
@@ -112,15 +121,14 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
 
     for idx, doc_text in tqdm(enumerate(lowered_documents), total=len(lowered_documents), unit="doc"):
         orig_doc_text = documents[idx]
-        doc_id = ids[idx]  # Use provided ID or generated unique ID
+        doc_id = ids[idx]
         sentences: list[str] = split_sentences(doc_text)
         doc_length = doc_lengths[idx]
         term_frequencies = Counter(tokenized_docs[idx])
         score = 0
-        matched: dict[str, int] = {}  # Query match counts
+        matched: dict[str, int] = {}  # Phrase match counts
+        matched_terms: dict[str, int] = {}  # Track matched term frequencies
         matched_sentences: dict[str, List[Match]] = {}
-
-        match_count = 0  # Count of queries that matched in the document
 
         for query in lowered_queries:
             query_terms = query.split()
@@ -137,12 +145,15 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
                         numerator = tf * (k1 + 1)
                         denominator = tf + k1 * \
                             (1 - b + b * (doc_length / avg_doc_len)) + delta
-                        sentence_score += idf[term] * (numerator / denominator)
+                        term_score = idf[term] * (numerator / denominator)
+                        sentence_score += term_score
 
-                # If the entire query appears in the sentence, give a small boost to its score.
-                # This ensures exact phrase matches are slightly favored.
+                        # Track matched terms
+                        matched_terms[term] = matched_terms.get(term, 0) + 1
+
+                # Dynamic exact phrase match boost (scaled by query length)
                 if re.search(rf'\b{re.escape(query)}\b', sentence):
-                    sentence_score += 1.0  # Increased from 0.5 to 1.0 for stronger emphasis on exact matches
+                    sentence_score += 0.2 * len(query_terms)  # Scaled boost
 
                     sentence_to_match = adaptive_split(sentence)[0]
                     try:
@@ -154,6 +165,7 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
                             sentence_to_match, lowered_orig_sentences)
                         start_idx = orig_doc_text.lower().index(
                             matched_orig_sentence["text"])
+
                     end_idx = start_idx + len(sentence)
                     sentence = orig_doc_text[start_idx:end_idx]
                     matched_sentence_list.append(Match(
@@ -169,22 +181,19 @@ def get_bm25_similarities(queries: List[str], documents: List[str], ids: Optiona
             if query_score > 0 and matched_sentence_list:
                 matched_sentences[query] = matched_sentence_list
                 matched[query] = len(matched_sentence_list)
-                match_count += 1
 
             score += query_score
 
         if score > 0:
-            # Count unique queries matched
-            unique_match_count = len(matched.keys())
-
             adjusted_score = adjust_score_with_rewards_and_penalties(
                 base_score=score,
-                unique_match_count=unique_match_count,
-                max_query_count=len(lowered_queries)
+                matched_terms=matched_terms,
+                query_terms=lowered_queries,
+                idf=idf
             )
 
             all_scores.append(SimilarityResult(
-                id=doc_id,  # Use provided or generated unique ID
+                id=doc_id,
                 score=adjusted_score,
                 similarity=score,
                 matched=matched,

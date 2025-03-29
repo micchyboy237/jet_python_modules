@@ -252,7 +252,7 @@ class Ollama(BaseOllama):
 
     @llm_chat_callback()
     def chat(self, messages: str | Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
-        from jet.actions import call_ollama_chat
+        from jet.actions.generation import call_ollama_chat
         from jet.token.token_utils import token_counter
 
         ollama_messages = self._convert_to_ollama_messages(
@@ -351,7 +351,7 @@ class Ollama(BaseOllama):
 
     @llm_chat_callback()
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
-        from jet.actions import call_ollama_chat
+        from jet.actions.generation import call_ollama_chat
         from jet.token.token_utils import token_counter
 
         ollama_messages = self._convert_to_ollama_messages(messages)

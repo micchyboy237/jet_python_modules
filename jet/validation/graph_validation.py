@@ -1,6 +1,6 @@
 import random
 from typing import Optional
-from jet.actions import call_ollama_chat
+from jet.actions.generation import call_ollama_chat
 from jet.logger import logger
 from jet.validation.cypher_graph_validator import validate_query
 from langchain_community.graphs import MemgraphGraph

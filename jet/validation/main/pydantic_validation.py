@@ -33,7 +33,7 @@ Output only the fixed JSON.
 
 
 def validate_json_pydantic(json_string: str | dict, base_model: BaseModel, model: str = MODEL, attempt: int = 1, max_attempts: int = 10, original_json: Optional[str] = None, generated_error: Optional[Exception] = None) -> dict:
-    from jet.actions import call_ollama_chat
+    from jet.actions.generation import call_ollama_chat
 
     if isinstance(json_string, dict):
         json_string = json.dumps(json_string)

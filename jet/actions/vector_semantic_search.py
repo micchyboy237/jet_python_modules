@@ -81,7 +81,7 @@ class VectorSemanticSearch:
     def faiss_search(self, queries: list[str]) -> Dict[str, List[Dict[str, float]]]:
         """Performs FAISS-based batch search for efficiency."""
         import faiss
-        from jet.actions import faiss_search
+        from jet.actions.faiss_search import faiss_search
 
         top_k = len(self.candidates)
         nlist = None
