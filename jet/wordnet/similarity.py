@@ -39,6 +39,61 @@ def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, Lis
     return [1 - cosine(base_embedding, emb) for emb in embeddings]
 
 
+def get_text_groups(
+    texts: List[str],
+    threshold: float = 0.5,
+    model_name: str = "all-MiniLM-L12-v2"
+) -> List[List[str]]:
+    """
+    Groups similar texts into exclusive clusters based on cosine similarity.
+
+    Args:
+        texts (list[str]): A list of texts to cluster.
+        threshold (float): Minimum similarity score required to be grouped. Default is 0.5.
+        model_name (str): The embedding model name.
+
+    Returns:
+        List[List[str]]: A list of lists, where each inner list contains similar texts.
+    """
+    if not texts:
+        raise ValueError("'texts' must be non-empty.")
+
+    # Get embedding function
+    embed_func = get_embedding_function(model_name)
+
+    # Compute embeddings for all texts
+    text_embeddings = np.array(embed_func(texts))
+
+    # Normalize embeddings to speed up cosine similarity computation
+    text_embeddings /= np.linalg.norm(text_embeddings, axis=1, keepdims=True)
+
+    # Compute cosine similarity matrix
+    similarity_matrix = np.dot(text_embeddings, text_embeddings.T)
+
+    # Track assigned texts
+    assigned = set()
+    groups = []
+
+    for i, text in enumerate(texts):
+        if text in assigned:
+            continue  # Skip already assigned texts
+
+        # Find texts most similar to the current text
+        similarities = similarity_matrix[i]
+        similar_indices = np.where(similarities >= threshold)[0]
+
+        # Create a group and mark texts as assigned
+        group = []
+        for idx in similar_indices:
+            if texts[idx] not in assigned:
+                group.append(texts[idx])
+                assigned.add(texts[idx])
+
+        groups.append(group)
+
+    return groups
+
+
 class QuerySimilarityResult(TypedDict):
     query: str
     results: Dict[str, float]
