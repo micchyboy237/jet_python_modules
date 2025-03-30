@@ -25,7 +25,7 @@ def get_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Opti
     return list(ngrams_dict.keys())
 
 
-def separate_ngram_lines(texts: str | list[str],  punctuations_split: list[str] = [',', '/', ':']) -> list[str]:
+def separate_ngram_lines(texts: str | list[str],  punctuations_split: list[str] = [',', '/']) -> list[str]:
     if isinstance(texts, str):
         texts = [texts]
 
