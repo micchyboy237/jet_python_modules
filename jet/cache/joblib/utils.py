@@ -19,7 +19,7 @@ from jet.logger import logger
 
 # ✅ Cache Configuration
 CACHE_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/cache/joblib/.cache"
-CACHE_TTL = 86400  # Time-to-live for TTLCache (seconds) (1 day)
+CACHE_TTL = 3600  # Time-to-live for TTLCache (seconds) (1 hour)
 CACHE_SIZE = 10000  # Max number of items in TTLCache
 CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
 

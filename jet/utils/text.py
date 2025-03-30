@@ -7,7 +7,7 @@ from unidecode import unidecode
 
 
 def remove_non_alphanumeric(text):
-    return re.sub(r'[^a-zA-Z0-9]', '', text)
+    return re.sub(r'[^a-zA-Z0-9\s-](?<!-)|(?<![\w])-(?![\w])', '', text)
 
 
 def fix_and_unidecode(text: str) -> str:

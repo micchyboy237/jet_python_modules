@@ -59,19 +59,29 @@ def extract_ngrams(texts: Union[str, List[str]], min_words: int = 1, max_words: 
     return ngrams
 
 
-def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: Optional[int] = None):
+def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: Optional[int] = None, from_start: bool = False):
     if isinstance(texts, str):
         texts = [texts]
 
     if not max_words:
-        max_words = count_words(sorted(texts, reverse=True)[0])
+        max_words = max(count_words(text) for text in texts)
 
-    ngrams = extract_ngrams(texts, min_words=min_words, max_words=max_words)
+    if from_start:
+        # Extract n-grams only from the start of sentences
+        sentences = separate_ngram_lines(texts)
+        ngrams = []
+        for sentence in sentences:
+            words = sentence.split()
+            for n in range(min_words, min(max_words, len(words)) + 1):
+                ngrams.append(" ".join(words[:n]))
+    else:
+        ngrams = extract_ngrams(
+            texts, min_words=min_words, max_words=max_words)
 
     ngram_counter = Counter(ngrams)
 
-    ngrams_dict = {ngram: count for ngram,
-                   count in ngram_counter.items() if not min_count or count >= min_count}
+    ngrams_dict = {ngram: count for ngram, count in ngram_counter.items(
+    ) if not min_count or count >= min_count}
 
     return ngrams_dict
 

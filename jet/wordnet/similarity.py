@@ -41,7 +41,7 @@ def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, Lis
 
 def get_text_groups(
     texts: List[str],
-    threshold: float = 0.5,
+    threshold: float = 0.75,
     model_name: str = "all-MiniLM-L12-v2"
 ) -> List[List[str]]:
     """
