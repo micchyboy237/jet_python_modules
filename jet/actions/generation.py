@@ -139,7 +139,7 @@ def call_ollama_chat(
     logger.log("Remaining Tokens:", predict_tokens, colors=["GRAY", "INFO"])
     logger.log("num_ctx:", num_ctx, colors=["GRAY", "ORANGE"])
     logger.log("Max Tokens:", model_max_length, colors=["GRAY", "ORANGE"])
-    logger.log("Max Allowed Tokens:", model_max_length -
+    logger.log("Max Prompt Tokens:", model_max_length -
                buffer, colors=["GRAY", "ORANGE"])
     logger.newline()
 
