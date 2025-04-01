@@ -345,8 +345,9 @@ def call_ollama_chat(
                                     run.track(aim_value, **track_args)
 
                             if full_stream_response:
-                                output = "".join(response_chunks)
-                                decoded_chunk["message"]["content"] = output
+                                if not decoded_chunk["message"]["content"]:
+                                    output = "".join(response_chunks)
+                                    decoded_chunk["message"]["content"] = output
                                 yield decoded_chunk
                             else:
                                 yield content

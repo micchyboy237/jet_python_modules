@@ -250,11 +250,6 @@ class Ollama(BaseOllama):
         }
         super().__init__(model=model, **kwargs)
 
-        # Initialize and set tokenizer
-        from jet.token.token_utils import get_ollama_tokenizer
-        tokenizer = get_ollama_tokenizer(self.model)
-        set_global_tokenizer(tokenizer)
-
     def encode(self, texts: Union[str, Sequence[str]] = ''):
         """Calls get_general_text_embedding to get the embeddings."""
         tokens = tokenize(self.model, texts)
@@ -263,7 +258,11 @@ class Ollama(BaseOllama):
     # @llm_chat_callback()
     def chat(self, messages: str | Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.actions.generation import call_ollama_chat
-        from jet.token.token_utils import token_counter
+        from jet.token.token_utils import token_counter, get_ollama_tokenizer
+
+        # Initialize and set tokenizer
+        tokenizer = get_ollama_tokenizer(self.model)
+        set_global_tokenizer(tokenizer)
 
         ollama_messages = self._convert_to_ollama_messages(
             messages) if not isinstance(messages, str) else messages
