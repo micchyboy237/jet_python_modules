@@ -325,6 +325,7 @@ __all__ = [
     "get_class_name",
     "validate_iterable_class",
     "get_iterable_class_name",
+    "get_builtin_attributes",
     "get_non_empty_attributes",
     "get_internal_attributes",
     "get_callable_attributes",

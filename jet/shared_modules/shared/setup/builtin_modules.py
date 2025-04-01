@@ -22,6 +22,7 @@ from .import_modules import (
     get_class_name,
     validate_iterable_class,
     get_iterable_class_name,
+    get_builtin_attributes,
     get_non_empty_attributes,
     get_internal_attributes,
     get_callable_attributes,
@@ -145,6 +146,8 @@ def inject_globals():
         builtins.validate_iterable_class = validate_iterable_class
     if not hasattr(builtins, "get_iterable_class_name"):
         builtins.get_iterable_class_name = get_iterable_class_name
+    if not hasattr(builtins, "get_builtin_attributes"):
+        builtins.get_builtin_attributes = get_builtin_attributes
     if not hasattr(builtins, "get_non_empty_attributes"):
         builtins.get_non_empty_attributes = get_non_empty_attributes
     if not hasattr(builtins, "get_internal_attributes"):
