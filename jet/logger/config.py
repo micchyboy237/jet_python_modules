@@ -19,6 +19,8 @@ COLORS = {
     "BRIGHT_SUCCESS": BOLD + "\u001b[48;5;40m",
     "ORANGE": BOLD + "\u001b[38;5;208m",
     "BRIGHT_ORANGE": BOLD + "\u001b[48;5;208m",
+    "YELLOW": BOLD + "\u001b[38;5;220m",
+    "BRIGHT_YELLOW": BOLD + "\u001b[48;5;220m",
     "TEAL": BOLD + "\u001b[38;5;86m",
     "BRIGHT_TEAL": BOLD + "\u001b[48;5;86m",
     "PURPLE": BOLD + "\u001b[38;5;92m",
@@ -33,6 +35,8 @@ COLORS = {
 
 
 def colorize_log(text: str, color: str):
+    if color in COLORS:
+        color = COLORS[color]
     return f"{color}{text}{RESET}"
 
 

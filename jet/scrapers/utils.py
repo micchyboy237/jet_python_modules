@@ -1,3 +1,8 @@
+from pyquery import PyQuery as pq
+from jet.logger.config import colorize_log
+from jet.logger import logger
+from typing import List, Dict, Optional
+import json
 import re
 import string
 from jet.utils.text import fix_and_unidecode
@@ -209,6 +214,97 @@ def split_text(text: str, chunk_size: int, overlap: int) -> List[str]:
             break
         start += chunk_size - overlap
     return chunks
+
+
+class TreeNode(Dict):
+    tag: str
+    text: Optional[str]  # Some nodes may not contain text
+    depth: int
+    id: Optional[str]  # ID attribute of the element
+    class_names: List[str]  # List of class names
+    children: List['TreeNode']  # Recursive reference to TreeNode
+
+
+def extract_tree_with_text(html: str) -> Optional[TreeNode]:
+    """
+    Finds all elements that contain any text, ensuring a natural document order.
+    Returns a tree-like structure of parents and their corresponding text, including depth for each node.
+    Only includes text for nodes that directly hold it.
+
+    :param html: The HTML string to parse.
+    :return: A tree-like structure with parent elements and their corresponding text.
+    """
+    # Helper function to recursively build the tree
+    def build_tree(element, current_depth: int) -> Optional[TreeNode]:
+        text = pq(element).text().strip()
+
+        # Extract ID and class name (only if exists)
+        element_id = pq(element).attr('id')
+        element_class = pq(element).attr('class')
+
+        # Split class names into a list if they exist and filter non-alphabet characters
+        class_names = [name for name in (element_class.split() if element_class else [])
+                       if name.isalpha()]
+
+        # Include text only for leaf nodes that directly hold text
+        if text and len(pq(element).children()) == 0:  # No children, direct text
+            return {
+                "tag": pq(element)[0].tag,
+                "text": text,
+                "depth": current_depth,
+                "id": element_id,
+                "class_names": class_names,  # Store filtered class names as a list
+                "children": []  # No children in this case
+            }
+
+        # Otherwise, process children recursively
+        children = []
+        for child in pq(element).children():
+            child_tree = build_tree(child, current_depth + 1)
+            if child_tree:
+                children.append(child_tree)
+
+        # Return the element if it has children containing text
+        if children:
+            return {
+                "tag": pq(element)[0].tag,
+                "text": None,  # No text for container elements
+                "depth": current_depth,
+                "id": element_id,
+                "class_names": class_names,  # Store filtered class names as a list
+                "children": children
+            }
+        return None
+
+    doc = pq(html)
+    # Start with the root element (<html>) at depth 0
+    root = build_tree(doc[0], 0)
+
+    return root  # Returns tree-like structure starting from <html> element
+
+
+# Function to print the tree-like structure recursively
+def print_tree(node: TreeNode, indent=0):
+    if node:
+        # or node['children'][0]['text']:
+        if node['text'] or node['id'] or node['class_names'] or indent != 0:
+            tag_text = node['tag']
+            if node['id']:
+                tag_text += " " + colorize_log(f"#{node['id']}", "YELLOW")
+            if node['class_names']:
+                tag_text += " " + \
+                    colorize_log(
+                        ', '.join([f".{class_name}" for class_name in node['class_names']]), "ORANGE")
+
+            if node['text']:
+                logger.log(('  ' * indent + f"{node['depth']}:"), tag_text, "-",
+                           json.dumps(node['text'][:30]), colors=["INFO", "DEBUG", "GRAY", "SUCCESS"])
+            else:
+                logger.log(
+                    ('  ' * indent + f"{node['depth']}:"), tag_text, colors=["INFO", "DEBUG"])
+
+        for child in node['children']:
+            print_tree(child, indent + 1)
 
 
 __all__ = [
