@@ -74,6 +74,8 @@ pynput==1.8.1
 pyobjc==10.3.2
 pypdf==5.1.0
 pyppeteer
+PyQt6==6.8.1
+pyquery==2.0.1
 PyScreeze==1.0.1
 PyStemmer==2.2.0.3
 pytest-playwright==0.7.0
