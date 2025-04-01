@@ -153,19 +153,40 @@ CONTEXT_EVAL_TEMPLATE = PromptTemplate(
 )
 
 
+class ContextEvaluationData(BaseModel):
+    passing: bool = Field(
+        ...,
+        description="Indicates whether the response adheres to the context evaluation guidelines, considering the provided context."
+    )
+    score: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Evaluation score indicating how well the response aligns with the provided context and adheres to the context-specific guidelines. Scores 0.5 and above are considered passing."
+    )
+    feedback: str = Field(
+        ...,
+        description="Constructive feedback on how the response aligns with the given context, highlighting strengths, weaknesses, and any inaccuracies or unsupported assumptions made by the response."
+    )
+
+
 class GuidelineContextEvaluator(GuidelineEvaluator):
     def __init__(
         self,
         *args,
         guidelines: Optional[str | list[str]] = None,
         eval_template: Optional[Union[str, BasePromptTemplate]] = None,
+        output_parser: Optional[PydanticOutputParser] = None,
         **kwargs,
     ) -> None:
         guidelines = guidelines or CONTEXT_EVAL_GUIDELINES
-        eval_template = eval_template or DEFAULT_EVAL_TEMPLATE
+        eval_template = eval_template or CONTEXT_EVAL_TEMPLATE
+        output_parser = output_parser or PydanticOutputParser(
+            output_cls=ContextEvaluationData
+        )
 
         super().__init__(*args, guidelines=guidelines,
-                         eval_template=eval_template, **kwargs)
+                         eval_template=eval_template output_parser=output_parser, **kwargs)
 
     async def aevaluate(
         self,
@@ -196,7 +217,7 @@ class GuidelineContextEvaluator(GuidelineEvaluator):
             guidelines=self._guidelines,
         )
         eval_data = self._output_parser.parse(eval_response)
-        eval_data = cast(EvaluationData, eval_data)
+        eval_data = cast(ContextEvaluationData, eval_data)
 
         return EvaluationResult(
             query=query,
