@@ -1,3 +1,5 @@
+from collections import defaultdict
+from typing import List, Optional
 from pyquery import PyQuery as pq
 from jet.logger.config import colorize_log
 from jet.logger import logger
@@ -225,17 +227,31 @@ class TreeNode(Dict):
     children: List['TreeNode']  # Recursive reference to TreeNode
 
 
-def extract_tree_with_text(html: str) -> Optional[TreeNode]:
+def exclude_elements(doc, excludes: List[str]) -> None:
+    """
+    Removes elements from the document that match the tags in the excludes list.
+
+    :param doc: The PyQuery object representing the HTML document.
+    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
+    """
+    for tag in excludes:
+        # Remove all elements of the excluded tag from the document
+        for element in doc(tag):
+            pq(element).remove()
+
+
+def extract_tree_with_text(html: str, excludes: List[str] = ["style", "script"]) -> Optional[TreeNode]:
     """
     Finds all elements that contain any text, ensuring a natural document order.
     Returns a tree-like structure of parents and their corresponding text, including depth for each node.
-    Only includes text for nodes that directly hold it.
+    Only includes text for nodes that directly hold it or have children with text.
 
     :param html: The HTML string to parse.
     :return: A tree-like structure with parent elements and their corresponding text.
     """
     # Helper function to recursively build the tree
     def build_tree(element, current_depth: int) -> Optional[TreeNode]:
+        # Extract text from the element
         text = pq(element).text().strip()
 
         # Extract ID and class name (only if exists)
@@ -246,37 +262,29 @@ def extract_tree_with_text(html: str) -> Optional[TreeNode]:
         class_names = [name for name in (element_class.split() if element_class else [])
                        if name.isalpha()]
 
-        # Include text only for leaf nodes that directly hold text
-        if text and len(pq(element).children()) == 0:  # No children, direct text
-            return {
-                "tag": pq(element)[0].tag,
-                "text": text,
-                "depth": current_depth,
-                "id": element_id,
-                "class_names": class_names,  # Store filtered class names as a list
-                "children": []  # No children in this case
-            }
-
-        # Otherwise, process children recursively
+        # Process children recursively
         children = []
         for child in pq(element).children():
             child_tree = build_tree(child, current_depth + 1)
-            if child_tree:
+            if child_tree:  # Only add non-empty children (those with text)
                 children.append(child_tree)
 
-        # Return the element if it has children containing text
-        if children:
+        # Include the current element if it has text or non-empty children
+        if text or children:
             return {
                 "tag": pq(element)[0].tag,
-                "text": None,  # No text for container elements
+                "text": text if text else None,  # Assign text only if it exists
                 "depth": current_depth,
                 "id": element_id,
                 "class_names": class_names,  # Store filtered class names as a list
                 "children": children
             }
-        return None
+
+        return None  # Return None if the element is empty or has no meaningful children
 
     doc = pq(html)
+    # Apply the exclusion logic before building the tree
+    exclude_elements(doc, excludes)
     # Start with the root element (<html>) at depth 0
     root = build_tree(doc[0], 0)
 
@@ -284,10 +292,14 @@ def extract_tree_with_text(html: str) -> Optional[TreeNode]:
 
 
 # Function to print the tree-like structure recursively
-def print_tree(node: TreeNode, indent=0):
+def print_tree(node: TreeNode, indent=0, excludes: List[str] = ["style", "script"]):
     if node:
+        # Skip node if its tag is in the excludes list
+        if node['tag'] in excludes:
+            return
+
         # or node['children'][0]['text']:
-        if node['text'] or node['id'] or node['class_names'] or indent != 0:
+        if node['text'] or node['id'] or node['class_names'] or node['children'][0]['text']:
             tag_text = node['tag']
             if node['id']:
                 tag_text += " " + colorize_log(f"#{node['id']}", "YELLOW")
@@ -304,7 +316,7 @@ def print_tree(node: TreeNode, indent=0):
                     ('  ' * indent + f"{node['depth']}:"), tag_text, colors=["INFO", "DEBUG"])
 
         for child in node['children']:
-            print_tree(child, indent + 1)
+            print_tree(child, indent + 1, excludes)
 
 
 __all__ = [
