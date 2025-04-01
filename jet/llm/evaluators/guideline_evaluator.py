@@ -15,11 +15,11 @@ from llama_index.core.settings import Settings
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_GUIDELINES = (
-    "The response should fully answer the query.\n"
-    "The response should avoid being vague or ambiguous.\n"
-    "The response should be specific and use statistics or numbers when possible.\n"
-)
+DEFAULT_GUIDELINES = [
+    "The response should fully answer the query.",
+    "The response should avoid being vague or ambiguous.",
+    "The response should be specific and use statistics or numbers when possible.",
+]
 
 DEFAULT_EVAL_TEMPLATE = PromptTemplate(
     "Here is the original query:\n"
@@ -63,10 +63,13 @@ class GuidelineEvaluator(BaseEvaluator):
     def __init__(
         self,
         llm: Optional[LLM] = None,
-        guidelines: Optional[str] = None,
+        guidelines: Optional[str | list[str]] = None,
         eval_template: Optional[Union[str, BasePromptTemplate]] = None,
         output_parser: Optional[PydanticOutputParser] = None,
     ) -> None:
+        if isinstance(guidelines, list):
+            guidelines = "\n".join(guidelines)
+
         self._llm = llm or Settings.llm
         self._guidelines = guidelines or DEFAULT_GUIDELINES
 
@@ -124,6 +127,80 @@ class GuidelineEvaluator(BaseEvaluator):
 
         return EvaluationResult(
             query=query,
+            response=response,
+            passing=eval_data.passing,
+            score=eval_data.score,
+            feedback=eval_data.feedback,
+        )
+
+
+CONTEXT_EVAL_GUIDELINES = [
+    "The response should be relevant to the provided context.",
+    "The response should be accurate and factually correct based on the context.",
+    "The response should avoid making unsupported assumptions beyond the given context.",
+    # "If the context lacks necessary information, the response should acknowledge this rather than speculate.",
+]
+
+
+CONTEXT_EVAL_TEMPLATE = PromptTemplate(
+    "Here is the original query:\n"
+    "Query: {query}\n"
+    "Critique the following context and response based on the guidelines below:\n"
+    "Context: {context}\n"
+    "Response: {response}\n"
+    "Guidelines: {guidelines}\n"
+    "Now please provide constructive criticism.\n"
+)
+
+
+class GuidelineContextEvaluator(GuidelineEvaluator):
+    def __init__(
+        self,
+        *args,
+        guidelines: Optional[str | list[str]] = None,
+        eval_template: Optional[Union[str, BasePromptTemplate]] = None,
+        **kwargs,
+    ) -> None:
+        guidelines = guidelines or CONTEXT_EVAL_GUIDELINES
+        eval_template = eval_template or DEFAULT_EVAL_TEMPLATE
+
+        super().__init__(*args, guidelines=guidelines,
+                         eval_template=eval_template, **kwargs)
+
+    async def aevaluate(
+        self,
+        query: Optional[str] = None,
+        response: Optional[str] = None,
+        contexts: Optional[Sequence[str]] = None,
+        sleep_time_in_seconds: int = 0,
+        **kwargs: Any,
+    ) -> EvaluationResult:
+        """Evaluate whether the query and response pair passes the guidelines."""
+        del kwargs  # Unused
+        if query is None or not contexts or response is None:
+            raise ValueError("query, contexts and response must be provided")
+
+        logger.debug("prompt: %s", self._eval_template)
+        logger.debug("query: %s", query)
+        logger.debug("contexts: %s", contexts)
+        logger.debug("response: %s", response)
+        logger.debug("guidelines: %s", self._guidelines)
+
+        await asyncio.sleep(sleep_time_in_seconds)
+
+        eval_response = await self._llm.apredict(
+            self._eval_template,
+            query=query,
+            context="\n\n".join(contexts),
+            response=response,
+            guidelines=self._guidelines,
+        )
+        eval_data = self._output_parser.parse(eval_response)
+        eval_data = cast(EvaluationData, eval_data)
+
+        return EvaluationResult(
+            query=query,
+            contexts=contexts,
             response=response,
             passing=eval_data.passing,
             score=eval_data.score,
