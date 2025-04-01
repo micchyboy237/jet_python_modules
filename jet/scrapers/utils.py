@@ -305,32 +305,96 @@ def extract_tree_with_text(html: str, excludes: List[str] = ["style", "script"])
     return root  # Returns tree-like structure starting from <html> element
 
 
-# Function to print the tree-like structure recursively
-def print_tree(node: TreeNode, indent=0, excludes: List[str] = ["style", "script"]):
-    if node:
-        # Skip node if its tag is in the excludes list
-        if node['tag'] in excludes:
-            return
+def format_html(html: str, excludes: List[str] = ["style", "script"]) -> str:
+    """
+    Converts the tree-like structure of HTML elements and text into a single formatted string.
 
-        # or node['children'][0]['text']:
-        if node['text'] or node['id'] or node['class_names'] or node['children'][0]['text']:
-            tag_text = node['tag']
-            if node['id']:
-                tag_text += " " + colorize_log(f"#{node['id']}", "YELLOW")
-            if node['class_names']:
-                tag_text += " " + \
-                    colorize_log(
-                        ', '.join([f".{class_name}" for class_name in node['class_names']]), "ORANGE")
+    :param html: The HTML string to parse.
+    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
+    :return: A formatted string combining the HTML tags and their contents.
+    """
+    tree = extract_tree_with_text(html, excludes)
 
-            if node['text']:
-                logger.log(('  ' * indent + f"{node['depth']}:"), tag_text, "-",
-                           json.dumps(node['text'][:30]), colors=["INFO", "DEBUG", "GRAY", "SUCCESS"])
+    def build_html(node: TreeNode, indent=0) -> str:
+        """Helper function to recursively format the tree structure into a string."""
+        result = ""
+
+        if node:
+            # Skip node if its tag is in the excludes list
+            if node['tag'] in excludes:
+                return result
+
+            if node['text'] or node['id'] or node['class_names'] or node['children'][0]['text']:
+                tag_text = node['tag']
+                # Add ID and class attributes if they exist
+                if node['id']:
+                    tag_text += f" id=\"{node['id']}\""
+                if node['class_names']:
+                    tag_text += " class=\"" + \
+                        " ".join(
+                            [f"{class_name}" for class_name in node['class_names']]) + "\""
+
+                # Add text if it's available
+                if node['text']:
+                    result += '  ' * indent + \
+                        f"<{tag_text}>{node['text']}</{node['tag']}>\n"
+                else:
+                    result += '  ' * indent + f"<{tag_text}>\n"
+
+                # Recursively format the children
+                for child in node['children']:
+                    result += build_html(child, indent + 1)
+
+                if not node['text']:  # Close the tag if it was a container without text
+                    result += '  ' * indent + f"</{node['tag']}>\n"
             else:
-                logger.log(
-                    ('  ' * indent + f"{node['depth']}:"), tag_text, colors=["INFO", "DEBUG"])
+                # Recursively format the children
+                for child in node['children']:
+                    result += build_html(child, indent + 1)
 
-        for child in node['children']:
-            print_tree(child, indent + 1, excludes)
+        return result
+
+    # Start building HTML from the root
+    return build_html(tree)
+
+
+# Example Usage:
+html_str = "<html><body><div id='main'><p class='text'>Hello, world!</p></div></body></html>"
+formatted_html = format_html(html_str)
+print(formatted_html)
+
+
+# Function to print the tree-like structure recursively
+def print_html(html: str):
+    tree = extract_tree_with_text(html)
+
+    def print_tree(node: TreeNode, indent=0, excludes: List[str] = ["style", "script"]):
+        if node:
+            # Skip node if its tag is in the excludes list
+            if node['tag'] in excludes:
+                return
+
+            # or node['children'][0]['text']:
+            if node['text'] or node['id'] or node['class_names'] or node['children'][0]['text']:
+                tag_text = node['tag']
+                if node['id']:
+                    tag_text += " " + colorize_log(f"#{node['id']}", "YELLOW")
+                if node['class_names']:
+                    tag_text += " " + \
+                        colorize_log(
+                            ', '.join([f".{class_name}" for class_name in node['class_names']]), "ORANGE")
+
+                if node['text']:
+                    logger.log(('  ' * indent + f"{node['depth']}:"), tag_text, "-",
+                               json.dumps(node['text'][:30]), colors=["INFO", "DEBUG", "GRAY", "SUCCESS"])
+                else:
+                    logger.log(
+                        ('  ' * indent + f"{node['depth']}:"), tag_text, colors=["INFO", "DEBUG"])
+
+            for child in node['children']:
+                print_tree(child, indent + 1, excludes)
+
+    return print_tree(tree)
 
 
 __all__ = [
