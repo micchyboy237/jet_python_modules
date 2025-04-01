@@ -167,6 +167,15 @@ def get_header_contents(md_text: str,
 def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[dict]:
     from jet.code.helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
 
+    headers_to_split_on = headers_to_split_on or [
+        ("#", "h1"),
+        ("##", "h2"),
+        ("###", "h3"),
+        ("####", "h4"),
+        ("#####", "h5"),
+        ("######", "h6"),
+    ]
+
     markdown_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on, strip_headers=False, return_each_line=False)
     md_header_splits = markdown_splitter.split_text(md_text)
@@ -262,16 +271,7 @@ def merge_md_header_contents(
 
 
 def extract_md_header_contents(md_text: str, min_tokens_per_chunk: int = 256, max_tokens_per_chunk: int = 1000, tokenizer: Optional[Callable[[str], List]] = None) -> list[dict]:
-    headers_to_split_on = [
-        ("#", "h1"),
-        ("##", "h2"),
-        ("###", "h3"),
-        ("####", "h4"),
-        ("#####", "h5"),
-        ("######", "h6"),
-    ]
-
-    header_contents = get_md_header_contents(md_text, headers_to_split_on)
+    header_contents = get_md_header_contents(md_text)
     header_contents = merge_md_header_contents(
         header_contents, min_tokens=min_tokens_per_chunk, max_tokens=max_tokens_per_chunk, tokenizer=tokenizer)
 
@@ -280,6 +280,11 @@ def extract_md_header_contents(md_text: str, min_tokens_per_chunk: int = 256, ma
         header_content["content"] = clean_newlines(header_content["content"])
 
     return header_contents
+
+
+def count_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> int:
+    header_contents = get_md_header_contents(md_text, headers_to_split_on)
+    return len(header_contents)
 
 
 def extract_html_header_contents(html_str: str) -> list[dict]:
