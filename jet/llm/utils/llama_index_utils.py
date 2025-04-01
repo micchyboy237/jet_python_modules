@@ -1,6 +1,6 @@
 import json
 from llama_index.core.schema import BaseNode, TextNode, ImageNode, NodeWithScore
-from llama_index.core.base.response.schema import Response
+from llama_index.core.base.response.schema import RESPONSE_TYPE, Response
 from jet.logger import logger
 
 
@@ -66,7 +66,7 @@ def display_jet_source_node(
 
 def display_jet_source_nodes(
     query: str,
-    source_nodes: list[NodeWithScore | BaseNode | Response],
+    source_nodes: list[NodeWithScore | BaseNode] | RESPONSE_TYPE,
     source_length: int = 50,
     show_source_metadata: bool = True,
 ):

@@ -520,10 +520,24 @@ async def async_embed_nodes(
 
 
 class VectorStoreIndex(BaseVectorStoreIndex):
-    model_name: OLLAMA_EMBED_MODELS = Field(
-        default="mxbai-embed-large",
-        description="The Ollama model to use.",
-    )
+    def __init__(
+        self,
+        *args,
+        # Accept model_name explicitly
+        model_name: OLLAMA_EMBED_MODELS = "mxbai-embed-large",
+        embed_model: Optional[EmbedType] = None,
+        **kwargs
+    ):
+        if not embed_model:
+            embed_model = OllamaEmbedding(model_name=model_name)
+
+        super().__init__(
+            *args,
+            embed_model=embed_model,
+            **kwargs
+        )
+
+        self.model_name = self._embed_model.model_name
 
     def _get_node_with_embedding(
         self,
