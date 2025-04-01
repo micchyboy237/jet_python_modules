@@ -23,6 +23,8 @@ CACHE_TTL = 3600  # Time-to-live for TTLCache (seconds) (1 hour)
 CACHE_SIZE = 10000  # Max number of items in TTLCache
 CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
 
+MAX_CACHE_FILE_SIZE = 50 * 1024 * 1024  # 50 MB (example limit)
+
 # ✅ Ensure cache directory exists
 os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -83,6 +85,12 @@ def save_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
             cache_file) else os.path.join(CACHE_DIR, cache_file)
 
         current_cache_data = dict(ttl_cache)
+
+        # Check if cache file exceeds size limit
+        if os.path.exists(cache_file) and os.path.getsize(cache_file) > MAX_CACHE_FILE_SIZE:
+            logger.warning(
+                f"Cache file {cache_file} exceeds size limit. Deleting it.")
+            os.remove(cache_file)  # Delete the oversized file
 
         # ✅ Save if cache was loaded and modified
         if cache_key in loaded_caches:

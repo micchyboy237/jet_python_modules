@@ -39,9 +39,9 @@ class DocumentWithRelevance(BaseModel):
         description="Relevance score from 1-10 of the document to the given query - based on the document content",
         json_schema_extra={"minimum": 1, "maximum": 10},
     )
-    feedback: str = Field(
-        description="Brief feedback on the document's relevance. Example: 'Highly relevant - directly discusses Lyft's COVID-19 safety protocols and driver support measures'",
-    )
+    # feedback: str = Field(
+    #     description="Brief feedback on the document's relevance. Example: 'Highly relevant - directly discusses Lyft's COVID-19 safety protocols and driver support measures'",
+    # )
 
 
 class DocumentRelevanceList(BaseModel):

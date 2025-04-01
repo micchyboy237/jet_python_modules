@@ -132,21 +132,24 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
         query_url = build_query_url(query_url, params)
         headers = {"Accept": "application/json"}
 
+        cached_result = None
+
         if use_cache:
             config = {"port": DEFAULT_REDIS_PORT, **config}
             cache = RedisCache(config=config)
             cache_key = query_url
-            cached_results = cache.get(cache_key)
+            cached_result = cache.get(cache_key)
 
-            if cached_results:
+            if cached_result:
                 logger.log(f"search_searxng: Cache hit for",
-                           cache_key, colors=["LOG", "BRIGHT_SUCCESS"])
-                return cached_results["results"]
-
-            logger.info(f"search_searxng: Cache miss for {cache_key}")
+                           cache_key, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                # return cached_result["results"]
+            else:
+                logger.warning(f"search_searxng: Cache miss for {cache_key}")
 
         # Fetch search results
-        result = fetch_search_results(query_url, headers, params)
+        result = cached_result or fetch_search_results(
+            query_url, headers, params)
         result['number_of_results'] = len(result.get("results", []))
         result = remove_empty_attributes(result)
 

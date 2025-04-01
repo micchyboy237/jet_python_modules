@@ -142,15 +142,24 @@ CONTEXT_EVAL_GUIDELINES = [
 ]
 
 
-CONTEXT_EVAL_TEMPLATE = PromptTemplate(
-    "Here is the original query:\n"
-    "Query: {query}\n"
-    "Critique the following context and response based on the guidelines below:\n"
-    "Context: {context}\n"
-    "Response: {response}\n"
-    "Guidelines: {guidelines}\n"
-    "Now please provide constructive criticism.\n"
-)
+CONTEXT_EVAL_TEMPLATE = PromptTemplate("""
+Here is the original query:
+Query:
+{query}
+
+Context:
+{context}
+
+Critique the following response based on the context above and guidelines below:
+
+Response:
+{response}
+
+Guidelines:
+{guidelines}
+
+Now please provide constructive criticism given the context and response.
+""".strip())
 
 
 class ContextEvaluationData(BaseModel):
@@ -166,7 +175,7 @@ class ContextEvaluationData(BaseModel):
     )
     feedback: str = Field(
         ...,
-        description="Constructive feedback on how the response aligns with the given context, highlighting strengths, weaknesses, and any inaccuracies or unsupported assumptions made by the response."
+        description="Constructive feedback on how the response aligns with the given context, highlighting strengths, weaknesses, hallucinations, and any inaccuracies or unsupported assumptions made by the response."
     )
 
 
