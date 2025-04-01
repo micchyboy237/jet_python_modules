@@ -84,6 +84,7 @@ pytweening==1.2.0
 pyvis==0.3.2
 rank-bm25==0.2.2
 rq==2.0.0
+rumps==0.4.0
 scrapy-selenium4==1.0.0
 spacy-curated-transformers==0.3.0
 span_marker==1.7.0
