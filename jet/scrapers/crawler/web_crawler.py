@@ -35,6 +35,8 @@ class SeleniumScraper:
         chrome_options.page_load_strategy = "eager"
 
         # Reduce resource load (optional: remove headless mode if debugging)
+        # Comment this out to allow the browser to open
+        chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-infobars")

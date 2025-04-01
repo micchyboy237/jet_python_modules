@@ -165,7 +165,7 @@ def get_header_contents(md_text: str,
 
 
 def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[dict]:
-    from langchain_text_splitters import MarkdownHeaderTextSplitter
+    from jet.code.helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
 
     markdown_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on, strip_headers=False, return_each_line=False)
