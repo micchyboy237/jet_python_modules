@@ -244,43 +244,57 @@ def extract_tree_with_text(html: str, excludes: List[str] = ["style", "script"])
     """
     Finds all elements that contain any text, ensuring a natural document order.
     Returns a tree-like structure of parents and their corresponding text, including depth for each node.
-    Only includes text for nodes that directly hold it or have children with text.
+    Only includes text for nodes that directly hold it.
 
     :param html: The HTML string to parse.
     :return: A tree-like structure with parent elements and their corresponding text.
     """
     # Helper function to recursively build the tree
     def build_tree(element, current_depth: int) -> Optional[TreeNode]:
-        # Extract text from the element
         text = pq(element).text().strip()
 
         # Extract ID and class name (only if exists)
         element_id = pq(element).attr('id')
         element_class = pq(element).attr('class')
 
-        # Split class names into a list if they exist and filter non-alphabet characters
+        # Define shared regex pattern for valid HTML identifiers
+        valid_id_pattern = r'^[a-zA-Z_-]+$'
+        # Filter non-alphabet id and class names
+        id = element_id if element_id and re.match(
+            valid_id_pattern, element_id) else None
+        # Split class names into a list if they exist
         class_names = [name for name in (element_class.split() if element_class else [])
-                       if name.isalpha()]
+                       if re.match(valid_id_pattern, name)]
 
-        # Process children recursively
+        # Include text only for leaf nodes that directly hold text
+        if text and len(pq(element).children()) == 0:  # No children, direct text
+            return {
+                "tag": pq(element)[0].tag,
+                "text": text,
+                "depth": current_depth,
+                "id": element_id,
+                "class_names": class_names,  # Store class names as a list
+                "children": []  # No children in this case
+            }
+
+        # Otherwise, process children recursively
         children = []
         for child in pq(element).children():
             child_tree = build_tree(child, current_depth + 1)
-            if child_tree:  # Only add non-empty children (those with text)
+            if child_tree:
                 children.append(child_tree)
 
-        # Include the current element if it has text or non-empty children
-        if text or children:
+        # Return the element if it has children containing text
+        if children:
             return {
                 "tag": pq(element)[0].tag,
-                "text": text if text else None,  # Assign text only if it exists
+                "text": None,  # No text for container elements
                 "depth": current_depth,
-                "id": element_id,
-                "class_names": class_names,  # Store filtered class names as a list
+                "id": id,
+                "class_names": class_names,  # Store class names as a list
                 "children": children
             }
-
-        return None  # Return None if the element is empty or has no meaningful children
+        return None
 
     doc = pq(html)
     # Apply the exclusion logic before building the tree
