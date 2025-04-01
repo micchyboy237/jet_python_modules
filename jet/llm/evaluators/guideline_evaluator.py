@@ -185,8 +185,13 @@ class GuidelineContextEvaluator(GuidelineEvaluator):
             output_cls=ContextEvaluationData
         )
 
-        super().__init__(*args, guidelines=guidelines,
-                         eval_template=eval_template output_parser=output_parser, **kwargs)
+        super().__init__(
+            *args,
+            guidelines=guidelines,
+            eval_template=eval_template,
+            output_parser=output_parser,
+            **kwargs
+        )
 
     async def aevaluate(
         self,
