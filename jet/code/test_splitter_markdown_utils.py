@@ -1,5 +1,5 @@
 import unittest
-from jet.code.splitter_markdown_utils import get_flat_header_list, get_header_contents, collect_nodes_full_content
+from jet.code.splitter_markdown_utils import get_flat_header_list, get_header_contents, collect_nodes_full_content, merge_md_header_contents
 
 
 class TestGetHeaderContents(unittest.TestCase):
@@ -286,5 +286,82 @@ class TestHeaderMetadata(unittest.TestCase):
         self.assertEqual(header_2['metadata']['depth'], 1)
 
 
-if __name__ == "__main__":
+# Mock tokenizer function (simulating a token count for a string)
+def mock_tokenizer(text: str) -> list[str]:
+    return text.split()  # Tokenize by splitting on spaces (simplified)
+
+
+class TestMergeMdHeaderContents(unittest.TestCase):
+
+    def setUp(self):
+        """Setup common test data"""
+        self.header_contents = [
+            {"content": "# Header 1\nContent 1",
+                "length": 5, "header": "# Header 1"},
+            {"content": "## Subheader 1\nMore content",
+                "length": 4, "header": "## Subheader 1"},
+            {"content": "### Subheader 2\nEven more content",
+                "length": 5, "header": "### Subheader 2"},
+            {"content": "## Subheader 3\nFinal content",
+                "length": 4, "header": "## Subheader 3"},
+        ]
+
+    def test_basic_merge(self):
+        """Test merging within max_tokens limit"""
+        result = merge_md_header_contents(
+            self.header_contents, max_tokens=20, tokenizer=mock_tokenizer)
+        self.assertEqual(len(result), 1)
+        self.assertIn("Content 1", result[0]["content"])
+        self.assertIn("Final content", result[0]["content"])
+
+    def test_split_at_max_tokens(self):
+        """Ensure splitting happens when max_tokens is exceeded"""
+        result = merge_md_header_contents(
+            self.header_contents, max_tokens=10, tokenizer=mock_tokenizer)
+        self.assertGreater(len(result), 1)
+        self.assertTrue(all(chunk["length"] <= 10 for chunk in result))
+
+    def test_respects_min_tokens(self):
+        """Ensure min_tokens is respected and avoids small chunks"""
+        result = merge_md_header_contents(
+            self.header_contents, max_tokens=15, min_tokens=8, tokenizer=mock_tokenizer)
+        self.assertTrue(all(chunk["length"] >= 8 for chunk in result))
+
+    def test_exact_max_tokens(self):
+        """Ensure exact max_tokens is handled correctly"""
+        exact_content = [
+            {"content": "# Header A\nword " * 5,
+                "length": 5, "header": "# Header A"},
+            {"content": "## Header B\nword " * 5,
+                "length": 5, "header": "## Header B"},
+        ]
+        result = merge_md_header_contents(
+            exact_content, max_tokens=10, tokenizer=mock_tokenizer)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["length"], 10)
+
+    def test_large_content_splits_properly(self):
+        """Ensure a single large content block is split correctly"""
+        large_content = [
+            {"content": "# Large Header\n" + "word " * 50,
+                "length": 50, "header": "# Large Header"},
+        ]
+        result = merge_md_header_contents(
+            large_content, max_tokens=20, tokenizer=mock_tokenizer)
+        self.assertGreater(len(result), 1)
+        self.assertTrue(all(chunk["length"] <= 20 for chunk in result))
+
+    def test_multiple_small_contents_merge_efficiently(self):
+        """Ensure multiple small headers merge into a single chunk"""
+        small_contents = [
+            {"content": f"# Header {i}\nword",
+                "length": 1, "header": f"# Header {i}"}
+            for i in range(10)
+        ]
+        result = merge_md_header_contents(
+            small_contents, max_tokens=10, tokenizer=mock_tokenizer)
+        self.assertEqual(len(result), 1)
+
+
+if __name__ == '__main__':
     unittest.main()

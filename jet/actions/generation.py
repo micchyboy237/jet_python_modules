@@ -46,6 +46,7 @@ def call_ollama_chat(
     full_stream_response: bool = False,
     max_tokens: Optional[int | float] = None,
     max_prediction_ratio: Optional[float] = None,
+    buffer: int = 256,
     # Parameter for cancellation
     stop_event: Optional[threading.Event] = None,
 ) -> Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
@@ -134,11 +135,18 @@ def call_ollama_chat(
     logger.newline()
     logger.log("Stream:", stream, colors=["GRAY", "INFO"])
     logger.log("Model:", model, colors=["GRAY", "INFO"])
-    logger.log("Prompt Tokens:", token_count, colors=["GRAY", "ORANGE"])
-    logger.log("Remaining Tokens:", predict_tokens, colors=["GRAY", "ORANGE"])
+    logger.log("Prompt Tokens:", token_count, colors=["GRAY", "INFO"])
+    logger.log("Remaining Tokens:", predict_tokens, colors=["GRAY", "INFO"])
     logger.log("num_ctx:", num_ctx, colors=["GRAY", "ORANGE"])
     logger.log("Max Tokens:", model_max_length, colors=["GRAY", "ORANGE"])
+    logger.log("Max Allowed Tokens:", model_max_length -
+               buffer, colors=["GRAY", "ORANGE"])
     logger.newline()
+
+    if token_count > model_max_length - buffer:
+        raise ValueError(
+            f"Token count ({token_count}) exceeds maximum allowed tokens ({model_max_length - buffer})"
+        )
 
     logger.debug("Generating response...")
 

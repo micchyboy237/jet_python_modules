@@ -188,13 +188,22 @@ def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, st
     return md_header_contents
 
 
-def merge_md_header_contents(header_contents: list[dict], max_tokens: int = 1000, tokenizer: Optional[Callable[[str], List]] = None) -> list[dict]:
+def merge_md_header_contents(
+    header_contents: list[dict],
+    min_tokens: int = 256,
+    max_tokens: int = 1000,
+    tokenizer: Optional[Callable[[str], List]] = None
+) -> list[dict]:
     merged_header_contents = []
     merged_content = ""
 
+    # Validate that min_tokens is less than max_tokens
+    if min_tokens > max_tokens:
+        raise ValueError(
+            f"min_tokens ({min_tokens}) cannot be greater than max_tokens ({max_tokens}).")
+
     extracted_contents = [header_content["content"]
                           for header_content in header_contents]
-
     all_header_stack: list[HeaderItem] = []
     last_headers = []
 
@@ -204,20 +213,26 @@ def merge_md_header_contents(header_contents: list[dict], max_tokens: int = 1000
         header_level = get_header_level(content)
         header_line = content.splitlines()[0] if content else ""
 
+        # Ensure the current chunk isn't below min_tokens unless unavoidable
         if merged_content and merged_content_len + content_len > max_tokens:
-            header = merged_content.splitlines()[0]
-            parent_headers = [last_header.strip() for last_header in last_headers
-                              if get_header_level(last_header) < get_header_level(header)]
-            merged_header_contents.append({
-                "content": merged_content,
-                "length": count_tokens(merged_content, tokenizer),
-                "header": header,
-                "parent_headers": parent_headers,
-            })
-            merged_content = ""
-
-            last_header_line = list(all_header_stack_dict.keys())[-1]
-            last_headers = all_header_stack_dict[last_header_line]
+            if merged_content_len < min_tokens and merged_content_len + content_len <= max_tokens:
+                # Allow adding more content if it helps reach min_tokens
+                pass
+            else:
+                header = merged_content.splitlines()[0]
+                parent_headers = [
+                    last_header.strip() for last_header in last_headers
+                    if get_header_level(last_header) < get_header_level(header)
+                ]
+                merged_header_contents.append({
+                    "content": merged_content,
+                    "length": merged_content_len,
+                    "header": header,
+                    "parent_headers": parent_headers,
+                })
+                merged_content = ""
+                last_header_line = list(all_header_stack_dict.keys())[-1]
+                last_headers = all_header_stack_dict[last_header_line]
 
         if merged_content:
             merged_content += "\n"  # Ensure newline between merged contents
@@ -226,23 +241,27 @@ def merge_md_header_contents(header_contents: list[dict], max_tokens: int = 1000
         all_header_stack.append({"level": header_level, "header": header_line})
         all_header_stack = add_parents(all_header_stack)
         all_header_stack_dict: dict[str, list[str]] = {
-            item['header']: item['parents'] for item in all_header_stack}
+            item['header']: item['parents'] for item in all_header_stack
+        }
 
+    # Append remaining content if it exists
     if merged_content:
         header = merged_content.splitlines()[0]
-        parent_headers = [last_header.strip() for last_header in last_headers
-                          if get_header_level(last_header) < get_header_level(header)]
+        parent_headers = [
+            last_header.strip() for last_header in last_headers
+            if get_header_level(last_header) < get_header_level(header)
+        ]
         merged_header_contents.append({
             "content": merged_content,
             "length": count_tokens(merged_content, tokenizer),
-            "header": merged_content.splitlines()[0],
+            "header": header,
             "parent_headers": parent_headers,
         })
 
     return merged_header_contents
 
 
-def extract_md_header_contents(md_text: str, max_tokens_per_chunk: int = 1000, tokenizer: Optional[Callable[[str], List]] = None) -> list[dict]:
+def extract_md_header_contents(md_text: str, min_tokens_per_chunk: int = 256, max_tokens_per_chunk: int = 1000, tokenizer: Optional[Callable[[str], List]] = None) -> list[dict]:
     headers_to_split_on = [
         ("#", "h1"),
         ("##", "h2"),
@@ -254,7 +273,7 @@ def extract_md_header_contents(md_text: str, max_tokens_per_chunk: int = 1000, t
 
     header_contents = get_md_header_contents(md_text, headers_to_split_on)
     header_contents = merge_md_header_contents(
-        header_contents, max_tokens=max_tokens_per_chunk, tokenizer=tokenizer)
+        header_contents, min_tokens=min_tokens_per_chunk, max_tokens=max_tokens_per_chunk, tokenizer=tokenizer)
 
     # Clean newlines and extra spaces
     for header_content in header_contents:
