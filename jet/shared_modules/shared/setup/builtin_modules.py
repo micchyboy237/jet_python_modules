@@ -48,6 +48,11 @@ from .import_modules import (
     merge_texts,
     merge_texts_with_overlap,
     split_text,
+    find_elements_with_text,
+    extract_text_elements,
+    extract_tree_with_text,
+    format_html,
+    print_html,
 
     convert_html_to_markdown,
     html_to_markdown,
@@ -186,6 +191,16 @@ def inject_globals():
         builtins.merge_texts_with_overlap = merge_texts_with_overlap
     if not hasattr(builtins, "split_text"):
         builtins.split_text = split_text
+    if not hasattr(builtins, "find_elements_with_text"):
+        builtins.find_elements_with_text = find_elements_with_text
+    if not hasattr(builtins, "extract_text_elements"):
+        builtins.extract_text_elements = extract_text_elements
+    if not hasattr(builtins, "extract_tree_with_text"):
+        builtins.extract_tree_with_text = extract_tree_with_text
+    if not hasattr(builtins, "format_html"):
+        builtins.format_html = format_html
+    if not hasattr(builtins, "print_html"):
+        builtins.print_html = print_html
     if not hasattr(builtins, "convert_html_to_markdown"):
         builtins.convert_html_to_markdown = convert_html_to_markdown
     if not hasattr(builtins, "html_to_markdown"):

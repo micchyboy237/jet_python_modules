@@ -218,6 +218,80 @@ def split_text(text: str, chunk_size: int, overlap: int) -> List[str]:
     return chunks
 
 
+def find_elements_with_text(html: str):
+    """
+    Finds all elements that contain any text, ensuring a natural document order.
+
+    :param html: The HTML string to parse.
+    :return: A list of dictionaries with parent elements and their corresponding text.
+    """
+    doc = pq(html)
+    matching_parents = []
+    seen_parents = set()
+
+    for element in doc('*'):  # Iterate through all elements
+        text = pq(element).text().strip()
+        if text:  # If element contains text
+            element_html = pq(element).outerHtml()
+            if element_html not in seen_parents:  # Avoid duplicates
+                matching_parents.append({
+                    # PyQuery object (keeps all elements)
+                    "parent": pq(element),
+                    "text": text,           # The full text inside this element
+                })
+                seen_parents.add(element_html)  # Mark as seen
+
+    return matching_parents  # Returns list of dictionaries
+
+
+def extract_text_elements(html: str, excludes: List[str] = ["style", "script"]) -> List[str]:
+    """
+    Extracts a flattened list of text elements from the HTML document, ignoring specific elements
+    such as <style> and <script>. The function ensures a natural document order while returning 
+    only the direct text content from leaf nodes.
+
+    :param html: The HTML string to parse.
+    :param excludes: A list of tag names to exclude from the text extraction.
+    :return: A list of text elements found in the HTML.
+    """
+    # Helper function to recursively extract text from elements
+    def extract_text(element) -> List[str]:
+        text = pq(element).text().strip()
+
+        # Extract ID and class name (only if exists)
+        element_id = pq(element).attr('id')
+        element_class = pq(element).attr('class')
+
+        # Define shared regex pattern for valid HTML identifiers
+        valid_id_pattern = r'^[a-zA-Z_-]+$'
+        # Filter non-alphabet id and class names
+        id = element_id if element_id and re.match(
+            valid_id_pattern, element_id) else None
+        # Split class names into a list if they exist
+        class_names = [name for name in (element_class.split() if element_class else [])
+                       if re.match(valid_id_pattern, name)]
+
+        # If this element directly holds text (leaf node), return it
+        if text and len(pq(element).children()) == 0:
+            return [text]
+
+        # Otherwise, extract text from children recursively
+        text_elements = []
+        for child in pq(element).children():
+            text_elements.extend(extract_text(child))
+
+        return text_elements
+
+    doc = pq(html)
+    # Apply the exclusion logic before processing the document
+    exclude_elements(doc, excludes)
+
+    # Start with the root element and gather all text elements in a flattened list
+    text_elements = extract_text(doc[0])
+
+    return text_elements  # Returns a flattened list of text elements
+
+
 class TreeNode(Dict):
     tag: str
     text: Optional[str]  # Some nodes may not contain text
@@ -358,12 +432,6 @@ def format_html(html: str, excludes: List[str] = ["style", "script"]) -> str:
     return build_html(tree)
 
 
-# Example Usage:
-html_str = "<html><body><div id='main'><p class='text'>Hello, world!</p></div></body></html>"
-formatted_html = format_html(html_str)
-print(formatted_html)
-
-
 # Function to print the tree-like structure recursively
 def print_html(html: str):
     tree = extract_tree_with_text(html)
@@ -411,6 +479,11 @@ __all__ = [
     "merge_texts",
     "merge_texts_with_overlap",
     "split_text",
+    "find_elements_with_text",
+    "extract_text_elements",
+    "extract_tree_with_text",
+    "format_html",
+    "print_html",
 ]
 
 

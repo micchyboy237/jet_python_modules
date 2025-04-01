@@ -250,7 +250,7 @@ class Ollama(BaseOllama):
         tokens = tokenize(self.model, texts)
         return tokens
 
-    @llm_chat_callback()
+    # @llm_chat_callback()
     def chat(self, messages: str | Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.actions.generation import call_ollama_chat
         from jet.token.token_utils import token_counter
@@ -349,7 +349,7 @@ class Ollama(BaseOllama):
 
         return wrap_retry(run)
 
-    @llm_chat_callback()
+    # @llm_chat_callback()
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         from jet.actions.generation import call_ollama_chat
         from jet.token.token_utils import token_counter
