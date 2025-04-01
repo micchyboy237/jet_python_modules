@@ -238,6 +238,16 @@ class Ollama(BaseOllama):
     max_prediction_ratio: Optional[float] = None
 
     def __init__(self, model: str, **kwargs) -> None:
+        context_window = kwargs.get("context_window")
+        temperature = kwargs.get("temperature", 0.3)
+        max_model_tokens = get_model_max_tokens(model)
+        if not context_window or context_window > max_model_tokens:
+            context_window = max_model_tokens
+        kwargs = {
+            **kwargs,
+            "context_window": context_window,
+            "temperature": temperature,
+        }
         super().__init__(model=model, **kwargs)
 
         # Initialize and set tokenizer
