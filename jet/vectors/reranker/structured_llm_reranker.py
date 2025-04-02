@@ -133,8 +133,7 @@ if __name__ == "__main__":
     OUTPUT_FILE = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/converted_doc_scripts/llama_index/node_postprocessor/generated/structured_llm_reranker_results.json"
 
     docs = load_documents(DATA_FILE, CACHE_FILE)
-    filtered_docs = filter_documents(docs, "covid")
-    index = create_index(filtered_docs)
+    index = create_index(docs)
 
     query = "What initiatives are the company focusing on independently of COVID-19?"
     reranked_nodes = get_retrieved_nodes(
