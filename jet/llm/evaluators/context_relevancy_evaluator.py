@@ -1,8 +1,8 @@
 from typing import TypedDict
 from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.llm.ollama.base import Ollama
-from llama_index.core.evaluation import ContextRelevancyEvaluator
 from jet.logger import logger
+from jet.llm.evaluators.helpers.context_relevancy_evaluator import ContextRelevancyEvaluator
 from llama_index.core.prompts.base import PromptTemplate
 from llama_index.core.evaluation.base import EvaluationResult
 
