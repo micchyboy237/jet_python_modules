@@ -5,7 +5,7 @@ from jet.logger import logger
 
 
 def display_jet_source_node(
-    source_node: NodeWithScore | BaseNode | Response,
+    source_node: NodeWithScore | BaseNode | RESPONSE_TYPE,
     source_length: int = 50,
     show_source_metadata: bool = True,
 ) -> None:
