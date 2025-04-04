@@ -55,40 +55,37 @@ def split_words(text: str) -> list[str]:
 
 
 def get_words(
-        text: str,
-        n: int = 1,
-        filter_word: Optional[Callable[[str], bool]] = None,
-        ignore_punctuation: bool = False
-) -> List[str]:
-    # Check if the input is a string
-    if not isinstance(text, str):
-        raise ValueError("Input must be a string")
+    text: str | List[str],
+    n: int = 1,
+    filter_word: Optional[Callable[[str], bool]] = None,
+    ignore_punctuation: bool = False
+) -> List[str] | List[List[str]]:
+    def process_single(text_str: str) -> List[str]:
+        if ignore_punctuation:
+            punctuations = string.punctuation.replace("'", "")
+            text_str = re.sub(rf"[{punctuations}]", "", text_str)
 
-    if ignore_punctuation:
-        # ignore all punctuatios except apostrophes
-        punctuations = string.punctuation.replace("'", "")
-        text = re.sub(rf"[{punctuations}]", "", text)
+        sentences = sent_tokenize(text_str)
+        grouped_words = []
 
-    # Tokenize the text into sentences
-    sentences = sent_tokenize(text)
+        for sentence in sentences:
+            words = split_words(sentence)
 
-    # Initialize an empty list to store results
-    grouped_words = []
+            if filter_word:
+                words = [word for word in words if filter_word(word)]
 
-    # Process each sentence separately
-    for sentence in sentences:
-        # Find all words in the sentence, optionally ignoring punctuation
-        words = split_words(sentence)
+            grouped_words.extend(
+                [" ".join(words[i:i+n]) for i in range(len(words) - n + 1)]
+            )
 
-        # Call filter_word function if provided
-        if filter_word:
-            words = [word for word in words if filter_word(word)]
+        return grouped_words
 
-        # Group words in n-word sequences
-        grouped_words.extend([" ".join(words[i:i+n])
-                             for i in range(len(words) - n + 1)])
-
-    return grouped_words
+    if isinstance(text, list):
+        return [process_single(t) for t in text]
+    elif isinstance(text, str):
+        return process_single(text)
+    else:
+        raise ValueError("Input must be a string or list of strings")
 
 
 def get_non_words(text):

@@ -1,6 +1,9 @@
 from typing import Callable, Literal, Optional, TypedDict, Union
 from jet.logger import logger
+from jet.wordnet.words import get_words
 from llama_index.core.base.llms.types import ChatMessage
+from llama_index.core.node_parser.text.sentence import SentenceSplitter
+from llama_index.core.schema import BaseNode, Document, NodeRelationship, RelatedNodeInfo, TextNode
 import tiktoken
 from jet.llm.llm_types import Message
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -282,6 +285,46 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
     return truncated_texts
 
 
+def group_texts(
+    texts: Union[list[str], list[ChatMessage], list[Message]],
+    model: str,
+    max_tokens: int
+) -> list[list[str]]:
+    """
+    Groups texts into batches without exceeding a maximum token limit.
+
+    Args:
+        texts (list[str] | list[ChatMessage] | list[Message]): The texts to group.
+        model (str): The model name for tokenization.
+        max_tokens (int): The maximum allowed tokens per group.
+
+    Returns:
+        list[list[str]]: A list of grouped text batches.
+    """
+    if not texts:
+        return []
+
+    # Token count lookup
+    text_token_counts = token_counter(texts, model, prevent_total=True)
+    grouped_texts, current_group = [], []
+    current_token_count = 0
+
+    for text, token_count in zip(texts, text_token_counts):
+        # If adding a new text exceeds the limit, store current batch
+        if current_token_count + token_count > max_tokens:
+            grouped_texts.append(current_group)
+            current_group = []
+            current_token_count = 0
+
+        current_group.append(text)
+        current_token_count += token_count
+
+    if current_group:
+        grouped_texts.append(current_group)
+
+    return grouped_texts
+
+
 def split_texts(
     texts: str | list[str],
     model: str | OLLAMA_MODEL_NAMES,
@@ -354,44 +397,97 @@ def split_texts(
     return split_chunks
 
 
-def group_texts(
-    texts: Union[list[str], list[ChatMessage], list[Message]],
-    model: str,
-    max_tokens: int
-) -> list[list[str]]:
-    """
-    Groups texts into batches without exceeding a maximum token limit.
+def get_subtext_indices(text: str, subtext: str) -> tuple[int, int] | None:
+    start = text.find(subtext)
+    if start == -1:
+        return None
+    end = start + len(subtext) - 1
+    return start, end
 
-    Args:
-        texts (list[str] | list[ChatMessage] | list[Message]): The texts to group.
-        model (str): The model name for tokenization.
-        max_tokens (int): The maximum allowed tokens per group.
 
-    Returns:
-        list[list[str]]: A list of grouped text batches.
-    """
-    if not texts:
-        return []
+def _add_parent_child_relationship(parent_node: BaseNode, child_node: BaseNode) -> None:
+    """Add parent/child relationship between nodes."""
+    child_list: list[RelatedNodeInfo] = parent_node.child_nodes or []
+    child_list.append(child_node.as_related_node_info())
+    parent_node.relationships[NodeRelationship.CHILD] = child_list
 
-    # Token count lookup
-    text_token_counts = token_counter(texts, model, prevent_total=True)
-    grouped_texts, current_group = [], []
-    current_token_count = 0
+    child_node.relationships[
+        NodeRelationship.PARENT
+    ] = parent_node.as_related_node_info()
 
-    for text, token_count in zip(texts, text_token_counts):
-        # If adding a new text exceeds the limit, store current batch
-        if current_token_count + token_count > max_tokens:
-            grouped_texts.append(current_group)
-            current_group = []
-            current_token_count = 0
 
-        current_group.append(text)
-        current_token_count += token_count
+def split_docs(
+    docs: list[Document],
+    model: Optional[str | OLLAMA_MODEL_NAMES] = None,
+    chunk_size: Optional[int] = None,
+    chunk_overlap: int = 0,
+    *,
+    buffer: int = 0
+) -> list[TextNode]:
+    if model:
+        def _tokenizer(input):
+            return tokenize(model, input)
+        tokenizer = _tokenizer
+    else:
+        tokenizer = get_words
 
-    if current_group:
-        grouped_texts.append(current_group)
+    if not chunk_size:
+        if model:
+            chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+        else:
+            token_counts = [len(tokenizer(doc.text)) for doc in docs]
+            average_tokens = sum(token_counts) / \
+                len(token_counts) if token_counts else 0
+            chunk_size = average_tokens
 
-    return grouped_texts
+    if chunk_size <= chunk_overlap:
+        raise ValueError(
+            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})")
+
+    effective_max_tokens = max(chunk_size - buffer, 1)  # Ensure positive value
+    if effective_max_tokens <= chunk_overlap:
+        raise ValueError(
+            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})")
+
+    doc_texts = [doc.text for doc in docs]
+    tokens_matrix: list[list] = tokenizer(doc_texts)
+    token_counts: list[int] = [len(t) for t in tokens_matrix]
+
+    nodes: list[TextNode] = []
+
+    for doc, tokens in zip(docs, token_counts):
+        node = TextNode(
+            text=doc.text,
+            metadata={
+                **doc.metadata,
+                "start_idx": 0,
+                "end_idx": len(doc.text),
+            })
+
+        if tokens > effective_max_tokens:
+            splitter = SentenceSplitter(
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            splitted_texts = splitter.split_text(doc.text)
+
+            for subtext in splitted_texts:
+                start_idx, end_idx = get_subtext_indices(doc.text, subtext)
+
+                sub_node = TextNode(
+                    text=subtext,
+                    metadata={
+                        **doc.metadata,
+                        "start_idx": start_idx,
+                        "end_idx": end_idx,
+                    })
+                nodes.append(sub_node)
+                _add_parent_child_relationship(
+                    parent_node=node,
+                    child_node=sub_node,
+                )
+        else:
+            nodes.append(node)
+
+    return nodes
 
 
 if __name__ == "__main__":

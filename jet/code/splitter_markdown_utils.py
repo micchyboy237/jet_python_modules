@@ -44,11 +44,14 @@ def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat
 
 
 def get_header_text(header: str) -> str:
-    """Extract the header text from a markdown or HTML header tag."""
-    header = header.splitlines()[0]
-    header = header.strip()
+    """Extract the header text from a markdown or HTML header tag, including markdown hashes."""
+    header = header.splitlines()[0].strip()
     if header.startswith("#"):
-        return header.lstrip("#").strip()
+        # Keep the leading hashes (up to the first space)
+        parts = header.split(" ", 1)
+        if len(parts) == 2:
+            return f"{parts[0]} {parts[1].strip()}"
+        return header
     elif header.startswith("h") and header[1].isdigit() and 1 <= int(header[1]) <= 6:
         return header[2:].strip()
     else:
