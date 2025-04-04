@@ -107,6 +107,10 @@ class RAMMonitorApp(rumps.App):
             self.window.show()
 
 
-if __name__ == "__main__":
+def start_ram_monitor():
     app = RAMMonitorApp()
     app.run()
+
+
+if __name__ == "__main__":
+    start_ram_monitor()
