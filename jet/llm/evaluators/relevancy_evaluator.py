@@ -21,11 +21,14 @@ RELEVANCY_EVAL_TEMPLATE = PromptTemplate(
 def evaluate_relevancy(
     model: str | OLLAMA_MODEL_NAMES,
     query: str,
-    contexts: list[str],
+    contexts: str | list[str],
     response: str,
     eval_template: PromptTemplate = RELEVANCY_EVAL_TEMPLATE,
 ) -> EvaluationResult:
     """Evaluates if the response + source nodes match the query."""
+    if isinstance(contexts, str):
+        contexts = [contexts]
+
     llm = Ollama(model)
     evaluator = RelevancyEvaluator(
         llm=llm,
