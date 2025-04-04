@@ -134,7 +134,7 @@ def get_query_similarity_scores(
     if len(model_name) < 1:
         raise ValueError("At least one model name must be provided.")
 
-    all_results = []
+    all_model_results: List[List[QuerySimilarityResult]] = []
 
     for model in model_name:
         embed_func = get_embedding_function(model)
@@ -149,7 +149,7 @@ def get_query_similarity_scores(
 
         similarity_matrix = np.dot(query_embeddings, text_embeddings.T)
 
-        model_results = []
+        model_results: List[QuerySimilarityResult] = []
         for i, query_text in enumerate(query):
             similarity_scores = similarity_matrix[i]
 
@@ -165,12 +165,12 @@ def get_query_similarity_scores(
             model_results.append(
                 {"query": query_text, "results": sorted_results})
 
-        all_results.append(model_results)
+        all_model_results.append(model_results)
 
-    if len(all_results) == 1:
-        return all_results[0]
+    if len(all_model_results) == 1:
+        return all_model_results[0]
 
-    return fuse_similarity_scores(*all_results, method=fuse_method)
+    return fuse_similarity_scores(*all_model_results, method=fuse_method)
 
 
 def fuse_similarity_scores(
