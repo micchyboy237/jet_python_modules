@@ -4,7 +4,7 @@ from jet.llm.ollama.base import Ollama
 from jet.logger import logger
 from jet.llm.evaluators.helpers.context_relevancy_evaluator import ContextRelevancyEvaluator
 from llama_index.core.prompts.base import PromptTemplate
-from llama_index.core.evaluation.base import EvaluationResult
+from jet.llm.evaluators.helpers.base import EvaluationResult
 
 EVAL_QUESTIONS = [
     "Does the retrieved context match the subject matter of the user's query?",
@@ -26,7 +26,7 @@ CONTEXT_EVAL_TEMPLATE = PromptTemplate(
     "- 0.5 = Partially answered or missing important details\n"
     "- 0.0 = Not answered at all or only vaguely mentioned\n\n"
     "At the end, write the result in the following exact format:\n"
-    "[RESULT] <total_score>\n"
+    "[RESULT] <total_score>  # This is the sum of the individual question scores.\n"
     "[EXCERPTS] ```json\n<valid JSON array of strings representing all relevant parts of the context that directly answer the query>\n```\n"
     "If no relevant parts exist, use an empty array.\n\n"
     "Example:\n"

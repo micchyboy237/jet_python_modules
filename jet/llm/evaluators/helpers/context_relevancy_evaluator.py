@@ -1,5 +1,5 @@
 import re
-from llama_index.core.evaluation.base import EvaluationResult
+from jet.llm.evaluators.helpers.base import EvaluationResult, parse_excerpts
 from llama_index.core.llms.llm import LLM
 from llama_index.core.schema import Document
 from llama_index.core.prompts import BasePromptTemplate
@@ -74,4 +74,10 @@ class ContextRelevancyEvaluator(BaseContextRelevancyEvaluator):
         # Update the result to include the passing flag
         result.passing = passing
 
-        return result
+        if result.passing:
+            extended_result = EvaluationResult(
+                **result.model_dump(),
+                excerpts=parse_excerpts(result.feedback)
+            )
+
+        return extended_result
