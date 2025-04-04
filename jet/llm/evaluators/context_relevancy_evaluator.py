@@ -7,16 +7,20 @@ from llama_index.core.prompts.base import PromptTemplate
 from llama_index.core.evaluation.base import EvaluationResult
 
 CONTEXT_EVAL_TEMPLATE = PromptTemplate(
-    "Your task is to evaluate if the retrieved context from the document sources are relevant to the query.\n"
+    "Your task is to evaluate if the retrieved context from the document sources is relevant to the query.\n"
     "The evaluation should be performed in a step-by-step manner by answering the following questions:\n"
     "1. Does the retrieved context match the subject matter of the user's query?\n"
     "2. Can the retrieved context be used exclusively to provide a full answer to the user's query?\n"
-    "Each question above is worth 2 points, where partial marks are allowed and encouraged. Provide detailed feedback on the response "
-    "according to the criteria questions previously mentioned. "
+    "Each question is worth 1.0 point, and partial scores are allowed.\n\n"
+    "Provide YES or NO for each question, followed by a brief explanation and score for that specific question.\n"
     "After your feedback provide a final result by strictly following this format: '[RESULT] followed by the floating number representing the total score assigned to the response'\n\n"
-    "Example feedback format:\nFeedback:\n<generated_feedback>\n\n[RESULT] <total_score:.2f>\n\n"
-    "Query: \n {query_str}\n"
-    "Context: \n {context_str}\n"
+    "Example format:\n"
+    "Feedback:\n"
+    "Q1: YES - The context clearly aligns with the subject of the query. (Score: 1.0)\n"
+    "Q2: NO - The context provides partial information but does not fully answer the query. (Score: 0.5)\n\n"
+    "[RESULT] 1.5\n\n"
+    "Query: \n{query_str}\n"
+    "Context: \n{context_str}\n"
     "Feedback:"
 )
 

@@ -20,7 +20,7 @@ ANSWER_EVAL_TEMPLATE = PromptTemplate(
     "Feedback:"
 )
 
-_DEFAULT_SCORE_THRESHOLD = 1.0
+_DEFAULT_SCORE_THRESHOLD = 2.0
 
 
 def evaluate_answer_relevancy(
