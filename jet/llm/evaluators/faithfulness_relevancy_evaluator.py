@@ -40,11 +40,14 @@ FAITHFULNESS_EVAL_TEMPLATE = PromptTemplate(
 def evaluate_faithfulness(
     model: str | OLLAMA_MODEL_NAMES,
     query: str,
-    contexts: list[str],
+    contexts: str | list[str],
     response: str,
     eval_template: PromptTemplate = FAITHFULNESS_EVAL_TEMPLATE,
 ) -> EvaluationResult:
     """Evaluates the response from a query if it matches any source nodes."""
+    if isinstance(contexts, str):
+        contexts = [contexts]
+
     llm = Ollama(model)
     evaluator = FaithfulnessEvaluator(
         llm=llm,
