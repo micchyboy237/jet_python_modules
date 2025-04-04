@@ -9,7 +9,7 @@ from jet.decorators.function import retry_on_error
 from jet.llm.ollama.constants import DEFAULT_BASE_URL, DEFAULT_CONTEXT_WINDOW, DEFAULT_EMBED_BATCH_SIZE, DEFAULT_REQUEST_TIMEOUT, OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.logger.timer import sleep_countdown, time_it
-from llama_index.core.base.llms.types import ChatMessage, ChatResponse
+from llama_index.core.base.llms.types import ChatMessage, ChatResponse as BaseChatResponse
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.base_handler import BaseCallbackHandler
 from llama_index.core.callbacks.schema import CBEvent, CBEventType, EventPayload
@@ -106,6 +106,18 @@ class _EnhancedSettings(_Settings):
 
 
 EnhancedSettings = _EnhancedSettings()
+
+
+class ChatResponse(BaseChatResponse):
+    """Extended chat response that adds the content attribute."""
+
+    @property
+    def content(self) -> str:
+        """Returns the content from the associated ChatMessage."""
+        return self.message.content
+
+    def __str__(self) -> str:
+        return self.content
 
 
 def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings:

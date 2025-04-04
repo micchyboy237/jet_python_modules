@@ -20,6 +20,8 @@ CONTEXT_EVAL_TEMPLATE = PromptTemplate(
     "Feedback:"
 )
 
+_DEFAULT_SCORE_THRESHOLD = 1.0
+
 
 def evaluate_context_relevancy(
     model: str | OLLAMA_MODEL_NAMES,
@@ -32,6 +34,7 @@ def evaluate_context_relevancy(
     evaluator = ContextRelevancyEvaluator(
         llm=llm,
         eval_template=eval_template,
+        score_threshold=_DEFAULT_SCORE_THRESHOLD,
     )
     logger.debug("Evaluating context relevancy...")
     result = evaluator.evaluate(
