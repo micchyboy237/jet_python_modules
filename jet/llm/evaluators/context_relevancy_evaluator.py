@@ -8,26 +8,37 @@ from llama_index.core.evaluation.base import EvaluationResult
 
 EVAL_QUESTIONS = [
     "Does the retrieved context match the subject matter of the user's query?",
-    "Can the retrieved context be used exclusively to provide a full answer to the user's query?",
+    "Can the retrieved context be used exclusively to provide a full to the user's query?",
 ]
 
+
 CONTEXT_EVAL_TEMPLATE = PromptTemplate(
-    "Your task is to evaluate if the retrieved context from the document sources is relevant to the query.\n"
-    "The evaluation should be performed in a step-by-step manner by answering the following questions:\n"
+    "Your task is to evaluate whether the provided context contains specific, concrete, and logically complete information that answers the user's query.\n"
+    "Evaluate the following questions step-by-step:\n"
     "{questions_str}\n"
-    "Each question is worth 1.0 point, and partial scores are allowed.\n\n"
-    "Answer YES on top if all questions are YES, otherwise answer NO. Then provide YES or NO for each question, followed by a brief explanation and score for that specific question.\n"
-    "After your feedback provide a final result by strictly following this format: '[RESULT] followed by the floating number representing the total score assigned to the response'\n\n"
-    "Example format:\n"
-    "Answer: NO\n"
+    "Each question is worth 1.0 point. Partial scores are allowed. Use strict criteria—generic mentions or vague claims are not sufficient.\n\n"
+    "**Important:** For each question:\n"
+    "- Answer YES or NO\n"
+    "- Provide a short explanation\n"
+    "- Provide a score (between 0.0 and 1.0)\n\n"
+    "**Scoring Guide:**\n"
+    "- 1.0 = Fully and concretely answered with clear, complete info\n"
+    "- 0.5 = Partially answered or missing important details\n"
+    "- 0.0 = Not answered at all or only vaguely mentioned\n\n"
+    "At the end, write the result in the following exact format:\n"
+    "[RESULT] <total_score>\n"
+    "[EXCERPTS] <all relevant parts from the context that directly answer the query, or 'None' if nothing applies. If there are multiple excerpts, separate them using newline characters.>\n\n"
+    "Example:\n"
     "Feedback:\n"
-    "Q1: YES - The context clearly aligns with the subject of the query. (Score: 1.0)\n"
-    "Q2: NO - The context provides partial information but does not fully answer the query. (Score: 0.5)\n\n"
-    "[RESULT] 1.5\n\n"
-    "Query: \n{query_str}\n"
-    "Context: \n{context_str}\n"
+    "Q1: YES - The topic of National ID is clearly discussed. (Score: 1.0)\n"
+    "Q2: NO - The context only claims to offer steps but doesn't actually provide them. (Score: 0.0)\n\n"
+    "[RESULT] 1.0\n"
+    "[EXCERPTS] None\n\n"
+    "Query:\n{query_str}\n"
+    "Context:\n{context_str}\n"
     "Feedback:"
 )
+
 
 _DEFAULT_SCORE_THRESHOLD = 2.0
 
