@@ -1,6 +1,7 @@
 import random
 import threading
 import json
+from llama_index.core.prompts.base import PromptTemplate
 from llama_index.core.utils import set_global_tokenizer
 import requests
 import traceback
@@ -30,12 +31,24 @@ DETERMINISTIC_LLM_SETTINGS = {
     "num_predict": -1,
 }
 
+PROMPT_CONTEXT_TEMPLATE = PromptTemplate(
+    "Context information is below.\n"
+    "---------------------\n"
+    "{context_str}\n"
+    "---------------------\n"
+    "Given the context information and not prior knowledge, "
+    "answer the query.\n"
+    "Query: {query_str}\n"
+    "Answer: "
+)
+
 
 def call_ollama_chat(
     messages: str | list[Message],
     model: str = "llama3.1",
     *,
     system: str = "",
+    context: Optional[str] = None,
     tools: list[Tool] = None,
     format: Union[str, dict] = None,
     options: OllamaChatOptions = {},
@@ -57,6 +70,7 @@ def call_ollama_chat(
         messages (str | list): The prompt or messages for the conversation.
         model (str | list[Message]): The name of the model to use.
         system (str): System message for the LLM.
+        context (str): Context message for the LLM.
         tools (list): Tools for the model to use.
         format (Union[str, dict]): Format of the response ("json" or JSON schema).
         options (dict): Additional model parameters like temperature.
@@ -87,6 +101,28 @@ def call_ollama_chat(
         messages = [
             Message(content=messages, role=MessageRole.USER)
         ]
+
+    # Updates latest user message with context if available
+    if context:
+        # Iterate through messages from the end to find the latest user message
+        latest_user_message: Optional[Message] = None
+        for msg in reversed(messages):
+            if msg["role"] == MessageRole.USER:
+                latest_user_message = msg
+                break
+
+        if not latest_user_message:
+            raise ValueError(
+                "No user message found in the conversation history.")
+
+        # Construct the context with the latest user message
+        context_str = context if context else ""
+        query_str = latest_user_message["content"]
+
+        # Use the template if available, otherwise use the default prompt template
+        prompt = PROMPT_CONTEXT_TEMPLATE.format(
+            context_str=context_str, query_str=query_str)
+        latest_user_message["content"] = prompt
 
     model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
     token_count: int = token_counter(messages, model)
