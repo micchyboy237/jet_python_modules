@@ -70,7 +70,7 @@ def get_header_level(header: str) -> int:
     elif header.startswith("h") and header[1].isdigit() and 1 <= int(header[1]) <= 6:
         return int(header[1])
     else:
-        raise ValueError(f"Invalid header format: {header}")
+        return 0
 
 
 def build_nodes_hierarchy(headers: List[HeaderNode]) -> List[HeaderNode]:
