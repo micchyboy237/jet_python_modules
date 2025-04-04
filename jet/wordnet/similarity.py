@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import List, Optional, Literal
 from sentence_transformers import util
 import torch
@@ -99,11 +100,6 @@ class QuerySimilarityResult(TypedDict):
     results: Dict[str, float]
 
 
-class QuerySimilarityResult(TypedDict):
-    query: str
-    results: Dict[str, float]
-
-
 def get_query_similarity_scores(
     query: Union[str, List[str]],
     texts: Union[str, List[str]],
@@ -163,6 +159,54 @@ def get_query_similarity_scores(
             {"query": query_text, "results": sorted_results})
 
     return query_similarity_results
+
+
+def fuse_similarity_scores(
+    *results_sets: List[QuerySimilarityResult],
+    method: str = "average"
+) -> List[QuerySimilarityResult]:
+    """
+    Fuses similarity results from two or more models using the specified method.
+
+    Args:
+        *results_sets (List[QuerySimilarityResult]): Two or more lists of query similarity results.
+        method (str): Fusion method - currently only 'average' is supported.
+
+    Returns:
+        List[QuerySimilarityResult]: List of fused query similarity results.
+    """
+    if len(results_sets) < 2:
+        raise ValueError("At least two result sets must be provided.")
+
+    num_queries = len(results_sets[0])
+    if not all(len(rs) == num_queries for rs in results_sets):
+        raise ValueError(
+            "All result sets must have the same number of queries.")
+
+    fused_results = []
+
+    for i in range(num_queries):
+        query_text = results_sets[0][i]["query"]
+        combined_scores = defaultdict(list)
+
+        for rs in results_sets:
+            for text, score in rs[i]["results"].items():
+                combined_scores[text].append(score)
+
+        if method == "average":
+            averaged_scores = {
+                text: sum(scores) / len(scores) for text, scores in combined_scores.items()
+            }
+        else:
+            raise ValueError(f"Unsupported fusion method: {method}")
+
+        sorted_scores = dict(
+            sorted(averaged_scores.items(), key=lambda x: x[1], reverse=True)
+        )
+
+        fused_results.append({"query": query_text, "results": sorted_scores})
+
+    return fused_results
 
 
 def filter_highest_similarity_old(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL, threshold: Optional[float] = None) -> FilterResult:
