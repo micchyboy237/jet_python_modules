@@ -50,6 +50,7 @@ def evaluate_context_relevancy(
     contexts: str | list[str],
     questions: list[str] = EVAL_QUESTIONS,
     eval_template: PromptTemplate = CONTEXT_EVAL_TEMPLATE,
+    **kwargs
 ) -> EvaluationResult:
     """Evaluates the relevancy of the context to the query."""
     if isinstance(contexts, str):
@@ -58,7 +59,7 @@ def evaluate_context_relevancy(
     partial_template = eval_template.partial_format(
         questions_str="\n".join([f"{idx + 1}. {q}" for idx, q in enumerate(questions)]))
 
-    llm = Ollama(model)
+    llm = Ollama(model, **kwargs)
     evaluator = ContextRelevancyEvaluator(
         llm=llm,
         eval_template=partial_template,

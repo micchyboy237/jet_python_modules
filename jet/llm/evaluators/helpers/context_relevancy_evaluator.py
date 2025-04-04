@@ -74,10 +74,9 @@ class ContextRelevancyEvaluator(BaseContextRelevancyEvaluator):
         # Update the result to include the passing flag
         result.passing = passing
 
-        if result.passing:
-            extended_result = EvaluationResult(
-                **result.model_dump(),
-                excerpts=parse_excerpts(result.feedback)
-            )
+        extended_result = EvaluationResult(
+            **result.model_dump(),
+            excerpts=parse_excerpts(result.feedback) if result.passing else []
+        )
 
         return extended_result

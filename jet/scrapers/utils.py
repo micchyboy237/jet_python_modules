@@ -1,5 +1,7 @@
 from collections import defaultdict
-from typing import List, Optional
+from typing import Generator, List, Optional
+from jet.scrapers.crawler.web_crawler import WebCrawler
+from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
 from pyquery import PyQuery as pq
 from jet.logger.config import colorize_log
 from jet.logger import logger
@@ -463,6 +465,49 @@ def print_html(html: str):
                 print_tree(child, indent + 1, excludes)
 
     return print_tree(tree)
+
+
+def search_data(query) -> list[SearchResult]:
+    filter_sites = []
+    engines = [
+        "google",
+        "brave",
+        "duckduckgo",
+        "bing",
+        "yahoo",
+    ]
+
+    # Simulating the search function with the placeholder for your search logic
+    results: list[SearchResult] = search_searxng(
+        query_url="http://searxng.local:8080/search",
+        query=query,
+        min_score=2.0,
+        filter_sites=filter_sites,
+        engines=engines,
+        config={
+            "port": 3101
+        },
+    )
+
+    if not results:
+        raise NoResultsFoundError(f"No results found for query: '{query}'")
+
+    return results
+
+
+def scrape_urls(urls: list[str]) -> Generator[tuple[str, str], None, None]:
+    includes_all = []
+    excludes = []
+    max_depth = 0
+
+    crawler = WebCrawler(
+        excludes=excludes, includes_all=includes_all, max_depth=max_depth)
+
+    for start_url in urls:
+        for result in crawler.crawl(start_url):
+            yield start_url, result["html"]
+
+    crawler.close()
 
 
 __all__ = [

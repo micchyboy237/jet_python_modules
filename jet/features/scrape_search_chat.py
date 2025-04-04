@@ -1,13 +1,16 @@
 import os
-from typing import List, Dict, Optional
+from typing import Generator, List, Dict, Optional
 
-from jet.llm.models import OLLAMA_MODEL_NAMES
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
+from jet.scrapers.crawler.web_crawler import WebCrawler
+from jet.scrapers.utils import scrape_urls, search_data
+from jet.search.searxng import NoResultsFoundError, SearchResult, search_searxng
 from pydantic import BaseModel, Field
 from jet.logger import logger
 from jet.file.utils import load_file, save_file
 from jet.scrapers.preprocessor import html_to_markdown
-from jet.code.splitter_markdown_utils import get_md_header_contents
-from jet.token.token_utils import get_model_max_tokens, split_docs
+from jet.code.splitter_markdown_utils import count_md_header_contents, get_md_header_contents
+from jet.token.token_utils import get_model_max_tokens, split_docs, token_counter
 from jet.wordnet.similarity import get_query_similarity_scores
 from llama_index.core.schema import Document, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
@@ -15,18 +18,6 @@ from jet.llm.evaluators.helpers.base import EvaluationResult
 from jet.llm.evaluators.context_relevancy_evaluator import evaluate_context_relevancy
 from jet.llm.ollama.base import ChatResponse, Ollama, OllamaEmbedding
 
-# --- Constants ---
-LLM_MODEL = "gemma3:4b"
-EMBED_MODELS = [
-    "mxbai-embed-large",
-    "paraphrase-multilingual",
-    "granite-embedding",
-]
-EVAL_MODEL = LLM_MODEL
-DATA_FILE = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/scrapers/generated/valid-ids-scraper/philippines_national_id_registration_tips_2025/scraped_html.html"
-OUTPUT_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/generated/run_llm_reranker"
-QUERY = "What are the steps in registering a National ID in the Philippines?"
-TOP_K = 5
 
 # --- Pydantic Classes ---
 
@@ -41,7 +32,14 @@ class DocumentSelectionResult(BaseModel):
     evaluated_documents: List[int]
     feedback: str
 
+
 # --- Core Functions ---
+
+
+def validate_headers(html: str, min_count: int = 5) -> bool:
+    md_text = html_to_markdown(html)
+    header_count = count_md_header_contents(md_text)
+    return header_count >= min_count
 
 
 def get_docs_from_html(html: str) -> list[Document]:
@@ -61,8 +59,10 @@ def get_docs_from_html(html: str) -> list[Document]:
     return docs
 
 
-def get_nodes_from_docs(docs: list[Document], chunk_size: Optional[int] = None, chunk_overlap: int = 40) -> tuple[list[TextNode], dict[str, TextNode]]:
-    model = min(EMBED_MODELS, key=get_model_max_tokens)
+def get_nodes_from_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_MODELS | list[str | OLLAMA_EMBED_MODELS], chunk_size: Optional[int] = None, chunk_overlap: int = 40) -> tuple[list[TextNode], dict[str, TextNode]]:
+    if isinstance(embed_models, str):
+        embed_models = [embed_models]
+    model = min(embed_models, key=get_model_max_tokens)
     chunk_size = chunk_size or get_model_max_tokens(model)
 
     nodes = split_docs(docs, model=model, chunk_size=chunk_size,
@@ -108,60 +108,107 @@ def rerank_nodes(query: str, nodes: List[TextNode], embed_models: List[str], par
     return results
 
 
-def evaluate_contexts(nodes: List[NodeWithScore]) -> EvaluationResult:
-    eval_result = evaluate_context_relevancy(
-        EVAL_MODEL, QUERY, [n.text for n in nodes])
-    return eval_result
+def run_scrape_search_chat(
+    html,
+    llm_model,
+    embed_models,
+    eval_model,
+    output_dir,
+    query,
+    min_headers: int = 5,
+    buffer: Optional[int] = None,
+):
+    max_model_tokens = get_model_max_tokens(llm_model)
+    buffer = buffer or max_model_tokens - int(max_model_tokens * 0.6)
+    max_context_tokens = max_model_tokens - buffer
 
-
-def chat_model(model: str | OLLAMA_MODEL_NAMES, query: str, context: str) -> ChatResponse:
-    llm = Ollama(temperature=0.3, model=LLM_MODEL,
-                 request_timeout=300.0, context_window=get_model_max_tokens(LLM_MODEL))
-    response = llm.chat(QUERY, context=context)
-    return response
-
-# --- Main ---
-
-
-def main():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    html = load_file(DATA_FILE)
+    if not validate_headers(html, min_count=min_headers):
+        return None
 
     # Setup nodes
     docs = get_docs_from_html(html)
-    nodes, parent_map = get_nodes_from_docs(docs)
+    nodes, parent_map = get_nodes_from_docs(docs, embed_models)
 
     # Search nodes
-    reranked_nodes = rerank_nodes(QUERY, nodes, EMBED_MODELS, parent_map)
-    save_file({
-        "query": QUERY,
-        "results": reranked_nodes
-    }, os.path.join(OUTPUT_DIR, "reranked_nodes.json"))
+    reranked_nodes = rerank_nodes(query, nodes, embed_models, parent_map)
 
-    top_nodes = reranked_nodes[:TOP_K]
+    # Filter reranked_nodes to fit in llm chat context
+    reranked_nodes_tokens: list[int] = token_counter(
+        [node.text for node in reranked_nodes], llm_model, prevent_total=True)
+    top_nodes: list[NodeWithScore] = []
+    current_top_nodes_tokens: list[int] = []
+    for node, tokens in zip(reranked_nodes, reranked_nodes_tokens):
+        total_top_nodes_tokens = sum(current_top_nodes_tokens + [tokens])
+        if total_top_nodes_tokens < max_context_tokens:
+            top_nodes.append(node)
+            current_top_nodes_tokens.append(tokens)
+        else:
+            break
 
     # Evaluate contexts
+    logger.debug(f"Evaluating contexts ({len(current_top_nodes_tokens)})...")
+    eval_result = evaluate_context_relevancy(
+        eval_model, query, [n.text for n in top_nodes], buffer=buffer)
 
-    eval_result = evaluate_contexts(top_nodes)
-    save_file(eval_result, os.path.join(
-        OUTPUT_DIR, "eval_context_relevancy.json"))
     if eval_result.passing:
         logger.success(f"Context relevancy passed ({len(top_nodes)})")
     else:
         logger.error(f"Context relevancy failed ({len(top_nodes)})")
-        return
+        return None
 
     # Chat LLM
+    logger.debug(f"Generating chat response...")
     context = "\n\n".join([n.text for n in top_nodes])
-    response = chat_model(LLM_MODEL, QUERY, context)
-    history = "\n\n".join([
-        f"## Query\n\n{QUERY}",
-        f"## Context\n\n{context}",
-        f"## Response\n\n{response}",
-    ])
-    save_file(history, os.path.join(OUTPUT_DIR, "llm_chat_history.md"))
+    llm = Ollama(temperature=0.3, model=llm_model, buffer=buffer)
+    response = llm.chat(query, context=context)
+
+    return {
+        "query": query,
+        "context": context,
+        "nodes": nodes,
+        "parent_nodes": list(parent_map.values()),
+        "search_nodes": top_nodes,
+        "search_eval": eval_result,
+        "response": response,
+    }
 
 
+# Example usage
 if __name__ == "__main__":
-    main()
+    llm_model = "gemma3:4b"
+    embed_models = [
+        "mxbai-embed-large",
+        "paraphrase-multilingual",
+        "granite-embedding",
+    ]
+    eval_model = llm_model
+    data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/scrapers/generated/valid-ids-scraper/philippines_national_id_registration_tips_2025/scraped_html.html"
+    output_dir = f"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/generated/{os.path.splitext(os.path.basename(__file__))[0]}"
+    query = "What are the steps in registering a National ID in the Philippines?"
+
+    html = load_file(data_file)
+
+    result = run_scrape_search_chat(
+        html,
+        llm_model,
+        embed_models,
+        eval_model,
+        output_dir,
+        query,
+    )
+
+    if result["search_eval"].passing:
+        save_file({
+            "query": result["query"],
+            "results": result["search_nodes"]
+        }, os.path.join(output_dir, "top_nodes.json"))
+
+        save_file(result["search_eval"], os.path.join(
+            output_dir, "eval_context_relevancy.json"))
+
+        history = "\n\n".join([
+            f"## Query\n\n{result["query"]}",
+            f"## Context\n\n{result["context"]}",
+            f"## Response\n\n{result["response"]}",
+        ])
+        save_file(history, os.path.join(output_dir, "llm_chat_history.md"))

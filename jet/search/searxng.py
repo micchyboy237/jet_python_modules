@@ -40,6 +40,11 @@ class QueryResponse(TypedDict, total=False):
     unresponsive_engines: list[str]
 
 
+class NoResultsFoundError(Exception):
+    """Custom exception to be raised when no results are found."""
+    pass
+
+
 def build_query_url(base_url: str, params: dict) -> str:
     """Helper function to construct the full search query URL."""
     encoded_params = urlencode(params)
