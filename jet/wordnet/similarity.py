@@ -100,20 +100,29 @@ class QuerySimilarityResult(TypedDict):
     results: Dict[str, float]
 
 
+class QuerySimilarityResult(TypedDict):
+    query: str
+    results: Dict[str, float]
+
+
 def get_query_similarity_scores(
     query: Union[str, List[str]],
     texts: Union[str, List[str]],
     threshold: float = 0.0,
-    model_name: str = "all-MiniLM-L6-v2"
+    model_name: Union[str, List[str]] = "all-MiniLM-L6-v2",
+    fuse_method: str = "average"
 ) -> List[QuerySimilarityResult]:
     """
-    Computes similarity scores for a query (or list of queries) against a set of texts.
+    Computes similarity scores for a query against texts using one or more embedding models.
+
+    If multiple models are provided, the results are fused using the specified method.
 
     Args:
         query (str | list[str]): Single query or a list of queries.
         texts (str | list[str]): Single text or a list of texts to compare against.
-        threshold (float): Minimum similarity score required to be included in the results. Default is 0.0.
-        model_name (str): The embedding model name.
+        threshold (float): Minimum similarity score required to be included in the results.
+        model_name (str | list[str]): One or more embedding model names.
+        fuse_method (str): Fusion method when using multiple models. Default is "average".
 
     Returns:
         List[QuerySimilarityResult]: A list containing similarity scores for each query.
@@ -122,43 +131,51 @@ def get_query_similarity_scores(
         query = [query]
     if isinstance(texts, str):
         texts = [texts]
+    if isinstance(model_name, str):
+        model_name = [model_name]
 
     if not query or not texts:
         raise ValueError("Both query and texts must be non-empty.")
+    if len(model_name) < 1:
+        raise ValueError("At least one model name must be provided.")
 
-    # Get embedding function once
-    embed_func = get_embedding_function(model_name)
+    all_results = []
 
-    # Compute embeddings (batch processing)
-    query_embeddings = np.array(embed_func(query))
-    text_embeddings = np.array(embed_func(texts))
+    for model in model_name:
+        embed_func = get_embedding_function(model)
 
-    # Normalize embeddings to speed up cosine similarity computation
-    query_embeddings /= np.linalg.norm(query_embeddings, axis=1, keepdims=True)
-    text_embeddings /= np.linalg.norm(text_embeddings, axis=1, keepdims=True)
+        query_embeddings = np.array(embed_func(query))
+        text_embeddings = np.array(embed_func(texts))
 
-    # Compute cosine similarity using NumPy's dot product
-    similarity_matrix = np.dot(query_embeddings, text_embeddings.T)
+        query_embeddings /= np.linalg.norm(query_embeddings,
+                                           axis=1, keepdims=True)
+        text_embeddings /= np.linalg.norm(text_embeddings,
+                                          axis=1, keepdims=True)
 
-    # Construct results
-    query_similarity_results = []
-    for i, query_text in enumerate(query):
-        similarity_scores = similarity_matrix[i]
+        similarity_matrix = np.dot(query_embeddings, text_embeddings.T)
 
-        # Apply threshold
-        mask = similarity_scores >= threshold
-        filtered_texts = np.array(texts)[mask]
-        filtered_scores = similarity_scores[mask]
+        model_results = []
+        for i, query_text in enumerate(query):
+            similarity_scores = similarity_matrix[i]
 
-        # Sort by similarity
-        sorted_indices = np.argsort(filtered_scores)[::-1]
-        sorted_results = {
-            filtered_texts[j]: filtered_scores[j] for j in sorted_indices}
+            mask = similarity_scores >= threshold
+            filtered_texts = np.array(texts)[mask]
+            filtered_scores = similarity_scores[mask]
 
-        query_similarity_results.append(
-            {"query": query_text, "results": sorted_results})
+            sorted_indices = np.argsort(filtered_scores)[::-1]
+            sorted_results = {
+                filtered_texts[j]: filtered_scores[j] for j in sorted_indices
+            }
 
-    return query_similarity_results
+            model_results.append(
+                {"query": query_text, "results": sorted_results})
+
+        all_results.append(model_results)
+
+    if len(all_results) == 1:
+        return all_results[0]
+
+    return fuse_similarity_scores(*all_results, method=fuse_method)
 
 
 def fuse_similarity_scores(
