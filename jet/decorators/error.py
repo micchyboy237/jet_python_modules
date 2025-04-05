@@ -8,6 +8,7 @@ from jet.logger.timer import sleep_countdown
 from jet.transformers.formatters import format_json
 from jet.transformers.object import make_serializable
 from jet.utils.class_utils import get_class_name
+from jet.utils.inspect_utils import log_filtered_stack_trace
 
 
 class LoggedException(Exception):
@@ -66,8 +67,15 @@ def log_exceptions(*exception_types: Type[Exception], raise_exception: bool = Tr
 
     def _log_exception(exc: Exception):
         """Logs exception details in different formats."""
-        logger.error(format_json(make_serializable(exc)))
+        error = make_serializable(exc)
+
+        # Log general error info
+        logger.error(f"Exception: {format_json(error)}")
         logger.gray(traceback.format_exc())
+
+        # Log filtered stack trace
+        log_filtered_stack_trace(exc)
+
         logger.warning(f"Global: Handled {get_class_name(exc)}")
 
     # Return decorator even if exception_types is empty

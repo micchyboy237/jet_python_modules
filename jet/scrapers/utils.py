@@ -1,5 +1,8 @@
+from typing import List, Optional
 from collections import defaultdict
+import os
 from typing import Generator, List, Optional
+from urllib.parse import urlparse
 from jet.scrapers.crawler.web_crawler import WebCrawler
 from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
 from pyquery import PyQuery as pq
@@ -465,6 +468,23 @@ def print_html(html: str):
                 print_tree(child, indent + 1, excludes)
 
     return print_tree(tree)
+
+
+def safe_path_from_url(url: str, output_dir: str) -> str:
+    parsed = urlparse(url)
+
+    # Sanitize host
+    host = parsed.hostname or 'unknown_host'
+    safe_host = re.sub(r'\W+', '_', host)
+
+    # # Last path segment without extension
+    # path_parts = [part for part in parsed.path.split('/') if part]
+    # last_path = path_parts[-1] if path_parts else 'root'
+    # last_path_no_ext = os.path.splitext(last_path)[0]
+
+    # Build final safe path: output_dir / safe_host / last_path_no_ext
+    # return os.path.join(output_dir, safe_host, last_path_no_ext)
+    return os.path.join(output_dir, safe_host)
 
 
 def search_data(query) -> list[SearchResult]:

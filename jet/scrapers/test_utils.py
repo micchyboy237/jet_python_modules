@@ -1,5 +1,6 @@
+import os
 import unittest
-from jet.scrapers.utils import clean_punctuations, clean_spaces, clean_non_alphanumeric
+from jet.scrapers.utils import clean_punctuations, clean_spaces, clean_non_alphanumeric, construct_browser_query, safe_path_from_url
 
 
 class TestCleanSpaces(unittest.TestCase):
@@ -84,51 +85,101 @@ class TestCleanPunctuations(unittest.TestCase):
         self.assertEqual(result, expected)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestCleanNonAlphanumeric(unittest.TestCase):
+    def test_alphanumeric_string(self):
+        self.assertEqual(clean_non_alphanumeric(
+            "HelloWorld123"), "HelloWorld123")
+
+    def test_string_with_spaces(self):
+        self.assertEqual(clean_non_alphanumeric(
+            "Hello World 123"), "HelloWorld123")
+
+    def test_string_with_special_characters(self):
+        self.assertEqual(clean_non_alphanumeric(
+            "Hello@#$%^&*()_+World123!"), "HelloWorld123")
+
+    def test_only_special_characters(self):
+        self.assertEqual(clean_non_alphanumeric("!@#$%^&*()"), "")
+
+    def test_empty_string(self):
+        self.assertEqual(clean_non_alphanumeric(""), "")
+
+    def test_numbers_only(self):
+        self.assertEqual(clean_non_alphanumeric("1234567890"), "1234567890")
+
+    def test_letters_only(self):
+        self.assertEqual(clean_non_alphanumeric("abcdefXYZ"), "abcdefXYZ")
+
+    def test_mixed_case_letters_and_numbers(self):
+        self.assertEqual(clean_non_alphanumeric("AbC123xYz"), "AbC123xYz")
+
+    def test_include_chars_spaces(self):
+        self.assertEqual(clean_non_alphanumeric(
+            "Hello, World! 123", include_chars=[" "]), "Hello World123")
+
+    def test_include_chars_commas(self):
+        self.assertEqual(clean_non_alphanumeric(
+            "Hello, World! 123", include_chars=[","]), "Hello,World123")
+
+    def test_include_chars_spaces_and_commas(self):
+        self.assertEqual(clean_non_alphanumeric(
+            "Hello, World! 123", include_chars=[",", " "]), "Hello, World 123")
+
+    def test_include_chars_currency_symbols(self):
+        self.assertEqual(clean_non_alphanumeric(
+            "Price: $100.99", include_chars=["$", "."]), "Price$100.99")
 
 
-# class TestCleanNonAlphanumeric(unittest.TestCase):
+class TestSafePathFromUrl(unittest.TestCase):
+    def test_basic_url(self):
+        url = "https://example.com/assets/image.png"
+        output_dir = "downloads"
+        expected = os.path.join("downloads", "example_com", "image")
+        result = safe_path_from_url(url, output_dir)
+        self.assertEqual(result, expected)
 
-#     def test_alphanumeric_string(self):
-#         self.assertEqual(clean_non_alphanumeric(
-#             "HelloWorld123"), "HelloWorld123")
+    def test_url_with_port_and_special_chars(self):
+        url = "http://my.site.com:8080/media/@files/video.mp4"
+        output_dir = "cache"
+        expected = os.path.join("cache", "my_site_com", "video")
+        result = safe_path_from_url(url, output_dir)
+        self.assertEqual(result, expected)
 
-#     def test_string_with_spaces(self):
-#         self.assertEqual(clean_non_alphanumeric(
-#             "Hello World 123"), "HelloWorld123")
+    def test_url_with_no_path(self):
+        url = "https://test.org"
+        output_dir = "static"
+        expected = os.path.join("static", "test_org", "root")
+        result = safe_path_from_url(url, output_dir)
+        self.assertEqual(result, expected)
 
-#     def test_string_with_special_characters(self):
-#         self.assertEqual(clean_non_alphanumeric(
-#             "Hello@#$%^&*()_+World123!"), "HelloWorld123")
+    def test_url_with_trailing_slash(self):
+        url = "https://example.com/path/to/"
+        output_dir = "out"
+        expected = os.path.join("out", "example_com", "to")
+        result = safe_path_from_url(url, output_dir)
+        self.assertEqual(result, expected)
 
-#     def test_only_special_characters(self):
-#         self.assertEqual(clean_non_alphanumeric("!@#$%^&*()"), "")
+    def test_url_with_empty_hostname(self):
+        url = "file:///usr/local/bin/script.sh"
+        output_dir = "bin"
+        expected = os.path.join("bin", "unknown_host", "script")
+        result = safe_path_from_url(url, output_dir)
+        self.assertEqual(result, expected)
 
-#     def test_empty_string(self):
-#         self.assertEqual(clean_non_alphanumeric(""), "")
+    def test_url_with_dot_in_filename(self):
+        url = "https://example.com/files/archive.tar.gz"
+        output_dir = "extracted"
+        expected = os.path.join("extracted", "example_com", "archive.tar")
+        result = safe_path_from_url(url, output_dir)
+        self.assertEqual(result, expected)
 
-#     def test_numbers_only(self):
-#         self.assertEqual(clean_non_alphanumeric("1234567890"), "1234567890")
+    def test_absolute_output_dir(self):
+        url = "https://cdn.site.com/assets/font.woff"
+        output_dir = "/var/cache/fonts"
+        expected = os.path.join("/var/cache/fonts", "cdn_site_com", "font")
+        result = safe_path_from_url(url, output_dir)
+        self.assertEqual(result, expected)
 
-#     def test_letters_only(self):
-#         self.assertEqual(clean_non_alphanumeric("abcdefXYZ"), "abcdefXYZ")
 
-#     def test_mixed_case_letters_and_numbers(self):
-#         self.assertEqual(clean_non_alphanumeric("AbC123xYz"), "AbC123xYz")
-
-#     def test_include_chars_spaces(self):
-#         self.assertEqual(clean_non_alphanumeric(
-#             "Hello, World! 123", include_chars=[" "]), "Hello World123")
-
-#     def test_include_chars_commas(self):
-#         self.assertEqual(clean_non_alphanumeric(
-#             "Hello, World! 123", include_chars=[","]), "Hello,World123")
-#     def test_include_chars_spaces_and_commas(self):
-#         self.assertEqual(clean_non_alphanumeric(
-#             "Hello, World! 123", include_chars=[",", " "]), "Hello, World 123")
-#     def test_include_chars_currency_symbols(self):
-#         self.assertEqual(clean_non_alphanumeric(
-#             "Price: $100.99", include_chars=["$", "."]), "Price$100.99")
 if __name__ == '__main__':
     unittest.main()

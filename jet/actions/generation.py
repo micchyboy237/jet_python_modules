@@ -1,3 +1,4 @@
+import re
 import random
 import threading
 import json
@@ -43,6 +44,11 @@ PROMPT_CONTEXT_TEMPLATE = PromptTemplate(
 )
 
 
+def sanitize_header_value(value: str) -> str:
+    # Remove any leading/trailing whitespaces and newline characters
+    return re.sub(r'[\r\n]+', ' ', value).strip()
+
+
 def call_ollama_chat(
     messages: str | list[Message],
     model: str = "llama3.1",
@@ -54,7 +60,8 @@ def call_ollama_chat(
     options: OllamaChatOptions = {},
     stream: bool = True,
     keep_alive: Union[str, int] = "15m",
-    template: str = None,
+    template: Optional[str | PromptTemplate] = None,
+    template_vars: dict = {},
     track: Track = None,
     full_stream_response: bool = False,
     max_tokens: Optional[int | float] = None,
@@ -120,8 +127,12 @@ def call_ollama_chat(
         query_str = latest_user_message["content"]
 
         # Use the template if available, otherwise use the default prompt template
-        prompt = PROMPT_CONTEXT_TEMPLATE.format(
-            context_str=context_str, query_str=query_str)
+        if template:
+            prompt = template.format(**template_vars)
+        else:
+            template = PROMPT_CONTEXT_TEMPLATE
+            prompt = template.format(
+                context_str=context_str, query_str=query_str)
         latest_user_message["content"] = prompt
 
     model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
@@ -206,8 +217,8 @@ def call_ollama_chat(
         "model": model,
         "messages": messages,
         "stream": stream,
+        # "template": template,
         # "keep_alive": keep_alive,
-        "template": template,
         # "raw": False,
         "tools": tools,
         # "format": str(format) if format else None,
@@ -236,10 +247,14 @@ def call_ollama_chat(
     #     pre_start_hook_start_time}"
     log_filename = event['filename'].split(".")[0]
     logger.log("Log-Filename:", log_filename, colors=["WHITE", "DEBUG"])
+    # Sanitize headers to remove invalid characters
     headers = {
         "Tokens": str(token_count),  # Include the token count here
-        "Log-Filename": log_filename,
-        "Event-Start-Time": pre_start_hook_start_time,
+        "Log-Filename": sanitize_header_value(log_filename),
+        "Event-Start-Time": sanitize_header_value(pre_start_hook_start_time),
+        "System": sanitize_header_value(system),
+        "Context": sanitize_header_value(context) if context else "",
+        "Template": sanitize_header_value(template.template) if template else ""
     }
 
     try:

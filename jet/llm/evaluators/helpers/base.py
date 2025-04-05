@@ -13,6 +13,24 @@ class EvaluationResult(BaseEvaluationResult):
     )
 
 
+def default_parser_function(output_str: str) -> tuple[Optional[float], Optional[str]]:
+    # Pattern to match the feedback and response
+    # This pattern looks for any text ending with '[RESULT]' followed by a number
+    pattern = r"([\s\S]+)(?:\[RESULT\]\s*)([\d.]+)"
+
+    # Using regex to find all matches
+    result = re.search(pattern, output_str)
+
+    # Check if any match is found
+    if result:
+        # Assuming there's only one match in the text, extract feedback and response
+        feedback, score = result.groups()
+        score = float(score) if score is not None else score
+        return score, feedback.strip()
+    else:
+        return None, None
+
+
 def parse_excerpts(output_str: str) -> list[str]:
     """
     Extracts the excerpts from the output string, which should be in JSON array format.

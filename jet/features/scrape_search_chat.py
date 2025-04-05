@@ -1,10 +1,13 @@
+import json
 import os
-from typing import Generator, List, Dict, Optional
+from typing import Generator, List, Dict, Optional, Type
 
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.scrapers.crawler.web_crawler import WebCrawler
 from jet.scrapers.utils import scrape_urls, search_data
 from jet.search.searxng import NoResultsFoundError, SearchResult, search_searxng
+from jet.utils.markdown import extract_json_block_content
+from llama_index.core.prompts.base import PromptTemplate
 from pydantic import BaseModel, Field
 from jet.logger import logger
 from jet.file.utils import load_file, save_file
@@ -19,7 +22,23 @@ from jet.llm.evaluators.context_relevancy_evaluator import evaluate_context_rele
 from jet.llm.ollama.base import ChatResponse, Ollama, OllamaEmbedding
 
 
+# --- Constants ---
+
+HEADERS_PROMPT_TEMPLATE = """
+Headers:
+{headers}
+
+Instruction:
+{instruction}
+Query: {query}
+Answer:
+""".strip()
+
+
 # --- Pydantic Classes ---
+
+class HeadersQueryResponse(BaseModel):
+    data: List[str]
 
 
 class RelevantDocument(BaseModel):
@@ -81,7 +100,7 @@ def get_nodes_from_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_M
     return nodes, parent_map
 
 
-def rerank_nodes(query: str, nodes: List[TextNode], embed_models: List[str], parent_map: Dict[str, TextNode]) -> List[NodeWithScore]:
+def rerank_nodes(query: str, nodes: List[TextNode], embed_models: List[str], parent_map: Dict[str, TextNode] = {}) -> List[NodeWithScore]:
     texts = [n.text for n in nodes]
     node_map = {n.text: n for n in nodes}
     query_scores = get_query_similarity_scores(
@@ -117,7 +136,10 @@ def run_scrape_search_chat(
     query,
     min_headers: int = 5,
     buffer: Optional[int] = None,
+    headers_output_cls: Type[BaseModel] = HeadersQueryResponse,
+    headers_prompt_template: str = HEADERS_PROMPT_TEMPLATE,
 ):
+    headers_llm = Ollama(temperature=0.0, model=llm_model)
     max_model_tokens = get_model_max_tokens(llm_model)
     buffer = buffer or max_model_tokens - int(max_model_tokens * 0.6)
     max_context_tokens = max_model_tokens - buffer
@@ -127,26 +149,54 @@ def run_scrape_search_chat(
 
     # Setup nodes
     docs = get_docs_from_html(html)
+
+    # Search doc headers
+    header_texts = [doc.metadata["header"] for doc in docs]
+    headers = json.dumps(header_texts, indent=2)
+    instruction = "Given the provided headers, select ones that are relevant to the query in JSON format."
+
+    message = headers_prompt_template.format(
+        headers=headers,
+        query=query,
+        instruction=instruction,
+    )
+    response = headers_llm.chat(message, model=llm_model)
+    json_result = extract_json_block_content(str(response))
+    results = json.loads(json_result)
+
+    searched_headers = results
+    # Create a dictionary for quick lookup of the index of each header in searched_headers
+    header_to_index = {header: index for index,
+                       header in enumerate(searched_headers)}
+    # Sort docs based on the order of headers in searched_headers
+    searched_headers_docs = sorted(
+        (doc for doc in docs if doc.metadata["header"] in searched_headers),
+        key=lambda doc: header_to_index.get(
+            doc.metadata["header"], float('inf'))
+    )
+    docs = searched_headers_docs
+
     nodes, parent_map = get_nodes_from_docs(docs, embed_models)
 
-    # Search nodes
-    reranked_nodes = rerank_nodes(query, nodes, embed_models, parent_map)
+    top_nodes = nodes
 
-    # Filter reranked_nodes to fit in llm chat context
-    reranked_nodes_tokens: list[int] = token_counter(
-        [node.text for node in reranked_nodes], llm_model, prevent_total=True)
-    top_nodes: list[NodeWithScore] = []
-    current_top_nodes_tokens: list[int] = []
-    for node, tokens in zip(reranked_nodes, reranked_nodes_tokens):
-        total_top_nodes_tokens = sum(current_top_nodes_tokens + [tokens])
-        if total_top_nodes_tokens < max_context_tokens:
-            top_nodes.append(node)
-            current_top_nodes_tokens.append(tokens)
-        else:
-            break
+    # # Search nodes
+    # reranked_nodes = rerank_nodes(query, nodes, embed_models, parent_map)
+    # # Filter reranked_nodes to fit in llm chat context
+    # reranked_nodes_tokens: list[int] = token_counter(
+    #     [node.text for node in reranked_nodes], llm_model, prevent_total=True)
+    # top_nodes: list[NodeWithScore] = []
+    # current_top_nodes_tokens: list[int] = []
+    # for node, tokens in zip(reranked_nodes, reranked_nodes_tokens):
+    #     total_top_nodes_tokens = sum(current_top_nodes_tokens + [tokens])
+    #     if total_top_nodes_tokens < max_context_tokens:
+    #         top_nodes.append(node)
+    #         current_top_nodes_tokens.append(tokens)
+    #     else:
+    #         break
+    # logger.debug(f"Evaluating contexts ({len(current_top_nodes_tokens)})...")
 
     # Evaluate contexts
-    logger.debug(f"Evaluating contexts ({len(current_top_nodes_tokens)})...")
     eval_result = evaluate_context_relevancy(
         eval_model, query, [n.text for n in top_nodes], buffer=buffer)
 
@@ -154,17 +204,17 @@ def run_scrape_search_chat(
         logger.success(f"Context relevancy passed ({len(top_nodes)})")
     else:
         logger.error(f"Context relevancy failed ({len(top_nodes)})")
-        return None
 
     # Chat LLM
     logger.debug(f"Generating chat response...")
-    context = "\n\n".join([n.text for n in top_nodes])
     llm = Ollama(temperature=0.3, model=llm_model, buffer=buffer)
+    context = "\n\n".join([n.text for n in top_nodes])
     response = llm.chat(query, context=context)
 
     return {
         "query": query,
         "context": context,
+        "docs": docs,
         "nodes": nodes,
         "parent_nodes": list(parent_map.values()),
         "search_nodes": top_nodes,
