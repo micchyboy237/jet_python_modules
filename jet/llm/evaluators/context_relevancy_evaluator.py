@@ -8,7 +8,7 @@ from jet.llm.evaluators.helpers.base import EvaluationResult
 
 EVAL_QUESTIONS = [
     "Does the retrieved context match the subject matter of the user's query?",
-    "Can the retrieved context be used exclusively to provide a full to the user's query?",
+    "Can the retrieved context be used exclusively to provide a full and complete answer to the user's query?",
 ]
 
 
