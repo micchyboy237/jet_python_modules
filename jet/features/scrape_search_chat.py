@@ -136,12 +136,16 @@ def run_scrape_search_chat(
     query,
     min_headers: int = 5,
     buffer: Optional[int] = None,
+    max_buffer: int = 500,
+    headers_llm_model: OLLAMA_MODEL_NAMES = "gemma3:4b",
     headers_output_cls: Type[BaseModel] = HeadersQueryResponse,
     headers_prompt_template: str = HEADERS_PROMPT_TEMPLATE,
 ):
-    headers_llm = Ollama(temperature=0.0, model=llm_model)
+    headers_llm = Ollama(temperature=0.0, model=headers_llm_model)
+
     max_model_tokens = get_model_max_tokens(llm_model)
-    buffer = buffer or max_model_tokens - int(max_model_tokens * 0.6)
+    buffer = buffer or max_model_tokens - int(max_model_tokens * 0.8)
+    buffer = max_buffer if buffer > max_buffer else buffer
     max_context_tokens = max_model_tokens - buffer
 
     if not validate_headers(html, min_count=min_headers):
@@ -197,18 +201,21 @@ def run_scrape_search_chat(
     # logger.debug(f"Evaluating contexts ({len(current_top_nodes_tokens)})...")
 
     # Evaluate contexts
-    eval_result = evaluate_context_relevancy(
-        eval_model, query, [n.text for n in top_nodes], buffer=buffer)
-
-    if eval_result.passing:
-        logger.success(f"Context relevancy passed ({len(top_nodes)})")
-    else:
-        logger.error(f"Context relevancy failed ({len(top_nodes)})")
+    # eval_result = evaluate_context_relevancy(
+    #     eval_model, query, [n.text for n in top_nodes], buffer=buffer)
+    # if eval_result.passing:
+    #     logger.success(f"Context relevancy passed ({len(top_nodes)})")
+    # else:
+    #     logger.error(f"Context relevancy failed ({len(top_nodes)})")
 
     # Chat LLM
     logger.debug(f"Generating chat response...")
     llm = Ollama(temperature=0.3, model=llm_model, buffer=buffer)
-    context = "\n\n".join([n.text for n in top_nodes])
+    # context = "\n\n".join([n.text for n in top_nodes])
+    formatted_headers = [
+        f"Rank {idx + 1}\n{node.metadata["header"]}" for idx, node in enumerate(top_nodes)]
+    context = "Top anime list:\n\n{texts}".format(
+        texts="\n\n".join(formatted_headers))
     response = llm.chat(query, context=context)
 
     return {
@@ -218,14 +225,15 @@ def run_scrape_search_chat(
         "nodes": nodes,
         "parent_nodes": list(parent_map.values()),
         "search_nodes": top_nodes,
-        "search_eval": eval_result,
+        # "search_eval": eval_result,
         "response": response,
     }
 
 
 # Example usage
 if __name__ == "__main__":
-    llm_model = "gemma3:4b"
+    # llm_model = "gemma3:4b"
+    llm_model = "mistral"
     embed_models = [
         "mxbai-embed-large",
         "paraphrase-multilingual",
@@ -247,18 +255,18 @@ if __name__ == "__main__":
         query,
     )
 
-    if result["search_eval"].passing:
-        save_file({
-            "query": result["query"],
-            "results": result["search_nodes"]
-        }, os.path.join(output_dir, "top_nodes.json"))
+    # if result["search_eval"].passing:
+    save_file({
+        "query": result["query"],
+        "results": result["search_nodes"]
+    }, os.path.join(output_dir, "top_nodes.json"))
 
-        save_file(result["search_eval"], os.path.join(
-            output_dir, "eval_context_relevancy.json"))
+    # save_file(result["search_eval"], os.path.join(
+    #     output_dir, "eval_context_relevancy.json"))
 
-        history = "\n\n".join([
-            f"## Query\n\n{result["query"]}",
-            f"## Context\n\n{result["context"]}",
-            f"## Response\n\n{result["response"]}",
-        ])
-        save_file(history, os.path.join(output_dir, "llm_chat_history.md"))
+    history = "\n\n".join([
+        f"## Query\n\n{result["query"]}",
+        f"## Context\n\n{result["context"]}",
+        f"## Response\n\n{result["response"]}",
+    ])
+    save_file(history, os.path.join(output_dir, "llm_chat_history.md"))
