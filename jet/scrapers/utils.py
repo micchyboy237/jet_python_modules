@@ -501,7 +501,6 @@ def search_data(query) -> list[SearchResult]:
     results: list[SearchResult] = search_searxng(
         query_url="http://searxng.local:8080/search",
         query=query,
-        min_score=2.0,
         filter_sites=filter_sites,
         engines=engines,
         config={

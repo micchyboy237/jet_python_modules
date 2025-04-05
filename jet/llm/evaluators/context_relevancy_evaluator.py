@@ -8,7 +8,7 @@ from jet.llm.evaluators.helpers.base import EvaluationResult
 
 EVAL_QUESTIONS = [
     "Does the retrieved context match the subject matter of the user's query?",
-    "Can the retrieved context be used exclusively to provide a full and complete answer to the user's query?",
+    "Can the retrieved context be used exclusively to provide a full to the user's query?",
 ]
 
 
@@ -17,29 +17,26 @@ CONTEXT_EVAL_TEMPLATE = PromptTemplate(
     "Evaluate the following questions step-by-step:\n"
     "{questions_str}\n"
     "Each question is worth 1.0 point. Partial scores are allowed. Use strict criteria—generic mentions or vague claims are not sufficient.\n\n"
-    "**Important Instructions:**\n"
-    "- For each question:\n"
-    "  - Answer YES or NO\n"
-    "  - Provide a short explanation\n"
-    "  - Provide a score (between 0.0 and 1.0)\n"
-    "- Use strict scoring based on the criteria below.\n"
-    "- Your output **must strictly follow** the format shown below.\n"
-    "- Do not include extra text or comments outside the required format.\n"
-    "- [EXCERPTS] must contain **verbatim strings** from the context that directly support your answers. Do **not** summarize or hallucinate.\n\n"
+    "**Important:** For each question:\n"
+    "- Answer YES or NO\n"
+    "- Provide a short explanation\n"
+    "- Provide a score (between 0.0 and 1.0)\n\n"
     "**Scoring Guide:**\n"
     "- 1.0 = Fully and concretely answered with clear, complete info\n"
     "- 0.5 = Partially answered or missing important details\n"
     "- 0.0 = Not answered at all or only vaguely mentioned\n\n"
-    "=== OUTPUT FORMAT START ===\n"
+    "At the end, write the result in the following exact format:\n"
+    "[RESULT] <total_score>  # This is the sum of the individual question scores.\n"
+    "[EXCERPTS] ```json\n<valid JSON array of strings representing all relevant parts of the context that directly answer the query>\n```\n"
+    "If no relevant parts exist, use an empty array.\n\n"
+    "Example:\n"
     "Feedback:\n"
     "Q1: YES - The topic of National ID is clearly discussed. (Score: 1.0)\n"
-    "Q2: NO - The context only claims to offer steps but doesn't actually provide them. (Score: 0.0)\n"
-    "Recommendation for Q2: To improve, ensure the context includes detailed, concrete steps related to the user's query. It might help to add examples or explicit instructions.\n\n"
+    "Q2: NO - The context only claims to offer steps but doesn't actually provide them. (Score: 0.0)\n\n"
     "[RESULT] 1.0\n"
-    "[EXCERPTS] ```json\n[]\n```\n"
-    "=== OUTPUT FORMAT END ===\n\n"
-    "Query:\n{query_str}\n\n"
-    "Context:\n{context_str}\n\n"
+    "[EXCERPTS] ```json\n[]\n```\n\n"
+    "Query:\n{query_str}\n"
+    "Context:\n{context_str}\n"
     "Feedback:"
 )
 
