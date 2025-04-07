@@ -81,10 +81,12 @@ def adjust_score_with_rewards_and_penalties(base_score: float, matched_terms: di
     reward = sum(idf.get(term, 0) for term in matched_terms) * \
         0.8  # Increased multiplier for rare terms
 
+    # Ensure missing_terms_count is non-negative
+    missing_terms_count = max(len(query_terms) - len(matched_terms), 0)
+
     # Penalty: Logarithmic scaling (avoids over-penalizing long queries)
-    missing_terms_count = len(query_terms) - len(matched_terms)
     penalty = math.log1p(missing_terms_count) / \
-        math.log1p(len(query_terms))  # Smoother penalty curve
+        math.log1p(len(query_terms)) if len(query_terms) > 0 else 0
 
     # Adjusted score calculation
     adjusted_score = base_score * (1 + reward) * (1 - penalty)
