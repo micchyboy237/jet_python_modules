@@ -546,7 +546,7 @@ def chat(model: str, messages: Sequence[OllamaMessage], format: Any = None, stre
                 }
 
     message = final_response.pop("message")
-    return OllamaChatResponse(
+    chat_response = OllamaChatResponse(
         message=OllamaMessage(
             role=message["role"],
             content=message["content"],
@@ -554,6 +554,7 @@ def chat(model: str, messages: Sequence[OllamaMessage], format: Any = None, stre
         ),
         **final_response
     )
+    return chat_response
 
 
 async def achat(model: str, messages: Sequence[OllamaMessage], **kwargs: Any) -> ChatResponse:
