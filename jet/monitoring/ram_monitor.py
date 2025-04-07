@@ -2,7 +2,7 @@ import rumps
 import psutil
 import sys
 import time
-from PyQt6.QtWidgets import QApplication, QLabel, QWidget, QVBoxLayout, QPushButton
+from PyQt6.QtWidgets import QApplication, QLabel, QWidget, QVBoxLayout, QHBoxLayout, QPushButton
 from PyQt6.QtCore import Qt, QTimer
 
 
@@ -63,8 +63,12 @@ class RAMMonitorWindow(QWidget):
 
         layout.addWidget(self.ram_label)
         layout.addWidget(self.process_label)
-        layout.addWidget(self.refresh_button)
-        layout.addWidget(self.quit_button)
+
+        # Buttons layout (side by side)
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.refresh_button)
+        button_layout.addWidget(self.quit_button)
+        layout.addLayout(button_layout)
 
         self.setLayout(layout)
 
@@ -138,7 +142,7 @@ class RAMMonitorApp(rumps.App):
         # Set periodic RAM usage logging
         self.timer = QTimer()
         self.timer.timeout.connect(self.track_usage)
-        self.timer.start(60000)
+        self.timer.start(10000)  # Track every 10s
 
         self.update_ram_usage()
 
@@ -151,8 +155,8 @@ class RAMMonitorApp(rumps.App):
         self.window.ram_label.setText(self.window.get_ram_usage())
 
     def track_usage(self):
-        add_ram_history_entry()
-        self.update_ram_usage()
+        add_ram_history_entry()  # Logs current RAM usage to history
+        self.update_ram_usage()  # Updates menu bar title & RAM label in main window
 
     @rumps.clicked("Show History")
     def toggle_history(self, _):
