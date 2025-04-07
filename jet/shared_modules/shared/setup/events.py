@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Literal, Optional
 from jet.logger.config import configure_logger
 from jet.logger import logger
-from jet.utils.inspect_utils import inspect_original_script_path
+from jet.utils.inspect_utils import get_entry_file_name, inspect_original_script_path
 from shared.setup.types import EventData
 
 
@@ -61,7 +61,7 @@ class _EventSettings:
 
     def _catch_event_call(self, event_name: str, *args, **kwargs) -> EventData:
         """Handles all event calls dynamically."""
-        logger.orange(f"Event: {event_name}")
+        logger.log("Event:", event_name, colors=["GRAY", "INFO"])
         EventSettings.current_event = event_name
 
         def format_callable(arg):
@@ -73,7 +73,8 @@ class _EventSettings:
         result = inspect_original_script_path()
         event_data: EventData = {
             "event_name": event_name,
-            **(result["first"] if result.get("first") else {}),
+            # **(result["first"] if result.get("first") else {}),
+            "filename": get_entry_file_name(),
             "orig_function": result["last"],
             "arguments": {"args": args, "kwargs": kwargs},
             "start_time": time.strftime('%Y-%m-%d|%H:%M:%S', time.gmtime())

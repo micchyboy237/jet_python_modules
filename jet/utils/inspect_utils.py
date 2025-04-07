@@ -1,3 +1,5 @@
+from pathlib import Path
+import sys
 import traceback
 import inspect
 import os
@@ -236,6 +238,13 @@ def get_current_running_function():
         current_function = stack[1].function
         print(f"Currently running function: {current_function}")
         return current_function
+
+
+def get_entry_file_name():
+    try:
+        return Path(sys.modules["__main__"].__file__).name
+    except (KeyError, AttributeError):
+        return "Interactive or unknown context"
 
 
 __all__ = [

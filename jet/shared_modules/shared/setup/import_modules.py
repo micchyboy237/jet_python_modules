@@ -6,12 +6,13 @@ from jet.logger import logger
 
 from jet.utils.class_utils import *
 
+from jet.utils.inspect_utils import *
+
 from jet.transformers import *
 
 from jet.decorators.error import *
 from jet.decorators.function import *
 
-from jet.utils.inspect_utils import *
 from jet.utils.commands import *
 from jet.utils.object import *
 

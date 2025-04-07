@@ -26,7 +26,7 @@ from jet.transformers import make_serializable
 from shared.setup.events import EventSettings
 
 DETERMINISTIC_LLM_SETTINGS = {
-    "seed": random.randint(0, 1000),
+    # "seed": random.randint(0, 1000),
     "temperature": 0.3,
     "num_keep": 0,
     "num_predict": -1,
