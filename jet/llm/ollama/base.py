@@ -46,7 +46,7 @@ from ollama import Message as OllamaMessage, ChatResponse as OllamaChatResponse
 
 NON_DETERMINISTIC_LLM_SETTINGS = {
     # "seed": random.randint(0, 1000),
-    "temperature": 0.75,
+    "temperature": 0.6,
     "num_keep": 0,
     "num_predict": -1,
 }
