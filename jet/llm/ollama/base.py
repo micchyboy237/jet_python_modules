@@ -42,6 +42,14 @@ import json
 from pydantic.fields import Field
 from pydantic.main import BaseModel
 from transformers.tokenization_utils_base import EncodedInput, PreTokenizedInput, TextInput
+from ollama import Message as OllamaMessage, ChatResponse as OllamaChatResponse
+
+NON_DETERMINISTIC_LLM_SETTINGS = {
+    # "seed": random.randint(0, 1000),
+    "temperature": 0.75,
+    "num_keep": 0,
+    "num_predict": -1,
+}
 
 dispatcher = get_dispatcher(__name__)
 
@@ -457,6 +465,99 @@ class OllamaEmbedding(BaseOllamaEmbedding):
             return embeddings
 
         return wrap_retry(run)
+
+
+def chat(model: str, messages: Sequence[OllamaMessage], format: Any = None, stream: bool = True, tools=[], **kwargs: Any) -> ChatResponse:
+    from jet.actions.generation import call_ollama_chat
+    # from jet.token.token_utils import token_counter
+
+    stream = stream if not tools else False
+
+    settings = {
+        "model": model,
+        "messages": messages,
+        "stream": stream,
+        "format": format,
+        "tools": tools,
+        "full_stream_response": True,
+        "options": {
+            **NON_DETERMINISTIC_LLM_SETTINGS,
+            **kwargs,
+        },
+    }
+
+    response = call_ollama_chat(**settings)
+
+    final_response = {}
+
+    if not stream:
+        content = response["message"]["content"]
+        role = response["message"]["role"]
+        tool_calls = response["message"].get("tool_calls", [])
+
+        final_response_content = content
+        final_response_tool_calls = tool_calls
+        if final_response_tool_calls:
+            final_response_content += f"\n{final_response_tool_calls}".strip()
+
+        # prompt_token_count = token_counter(messages, model)
+        # response_token_count = token_counter(
+        #     final_response_content, model)
+
+        final_response = {
+            **response.copy(),
+            # "usage": {
+            #     "prompt_tokens": prompt_token_count,
+            #     "completion_tokens": response_token_count,
+            #     "total_tokens": prompt_token_count + response_token_count,
+            # }
+        }
+
+    else:
+        content = ""
+        role = ""
+        tool_calls = []
+
+        if isinstance(response, dict) and "error" in response:
+            raise ValueError(
+                f"Ollama API error:\n{response['error']}")
+
+        for chunk in response:
+
+            content += chunk["message"]["content"]
+            if not role:
+                role = chunk["message"]["role"]
+            if chunk["done"]:
+                # prompt_token_count: int = token_counter(
+                #     messages, model)
+                # response_token_count: int = token_counter(
+                #     content, model)
+
+                updated_chunk = chunk.copy()
+                updated_chunk["message"]["content"] = content
+
+                final_response = {
+                    **updated_chunk,
+                    # "usage": {
+                    #     "prompt_tokens": prompt_token_count,
+                    #     "completion_tokens": response_token_count,
+                    #     "total_tokens": prompt_token_count + response_token_count,
+                    # }
+                }
+
+    message = final_response.pop("message")
+    return OllamaChatResponse(
+        message=OllamaMessage(
+            content=message["content"],
+            role=message["role"],
+            additional_kwargs={"tool_calls": tool_calls},
+        ),
+        **final_response
+    )
+
+
+async def achat(model: str, messages: Sequence[OllamaMessage], **kwargs: Any) -> ChatResponse:
+    return chat(model, messages, **kwargs)
 
 
 def embed_nodes(
