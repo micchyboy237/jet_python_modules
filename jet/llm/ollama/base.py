@@ -548,9 +548,9 @@ def chat(model: str, messages: Sequence[OllamaMessage], format: Any = None, stre
     message = final_response.pop("message")
     return OllamaChatResponse(
         message=OllamaMessage(
-            content=message["content"],
             role=message["role"],
-            additional_kwargs={"tool_calls": tool_calls},
+            content=message["content"],
+            tool_calls=tool_calls,
         ),
         **final_response
     )
