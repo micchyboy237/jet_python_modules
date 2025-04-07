@@ -47,7 +47,6 @@ class ProcessListWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("All Processes by Memory Usage")
-        # Adjusted width for better layout
         self.setGeometry(200, 200, 500, 450)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
 
@@ -55,6 +54,11 @@ class ProcessListWindow(QWidget):
         self.text_area = QTextEdit()
         self.text_area.setReadOnly(True)
         self.layout.addWidget(self.text_area)
+
+        # Refresh Button
+        self.refresh_button = QPushButton("Refresh", self)
+        self.refresh_button.clicked.connect(self.load_processes)
+        self.layout.addWidget(self.refresh_button)
 
         # Pagination buttons
         button_layout = QHBoxLayout()
@@ -75,6 +79,11 @@ class ProcessListWindow(QWidget):
         self.page = 0
         self.items_per_page = 20  # Show 20 items per page
         self.processes = []
+
+        # Periodic update timer
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.load_processes)
+        self.update_timer.start(10000)  # Update every 10 seconds
 
     def load_processes(self):
         processes = []
@@ -234,9 +243,6 @@ class RAMMonitorApp(rumps.App):
 
         # New flag for process window visibility
         self.is_process_window_visible = False
-
-        # Show by default
-        self.show_all_processes()
 
     def set_icon(self, path):
         self.icon = path
