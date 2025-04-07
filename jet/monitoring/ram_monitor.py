@@ -16,14 +16,17 @@ def add_ram_history_entry():
     ram_usage_gb = round(mem.used / (1024**3) * 2) / 2
     ram_history.append((time.time(), ram_usage_gb))
     three_hours_ago = time.time() - 3 * 60 * 60
+    # print(f"Before pruning: {ram_history}")  # Debug before pruning
     while ram_history and ram_history[0][0] < three_hours_ago:
         ram_history.pop(0)
+    # print(f"After pruning: {ram_history}")  # Debug after pruning
 
 
 class HistoryWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("RAM Usage History (Top 3 Peaks)")
+        self.top_n = 5
+        self.setWindowTitle(f"RAM Usage History (Top {self.top_n} Peaks)")
         self.setGeometry(150, 150, 300, 150)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
 
@@ -36,10 +39,34 @@ class HistoryWindow(QWidget):
         if not ram_history:
             self.history_label.setText("No data available.")
             return
-        top_peaks = sorted([entry[1]
-                           for entry in ram_history], reverse=True)[:3]
-        formatted = "\n".join(
-            [f"Peak {i + 1}: {val:.1f} GB" for i, val in enumerate(top_peaks)])
+
+        # Sort history by RAM usage (descending order)
+        sorted_history = sorted(ram_history, key=lambda x: x[1], reverse=True)
+
+        peaks = []
+        prev_peak = None
+        prev_time = None
+
+        # Select peaks with at least 0.5 GB difference or 10 seconds since the previous peak
+        for timestamp, ram_usage in sorted_history:
+            # Check if it's the first peak or if the new peak satisfies the 0.5 GB or 10-second condition
+            if not peaks or (ram_usage - prev_peak >= 0.5 or (timestamp - prev_time >= 10)):
+                peaks.append((ram_usage, timestamp))
+                prev_peak = ram_usage
+                prev_time = timestamp
+            if len(peaks) == self.top_n:
+                break
+
+        # If less than top_n peaks are available, show only those
+        if len(peaks) == 0:
+            self.history_label.setText("No significant data.")
+            return
+
+        formatted = "\n".join([
+            f"Peak {i + 1}: {ram_usage:.1f} GB (Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))})"
+            for i, (ram_usage, timestamp) in enumerate(peaks)
+        ])
+
         self.history_label.setText(formatted)
 
 
@@ -254,6 +281,7 @@ class RAMMonitorApp(rumps.App):
 
     def track_usage(self):
         add_ram_history_entry()
+        self.history_window.update_history()  # Explicitly update the history window
         self.update_ram_usage()
         self.seconds_until_next = 10
 
