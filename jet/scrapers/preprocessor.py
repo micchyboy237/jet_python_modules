@@ -14,6 +14,7 @@ def convert_html_to_markdown(html_string):
     converter.ignore_links = True
     converter.ignore_images = True
     converter.ignore_emphasis = True
+    converter.mark_code = True
     # converter.bypass_tables = True
     converter.body_width = 0  # Prevent line wrapping
 
