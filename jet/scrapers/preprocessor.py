@@ -2,11 +2,28 @@ import json
 import html2text
 import parsel
 import math
+from bs4 import BeautifulSoup
 from .utils import clean_newlines, clean_tags, clean_text
 from jet.logger import logger
 
 
+def remove_display_none_elements(html_string):
+    # Parse the HTML content using BeautifulSoup
+    soup = BeautifulSoup(html_string, 'html.parser')
+
+    # Find all elements with the style attribute that contains 'display: none'
+    for element in soup.find_all(style=True):
+        if 'display:none' in element['style'].replace(' ', ''):
+            element.decompose()  # Remove the element from the tree
+
+    # Return the modified HTML as a string
+    return str(soup)
+
+
 def convert_html_to_markdown(html_string):
+    # Remove elements with 'display: none' before converting to Markdown
+    filtered_html = remove_display_none_elements(html_string)
+
     # Use the html2text library to convert HTML to Markdown
     converter = html2text.HTML2Text()
 
@@ -18,8 +35,8 @@ def convert_html_to_markdown(html_string):
     # converter.bypass_tables = True
     converter.body_width = 0  # Prevent line wrapping
 
-    # Convert the HTML string to Markdown
-    markdown_string = converter.handle(html_string)
+    # Convert the filtered HTML string to Markdown
+    markdown_string = converter.handle(filtered_html)
 
     return markdown_string.strip()
 
