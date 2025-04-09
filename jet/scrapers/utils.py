@@ -256,22 +256,47 @@ class TitleMetadata(TypedDict):
     metadata: Dict[str, str]
 
 
-def extract_title_and_metadata(html: str) -> TitleMetadata:
+def extract_title_and_metadata(source: str, timeout_ms: int = 1000) -> TitleMetadata:
     """
-    Extracts the <title> and relevant <meta> information from the HTML.
+    Extracts the <title> and relevant <meta> information from the HTML or dynamic content.
 
-    :param html: HTML string to parse.
+    :param source: HTML string or URL to parse.
+    :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
     :return: Dictionary with title and metadata (meta[name]/[property] -> content).
     """
-    doc = pq(html)
-    title = doc("title").text()
+    if os.path.exists(source) and not source.startswith("file://"):
+        source = f"file://{source}"
 
-    metadata = {}
-    for meta in doc("meta").items():
-        name = meta.attr("name") or meta.attr("property")
-        content = meta.attr("content")
-        if name and content:
-            metadata[name] = content
+    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+        url = source
+        html = None
+    else:
+        url = None
+        html = source
+
+    # Use Playwright to render content dynamically if URL is provided or HTML is a complex structure
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        if url:
+            page.goto(url, wait_until="networkidle")
+        else:
+            page.set_content(html)
+
+        page.wait_for_timeout(timeout_ms)
+
+        # Extract title and metadata
+        title = page.title()
+        metadata = {}
+
+        for meta in page.query_selector_all("meta"):
+            name = meta.get_attribute("name") or meta.get_attribute("property")
+            content = meta.get_attribute("content")
+            if name and content:
+                metadata[name] = content
+
+        browser.close()
 
     return {
         "title": title,
@@ -279,38 +304,60 @@ def extract_title_and_metadata(html: str) -> TitleMetadata:
     }
 
 
-def extract_internal_links(html: str, base_url: str) -> List[str]:
+def extract_internal_links(source: str, base_url: str, timeout_ms: int = 1000) -> List[str]:
     """
-    Extracts all internal links from the HTML. These are links:
+    Extracts all internal links from the HTML or dynamic content. These are links:
     - Starting with "/"
     - Or starting with the same domain as base_url
 
-    Looks in common URL attributes: href, src, data-url, action.
-
-    :param html: HTML string to parse.
+    :param source: HTML string or URL to parse.
     :param base_url: The base URL used to resolve and compare domains.
+    :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
     :return: List of normalized internal links.
     """
-    doc = pq(html)
-    base_domain = urlparse(base_url).netloc
+    if os.path.exists(source) and not source.startswith("file://"):
+        source = f"file://{source}"
+
+    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+        url = source
+        html = None
+    else:
+        url = None
+        html = source
+
     internal_links = set()
-    url_attrs = ["href", "src", "data-url", "data-href", "action"]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
 
-    for elem in doc("*").items():
-        for attr in url_attrs:
-            raw_url = elem.attr(attr)
-            if not raw_url:
-                continue
-            raw_url = raw_url.strip()
-            parsed = urlparse(raw_url)
+        if url:
+            page.goto(url, wait_until="networkidle")
+        else:
+            page.set_content(html)
 
-            if raw_url.startswith("/"):
-                # Relative URL
-                full_url = urljoin(base_url, raw_url)
-                internal_links.add(full_url)
-            elif parsed.netloc == base_domain:
-                # Absolute internal URL
-                internal_links.add(raw_url)
+        page.wait_for_timeout(timeout_ms)
+
+        # Extract internal links from href, src, data-url, action attributes
+        base_domain = urlparse(base_url).netloc
+        url_attrs = ["href", "src", "data-url", "data-href", "action"]
+
+        for elem in page.query_selector_all("*"):
+            for attr in url_attrs:
+                raw_url = elem.get_attribute(attr)
+                if not raw_url:
+                    continue
+                raw_url = raw_url.strip()
+                parsed = urlparse(raw_url)
+
+                if raw_url.startswith("/"):
+                    # Relative URL
+                    full_url = urljoin(base_url, raw_url)
+                    internal_links.add(full_url)
+                elif parsed.netloc == base_domain:
+                    # Absolute internal URL
+                    internal_links.add(raw_url)
+
+        browser.close()
 
     return sorted(internal_links)
 
