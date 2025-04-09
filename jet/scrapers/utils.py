@@ -470,13 +470,13 @@ def extract_form_elements(source: str, timeout_ms: int = 1000) -> List[str]:
 
             elements.forEach(el => {
                 if (el.id) {
-                    formElements.push(el.id);
+                    formElements.push('#' + el.id);
                 }
 
                 if (el.classList) {
                     el.classList.forEach(cls => {
                         if (!cls.startsWith('css-')) {
-                            formElements.push(cls);
+                            formElements.push('.' + cls);
                         }
                     });
                 }
@@ -524,13 +524,13 @@ def extract_search_inputs(source: str, timeout_ms: int = 1000) -> List[str]:
 
             elements.forEach(el => {
                 if (el.id) {
-                    searchElements.push(el.id);
+                    searchElements.push('#' + el.id);
                 }
 
                 if (el.classList) {
                     el.classList.forEach(cls => {
                         if (!cls.startsWith('css-')) {
-                            searchElements.push(cls);
+                            searchElements.push('.' + cls);
                         }
                     });
                 }

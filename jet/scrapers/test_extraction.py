@@ -171,8 +171,8 @@ class TestExtractFormElements(unittest.TestCase):
         </form>
         """
         result = extract_form_elements(html_sample)
-        expected = ['search_input', 'user-search', 'submit_btn', 'btn-primary',
-                    'login_form', 'username', 'input-text', 'comments', 'textarea']
+        expected = ['#search_input', '.user-search', '#submit_btn', '.btn-primary',
+                    '#login_form', '#username', '.input-text', '#comments', '.textarea']
         self.assertEqual(result, expected)
 
     def test_extract_form_elements_with_url(self):
@@ -196,7 +196,7 @@ class TestExtractFormElements(unittest.TestCase):
     def test_extract_form_elements_with_invalid_html(self):
         html_sample = "<input id='valid_input' class='css-valid'>"
         result = extract_form_elements(html_sample)
-        self.assertEqual(result, ['valid_input'])
+        self.assertEqual(result, ['#valid_input'])
 
 
 class TestExtractSearchInputs(unittest.TestCase):
@@ -206,7 +206,7 @@ class TestExtractSearchInputs(unittest.TestCase):
         <input type='text' id='text_input' class='text-box'>
         """
         result = extract_search_inputs(html_sample)
-        expected = ['search_field', 'search-box', 'text_input', 'text-box']
+        expected = ['#search_field', '.search-box', '#text_input', '.text-box']
         self.assertEqual(result, expected)
 
     def test_extract_search_inputs_with_url(self):
@@ -225,7 +225,7 @@ class TestExtractSearchInputs(unittest.TestCase):
     def test_extract_search_inputs_with_invalid_html(self):
         html_sample = "<input type='text' id='valid_input' class='text-box'>"
         result = extract_search_inputs(html_sample)
-        self.assertEqual(result, ['valid_input', 'text-box'])
+        self.assertEqual(result, ['#valid_input', '.text-box'])
 
 
 if __name__ == "__main__":
