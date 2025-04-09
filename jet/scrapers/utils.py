@@ -384,6 +384,9 @@ def extract_clickable_texts_from_rendered_page(source: str, timeout_ms: int = 10
         else:
             page.set_content(html)
 
+        # Wait for the document to be fully loaded
+        page.wait_for_load_state("load")
+
         page.wait_for_timeout(timeout_ms)
 
         clickable_texts = page.evaluate("""
