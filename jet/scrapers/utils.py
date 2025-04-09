@@ -1,8 +1,10 @@
-from typing import List, Optional
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from pathlib import Path
+from typing import List, Optional, TypedDict
 from collections import defaultdict
 import os
 from typing import Generator, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from jet.scrapers.crawler.web_crawler import WebCrawler
 from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
 from pyquery import PyQuery as pq
@@ -249,6 +251,188 @@ def find_elements_with_text(html: str):
     return matching_parents  # Returns list of dictionaries
 
 
+class TitleMetadata(TypedDict):
+    title: Optional[str]
+    metadata: Dict[str, str]
+
+
+def extract_title_and_metadata(html: str) -> TitleMetadata:
+    """
+    Extracts the <title> and relevant <meta> information from the HTML.
+
+    :param html: HTML string to parse.
+    :return: Dictionary with title and metadata (meta[name]/[property] -> content).
+    """
+    doc = pq(html)
+    title = doc("title").text()
+
+    metadata = {}
+    for meta in doc("meta").items():
+        name = meta.attr("name") or meta.attr("property")
+        content = meta.attr("content")
+        if name and content:
+            metadata[name] = content
+
+    return {
+        "title": title,
+        "metadata": metadata
+    }
+
+
+def extract_internal_links(html: str, base_url: str) -> List[str]:
+    """
+    Extracts all internal links from the HTML. These are links:
+    - Starting with "/"
+    - Or starting with the same domain as base_url
+
+    Looks in common URL attributes: href, src, data-url, action.
+
+    :param html: HTML string to parse.
+    :param base_url: The base URL used to resolve and compare domains.
+    :return: List of normalized internal links.
+    """
+    doc = pq(html)
+    base_domain = urlparse(base_url).netloc
+    internal_links = set()
+    url_attrs = ["href", "src", "data-url", "data-href", "action"]
+
+    for elem in doc("*").items():
+        for attr in url_attrs:
+            raw_url = elem.attr(attr)
+            if not raw_url:
+                continue
+            raw_url = raw_url.strip()
+            parsed = urlparse(raw_url)
+
+            if raw_url.startswith("/"):
+                # Relative URL
+                full_url = urljoin(base_url, raw_url)
+                internal_links.add(full_url)
+            elif parsed.netloc == base_domain:
+                # Absolute internal URL
+                internal_links.add(raw_url)
+
+    return sorted(internal_links)
+
+
+def extract_clickable_texts_from_rendered_page(source: str, timeout_ms: int = 1000) -> List[str]:
+    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+        url = source
+        html = None
+    else:
+        url = None
+        html = source
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+        )
+        page = browser.new_page()
+
+        if html:
+            page.set_content(html)
+        else:
+            page.goto(url, wait_until="networkidle")
+
+        page.wait_for_timeout(timeout_ms)
+
+        clickable_texts = page.evaluate("""
+        () => {
+            const elements = Array.from(document.querySelectorAll('*'));
+            const clickable = [];
+
+            for (const el of elements) {
+                const isHidden = el.offsetParent === null || window.getComputedStyle(el).visibility === 'hidden';
+                const isDisabled = el.disabled || el.getAttribute('aria-disabled') === 'true';
+
+                // Check if the element is clickable based on its type
+                const isClickableTag = ['A', 'BUTTON'].includes(el.tagName) ||
+                    (el.tagName === 'INPUT' && ['button', 'submit'].includes(el.type.toLowerCase()));
+
+                // Update the hasText condition to also check for 'value' on input[type="submit"]
+                const hasText = (el.innerText || el.value || '').trim().length > 0;
+
+                const hasClickAttr = el.hasAttribute('onclick');
+                const hasClickHandler = (el.onclick !== null);
+
+                const listeners = (window.getEventListeners && window.getEventListeners(el)?.click) || [];
+
+                if ((isClickableTag || hasClickAttr || hasClickHandler || listeners.length > 0) &&
+                    !isHidden && !isDisabled && hasText) {
+                    clickable.push(el.innerText.trim() || el.value.trim());
+                }
+            }
+
+            return clickable;
+        }
+        """)
+
+        browser.close()
+
+        if not clickable_texts:
+            print("[warn] No clickable texts found.")
+        return clickable_texts
+
+
+def extract_element_screenshots(
+    source: str,
+    css_selectors: List[str] = [],
+    output_dir: str = "generated/screenshots",
+    timeout_ms: int = 1000
+) -> List[str]:
+    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+        url = source
+        html = None
+    else:
+        url = None
+        html = source
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    screenshots = []
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+        )
+        page = browser.new_page()
+
+        if html:
+            page.set_content(html)
+        else:
+            page.goto(url, wait_until="networkidle")
+
+        page.wait_for_timeout(timeout_ms)
+
+        for selector in css_selectors:
+            try:
+                elements = page.query_selector_all(selector)
+
+                if len(elements) == 0:
+                    print(f"[warn] No elements found for selector: {selector}")
+
+                for i, el in enumerate(elements):
+                    try:
+                        el.wait_for_element_state("visible", timeout=1000)
+                    except PlaywrightTimeoutError:
+                        continue
+
+                    clean_selector = selector.strip('.#> ').replace(
+                        ' ', '_').replace('[', '').replace(']', '')
+                    path = f"{output_dir}/{clean_selector}_{i}.png"
+                    el.screenshot(path=path)
+                    screenshots.append(path)
+
+            except Exception as e:
+                print(f"[warn] Failed to capture {selector}: {e}")
+
+        browser.close()
+
+    if not screenshots:
+        print("[warn] No screenshots were taken.")
+
+    return screenshots
+
+
 def extract_text_elements(html: str, excludes: List[str] = ["style", "script"]) -> List[str]:
     """
     Extracts a flattened list of text elements from the HTML document, ignoring specific elements
@@ -299,11 +483,11 @@ def extract_text_elements(html: str, excludes: List[str] = ["style", "script"]) 
 
 class TreeNode(Dict):
     tag: str
-    text: Optional[str]  # Some nodes may not contain text
+    text: Optional[str]
     depth: int
-    id: Optional[str]  # ID attribute of the element
-    class_names: List[str]  # List of class names
-    children: List['TreeNode']  # Recursive reference to TreeNode
+    id: Optional[str]
+    class_names: List[str]
+    children: List['TreeNode']
 
 
 def exclude_elements(doc, excludes: List[str]) -> None:
@@ -341,9 +525,9 @@ def extract_tree_with_text(html: str, excludes: List[str] = ["style", "script"])
         # Filter non-alphabet id and class names
         id = element_id if element_id and re.match(
             valid_id_pattern, element_id) else None
-        # Split class names into a list if they exist
+        # Filter class names: exclude only those starting with 'css-'
         class_names = [name for name in (element_class.split() if element_class else [])
-                       if re.match(valid_id_pattern, name)]
+                       if not name.startswith('css-')]
 
         # Include text only for leaf nodes that directly hold text
         if text and len(pq(element).children()) == 0:  # No children, direct text

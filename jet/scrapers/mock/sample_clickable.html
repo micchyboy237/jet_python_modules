@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sample Clickable Page</title>
+    <style>
+      .card {
+        width: 100px;
+        height: 100px;
+        margin: 10px;
+        color: white;
+        display: inline-block;
+        text-align: center;
+        line-height: 100px;
+      }
+      .card.blue {
+        background-color: blue;
+      }
+      .card.red {
+        background-color: red;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Sample Clickable Elements</h1>
+
+    <!-- Links -->
+    <a href="/home">Link Text</a><br />
+
+    <!-- Buttons -->
+    <button onclick="alert('Button clicked!')">Click Me</button><br />
+
+    <!-- Input elements -->
+    <input type="submit" value="Submit" /><br />
+    <input
+      type="button"
+      value="Another Button"
+      onclick="alert('Another button clicked!')"
+    /><br />
+
+    <!-- Div with event listener -->
+    <div id="js-btn" class="card blue">JS Button</div>
+    <br />
+
+    <div class="card red">Card 1</div>
+    <div class="card blue">Card 2</div>
+
+    <script>
+      // JavaScript event listener for the div
+      document.getElementById("js-btn").addEventListener("click", function () {
+        alert("JS Button clicked!");
+      });
+    </script>
+  </body>
+</html>
