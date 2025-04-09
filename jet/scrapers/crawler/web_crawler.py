@@ -24,8 +24,9 @@ def sort_urls_numerically(urls):
 
 
 class SeleniumScraper:
-    def __init__(self):
+    def __init__(self, max_retries: int = 5):
         self.driver: webdriver.Chrome = self._setup_driver()
+        self.max_retries = max_retries
 
     def _setup_driver(self) -> webdriver.Chrome:
         """Sets up the Chrome WebDriver with optimized options for reliability and speed."""
@@ -35,7 +36,6 @@ class SeleniumScraper:
         chrome_options.page_load_strategy = "eager"
 
         # Reduce resource load (optional: remove headless mode if debugging)
-        # Comment this out to allow the browser to open
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-extensions")
@@ -65,22 +65,47 @@ class SeleniumScraper:
             raise
 
     def navigate_to_url(self, url: str):
-        """Navigate the browser to the given URL, wait for the body element, and add extra delay."""
-        self.driver.get(url)
-
-        WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.TAG_NAME, "body"))
-        )
-
-        logger.info(f"Loaded {url}")
+        """Navigate the browser to the given URL, retrying with exponential backoff."""
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                self.driver.get(url)
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                logger.info(f"Loaded {url}")
+                return
+            except Exception as e:
+                retries += 1
+                # Exponential backoff (2^retries seconds)
+                wait_time = 2 ** retries
+                logger.error(
+                    f"Error loading {url}, attempt {retries}/{self.max_retries}: {e}")
+                if retries < self.max_retries:
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Max retries reached for {url}")
+                    raise
 
     def get_html(self, wait_time: int = 10) -> str:
         """Waits for full page load and returns the updated page source."""
-        # WebDriverWait(self.driver, wait_time).until(
-        #     lambda driver: driver.execute_script(
-        #         "return document.readyState") == "complete"
-        # )
-        return self.driver.page_source
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                return self.driver.page_source
+            except Exception as e:
+                retries += 1
+                # Exponential backoff (2^retries seconds)
+                wait_time = 2 ** retries
+                logger.error(
+                    f"Error getting HTML, attempt {retries}/{self.max_retries}: {e}")
+                if retries < self.max_retries:
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error("Max retries reached for getting HTML")
+                    raise
 
     def close(self):
         """Closes the browser and cleans up the driver."""
@@ -93,8 +118,8 @@ class PageResult(TypedDict):
 
 
 class WebCrawler(SeleniumScraper):
-    def __init__(self, url: str = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: int = 0, max_visited: int = None):
-        super().__init__()
+    def __init__(self, url: str = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: int = 0, max_visited: int = None, max_retries: int = 5):
+        super().__init__(max_retries=max_retries)
 
         self.non_crawlable = False
         self.base_url: str = self.normalize_url(url)
@@ -162,7 +187,7 @@ class WebCrawler(SeleniumScraper):
             )
         except Exception as e:
             logger.error(f"Failed to find anchor elements: {e}")
-            return
+            raise
 
         if self.non_crawlable:
             return

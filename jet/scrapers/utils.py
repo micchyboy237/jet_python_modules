@@ -851,6 +851,7 @@ def search_data(query) -> list[SearchResult]:
         query=query,
         filter_sites=filter_sites,
         engines=engines,
+        min_score=2.0,
         config={
             "port": 3101
         },
