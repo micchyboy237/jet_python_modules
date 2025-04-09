@@ -369,8 +369,8 @@ class Ollama(BaseOllama):
 
             return ChatResponse(
                 message=ChatMessage(
-                    content=final_response["message"]["content"],
-                    role=final_response["message"]["role"],
+                    role=role,
+                    content=content,
                     additional_kwargs={"tool_calls": tool_calls},
                 ),
                 raw=final_response,
@@ -548,8 +548,8 @@ def chat(model: str, messages: Sequence[OllamaMessage], format: Any = None, stre
     message = final_response.pop("message")
     chat_response = OllamaChatResponse(
         message=OllamaMessage(
-            role=message["role"],
-            content=message["content"],
+            role=role,
+            content=content,
             tool_calls=tool_calls,
         ),
         **final_response
