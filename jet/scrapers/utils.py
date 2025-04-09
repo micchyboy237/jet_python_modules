@@ -316,6 +316,9 @@ def extract_internal_links(html: str, base_url: str) -> List[str]:
 
 
 def extract_clickable_texts_from_rendered_page(source: str, timeout_ms: int = 1000) -> List[str]:
+    if os.path.exists(source) and not source.startswith("file://"):
+        source = f"file://{source}"
+
     if re.match(r'^https?://', source) or re.match(r'^file://', source):
         url = source
         html = None
@@ -329,10 +332,10 @@ def extract_clickable_texts_from_rendered_page(source: str, timeout_ms: int = 10
         )
         page = browser.new_page()
 
-        if html:
-            page.set_content(html)
-        else:
+        if url:
             page.goto(url, wait_until="networkidle")
+        else:
+            page.set_content(html)
 
         page.wait_for_timeout(timeout_ms)
 
@@ -380,6 +383,9 @@ def extract_element_screenshots(
     output_dir: str = "generated/screenshots",
     timeout_ms: int = 1000
 ) -> List[str]:
+    if os.path.exists(source) and not source.startswith("file://"):
+        source = f"file://{source}"
+
     if re.match(r'^https?://', source) or re.match(r'^file://', source):
         url = source
         html = None
@@ -396,10 +402,10 @@ def extract_element_screenshots(
         )
         page = browser.new_page()
 
-        if html:
-            page.set_content(html)
-        else:
+        if url:
             page.goto(url, wait_until="networkidle")
+        else:
+            page.set_content(html)
 
         page.wait_for_timeout(timeout_ms)
 
@@ -431,6 +437,114 @@ def extract_element_screenshots(
         print("[warn] No screenshots were taken.")
 
     return screenshots
+
+
+def extract_form_elements(source: str, timeout_ms: int = 1000) -> List[str]:
+    if os.path.exists(source) and not source.startswith("file://"):
+        source = f"file://{source}"
+
+    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+        url = source
+        html = None
+    else:
+        url = None
+        html = source
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+        )
+        page = browser.new_page()
+
+        if url:
+            page.goto(url, wait_until="networkidle")
+        else:
+            page.set_content(html)
+
+        page.wait_for_timeout(timeout_ms)
+
+        form_elements = page.evaluate("""
+        () => {
+            const elements = Array.from(document.querySelectorAll('input, select, textarea, button, form'));
+            const formElements = [];
+
+            elements.forEach(el => {
+                if (el.id) {
+                    formElements.push(el.id);
+                }
+
+                if (el.classList) {
+                    el.classList.forEach(cls => {
+                        if (!cls.startsWith('css-')) {
+                            formElements.push(cls);
+                        }
+                    });
+                }
+            });
+
+            return formElements;
+        }
+        """)
+
+        browser.close()
+
+        if not form_elements:
+            print("[warn] No form elements found.")
+        return form_elements
+
+
+def extract_search_inputs(source: str, timeout_ms: int = 1000) -> List[str]:
+    if os.path.exists(source) and not source.startswith("file://"):
+        source = f"file://{source}"
+
+    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+        url = source
+        html = None
+    else:
+        url = None
+        html = source
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+        )
+        page = browser.new_page()
+
+        if url:
+            page.goto(url, wait_until="networkidle")
+        else:
+            page.set_content(html)
+
+        page.wait_for_timeout(timeout_ms)
+
+        search_inputs = page.evaluate("""
+        () => {
+            const elements = Array.from(document.querySelectorAll('input[type="search"], input[type="text"]'));
+            const searchElements = [];
+
+            elements.forEach(el => {
+                if (el.id) {
+                    searchElements.push(el.id);
+                }
+
+                if (el.classList) {
+                    el.classList.forEach(cls => {
+                        if (!cls.startsWith('css-')) {
+                            searchElements.push(cls);
+                        }
+                    });
+                }
+            });
+
+            return searchElements;
+        }
+        """)
+
+        browser.close()
+
+        if not search_inputs:
+            print("[warn] No search text inputs found.")
+        return search_inputs
 
 
 def extract_text_elements(html: str, excludes: List[str] = ["style", "script"]) -> List[str]:

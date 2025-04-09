@@ -1,6 +1,6 @@
 import os
 import unittest
-from jet.scrapers.utils import extract_clickable_texts_from_rendered_page, extract_element_screenshots, extract_title_and_metadata, extract_internal_links
+from jet.scrapers.utils import extract_clickable_texts_from_rendered_page, extract_element_screenshots, extract_form_elements, extract_search_inputs, extract_title_and_metadata, extract_internal_links
 
 
 class TestExtractTitleAndMetadata(unittest.TestCase):
@@ -134,9 +134,7 @@ class TestClickableRenderedExtraction(unittest.TestCase):
         self.assertTrue(all(item in result for item in expected))
 
     def test_clickable_text_extraction_url(self):
-        html_path = "file://" + \
-            os.path.abspath(
-                "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/mock/sample_clickable.html")
+        html_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/mock/sample_clickable.html"
         result = extract_clickable_texts_from_rendered_page(source=html_path)
         # expected = ["Link Text", "Click Me", "Submit", "Another Button", "JS Button"]
         expected = ["Link Text", "Click Me", "Submit", "Another Button"]
@@ -155,13 +153,79 @@ class TestElementScreenshotter(unittest.TestCase):
         self.assertGreater(len(result), 0)
 
     def test_screenshot_url(self):
-        html_path = "file://" + \
-            os.path.abspath(
-                "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/mock/sample_clickable.html")
+        html_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/mock/sample_clickable.html"
         result = extract_element_screenshots(
             source=html_path, css_selectors=[".card"])
         self.assertTrue(all(os.path.exists(path) for path in result))
         self.assertGreater(len(result), 0)
+
+
+class TestExtractFormElements(unittest.TestCase):
+    def test_extract_form_elements_with_html(self):
+        html_sample = """
+        <input id='search_input' class='user-search'>
+        <button id='submit_btn' class='btn-primary'>Submit</button>
+        <form id='login_form'>
+            <input type="text" id="username" class="input-text">
+            <textarea id="comments" class="textarea"></textarea>
+        </form>
+        """
+        result = extract_form_elements(html_sample)
+        expected = ['search_input', 'user-search', 'submit_btn', 'btn-primary',
+                    'login_form', 'username', 'input-text', 'comments', 'textarea']
+        self.assertEqual(result, expected)
+
+    def test_extract_form_elements_with_url(self):
+        # Replace 'url' with an actual URL for a test case
+        url = "https://aniwatchtv.to"
+        result = extract_form_elements(url)
+        self.assertIsInstance(result, list)  # Ensure it returns a list
+        # Check that it doesn't return an empty list
+        self.assertGreater(len(result), 0)
+
+    def test_extract_form_elements_with_empty_html(self):
+        html_sample = ""
+        result = extract_form_elements(html_sample)
+        self.assertEqual(result, [])
+
+    def test_extract_form_elements_with_no_matching_elements(self):
+        html_sample = "<div class='no-form-elements'></div>"
+        result = extract_form_elements(html_sample)
+        self.assertEqual(result, [])
+
+    def test_extract_form_elements_with_invalid_html(self):
+        html_sample = "<input id='valid_input' class='css-valid'>"
+        result = extract_form_elements(html_sample)
+        self.assertEqual(result, ['valid_input'])
+
+
+class TestExtractSearchInputs(unittest.TestCase):
+    def test_extract_search_inputs_with_html(self):
+        html_sample = """
+        <input type='search' id='search_field' class='search-box'>
+        <input type='text' id='text_input' class='text-box'>
+        """
+        result = extract_search_inputs(html_sample)
+        expected = ['search_field', 'search-box', 'text_input', 'text-box']
+        self.assertEqual(result, expected)
+
+    def test_extract_search_inputs_with_url(self):
+        # Replace 'url' with an actual URL for a test case
+        url = "https://aniwatchtv.to"
+        result = extract_search_inputs(url)
+        self.assertIsInstance(result, list)  # Ensure it returns a list
+        # Check that it doesn't return an empty list
+        self.assertGreater(len(result), 0)
+
+    def test_extract_search_inputs_with_no_search_inputs(self):
+        html_sample = "<div>No search inputs here</div>"
+        result = extract_search_inputs(html_sample)
+        self.assertEqual(result, [])
+
+    def test_extract_search_inputs_with_invalid_html(self):
+        html_sample = "<input type='text' id='valid_input' class='text-box'>"
+        result = extract_search_inputs(html_sample)
+        self.assertEqual(result, ['valid_input', 'text-box'])
 
 
 if __name__ == "__main__":
