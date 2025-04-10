@@ -3,6 +3,7 @@ import html2text
 import parsel
 import math
 from bs4 import BeautifulSoup
+import bs4.element
 from .utils import clean_newlines, clean_tags, clean_text
 from jet.logger import logger
 
@@ -13,8 +14,9 @@ def remove_display_none_elements(html_string):
 
     # Find all elements with the style attribute that contains 'display: none'
     for element in soup.find_all(style=True):
-        if 'display:none' in element['style'].replace(' ', ''):
-            element.decompose()  # Remove the element from the tree
+        elm: bs4.element.Tag = element
+        if elm.attrs and "style" in elm.attrs and 'display:none' in elm['style'].replace(' ', ''):
+            elm.decompose()  # Remove the element from the tree
 
     # Return the modified HTML as a string
     return str(soup)

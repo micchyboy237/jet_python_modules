@@ -3,7 +3,7 @@ from jet.logger import logger
 from jet.wordnet.words import get_words
 from llama_index.core.base.llms.types import ChatMessage
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
-from llama_index.core.schema import BaseNode, Document, NodeRelationship, RelatedNodeInfo, TextNode
+from llama_index.core.schema import BaseNode, Document, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
 import tiktoken
 from jet.llm.llm_types import Message
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -226,6 +226,41 @@ def group_texts(
 
     else:
         raise TypeError("Unsupported input type for group_texts")
+
+
+def group_nodes(
+    nodes: list[TextNode] | list[NodeWithScore],
+    model: str | OLLAMA_MODEL_NAMES = "mistral",
+    max_tokens: Optional[int | float] = None,
+) -> list[list[TextNode]]:
+    if not max_tokens:
+        max_tokens = 0.5
+
+    if isinstance(max_tokens, float) and max_tokens < 1:
+        max_tokens = int(get_model_max_tokens(model) * max_tokens)
+    else:
+        max_tokens = max_tokens or get_model_max_tokens(model)
+
+    grouped_nodes = []
+    current_group = []
+    current_token_count = 0
+
+    text_token_counts = token_counter(
+        [n.text for n in nodes], model, prevent_total=True)
+
+    for node, token_count in zip(nodes, text_token_counts):
+        if current_token_count + token_count > max_tokens:
+            grouped_nodes.append(current_group)
+            current_group = []
+            current_token_count = 0
+
+        current_group.append(node)
+        current_token_count += token_count
+
+    if current_group:
+        grouped_nodes.append(current_group)
+
+    return grouped_nodes
 
 
 def calculate_num_predict_ctx(prompt: str | list[str] | list[ChatMessage] | list[Message], model: str = "llama3.1", *, system: str = "", max_prediction_ratio: float = 0.75):
