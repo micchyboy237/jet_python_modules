@@ -1,12 +1,13 @@
+import multiprocessing
 from typing import List, TypedDict
-from multiprocessing import Pool, cpu_count
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 from typing import Generator, List, Dict, Optional, Type
 
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.scrapers.crawler.web_crawler import WebCrawler
-from jet.scrapers.utils import safe_path_from_url, scrape_urls, search_data
+from jet.scrapers.utils import safe_path_from_url, scrape_urls, search_data, validate_headers
 from jet.search.searxng import NoResultsFoundError, SearchResult, search_searxng
 from jet.transformers.formatters import format_json
 from jet.utils.class_utils import class_to_string
@@ -25,6 +26,8 @@ from jet.llm.evaluators.helpers.base import EvaluationResult
 from jet.llm.evaluators.context_relevancy_evaluator import evaluate_context_relevancy
 from jet.llm.ollama.base import ChatResponse, Ollama, OllamaEmbedding
 from tqdm import tqdm
+
+max_workers = multiprocessing.cpu_count() // 2
 
 
 # --- Constants ---
@@ -270,13 +273,12 @@ def run_scrape_search_chat(
         for doc_idx, doc in enumerate(header_docs)
     ]
 
-    cores_to_use = cpu_count() // 2
-    with Pool(processes=cores_to_use) as pool:
-        header_nodes = list(tqdm(
-            pool.imap(_process_document_star, process_args),
-            total=len(header_docs),
-            desc="Processing documents"
-        ))
+    header_nodes = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_process_document_star, args)
+                   for args in process_args]
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing documents"):
+            header_nodes.append(future.result())
 
     header_parent_map = get_nodes_parent_mapping(header_nodes, header_docs)
 
@@ -369,13 +371,22 @@ if __name__ == "__main__":
     #     # after_date="2024-01-01",
     #     # before_date="2025-04-05"
     # )
+    min_header_count = 5
 
     # Search urls
     search_results = search_data(query)
     urls = [item["url"] for item in search_results]
 
     scraped_urls_results = scrape_urls(urls)
+    pbar = tqdm(total=len(urls))
     for url, html in scraped_urls_results:
+        pbar.set_description(f"URL: {url}")
+
+        if not validate_headers(html, min_count=min_header_count):
+            logger.warning(
+                f"Skipping url: {url} due to header count < {min_header_count}")
+            continue
+
         logger.info(f"Scraping url: {url}")
         sub_dir = safe_path_from_url(url, output_dir)
 
@@ -392,7 +403,10 @@ if __name__ == "__main__":
 
         class ContextNodes(TypedDict):
             group: int
+            tokens: int
             nodes: list[NodeWithScore]
+
+        contexts: list[str] = []
 
         context_nodes: list[ContextNodes] = []
         context_nodes_dict = {
@@ -402,6 +416,7 @@ if __name__ == "__main__":
 
         class Results(TypedDict):
             group: int
+            tokens: int
             results: list[Answer]
 
         results: list[Results] = []
@@ -411,15 +426,22 @@ if __name__ == "__main__":
         }
         for response in response_generator:
             group = response["group"]
-            response_obj: QueryResponse = response["response"]
-            context_nodes.append(
-                {"group": group, "nodes": response["context_nodes"]})
-            results.append({"group": group, "results": response_obj.results})
 
-            save_file([
-                f"<!-- Context {item['group']} -->\n\n{[node.text for node in item['nodes']]}" for item in context_nodes],
-                os.path.join(output_dir, f"context_nodes.md")
-            )
+            context_tokens = response["context_tokens"]
+            context: str = response["context"]
+            context_nodes.append(
+                {"group": group, "tokens": context_tokens, "nodes": response["context_nodes"]})
+
+            response_obj: QueryResponse = response["response"]
+            response_tokens = response["response_tokens"]
+            results.append(
+                {"group": group, "tokens": response_tokens, "results": response_obj.results})
+
+            contexts.append(f"<!-- Group {group} -->\n\n{context}")
+            save_file("\n\n".join(contexts),
+                      os.path.join(output_dir, f"context_nodes.md"))
             save_file(context_nodes_dict, os.path.join(
                 output_dir, f"context_nodes.json"))
             save_file(results_dict, f"{output_dir}/results.json")
+
+        pbar.update(1)
