@@ -4,7 +4,7 @@ from jet.code.markdown_code_extractor import MarkdownCodeExtractor
 def extract_block_content(text: str) -> str:
     extractor = MarkdownCodeExtractor()
     code_blocks = extractor.extract_code_blocks(text)
-    return code_blocks[0]["code"]
+    return code_blocks[0]["code"] if code_blocks else text
 
 
 def extract_json_block_content(text: str) -> str:
