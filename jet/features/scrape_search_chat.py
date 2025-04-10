@@ -27,6 +27,17 @@ from jet.llm.evaluators.context_relevancy_evaluator import evaluate_context_rele
 from jet.llm.ollama.base import ChatResponse, Ollama, OllamaEmbedding
 from tqdm import tqdm
 
+# Access the wn object before you enter into your threading
+# https://stackoverflow.com/questions/27433370/what-would-cause-wordnetcorpusreader-to-have-no-attribute-lazycorpusloader
+# Fixes AttributeError: 'WordListCorpusReader' object has no attribute '_LazyCorpusLoader__args'
+from nltk.corpus import wordnet as wn
+from nltk.corpus import stopwords
+from nltk.corpus.reader.wordnet import WordNetError
+import sys
+import time
+import threading
+cachedStopWords = stopwords.words("english")
+
 max_workers = multiprocessing.cpu_count() // 2
 
 

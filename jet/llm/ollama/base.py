@@ -447,16 +447,16 @@ class OllamaEmbedding(BaseOllamaEmbedding):
 
     def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float] | list[list[float]]:
         """Get Ollama embedding with retry mechanism."""
-        logger.orange("Calling OllamaEmbedding embed...")
-        logger.debug(
-            "Embed model:",
-            self.model_name,
-            f"({OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]})",
-            colors=["GRAY", "DEBUG", "DEBUG"],
-        )
-        logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
-        logger.debug(
-            f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
+        # logger.orange("Calling OllamaEmbedding embed...")
+        # logger.debug(
+        #     "Embed model:",
+        #     self.model_name,
+        #     f"({OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]})",
+        #     colors=["GRAY", "DEBUG", "DEBUG"],
+        # )
+        # logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
+        # logger.debug(
+        #     f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
 
         def run():
             with self.callback_manager.event(
@@ -475,8 +475,8 @@ class OllamaEmbedding(BaseOllamaEmbedding):
                     },
                 )
 
-            logger.log("Batch Tokens:", len(embeddings),
-                       colors=["DEBUG", "SUCCESS"])
+            # logger.log("Batch Tokens:", len(embeddings),
+            #            colors=["DEBUG", "SUCCESS"])
             return embeddings
 
         return wrap_retry(run)
