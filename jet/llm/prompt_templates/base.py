@@ -1,7 +1,7 @@
 import textwrap
 import os
 import string
-from typing import Any, Dict
+from typing import Any, Dict, Type, TypedDict
 from jet.file.utils import load_file
 from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.llm.ollama.base import chat
@@ -51,9 +51,12 @@ def generate_pydantic_models(context: str, model: OLLAMA_MODEL_NAMES = "gemma3:1
     prompt = _generate_prompt("Generate_Pydantic_Models.md", context=context)
     python_code = _run_chat(prompt, model)
     python_code = textwrap.dedent(python_code).strip()
+
+    # Validate the Python syntax before executing it
     errors = validate_python_syntax(python_code)
     if errors:
         raise ValueError(f"Syntax errors detected:\n" + "\n".join(
             [f"File: {error['file']}, Line: {error['line']}, Error: {error['message']}, Code: {error['code']}" for error in errors]
         ))
+
     return python_code
