@@ -239,7 +239,8 @@ def _process_document_star(args):
 def run_scrape_search_chat(
     html,
     query: str,
-    output_cls: Type[BaseModel],
+    output_cls: Optional[Type[BaseModel]] = None,
+    schema: Optional[str] = None,
     instruction: Optional[str] = None,
     prompt_template: PromptTemplate = PROMPT_TEMPLATE,
     llm_model: OLLAMA_MODEL_NAMES = "mistral",
@@ -249,12 +250,19 @@ def run_scrape_search_chat(
 ):
     model_max_tokens = get_model_max_tokens(llm_model)
     if not max_tokens_per_group:
-        max_tokens_per_group = model_max_tokens * 0.65
+        max_tokens_per_group = model_max_tokens * 0.5
     if not min_tokens_per_group:
         min_tokens_per_group = max_tokens_per_group * 0.5
 
+    if schema:
+        schema_str = schema
+    elif output_cls:
+        schema_str = class_to_string(output_cls)
+    else:
+        raise ValueError("One of 'schema' or 'output_cls' is required.")
+
     instruction = instruction or INSTRUCTION.format(
-        schema_str=class_to_string(output_cls))
+        schema_str=schema_str)
 
     if isinstance(embed_models, str):
         embed_models = [embed_models]
@@ -312,7 +320,7 @@ def run_scrape_search_chat(
             model=llm_model,
             headers=headers,
             instruction=instruction,
-            schema=output_cls.model_json_schema(),
+            schema=schema_str,
             query=query,
         )
         response_tokens: int = token_counter(
