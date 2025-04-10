@@ -1,4 +1,4 @@
-You are given a browser query. Based on the query, generate a simple and concise JSON schema that represents the minimum necessary data structure. The schema should include the required fields, as well as any optional fields that are commonly expected based on the user's query. Fields should be kept to the essential ones for the query, using validation where applicable (e.g., `required`, `type`, `enum`, etc.). Optional fields should be included but not marked as `required`.
+You are given a browser query. Based on the query, generate a simple and concise JSON schema that represents the minimum necessary data structure. The schema should include the required fields, as well as any optional fields that are commonly expected based on the user's query. Fields should be kept to the essential ones for the query, using validation where applicable (e.g., `required`, `type`, etc.). Optional fields should be included but not marked as `required`.
 
 If the query suggests multiple items (like a list of results), ensure that the schema reflects this by using an array (`type: array`) for those properties.
 
@@ -35,16 +35,13 @@ The output should follow this format:
           "genre": {{
             "type": "array",
             "items": {{
-              "type": "string",
-              "enum": ["otome", "villainess", "romance", "fantasy"]
+              "type": "string"
             }},
             "description": "Genres associated with the anime."
           }},
           "rating": {{
             "type": "number",
             "description": "Average user rating of the anime.",
-            "minimum": 0,
-            "maximum": 10
           }}
         }},
         "required": ["title", "release_year"],
