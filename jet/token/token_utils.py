@@ -285,46 +285,6 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
     return truncated_texts
 
 
-def group_texts(
-    texts: Union[list[str], list[ChatMessage], list[Message]],
-    model: str,
-    max_tokens: int
-) -> list[list[str]]:
-    """
-    Groups texts into batches without exceeding a maximum token limit.
-
-    Args:
-        texts (list[str] | list[ChatMessage] | list[Message]): The texts to group.
-        model (str): The model name for tokenization.
-        max_tokens (int): The maximum allowed tokens per group.
-
-    Returns:
-        list[list[str]]: A list of grouped text batches.
-    """
-    if not texts:
-        return []
-
-    # Token count lookup
-    text_token_counts = token_counter(texts, model, prevent_total=True)
-    grouped_texts, current_group = [], []
-    current_token_count = 0
-
-    for text, token_count in zip(texts, text_token_counts):
-        # If adding a new text exceeds the limit, store current batch
-        if current_token_count + token_count > max_tokens:
-            grouped_texts.append(current_group)
-            current_group = []
-            current_token_count = 0
-
-        current_group.append(text)
-        current_token_count += token_count
-
-    if current_group:
-        grouped_texts.append(current_group)
-
-    return grouped_texts
-
-
 def split_texts(
     texts: str | list[str],
     model: str | OLLAMA_MODEL_NAMES,
