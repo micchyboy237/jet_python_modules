@@ -415,7 +415,7 @@ class Ollama(BaseOllama):
             extracted_result = extract_json_block_content(
                 response.message.content or "")
             validation_result = validate_json(
-                extracted_result, make_serializable(schema_str))
+                extracted_result, output_cls.model_json_schema())
 
             return output_cls.model_validate_json(json.dumps(validation_result["data"]))
         else:
