@@ -877,6 +877,15 @@ def scrape_urls(urls: list[str]) -> Generator[tuple[str, str], None, None]:
     crawler.close()
 
 
+def validate_headers(html: str, min_count: int = 5) -> bool:
+    from jet.scrapers.preprocessor import html_to_markdown
+    from jet.code.splitter_markdown_utils import count_md_header_contents
+
+    md_text = html_to_markdown(html)
+    header_count = count_md_header_contents(md_text)
+    return header_count >= min_count
+
+
 __all__ = [
     "get_max_prompt_char_length",
     "clean_tags",

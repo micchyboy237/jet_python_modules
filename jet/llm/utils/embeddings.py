@@ -250,7 +250,7 @@ def get_embedding_function(
             else:
                 missing_texts.append(text)
                 missing_indices.append(idx)
-                logger.debug(f"Cache miss: Embedding {idx} - {text[:30]}")
+                # logger.debug(f"Cache miss: Embedding {idx} - {text[:30]}")
 
         # ✅ Compute missing embeddings
         if missing_texts:

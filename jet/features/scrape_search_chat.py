@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, TypedDict
 from multiprocessing import Pool, cpu_count
 import json
 import os
@@ -8,6 +8,7 @@ from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.scrapers.crawler.web_crawler import WebCrawler
 from jet.scrapers.utils import safe_path_from_url, scrape_urls, search_data
 from jet.search.searxng import NoResultsFoundError, SearchResult, search_searxng
+from jet.transformers.formatters import format_json
 from jet.utils.class_utils import class_to_string
 from jet.utils.markdown import extract_json_block_content
 from llama_index.core.prompts.base import PromptTemplate
@@ -57,12 +58,6 @@ class DocumentSelectionResult(BaseModel):
 
 
 # --- Core Functions ---
-
-
-def validate_headers(html: str, min_count: int = 5) -> bool:
-    md_text = html_to_markdown(html)
-    header_count = count_md_header_contents(md_text)
-    return header_count >= min_count
 
 
 def get_docs_from_html(html: str) -> list[Document]:
@@ -314,6 +309,7 @@ def run_scrape_search_chat(
         # Prepend shared context
         header_texts = [shared_header_doc.text] + header_texts
         headers = "\n\n".join(header_texts)
+        header_tokens: int = token_counter(headers, llm_model)
         llm = Ollama(temperature=0.3, model=llm_model)
 
         response = llm.structured_predict(
@@ -325,7 +321,8 @@ def run_scrape_search_chat(
             schema=output_cls.model_json_schema(),
             query=query,
         )
-
+        response_tokens: int = token_counter(
+            format_json(response.results), llm_model)
         reranked_nodes = [
             {
                 "doc": node.metadata["doc_index"] + 1,
@@ -339,8 +336,10 @@ def run_scrape_search_chat(
             "group": idx + 1,
             "query": query,
             "context": headers,
+            "context_tokens": header_tokens,
             "context_nodes": reranked_nodes,
             "response": response,
+            "response_tokens": response_tokens,
         }
 
 
@@ -370,7 +369,8 @@ if __name__ == "__main__":
         # "mxbai-embed-large",
     ]
     eval_model = llm_model
-    output_dir = f"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/generated/{os.path.splitext(os.path.basename(__file__))[0]}"
+    output_dir = os.path.join(
+        os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
     query = "Top otome villainess anime 2025"
     # query = construct_browser_query(
     #     search_terms="top 10 romantic comedy anime",
@@ -401,8 +401,36 @@ if __name__ == "__main__":
             embed_models=embed_models,
         )
 
+        class ContextNodes(TypedDict):
+            group: int
+            nodes: list[NodeWithScore]
+
+        context_nodes: list[ContextNodes] = []
+        context_nodes_dict = {
+            "query": query,
+            "data": context_nodes,
+        }
+
+        class Results(TypedDict):
+            group: int
+            results: list[Answer]
+
+        results: list[Results] = []
+        results_dict = {
+            "query": query,
+            "data": results
+        }
         for response in response_generator:
-            save_file(response["context"], os.path.join(
-                output_dir, f"context_nodes_{response["group"]}.md"))
-            save_file(
-                response["response"], f"{output_dir}/results_{response["group"]}.json")
+            group = response["group"]
+            response_obj: QueryResponse = response["response"]
+            context_nodes.append(
+                {"group": group, "nodes": response["context_nodes"]})
+            results.append({"group": group, "results": response_obj.results})
+
+            save_file([
+                f"<!-- Context {item['group']} -->\n\n{[node.text for node in item['nodes']]}" for item in context_nodes],
+                os.path.join(output_dir, f"context_nodes.md")
+            )
+            save_file(context_nodes_dict, os.path.join(
+                output_dir, f"context_nodes.json"))
+            save_file(results_dict, f"{output_dir}/results.json")

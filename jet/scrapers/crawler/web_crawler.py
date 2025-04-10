@@ -151,7 +151,7 @@ class WebCrawler(SeleniumScraper):
 
     def _crawl_recursive(self, url: str, depth: int) -> Generator[PageResult, None, None]:
         if self.max_depth is not None and depth > self.max_depth:
-            logger.info(f"Max depth reached for {url}")
+            # logger.info(f"Max depth reached for {url}")
             return
 
         url = self.normalize_url(url)
