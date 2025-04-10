@@ -66,7 +66,7 @@ def call_ollama_chat(
     full_stream_response: bool = False,
     max_tokens: Optional[int | float] = None,
     max_prediction_ratio: Optional[float] = None,
-    buffer: int = 256,
+    buffer: int = 0,
     # Parameter for cancellation
     stop_event: Optional[threading.Event] = None,
 ) -> Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
