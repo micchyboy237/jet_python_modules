@@ -74,7 +74,7 @@ def generate_json_schema_sample(json_schema: str | dict, query: str, model: OLLA
         raise ValueError(f"JSON schema and data syntax errors detected:\n" +
                          json.dumps(errors, indent=2))
 
-    return result
+    return validation_result["data"]
 
 
 def generate_pydantic_models(context: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> str:
