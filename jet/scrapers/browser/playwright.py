@@ -1,5 +1,6 @@
 from jet.cache.redis.types import RedisConfigParams
 from jet.cache.redis.utils import RedisCache
+from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
 from tqdm.asyncio import tqdm
 import asyncio
 import os
@@ -44,14 +45,22 @@ def setup_browser_page(page: Optional[SyncPage] = None):
 def setup_sync_browser_session(*, headless: bool = False) -> SyncBrowser:
     """Sets up a synchronous Playwright browser session and returns the browser instance."""
     playwright = sync_playwright().start()
-    browser = playwright.chromium.launch(headless=headless)
+    browser = playwright.chromium.launch(
+        headless=headless,
+        # Use custom Chromium executable path
+        executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE
+    )
     return browser
 
 
 async def setup_async_browser_session(*, headless: bool = False) -> AsyncBrowser:
     """Sets up an asynchronous Playwright browser session and returns the browser instance."""
     playwright = await async_playwright().start()
-    browser = await playwright.chromium.launch(headless=headless)
+    browser = await playwright.chromium.launch(
+        headless=headless,
+        # Use custom Chromium executable path
+        executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE
+    )
     return browser
 
 

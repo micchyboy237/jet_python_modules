@@ -597,54 +597,6 @@ def extract_search_inputs(source: str, timeout_ms: int = 1000) -> List[str]:
         return search_inputs
 
 
-def extract_text_elements(html: str, excludes: List[str] = ["style", "script"]) -> List[str]:
-    """
-    Extracts a flattened list of text elements from the HTML document, ignoring specific elements
-    such as <style> and <script>. The function ensures a natural document order while returning 
-    only the direct text content from leaf nodes.
-
-    :param html: The HTML string to parse.
-    :param excludes: A list of tag names to exclude from the text extraction.
-    :return: A list of text elements found in the HTML.
-    """
-    # Helper function to recursively extract text from elements
-    def extract_text(element) -> List[str]:
-        text = pq(element).text().strip()
-
-        # Extract ID and class name (only if exists)
-        element_id = pq(element).attr('id')
-        element_class = pq(element).attr('class')
-
-        # Define shared regex pattern for valid HTML identifiers
-        valid_id_pattern = r'^[a-zA-Z_-]+$'
-        # Filter non-alphabet id and class names
-        id = element_id if element_id and re.match(
-            valid_id_pattern, element_id) else None
-        # Split class names into a list if they exist
-        class_names = [name for name in (element_class.split() if element_class else [])
-                       if re.match(valid_id_pattern, name)]
-
-        # If this element directly holds text (leaf node), return it
-        if text and len(pq(element).children()) == 0:
-            return [text]
-
-        # Otherwise, extract text from children recursively
-        text_elements = []
-        for child in pq(element).children():
-            text_elements.extend(extract_text(child))
-
-        return text_elements
-
-    doc = pq(html)
-    # Apply the exclusion logic before processing the document
-    exclude_elements(doc, excludes)
-
-    # Start with the root element and gather all text elements in a flattened list
-    text_elements = extract_text(doc[0])
-
-    return text_elements  # Returns a flattened list of text elements
-
-
 class TreeNode(Dict):
     tag: str
     text: Optional[str]
@@ -667,69 +619,169 @@ def exclude_elements(doc, excludes: List[str]) -> None:
             pq(element).remove()
 
 
-def extract_tree_with_text(html: str, excludes: List[str] = ["style", "script"]) -> Optional[TreeNode]:
+def extract_tree_with_text(source: str, excludes: List[str] = ["style", "script"], timeout_ms: int = 1000) -> Optional[Dict]:
     """
-    Finds all elements that contain any text, ensuring a natural document order.
-    Returns a tree-like structure of parents and their corresponding text, including depth for each node.
-    Only includes text for nodes that directly hold it.
+    Extracts a tree-like structure with parent elements and their corresponding text.
+    Uses Playwright if the source is a URL or if dynamic content needs to be rendered.
 
-    :param html: The HTML string to parse.
+    :param source: The HTML string or URL to parse.
+    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
+    :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
     :return: A tree-like structure with parent elements and their corresponding text.
     """
-    # Helper function to recursively build the tree
-    def build_tree(element, current_depth: int) -> Optional[TreeNode]:
+    if os.path.exists(source) and not source.startswith("file://"):
+        source = f"file://{source}"
+
+    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+        url = source
+        html = None
+    else:
+        url = None
+        html = source
+
+    # Use Playwright to render the page if URL is provided
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        if url:
+            page.goto(url, wait_until="networkidle")
+        else:
+            page.set_content(html)
+
+        page.wait_for_timeout(timeout_ms)
+
+        # Extract the content
+        page_content = page.content()
+        browser.close()
+
+    # Parse the content with PyQuery after Playwright has rendered it
+    doc = pq(page_content)
+
+    # Apply the exclusion logic before building the tree
+    exclude_elements(doc, excludes)
+
+    def build_tree(element, current_depth: int) -> Optional[Dict]:
         text = pq(element).text().strip()
 
-        # Extract ID and class name (only if exists)
         element_id = pq(element).attr('id')
         element_class = pq(element).attr('class')
 
-        # Define shared regex pattern for valid HTML identifiers
         valid_id_pattern = r'^[a-zA-Z_-]+$'
-        # Filter non-alphabet id and class names
         id = element_id if element_id and re.match(
             valid_id_pattern, element_id) else None
-        # Filter class names: exclude only those starting with 'css-'
         class_names = [name for name in (element_class.split() if element_class else [])
                        if not name.startswith('css-')]
 
-        # Include text only for leaf nodes that directly hold text
-        if text and len(pq(element).children()) == 0:  # No children, direct text
+        if text and len(pq(element).children()) == 0:
             return {
                 "tag": pq(element)[0].tag,
                 "text": text,
                 "depth": current_depth,
                 "id": element_id,
-                "class_names": class_names,  # Store class names as a list
-                "children": []  # No children in this case
+                "class_names": class_names,
+                "children": []
             }
 
-        # Otherwise, process children recursively
         children = []
         for child in pq(element).children():
             child_tree = build_tree(child, current_depth + 1)
             if child_tree:
                 children.append(child_tree)
 
-        # Return the element if it has children containing text
         if children:
             return {
                 "tag": pq(element)[0].tag,
-                "text": None,  # No text for container elements
+                "text": None,
                 "depth": current_depth,
                 "id": id,
-                "class_names": class_names,  # Store class names as a list
+                "class_names": class_names,
                 "children": children
             }
         return None
 
-    doc = pq(html)
-    # Apply the exclusion logic before building the tree
-    exclude_elements(doc, excludes)
-    # Start with the root element (<html>) at depth 0
     root = build_tree(doc[0], 0)
+    return root
 
-    return root  # Returns tree-like structure starting from <html> element
+
+def extract_text_elements(source: str, excludes: List[str] = ["style", "script"], timeout_ms: int = 1000) -> List[str]:
+    """
+    Extracts a flattened list of text elements from the HTML document, ignoring specific elements like <style> and <script>.
+    Uses Playwright to render dynamic content if needed.
+
+    :param source: The HTML string or URL to parse.
+    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
+    :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
+    :return: A list of text elements found in the HTML.
+    """
+    if os.path.exists(source) and not source.startswith("file://"):
+        source = f"file://{source}"
+
+    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+        url = source
+        html = None
+    else:
+        url = None
+        html = source
+
+    # Use Playwright to render the page if URL is provided
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        if url:
+            page.goto(url, wait_until="networkidle")
+        else:
+            page.set_content(html)
+
+        page.wait_for_timeout(timeout_ms)
+
+        # Extract the content
+        page_content = page.content()
+        browser.close()
+
+    # Parse the content with PyQuery after Playwright has rendered it
+    doc = pq(page_content)
+
+    # Apply the exclusion logic before extracting text
+    exclude_elements(doc, excludes)
+
+    def extract_text(element) -> List[str]:
+        text = pq(element).text().strip()
+
+        valid_id_pattern = r'^[a-zA-Z_-]+$'
+        element_id = pq(element).attr('id')
+        element_class = pq(element).attr('class')
+        id = element_id if element_id and re.match(
+            valid_id_pattern, element_id) else None
+        class_names = [name for name in (element_class.split() if element_class else [])
+                       if re.match(valid_id_pattern, name)]
+
+        if text and len(pq(element).children()) == 0:
+            return [text]
+
+        text_elements = []
+        for child in pq(element).children():
+            text_elements.extend(extract_text(child))
+
+        return text_elements
+
+    # Start with the root element and gather all text elements in a flattened list
+    text_elements = extract_text(doc[0])
+
+    return text_elements
+
+
+def exclude_elements(doc, excludes: List[str]) -> None:
+    """
+    Removes elements from the document that match the tags in the excludes list.
+
+    :param doc: The PyQuery object representing the HTML document.
+    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
+    """
+    for tag in excludes:
+        for element in doc(tag):
+            pq(element).remove()
 
 
 def format_html(html: str, excludes: List[str] = ["style", "script"]) -> str:

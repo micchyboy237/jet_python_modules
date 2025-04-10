@@ -38,12 +38,10 @@ PROMPT_TEMPLATE = PromptTemplate("""
 --- End of Documents ---
 
 Instructions:
-You are given a collection of structured documents. Your task is to extract all relevant answers that directly respond to the query using only the information provided in these documents.
+You are given a collection of structured documents and a schema. Your task is to extract all relevant answers that contains data that adds to the response of the query using only the information provided in these documents.
 
 - Focus solely on the content from the documents; do not infer or add information that isn't explicitly mentioned.
-- For each answer, ensure it is directly supported by the text in the documents and remove any duplicates.
 - If the query relates to multiple facts, include all relevant details.
-- Return the final output strictly as a JSON object enclosed in a ```json block.
 - The output must align with the schema provided below and reflect the exact structure.
 
 Schema:
@@ -309,7 +307,7 @@ def run_scrape_search_chat(
             headers=headers,
             instruction=instruction,
             query=query,
-            schema=output_cls.model_json_schema(),
+            schema=json.dumps(output_cls.model_json_schema(), indent=2),
         )
         response_tokens: int = token_counter(
             format_json(response.results), llm_model)

@@ -48,8 +48,6 @@ def load_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
 
     for cache_file in cache_files:
         cache_key = cache_file
-        cache_file = cache_file if os.path.isabs(
-            cache_file) else os.path.join(CACHE_DIR, cache_file)
 
         if cache_key in loaded_caches:
             continue  # ✅ Skip if already loaded
@@ -81,8 +79,6 @@ def save_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
 
     for cache_file in cache_files:
         cache_key = cache_file
-        cache_file = cache_file if os.path.isabs(
-            cache_file) else os.path.join(CACHE_DIR, cache_file)
         cache_file_size = os.path.getsize(
             cache_file) if os.path.exists(cache_file) else 0
 
