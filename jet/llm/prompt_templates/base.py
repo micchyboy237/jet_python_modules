@@ -1,3 +1,4 @@
+import json
 import textwrap
 import os
 import string
@@ -42,6 +43,24 @@ def _run_chat(prompt: str, model: OLLAMA_MODEL_NAMES) -> Any:
 
 def generate_json_schema(context: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
     prompt = _generate_prompt("Generate_JSON_Schema.md", context=context)
+    json_result = _run_chat(prompt, model)
+    result = parse_json(json_result)
+    return result
+
+
+def generate_browser_query_json_schema(query: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
+    prompt = _generate_prompt(
+        "Generate_Browser_Query_JSON_Schema.md", browser_query=query)
+    json_result = _run_chat(prompt, model)
+    result = parse_json(json_result)
+    return result
+
+
+def generate_json_schema_sample(json_schema: str | dict, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
+    if not isinstance(json_schema, str):
+        json_schema = json.dumps(json_schema, indent=2)
+    prompt = _generate_prompt(
+        "Generate_JSON_Schema_Sample.md", json_schema=json_schema)
     json_result = _run_chat(prompt, model)
     result = parse_json(json_result)
     return result
