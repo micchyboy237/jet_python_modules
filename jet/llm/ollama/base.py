@@ -1,6 +1,7 @@
 from jet.data.utils import generate_unique_hash
 from jet.llm.utils.embeddings import get_embedding_function
 from jet.token.token_utils import get_model_max_tokens, tokenize
+from jet.transformers.object import make_serializable
 from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from collections import defaultdict
 from typing import Callable, Dict, Optional, Sequence, Type, TypedDict, Any, Union
@@ -394,14 +395,21 @@ class Ollama(BaseOllama):
     @dispatcher.span
     def structured_predict(
         self,
-        output_cls: Type[BaseModel],
+        output_cls: str | Dict | Type[BaseModel],
         prompt: PromptTemplate,
         model: Optional[OLLAMA_MODEL_NAMES] = None,
         llm_kwargs: dict[str, Any] = {},
         **prompt_args: Any,
     ) -> BaseModel:
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
-            llm_kwargs["format"] = output_cls.model_json_schema()
+            if isinstance(output_cls, str):
+                schema_str = output_cls
+            elif isinstance(output_cls, Dict):
+                schema_str = json.dumps(output_cls, indent=1)
+            else:
+                schema_str = output_cls.model_json_schema()
+
+            llm_kwargs["format"] = schema_str
 
             llm_kwargs = {
                 **llm_kwargs,
@@ -414,7 +422,7 @@ class Ollama(BaseOllama):
             extracted_result = extract_json_block_content(
                 response.message.content or "")
             validation_result = validate_json(
-                extracted_result, output_cls.model_json_schema())
+                extracted_result, make_serializable(schema_str))
 
             return output_cls.model_validate_json(json.dumps(validation_result["data"]))
         else:

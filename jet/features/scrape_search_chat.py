@@ -239,8 +239,7 @@ def _process_document_star(args):
 def run_scrape_search_chat(
     html,
     query: str,
-    output_cls: Optional[Type[BaseModel]] = None,
-    schema: Optional[str] = None,
+    output_cls: str | Dict | Type[BaseModel],
     instruction: Optional[str] = None,
     prompt_template: PromptTemplate = PROMPT_TEMPLATE,
     llm_model: OLLAMA_MODEL_NAMES = "mistral",
@@ -254,12 +253,12 @@ def run_scrape_search_chat(
     if not min_tokens_per_group:
         min_tokens_per_group = max_tokens_per_group * 0.5
 
-    if schema:
-        schema_str = schema
-    elif output_cls:
-        schema_str = class_to_string(output_cls)
+    if isinstance(output_cls, str):
+        schema_str = output_cls
+    elif isinstance(output_cls, Dict):
+        schema_str = json.dumps(output_cls, indent=1)
     else:
-        raise ValueError("One of 'schema' or 'output_cls' is required.")
+        schema_str = output_cls.model_json_schema()
 
     instruction = instruction or INSTRUCTION.format(
         schema_str=schema_str)
