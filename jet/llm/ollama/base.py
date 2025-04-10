@@ -424,7 +424,7 @@ class Ollama(BaseOllama):
             validation_result = validate_json(
                 extracted_result, make_serializable(schema_str))
 
-            return output_cls.model_validate_json(json.dumps(validation_result["data"]))
+            return validation_result["data"]
         else:
             return super().structured_predict(
                 output_cls, prompt, llm_kwargs, **prompt_args
