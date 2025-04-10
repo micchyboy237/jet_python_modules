@@ -7,8 +7,8 @@ from jet.transformers.json_parsers import parse_json
 from jet.utils.markdown import extract_json_block_content
 
 
-def get_chat_func(prompt: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b"):
-    def run_chat():
+def get_chat_func():
+    def run_chat(prompt: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b"):
         return chat(model, prompt, temperature=0.0)
     return run_chat
 
@@ -22,7 +22,8 @@ def generate_json_schema_prompt(context: str) -> str:
 
 def generate_json_schema(context: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
     prompt = generate_json_schema_prompt(context)
-    response = chat(prompt, model)
+    chat_func = get_chat_func()
+    response = chat_func(prompt, model)
     content = response['message']['content']
     json_result = extract_json_block_content(content)
     result = parse_json(json_result)
