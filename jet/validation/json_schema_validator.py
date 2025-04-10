@@ -10,7 +10,10 @@ def format_error(error) -> str:
     return f"{error_path}: {error.message}"
 
 
-def schema_validate_json(json_string: str, schema: Optional[dict] = None) -> ValidationResponse:
+def schema_validate_json(json_string: str | dict, schema: Optional[dict] = None) -> ValidationResponse:
+    if not isinstance(json_string, str):
+        json_string = json.dumps(json_string)
+
     try:
         data = json.loads(json_string)
 

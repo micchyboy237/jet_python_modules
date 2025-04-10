@@ -8,7 +8,10 @@ from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.llm.ollama.base import chat
 from jet.transformers.json_parsers import parse_json
 from jet.utils.markdown import extract_block_content
+from jet.validation.json_schema_validator import schema_validate_json
+from jet.validation.main.json_validation import validate_json
 from jet.validation.python_validation import validate_python_syntax
+from jet.validation.validation_types import ValidationResponse
 
 _TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "template_strings")
 
@@ -41,8 +44,8 @@ def _run_chat(prompt: str, model: OLLAMA_MODEL_NAMES) -> Any:
     return result
 
 
-def generate_json_schema(context: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
-    prompt = _generate_prompt("Generate_JSON_Schema.md", context=context)
+def generate_json_schema(query: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
+    prompt = _generate_prompt("Generate_JSON_Schema.md", query=query)
     json_result = _run_chat(prompt, model)
     result = parse_json(json_result)
     return result
@@ -63,6 +66,13 @@ def generate_json_schema_sample(json_schema: str | dict, query: str, model: OLLA
         "Generate_JSON_Schema_Sample.md", json_schema=json_schema, query=query)
     json_result = _run_chat(prompt, model)
     result = parse_json(json_result)
+
+    schema_validation_result = schema_validate_json(result, json_schema)
+    # Validate generated sample with schema
+    if not schema_validation_result["is_valid"]:
+        validation_result = validate_json(result, json_schema)
+        result = validation_result["data"]
+
     return result
 
 
