@@ -244,11 +244,14 @@ def run_scrape_search_chat(
     prompt_template: PromptTemplate = PROMPT_TEMPLATE,
     llm_model: OLLAMA_MODEL_NAMES = "mistral",
     embed_models: OLLAMA_EMBED_MODELS | list[OLLAMA_EMBED_MODELS] = "paraphrase-multilingual",
+    min_tokens_per_group: Optional[int | float] = None,
     max_tokens_per_group: Optional[int | float] = None,
 ):
     model_max_tokens = get_model_max_tokens(llm_model)
     if not max_tokens_per_group:
         max_tokens_per_group = model_max_tokens * 0.65
+    if not min_tokens_per_group:
+        min_tokens_per_group = max_tokens_per_group * 0.5
 
     instruction = instruction or INSTRUCTION.format(
         schema_str=class_to_string(output_cls))

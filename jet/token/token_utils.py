@@ -231,15 +231,22 @@ def group_texts(
 def group_nodes(
     nodes: list[TextNode] | list[NodeWithScore],
     model: str | OLLAMA_MODEL_NAMES = "mistral",
+    # New argument to enforce minimum token count per group
+    min_tokens: Optional[int | float] = None,
     max_tokens: Optional[int | float] = None,
 ) -> list[list[TextNode]]:
     if not max_tokens:
         max_tokens = 0.5
+    if not min_tokens:
+        min_tokens = 0.5
 
     if isinstance(max_tokens, float) and max_tokens < 1:
         max_tokens = int(get_model_max_tokens(model) * max_tokens)
     else:
         max_tokens = max_tokens or get_model_max_tokens(model)
+
+    if isinstance(min_tokens, float):
+        min_tokens = int(max_tokens * min_tokens)
 
     grouped_nodes = []
     current_group = []
@@ -249,16 +256,33 @@ def group_nodes(
         [n.text for n in nodes], model, prevent_total=True)
 
     for node, token_count in zip(nodes, text_token_counts):
+        # If adding this node exceeds the max token count, start a new group
         if current_token_count + token_count > max_tokens:
-            grouped_nodes.append(current_group)
+            # Add the current group, ensuring it's not too small
+            if current_token_count >= min_tokens:
+                grouped_nodes.append(current_group)
+            else:
+                # If it's too small, merge with the next group
+                if grouped_nodes:
+                    grouped_nodes[-1].extend(current_group)
+                else:
+                    grouped_nodes.append(current_group)
+
             current_group = []
             current_token_count = 0
 
         current_group.append(node)
         current_token_count += token_count
 
+    # Add the last group, ensuring it meets the min_tokens requirement
     if current_group:
-        grouped_nodes.append(current_group)
+        if current_token_count >= min_tokens:
+            grouped_nodes.append(current_group)
+        else:
+            if grouped_nodes:
+                grouped_nodes[-1].extend(current_group)
+            else:
+                grouped_nodes.append(current_group)
 
     return grouped_nodes
 
