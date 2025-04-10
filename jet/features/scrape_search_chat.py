@@ -29,14 +29,39 @@ from tqdm import tqdm
 
 # --- Constants ---
 
-HEADERS_PROMPT_TEMPLATE = """
-Headers:
+PROMPT_TEMPLATE = PromptTemplate("""
+--- Documents ---
 {headers}
+--- End of Documents ---
 
-Instruction:
-{instruction}
-Query: {query}
+Instructions:
+You are given a collection of structured documents. Your task is to extract all relevant answers that directly respond to the query using only the information provided in these documents.
+
+- Focus solely on the content from the documents; do not infer or add information that isn't explicitly mentioned.
+- For each answer, ensure it is directly supported by the text in the documents and remove any duplicates.
+- If the query relates to multiple facts, include all relevant details.
+- Return the final output strictly as a JSON object enclosed in a ```json block.
+- The output must align with the schema provided below and reflect the exact structure.
+
+Schema:
+{schema}
+
+Query:
+{query}
+
 Answer:
+""")
+
+INSTRUCTION = """
+Your task is to extract and return only the information directly answering the query from the documents provided.
+
+- Only use the text within the documents to formulate your response. Do not include any outside knowledge.
+- Remove duplicate answers.
+- Ensure the JSON output is formatted exactly according to the provided schema.
+- The JSON object should only include the final result with no additional explanations.
+
+Schema:
+{schema_str}
 """.strip()
 
 
@@ -163,42 +188,6 @@ def strip_left_hashes(text: str) -> str:
             cleaned_lines.append(line)
 
     return '\n'.join(cleaned_lines)
-
-
-PROMPT_TEMPLATE = PromptTemplate("""
---- Documents ---
-{headers}
---- End of Documents ---
-
-Instructions:
-You are given a collection of structured documents. Your task is to extract all relevant answers that directly respond to the query using only the information provided in these documents.
-
-- Focus solely on the content from the documents; do not infer or add information that isn't explicitly mentioned.
-- For each answer, ensure it is directly supported by the text in the documents and remove any duplicates.
-- If the query relates to multiple facts, include all relevant details.
-- Return the final output strictly as a JSON object enclosed in a ```json block.
-- The output must align with the schema provided below and reflect the exact structure.
-
-Schema:
-{schema}
-
-Query:
-{query}
-
-Answer:
-""")
-
-INSTRUCTION = """
-Your task is to extract and return only the information directly answering the query from the documents provided.
-
-- Only use the text within the documents to formulate your response. Do not include any outside knowledge.
-- Remove duplicate answers.
-- Ensure the JSON output is formatted exactly according to the provided schema.
-- The JSON object should only include the final result with no additional explanations.
-
-Schema:
-{schema_str}
-""".strip()
 
 
 def process_document(
