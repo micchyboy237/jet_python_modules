@@ -425,7 +425,7 @@ class OllamaEmbedding(BaseOllamaEmbedding):
         le=2048,
     )
 
-    def encode(self, texts: Union[str, Sequence[str]] = ''):
+    def encode(self, texts: Union[str, Sequence[str]] = '') -> list[int] | list[list[int]]:
         """Calls get_general_text_embedding to get the embeddings."""
         tokens = tokenize(self.model_name, texts)
         return tokens

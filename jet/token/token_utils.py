@@ -48,7 +48,7 @@ def get_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) 
         return encoding
 
 
-def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | list[str] | list[dict]):
+def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | list[str] | list[dict]) -> list[int] | list[list[int]]:
     tokenizer = get_tokenizer(model_name)
 
     if isinstance(text, list):
@@ -417,45 +417,60 @@ def _add_parent_child_relationship(parent_node: BaseNode, child_node: BaseNode) 
 
 
 def split_docs(
-    docs: list[Document],
+    docs: Document | list[Document],
     model: Optional[str | OLLAMA_MODEL_NAMES] = None,
     chunk_size: Optional[int] = None,
     chunk_overlap: int = 0,
     *,
+    tokens: Optional[list[int] | list[list[int]]] = None,
     buffer: int = 0
 ) -> list[TextNode]:
-    if model:
-        def _tokenizer(input):
-            return tokenize(model, input)
-        tokenizer = _tokenizer
+    if not isinstance(docs, list):
+        docs = [docs]
+    if tokens and not isinstance(tokens[0], list):
+        tokens = [tokens]
+
+    if tokens is not None:
+        if len(tokens) != len(docs):
+            raise ValueError(
+                f"Length of provided tokens ({len(tokens)}) does not match number of documents ({len(docs)})"
+            )
+        tokens_matrix = tokens
+        token_counts = [len(t) for t in tokens_matrix]
     else:
-        tokenizer = get_words
+        if model:
+            def _tokenizer(input):
+                return tokenize(model, input)
+            tokenizer = _tokenizer
+        else:
+            tokenizer = get_words
+
+        doc_texts = [doc.text for doc in docs]
+        tokens_matrix: list[list] = tokenizer(doc_texts)
+        token_counts: list[int] = [len(t) for t in tokens_matrix]
 
     if not chunk_size:
         if model:
             chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
         else:
-            token_counts = [len(tokenizer(doc.text)) for doc in docs]
             average_tokens = sum(token_counts) / \
                 len(token_counts) if token_counts else 0
             chunk_size = average_tokens
 
     if chunk_size <= chunk_overlap:
         raise ValueError(
-            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})")
+            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})"
+        )
 
-    effective_max_tokens = max(chunk_size - buffer, 1)  # Ensure positive value
+    effective_max_tokens = max(chunk_size - buffer, 1)
     if effective_max_tokens <= chunk_overlap:
         raise ValueError(
-            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})")
-
-    doc_texts = [doc.text for doc in docs]
-    tokens_matrix: list[list] = tokenizer(doc_texts)
-    token_counts: list[int] = [len(t) for t in tokens_matrix]
+            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})"
+        )
 
     nodes: list[TextNode] = []
 
-    for doc, tokens in zip(docs, token_counts):
+    for doc, token_count in zip(docs, token_counts):
         node = TextNode(
             text=doc.text,
             metadata={
@@ -464,7 +479,7 @@ def split_docs(
                 "end_idx": len(doc.text),
             })
 
-        if tokens > effective_max_tokens:
+        if token_count > effective_max_tokens:
             splitter = SentenceSplitter(
                 chunk_size=chunk_size, chunk_overlap=chunk_overlap)
             splitted_texts = splitter.split_text(doc.text)

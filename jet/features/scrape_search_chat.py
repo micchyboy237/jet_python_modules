@@ -100,6 +100,21 @@ def get_nodes_from_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_M
     return nodes, parent_map
 
 
+def get_nodes_parent_mapping(nodes: list[TextNode], docs: list[Document]) -> dict:
+    parent_map = {}
+    for node in nodes:
+        if node.parent_node and not node.parent_node.node_id in parent_map:
+            parent_doc = docs[node.parent_node.metadata["doc_index"]]
+            parent_node = TextNode(
+                node_id=node.parent_node.node_id,
+                text=parent_doc.text,
+                metadata=node.parent_node.metadata
+            )
+            parent_map[node.parent_node.node_id] = parent_node
+
+    return parent_map
+
+
 def rerank_nodes(query: str, nodes: List[TextNode], embed_models: List[str], parent_map: Dict[str, TextNode] = {}) -> List[NodeWithScore]:
     texts = [n.text for n in nodes]
     node_map = {n.text: n for n in nodes}
