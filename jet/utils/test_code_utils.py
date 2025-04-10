@@ -1,6 +1,6 @@
 import unittest
 from textwrap import dedent
-from jet.utils.code import shorten_functions
+from jet.utils.code_utils import shorten_functions
 
 
 class TestShortenFunctions(unittest.TestCase):
