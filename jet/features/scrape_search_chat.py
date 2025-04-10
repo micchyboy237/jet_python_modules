@@ -6,6 +6,7 @@ from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.scrapers.crawler.web_crawler import WebCrawler
 from jet.scrapers.utils import scrape_urls, search_data
 from jet.search.searxng import NoResultsFoundError, SearchResult, search_searxng
+from jet.utils.class_utils import class_to_string
 from jet.utils.markdown import extract_json_block_content
 from llama_index.core.prompts.base import PromptTemplate
 from pydantic import BaseModel, Field
@@ -13,13 +14,14 @@ from jet.logger import logger
 from jet.file.utils import load_file, save_file
 from jet.scrapers.preprocessor import html_to_markdown
 from jet.code.splitter_markdown_utils import count_md_header_contents, get_md_header_contents
-from jet.token.token_utils import get_model_max_tokens, split_docs, token_counter
+from jet.token.token_utils import get_model_max_tokens, group_texts, split_docs, token_counter
 from jet.wordnet.similarity import get_query_similarity_scores
 from llama_index.core.schema import Document, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from jet.llm.evaluators.helpers.base import EvaluationResult
 from jet.llm.evaluators.context_relevancy_evaluator import evaluate_context_relevancy
 from jet.llm.ollama.base import ChatResponse, Ollama, OllamaEmbedding
+from tqdm import tqdm
 
 
 # --- Constants ---
@@ -142,69 +144,162 @@ def rerank_nodes(query: str, nodes: List[TextNode], embed_models: List[str], par
     return results
 
 
+def strip_left_hashes(text: str) -> str:
+    """
+    Removes all leading '#' characters from lines that start with '#'.
+    Also strips surrounding whitespace from those lines.
+
+    Args:
+        text (str): The input multiline string
+
+    Returns:
+        str: Modified string with '#' and extra whitespace removed from matching lines
+    """
+    lines = text.splitlines()
+    cleaned_lines = []
+
+    for line in lines:
+        stripped_line = line.strip()
+        if stripped_line.startswith('#'):
+            cleaned_lines.append(stripped_line.lstrip('#').strip())
+        else:
+            cleaned_lines.append(line)
+
+    return '\n'.join(cleaned_lines)
+
+
+PROMPT_TEMPLATE = PromptTemplate("""
+--- Documents ---
+{headers}
+--- End of Documents ---
+
+Instructions:
+You are given a set of structured documents. Your task is to extract all answers relevant to the query using only the content within the documents.
+
+- Use the schema shown below to return your result.
+- Only return answers found directly in the documents.
+- Remove any duplicates.
+- Return *only* the final JSON enclosed in a ```json block.
+
+Schema:
+{schema}
+
+Query:
+{query}
+
+Answer:
+""")
+
+INSTRUCTION = """
+Extract relevant information from the documents that directly answer the query.
+
+- Use only the content from the documents provided.
+- Remove duplicates when found.
+- Return only the generated JSON value without any explanations surrounded by ```json that adheres to the model below:
+
+Schema:
+{schema_str}
+""".strip()
+
+
 def run_scrape_search_chat(
     html,
-    llm_model,
-    embed_models,
-    eval_model,
-    output_dir,
-    query,
-    min_headers: int = 5,
-    buffer: Optional[int] = None,
+    query: str,
+    output_cls: Type[BaseModel],
+    instruction: Optional[str] = None,
+    prompt_template: PromptTemplate = PROMPT_TEMPLATE,
+    llm_model: OLLAMA_MODEL_NAMES = "mistral",
+    embed_models: OLLAMA_EMBED_MODELS | list[OLLAMA_EMBED_MODELS] = "paraphrase-multilingual",
 ):
-    max_model_tokens = get_model_max_tokens(llm_model)
-    buffer = buffer or max_model_tokens - int(max_model_tokens * 0.6)
-    max_context_tokens = max_model_tokens - buffer
+    instruction = instruction or INSTRUCTION.format(
+        schema_str=class_to_string(output_cls))
 
-    if not validate_headers(html, min_count=min_headers):
-        return None
+    if isinstance(embed_models, str):
+        embed_models = [embed_models]
 
-    # Setup nodes
-    docs = get_docs_from_html(html)
-    nodes, parent_map = get_nodes_from_docs(docs, embed_models)
+    embed_model = embed_models[0]
+    sub_chunk_size = 128
+    sub_chunk_overlap = 40
 
-    # Search nodes
-    reranked_nodes = rerank_nodes(query, nodes, embed_models, parent_map)
+    header_docs = get_docs_from_html(html)
+    embed_model = OllamaEmbedding(model_name=embed_model)
+    header_tokens: list[list[int]] = embed_model.encode(
+        [d.text for d in header_docs])
 
-    # Filter reranked_nodes to fit in llm chat context
-    reranked_nodes_tokens: list[int] = token_counter(
-        [node.text for node in reranked_nodes], llm_model, prevent_total=True)
-    top_nodes: list[NodeWithScore] = []
-    current_top_nodes_tokens: list[int] = []
-    for node, tokens in zip(reranked_nodes, reranked_nodes_tokens):
-        total_top_nodes_tokens = sum(current_top_nodes_tokens + [tokens])
-        if total_top_nodes_tokens < max_context_tokens:
-            top_nodes.append(node)
-            current_top_nodes_tokens.append(tokens)
-        else:
-            break
+    header_nodes: list[TextNode] = []
+    for doc_idx, doc in tqdm(enumerate(header_docs), total=len(header_docs)):
+        sub_nodes = split_docs(
+            doc, llm_model, tokens=header_tokens[doc_idx], chunk_size=sub_chunk_size, chunk_overlap=sub_chunk_overlap)
+        parent_map = get_nodes_parent_mapping(sub_nodes, header_docs)
 
-    # Evaluate contexts
-    logger.debug(f"Evaluating contexts ({len(current_top_nodes_tokens)})...")
-    eval_result = evaluate_context_relevancy(
-        eval_model, query, [n.text for n in top_nodes], buffer=buffer)
+        sub_query = f"Query: {query}\n{doc.metadata["header"]}"
+        reranked_sub_nodes = rerank_nodes(
+            sub_query, sub_nodes, embed_models, parent_map)
 
-    if eval_result.passing:
-        logger.success(f"Context relevancy passed ({len(top_nodes)})")
-    else:
-        logger.error(f"Context relevancy failed ({len(top_nodes)})")
+        reranked_sub_text = "\n".join([n.text for n in reranked_sub_nodes[:3]])
+        reranked_sub_text = reranked_sub_text.lstrip(
+            doc.metadata["header"]).strip()
+        reranked_sub_text = strip_left_hashes(reranked_sub_text)
 
-    # Chat LLM
-    logger.debug(f"Generating chat response...")
-    context = "\n\n".join([n.text for n in top_nodes])
-    llm = Ollama(temperature=0.3, model=llm_model, buffer=buffer)
-    response = llm.chat(query, context=context)
+        top_sub_node = reranked_sub_nodes[0]
+        header_nodes.append(
+            TextNode(
+                text=f"Document number: {top_sub_node.metadata["doc_index"] + 1}\n```text\n{top_sub_node.metadata["header"]}\n{reranked_sub_text}\n```",
+                metadata=top_sub_node.metadata
+            )
+        )
 
-    return {
-        "query": query,
-        "docs": docs,
-        "context": context,
-        "nodes": nodes,
-        "parent_nodes": list(parent_map.values()),
-        "search_nodes": top_nodes,
-        "search_eval": eval_result,
-        "response": response,
-    }
+    header_parent_map = get_nodes_parent_mapping(header_nodes, header_docs)
+    reranked_header_nodes = rerank_nodes(
+        query, header_nodes, embed_models, header_parent_map)
+    # Sort the reranked_header_nodes by metadata['doc_index']
+    reranked_header_nodes = sorted(
+        reranked_header_nodes, key=lambda node: node.metadata['doc_index'])
+    reranked_header_texts = [node.text for node in reranked_header_nodes]
+
+    grouped_header_texts = group_texts(reranked_header_texts, llm_model)
+
+    for idx, header_texts in enumerate(grouped_header_texts):
+        headers = "\n\n".join(header_texts)
+        llm = Ollama(temperature=0.3, model=llm_model)
+
+        # message = prompt_template.format(
+        #     headers=headers,
+        #     query=query,
+        #     instruction=instruction,
+        #     schema=class_to_string(output_cls),
+        # )
+
+        # response = llm.chat(
+        #     prompt_template,
+        #     model=llm_model,
+        #     template_vars={
+        #         "headers": headers,
+        #         "instruction": instruction,
+        #         "schema": output_cls.model_json_schema(),
+        #         "query": query,
+        #     }
+        # )
+
+        # json_result = extract_json_block_content(str(response))
+        # results = json.loads(json_result)
+
+        response = llm.structured_predict(
+            output_cls,
+            prompt_template,
+            model=llm_model,
+            headers=headers,
+            instruction=instruction,
+            schema=output_cls.model_json_schema(),
+            query=query,
+        )
+
+        yield {
+            "group": idx + 1,
+            "query": query,
+            "context": headers,
+            "response": response,
+        }
 
 
 # Example usage
