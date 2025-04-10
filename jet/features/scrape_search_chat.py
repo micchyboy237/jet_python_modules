@@ -56,12 +56,12 @@ Answer:
 """)
 
 INSTRUCTION = """
-Your task is to extract and return only the information directly answering the query from the provided documents.
+Your task is to extract and return only the information directly answering the query from the documents provided.
 
-- Use only the text within the provided documents to formulate your response. Do not include any outside knowledge or context.
-- Retain and prioritize the context from the documents when formulating the response to ensure the answer is accurate and complete.
-- Eliminate any duplicate answers and ensure no context is missed.
-- The response must be in the exact JSON format according to the schema provided. Ensure the final JSON object strictly adheres to the given structure and contains no additional explanations, comments, or information beyond what is required.
+- Only use the text within the documents to formulate your response. Do not include any outside knowledge.
+- Remove duplicate answers.
+- Ensure the JSON output is formatted exactly according to the provided schema.
+- The JSON object should only include the final result with no additional explanations.
 
 Schema:
 {schema_str}
