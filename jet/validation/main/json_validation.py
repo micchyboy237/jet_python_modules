@@ -42,14 +42,14 @@ def validate_json(json_string: str | dict, schema: Optional[dict] = None, model:
     if original_json is None:
         original_json = json_string  # Save the original JSON for comparison
 
-    if attempt > max_attempts:
-        logger.error("Max recursive validation attempts reached.")
-        return {"data": json_string, "corrected": False, "is_valid": False}
-
-    logger.info(f"Validation attempt {attempt}")
-
     validation_response: ValidationResponse = schema_validate_json(
         json_string, schema)
+
+    if attempt > max_attempts:
+        logger.error("Max recursive validation attempts reached.")
+        return {"data": json_string, "corrected": False, "is_valid": False, "errors": validation_response["errors"]}
+
+    logger.info(f"Validation attempt {attempt}")
 
     if validation_response["is_valid"] and not validation_response["errors"]:
         logger.success(f"Valid JSON on attempt {attempt}")

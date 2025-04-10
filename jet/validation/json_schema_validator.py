@@ -1,5 +1,6 @@
 import json
 from typing import List, Optional, TypedDict
+from jet.transformers.object import make_serializable
 from jsonschema import Draft7Validator
 from jet.validation import ValidationResponse
 
@@ -13,6 +14,9 @@ def format_error(error) -> str:
 def schema_validate_json(json_string: str | dict, schema: Optional[dict] = None) -> ValidationResponse:
     if not isinstance(json_string, str):
         json_string = json.dumps(json_string)
+
+    if isinstance(schema, str):
+        schema = make_serializable(schema)
 
     try:
         data = json.loads(json_string)

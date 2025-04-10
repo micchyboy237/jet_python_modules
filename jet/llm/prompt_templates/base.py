@@ -67,11 +67,12 @@ def generate_json_schema_sample(json_schema: str | dict, query: str, model: OLLA
     json_result = _run_chat(prompt, model)
     result = parse_json(json_result)
 
-    schema_validation_result = schema_validate_json(result, json_schema)
+    validation_result = validate_json(result, json_schema)
     # Validate generated sample with schema
-    if not schema_validation_result["is_valid"]:
-        validation_result = validate_json(result, json_schema)
-        result = validation_result["data"]
+    if not validation_result["is_valid"]:
+        errors = validation_result["errors"]
+        raise ValueError(f"JSON schema and data syntax errors detected:\n" +
+                         json.dumps(errors, indent=2))
 
     return result
 
