@@ -28,3 +28,20 @@ def generate_json_schema(context: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") 
     json_result = extract_json_block_content(content)
     result = parse_json(json_result)
     return result
+
+
+def generate_pydantic_models_prompt(context: str) -> str:
+    template_str: str = load_file(
+        f"{os.path.dirname(__file__)}/template_strings/Gemerate_Pydantic_Models.md")
+    prompt = template_str.format(context=context)
+    return prompt
+
+
+def generate_pydantic_models(context: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
+    prompt = generate_pydantic_models_prompt(context)
+    chat_func = get_chat_func()
+    response = chat_func(prompt, model)
+    content = response['message']['content']
+    json_result = extract_json_block_content(content)
+    result = parse_json(json_result)
+    return result

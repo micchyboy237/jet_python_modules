@@ -37,15 +37,11 @@ PROMPT_TEMPLATE = PromptTemplate("""
 {headers}
 --- End of Documents ---
 
-Instructions:
-You are given a collection of structured documents and a schema. Your task is to extract all relevant answers that contains data that adds to the response of the query using only the information provided in these documents.
-
-- Focus solely on the content from the documents; do not infer or add information that isn't explicitly mentioned.
-- If the query relates to multiple facts, include all relevant details.
-- The output must align with the schema provided below and reflect the exact structure.
-
 Schema:
 {schema}
+
+Instructions:
+{instruction}
 
 Query:
 {query}
@@ -54,12 +50,16 @@ Answer:
 """)
 
 INSTRUCTION = """
-Your task is to extract and return only the information directly answering the query from the documents provided.
+Your task is to extract and return all information that directly answers the query from the provided documents.
 
-- Only use the text within the documents to formulate your response. Do not include any outside knowledge.
-- Remove duplicate answers.
-- Ensure the JSON output is formatted exactly according to the provided schema.
-- The JSON object should only include the final result with no additional explanations.
+- Only use the information present in the documents. Do not include any external or prior knowledge.
+- Your output must strictly match the schema format provided below.
+- Use the field descriptions in the schema to guide what content belongs in each field.
+- Do not infer or fabricate data for fields not clearly stated in the documents. Leave optional fields null if information is missing.
+- Remove duplicate or redundant results.
+- Return only a single JSON object conforming to the schema. Do not include explanations, commentary, or additional text.
+
+Ensure the structure and field names exactly match the schema.
 """.strip()
 
 
