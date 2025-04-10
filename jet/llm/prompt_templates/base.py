@@ -56,11 +56,11 @@ def generate_browser_query_json_schema(query: str, model: OLLAMA_MODEL_NAMES = "
     return result
 
 
-def generate_json_schema_sample(json_schema: str | dict, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
+def generate_json_schema_sample(json_schema: str | dict, query: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
     if not isinstance(json_schema, str):
         json_schema = json.dumps(json_schema, indent=2)
     prompt = _generate_prompt(
-        "Generate_JSON_Schema_Sample.md", json_schema=json_schema)
+        "Generate_JSON_Schema_Sample.md", json_schema=json_schema, query=query)
     json_result = _run_chat(prompt, model)
     result = parse_json(json_result)
     return result

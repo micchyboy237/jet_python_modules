@@ -13,7 +13,10 @@ If the query indicates a collection or multiple results (e.g., "Top", "List", "M
 
 The output should follow this format:
 
-<json_schema_sample>
+<json_query_and_schema_sample>
+<browser_query>
+Top otome villainess anime 2025
+</browser_query>
 
 ```json
 {{
@@ -54,7 +57,7 @@ The output should follow this format:
 }}
 ```
 
-</json_schema_sample>
+</json_query_and_schema_sample>
 
 Output ONLY the JSON schema wrapped in a `json` code block.
 </user_query>
