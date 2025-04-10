@@ -50,7 +50,7 @@ def sanitize_header_value(value: str) -> str:
 
 
 def call_ollama_chat(
-    messages: str | list[Message],
+    messages: str | list[Message] | PromptTemplate,
     model: str = "llama3.1",
     *,
     system: str = "",
@@ -108,9 +108,14 @@ def call_ollama_chat(
         messages = [
             Message(content=messages, role=MessageRole.USER)
         ]
-
+    elif isinstance(messages, PromptTemplate) and not context:
+        template = messages
+        prompt = template.format(**template_vars)
+        messages = [
+            Message(content=prompt, role=MessageRole.USER)
+        ]
     # Updates latest user message with context if available
-    if context:
+    elif context:
         # Iterate through messages from the end to find the latest user message
         latest_user_message: Optional[Message] = None
         for msg in reversed(messages):

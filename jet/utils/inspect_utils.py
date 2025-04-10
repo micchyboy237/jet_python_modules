@@ -71,28 +71,24 @@ def log_filtered_stack_trace(exc: Exception):
         logger.warning(
             f"Stack [{i}]: File \"{filename}\", line {line_number}, in {function_name}"
         )
-
-        logger.newline()
-        logger.warning(f"Code (Line {line_number}):")  # Include line number
+        logger.warning(f"Code:")  # Include line number
         logger.error(code_context)
-
-        logger.newline()
         logger.warning("Error Message:")
         logger.error(error_message)  # Log error message
 
-        # Find matching function frame to extract argument names + values
-        for stack_frame in stack:
-            if stack_frame.function == function_name and stack_frame.filename == filename:
-                # Extract function args (name + values)
-                local_vars = stack_frame.frame.f_locals
-                truncated_args = {k: truncate_value(
-                    v) for k, v in local_vars.items()}  # Truncate long values
+        # # Find matching function frame to extract argument names + values
+        # for stack_frame in stack:
+        #     if stack_frame.function == function_name and stack_frame.filename == filename:
+        #         # Extract function args (name + values)
+        #         local_vars = stack_frame.frame.f_locals
+        #         truncated_args = {k: truncate_value(
+        #             v) for k, v in local_vars.items()}  # Truncate long values
 
-                logger.newline()
-                logger.warning("Args:")
-                logger.pretty(truncated_args)
+        #         logger.newline()
+        #         logger.warning("Args:")
+        #         logger.pretty(truncated_args)
 
-                break  # Stop after finding the matching function
+        #         break  # Stop after finding the matching function
 
 
 def inspect_original_script_path() -> Optional[INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE]:

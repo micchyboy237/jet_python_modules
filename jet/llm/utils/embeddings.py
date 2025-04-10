@@ -246,7 +246,7 @@ def get_embedding_function(
 
             if text_key in ttl_cache:
                 results[idx] = ttl_cache[text_key]
-                logger.success(f"Cache hit: Embedding {idx} - {text[:30]}")
+                # logger.success(f"Cache hit: Embedding {idx} - {text[:30]}")
             else:
                 missing_texts.append(text)
                 missing_indices.append(idx)

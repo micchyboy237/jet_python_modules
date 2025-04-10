@@ -3,13 +3,17 @@ from jet.llm.utils.embeddings import get_embedding_function
 from jet.token.token_utils import get_model_max_tokens, tokenize
 from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from collections import defaultdict
-from typing import Callable, Optional, Sequence, Type, TypedDict, Any, Union
+from typing import Callable, Dict, Optional, Sequence, Type, TypedDict, Any, Union
 from jet.decorators.error import wrap_retry
 from jet.decorators.function import retry_on_error
 from jet.llm.ollama.constants import DEFAULT_BASE_URL, DEFAULT_CONTEXT_WINDOW, DEFAULT_EMBED_BATCH_SIZE, DEFAULT_REQUEST_TIMEOUT, OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.logger.timer import sleep_countdown, time_it
-from llama_index.core.base.llms.types import ChatMessage, ChatResponse as BaseChatResponse
+from llama_index.core.base.llms.types import (
+    ChatMessage, ChatResponse as BaseChatResponse,
+    ImageBlock,
+    TextBlock,
+)
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.callbacks.base_handler import BaseCallbackHandler
 from llama_index.core.callbacks.schema import CBEvent, CBEventType, EventPayload
@@ -276,7 +280,7 @@ class Ollama(BaseOllama):
         return tokens
 
     # @llm_chat_callback()
-    def chat(self, messages: str | Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
+    def chat(self, messages: str | Sequence[ChatMessage] | PromptTemplate, **kwargs: Any) -> ChatResponse:
         from jet.actions.generation import call_ollama_chat
         from jet.token.token_utils import token_counter, get_ollama_tokenizer
 
@@ -284,13 +288,18 @@ class Ollama(BaseOllama):
         tokenizer = get_ollama_tokenizer(self.model)
         set_global_tokenizer(tokenizer)
 
-        ollama_messages = self._convert_to_ollama_messages(
-            messages) if not isinstance(messages, str) else messages
-
         tools = kwargs.get("tools", None)
         format = kwargs.get("format", "json" if self.json_mode else None)
         options = kwargs.get("options", {})
         stream = kwargs.get("stream", not tools)
+        template_vars = kwargs.get("template_vars", {})
+
+        ollama_messages = messages
+        if isinstance(messages, list) and isinstance(messages[0], ChatMessage):
+            ollama_messages = _convert_to_ollama_messages(
+                messages) if not isinstance(messages, str) else messages
+        elif isinstance(messages, PromptTemplate):
+            ollama_messages = messages.format(**template_vars)
 
         settings = {
             **kwargs,
@@ -467,15 +476,52 @@ class OllamaEmbedding(BaseOllamaEmbedding):
         return wrap_retry(run)
 
 
-def chat(model: str, messages: Sequence[OllamaMessage], format: Any = None, stream: bool = True, tools=[], **kwargs: Any) -> ChatResponse:
+def _convert_to_ollama_messages(messages: Sequence[ChatMessage]) -> Dict:
+    ollama_messages = []
+    for message in messages:
+        cur_ollama_message = {
+            "role": message.role.value,
+            "content": "",
+        }
+        for block in message.blocks:
+            if isinstance(block, TextBlock):
+                cur_ollama_message["content"] += block.text
+            elif isinstance(block, ImageBlock):
+                if "images" not in cur_ollama_message:
+                    cur_ollama_message["images"] = []
+                cur_ollama_message["images"].append(
+                    block.resolve_image(as_base64=True).read().decode("utf-8")
+                )
+            else:
+                raise ValueError(f"Unsupported block type: {type(block)}")
+
+        if "tool_calls" in message.additional_kwargs:
+            cur_ollama_message["tool_calls"] = message.additional_kwargs[
+                "tool_calls"
+            ]
+
+        ollama_messages.append(cur_ollama_message)
+
+    return ollama_messages
+
+
+def chat(model: str, messages: str | Sequence[ChatMessage] | PromptTemplate, format: Any = None, stream: bool = True, tools=[], **kwargs: Any) -> ChatResponse:
     from jet.actions.generation import call_ollama_chat
     # from jet.token.token_utils import token_counter
 
     stream = stream if not tools else False
+    template_vars = kwargs.pop("template_vars", {})
+
+    ollama_messages = messages
+    if isinstance(messages, list) and isinstance(messages[0], ChatMessage):
+        ollama_messages = _convert_to_ollama_messages(
+            messages) if not isinstance(messages, str) else messages
+    elif isinstance(messages, PromptTemplate):
+        ollama_messages = messages.format(**template_vars)
 
     settings = {
         "model": model,
-        "messages": messages,
+        "messages": ollama_messages,
         "stream": stream,
         "format": format,
         "tools": tools,
