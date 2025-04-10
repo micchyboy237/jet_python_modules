@@ -62,9 +62,6 @@ Your task is to extract and return only the information directly answering the q
 - Remove duplicate answers.
 - Ensure the JSON output is formatted exactly according to the provided schema.
 - The JSON object should only include the final result with no additional explanations.
-
-Schema:
-{schema_str}
 """.strip()
 
 
@@ -253,8 +250,7 @@ def run_scrape_search_chat(
     if not min_tokens_per_group:
         min_tokens_per_group = max_tokens_per_group * 0.5
 
-    instruction = instruction or INSTRUCTION.format(
-        schema_str=output_cls.model_json_schema())
+    instruction = instruction or INSTRUCTION
 
     if isinstance(embed_models, str):
         embed_models = [embed_models]
@@ -313,6 +309,7 @@ def run_scrape_search_chat(
             headers=headers,
             instruction=instruction,
             query=query,
+            schema=output_cls.model_json_schema(),
         )
         response_tokens: int = token_counter(
             format_json(response.results), llm_model)
