@@ -396,12 +396,17 @@ class Ollama(BaseOllama):
         self,
         output_cls: Type[BaseModel],
         prompt: PromptTemplate,
-        llm_kwargs: Optional[dict[str, Any]] = None,
+        model: Optional[OLLAMA_MODEL_NAMES] = None,
+        llm_kwargs: dict[str, Any] = {},
         **prompt_args: Any,
     ) -> BaseModel:
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
-            llm_kwargs = llm_kwargs or {}
             llm_kwargs["format"] = output_cls.model_json_schema()
+
+            llm_kwargs = {
+                **llm_kwargs,
+                "model": llm_kwargs.get("model", model)
+            }
 
             messages = prompt.format_messages(**prompt_args)
             response = self.chat(messages, **llm_kwargs)
