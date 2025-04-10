@@ -395,21 +395,14 @@ class Ollama(BaseOllama):
     @dispatcher.span
     def structured_predict(
         self,
-        output_cls: str | Dict | Type[BaseModel],
+        output_cls: Type[BaseModel],
         prompt: PromptTemplate,
         model: Optional[OLLAMA_MODEL_NAMES] = None,
         llm_kwargs: dict[str, Any] = {},
         **prompt_args: Any,
     ) -> BaseModel:
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
-            if isinstance(output_cls, str):
-                schema_str = output_cls
-            elif isinstance(output_cls, Dict):
-                schema_str = json.dumps(output_cls, indent=1)
-            else:
-                schema_str = output_cls.model_json_schema()
-
-            llm_kwargs["format"] = schema_str
+            llm_kwargs["format"] = output_cls.model_json_schema()
 
             llm_kwargs = {
                 **llm_kwargs,
@@ -424,7 +417,7 @@ class Ollama(BaseOllama):
             validation_result = validate_json(
                 extracted_result, make_serializable(schema_str))
 
-            return validation_result["data"]
+            return output_cls.model_validate_json(json.dumps(validation_result["data"]))
         else:
             return super().structured_predict(
                 output_cls, prompt, llm_kwargs, **prompt_args

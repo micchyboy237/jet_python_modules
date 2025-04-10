@@ -239,7 +239,7 @@ def _process_document_star(args):
 def run_scrape_search_chat(
     html,
     query: str,
-    output_cls: str | Dict | Type[BaseModel],
+    output_cls: Type[BaseModel],
     instruction: Optional[str] = None,
     prompt_template: PromptTemplate = PROMPT_TEMPLATE,
     llm_model: OLLAMA_MODEL_NAMES = "mistral",
@@ -253,15 +253,8 @@ def run_scrape_search_chat(
     if not min_tokens_per_group:
         min_tokens_per_group = max_tokens_per_group * 0.5
 
-    if isinstance(output_cls, str):
-        schema_str = output_cls
-    elif isinstance(output_cls, Dict):
-        schema_str = json.dumps(output_cls, indent=1)
-    else:
-        schema_str = output_cls.model_json_schema()
-
     instruction = instruction or INSTRUCTION.format(
-        schema_str=schema_str)
+        schema_str=output_cls.model_json_schema())
 
     if isinstance(embed_models, str):
         embed_models = [embed_models]
@@ -319,7 +312,6 @@ def run_scrape_search_chat(
             model=llm_model,
             headers=headers,
             instruction=instruction,
-            schema=schema_str,
             query=query,
         )
         response_tokens: int = token_counter(
