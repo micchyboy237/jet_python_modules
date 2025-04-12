@@ -14,9 +14,8 @@ Example Query 1:
 Example Response 1:
 {{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "TikTok Seller Registration Steps Schema",
+  "title": "Philippines TikTok Online Seller Registration Steps Schema",
   "type": "object",
-  "required": ["steps"],
   "properties": {{
     "steps": {{
       "type": "array",
@@ -41,7 +40,8 @@ Example Response 1:
         }}
       }}
     }}
-  }}
+  }},
+  "required": ["steps"],
 }}
 
 ---
