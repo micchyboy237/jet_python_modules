@@ -45,13 +45,18 @@ PROMPT_CONTEXT_TEMPLATE = PromptTemplate(
 
 
 def sanitize_header_value(value: str) -> str:
-    # Remove any leading/trailing whitespaces and newline characters
-    return re.sub(r'[\r\n]+', ' ', value).strip()
+    if not value:
+        return ''
+
+    value = re.sub(r'[\r\n]+', ' ', value).strip()
+    # Replace non-ASCII characters with a safe fallback
+    value = value.encode("ascii", errors="replace").decode("ascii")
+    return value
 
 
 def call_ollama_chat(
     messages: str | list[Message] | PromptTemplate,
-    model: str = "llama3.1",
+    model: str = "llama3.2",
     *,
     system: str = "",
     context: Optional[str] = None,
@@ -141,7 +146,13 @@ def call_ollama_chat(
         latest_user_message["content"] = prompt
 
     model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
-    token_count: int = token_counter(messages, model)
+    prompt_tokens: int = token_counter(messages, model)
+
+    system = system or next(
+        (m['content'] for m in messages if m['role'] == MessageRole.SYSTEM), None)
+    system_tokens: int = 0
+    if system:
+        system_tokens = token_counter(system, model)
 
     logger.newline()
     logger.orange("Calling Ollama chat...")
@@ -151,7 +162,7 @@ def call_ollama_chat(
         f"({model_max_length})",
         "|",
         "Tokens:",
-        token_count,
+        system_tokens + prompt_tokens,
         colors=["GRAY", "INFO", "INFO", "GRAY", "INFO", "INFO"],
     )
     logger.newline()
@@ -168,7 +179,7 @@ def call_ollama_chat(
     # num_ctx = calc_result["num_ctx"]
     # else:
     # num_ctx = options.get("num_ctx", model_max_length)
-    predict_tokens = num_ctx - token_count
+    predict_tokens = num_ctx - system_tokens + prompt_tokens
     derived_options = {
         "num_predict": num_predict,
         "num_ctx": num_ctx,
@@ -187,26 +198,25 @@ def call_ollama_chat(
     logger.newline()
     logger.log("Stream:", stream, colors=["GRAY", "INFO"])
     logger.log("Model:", model, colors=["GRAY", "INFO"])
-    logger.log("Prompt Tokens:", token_count, colors=["GRAY", "INFO"])
+    logger.log("System Tokens:", system_tokens, colors=["GRAY", "INFO"])
+    logger.log("Prompt Tokens:", prompt_tokens, colors=["GRAY", "INFO"])
     logger.log("Max Prompt Tokens:", model_max_length -
                buffer, colors=["GRAY", "INFO"])
     logger.log("Remaining Tokens:", model_max_length -
-               token_count, colors=["GRAY", "ORANGE"])
+               system_tokens + prompt_tokens, colors=["GRAY", "ORANGE"])
     logger.log("num_ctx:", num_ctx, colors=["GRAY", "ORANGE"])
     logger.log("Max Tokens:", model_max_length, colors=["GRAY", "ORANGE"])
     logger.newline()
 
-    if token_count > model_max_length - buffer:
+    if system_tokens + prompt_tokens > model_max_length - buffer:
         raise ValueError(
-            f"Token count ({token_count}) exceeds maximum allowed tokens ({model_max_length - buffer})"
+            f"Token count ({system_tokens + prompt_tokens}) exceeds maximum allowed tokens ({model_max_length - buffer})"
         )
 
     logger.debug("Generating response...")
 
-    if not any(message['role'] == MessageRole.USER for message in messages):
-        messages[-1]["role"] = MessageRole.USER
-
-    if system and not any(message['role'] == MessageRole.SYSTEM for message in messages):
+    if system and not any(m['role'] == MessageRole.SYSTEM for m in messages):
+        messages = [m for m in messages if m['role'] != MessageRole.SYSTEM]
         messages.insert(0, Message(
             content=system, role=MessageRole.SYSTEM))
 
@@ -254,7 +264,8 @@ def call_ollama_chat(
     logger.log("Log-Filename:", log_filename, colors=["WHITE", "DEBUG"])
     # Sanitize headers to remove invalid characters
     headers = {
-        "Tokens": str(token_count),  # Include the token count here
+        # Include the token count here
+        "Tokens": str(system_tokens + prompt_tokens),
         "Log-Filename": sanitize_header_value(log_filename),
         "Event-Start-Time": sanitize_header_value(pre_start_hook_start_time),
         "System": sanitize_header_value(system),
@@ -356,7 +367,9 @@ def call_ollama_chat(
                                 #     response_info, indent=2))
                                 prompt_tokens = response_info['prompt_eval_count']
                                 response_tokens = response_info['eval_count']
-                                total_tokens = prompt_tokens + response_tokens
+                                total_tokens = system_tokens + prompt_tokens + response_tokens
+                                logger.log("System tokens:", system_tokens, colors=[
+                                           "DEBUG", "SUCCESS"])
                                 logger.log("Prompt tokens:", prompt_tokens, colors=[
                                            "DEBUG", "SUCCESS"])
                                 logger.log("Response tokens:", response_tokens, colors=[
@@ -471,6 +484,8 @@ def call_ollama_chat(
             prompt_tokens = response_info['prompt_eval_count']
             response_tokens = response_info['eval_count']
             total_tokens = prompt_tokens + response_tokens
+            logger.log("System tokens:", system_tokens,
+                       colors=["DEBUG", "SUCCESS"])
             logger.log("Prompt tokens:", prompt_tokens,
                        colors=["DEBUG", "SUCCESS"])
             logger.log("Response tokens:", response_tokens,

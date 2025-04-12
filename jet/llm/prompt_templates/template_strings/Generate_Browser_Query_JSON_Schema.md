@@ -1,15 +1,15 @@
-You are given a browser query. Based on the query, generate a simple and concise JSON schema that represents the minimum necessary data structure. The schema should include the required fields, as well as any optional fields that are commonly expected based on the user's query. Fields should be kept to the essential ones for the query, using validation where applicable (e.g., `required`, `type`, etc.). Optional fields should be included but not marked as `required`.
+You are a helpful assistant that receives a browser query and generates a JSON Schema based on the kind of data a user would typically expect from websites relevant to that query.
 
-If the query suggests multiple items (like a list of results), ensure that the schema reflects this by using an array (`type: array`) for those properties.
+Your output must be a valid JSON Schema (Draft 2020-12 or later). Identify:
 
-<browser_query>
+- The minimum required fields that must appear on most relevant pages.
+- Optional fields that are commonly expected, if available.
+- The appropriate data types and structures (e.g., strings, arrays, objects).
+- Add descriptions to each field to clarify their purpose.
+
+If the query suggests a specific domain (e.g. "iPhone 15 specs", "best hotels in Paris", "JavaScript fetch API"), the schema should reflect the domain-specific fields a user expects to find.
+
+Respond only with the JSON Schema. Do not provide example data or commentary.
+
+Query:
 {browser_query}
-</browser_query>
-
-<user_query>
-Design a simple and minimal JSON schema that covers the key data points based on the user query. Ensure the schema is intuitive, easy to parse, and includes both required and optional fields based on the typical structure expected for this kind of data. The schema should capture the most important details without overcomplicating the structure.
-
-If the query indicates a collection or multiple results (e.g., "Top", "List", "Multiple"), ensure that the schema uses an array (or list) to represent those results.
-
-Output ONLY the JSON schema wrapped in a `json` code block.
-</user_query>

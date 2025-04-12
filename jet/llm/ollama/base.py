@@ -511,7 +511,7 @@ def _convert_to_ollama_messages(messages: Sequence[ChatMessage]) -> Dict:
     return ollama_messages
 
 
-def chat(model: str, messages: str | Sequence[ChatMessage] | PromptTemplate, format: Any = None, stream: bool = True, tools=[], **kwargs: Any) -> ChatResponse:
+def chat(messages: str | Sequence[ChatMessage] | Sequence[OllamaMessage] | PromptTemplate, model: str = "llama3.2", *, system: str = None, format: Any = None, stream: bool = True, tools=[], **kwargs: Any) -> ChatResponse:
     from jet.actions.generation import call_ollama_chat
     # from jet.token.token_utils import token_counter
 
@@ -528,6 +528,7 @@ def chat(model: str, messages: str | Sequence[ChatMessage] | PromptTemplate, for
     settings = {
         "model": model,
         "messages": ollama_messages,
+        "system": system,
         "stream": stream,
         "format": format,
         "tools": tools,
@@ -597,7 +598,7 @@ def chat(model: str, messages: str | Sequence[ChatMessage] | PromptTemplate, for
                     # }
                 }
 
-    message = final_response.pop("message")
+    final_response.pop("message")
     chat_response = OllamaChatResponse(
         message=OllamaMessage(
             role=role,
@@ -609,8 +610,8 @@ def chat(model: str, messages: str | Sequence[ChatMessage] | PromptTemplate, for
     return chat_response
 
 
-async def achat(model: str, messages: Sequence[OllamaMessage], **kwargs: Any) -> ChatResponse:
-    return chat(model, messages, **kwargs)
+async def achat(messages: str | Sequence[ChatMessage] | Sequence[OllamaMessage] | PromptTemplate, **kwargs: Any) -> ChatResponse:
+    return chat(messages, **kwargs)
 
 
 def embed_nodes(

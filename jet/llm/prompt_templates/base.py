@@ -15,6 +15,7 @@ from jet.validation.python_validation import validate_python_syntax
 from jet.validation.validation_types import ValidationResponse
 
 _TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "template_strings")
+_DEFAULT_MODEL = "gemma3:4b"
 
 
 def extract_template_variables(template: str) -> set:
@@ -38,29 +39,30 @@ def _generate_prompt(template_file: str, **kwargs) -> str:
     return template.format(**kwargs)
 
 
-def _run_chat(prompt: str, model: OLLAMA_MODEL_NAMES) -> Any:
-    response = chat(model, prompt, temperature=0.0)
+def _run_chat(prompt: str, model: OLLAMA_MODEL_NAMES, **kwargs) -> Any:
+    response = chat(prompt, model, temperature=0.0, **kwargs)
     content = response['message']['content']
     result = extract_block_content(content)
     return result
 
 
-def generate_json_schema(query: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
+def generate_json_schema(query: str, model: OLLAMA_MODEL_NAMES = _DEFAULT_MODEL) -> Dict:
     prompt = _generate_prompt("Generate_JSON_Schema.md", query=query)
     json_result = _run_chat(prompt, model)
     result = parse_json(json_result)
     return result
 
 
-def generate_browser_query_json_schema(query: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
-    prompt = _generate_prompt(
-        "Generate_Browser_Query_JSON_Schema.md", browser_query=query)
-    json_result = _run_chat(prompt, model)
+def generate_browser_query_json_schema(query: str, model: OLLAMA_MODEL_NAMES = _DEFAULT_MODEL) -> Dict:
+    # prompt = _generate_prompt(
+    #     "Generate_Browser_Query_JSON_Schema.md", browser_query=query)
+    system = _generate_prompt("System_Browser_Query_JSON_Schema.md")
+    json_result = _run_chat(query, model, system=system)
     result = parse_json(json_result)
     return result
 
 
-def generate_json_schema_sample(json_schema: str | dict, query: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> Dict:
+def generate_json_schema_sample(json_schema: str | dict, query: str, model: OLLAMA_MODEL_NAMES = _DEFAULT_MODEL) -> Dict:
     if not isinstance(json_schema, str):
         json_schema = json.dumps(json_schema, indent=2)
     prompt = _generate_prompt(
@@ -78,7 +80,7 @@ def generate_json_schema_sample(json_schema: str | dict, query: str, model: OLLA
     return validation_result["data"]
 
 
-def generate_pydantic_models(context: str, model: OLLAMA_MODEL_NAMES = "gemma3:1b") -> str:
+def generate_pydantic_models(context: str, model: OLLAMA_MODEL_NAMES = _DEFAULT_MODEL) -> str:
     prompt = _generate_prompt("Generate_Pydantic_Models.md", context=context)
     python_code = _run_chat(prompt, model)
     python_code = textwrap.dedent(python_code).strip()
