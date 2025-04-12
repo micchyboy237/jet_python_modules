@@ -42,8 +42,17 @@ class TestDynamicModelCreation(unittest.TestCase):
         self.assertEqual(instance.score, 99.5)
 
         schema = Model.model_json_schema()
-        self.assertEqual(schema["properties"]["nickname"]
-                         ["type"], ["string", "null"])
+        nickname_schema = schema["properties"]["nickname"]
+        score_schema = schema["properties"]["score"]
+
+        # Pydantic uses anyOf for unions like ["string", "null"]
+        self.assertIn("anyOf", nickname_schema)
+        types = {option["type"] for option in nickname_schema["anyOf"]}
+        self.assertEqual(types, {"string", "null"})
+
+        self.assertIn("anyOf", score_schema)
+        types = {option["type"] for option in score_schema["anyOf"]}
+        self.assertEqual(types, {"number", "null"})
 
     def test_nested_object(self):
         json_schema = {
