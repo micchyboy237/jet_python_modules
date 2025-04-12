@@ -331,9 +331,9 @@ def run_scrape_search_chat(
     header_nodes = grouped_header_nodes[0]
     # Evaluate contexts
     logger.debug(
-        f"Evaluating contexts ({len(response["reranked_nodes"])})...")
+        f"Evaluating contexts ({len(header_nodes)})...")
     eval_result = evaluate_context_relevancy(
-        llm_model, query, [n.text for n in response["reranked_nodes"]])
+        llm_model, query, [n.text for n in header_nodes])
     if not eval_result.passing:
         raise EvalContextError("Failed context evaluation", eval_result)
 
