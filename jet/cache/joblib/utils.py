@@ -23,7 +23,7 @@ CACHE_TTL = 3600  # Time-to-live for TTLCache (seconds) (1 hour)
 CACHE_SIZE = 10000  # Max number of items in TTLCache
 CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
 
-MAX_CACHE_FILE_SIZE = 1 * 1024 * 1024  # 1 MB (example limit)
+MAX_CACHE_FILE_SIZE = 5 * 1024 * 1024  # 5 MB (example limit)
 
 # ✅ Ensure cache directory exists
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -83,20 +83,20 @@ def save_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
         cache_key = cache_file
         cache_file = cache_file if os.path.isabs(
             cache_file) else os.path.join(CACHE_DIR, cache_file)
-        cache_file_size = os.path.getsize(
-            cache_file) if os.path.exists(cache_file) else 0
 
         current_cache_data = dict(ttl_cache)
 
-        # Check if cache file exceeds size limit
-        if os.path.exists(cache_file) and cache_file_size > MAX_CACHE_FILE_SIZE:
-            logger.warning(
-                f"Cache file {cache_file} ({cache_file_size}) exceeds size limit. Deleting it.")
-            try:
-                os.remove(cache_file)
-            except FileNotFoundError:
+        try:
+            # Check if cache file exceeds size limit
+            cache_file_size = os.path.getsize(cache_file)
+            if os.path.exists(cache_file) and cache_file_size > MAX_CACHE_FILE_SIZE:
                 logger.warning(
-                    f"Tried to delete {cache_file}, but it was already missing.")
+                    f"Cache file {cache_file} ({cache_file_size}) exceeds size limit. Deleting it.")
+
+                os.remove(cache_file)
+        except FileNotFoundError:
+            logger.warning(
+                f"Tried to delete {cache_file}, but it was already missing.")
 
         # ✅ Save if cache was loaded and modified
         if cache_key in loaded_caches:
@@ -241,21 +241,24 @@ def cleanup_persistent_cache():
     now = time.time()
     for file in os.listdir(CACHE_DIR):
         cache_file = os.path.join(CACHE_DIR, file)
-        cache_file_size = os.path.getsize(
-            cache_file) if os.path.exists(cache_file) else 0
 
-        # Check if cache file exceeds size limit
-        if os.path.exists(cache_file) and cache_file_size > MAX_CACHE_FILE_SIZE:
+        try:
+            # Check if cache file exceeds size limit
+            cache_file_size = os.path.getsize(cache_file)
+            if os.path.exists(cache_file) and cache_file_size > MAX_CACHE_FILE_SIZE:
+                logger.warning(
+                    f"Cache file {cache_file} ({cache_file_size}) exceeds size limit. Deleting it.")
+                os.remove(cache_file)  # Delete the oversized file
+            else:
+                file_age = now - os.stat(cache_file).st_mtime
+                if file_age > CACHE_TTL:
+                    # os.remove(cache_file)
+                    # ✅ Clear file instead of deleting
+                    open(cache_file, 'w').close()
+                    logger.warning(f"Cleared expired cache file: {cache_file}")
+        except FileNotFoundError:
             logger.warning(
-                f"Cache file {cache_file} ({cache_file_size}) exceeds size limit. Deleting it.")
-            os.remove(cache_file)  # Delete the oversized file
-        else:
-            file_age = now - os.stat(cache_file).st_mtime
-            if file_age > CACHE_TTL:
-                # os.remove(cache_file)
-                # ✅ Clear file instead of deleting
-                open(cache_file, 'w').close()
-                logger.warning(f"Cleared expired cache file: {cache_file}")
+                f"Tried to delete {cache_file}, but it was already missing.")
 
 
 def cleanup_ttl_cache():
