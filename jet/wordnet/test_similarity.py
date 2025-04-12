@@ -1,7 +1,7 @@
 from sentence_transformers import SentenceTransformer
 from jet.wordnet.similarity import (
     filter_highest_similarity,
-    get_query_similarity_scores,
+    query_similarity_scores,
     group_similar_texts,
     score_texts_similarity,
     get_similar_texts,
@@ -607,7 +607,7 @@ class TestGetQuerySimilarityScores(unittest.TestCase):
                     "score": 0.75, "percent_difference": 6.25}
             ]
         }
-        result = get_query_similarity_scores(
+        result = query_similarity_scores(
             self.queries[0], self.texts, threshold=0.5)[0]
 
         self.assertEqual(result["query"], expected["query"])
@@ -632,7 +632,7 @@ class TestGetQuerySimilarityScores(unittest.TestCase):
                 ]
             }
         ]
-        result = get_query_similarity_scores(
+        result = query_similarity_scores(
             self.queries, self.texts, threshold=0.5)
 
         self.assertEqual(len(result), len(expected))
@@ -651,12 +651,12 @@ class TestGetQuerySimilarityScores(unittest.TestCase):
     def test_empty_texts(self):
         expected_error = ValueError
         with self.assertRaises(expected_error):
-            get_query_similarity_scores(self.queries, [])
+            query_similarity_scores(self.queries, [])
 
     def test_empty_queries(self):
         expected_error = ValueError
         with self.assertRaises(expected_error):
-            get_query_similarity_scores([], self.texts)
+            query_similarity_scores([], self.texts)
 
     def test_threshold_filtering(self):
         expected = [
@@ -672,7 +672,7 @@ class TestGetQuerySimilarityScores(unittest.TestCase):
                 "results": []
             }
         ]
-        result = get_query_similarity_scores(
+        result = query_similarity_scores(
             self.queries, self.texts, threshold=0.8)
 
         self.assertEqual(len(result), len(expected))

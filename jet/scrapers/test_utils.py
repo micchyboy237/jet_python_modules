@@ -201,6 +201,12 @@ class TestScrapeLinks(unittest.TestCase):
         result = scrape_links(sample)
         self.assertEqual(result, expected)
 
+    def test_numeric_url(self):
+        sample = '<a href="https://sitegiant.ph/blog/2024/12/10/">Link</a>'
+        expected = ['https://sitegiant.ph/blog/2024/12/10/']
+        result = scrape_links(sample)
+        self.assertEqual(result, expected)
+
     def test_protocol_relative(self):
         sample = '<script src="//cdn.example.com/js"></script><a href="//cdn.example.com/css">'
         expected = ['//cdn.example.com/css']

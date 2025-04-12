@@ -17,8 +17,6 @@ from jet.utils.text import fix_and_unidecode
 import parsel
 import unidecode
 
-from typing import List
-
 
 def scrape_links(html: str) -> List[str]:
     # Target attributes to extract
@@ -34,7 +32,13 @@ def scrape_links(html: str) -> List[str]:
     )
 
     matches = re.findall(quote_pattern, html, flags=re.IGNORECASE)
-    return [match[1] for match in matches]
+
+    # Filter out empty, '#' and javascript: links
+    filtered = [
+        match[1] for match in matches
+        if match[1].strip() not in ('', '#') and not match[1].lower().startswith('javascript:')
+    ]
+    return filtered
 
 
 def get_max_prompt_char_length(context_length: int, avg_chars_per_token: float = 4.0) -> int:

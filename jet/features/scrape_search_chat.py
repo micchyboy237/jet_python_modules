@@ -19,7 +19,7 @@ from jet.file.utils import load_file, save_file
 from jet.scrapers.preprocessor import html_to_markdown
 from jet.code.splitter_markdown_utils import count_md_header_contents, get_md_header_contents
 from jet.token.token_utils import get_model_max_tokens, group_nodes, group_texts, split_docs, token_counter
-from jet.wordnet.similarity import get_query_similarity_scores
+from jet.wordnet.similarity import query_similarity_scores
 from llama_index.core.schema import Document, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from jet.llm.evaluators.helpers.base import EvaluationResult
@@ -151,7 +151,7 @@ def get_nodes_parent_mapping(nodes: list[TextNode], docs: list[Document]) -> dic
 def rerank_nodes(query: str, nodes: List[TextNode], embed_models: List[str], parent_map: Dict[str, TextNode] = {}) -> List[NodeWithScore]:
     texts = [n.text for n in nodes]
     node_map = {n.text: n for n in nodes}
-    query_scores = get_query_similarity_scores(
+    query_scores = query_similarity_scores(
         query, texts, model_name=embed_models)
 
     results = []
@@ -289,8 +289,8 @@ def run_scrape_search_chat(
     header_docs = get_docs_from_html(html)
     shared_header_doc = header_docs[0]
 
-    embed_model = OllamaEmbedding(model_name=embed_model)
-    header_tokens: list[list[int]] = embed_model.encode(
+    embed_model_ollama = OllamaEmbedding(model_name=embed_model)
+    header_tokens: list[list[int]] = embed_model_ollama.encode(
         [d.text for d in header_docs])
 
     for doc, tokens in zip(header_docs, header_tokens):
@@ -298,8 +298,9 @@ def run_scrape_search_chat(
 
         # Validate largest node token count
         if header_token_count > embed_model_max_tokens:
-            raise DocumentTokensExceedsError(
-                f"Document {doc.metadata["doc_index"] + 1} tokens ({header_token_count}) exceeds {embed_model} model tokens ({embed_model_max_tokens})", doc.metadata)
+            error = f"Document {doc.metadata["doc_index"] + 1} tokens ({header_token_count}) exceeds {embed_model} model tokens ({embed_model_max_tokens})"
+            # raise DocumentTokensExceedsError(error, doc.metadata)
+            logger.warning(error)
 
         doc.metadata["tokens"] = header_token_count
 

@@ -100,7 +100,7 @@ class QuerySimilarityResult(TypedDict):
     results: Dict[str, float]
 
 
-def get_query_similarity_scores(
+def query_similarity_scores(
     query: Union[str, List[str]],
     texts: Union[str, List[str]],
     threshold: float = 0.0,

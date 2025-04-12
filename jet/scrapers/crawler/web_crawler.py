@@ -2,14 +2,18 @@ import re
 import time
 import fnmatch
 from typing import Generator, Optional, TypedDict
+from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.logger.timer import sleep_countdown
+from jet.scrapers.preprocessor import html_to_markdown
 from jet.scrapers.utils import scrape_links
+from jet.wordnet.similarity import query_similarity_scores
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, urlunparse
+from jet.wordnet.sentence import split_sentences
 from jet.file.utils import save_data
 from jet.logger import logger
 
@@ -28,6 +32,13 @@ def count_path_segments(url):
 
 def sort_urls_numerically(urls):
     return sorted(urls, key=lambda url: (count_path_segments(url), extract_numbers(url)))
+
+
+def get_headers_from_html(html: str) -> list[str]:
+    md_text = html_to_markdown(html, ignore_links=False)
+    header_contents = get_md_header_contents(md_text)
+    headers = [header["content"] for header in header_contents]
+    return headers
 
 
 class SeleniumScraper:
@@ -131,6 +142,7 @@ class WebCrawler(SeleniumScraper):
         self.non_crawlable = False
         self.base_url: str = self.normalize_url(url)
         self.host_name = urlparse(self.base_url).hostname
+        self.base_host_url = f"{urlparse(self.base_url).scheme}://{self.host_name}"
         self.seen_urls: set[str] = {self.base_url}
         self.visited_urls: set[str] = set(visited) if visited else set()
         self.passed_urls: set[str] = set()
@@ -142,6 +154,7 @@ class WebCrawler(SeleniumScraper):
         self.max_depth = max_depth
         self.max_visited = max_visited
         self.query = query
+        self.top_n = 5
 
     def change_url(self, url: str):
         try:
@@ -200,26 +213,54 @@ class WebCrawler(SeleniumScraper):
         if self.non_crawlable:
             return
 
-        links = scrape_links(html_str)
+        all_links = scrape_links(html_str)
         full_urls = set()
-        for link in links:
+        seen_keys = set()
+
+        for link in all_links:
             try:
-                if link:
-                    link = self.normalize_url(link)
-                    parsed_link = urlparse(link)
-                    if (
-                        link.startswith(self.base_url)
-                        or parsed_link.hostname is None
-                    ):
-                        if not self._should_exclude(link):
-                            full_urls.add(link)
+                if not link or link.startswith("#"):
+                    continue
+
+                link = self.normalize_url(link)
+
+                if self.base_url == link:
+                    continue
+
+                parsed = urlparse(link)
+
+                if link.startswith(self.base_host_url) or parsed.hostname is None:
+                    if self._should_exclude(link):
+                        continue
+
+                    # Create unique key using hostname + path only
+                    # Normalize path
+                    key = (parsed.hostname, parsed.path.rstrip("/"))
+                    if key not in seen_keys:
+                        seen_keys.add(key)
+                        # Rebuild URL with only scheme, hostname, path
+                        clean_url = urlunparse(
+                            (parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+                        full_urls.add(clean_url)
+
             except Exception as e:
                 logger.error(f"Failed to process anchor: {e}")
                 continue
 
-        sorted_full_urls = sort_urls_numerically(list(full_urls))
-        for full_url in sorted_full_urls:
-            yield from self._crawl_recursive(full_url, depth=depth + 1)
+        full_urls = list(full_urls)
+
+        if full_urls:
+            full_urls = sort_urls_numerically(full_urls)
+
+            if self.query:
+                search_link_results = list(query_similarity_scores(
+                    self.query, full_urls)[0]["results"].items())
+                relevant_urls = [text for text, score in search_link_results]
+            else:
+                relevant_urls = full_urls
+
+            for relevant_url in relevant_urls:
+                yield from self._crawl_recursive(relevant_url, depth=depth + 1)
 
     def _should_exclude(self, url: str) -> bool:
         """Check if a URL should be excluded based on filtering rules."""
