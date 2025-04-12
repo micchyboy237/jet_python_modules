@@ -246,6 +246,9 @@ class DocumentTokensExceedsError(Exception):
     """
     Raised when a document token count exceeds the embed model max tokens
     """
+    def __init__(self, message: str, metadata: Dict):
+        super().__init__(message)
+        self.metadata = metadata
 
 
 class EvalContextError(Exception):
@@ -295,7 +298,7 @@ def run_scrape_search_chat(
         # Validate largest node token count
         if header_token_count > embed_model_max_tokens:
             raise DocumentTokensExceedsError(
-                f"Document token ({header_token_count}) exceeds {embed_model} model tokens ({embed_model_max_tokens})")
+                f"Document {doc.metadata["doc_index"] + 1} tokens ({header_token_count}) exceeds {embed_model} model tokens ({embed_model_max_tokens})", doc.metadata)
 
         doc.metadata["tokens"] = header_token_count
 
