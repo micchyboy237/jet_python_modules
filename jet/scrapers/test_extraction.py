@@ -1,6 +1,7 @@
+from pprint import pprint
 import os
 import unittest
-from jet.scrapers.utils import extract_clickable_texts_from_rendered_page, extract_element_screenshots, extract_form_elements, extract_search_inputs, extract_title_and_metadata, extract_internal_links
+from jet.scrapers.utils import extract_clickable_texts_from_rendered_page, extract_element_screenshots, extract_form_elements, extract_search_inputs, extract_title_and_metadata, extract_internal_links, extract_by_heading_hierarchy
 
 
 class TestExtractTitleAndMetadata(unittest.TestCase):
@@ -226,6 +227,245 @@ class TestExtractSearchInputs(unittest.TestCase):
         html_sample = "<input type='text' id='valid_input' class='text-box'>"
         result = extract_search_inputs(html_sample)
         self.assertEqual(result, ['#valid_input', '.text-box'])
+
+
+class TestExtractByHeadingHierarchy(unittest.TestCase):
+
+    def test_single_heading(self):
+        html = """
+        <html>
+            <body>
+                <h1>Main Heading</h1>
+                <p>Content under main heading</p>
+            </body>
+        </html>
+        """
+        result = extract_by_heading_hierarchy(html)
+
+        # Expecting 2 nodes, one for h1 and one for the paragraph under it
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]['tag'], 'h1')
+        self.assertEqual(result[1]['tag'], 'p')
+        self.assertEqual(result[1]['text'], 'Content under main heading')
+
+        # Check depth and parent-child relationships
+        self.assertEqual(result[0]['depth'], 0)  # h1 has depth 0
+        # p is a child of h1, so it has depth 1
+        self.assertEqual(result[1]['depth'], 1)
+        self.assertEqual(result[1]['parent'], result[0]
+                         ['id'])  # p's parent should be h1
+
+    def test_multiple_headings(self):
+        html = """
+        <html>
+            <body>
+                <h1>Main Heading</h1>
+                <p>Content under main heading</p>
+                <h2>Subheading 1</h2>
+                <p>Content under subheading 1</p>
+                <h2>Subheading 2</h2>
+                <p>Content under subheading 2</p>
+            </body>
+        </html>
+        """
+        result = extract_by_heading_hierarchy(html)
+
+        # Expecting 5 nodes (1 h1, 2 h2, and 2 paragraphs under h2)
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[0]['tag'], 'h1')
+        self.assertEqual(result[1]['tag'], 'p')
+        self.assertEqual(result[2]['tag'], 'h2')
+        self.assertEqual(result[3]['tag'], 'p')
+        self.assertEqual(result[4]['tag'], 'h2')
+
+        # Check depth and parent-child relationships
+        self.assertEqual(result[0]['depth'], 0)  # h1 has depth 0
+        # p is a child of h1, so it has depth 1
+        self.assertEqual(result[1]['depth'], 1)
+        self.assertEqual(result[1]['parent'], result[0]
+                         ['id'])  # p's parent should be h1
+
+        self.assertEqual(result[2]['depth'], 1)  # h2 has depth 1
+        # p is a child of h2, so p's depth is 2
+        self.assertEqual(result[3]['depth'], 2)
+        self.assertEqual(result[3]['parent'], result[2]
+                         ['id'])  # p's parent should be h2
+
+        self.assertEqual(result[4]['depth'], 1)  # h2 has depth 1
+        # p is a child of h2, so p's depth is 2
+        self.assertEqual(result[5]['depth'], 2)
+        self.assertEqual(result[5]['parent'], result[4]
+                         ['id'])  # p's parent should be h2
+
+    def test_heading_without_content(self):
+        html = """
+        <html>
+            <body>
+                <h1>Main Heading</h1>
+                <h2>Subheading 1</h2>
+                <h3>Sub-subheading</h3>
+            </body>
+        </html>
+        """
+        result = extract_by_heading_hierarchy(html)
+
+        # Expecting 4 nodes: h1, h2, h3, and a text node under h2
+        self.assertEqual(len(result), 4)
+        self.assertEqual(result[0]['tag'], 'h1')
+        self.assertEqual(result[1]['tag'], 'h2')
+        self.assertEqual(result[2]['tag'], 'h3')
+
+        # Check depth and parent-child relationships
+        self.assertEqual(result[0]['depth'], 0)  # h1 has depth 0
+        self.assertEqual(result[1]['depth'], 1)  # h2 has depth 1
+        self.assertEqual(result[2]['depth'], 2)  # h3 has depth 2
+
+        # No text nodes, so no children should be added to h1, h2, or h3
+        self.assertEqual(result[0]['children'], [])
+        self.assertEqual(result[1]['children'], [])
+        self.assertEqual(result[2]['children'], [])
+
+    def test_no_headings(self):
+        html = """
+        <html>
+            <body>
+                <p>Only some content here.</p>
+                <p>More content here.</p>
+            </body>
+        </html>
+        """
+        result = extract_by_heading_hierarchy(html)
+
+        # Expecting 2 nodes, both paragraphs
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]['tag'], 'p')
+        self.assertEqual(result[1]['tag'], 'p')
+
+        # Check depth and parent-child relationships
+        self.assertEqual(result[0]['depth'], 0)  # p has depth 0
+        # p has depth 0, as no headings exist
+        self.assertEqual(result[1]['depth'], 0)
+
+    def test_empty_html(self):
+        html = """
+        <html>
+            <body>
+            </body>
+        </html>
+        """
+        result = extract_by_heading_hierarchy(html)
+
+        # Expecting an empty list, since there are no headings or content
+        self.assertEqual(result, [])
+
+    def test_content_between_headings(self):
+        html = """
+        <html>
+            <body>
+                <h1>Main Heading</h1>
+                <p>Content under main heading</p>
+                <h2>Subheading 1</h2>
+                <p>Content under subheading 1</p>
+                <h2>Subheading 2</h2>
+                <p>Content under subheading 2</p>
+                <h3>Sub-subheading</h3>
+                <p>Content under sub-subheading</p>
+            </body>
+        </html>
+        """
+        result = extract_by_heading_hierarchy(html)
+
+        # Expecting 6 nodes: h1, h2, h2, h3, and paragraphs under each heading
+        self.assertEqual(len(result), 6)
+
+        # Check the headings and their corresponding content
+        self.assertEqual(result[0]['tag'], 'h1')
+        self.assertEqual(result[1]['tag'], 'p')
+        self.assertEqual(result[2]['tag'], 'h2')
+        self.assertEqual(result[3]['tag'], 'p')
+        self.assertEqual(result[4]['tag'], 'h2')
+        self.assertEqual(result[5]['tag'], 'p')
+
+        # Check depth and parent-child relationships
+        self.assertEqual(result[0]['depth'], 0)  # h1 has depth 0
+        # p is a child of h1, so it has depth 1
+        self.assertEqual(result[1]['depth'], 1)
+        self.assertEqual(result[1]['parent'], result[0]
+                         ['id'])  # p's parent should be h1
+
+        self.assertEqual(result[2]['depth'], 1)  # h2 has depth 1
+        # p is a child of h2, so p's depth is 2
+        self.assertEqual(result[3]['depth'], 2)
+        self.assertEqual(result[3]['parent'], result[2]
+                         ['id'])  # p's parent should be h2
+
+        self.assertEqual(result[4]['depth'], 1)  # h2 has depth 1
+        # p is a child of h2, so p's depth is 2
+        self.assertEqual(result[5]['depth'], 2)
+        self.assertEqual(result[5]['parent'], result[4]
+                         ['id'])  # p's parent should be h2
+
+    def test_custom_tags_to_split_on(self):
+        html = """
+        <html>
+            <body>
+                <h1>Main Heading</h1>
+                <p>Content under main heading</p>
+                <h2>Subheading 1</h2>
+                <p>Content under subheading 1</p>
+            </body>
+        </html>
+        """
+        custom_tags = ['h1', 'h3']
+        result = extract_by_heading_hierarchy(
+            html, tags_to_split_on=custom_tags)
+
+        # We should have only the h1 and h3 as root nodes, with text in between
+        # 2 nodes for h1 and h3, plus 2 paragraphs
+        self.assertEqual(len(result), 4)
+        self.assertEqual(result[0]['tag'], 'h1')
+        self.assertEqual(result[2]['tag'], 'h3')
+        self.assertEqual(result[1]['tag'], 'p')
+        self.assertEqual(result[3]['tag'], 'p')
+
+        # Check depth and parent-child relationships
+        self.assertEqual(result[0]['depth'], 0)  # h1 has depth 0
+        # p is a child of h1, so p's depth is 1
+        self.assertEqual(result[1]['depth'], 1)
+        self.assertEqual(result[1]['parent'], result[0]
+                         ['id'])  # p's parent should be h1
+
+        # h3 has depth 0 because of custom tags
+        self.assertEqual(result[2]['depth'], 0)
+        # p is a child of h3, so p's depth is 1
+        self.assertEqual(result[3]['depth'], 1)
+        self.assertEqual(result[3]['parent'], result[2]
+                         ['id'])  # p's parent should be h3
+
+    def test_heading_with_non_text_children(self):
+        html = """
+        <html>
+            <body>
+                <h1>Main Heading</h1>
+                <div>Some non-text content</div>
+                <p>Content under main heading</p>
+            </body>
+        </html>
+        """
+        result = extract_by_heading_hierarchy(html)
+
+        # Expecting 3 nodes: h1, div (ignored), and the paragraph
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0]['tag'], 'h1')
+        self.assertEqual(result[1]['tag'], 'p')
+        self.assertEqual(result[2]['tag'], 'p')
+
+        # Check depth and parent-child relationships
+        self.assertEqual(result[0]['depth'], 0)  # h1 has depth 0
+        # p is a child of h1, so it has depth 1
+        self.assertEqual(result[1]['depth'], 1)
+        self.assertEqual(result[1]['parent'], result[0]
+                         ['id'])  # p's parent should be h1
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import unittest
-from jet.llm.prompt_templates.base import create_dynamic_model
+from jet.data.base import BaseModel, create_dynamic_model
 
 
 class TestDynamicModelCreation(unittest.TestCase):
@@ -231,6 +231,39 @@ class TestDynamicModelCreation(unittest.TestCase):
         # No guarantee that properties are present in flat mode
         self.assertNotIn(
             "properties", schema["properties"]["records"]["items"])
+
+    def test_custom_base_model_override(self):
+        class CustomOverride(BaseModel):
+            @classmethod
+            def model_json_schema(cls, *args, **kwargs):
+                schema = super().model_json_schema(*args, **kwargs)
+                schema["x-custom"] = "injected"
+                return schema
+
+        schema = {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"]
+        }
+
+        Model = create_dynamic_model(
+            schema, model_name="IDModel", base_model=CustomOverride)
+
+        model_schema = Model.model_json_schema()
+        self.assertEqual(model_schema["x-custom"], "injected")
+
+    def test_original_schema_is_preserved(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "count": {"type": "integer"}
+            },
+            "required": ["id"]
+        }
+
+        Model = create_dynamic_model(schema)
+        self.assertEqual(Model.model_json_schema(), schema)
 
 
 if __name__ == "__main__":

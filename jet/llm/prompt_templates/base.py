@@ -2,8 +2,8 @@ import json
 import textwrap
 import os
 import string
-from typing import Any, Dict, Optional, Type, TypedDict, Union
-from pydantic import create_model, BaseModel
+from typing import Any, Dict, Type
+from jet.data.base import BaseModel, convert_json_schema_to_model_type
 from jet.file.utils import load_file
 from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.llm.ollama.base import chat
@@ -64,6 +64,15 @@ def generate_browser_query_json_schema(query: str, model: OLLAMA_MODEL_NAMES = _
     return result
 
 
+def generate_browser_query_context_json_schema(query: str, context: str, model: OLLAMA_MODEL_NAMES = _DEFAULT_MODEL) -> Dict:
+    # prompt = _generate_prompt(
+    #     "Generate_Browser_Query_JSON_Schema.md", browser_query=query)
+    system = _generate_prompt("System_Browser_Query_Context_JSON_Schema.md")
+    json_result = _run_chat(query, model, context=context, system=system)
+    result = parse_json(json_result)
+    return result
+
+
 def generate_json_schema_sample(json_schema: str | dict, query: str, model: OLLAMA_MODEL_NAMES = _DEFAULT_MODEL) -> Dict:
     if not isinstance(json_schema, str):
         json_schema = json.dumps(json_schema, indent=2)
@@ -97,81 +106,11 @@ def generate_pydantic_models(context: str, model: OLLAMA_MODEL_NAMES = _DEFAULT_
     return python_code
 
 
-def map_json_type_to_python(
-    json_type: Union[str, list[str]],
-    field_schema: Dict[str, Any],
-    field_name: str = "Nested",
-    nested: bool = False
-) -> Any:
-    if isinstance(json_type, list):
-        non_null_types = [t for t in json_type if t != "null"]
-        if len(non_null_types) == 1:
-            base_type = map_json_type_to_python(
-                non_null_types[0], field_schema, field_name, nested)
-            return Optional[base_type]
-        return Any
-
-    if json_type == "string":
-        return str
-    elif json_type == "number":
-        return float
-    elif json_type == "integer":
-        return int
-    elif json_type == "boolean":
-        return bool
-    elif json_type == "null":
-        return type(None)
-    elif json_type == "object":
-        if nested:
-            sub_model = create_dynamic_model(
-                field_schema, model_name=field_name.capitalize() + "Model", nested=nested)
-            return sub_model
-        else:
-            return Dict[str, Any]
-    elif json_type == "array":
-        if nested:
-            items_schema = field_schema.get("items", {})
-            items_type = map_json_type_to_python(items_schema.get(
-                "type", "any"), items_schema, field_name + "Item", nested)
-        else:
-            items_type = map_json_type_to_python(field_schema.get(
-                "items", {}).get("type", "any"), field_schema.get("items", {}))
-
-        return list[items_type]
-    return Any
-
-
-def create_dynamic_model(
-    json_schema: str | Dict[str, Any],
-    *,
-    model_name: str = "DynamicModel",
-    nested: bool = False
-) -> Type[BaseModel]:
-    if isinstance(json_schema, str):
-        json_schema = json.loads(json_schema)
-
-    model_fields = {}
-    required_fields = set(json_schema.get("required", []))
-    properties = json_schema.get("properties", {})
-
-    for field_name, field_schema in properties.items():
-        json_type = field_schema.get("type", "any")
-        python_type = map_json_type_to_python(
-            json_type, field_schema, field_name, nested)
-
-        if field_name in required_fields:
-            model_fields[field_name] = (python_type, ...)
-        else:
-            model_fields[field_name] = (Optional[python_type], None)
-
-    return create_model(model_name, **model_fields)
-
-
-def convert_json_schema_to_model_instance(data: Dict, json_schema: str | Dict) -> BaseModel:
-    # Create the dynamic model based on the JSON schema
-    DynamicModel = create_dynamic_model(json_schema)
-
-    # Create an instance of the dynamically created model
-    model_instance = DynamicModel(**data)
-
-    return model_instance
+def generate_output_class(query: str, model: OLLAMA_MODEL_NAMES) -> Type[BaseModel]:
+    """
+    Generate output model structure
+    """
+    json_schema = generate_browser_query_json_schema(query, model)
+    DynamicModel = convert_json_schema_to_model_type(json_schema)
+    output_cls = DynamicModel
+    return output_cls

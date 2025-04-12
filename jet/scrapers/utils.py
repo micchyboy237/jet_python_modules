@@ -1,3 +1,5 @@
+from copy import deepcopy
+import uuid
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from pathlib import Path
 from typing import List, Optional, TypedDict
@@ -617,15 +619,6 @@ def extract_search_inputs(source: str, timeout_ms: int = 1000) -> List[str]:
         return search_inputs
 
 
-class TreeNode(Dict):
-    tag: str
-    text: Optional[str]
-    depth: int
-    id: Optional[str]
-    class_names: List[str]
-    children: List['TreeNode']
-
-
 def exclude_elements(doc, excludes: List[str]) -> None:
     """
     Removes elements from the document that match the tags in the excludes list.
@@ -639,15 +632,23 @@ def exclude_elements(doc, excludes: List[str]) -> None:
             pq(element).remove()
 
 
-def extract_tree_with_text(source: str, excludes: List[str] = ["style", "script"], timeout_ms: int = 1000) -> Optional[Dict]:
-    """
-    Extracts a tree-like structure with parent elements and their corresponding text.
-    Uses Playwright if the source is a URL or if dynamic content needs to be rendered.
+class TreeNode(Dict):
+    tag: str
+    text: Optional[str]
+    depth: int
+    id: str
+    parent: Optional[str]
+    class_names: List[str]
+    children: List['TreeNode']
 
-    :param source: The HTML string or URL to parse.
-    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
-    :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
-    :return: A tree-like structure with parent elements and their corresponding text.
+
+def extract_tree_with_text(
+    source: str,
+    excludes: List[str] = ["style", "script"],
+    timeout_ms: int = 1000
+) -> Optional[Dict]:
+    """
+    Extracts a tree structure from HTML with id and parent attributes on each node.
     """
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
@@ -659,7 +660,6 @@ def extract_tree_with_text(source: str, excludes: List[str] = ["style", "script"
         url = None
         html = source
 
-    # Use Playwright to render the page if URL is provided
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
@@ -670,58 +670,133 @@ def extract_tree_with_text(source: str, excludes: List[str] = ["style", "script"
             page.set_content(html)
 
         page.wait_for_timeout(timeout_ms)
-
-        # Extract the content
         page_content = page.content()
         browser.close()
 
-    # Parse the content with PyQuery after Playwright has rendered it
     doc = pq(page_content)
-
-    # Apply the exclusion logic before building the tree
     exclude_elements(doc, excludes)
 
-    def build_tree(element, current_depth: int) -> Optional[Dict]:
-        text = pq(element).text().strip()
+    root_el = doc[0]
+    root_id = f"auto_{uuid.uuid4().hex[:8]}"
+    root_node = {
+        "tag": root_el.tag,
+        "text": None,
+        "depth": 0,
+        "id": root_id,
+        "parent": None,
+        "class_names": [],
+        "children": []
+    }
 
-        element_id = pq(element).attr('id')
-        element_class = pq(element).attr('class')
+    stack = [(root_el, root_node, 0)]
 
-        valid_id_pattern = r'^[a-zA-Z_-]+$'
-        id = element_id if element_id and re.match(
-            valid_id_pattern, element_id) else None
-        class_names = [name for name in (element_class.split() if element_class else [])
-                       if not name.startswith('css-')]
+    while stack:
+        el, parent_node, depth = stack.pop()
+        el_pq = pq(el)
 
-        if text and len(pq(element).children()) == 0:
-            return {
-                "tag": pq(element)[0].tag,
-                "text": text,
-                "depth": current_depth,
+        for child in el_pq.children():
+            child_pq = pq(child)
+            tag = child.tag
+            text = child_pq.text().strip()
+            class_names = [cls for cls in (child_pq.attr(
+                "class") or "").split() if not cls.startswith("css-")]
+            element_id = child_pq.attr("id")
+
+            if not element_id or not re.match(r'^[a-zA-Z_-]+$', element_id):
+                element_id = f"auto_{uuid.uuid4().hex[:8]}"
+
+            child_node = {
+                "tag": tag,
+                "text": text if text and not child_pq.children() else None,
+                "depth": depth + 1,
                 "id": element_id,
+                "parent": parent_node["id"],
                 "class_names": class_names,
                 "children": []
             }
 
-        children = []
-        for child in pq(element).children():
-            child_tree = build_tree(child, current_depth + 1)
-            if child_tree:
-                children.append(child_tree)
+            parent_node["children"].append(child_node)
 
-        if children:
-            return {
-                "tag": pq(element)[0].tag,
-                "text": None,
-                "depth": current_depth,
-                "id": id,
-                "class_names": class_names,
-                "children": children
-            }
-        return None
+            # Only push children if element has nested children
+            if child_pq.children():
+                stack.append((child, child_node, depth + 1))
 
-    root = build_tree(doc[0], 0)
-    return root
+    return root_node
+
+
+def extract_by_heading_hierarchy(
+    source: str,
+    tags_to_split_on: List[str] = ["h1", "h2", "h3", "h4", "h5", "h6"]
+) -> List[TreeNode]:
+    """
+    Organizes nodes from the extracted tree structure based on heading tags.
+    Each heading tag gets a correct parent based on its level in the `tags_to_split_on` hierarchy.
+
+    :param source: The source HTML content.
+    :param tags_to_split_on: List of tags to treat as hierarchical headings (default is ["h1", "h2", "h3", "h4", "h5", "h6"]).
+
+    :return: A list of TreeNode objects with correct parent-child relationships.
+    """
+    result: List[TreeNode] = []
+    parent_stack: List[TreeNode] = []
+
+    # Recursive function to process the tree nodes
+    def traverse(node: Dict, parent_node: Optional[TreeNode] = None) -> None:
+        nonlocal parent_stack
+
+        # Determine the level of the current node based on its tag index in tags_to_split_on
+        if node["tag"] in tags_to_split_on:
+            level = tags_to_split_on.index(node["tag"])
+
+            # Traverse the parent_stack to find the most recent heading tag at a lower level
+            while parent_stack and parent_stack[-1]["depth"] >= level:
+                parent_stack.pop()
+
+            # If there's a valid parent, set it as the parent for the current node
+            if parent_stack:
+                parent_node = parent_stack[-1]
+            else:
+                parent_node = None  # In case no valid parent exists at a lower level
+
+            # Create a new node for this heading
+            new_node = TreeNode(
+                tag=node["tag"],
+                text=node["text"],
+                depth=level,
+                id=node["id"],
+                parent=parent_node["id"] if parent_node else None,
+                class_names=node["class_names"],
+                children=[]
+            )
+
+            # Add this node to the result list
+            result.append(new_node)
+
+            # Add the new node to the stack
+            parent_stack.append(new_node)
+
+        else:
+            # If the node is not a heading tag, treat it as content for the current parent
+            if parent_stack:
+                parent_stack[-1]["children"].append(TreeNode(
+                    tag=node["tag"],
+                    text=node["text"],
+                    depth=node["depth"],
+                    id=node["id"],
+                    parent=parent_stack[-1]["id"],
+                    class_names=node["class_names"],
+                    children=[]
+                ))
+
+        # Process children of the current node
+        for child_node in node["children"]:
+            traverse(child_node, parent_stack[-1] if parent_stack else None)
+
+    tree = extract_tree_with_text(source)
+    # Start traversal from the root of the tree
+    traverse(tree)
+
+    return result
 
 
 def extract_text_elements(source: str, excludes: List[str] = ["style", "script"], timeout_ms: int = 1000) -> List[str]:
@@ -790,18 +865,6 @@ def extract_text_elements(source: str, excludes: List[str] = ["style", "script"]
     text_elements = extract_text(doc[0])
 
     return text_elements
-
-
-def exclude_elements(doc, excludes: List[str]) -> None:
-    """
-    Removes elements from the document that match the tags in the excludes list.
-
-    :param doc: The PyQuery object representing the HTML document.
-    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
-    """
-    for tag in excludes:
-        for element in doc(tag):
-            pq(element).remove()
 
 
 def format_html(html: str, excludes: List[str] = ["style", "script"]) -> str:

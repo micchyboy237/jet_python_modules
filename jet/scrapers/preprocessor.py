@@ -1,4 +1,5 @@
 import json
+import re
 import html2text
 import parsel
 import math
@@ -6,6 +7,12 @@ from bs4 import BeautifulSoup
 import bs4.element
 from .utils import clean_newlines, clean_tags, clean_text
 from jet.logger import logger
+
+
+def remove_markdown_comments(markdown_text: str) -> str:
+    """Removes all HTML-style markdown comments and strips the result."""
+    cleaned = re.sub(r'<!--.*?-->', '', markdown_text, flags=re.DOTALL)
+    return cleaned.strip()
 
 
 def remove_display_none_elements(html_string):
@@ -342,6 +349,7 @@ def scrape_markdown(html_str: str) -> dict:
 
 
 __all__ = [
+    "remove_markdown_comments",
     "convert_html_to_markdown",
     # "get_header_level",
     # "get_header_contents",

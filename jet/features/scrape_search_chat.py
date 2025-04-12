@@ -38,39 +38,41 @@ import time
 import threading
 cachedStopWords = stopwords.words("english")
 
-max_workers = multiprocessing.cpu_count() // 2
+MAX_WORKERS = multiprocessing.cpu_count() // 2
 
 
 # --- Constants ---
 
-PROMPT_TEMPLATE = PromptTemplate("""
---- Documents ---
-{headers}
---- End of Documents ---
+SEARCH_WEB_PROMPT_TEMPLATE = PromptTemplate("""
+Context information is below.
+---------------------
+{context}
+---------------------
+Given the context information and not prior knowledge, answer the query.
 
 Schema:
 {schema}
-
-Instructions:
-{instruction}
 
 Query:
 {query}
 
 Answer:
-""")
+""".lstrip())
 
-INSTRUCTION = """
-Your task is to extract and return all information that directly answers the query from the provided documents.
+SYSTEM_QUERY_SCHEMA_DOCS = """
+You are an intelligent system tasked with extracting answers from the provided context documents based solely on their content.
 
-- Only use the information present in the documents. Do not include any external or prior knowledge.
-- Your output must strictly match the schema format provided below.
-- Use the field descriptions in the schema to guide what content belongs in each field.
-- Do not infer or fabricate data for fields not clearly stated in the documents. Leave optional fields null if information is missing.
-- Remove duplicate or redundant results.
-- Return only a single JSON object conforming to the schema. Do not include explanations, commentary, or additional text.
+Follow these strict instructions:
 
-Ensure the structure and field names exactly match the schema.
+- Use only the information explicitly found in the context. Do not rely on prior knowledge or external sources.
+- Extract and return a single JSON object that strictly adheres to the provided schema.
+- Use the schema’s field descriptions to determine the appropriate placement of content.
+- Do not infer or fabricate values. If a field is optional and not clearly stated in the context, leave it null.
+- Eliminate any duplicate or redundant results.
+- Your response must be only the JSON object—no explanations, headers, or additional commentary.
+- Ensure exact structure, field names, and formatting as defined in the schema.
+
+This instruction governs your behavior for this task.
 """.strip()
 
 
@@ -217,22 +219,29 @@ def process_document(
         chunk_size=sub_chunk_size,
         chunk_overlap=sub_chunk_overlap,
     )
-    parent_map = get_nodes_parent_mapping(sub_nodes, header_docs)
 
-    sub_query = f"Query: {query}\n{doc.metadata['header']}"
-    reranked_sub_nodes = rerank_nodes(
-        sub_query, sub_nodes, embed_models, parent_map)
+    if len(sub_nodes) == 1:
+        top_sub_node = sub_nodes[0]
+        sub_text = top_sub_node.text
+    else:
+        parent_map = get_nodes_parent_mapping(sub_nodes, header_docs)
 
-    reranked_sub_text = "\n".join([n.text for n in reranked_sub_nodes[:3]])
-    reranked_sub_text = reranked_sub_text.lstrip(
+        sub_query = f"Query: {query}\n{doc.metadata['header']}"
+        reranked_sub_nodes = rerank_nodes(
+            sub_query, sub_nodes, embed_models, parent_map)
+
+        sub_text = "\n".join([n.text for n in reranked_sub_nodes[:3]])
+
+        top_sub_node = reranked_sub_nodes[0]
+
+    sub_text = sub_text.lstrip(
         doc.metadata['header']).strip()
-    reranked_sub_text = strip_left_hashes(reranked_sub_text)
+    sub_text = strip_left_hashes(sub_text)
 
-    top_sub_node = reranked_sub_nodes[0]
     return TextNode(
         text=(
             f"Document number: {top_sub_node.metadata['doc_index'] + 1}\n"
-            f"```text\n{top_sub_node.metadata['header']}\n{reranked_sub_text}\n```"
+            f"```text\n{top_sub_node.metadata['header']}\n{sub_text}\n```"
         ),
         metadata=top_sub_node.metadata,
     )
@@ -258,38 +267,36 @@ class EvalContextError(Exception):
         self.eval_result = eval_result
 
 
-def run_scrape_search_chat(
-    html,
+def get_all_header_nodes(
+    header_docs: list[Document],
+    header_tokens: list[list[int]],
     query: str,
-    output_cls: Type[BaseModel],
-    instruction: Optional[str] = None,
-    prompt_template: PromptTemplate = PROMPT_TEMPLATE,
-    llm_model: OLLAMA_MODEL_NAMES = "mistral",
-    embed_models: OLLAMA_EMBED_MODELS | list[OLLAMA_EMBED_MODELS] = "paraphrase-multilingual",
-    min_tokens_per_group: Optional[int | float] = None,
-    max_tokens_per_group: Optional[int | float] = None,
-):
-    model_max_tokens = get_model_max_tokens(llm_model)
-    if not max_tokens_per_group:
-        max_tokens_per_group = model_max_tokens * 0.5
-    if not min_tokens_per_group:
-        min_tokens_per_group = max_tokens_per_group * 0.5
+    llm_model: str,
+    embed_models: OLLAMA_EMBED_MODELS | list[OLLAMA_EMBED_MODELS],
+    sub_chunk_size: int,
+    sub_chunk_overlap: int,
+    max_workers: int = MAX_WORKERS,
+) -> list[TextNode]:
+    process_args = [
+        (doc_idx, doc, header_docs, header_tokens, query, llm_model,
+         embed_models, sub_chunk_size, sub_chunk_overlap)
+        for doc_idx, doc in enumerate(header_docs)
+    ]
 
-    instruction = instruction or INSTRUCTION
+    all_header_nodes: list[TextNode] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_process_document_star, args)
+                   for args in process_args]
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing documents"):
+            all_header_nodes.append(future.result())
 
-    if isinstance(embed_models, str):
-        embed_models = [embed_models]
+    return all_header_nodes
 
-    embed_model = embed_models[0]
+
+def get_header_tokens_and_update_metadata(header_docs: list[Document], embed_model: OLLAMA_EMBED_MODELS) -> list[list[int]]:
+    embed_model_ollama = OllamaEmbedding(model_name=embed_model)
     embed_model_max_tokens = get_model_max_tokens(embed_model)
 
-    sub_chunk_size = 128
-    sub_chunk_overlap = 40
-
-    header_docs = get_docs_from_html(html)
-    shared_header_doc = header_docs[0]
-
-    embed_model_ollama = OllamaEmbedding(model_name=embed_model)
     header_tokens: list[list[int]] = embed_model_ollama.encode(
         [d.text for d in header_docs])
 
@@ -303,19 +310,54 @@ def run_scrape_search_chat(
             logger.warning(error)
 
         doc.metadata["tokens"] = header_token_count
+    return header_tokens
 
-    process_args = [
-        (doc_idx, doc, header_docs, header_tokens, query, llm_model,
-         embed_models, sub_chunk_size, sub_chunk_overlap)
-        for doc_idx, doc in enumerate(header_docs)
-    ]
 
-    all_header_nodes: list[TextNode] = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_process_document_star, args)
-                   for args in process_args]
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing documents"):
-            all_header_nodes.append(future.result())
+def run_scrape_search_chat(
+    html,
+    query: str,
+    output_cls: Type[BaseModel],
+    instruction: str = SYSTEM_QUERY_SCHEMA_DOCS,
+    prompt_template: PromptTemplate = SEARCH_WEB_PROMPT_TEMPLATE,
+    llm_model: OLLAMA_MODEL_NAMES = "mistral",
+    embed_models: OLLAMA_EMBED_MODELS | list[OLLAMA_EMBED_MODELS] = "paraphrase-multilingual",
+    min_tokens_per_group: Optional[int | float] = None,
+    max_tokens_per_group: Optional[int | float] = None,
+    max_workers: int = MAX_WORKERS,
+):
+    model_max_tokens = get_model_max_tokens(llm_model)
+    if not max_tokens_per_group or (isinstance(max_tokens_per_group, float) and max_tokens_per_group < 1):
+        max_tokens_per_group = model_max_tokens * (max_tokens_per_group or 0.5)
+    if not min_tokens_per_group or (isinstance(min_tokens_per_group, float) and min_tokens_per_group < 1):
+        min_tokens_per_group = max_tokens_per_group * \
+            (min_tokens_per_group or 0.5)
+
+    instruction = instruction or SYSTEM_QUERY_SCHEMA_DOCS
+
+    if isinstance(embed_models, str):
+        embed_models = [embed_models]
+
+    embed_model = embed_models[0]
+
+    sub_chunk_size = 128
+    sub_chunk_overlap = 40
+
+    header_docs = get_docs_from_html(html)
+    shared_header_doc = header_docs[0]
+
+    header_tokens = get_header_tokens_and_update_metadata(
+        header_docs, embed_model)
+
+    all_header_nodes = get_all_header_nodes(
+        header_docs,
+        header_tokens,
+        query,
+        llm_model,
+        embed_models,
+        sub_chunk_size,
+        sub_chunk_overlap,
+        max_workers=max_workers
+    )
 
     header_parent_map = get_nodes_parent_mapping(all_header_nodes, header_docs)
 

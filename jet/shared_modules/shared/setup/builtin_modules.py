@@ -55,6 +55,7 @@ from .import_modules import (
     format_html,
     print_html,
 
+    remove_markdown_comments,
     convert_html_to_markdown,
     html_to_markdown,
     scrape_markdown,
@@ -204,6 +205,8 @@ def inject_globals():
         builtins.format_html = format_html
     if not hasattr(builtins, "print_html"):
         builtins.print_html = print_html
+    if not hasattr(builtins, "remove_markdown_comments"):
+        builtins.remove_markdown_comments = remove_markdown_comments
     if not hasattr(builtins, "convert_html_to_markdown"):
         builtins.convert_html_to_markdown = convert_html_to_markdown
     if not hasattr(builtins, "html_to_markdown"):

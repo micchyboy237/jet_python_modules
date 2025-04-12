@@ -35,11 +35,11 @@ DETERMINISTIC_LLM_SETTINGS = {
 PROMPT_CONTEXT_TEMPLATE = PromptTemplate(
     "Context information is below.\n"
     "---------------------\n"
-    "{context_str}\n"
+    "{context}\n"
     "---------------------\n"
     "Given the context information and not prior knowledge, "
     "answer the query.\n"
-    "Query: {query_str}\n"
+    "Query: {query}\n"
     "Answer: "
 )
 
@@ -58,10 +58,10 @@ def call_ollama_chat(
     messages: str | list[Message] | PromptTemplate,
     model: str = "llama3.2",
     *,
-    system: str = "",
+    system: Optional[str] = None,
     context: Optional[str] = None,
     tools: list[Tool] = None,
-    format: Union[str, dict] = None,
+    format: Optional[Union[str, dict]] = None,
     options: OllamaChatOptions = {},
     stream: bool = True,
     keep_alive: Union[str, int] = "15m",
@@ -119,8 +119,9 @@ def call_ollama_chat(
         messages = [
             Message(content=prompt, role=MessageRole.USER)
         ]
+
     # Updates latest user message with context if available
-    elif context:
+    if context:
         # Iterate through messages from the end to find the latest user message
         latest_user_message: Optional[Message] = None
         for msg in reversed(messages):
@@ -133,16 +134,16 @@ def call_ollama_chat(
                 "No user message found in the conversation history.")
 
         # Construct the context with the latest user message
-        context_str = context if context else ""
-        query_str = latest_user_message["content"]
+        context = context if context else ""
+        query = latest_user_message["content"]
 
         # Use the template if available, otherwise use the default prompt template
         if template:
-            prompt = template.format(**template_vars)
+            prompt = template.format(
+                **template_vars, context=context, query=query)
         else:
             template = PROMPT_CONTEXT_TEMPLATE
-            prompt = template.format(
-                context_str=context_str, query_str=query_str)
+            prompt = template.format(context=context, query=query)
         latest_user_message["content"] = prompt
 
     model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
@@ -179,7 +180,8 @@ def call_ollama_chat(
     # num_ctx = calc_result["num_ctx"]
     # else:
     # num_ctx = options.get("num_ctx", model_max_length)
-    predict_tokens = num_ctx - system_tokens + prompt_tokens
+    predict_tokens = num_ctx - (system_tokens + prompt_tokens)
+    max_prompt_tokens = model_max_length - buffer
     derived_options = {
         "num_predict": num_predict,
         "num_ctx": num_ctx,
@@ -200,17 +202,16 @@ def call_ollama_chat(
     logger.log("Model:", model, colors=["GRAY", "INFO"])
     logger.log("System Tokens:", system_tokens, colors=["GRAY", "DEBUG"])
     logger.log("Prompt Tokens:", prompt_tokens, colors=["GRAY", "DEBUG"])
-    logger.log("Max Prompt Tokens:", model_max_length -
-               buffer, colors=["GRAY", "INFO"])
-    logger.log("Remaining Tokens:", model_max_length -
-               system_tokens + prompt_tokens, colors=["GRAY", "INFO"])
+    logger.log("Remaining Tokens:", predict_tokens, colors=["GRAY", "INFO"])
+    logger.log("Max Prompt Tokens:", max_prompt_tokens,
+               colors=["GRAY", "INFO"])
     logger.log("num_ctx:", num_ctx, colors=["GRAY", "ORANGE"])
     logger.log("Max Tokens:", model_max_length, colors=["GRAY", "ORANGE"])
     logger.newline()
 
-    if system_tokens + prompt_tokens > model_max_length - buffer:
+    if system_tokens + prompt_tokens > max_prompt_tokens:
         raise ValueError(
-            f"Token count ({system_tokens + prompt_tokens}) exceeds maximum allowed tokens ({model_max_length - buffer})"
+            f"Token count ({system_tokens + prompt_tokens}) exceeds maximum allowed tokens ({max_prompt_tokens})"
         )
 
     logger.debug("Generating response...")

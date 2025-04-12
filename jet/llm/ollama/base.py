@@ -398,19 +398,26 @@ class Ollama(BaseOllama):
         output_cls: Type[BaseModel],
         prompt: PromptTemplate,
         model: Optional[OLLAMA_MODEL_NAMES] = None,
+        system: Optional[str] = None,
         llm_kwargs: dict[str, Any] = {},
         **prompt_args: Any,
     ) -> BaseModel:
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
             llm_kwargs["format"] = output_cls.model_json_schema()
 
+            query = prompt_args.pop("query")
+            context = prompt_args.pop("context")
+
             llm_kwargs = {
                 **llm_kwargs,
-                "model": llm_kwargs.get("model", model)
+                "messages": llm_kwargs.get("messages", query),
+                "system": llm_kwargs.get("system", system),
+                "context": llm_kwargs.get("context", context),
+                "model": llm_kwargs.get("model", model),
+                "template": prompt.partial_format(**prompt_args),
             }
 
-            messages = prompt.format_messages(**prompt_args)
-            response = self.chat(messages, **llm_kwargs)
+            response = self.chat(**llm_kwargs)
 
             extracted_result = extract_json_block_content(
                 response.message.content or "")
@@ -511,7 +518,17 @@ def _convert_to_ollama_messages(messages: Sequence[ChatMessage]) -> Dict:
     return ollama_messages
 
 
-def chat(messages: str | Sequence[ChatMessage] | Sequence[OllamaMessage] | PromptTemplate, model: str = "llama3.2", *, system: str = None, format: Any = None, stream: bool = True, tools=[], **kwargs: Any) -> ChatResponse:
+def chat(
+    messages: str | Sequence[ChatMessage] | Sequence[OllamaMessage] | PromptTemplate,
+    model: str = "llama3.2",
+    *,
+    system: Optional[str] = None,
+    context: Optional[str] = None,
+    format: Optional[Union[str, dict]] = None,
+    stream: bool = True,
+    tools=[],
+    **kwargs: Any,
+) -> ChatResponse:
     from jet.actions.generation import call_ollama_chat
     # from jet.token.token_utils import token_counter
 
@@ -529,6 +546,7 @@ def chat(messages: str | Sequence[ChatMessage] | Sequence[OllamaMessage] | Promp
         "model": model,
         "messages": ollama_messages,
         "system": system,
+        "context": context,
         "stream": stream,
         "format": format,
         "tools": tools,
