@@ -142,7 +142,7 @@ def create_dynamic_model(json_schema: str | Dict[str, Any]) -> BaseModel:
     return create_model("DynamicModel", **model_fields)
 
 
-def convert_json_schema_to_model_instance(data: Dict, json_schema: str | Dict) -> Type[BaseModel]:
+def convert_json_schema_to_model_instance(data: Dict, json_schema: str | Dict) -> BaseModel:
     # Create the dynamic model based on the JSON schema
     DynamicModel = create_dynamic_model(json_schema)
 
