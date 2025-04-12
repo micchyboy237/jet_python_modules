@@ -187,7 +187,7 @@ class WebCrawler(SeleniumScraper):
             )
         except Exception as e:
             logger.error(f"Failed to find anchor elements: {e}")
-            raise
+            return
 
         if self.non_crawlable:
             return
