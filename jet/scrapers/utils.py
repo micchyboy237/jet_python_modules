@@ -678,8 +678,13 @@ def extract_tree_with_text(
 
     root_el = doc[0]
     root_id = f"auto_{uuid.uuid4().hex[:8]}"
+
+    # Ensure root_el.tag returns the actual tag name as a string
+    tag_name = root_el.tag if isinstance(
+        root_el.tag, str) else str(root_el.tag)
+
     root_node = {
-        "tag": root_el.tag,
+        "tag": tag_name,  # Ensure tag is a string
         "text": None,
         "depth": 0,
         "id": root_id,
@@ -696,7 +701,8 @@ def extract_tree_with_text(
 
         for child in el_pq.children():
             child_pq = pq(child)
-            tag = child.tag
+            tag = child.tag if isinstance(child.tag, str) else str(
+                child.tag)  # Ensure tag is a string
             text = child_pq.text().strip()
             class_names = [cls for cls in (child_pq.attr(
                 "class") or "").split() if not cls.startswith("css-")]
@@ -930,8 +936,8 @@ def print_html(html: str):
             if node['tag'] in excludes:
                 return
 
-            # or node['children'][0]['text']:
-            if node['text'] or node['id'] or node['class_names'] or node['children'][0]['text']:
+            # or node['children'][0]['text']
+            if node['text'] or node['id'] or node['class_names'] or (node['children'] and node['children'][0]['text']):
                 tag_text = node['tag']
                 if node['id']:
                     tag_text += " " + colorize_log(f"#{node['id']}", "YELLOW")
