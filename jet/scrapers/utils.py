@@ -5,7 +5,6 @@ from collections import defaultdict
 import os
 from typing import Generator, List, Optional
 from urllib.parse import urljoin, urlparse
-from jet.scrapers.crawler.web_crawler import WebCrawler
 from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
 from pyquery import PyQuery as pq
 from jet.logger.config import colorize_log
@@ -19,6 +18,23 @@ import parsel
 import unidecode
 
 from typing import List
+
+
+def scrape_links(html: str) -> List[str]:
+    # Target attributes to extract
+    attributes = ['href', 'data-href', 'action']
+
+    # Build the pattern dynamically to support quoted values (single or double)
+    attr_pattern = '|'.join(attributes)
+    quote_pattern = (
+        rf'(?:{attr_pattern})\s*=\s*'      # attribute and equal sign
+        r'(["\'])'                         # opening quote (capture group 1)
+        r'(.*?)'                           # value (capture group 2)
+        r'\1'                              # matching closing quote
+    )
+
+    matches = re.findall(quote_pattern, html, flags=re.IGNORECASE)
+    return [match[1] for match in matches]
 
 
 def get_max_prompt_char_length(context_length: int, avg_chars_per_token: float = 4.0) -> int:
@@ -337,9 +353,9 @@ def extract_internal_links(source: str, base_url: str, timeout_ms: int = 1000) -
 
         page.wait_for_timeout(timeout_ms)
 
-        # Extract internal links from href, src, data-url, action attributes
+        # Extract internal links from href, data-href, action attributes
         base_domain = urlparse(base_url).netloc
-        url_attrs = ["href", "src", "data-url", "data-href", "action"]
+        url_attrs = ["href", "data-href", "action"]
 
         for elem in page.query_selector_all("*"):
             for attr in url_attrs:
@@ -914,13 +930,14 @@ def search_data(query) -> list[SearchResult]:
     return results
 
 
-def scrape_urls(urls: list[str]) -> Generator[tuple[str, str], None, None]:
+def scrape_urls(urls: list[str], *, max_depth: Optional[int] = None, query: Optional[str] = None) -> Generator[tuple[str, str], None, None]:
+    from jet.scrapers.crawler.web_crawler import WebCrawler
+
     includes_all = []
     excludes = []
-    max_depth = 0
 
     crawler = WebCrawler(
-        excludes=excludes, includes_all=includes_all, max_depth=max_depth)
+        excludes=excludes, includes_all=includes_all, max_depth=max_depth, query=query)
 
     for start_url in urls:
         for result in crawler.crawl(start_url):

@@ -22,7 +22,7 @@ def remove_display_none_elements(html_string):
     return str(soup)
 
 
-def convert_html_to_markdown(html_string, ignore_links=True):
+def convert_html_to_markdown(html_string: str, ignore_links: bool = True):
     # Remove elements with 'display: none' before converting to Markdown
     filtered_html = remove_display_none_elements(html_string)
 
@@ -145,6 +145,7 @@ def html_to_markdown(
     container_selector: str = 'body',
     remove_selectors: list[str] = [],
     replace_selectors: list[dict] = [],
+    ignore_links: bool = True
 ) -> str:
     from bs4 import BeautifulSoup
 
@@ -177,7 +178,8 @@ def html_to_markdown(
                 element.replace_with(new_element)
 
     # Convert the cleaned HTML to Markdown
-    markdown = convert_html_to_markdown(str(container), ignore_links=False)
+    markdown = convert_html_to_markdown(
+        str(container), ignore_links=ignore_links)
     markdown = clean_text(markdown)
 
     # Find the first instance of "# ", then remove all texts before it

@@ -1,6 +1,6 @@
 import os
 import unittest
-from jet.scrapers.utils import clean_punctuations, clean_spaces, clean_non_alphanumeric, construct_browser_query, safe_path_from_url
+from jet.scrapers.utils import clean_punctuations, clean_spaces, clean_non_alphanumeric, safe_path_from_url, scrape_links
 
 
 class TestCleanSpaces(unittest.TestCase):
@@ -178,6 +178,62 @@ class TestSafePathFromUrl(unittest.TestCase):
         output_dir = "/var/cache/fonts"
         expected = os.path.join("/var/cache/fonts", "cdn_site_com", "font")
         result = safe_path_from_url(url, output_dir)
+        self.assertEqual(result, expected)
+
+
+class TestScrapeLinks(unittest.TestCase):
+
+    def test_absolute_urls(self):
+        sample = '<a href="https://example.com/page"></a>'
+        expected = ['https://example.com/page']
+        result = scrape_links(sample)
+        self.assertEqual(result, expected)
+
+    def test_relative_paths(self):
+        sample = '<form action="/submit-form"></form>'
+        expected = ['/submit-form']
+        result = scrape_links(sample)
+        self.assertEqual(result, expected)
+
+    def test_hash_links(self):
+        sample = '<div data-href="#section1"></div>'
+        expected = ['#section1']
+        result = scrape_links(sample)
+        self.assertEqual(result, expected)
+
+    def test_protocol_relative(self):
+        sample = '<script src="//cdn.example.com/js"></script><a href="//cdn.example.com/css">'
+        expected = ['//cdn.example.com/css']
+        result = scrape_links(sample)
+        self.assertEqual(result, expected)
+
+    def test_mixed_attributes(self):
+        sample = '''
+            <a href="https://a.com"></a>
+            <form action="/do"></form>
+            <div data-href="#x"></div>
+            <a href='//cdn.com/script.js'></a>
+        '''
+        expected = ['https://a.com', '/do', '#x', '//cdn.com/script.js']
+        result = scrape_links(sample)
+        self.assertEqual(result, expected)
+
+    def test_ignores_non_target_attrs(self):
+        sample = '<img src="https://img.com/a.png"><meta content="https://meta.com">'
+        expected = []
+        result = scrape_links(sample)
+        self.assertEqual(result, expected)
+
+    def test_case_insensitivity(self):
+        sample = '<A HREF="https://upper.com"><FORM ACTION="/upper"></FORM>'
+        expected = ['https://upper.com', '/upper']
+        result = scrape_links(sample)
+        self.assertEqual(result, expected)
+
+    def test_empty_input(self):
+        sample = ''
+        expected = []
+        result = scrape_links(sample)
         self.assertEqual(result, expected)
 
 

@@ -1,8 +1,9 @@
 import re
 import time
 import fnmatch
-from typing import Generator, TypedDict
+from typing import Generator, Optional, TypedDict
 from jet.logger.timer import sleep_countdown
+from jet.scrapers.utils import scrape_links
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -19,8 +20,14 @@ def extract_numbers(text):
     return [int(part) if part.isdigit() else part for part in parts]
 
 
+def count_path_segments(url):
+    """Count the number of path segments in the URL."""
+    path = urlparse(url).path
+    return len([segment for segment in path.split('/') if segment])
+
+
 def sort_urls_numerically(urls):
-    return sorted(urls, key=extract_numbers)
+    return sorted(urls, key=lambda url: (count_path_segments(url), extract_numbers(url)))
 
 
 class SeleniumScraper:
@@ -118,7 +125,7 @@ class PageResult(TypedDict):
 
 
 class WebCrawler(SeleniumScraper):
-    def __init__(self, url: str = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: int = 0, max_visited: int = None, max_retries: int = 5):
+    def __init__(self, url: Optional[str] = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: Optional[int] = None, query: Optional[str] = None, max_visited: Optional[int] = None, max_retries: int = 5):
         super().__init__(max_retries=max_retries)
 
         self.non_crawlable = False
@@ -131,9 +138,10 @@ class WebCrawler(SeleniumScraper):
         self.excludes = excludes or []
         self.includes_all = includes_all or []  # NEW: AND condition includes
         self.excludes_all = excludes_all or []  # NEW: AND condition excludes
-        # NEW: Optional max depth (None = unlimited)
+        # max depth (None = unlimited)
         self.max_depth = max_depth
         self.max_visited = max_visited
+        self.query = query
 
     def change_url(self, url: str):
         try:
@@ -192,24 +200,25 @@ class WebCrawler(SeleniumScraper):
         if self.non_crawlable:
             return
 
+        links = scrape_links(html_str)
         full_urls = set()
-        for anchor in anchor_elements:
+        for link in links:
             try:
-                full_url = anchor.get_attribute("href")
-                if full_url:
-                    full_url = self.normalize_url(full_url)
-
-                    # Ensure URLs always start with the base URL
-                    if not full_url.startswith(self.base_url):
-                        full_url = f"{self.base_url.rstrip('/')}/{full_url.lstrip('/')}"
-
-                    if self.host_name in full_url and not self._should_exclude(full_url):
-                        full_urls.add(full_url)
+                if link:
+                    link = self.normalize_url(link)
+                    parsed_link = urlparse(link)
+                    if (
+                        link.startswith(self.base_url)
+                        or parsed_link.hostname is None
+                    ):
+                        if not self._should_exclude(link):
+                            full_urls.add(link)
             except Exception as e:
                 logger.error(f"Failed to process anchor: {e}")
                 continue
 
-        for full_url in sort_urls_numerically(list(full_urls)):
+        sorted_full_urls = sort_urls_numerically(list(full_urls))
+        for full_url in sorted_full_urls:
             yield from self._crawl_recursive(full_url, depth=depth + 1)
 
     def _should_exclude(self, url: str) -> bool:

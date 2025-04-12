@@ -246,6 +246,7 @@ class DocumentTokensExceedsError(Exception):
     """
     Raised when a document token count exceeds the embed model max tokens
     """
+
     def __init__(self, message: str, metadata: Dict):
         super().__init__(message)
         self.metadata = metadata
