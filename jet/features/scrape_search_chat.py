@@ -242,6 +242,18 @@ def _process_document_star(args):
     return process_document(*args)
 
 
+class DocumentTokensExceedsError(Exception):
+    """
+    Raised when a document token count exceeds the embed model max tokens
+    """
+
+
+class EvalContextError(Exception):
+    def __init__(self, message: str, eval_result: EvaluationResult):
+        super().__init__(message)
+        self.eval_result = eval_result
+
+
 def run_scrape_search_chat(
     html,
     query: str,
@@ -265,6 +277,8 @@ def run_scrape_search_chat(
         embed_models = [embed_models]
 
     embed_model = embed_models[0]
+    embed_model_max_tokens = get_model_max_tokens(embed_model)
+
     sub_chunk_size = 128
     sub_chunk_overlap = 40
 
@@ -275,24 +289,34 @@ def run_scrape_search_chat(
     header_tokens: list[list[int]] = embed_model.encode(
         [d.text for d in header_docs])
 
+    for doc, tokens in zip(header_docs, header_tokens):
+        header_token_count = len(tokens)
+
+        # Validate largest node token count
+        if header_token_count > embed_model_max_tokens:
+            raise DocumentTokensExceedsError(
+                f"Document token ({header_token_count}) exceeds {embed_model} model tokens ({embed_model_max_tokens})")
+
+        doc.metadata["tokens"] = header_token_count
+
     process_args = [
         (doc_idx, doc, header_docs, header_tokens, query, llm_model,
          embed_models, sub_chunk_size, sub_chunk_overlap)
         for doc_idx, doc in enumerate(header_docs)
     ]
 
-    header_nodes = []
+    all_header_nodes: list[TextNode] = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_process_document_star, args)
                    for args in process_args]
         for future in tqdm(as_completed(futures), total=len(futures), desc="Processing documents"):
-            header_nodes.append(future.result())
+            all_header_nodes.append(future.result())
 
-    header_parent_map = get_nodes_parent_mapping(header_nodes, header_docs)
+    header_parent_map = get_nodes_parent_mapping(all_header_nodes, header_docs)
 
     # Remove first h1
     filtered_header_nodes = [
-        node for node in header_nodes if node.metadata["doc_index"] != shared_header_doc.metadata["doc_index"]]
+        node for node in all_header_nodes if node.metadata["doc_index"] != shared_header_doc.metadata["doc_index"]]
     # Rerank headers
     reranked_header_nodes = rerank_nodes(
         query, filtered_header_nodes, embed_models, header_parent_map)
@@ -303,156 +327,55 @@ def run_scrape_search_chat(
     grouped_header_nodes = group_nodes(
         sorted_header_nodes, llm_model, max_tokens=max_tokens_per_group)
 
-    for idx, header_nodes in enumerate(grouped_header_nodes):
-        header_texts = [node.text for node in header_nodes]
-        # Prepend shared context
-        header_texts = [shared_header_doc.text] + header_texts
-        headers = "\n\n".join(header_texts)
-        header_tokens: int = token_counter(headers, llm_model)
-        llm = Ollama(temperature=0.3, model=llm_model)
+    # First group only
+    header_nodes = grouped_header_nodes[0]
+    # Evaluate contexts
+    logger.debug(
+        f"Evaluating contexts ({len(response["reranked_nodes"])})...")
+    eval_result = evaluate_context_relevancy(
+        llm_model, query, [n.text for n in response["reranked_nodes"]])
+    if not eval_result.passing:
+        raise EvalContextError("Failed context evaluation", eval_result)
 
-        response = llm.structured_predict(
-            output_cls,
-            prompt_template,
-            model=llm_model,
-            headers=headers,
-            instruction=instruction,
-            query=query,
-            schema=json.dumps(output_cls.model_json_schema(), indent=2),
-        )
-        response_tokens: int = token_counter(format_json(response), llm_model)
-        group_header_doc_indexes = [
-            node.metadata["doc_index"] for node in header_nodes]
-        reranked_group_nodes = [
-            {
-                "doc": node.metadata["doc_index"] + 1,
-                "score": node.score,
-                "text": node.text,
-                "metadata": node.metadata,
-            }
-            for node in reranked_header_nodes
-            if node.metadata["doc_index"] in group_header_doc_indexes
-        ]
+    # for idx, header_nodes in enumerate(grouped_header_nodes):
+    header_texts = [node.text for node in header_nodes]
+    # Prepend shared context
+    header_texts = [shared_header_doc.text] + header_texts
+    headers = "\n\n".join(header_texts)
+    context_tokens: int = token_counter(headers, llm_model)
+    llm = Ollama(temperature=0.3, model=llm_model)
 
-        yield {
-            "group": idx + 1,
-            "query": query,
-            "context": headers,
-            "context_tokens": header_tokens,
-            "reranked_nodes": reranked_group_nodes,
-            "response": response,
-            "response_tokens": response_tokens,
+    response = llm.structured_predict(
+        output_cls,
+        prompt_template,
+        model=llm_model,
+        headers=headers,
+        instruction=instruction,
+        query=query,
+        schema=json.dumps(output_cls.model_json_schema(), indent=2),
+    )
+    response_tokens: int = token_counter(format_json(response), llm_model)
+    group_header_doc_indexes = [
+        node.metadata["doc_index"] for node in header_nodes]
+    reranked_group_nodes = [
+        {
+            "doc": node.metadata["doc_index"] + 1,
+            "score": node.score,
+            "text": node.text,
+            "metadata": node.metadata,
         }
-
-
-# Example usage
-if __name__ == "__main__":
-    class Answer(BaseModel):
-        title: str = Field(
-            ..., description="The exact title of the anime, as it appears in the document.")
-        document_number: int = Field(
-            ..., description="The number of the document that includes this anime (e.g., 'Document number: 3').")
-        release_year: Optional[int] = Field(
-            description="The most recent known release year of the anime, if specified in the document.")
-
-    class QueryResponse(BaseModel):
-        results: list[Answer] = Field(
-            default_factory=list,
-            description="List of relevant anime titles extracted from the documents, matching the user's query. Each entry includes the title, source document number, and release year (if known)."
-        )
-
-    output_cls = QueryResponse
-
-    # --- Inputs ---
-    # llm_model = "gemma3:4b"
-    llm_model = "mistral"
-    embed_models: list[OLLAMA_EMBED_MODELS] = [
-        "paraphrase-multilingual",
-        # "mxbai-embed-large",
+        for node in reranked_header_nodes
+        if node.metadata["doc_index"] in group_header_doc_indexes
     ]
-    eval_model = llm_model
-    output_dir = os.path.join(
-        os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
-    query = "Top otome villainess anime 2025"
-    # query = construct_browser_query(
-    #     search_terms="top 10 romantic comedy anime",
-    #     include_sites=["myanimelist.net",
-    #                    "anilist.co", "animenewsnetwork.com"],
-    #     exclude_sites=["wikipedia.org", "imdb.com"],
-    #     # after_date="2024-01-01",
-    #     # before_date="2025-04-05"
-    # )
-    min_header_count = 5
 
-    # Search urls
-    search_results = search_data(query)
-    urls = [item["url"] for item in search_results]
-
-    scraped_urls_results = scrape_urls(urls)
-    pbar = tqdm(total=len(urls))
-    for url, html in scraped_urls_results:
-        pbar.set_description(f"URL: {url}")
-
-        if not validate_headers(html, min_count=min_header_count):
-            logger.warning(
-                f"Skipping url: {url} due to header count < {min_header_count}")
-            continue
-
-        logger.info(f"Scraping url: {url}")
-        sub_dir = safe_path_from_url(url, output_dir)
-
-        html_file = f"{sub_dir}/scraped_html.html"
-        save_file(html, html_file)
-
-        response_generator = run_scrape_search_chat(
-            html=html,
-            query=query,
-            output_cls=output_cls,
-            llm_model=llm_model,
-            embed_models=embed_models,
-        )
-
-        class ContextNodes(TypedDict):
-            group: int
-            tokens: int
-            nodes: list[NodeWithScore]
-
-        contexts: list[str] = []
-
-        context_nodes: list[ContextNodes] = []
-        context_nodes_dict = {
-            "query": query,
-            "data": context_nodes,
-        }
-
-        class Results(TypedDict):
-            group: int
-            tokens: int
-            results: list[Answer]
-
-        results: list[Results] = []
-        results_dict = {
-            "query": query,
-            "data": results
-        }
-        for response in response_generator:
-            group = response["group"]
-
-            context_tokens = response["context_tokens"]
-            context: str = response["context"]
-            context_nodes.append(
-                {"group": group, "tokens": context_tokens, "nodes": response["context_nodes"]})
-
-            response_obj: QueryResponse = response["response"]
-            response_tokens = response["response_tokens"]
-            results.append(
-                {"group": group, "tokens": response_tokens, "results": response_obj.results})
-
-            contexts.append(f"<!-- Group {group} -->\n\n{context}")
-            save_file("\n\n".join(contexts),
-                      os.path.join(output_dir, f"context_nodes.md"))
-            save_file(context_nodes_dict, os.path.join(
-                output_dir, f"context_nodes.json"))
-            save_file(results_dict, f"{output_dir}/results.json")
-
-        pbar.update(1)
+    yield {
+        # "group": idx + 1,
+        "group": 1,
+        "query": query,
+        "context": headers,
+        "context_tokens": context_tokens,
+        "reranked_nodes": reranked_group_nodes,
+        "response": response,
+        "response_tokens": response_tokens,
+        "eval_result": eval_result,
+    }

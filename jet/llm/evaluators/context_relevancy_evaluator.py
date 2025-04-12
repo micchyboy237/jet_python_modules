@@ -26,15 +26,12 @@ CONTEXT_EVAL_TEMPLATE = PromptTemplate(
     "- 0.5 = Partially answered or missing important details\n"
     "- 0.0 = Not answered at all or only vaguely mentioned\n\n"
     "At the end, write the result in the following exact format:\n"
-    "[RESULT] <total_score>  # This is the sum of the individual question scores.\n"
-    "[EXCERPTS] ```json\n<valid JSON array of strings representing all relevant parts of the context that directly answer the query>\n```\n"
-    "If no relevant parts exist, use an empty array.\n\n"
+    "[RESULT] <total_score>  # This is the sum of the individual question scores.\n\n"
     "Example:\n"
     "Feedback:\n"
     "Q1: YES - The topic of National ID is clearly discussed. (Score: 1.0)\n"
     "Q2: NO - The context only claims to offer steps but doesn't actually provide them. (Score: 0.0)\n\n"
-    "[RESULT] 1.0\n"
-    "[EXCERPTS] ```json\n[]\n```\n\n"
+    "[RESULT] 1.0\n\n"
     "Query:\n{query_str}\n"
     "Context:\n{context_str}\n"
     "Feedback:"
@@ -50,6 +47,7 @@ def evaluate_context_relevancy(
     contexts: str | list[str],
     questions: list[str] = EVAL_QUESTIONS,
     eval_template: PromptTemplate = CONTEXT_EVAL_TEMPLATE,
+    score_threshold: float = _DEFAULT_SCORE_THRESHOLD,
     **kwargs
 ) -> EvaluationResult:
     """Evaluates the relevancy of the context to the query."""
@@ -63,7 +61,7 @@ def evaluate_context_relevancy(
     evaluator = ContextRelevancyEvaluator(
         llm=llm,
         eval_template=partial_template,
-        score_threshold=_DEFAULT_SCORE_THRESHOLD,
+        score_threshold=score_threshold,
     )
     logger.debug("Evaluating context relevancy...")
     result = evaluator.evaluate(
