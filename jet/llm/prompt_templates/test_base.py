@@ -45,7 +45,6 @@ class TestDynamicModelCreation(unittest.TestCase):
         nickname_schema = schema["properties"]["nickname"]
         score_schema = schema["properties"]["score"]
 
-        # Pydantic uses anyOf for unions like ["string", "null"]
         self.assertIn("anyOf", nickname_schema)
         types = {option["type"] for option in nickname_schema["anyOf"]}
         self.assertEqual(types, {"string", "null"})
@@ -73,11 +72,11 @@ class TestDynamicModelCreation(unittest.TestCase):
             "required": ["user"]
         }
 
-        Model = create_dynamic_model(json_schema)
+        Model = create_dynamic_model(json_schema, nested=True)
         instance = Model(user={"id": "abc123", "roles": ["admin", "editor"]})
 
-        self.assertEqual(instance.user["id"], "abc123")
-        self.assertIn("admin", instance.user["roles"])
+        self.assertEqual(instance.user.id, "abc123")
+        self.assertIn("admin", instance.user.roles)
 
         schema = Model.model_json_schema()
         self.assertIn("user", schema["properties"])
@@ -116,7 +115,7 @@ class TestDynamicModelCreation(unittest.TestCase):
             "required": ["items"]
         }
 
-        Model = create_dynamic_model(json_schema)
+        Model = create_dynamic_model(json_schema, nested=True)
         sample = {
             "items": [
                 {"label": "One", "amount": 1.5},
@@ -125,10 +124,113 @@ class TestDynamicModelCreation(unittest.TestCase):
         }
 
         instance = Model(**sample)
-        self.assertEqual(instance.items[0]["label"], "One")
+        self.assertEqual(instance.items[0].label, "One")
 
         schema = Model.model_json_schema()
         self.assertEqual(schema["properties"]["items"]["type"], "array")
+
+    def test_model_json_schema_with_nested_object_list_recursive(self):
+        json_schema = {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "timestamp": {"type": "string"},
+                            "value": {"type": "number"},
+                            "tags": {
+                                "type": "array",
+                                "items": {"type": "string"}
+                            }
+                        },
+                        "required": ["timestamp", "value"]
+                    }
+                }
+            },
+            "required": ["records"]
+        }
+
+        Model = create_dynamic_model(json_schema, nested=True)
+
+        sample = {
+            "records": [
+                {
+                    "timestamp": "2024-04-01T10:00:00Z",
+                    "value": 123.45,
+                    "tags": ["sensor-a", "room-1"]
+                }
+            ]
+        }
+
+        instance = Model(**sample)
+        self.assertEqual(instance.records[0].timestamp, "2024-04-01T10:00:00Z")
+
+        schema = Model.model_json_schema()
+
+        def resolve_ref_chain(ref_obj):
+            """Resolve nested $refs from definitions until the final object."""
+            ref = ref_obj.get("$ref")
+            if not ref:
+                return ref_obj
+            ref_key = ref.split("/")[-1]
+            defs = schema.get("$defs") or schema.get("definitions", {})
+            resolved = defs.get(ref_key, {})
+            while "$ref" in resolved:
+                ref = resolved["$ref"]
+                ref_key = ref.split("/")[-1]
+                resolved = defs.get(ref_key, {})
+            return resolved
+
+        records_schema = schema["properties"]["records"]
+        items_schema = resolve_ref_chain(records_schema["items"])
+
+        self.assertEqual(items_schema.get("type"), "object")
+
+    def test_model_json_schema_with_nested_object_list_flat(self):
+        json_schema = {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "timestamp": {"type": "string"},
+                            "value": {"type": "number"},
+                            "tags": {
+                                "type": "array",
+                                "items": {"type": "string"}
+                            }
+                        },
+                        "required": ["timestamp", "value"]
+                    }
+                }
+            },
+            "required": ["records"]
+        }
+
+        Model = create_dynamic_model(json_schema, nested=False)
+
+        sample = {
+            "records": [
+                {
+                    "timestamp": "2024-04-01T10:00:00Z",
+                    "value": 123.45,
+                    "tags": ["sensor-a", "room-1"]
+                }
+            ]
+        }
+
+        instance = Model(**sample)
+        self.assertEqual(instance.records[0]["tags"], ["sensor-a", "room-1"])
+
+        schema = Model.model_json_schema()
+        self.assertEqual(schema["properties"]["records"]["type"], "array")
+        # No guarantee that properties are present in flat mode
+        self.assertNotIn(
+            "properties", schema["properties"]["records"]["items"])
 
 
 if __name__ == "__main__":

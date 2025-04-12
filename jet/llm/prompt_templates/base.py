@@ -97,17 +97,21 @@ def generate_pydantic_models(context: str, model: OLLAMA_MODEL_NAMES = _DEFAULT_
     return python_code
 
 
-def map_json_type_to_python(json_type: Union[str, list[str]], field_schema: Dict[str, Any]) -> Any:
-    # If type is a list (e.g., ["string", "null"])
+def map_json_type_to_python(
+    json_type: Union[str, list[str]],
+    field_schema: Dict[str, Any],
+    field_name: str = "Nested",
+    nested: bool = False
+) -> Any:
     if isinstance(json_type, list):
         non_null_types = [t for t in json_type if t != "null"]
         if len(non_null_types) == 1:
             base_type = map_json_type_to_python(
-                non_null_types[0], field_schema)
+                non_null_types[0], field_schema, field_name, nested)
             return Optional[base_type]
-        else:
-            return Any  # ambiguous multiple types
-    elif json_type == "string":
+        return Any
+
+    if json_type == "string":
         return str
     elif json_type == "number":
         return float
@@ -118,15 +122,31 @@ def map_json_type_to_python(json_type: Union[str, list[str]], field_schema: Dict
     elif json_type == "null":
         return type(None)
     elif json_type == "object":
-        return Dict[str, Any]
+        if nested:
+            sub_model = create_dynamic_model(
+                field_schema, model_name=field_name.capitalize() + "Model", nested=nested)
+            return sub_model
+        else:
+            return Dict[str, Any]
     elif json_type == "array":
-        items_type = map_json_type_to_python(field_schema.get(
-            "items", {}).get("type", "any"), field_schema.get("items", {}))
+        if nested:
+            items_schema = field_schema.get("items", {})
+            items_type = map_json_type_to_python(items_schema.get(
+                "type", "any"), items_schema, field_name + "Item", nested)
+        else:
+            items_type = map_json_type_to_python(field_schema.get(
+                "items", {}).get("type", "any"), field_schema.get("items", {}))
+
         return list[items_type]
     return Any
 
 
-def create_dynamic_model(json_schema: str | Dict[str, Any]) -> BaseModel:
+def create_dynamic_model(
+    json_schema: str | Dict[str, Any],
+    *,
+    model_name: str = "DynamicModel",
+    nested: bool = False
+) -> Type[BaseModel]:
     if isinstance(json_schema, str):
         json_schema = json.loads(json_schema)
 
@@ -136,14 +156,15 @@ def create_dynamic_model(json_schema: str | Dict[str, Any]) -> BaseModel:
 
     for field_name, field_schema in properties.items():
         json_type = field_schema.get("type", "any")
-        python_type = map_json_type_to_python(json_type, field_schema)
+        python_type = map_json_type_to_python(
+            json_type, field_schema, field_name, nested)
 
         if field_name in required_fields:
             model_fields[field_name] = (python_type, ...)
         else:
             model_fields[field_name] = (Optional[python_type], None)
 
-    return create_model("DynamicModel", **model_fields)
+    return create_model(model_name, **model_fields)
 
 
 def convert_json_schema_to_model_instance(data: Dict, json_schema: str | Dict) -> BaseModel:

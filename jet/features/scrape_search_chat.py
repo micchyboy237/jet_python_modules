@@ -333,15 +333,13 @@ def run_scrape_search_chat(
             for node in reranked_header_nodes
             if node.metadata["doc_index"] in group_header_doc_indexes
         ]
-        sorted_group_nodes = sorted(
-            reranked_group_nodes, key=lambda node: node['doc'])
 
         yield {
             "group": idx + 1,
             "query": query,
             "context": headers,
             "context_tokens": header_tokens,
-            "context_nodes": sorted_group_nodes,
+            "reranked_nodes": reranked_group_nodes,
             "response": response,
             "response_tokens": response_tokens,
         }
