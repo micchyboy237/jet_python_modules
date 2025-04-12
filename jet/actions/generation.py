@@ -365,12 +365,12 @@ def call_ollama_chat(
                                 logger.info("Final tokens info:")
                                 # logger.success(json.dumps(
                                 #     response_info, indent=2))
-                                prompt_tokens = response_info['prompt_eval_count']
+                                response_prompt_tokens = response_info['prompt_eval_count']
                                 response_tokens = response_info['eval_count']
-                                total_tokens = system_tokens + prompt_tokens + response_tokens
+                                total_tokens = system_tokens + response_prompt_tokens + response_tokens
                                 logger.log("System tokens:", system_tokens, colors=[
                                            "DEBUG", "SUCCESS"])
-                                logger.log("Prompt tokens:", prompt_tokens, colors=[
+                                logger.log("Prompt tokens:", response_prompt_tokens, colors=[
                                            "DEBUG", "SUCCESS"])
                                 logger.log("Response tokens:", response_tokens, colors=[
                                            "DEBUG", "SUCCESS"])
@@ -481,12 +481,12 @@ def call_ollama_chat(
             logger.newline()
             logger.info("Final tokens info:")
             # logger.success(json.dumps(response_info, indent=2))
-            prompt_tokens = response_info['prompt_eval_count']
+            response_prompt_tokens = response_info['prompt_eval_count']
             response_tokens = response_info['eval_count']
-            total_tokens = prompt_tokens + response_tokens
+            total_tokens = response_prompt_tokens + response_tokens
             logger.log("System tokens:", system_tokens,
                        colors=["DEBUG", "SUCCESS"])
-            logger.log("Prompt tokens:", prompt_tokens,
+            logger.log("Prompt tokens:", response_prompt_tokens,
                        colors=["DEBUG", "SUCCESS"])
             logger.log("Response tokens:", response_tokens,
                        colors=["DEBUG", "SUCCESS"])
