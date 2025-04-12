@@ -13,6 +13,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from urllib.parse import urlparse, unquote, urlunparse
+from fake_useragent import UserAgent
 from jet.wordnet.sentence import split_sentences
 from jet.file.utils import save_data
 from jet.logger import logger
@@ -61,14 +62,15 @@ class SeleniumScraper:
         chrome_options.add_argument("--no-sandbox")  # For Linux servers
         # Prevent crashes on low-memory systems
         chrome_options.add_argument("--disable-dev-shm-usage")
-
+        # Prevents sites from detecting Selenium automation.
+        chrome_options.add_argument(
+            "--disable-blink-features=AutomationControlled")
         # Ensure a clean profile for performance (optional)
         chrome_options.add_argument("--incognito")
-
         # Set user-agent to avoid bot detection
-        chrome_options.add_argument(
-            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        )
+        ua = UserAgent()
+        random_user_agent = ua.random
+        chrome_options.add_argument(f"--user-agent={random_user_agent}")
 
         # Initialize the driver with error handling
         try:

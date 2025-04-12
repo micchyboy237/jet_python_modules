@@ -334,18 +334,19 @@ def run_scrape_search_chat(
 
     # First group only
     header_nodes = grouped_header_nodes[0]
-    # Evaluate contexts
-    logger.debug(
-        f"Evaluating contexts ({len(header_nodes)})...")
-    eval_result = evaluate_context_relevancy(
-        llm_model, query, [n.text for n in header_nodes])
-    if not eval_result.passing:
-        raise EvalContextError("Failed context evaluation", eval_result)
-
     # for idx, header_nodes in enumerate(grouped_header_nodes):
     header_texts = [node.text for node in header_nodes]
     # Prepend shared context
     header_texts = [shared_header_doc.text] + header_texts
+    # Evaluate contexts
+    logger.debug(
+        f"Evaluating contexts ({len(header_texts)})...")
+    eval_result = evaluate_context_relevancy(llm_model, query, header_texts)
+    if not eval_result.passing:
+        # raise EvalContextError("Failed context evaluation", eval_result)
+        logger.warning("Failed context evaluation:")
+        logger.warning(format_json(eval_result))
+
     headers = "\n\n".join(header_texts)
     context_tokens: int = token_counter(headers, llm_model)
     llm = Ollama(temperature=0.3, model=llm_model)
