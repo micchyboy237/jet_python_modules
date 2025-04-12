@@ -40,10 +40,6 @@ Example Response 1:
           }}
         }}
       }}
-    }},
-    "support_contact": {{
-      "type": "string",
-      "description": "Optional support email or contact info"
     }}
   }}
 }}
