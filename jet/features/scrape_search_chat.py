@@ -299,7 +299,7 @@ def run_scrape_search_chat(
     # Sort reranked results by doc index
     sorted_header_nodes = sorted(
         reranked_header_nodes, key=lambda node: node.metadata['doc_index'])
-
+    # Split nodes into groups to prevent LLM max tokens issue
     grouped_header_nodes = group_nodes(
         sorted_header_nodes, llm_model, max_tokens=max_tokens_per_group)
 
@@ -321,7 +321,9 @@ def run_scrape_search_chat(
             schema=json.dumps(output_cls.model_json_schema(), indent=2),
         )
         response_tokens: int = token_counter(format_json(response), llm_model)
-        reranked_nodes = [
+        group_header_doc_indexes = [
+            node.metadata["doc_index"] for node in header_nodes]
+        reranked_group_nodes = [
             {
                 "doc": node.metadata["doc_index"] + 1,
                 "score": node.score,
@@ -329,13 +331,17 @@ def run_scrape_search_chat(
                 "metadata": node.metadata,
             }
             for node in reranked_header_nodes
+            if node.metadata["doc_index"] in group_header_doc_indexes
         ]
+        sorted_group_nodes = sorted(
+            reranked_group_nodes, key=lambda node: node['doc'])
+
         yield {
             "group": idx + 1,
             "query": query,
             "context": headers,
             "context_tokens": header_tokens,
-            "context_nodes": reranked_nodes,
+            "context_nodes": sorted_group_nodes,
             "response": response,
             "response_tokens": response_tokens,
         }

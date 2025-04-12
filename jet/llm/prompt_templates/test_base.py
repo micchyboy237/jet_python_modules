@@ -1,6 +1,4 @@
 import unittest
-from typing import Optional, List, Union
-from pydantic import BaseModel
 from jet.llm.prompt_templates.base import create_dynamic_model
 
 
@@ -122,3 +120,7 @@ class TestDynamicModelCreation(unittest.TestCase):
 
         schema = Model.model_json_schema()
         self.assertEqual(schema["properties"]["items"]["type"], "array")
+
+
+if __name__ == "__main__":
+    unittest.main()
