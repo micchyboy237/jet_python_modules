@@ -16,6 +16,7 @@ from jet.validation.validation_types import ValidationResponse
 
 _TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "template_strings")
 _DEFAULT_MODEL = "gemma3:4b"
+_DEFAULT_SEED = 42
 
 
 def extract_template_variables(template: str) -> set:
@@ -40,7 +41,8 @@ def _generate_prompt(template_file: str, **kwargs) -> str:
 
 
 def _run_chat(prompt: str, model: OLLAMA_MODEL_NAMES, **kwargs) -> Any:
-    response = chat(prompt, model, temperature=0.0, **kwargs)
+    response = chat(prompt, model, temperature=0.0,
+                    seed=_DEFAULT_SEED, **kwargs)
     content = response['message']['content']
     result = extract_block_content(content)
     return result
