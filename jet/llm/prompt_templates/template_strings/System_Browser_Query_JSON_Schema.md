@@ -41,11 +41,6 @@ Example Response 1:
         }}
       }}
     }},
-    "requirements": {{
-      "type": "array",
-      "description": "List of documents or requirements needed for registration",
-      "items": {{ "type": "string" }}
-    }},
     "support_contact": {{
       "type": "string",
       "description": "Optional support email or contact info"
