@@ -92,7 +92,11 @@ def save_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
         if os.path.exists(cache_file) and cache_file_size > MAX_CACHE_FILE_SIZE:
             logger.warning(
                 f"Cache file {cache_file} ({cache_file_size}) exceeds size limit. Deleting it.")
-            os.remove(cache_file)  # Delete the oversized file
+            try:
+                os.remove(cache_file)
+            except FileNotFoundError:
+                logger.warning(
+                    f"Tried to delete {cache_file}, but it was already missing.")
 
         # ✅ Save if cache was loaded and modified
         if cache_key in loaded_caches:

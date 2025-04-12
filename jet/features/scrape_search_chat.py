@@ -320,8 +320,7 @@ def run_scrape_search_chat(
             query=query,
             schema=json.dumps(output_cls.model_json_schema(), indent=2),
         )
-        response_tokens: int = token_counter(
-            format_json(response.results), llm_model)
+        response_tokens: int = token_counter(format_json(response), llm_model)
         reranked_nodes = [
             {
                 "doc": node.metadata["doc_index"] + 1,
