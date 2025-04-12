@@ -5,7 +5,7 @@ from jet.validation import schema_validate_json, ValidationResponse
 from jet.utils.markdown import extract_json_block_content
 from jet.logger import logger
 
-MODEL = "llama3.1"
+MODEL = "llama3.2"
 PROMPT_TEMPLATE = """
 Schema:
 [schema]
@@ -28,7 +28,7 @@ Do not include any other text in the response except the JSON block.
 
 Data guidelines:
 - Follow validation errors to correct the JSON object
-- Ensure the corrected JSON object has valid syntax
+- Ensure the corrected JSON object has valid syntax and adheres to the schema.
 - Enumerated values should match case and spelling in the schema
 """.strip()
 

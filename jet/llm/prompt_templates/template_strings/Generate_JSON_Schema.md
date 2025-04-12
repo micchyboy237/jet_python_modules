@@ -18,40 +18,40 @@ Top otome villainess anime 2025
 
 <json_schema>
 {{
-"type": "object",
-"properties": {{
-    "anime_list": {{
-    "type": "array",
-    "items": {{
-        "type": "object",
-        "properties": {{
-        "title": {{
-            "type": "string",
-            "description": "The title of the anime."
-        }},
-"release_year": {{
-            "type": "integer",
-            "description": "The release year of the anime."
-        }},
-"genre": {{
-            "type": "array",
-            "items": {{
-            "type": "string"
+    "type": "object",
+    "properties": {{
+        "anime_list": {{
+        "type": "array",
+        "items": {{
+            "type": "object",
+            "properties": {{
+                "title": {{
+                    "type": "string",
+                    "description": "The title of the anime."
+                }},
+                "release_year": {{
+                    "type": "integer",
+                    "description": "The release year of the anime."
+                }},
+                "genre": {{
+                    "type": "array",
+                    "items": {{
+                        "type": "string"
+                    }},
+                    "description": "Genres associated with the anime."
+                }},
+                "rating": {{
+                    "type": "number",
+                    "description": "Average user rating of the anime.",
+                }}
             }},
-"description": "Genres associated with the anime."
-}},
-"rating": {{
-            "type": "number",
-            "description": "Average user rating of the anime.",
+            "required": ["title", "release_year"],
+            "optional": ["genre", "rating"]
+        }},
+        "description": "List of top otome villainess anime for 2025."
         }}
-}},
-"required": ["title", "release_year"],
-"optional": ["genre", "rating"]
-}},
-"description": "List of top otome villainess anime for 2025."
-}}
-}},
-"required": ["anime_list"]
+    }},
+    "required": ["anime_list"]
 }}
 </json_schema>
 

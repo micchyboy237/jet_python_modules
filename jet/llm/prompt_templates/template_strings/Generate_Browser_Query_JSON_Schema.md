@@ -31,29 +31,29 @@ Top otome villainess anime 2025
             "type": "string",
             "description": "The title of the anime."
           }},
-"release_year": {{
+          "release_year": {{
             "type": "integer",
             "description": "The release year of the anime."
           }},
-"genre": {{
+          "genre": {{
             "type": "array",
             "items": {{
               "type": "string"
             }},
-"description": "Genres associated with the anime."
-}},
-"rating": {{
+            "description": "Genres associated with the anime."
+          }},
+          "rating": {{
             "type": "number",
             "description": "Average user rating of the anime.",
           }}
-}},
-"required": ["title", "release_year"],
-"optional": ["genre", "rating"]
-}},
-"description": "List of top otome villainess anime for 2025."
-}}
-}},
-"required": ["anime_list"]
+        }},
+        "required": ["title", "release_year"],
+        "optional": ["genre", "rating"]
+      }},
+      "description": "List of top otome villainess anime for 2025."
+    }}
+  }},
+  "required": ["anime_list"]
 }}
 </json_schema>
 </json_query_and_schema_sample>
