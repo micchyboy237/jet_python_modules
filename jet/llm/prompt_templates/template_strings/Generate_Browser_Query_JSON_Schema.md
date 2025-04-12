@@ -11,50 +11,5 @@ Design a simple and minimal JSON schema that covers the key data points based on
 
 If the query indicates a collection or multiple results (e.g., "Top", "List", "Multiple"), ensure that the schema uses an array (or list) to represent those results.
 
-The output should follow this format:
-
-<json_schema_sample>
-
-```json
-{{
-  "type": "object",
-  "properties": {{
-    "anime_list": {{
-      "type": "array",
-      "items": {{
-        "type": "object",
-        "properties": {{
-          "title": {{
-            "type": "string",
-            "description": "The title of the anime."
-          }},
-          "release_year": {{
-            "type": "integer",
-            "description": "The release year of the anime."
-          }},
-          "genre": {{
-            "type": "array",
-            "items": {{
-              "type": "string"
-            }},
-            "description": "Genres associated with the anime."
-          }},
-          "rating": {{
-            "type": "number",
-            "description": "Average user rating of the anime.",
-          }}
-        }},
-        "required": ["title", "release_year"],
-        "optional": ["genre", "rating"]
-      }},
-      "description": "List of top otome villainess anime for 2025."
-    }}
-  }},
-  "required": ["anime_list"]
-}}
-```
-
-</json_schema_sample>
-
 Output ONLY the JSON schema wrapped in a `json` code block.
 </user_query>
