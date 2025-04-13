@@ -632,21 +632,39 @@ def exclude_elements(doc, excludes: List[str]) -> None:
             pq(element).remove()
 
 
-class TreeNode(Dict):
-    tag: str
-    text: Optional[str]
-    depth: int
-    id: str
-    parent: Optional[str]
-    class_names: List[str]
-    children: List['TreeNode']
+class TreeNode:
+    def __init__(self, tag: str, text: Optional[str], depth: int, id: str,
+                 parent: Optional[str], class_names: List[str], children: Optional[List['TreeNode']] = None):
+        self.tag = tag
+        self.text = text
+        self.depth = depth
+        self.id = id
+        self.parent = parent
+        self.class_names = class_names
+        self.children: List['TreeNode'] = children if children is not None else [
+        ]
+
+    def get_content(self) -> str:
+        content = self.text or ""
+        for child in self.children:
+            content += child.get_content()
+        return content.strip()
+
+
+def exclude_elements(doc, excludes: List[str]) -> None:
+    """
+    Removes elements from the document that match the tags in the excludes list.
+    """
+    for tag in excludes:
+        for element in doc(tag):
+            pq(element).remove()
 
 
 def extract_tree_with_text(
     source: str,
     excludes: List[str] = ["style", "script"],
     timeout_ms: int = 1000
-) -> Optional[Dict]:
+) -> Optional[TreeNode]:
     """
     Extracts a tree structure from HTML with id and parent attributes on each node.
     """
@@ -678,20 +696,18 @@ def extract_tree_with_text(
 
     root_el = doc[0]
     root_id = f"auto_{uuid.uuid4().hex[:8]}"
-
-    # Ensure root_el.tag returns the actual tag name as a string
     tag_name = root_el.tag if isinstance(
         root_el.tag, str) else str(root_el.tag)
 
-    root_node = {
-        "tag": tag_name,  # Ensure tag is a string
-        "text": None,
-        "depth": 0,
-        "id": root_id,
-        "parent": None,
-        "class_names": [],
-        "children": []
-    }
+    root_node = TreeNode(
+        tag=tag_name,
+        text=None,
+        depth=0,
+        id=root_id,
+        parent=None,
+        class_names=[],
+        children=[]
+    )
 
     stack = [(root_el, root_node, 0)]
 
@@ -701,8 +717,7 @@ def extract_tree_with_text(
 
         for child in el_pq.children():
             child_pq = pq(child)
-            tag = child.tag if isinstance(child.tag, str) else str(
-                child.tag)  # Ensure tag is a string
+            tag = child.tag if isinstance(child.tag, str) else str(child.tag)
             text = child_pq.text().strip()
             class_names = [cls for cls in (child_pq.attr(
                 "class") or "").split() if not cls.startswith("css-")]
@@ -711,19 +726,18 @@ def extract_tree_with_text(
             if not element_id or not re.match(r'^[a-zA-Z_-]+$', element_id):
                 element_id = f"auto_{uuid.uuid4().hex[:8]}"
 
-            child_node = {
-                "tag": tag,
-                "text": text if text and not child_pq.children() else None,
-                "depth": depth + 1,
-                "id": element_id,
-                "parent": parent_node["id"],
-                "class_names": class_names,
-                "children": []
-            }
+            child_node = TreeNode(
+                tag=tag,
+                text=text if text and not child_pq.children() else None,
+                depth=depth + 1,
+                id=element_id,
+                parent=parent_node.id,
+                class_names=class_names,
+                children=[]
+            )
 
-            parent_node["children"].append(child_node)
+            parent_node.children.append(child_node)
 
-            # Only push children if element has nested children
             if child_pq.children():
                 stack.append((child, child_node, depth + 1))
 
@@ -736,71 +750,55 @@ def extract_by_heading_hierarchy(
 ) -> List[TreeNode]:
     """
     Organizes nodes from the extracted tree structure based on heading tags.
-    Each heading tag gets a correct parent based on its level in the `tags_to_split_on` hierarchy.
-
-    :param source: The source HTML content.
-    :param tags_to_split_on: List of tags to treat as hierarchical headings (default is ["h1", "h2", "h3", "h4", "h5", "h6"]).
-
-    :return: A list of TreeNode objects with correct parent-child relationships.
     """
     result: List[TreeNode] = []
     parent_stack: List[TreeNode] = []
 
-    # Recursive function to process the tree nodes
-    def traverse(node: Dict, parent_node: Optional[TreeNode] = None) -> None:
+    def traverse(node: TreeNode, parent_node: Optional[TreeNode] = None) -> None:
         nonlocal parent_stack
 
-        # Determine the level of the current node based on its tag index in tags_to_split_on
-        if node["tag"] in tags_to_split_on:
-            level = tags_to_split_on.index(node["tag"])
+        if node.tag in tags_to_split_on:
+            level = tags_to_split_on.index(node.tag)
 
-            # Traverse the parent_stack to find the most recent heading tag at a lower level
-            while parent_stack and parent_stack[-1]["depth"] >= level:
+            while parent_stack and parent_stack[-1].depth >= level:
                 parent_stack.pop()
 
-            # If there's a valid parent, set it as the parent for the current node
             if parent_stack:
                 parent_node = parent_stack[-1]
             else:
-                parent_node = None  # In case no valid parent exists at a lower level
+                parent_node = None
 
-            # Create a new node for this heading
             new_node = TreeNode(
-                tag=node["tag"],
-                text=node["text"],
+                tag=node.tag,
+                text=node.text,
                 depth=level,
-                id=node["id"],
-                parent=parent_node["id"] if parent_node else None,
-                class_names=node["class_names"],
+                id=node.id,
+                parent=parent_node.id if parent_node else None,
+                class_names=node.class_names,
                 children=[]
             )
 
-            # Add this node to the result list
             result.append(new_node)
-
-            # Add the new node to the stack
             parent_stack.append(new_node)
 
         else:
-            # If the node is not a heading tag, treat it as content for the current parent
             if parent_stack:
-                parent_stack[-1]["children"].append(TreeNode(
-                    tag=node["tag"],
-                    text=node["text"],
-                    depth=node["depth"],
-                    id=node["id"],
-                    parent=parent_stack[-1]["id"],
-                    class_names=node["class_names"],
+                parent_stack[-1].children.append(TreeNode(
+                    tag=node.tag,
+                    text=node.text,
+                    depth=node.depth,
+                    id=node.id,
+                    parent=parent_stack[-1].id,
+                    class_names=node.class_names,
                     children=[]
                 ))
 
-        # Process children of the current node
-        for child_node in node["children"]:
-            traverse(child_node, parent_stack[-1] if parent_stack else None)
+        for child in node.children:
+            traverse(child, parent_stack[-1] if parent_stack else None)
 
     tree = extract_tree_with_text(source)
-    # Start traversal from the root of the tree
-    traverse(tree)
+    if tree:
+        traverse(tree)
 
     return result
 
@@ -876,53 +874,47 @@ def extract_text_elements(source: str, excludes: List[str] = ["style", "script"]
 def format_html(html: str, excludes: List[str] = ["style", "script"]) -> str:
     """
     Converts the tree-like structure of HTML elements and text into a single formatted string.
-
-    :param html: The HTML string to parse.
-    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
-    :return: A formatted string combining the HTML tags and their contents.
     """
     tree = extract_tree_with_text(html, excludes)
 
     def build_html(node: TreeNode, indent=0) -> str:
-        """Helper function to recursively format the tree structure into a string."""
         result = ""
 
         if node:
             # Skip node if its tag is in the excludes list
-            if node['tag'] in excludes:
+            if node.tag in excludes:
                 return result
 
-            if node['text'] or node['id'] or node['class_names'] or node['children'][0]['text']:
-                tag_text = node['tag']
-                # Add ID and class attributes if they exist
-                if node['id']:
-                    tag_text += f" id=\"{node['id']}\""
-                if node['class_names']:
-                    tag_text += " class=\"" + \
-                        " ".join(
-                            [f"{class_name}" for class_name in node['class_names']]) + "\""
+            # Only include nodes with meaningful content or children
+            has_text = bool(node.text)
+            has_id = bool(node.id)
+            has_class = bool(node.class_names)
+            has_child_text = node.children and node.children[0].text
 
-                # Add text if it's available
-                if node['text']:
+            if has_text or has_id or has_class or has_child_text:
+                tag_text = node.tag
+                if has_id:
+                    tag_text += f' id="{node.id}"'
+                if has_class:
+                    tag_text += ' class="' + " ".join(node.class_names) + '"'
+
+                if has_text:
                     result += '  ' * indent + \
-                        f"<{tag_text}>{node['text']}</{node['tag']}>\n"
+                        f"<{tag_text}>{node.text}</{node.tag}>\n"
                 else:
                     result += '  ' * indent + f"<{tag_text}>\n"
 
-                # Recursively format the children
-                for child in node['children']:
+                for child in node.children:
                     result += build_html(child, indent + 1)
 
-                if not node['text']:  # Close the tag if it was a container without text
-                    result += '  ' * indent + f"</{node['tag']}>\n"
+                if not has_text:
+                    result += '  ' * indent + f"</{node.tag}>\n"
             else:
-                # Recursively format the children
-                for child in node['children']:
+                for child in node.children:
                     result += build_html(child, indent + 1)
 
         return result
 
-    # Start building HTML from the root
     return build_html(tree)
 
 
@@ -932,28 +924,40 @@ def print_html(html: str):
 
     def print_tree(node: TreeNode, indent=0, excludes: List[str] = ["style", "script"]):
         if node:
-            # Skip node if its tag is in the excludes list
-            if node['tag'] in excludes:
+            if node.tag in excludes:
                 return
 
-            # or node['children'][0]['text']
-            if node['text'] or node['id'] or node['class_names'] or (node['children'] and node['children'][0]['text']):
-                tag_text = node['tag']
-                if node['id']:
-                    tag_text += " " + colorize_log(f"#{node['id']}", "YELLOW")
-                if node['class_names']:
-                    tag_text += " " + \
-                        colorize_log(
-                            ', '.join([f".{class_name}" for class_name in node['class_names']]), "ORANGE")
+            has_text = bool(node.text)
+            has_id = bool(node.id)
+            has_class = bool(node.class_names)
+            has_child_text = node.children and node.children[0].text
 
-                if node['text']:
-                    logger.log(('  ' * indent + f"{node['depth']}:"), tag_text, "-",
-                               json.dumps(node['text'][:30]), colors=["INFO", "DEBUG", "GRAY", "SUCCESS"])
+            if has_text or has_id or has_class or has_child_text:
+                tag_text = node.tag
+                if has_id:
+                    tag_text += " " + colorize_log(f"#{node.id}", "YELLOW")
+                if has_class:
+                    tag_text += " " + colorize_log(
+                        ', '.join(
+                            [f".{class_name}" for class_name in node.class_names]), "ORANGE"
+                    )
+
+                if has_text:
+                    logger.log(
+                        ('  ' * indent + f"{node.depth}:"),
+                        tag_text,
+                        "-",
+                        json.dumps(node.text[:30]),
+                        colors=["INFO", "DEBUG", "GRAY", "SUCCESS"]
+                    )
                 else:
                     logger.log(
-                        ('  ' * indent + f"{node['depth']}:"), tag_text, colors=["INFO", "DEBUG"])
+                        ('  ' * indent + f"{node.depth}:"),
+                        tag_text,
+                        colors=["INFO", "DEBUG"]
+                    )
 
-            for child in node['children']:
+            for child in node.children:
                 print_tree(child, indent + 1, excludes)
 
     return print_tree(tree)

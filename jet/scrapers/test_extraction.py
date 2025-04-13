@@ -1,7 +1,7 @@
 from pprint import pprint
 import os
 import unittest
-from jet.scrapers.utils import extract_clickable_texts_from_rendered_page, extract_element_screenshots, extract_form_elements, extract_search_inputs, extract_title_and_metadata, extract_internal_links, extract_by_heading_hierarchy
+from jet.scrapers.utils import TreeNode, extract_clickable_texts_from_rendered_page, extract_element_screenshots, extract_form_elements, extract_search_inputs, extract_title_and_metadata, extract_internal_links, extract_by_heading_hierarchy
 
 
 class TestExtractTitleAndMetadata(unittest.TestCase):
@@ -468,5 +468,41 @@ class TestExtractByHeadingHierarchy(unittest.TestCase):
                          ['id'])  # p's parent should be h1
 
 
-if __name__ == "__main__":
+class TestTreeNode(unittest.TestCase):
+    def test_get_content_with_nested_children(self):
+        sample = TreeNode(
+            tag='div',
+            text='Parent ',
+            depth=0,
+            id='root',
+            parent=None,
+            class_names=[],
+            children=[
+                TreeNode(
+                    tag='span',
+                    text='Child1 ',
+                    depth=1,
+                    id='c1',
+                    parent='root',
+                    class_names=[],
+                    children=[]
+                ),
+                TreeNode(
+                    tag='p',
+                    text='Child2',
+                    depth=1,
+                    id='c2',
+                    parent='root',
+                    class_names=[],
+                    children=[]
+                )
+            ]
+        )
+
+        expected = 'Parent Child1 Child2'
+        result = sample.get_content()
+        self.assertEqual(result, expected)
+
+
+if __name__ == '__main__':
     unittest.main()
