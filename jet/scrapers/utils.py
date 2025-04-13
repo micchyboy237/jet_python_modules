@@ -1,5 +1,6 @@
 from copy import deepcopy
 import uuid
+from jet.search.formatters import decode_text_with_unidecode
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from pathlib import Path
 from typing import List, Optional, Tuple, TypedDict
@@ -651,6 +652,23 @@ class TreeNode:
         return content.strip()
 
 
+def add_child_nodes(flat_nodes: List[TreeNode]) -> List[TreeNode]:
+    """
+    Given a flat list of TreeNodes with parent references,
+    this reconstructs the hierarchy by assigning children accordingly.
+    """
+    id_map: Dict[str, TreeNode] = {node.id: node for node in flat_nodes}
+    root_nodes: List[TreeNode] = []
+
+    for node in flat_nodes:
+        if node.parent and node.parent in id_map:
+            parent_node = id_map[node.parent]
+            parent_node.children.append(node)
+        root_nodes.append(node)
+
+    return root_nodes
+
+
 def extract_tree_with_text(
     source: str,
     excludes: List[str] = ["style", "script"],
@@ -711,7 +729,8 @@ def extract_tree_with_text(
             tag = child.tag if isinstance(child.tag, str) else str(child.tag)
 
             # ✅ Preserve all text, even when children exist
-            text = child_pq.text().strip()
+            # text = child_pq.text().strip()
+            text = decode_text_with_unidecode(child.text)
 
             class_names = [cls for cls in (child_pq.attr(
                 "class") or "").split() if not cls.startswith("css-")]
@@ -722,7 +741,7 @@ def extract_tree_with_text(
 
             child_node = TreeNode(
                 tag=tag,
-                text=text if text else None,
+                text=text or "",
                 depth=depth + 1,
                 id=element_id,
                 parent=parent_node.id,
@@ -742,26 +761,21 @@ def extract_by_heading_hierarchy(
     source: str,
     tags_to_split_on: List[str] = ["h1", "h2", "h3", "h4", "h5", "h6"]
 ) -> List[TreeNode]:
-    """
-    Organizes nodes from the extracted tree structure based on heading tags.
-    Each heading becomes the root of a new TreeNode with its associated subtree.
-    """
-
-    result: List[TreeNode] = []
+    results: List[TreeNode] = []
     parent_stack: List[Tuple[int, TreeNode]] = []
 
-    def clone_subtree(node: TreeNode, new_parent_id: Optional[str] = None) -> TreeNode:
+    def clone_subtree(node: TreeNode, new_parent_id: Optional[str] = None, new_depth: int = 0) -> TreeNode:
         cloned = TreeNode(
             tag=node.tag,
             text=node.text,
-            depth=node.depth,
+            depth=new_depth,
             id=node.id,
             parent=new_parent_id,
             class_names=node.class_names,
             children=[]
         )
         for child in node.children:
-            cloned_child = clone_subtree(child, cloned.id)
+            cloned_child = clone_subtree(child, cloned.id, new_depth + 1)
             cloned.children.append(cloned_child)
         return cloned
 
@@ -774,15 +788,20 @@ def extract_by_heading_hierarchy(
             while parent_stack and parent_stack[-1][0] >= level:
                 parent_stack.pop()
 
+            parent_node = parent_stack[-1][1] if parent_stack else None
+            depth = parent_node.depth + 1 if parent_node else 0
+
             heading_node = clone_subtree(
-                node, parent_stack[-1][1].id if parent_stack else None)
-            result.append(heading_node)
+                node, parent_node.id if parent_node else None, depth)
+            results.append(heading_node)
             parent_stack.append((level, heading_node))
 
         else:
             if parent_stack:
-                parent_stack[-1][1].children.append(
-                    clone_subtree(node, parent_stack[-1][1].id))
+                parent_node = parent_stack[-1][1]
+                child_node = clone_subtree(
+                    node, parent_node.id, parent_node.depth + 1)
+                parent_node.children.append(child_node)
 
         for child in node.children:
             traverse(child)
@@ -791,7 +810,10 @@ def extract_by_heading_hierarchy(
     if tree:
         traverse(tree)
 
-    return result
+    # ✅ Rebuild child relationships
+    # results_with_child_nodes = add_child_nodes(results)
+    # return results_with_child_nodes
+    return results
 
 
 def extract_text_elements(source: str, excludes: List[str] = ["style", "script"], timeout_ms: int = 1000) -> List[str]:

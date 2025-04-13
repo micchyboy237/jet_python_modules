@@ -1,3 +1,4 @@
+from unidecode import unidecode
 import html
 
 
@@ -8,6 +9,17 @@ def unescape(text: str) -> str:
     # Decode HTML entities
     decoded_text = html.unescape(decoded_text)
     # Directly return decoded text as utf-8 (no need for latin-1 encoding)
+    return decoded_text
+
+
+def decode_text_with_unidecode(text: str) -> str:
+    # Check if text is None or empty
+    if not text:
+        return ""
+
+    # Use unidecode to convert any special characters to ASCII
+    decoded_text = unidecode(text)
+
     return decoded_text
 
 

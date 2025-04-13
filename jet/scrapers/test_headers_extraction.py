@@ -102,3 +102,7 @@ class TestExtractByHeadingHierarchy(unittest.TestCase):
                                 f"Expected result to start with {node.text}")
                 self.assertGreaterEqual(len(result), len(
                     node.text or ""), "Content length should include children")
+
+
+if __name__ == '__main__':
+    unittest.main()

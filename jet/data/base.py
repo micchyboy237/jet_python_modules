@@ -9,8 +9,8 @@ class BaseModel(PydanticBaseModel):
 
     @classmethod
     def model_json_schema(cls, *args, **kwargs) -> Dict[str, Any]:
-        if hasattr(cls, "_original_json_schema") and cls._original_json_schema:
-            return remove_dollar_keys(cls._original_json_schema)
+        # if hasattr(cls, "_original_json_schema") and cls._original_json_schema:
+        #     return remove_dollar_keys(cls._original_json_schema)
         return super().model_json_schema(*args, **kwargs)
 
 

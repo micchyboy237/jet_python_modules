@@ -367,12 +367,9 @@ def run_scrape_search_chat(
     # Rerank headers
     reranked_header_nodes = rerank_nodes(
         query, filtered_header_nodes, embed_models, header_parent_map)
-    # Sort reranked results by doc index
-    sorted_header_nodes = sorted(
-        reranked_header_nodes, key=lambda node: node.metadata['doc_index'])
     # Split nodes into groups to prevent LLM max tokens issue
     grouped_header_nodes = group_nodes(
-        sorted_header_nodes, llm_model, max_tokens=max_tokens_per_group)
+        reranked_header_nodes, llm_model, max_tokens=max_tokens_per_group)
 
     # First group only
     header_nodes = grouped_header_nodes[0]

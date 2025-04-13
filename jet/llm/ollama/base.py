@@ -414,7 +414,7 @@ class Ollama(BaseOllama):
                 "system": llm_kwargs.get("system", system),
                 "context": llm_kwargs.get("context", context),
                 "model": llm_kwargs.get("model", model),
-                "template": prompt.partial_format(**prompt_args),
+                "template": prompt,
             }
 
             response = self.chat(**llm_kwargs)
