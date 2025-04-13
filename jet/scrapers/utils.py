@@ -2,7 +2,7 @@ from copy import deepcopy
 import uuid
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from pathlib import Path
-from typing import List, Optional, TypedDict
+from typing import List, Optional, Tuple, TypedDict
 from collections import defaultdict
 import os
 from typing import Generator, List, Optional
@@ -744,44 +744,48 @@ def extract_by_heading_hierarchy(
 ) -> List[TreeNode]:
     """
     Organizes nodes from the extracted tree structure based on heading tags.
+    Each heading becomes the root of a new TreeNode with its associated subtree.
     """
-    result: List[TreeNode] = []
-    parent_stack: List[TreeNode] = []
 
-    def traverse(node: TreeNode, parent_node: Optional[TreeNode] = None) -> None:
+    result: List[TreeNode] = []
+    parent_stack: List[Tuple[int, TreeNode]] = []
+
+    def clone_subtree(node: TreeNode, new_parent_id: Optional[str] = None) -> TreeNode:
+        cloned = TreeNode(
+            tag=node.tag,
+            text=node.text,
+            depth=node.depth,
+            id=node.id,
+            parent=new_parent_id,
+            class_names=node.class_names,
+            children=[]
+        )
+        for child in node.children:
+            cloned_child = clone_subtree(child, cloned.id)
+            cloned.children.append(cloned_child)
+        return cloned
+
+    def traverse(node: TreeNode) -> None:
         nonlocal parent_stack
 
         if node.tag in tags_to_split_on:
             level = tags_to_split_on.index(node.tag)
 
-            while parent_stack and parent_stack[-1].depth >= level:
+            while parent_stack and parent_stack[-1][0] >= level:
                 parent_stack.pop()
 
-            if parent_stack:
-                parent_node = parent_stack[-1]
-            else:
-                parent_node = None
-
-            new_node = TreeNode(
-                tag=node.tag,
-                text=node.text,
-                depth=level,
-                id=node.id,
-                parent=parent_node.id if parent_node else None,
-                class_names=node.class_names,
-                children=node.children  # ✅ Preserve children subtree
-            )
-
-            result.append(new_node)
-            parent_stack.append(new_node)
+            heading_node = clone_subtree(
+                node, parent_stack[-1][1].id if parent_stack else None)
+            result.append(heading_node)
+            parent_stack.append((level, heading_node))
 
         else:
             if parent_stack:
-                # ✅ Keep original subtree
-                parent_stack[-1].children.append(node)
+                parent_stack[-1][1].children.append(
+                    clone_subtree(node, parent_stack[-1][1].id))
 
         for child in node.children:
-            traverse(child, parent_stack[-1] if parent_stack else None)
+            traverse(child)
 
     tree = extract_tree_with_text(source)
     if tree:
