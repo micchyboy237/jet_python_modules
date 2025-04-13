@@ -651,15 +651,6 @@ class TreeNode:
         return content.strip()
 
 
-def exclude_elements(doc, excludes: List[str]) -> None:
-    """
-    Removes elements from the document that match the tags in the excludes list.
-    """
-    for tag in excludes:
-        for element in doc(tag):
-            pq(element).remove()
-
-
 def extract_tree_with_text(
     source: str,
     excludes: List[str] = ["style", "script"],
@@ -718,7 +709,10 @@ def extract_tree_with_text(
         for child in el_pq.children():
             child_pq = pq(child)
             tag = child.tag if isinstance(child.tag, str) else str(child.tag)
+
+            # ✅ Preserve all text, even when children exist
             text = child_pq.text().strip()
+
             class_names = [cls for cls in (child_pq.attr(
                 "class") or "").split() if not cls.startswith("css-")]
             element_id = child_pq.attr("id")
@@ -728,7 +722,7 @@ def extract_tree_with_text(
 
             child_node = TreeNode(
                 tag=tag,
-                text=text if text and not child_pq.children() else None,
+                text=text if text else None,
                 depth=depth + 1,
                 id=element_id,
                 parent=parent_node.id,
@@ -775,7 +769,7 @@ def extract_by_heading_hierarchy(
                 id=node.id,
                 parent=parent_node.id if parent_node else None,
                 class_names=node.class_names,
-                children=[]
+                children=node.children  # ✅ Preserve children subtree
             )
 
             result.append(new_node)
@@ -783,15 +777,8 @@ def extract_by_heading_hierarchy(
 
         else:
             if parent_stack:
-                parent_stack[-1].children.append(TreeNode(
-                    tag=node.tag,
-                    text=node.text,
-                    depth=node.depth,
-                    id=node.id,
-                    parent=parent_stack[-1].id,
-                    class_names=node.class_names,
-                    children=[]
-                ))
+                # ✅ Keep original subtree
+                parent_stack[-1].children.append(node)
 
         for child in node.children:
             traverse(child, parent_stack[-1] if parent_stack else None)
