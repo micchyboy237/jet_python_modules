@@ -191,8 +191,8 @@ def query_similarity_scores(
                 {
                     "id": filtered_ids[j],
                     "rank": idx + 1,
-                    "text": filtered_texts[j],
                     "score": float(filtered_scores[j]),
+                    "text": filtered_texts[j],
                     "percent_difference": None  # Temporary, updated below
                 }
                 for idx, j in enumerate(sorted_indices)
@@ -286,8 +286,8 @@ def fuse_similarity_scores(
             {
                 "id": item["id"],
                 "rank": idx + 1,
-                "text": item["text"],
                 "score": item["score"],
+                "text": item["text"],
                 "percent_difference": None  # Temporary, updated below
             }
             for idx, item in enumerate(sorted_scores)

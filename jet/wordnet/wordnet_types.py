@@ -4,8 +4,8 @@ from typing import List, Optional, TypedDict
 class SimilarityResult(TypedDict):
     id: Optional[str]
     rank: Optional[int]
-    text: str
     score: float
+    text: str
     percent_difference: Optional[float]
 
 
