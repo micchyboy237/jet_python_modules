@@ -102,22 +102,24 @@ def query_similarity_scores(
     threshold: float = 0.0,
     model_name: Union[str, List[str]] = "all-MiniLM-L6-v2",
     fuse_method: str = "average",
-    ids: Union[List[str], None] = None
+    ids: Union[List[str], None] = None,
+    metrics: Literal["cosine", "dot", "euclidean"] = "cosine"
 ) -> List[SimilarityResult]:
     """
     Computes similarity scores for queries against texts using one or more embedding models,
     fusing results into a single sorted list with one result per text.
 
     For each text and query, scores are averaged across models. Then, for each text,
-    the query-specific averages are averaged to produce a final score.
+    the query-specific scores are fused using the specified method ('average', 'max', or 'min').
 
     Args:
         query: Single query or list of queries.
         texts: Single text or list of texts to compare against.
         threshold: Minimum similarity score to include in results (default: 0.0).
         model_name: One or more embedding model names (default: "all-MiniLM-L6-v2").
-        fuse_method: Fusion method for averaging scores (default: "average").
+        fuse_method: Fusion method for combining scores ('average', 'max', or 'min') (default: "average").
         ids: Optional list of IDs for texts; must match texts length if provided.
+        metrics: Similarity metric to use ('cosine', 'euclidean', 'dot') (default: "cosine").
 
     Returns:
         List of SimilarityResult, containing one fused result per text,
@@ -125,7 +127,7 @@ def query_similarity_scores(
 
     Raises:
         ValueError: If inputs are empty, model_name is empty, ids length mismatches texts,
-                    or invalid fuse_method.
+                    invalid fuse_method, or invalid metrics.
     """
     if isinstance(query, str):
         query = [query]
@@ -143,10 +145,17 @@ def query_similarity_scores(
             f"Length of ids ({len(ids)}) must match length of texts ({len(texts)})."
         )
 
-    supported_methods = {"average"}
+    supported_methods = {"average", "max", "min"}
     if fuse_method not in supported_methods:
         raise ValueError(
-            f"Fusion method must be one of {supported_methods}; got {fuse_method}.")
+            f"Fusion method must be one of {supported_methods}; got {fuse_method}."
+        )
+
+    supported_metrics = {"cosine", "euclidean", "dot"}
+    if metrics not in supported_metrics:
+        raise ValueError(
+            f"Metrics must be one of {supported_metrics}; got {metrics}."
+        )
 
     text_ids = (
         ids
@@ -163,23 +172,39 @@ def query_similarity_scores(
         query_embeddings = np.array(embed_func(query))
         text_embeddings = np.array(embed_func(texts))
 
-        query_norms = np.linalg.norm(query_embeddings, axis=1, keepdims=True)
-        text_norms = np.linalg.norm(text_embeddings, axis=1, keepdims=True)
+        if metrics == "cosine":
+            # Normalize embeddings for cosine similarity
+            query_norms = np.linalg.norm(
+                query_embeddings, axis=1, keepdims=True)
+            text_norms = np.linalg.norm(text_embeddings, axis=1, keepdims=True)
 
-        query_embeddings = np.divide(
-            query_embeddings,
-            query_norms,
-            out=np.zeros_like(query_embeddings),
-            where=query_norms != 0
-        )
-        text_embeddings = np.divide(
-            text_embeddings,
-            text_norms,
-            out=np.zeros_like(text_embeddings),
-            where=text_norms != 0
-        )
+            query_embeddings = np.divide(
+                query_embeddings,
+                query_norms,
+                out=np.zeros_like(query_embeddings),
+                where=query_norms != 0
+            )
+            text_embeddings = np.divide(
+                text_embeddings,
+                text_norms,
+                out=np.zeros_like(text_embeddings),
+                where=text_norms != 0
+            )
 
-        similarity_matrix = np.dot(query_embeddings, text_embeddings.T)
+            similarity_matrix = np.dot(query_embeddings, text_embeddings.T)
+        elif metrics == "dot":
+            # Raw dot product without normalization
+            similarity_matrix = np.dot(query_embeddings, text_embeddings.T)
+        elif metrics == "euclidean":
+            # Euclidean distance (lower is better, so we negate and add 1 to make higher better)
+            # This transforms the range from [0, ∞) to (-∞, 1] where 1 is perfect match
+            similarity_matrix = np.zeros((len(query), len(texts)))
+            for i in range(len(query)):
+                for j in range(len(texts)):
+                    dist = np.linalg.norm(
+                        query_embeddings[i] - text_embeddings[j])
+                    # Convert distance to a similarity score (1 for identical, approaching 0 for very different)
+                    similarity_matrix[i, j] = 1 / (1 + dist)
 
         for i, query_text in enumerate(query):
             scores = similarity_matrix[i]
@@ -212,14 +237,17 @@ def fuse_all_results(
     Fuses similarity results into a single sorted list with one result per text.
 
     First, averages scores for each text and query across models.
-    Then, averages the query-specific scores for each text.
+    Then, fuses the query-specific scores for each text using the specified method.
 
     Args:
         results: List of result dictionaries with id, query, text, and score.
-        method: Fusion method (currently only "average" supported).
+        method: Fusion method ('average', 'max', or 'min').
 
     Returns:
         List of SimilarityResult, sorted by score with ranks and percent_difference.
+
+    Raises:
+        ValueError: If an unsupported fusion method is provided.
     """
     # Step 1: Average scores for each (id, query, text) across models
     query_text_data = defaultdict(lambda: {"scores": [], "text": None})
@@ -237,7 +265,7 @@ def fuse_all_results(
         for key, data in query_text_data.items()
     }
 
-    # Step 2: Average query-specific scores for each (id, text)
+    # Step 2: Collect query-specific scores for each (id, text)
     text_data = defaultdict(lambda: {"scores": [], "text": None})
 
     for (id_, query, text), data in query_text_averages.items():
@@ -246,12 +274,35 @@ def fuse_all_results(
         text_data[text_key]["text"] = text
 
     # Create fused results
+    fused_scores = []
     if method == "average":
         fused_scores = [
             {
                 "id": key[0],
                 "rank": None,
                 "score": float(sum(data["scores"]) / len(data["scores"])),
+                "text": key[1],
+                "percent_difference": None
+            }
+            for key, data in text_data.items()
+        ]
+    elif method == "max":
+        fused_scores = [
+            {
+                "id": key[0],
+                "rank": None,
+                "score": float(max(data["scores"])),
+                "text": key[1],
+                "percent_difference": None
+            }
+            for key, data in text_data.items()
+        ]
+    elif method == "min":
+        fused_scores = [
+            {
+                "id": key[0],
+                "rank": None,
+                "score": float(min(data["scores"])),
                 "text": key[1],
                 "percent_difference": None
             }
