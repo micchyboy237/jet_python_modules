@@ -107,7 +107,7 @@ class Document(BaseDocument):
 
         query_scores = query_similarity_scores(
             query, texts, model_name=model, ids=ids)
-        results = query_scores[0]["results"]
+        results = query_scores
 
         return results
 
@@ -211,11 +211,9 @@ def get_nodes_parent_mapping(nodes: list[TextNode], docs: list[Document]) -> dic
     return parent_map
 
 
-def rerank_nodes(query: str, nodes: List[Document | TextNode], embed_models: List[str]) -> List[NodeWithScore]:
-    texts = [n.text for n in nodes]
-    node_map = {n.text: n for n in nodes}
-    query_scores = query_similarity_scores(
-        query, texts, model_name=embed_models)
+def rerank_nodes(query: str, docs: List[Document], embed_models: List[str]) -> List[NodeWithScore]:
+    query_scores = Document.rerank_documents(
+        query, docs, embed_models)
 
     results = []
     seen_docs = set()
