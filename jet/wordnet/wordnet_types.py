@@ -1,10 +1,12 @@
-from typing import List, TypedDict
+from typing import List, Optional, TypedDict
 
 
 class SimilarityResult(TypedDict):
+    id: Optional[str]
+    rank: Optional[int]
     text: str
     score: float
-    percent_difference: float
+    percent_difference: Optional[float]
 
 
 class FilterResult(TypedDict):

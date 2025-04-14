@@ -96,15 +96,30 @@ class DocumentSelectionResult(BaseModel):
 
 
 class Document(BaseDocument):
+    @staticmethod
+    def rerank_documents(query: str, docs: list['Document'], model: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS] = "paraphrase-multilingual") -> list[NodeWithScore]:
+        texts: list[str] = []
+        ids: list[str] = []
+
+        for doc in docs:
+            texts.append(doc.get_recursive_text())
+            ids.append(doc.node_id)
+
+        query_scores = query_similarity_scores(
+            query, texts, model_name=model, ids=ids)
+        results = query_scores[0]["results"]
+
+        return results
+
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
 
-    def get_recursive_text(doc: BaseDocument) -> str:
+    def get_recursive_text(self) -> str:
         """
         Get content of this node and all of its child nodes recursively.
         """
-        texts = [doc.metadata["content"]]
-        for child in doc.child_nodes or []:
+        texts = [self.metadata["content"]]
+        for child in self.child_nodes or []:
             texts.append(child.metadata["content"])
         return "\n".join(filter(None, texts))
 
@@ -159,7 +174,7 @@ def get_docs_from_html(html: str) -> list[Document]:
     return docs
 
 
-def get_nodes_from_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_MODELS | list[str | OLLAMA_EMBED_MODELS], chunk_size: Optional[int] = None, chunk_overlap: int = 40) -> tuple[list[TextNode], dict[str, TextNode]]:
+def get_nodes_from_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS], chunk_size: Optional[int] = None, chunk_overlap: int = 40) -> tuple[list[TextNode], dict[str, TextNode]]:
     if isinstance(embed_models, str):
         embed_models = [embed_models]
     model = min(embed_models, key=get_model_max_tokens)
@@ -196,7 +211,7 @@ def get_nodes_parent_mapping(nodes: list[TextNode], docs: list[Document]) -> dic
     return parent_map
 
 
-def rerank_nodes(query: str, nodes: List[TextNode], embed_models: List[str], parent_map: Dict[str, TextNode] = {}) -> List[NodeWithScore]:
+def rerank_nodes(query: str, nodes: List[Document | TextNode], embed_models: List[str]) -> List[NodeWithScore]:
     texts = [n.text for n in nodes]
     node_map = {n.text: n for n in nodes}
     query_scores = query_similarity_scores(
@@ -210,9 +225,7 @@ def rerank_nodes(query: str, nodes: List[TextNode], embed_models: List[str], par
 
         parent_text = text  # fallback to child text
         if parent_info and isinstance(parent_info, RelatedNodeInfo):
-            parent_node = parent_map.get(parent_info.node_id)
-            if parent_node:
-                parent_text = parent_node.text
+            parent_text = parent_info.metadata["content"]
 
         doc_index = node.metadata["doc_index"]
         if doc_index not in seen_docs:

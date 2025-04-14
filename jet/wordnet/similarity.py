@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import List, Optional, Literal
+from jet.data.utils import generate_key
 from sentence_transformers import util
 import torch
 from typing import Callable, List
@@ -14,7 +15,7 @@ import re
 import json
 
 from typing import List, Optional, TypedDict, Union
-from jet.llm.models import OLLAMA_EMBED_MODELS
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.llm.utils.embeddings import get_ollama_embedding_function
 from sentence_transformers import SentenceTransformer
 from scipy.spatial.distance import cosine
@@ -97,7 +98,7 @@ def get_text_groups(
 
 class QuerySimilarityResult(TypedDict):
     query: str
-    results: Dict[str, float]
+    results: List[SimilarityResult]
 
 
 def query_similarity_scores(
@@ -105,23 +106,9 @@ def query_similarity_scores(
     texts: Union[str, List[str]],
     threshold: float = 0.0,
     model_name: Union[str, List[str]] = "all-MiniLM-L6-v2",
-    fuse_method: str = "average"
+    fuse_method: str = "average",
+    ids: Union[List[str], None] = None
 ) -> List[QuerySimilarityResult]:
-    """
-    Computes similarity scores for a query against texts using one or more embedding models.
-
-    If multiple models are provided, the results are fused using the specified method.
-
-    Args:
-        query (str | list[str]): Single query or a list of queries.
-        texts (str | list[str]): Single text or a list of texts to compare against.
-        threshold (float): Minimum similarity score required to be included in the results.
-        model_name (str | list[str]): One or more embedding model names.
-        fuse_method (str): Fusion method when using multiple models. Default is "average".
-
-    Returns:
-        List[QuerySimilarityResult]: A list containing similarity scores for each query.
-    """
     if isinstance(query, str):
         query = [query]
     if isinstance(texts, str):
@@ -133,6 +120,11 @@ def query_similarity_scores(
         raise ValueError("Both query and texts must be non-empty.")
     if len(model_name) < 1:
         raise ValueError("At least one model name must be provided.")
+    if ids is not None and len(ids) != len(texts):
+        raise ValueError("Length of ids must match length of texts.")
+
+    text_ids = ids if ids is not None else [
+        generate_key(text) for text in texts]
 
     all_model_results: List[List[QuerySimilarityResult]] = []
 
@@ -155,15 +147,25 @@ def query_similarity_scores(
 
             mask = similarity_scores >= threshold
             filtered_texts = np.array(texts)[mask]
+            filtered_ids = np.array(text_ids)[mask]
             filtered_scores = similarity_scores[mask]
 
             sorted_indices = np.argsort(filtered_scores)[::-1]
-            sorted_results = {
-                filtered_texts[j]: filtered_scores[j] for j in sorted_indices
-            }
+            sorted_results: List[SimilarityResult] = [
+                {
+                    "id": filtered_ids[j],
+                    "rank": idx + 1,
+                    "text": filtered_texts[j],
+                    "score": float(filtered_scores[j]),
+                    "percent_difference": None
+                }
+                for idx, j in enumerate(sorted_indices)
+            ]
 
-            model_results.append(
-                {"query": query_text, "results": sorted_results})
+            model_results.append({
+                "query": query_text,
+                "results": sorted_results
+            })
 
         all_model_results.append(model_results)
 
@@ -200,23 +202,45 @@ def fuse_similarity_scores(
     for i in range(num_queries):
         query_text = results_sets[0][i]["query"]
         combined_scores = defaultdict(list)
+        id_text_map = {}
 
+        # Collect scores and maintain id-text mapping
         for rs in results_sets:
-            for text, score in rs[i]["results"].items():
-                combined_scores[text].append(score)
+            for result in rs[i]["results"]:
+                id_text_map[result["id"]] = result["text"]
+                combined_scores[result["id"]].append(result["score"])
 
         if method == "average":
-            averaged_scores = {
-                text: sum(scores) / len(scores) for text, scores in combined_scores.items()
-            }
+            averaged_scores = [
+                {
+                    "id": id,
+                    "text": id_text_map[id],
+                    "score": float(sum(scores) / len(scores)),
+                    "percent_difference": None
+                }
+                for id, scores in combined_scores.items()
+            ]
         else:
             raise ValueError(f"Unsupported fusion method: {method}")
 
-        sorted_scores = dict(
-            sorted(averaged_scores.items(), key=lambda x: x[1], reverse=True)
-        )
+        # Sort by score in descending order and add rank
+        sorted_scores = sorted(
+            averaged_scores, key=lambda x: x["score"], reverse=True)
+        sorted_scores = [
+            {
+                "id": item["id"],
+                "rank": idx + 1,  # Add rank starting from 1
+                "text": item["text"],
+                "score": item["score"],
+                "percent_difference": item["percent_difference"]
+            }
+            for idx, item in enumerate(sorted_scores)
+        ]
 
-        fused_results.append({"query": query_text, "results": sorted_scores})
+        fused_results.append({
+            "query": query_text,
+            "results": sorted_scores
+        })
 
     return fused_results
 
