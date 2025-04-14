@@ -635,7 +635,7 @@ def exclude_elements(doc, excludes: List[str]) -> None:
 
 class TreeNode:
     def __init__(self, tag: str, text: Optional[str], depth: int, id: str,
-                 parent: Optional[str], class_names: List[str], children: Optional[List['TreeNode']] = None):
+                 parent: Optional[str], class_names: List[str] = [], children: Optional[List['TreeNode']] = None):
         self.tag = tag
         self.text = text
         self.depth = depth

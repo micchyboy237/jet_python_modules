@@ -1,5 +1,6 @@
 from typing import Callable, Literal, Optional, TypedDict, Union
 from jet.logger import logger
+from jet.utils.doc_utils import add_parent_child_relationship
 from jet.wordnet.words import get_words
 from llama_index.core.base.llms.types import ChatMessage
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
@@ -424,17 +425,6 @@ def get_subtext_indices(text: str, subtext: str) -> tuple[int, int] | None:
     return start, end
 
 
-def _add_parent_child_relationship(parent_node: BaseNode, child_node: BaseNode) -> None:
-    """Add parent/child relationship between nodes."""
-    child_list: list[RelatedNodeInfo] = parent_node.child_nodes or []
-    child_list.append(child_node.as_related_node_info())
-    parent_node.relationships[NodeRelationship.CHILD] = child_list
-
-    child_node.relationships[
-        NodeRelationship.PARENT
-    ] = parent_node.as_related_node_info()
-
-
 def split_docs(
     docs: Document | list[Document],
     model: Optional[str | OLLAMA_MODEL_NAMES] = None,
@@ -514,7 +504,7 @@ def split_docs(
                         "end_idx": end_idx,
                     })
                 nodes.append(sub_node)
-                _add_parent_child_relationship(
+                add_parent_child_relationship(
                     parent_node=node,
                     child_node=sub_node,
                 )

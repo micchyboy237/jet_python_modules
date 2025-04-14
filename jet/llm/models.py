@@ -35,10 +35,8 @@ OLLAMA_MODEL_NAMES = Literal[
 ]
 
 
-OLLAMA_EMBED_MODELS = OLLAMA_MODEL_NAMES
-
-OLLAMA_BERT_MODELS = Literal[
-    "nomic-embed-text"
+OLLAMA_EMBED_MODELS = Literal[
+    "nomic-embed-text",
     "mxbai-embed-large",
     "snowflake-arctic-embed",
     "snowflake-arctic-embed:137m",
@@ -50,6 +48,7 @@ OLLAMA_BERT_MODELS = Literal[
     "granite-embedding",
     "granite-embedding:278m",
 ]
+
 
 # Map models to context window sizes
 OLLAMA_MODEL_CONTEXTS = {

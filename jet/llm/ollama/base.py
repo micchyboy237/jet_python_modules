@@ -275,7 +275,7 @@ class Ollama(BaseOllama):
         }
         super().__init__(model=model, **kwargs)
 
-    def encode(self, texts: Union[str, Sequence[str]] = ''):
+    def encode(self, texts: Union[str, Sequence[str]] = '') -> list[int] | list[list[int]]:
         """Calls get_general_text_embedding to get the embeddings."""
         tokens = tokenize(self.model, texts)
         return tokens
@@ -398,26 +398,19 @@ class Ollama(BaseOllama):
         output_cls: Type[BaseModel],
         prompt: PromptTemplate,
         model: Optional[OLLAMA_MODEL_NAMES] = None,
-        system: Optional[str] = None,
         llm_kwargs: dict[str, Any] = {},
         **prompt_args: Any,
     ) -> BaseModel:
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
             llm_kwargs["format"] = output_cls.model_json_schema()
 
-            query = prompt_args.pop("query")
-            context = prompt_args.pop("context")
-
             llm_kwargs = {
                 **llm_kwargs,
-                "messages": llm_kwargs.get("messages", query),
-                "system": llm_kwargs.get("system", system),
-                "context": llm_kwargs.get("context", context),
-                "model": llm_kwargs.get("model", model),
-                "template": prompt,
+                "model": llm_kwargs.get("model", model)
             }
 
-            response = self.chat(**llm_kwargs)
+            messages = prompt.format_messages(**prompt_args)
+            response = self.chat(messages, **llm_kwargs)
 
             extracted_result = extract_json_block_content(
                 response.message.content or "")

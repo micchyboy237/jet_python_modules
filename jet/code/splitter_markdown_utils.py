@@ -25,6 +25,13 @@ class HeaderItem(TypedDict):
     parents: list[str]
 
 
+class Header(TypedDict):
+    content: str
+    length: int
+    header: str
+    header_level: int
+
+
 def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat_list: Optional[List[HeaderNode]] = None) -> List[HeaderNode]:
     """Returns a flat list of header nodes, including itself and its children. Can handle a single header node or a list of header nodes."""
     if flat_list is None:
@@ -167,7 +174,7 @@ def get_header_contents(md_text: str,
     return hierarchy
 
 
-def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[dict]:
+def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[Header]:
     from jet.code.helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
 
     headers_to_split_on = headers_to_split_on or [
@@ -182,7 +189,7 @@ def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, st
     markdown_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on, strip_headers=False, return_each_line=False)
     md_header_splits = markdown_splitter.split_text(md_text)
-    md_header_contents = []
+    md_header_contents: list[Header] = []
     for split in md_header_splits:
         content = split.page_content
         # metadata = split.metadata

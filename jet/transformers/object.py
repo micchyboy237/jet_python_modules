@@ -11,60 +11,60 @@ from pydantic.main import BaseModel
 from jet.logger import logger
 
 
-def make_serializable(obj, _seen=None):
-    if _seen is None:
-        _seen = set()
-
-    def track(obj):
-        return isinstance(obj, (dict, list, set, tuple, BaseModel, np.ndarray)) or hasattr(obj, '__dict__')
-
-    if track(obj):
-        obj_id = id(obj)
-        if obj_id in _seen:
-            return f"<circular_ref:{type(obj).__name__}>"
-        _seen.add(obj_id)
-
+def make_serializable(obj):
+    """
+    Recursively converts an object's attributes to be serializable.
+    Args:
+        obj: The input object to process.
+    Returns:
+        A serializable representation of the object.
+    """
     if isinstance(obj, Enum):
-        return obj.value
+        return obj.value  # Convert Enum to its value
     elif isinstance(obj, bytes):
         try:
-            return obj.decode('utf-8')
+            decoded_str = obj.decode('utf-8')
         except UnicodeDecodeError:
-            return base64.b64encode(obj).decode('utf-8')
+            decoded_str = base64.b64encode(obj).decode('utf-8')
+        return make_serializable(decoded_str)
     elif isinstance(obj, (int, float, bool, type(None))):
         return obj
     elif isinstance(obj, str):
         try:
-            parsed = json.loads(obj)
-            if isinstance(parsed, (dict, list)):
-                return make_serializable(parsed, _seen)
-            return obj
+            parsed_obj = json.loads(obj)
+            if isinstance(parsed_obj, (dict, list)):  # Only parse JSON objects or arrays
+                return parsed_obj
+            return obj  # Keep as string if it's a valid number or boolean
         except json.JSONDecodeError:
             return obj
     elif isinstance(obj, set):
-        return [make_serializable(item, _seen) for item in obj]
+        return make_serializable(list(obj))
     elif isinstance(obj, tuple):
-        return [make_serializable(item, _seen) for item in obj]
+        return [make_serializable(item) for item in obj]
     elif isinstance(obj, list):
-        return [make_serializable(item, _seen) for item in obj]
+        return [make_serializable(item) for item in obj]
     elif isinstance(obj, dict):
-        return {
-            str(key): make_serializable(value, _seen)
-            for key, value in obj.items()
-        }
+        serialized_dict = {}
+        for key, value in obj.items():
+            serialized_key = str(key) if not isinstance(
+                key, str) else key  # Ensure keys are strings
+            serialized_dict[serialized_key] = make_serializable(
+                value)  # Properly process values
+        return serialized_dict
     elif isinstance(obj, BaseModel):
         try:
-            return make_serializable(obj.model_dump(), _seen)
-        except Exception:
-            return make_serializable(vars(obj), _seen)
+            return make_serializable(obj.model_dump())
+        except (AttributeError, TypeError) as e:
+            logger.warning(e)
+            return make_serializable(vars(obj))
     elif isinstance(obj, (np.integer, np.floating)):
-        return obj.item()
+        return obj.item()  # Convert numpy types to native Python types
     elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif hasattr(obj, "__dict__"):
-        return make_serializable(vars(obj), _seen)
+        return obj.tolist()  # Convert numpy arrays to lists
+    elif hasattr(obj, "__dict__"):  # Check this only after primitive and known types
+        return make_serializable(get_non_empty_attributes(obj))
     else:
-        return str(obj)
+        return str(obj)  # Fallback for unsupported types
 
 
 # Example usage

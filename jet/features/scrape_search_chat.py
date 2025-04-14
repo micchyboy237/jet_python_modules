@@ -1,5 +1,5 @@
 import multiprocessing
-from typing import List, TypedDict
+from typing import Any, List, TypedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
@@ -11,6 +11,7 @@ from jet.scrapers.utils import safe_path_from_url, scrape_urls, search_data, val
 from jet.search.searxng import NoResultsFoundError, SearchResult, search_searxng
 from jet.transformers.formatters import format_json
 from jet.utils.class_utils import class_to_string
+from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
 from jet.utils.markdown import extract_json_block_content
 from llama_index.core.prompts.base import PromptTemplate
 from pydantic import BaseModel, Field
@@ -20,7 +21,7 @@ from jet.scrapers.preprocessor import html_to_markdown
 from jet.code.splitter_markdown_utils import count_md_header_contents, get_md_header_contents
 from jet.token.token_utils import get_model_max_tokens, group_nodes, group_texts, split_docs, token_counter
 from jet.wordnet.similarity import query_similarity_scores
-from llama_index.core.schema import Document, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
+from llama_index.core.schema import Document as BaseDocument, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from jet.llm.evaluators.helpers.base import EvaluationResult
 from jet.llm.evaluators.context_relevancy_evaluator import evaluate_context_relevancy
@@ -44,14 +45,15 @@ MAX_WORKERS = multiprocessing.cpu_count() // 2
 # --- Constants ---
 
 SEARCH_WEB_PROMPT_TEMPLATE = PromptTemplate("""
-Context information is below.
----------------------
-{context}
----------------------
-Given the context information and not prior knowledge, answer the query.
+--- Documents ---
+{headers}
+--- End of Documents ---
 
 Schema:
 {schema}
+
+Instructions:
+{instruction}
 
 Query:
 {query}
@@ -93,23 +95,67 @@ class DocumentSelectionResult(BaseModel):
     feedback: str
 
 
-# --- Core Functions ---
+class Document(BaseDocument):
+    def __init__(self, **data: Any) -> None:
+        super().__init__(**data)
 
+    def get_recursive_text(doc: BaseDocument) -> str:
+        """
+        Get content of this node and all of its child nodes recursively.
+        """
+        texts = [doc.metadata["content"]]
+        for child in doc.child_nodes or []:
+            texts.append(child.metadata["content"])
+        return "\n".join(filter(None, texts))
+
+
+# --- Core Functions ---
 
 def get_docs_from_html(html: str) -> list[Document]:
     md_text = html_to_markdown(html, ignore_links=False)
     header_contents = get_md_header_contents(md_text)
-    docs = [
-        Document(
+
+    docs: list[Document] = []
+    parent_stack: list[tuple[int, Document]] = []  # (header_level, doc)
+    prev_sibling: dict[int, Document] = {}  # {header_level: last_doc}
+
+    for i, header in enumerate(header_contents):
+        level = header["header_level"]
+        doc = Document(
             text=header["content"],
             metadata={
                 "doc_index": i,
+                "header_level": level,
                 "header": header["header"],
-                "header_level": header["header_level"],
-            }
+                "content": header["content"],
+            },
         )
-        for i, header in enumerate(header_contents)
-    ]
+
+        # Find parent by popping out higher/equal levels
+        while parent_stack and parent_stack[-1][0] >= level:
+            parent_stack.pop()
+
+        if parent_stack:
+            parent = parent_stack[-1][1]
+            add_parent_child_relationship(parent, doc)
+        else:
+            # No parent = it's a root node; link to source
+            doc.relationships[NodeRelationship.SOURCE] = RelatedNodeInfo(
+                node_id="source")
+
+        # Add sibling relationship if same level and previous exists
+        if level in prev_sibling:
+            add_sibling_relationship(prev_sibling[level], doc)
+
+        # Update trackers
+        prev_sibling[level] = doc
+        parent_stack.append((level, doc))
+        docs.append(doc)
+
+    # Update contents
+    # for doc in docs:
+    #     doc.set_content(doc.get_recursive_text())
+
     return docs
 
 
@@ -240,8 +286,8 @@ def process_document(
 
     return TextNode(
         text=(
-            f"Document number: {top_sub_node.metadata['doc_index'] + 1}\n"
-            f"```text\n{top_sub_node.metadata['header']}\n{sub_text}\n```"
+            # f"Document number: {top_sub_node.metadata['doc_index'] + 1}\n"
+            f"{top_sub_node.metadata['header']}\n{sub_text}"
         ),
         metadata=top_sub_node.metadata,
     )
