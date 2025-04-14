@@ -103,7 +103,10 @@ class Document(BaseDocument):
         ids: list[str] = []
 
         for doc in docs:
-            texts.append(doc.get_recursive_text())
+            text = doc.get_recursive_text()
+            if doc.parent_node:
+                text = f"{doc.parent_node.metadata["header"]}\n{text}"
+            texts.append(text)
             ids.append(doc.node_id)
 
         query_scores = query_similarity_scores(
@@ -211,25 +214,21 @@ def get_nodes_parent_mapping(nodes: list[TextNode], docs: list[Document]) -> dic
     return parent_map
 
 
-def rerank_nodes(query: str, docs: List[Document], embed_models: List[str]) -> List[NodeWithScore]:
+def rerank_nodes(query: str | list[str], docs: List[Document], embed_models: List[OLLAMA_EMBED_MODELS]) -> List[NodeWithScore]:
     query_scores = Document.rerank_documents(
         query, docs, embed_models)
+    header_docs_dict: dict[str, Document] = {
+        doc.node_id: doc for doc in docs}
 
     results = []
     seen_docs = set()
-    for text, score in query_scores[0]["results"].items():
-        node = node_map[text]
-        parent_info = node.relationships.get(NodeRelationship.PARENT)
-
-        parent_text = text  # fallback to child text
-        if parent_info and isinstance(parent_info, RelatedNodeInfo):
-            parent_text = parent_info.metadata["content"]
-
-        doc_index = node.metadata["doc_index"]
+    for item in query_scores:
+        doc = header_docs_dict[item["id"]]
+        doc_index = doc.metadata["doc_index"]
         if doc_index not in seen_docs:
             seen_docs.add(doc_index)
             results.append(NodeWithScore(node=TextNode(
-                text=parent_text, metadata=node.metadata), score=score))
+                text=doc.text, metadata=doc.metadata), score=item["score"]))
 
     return results
 

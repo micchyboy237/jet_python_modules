@@ -15,8 +15,8 @@ class SimilarityResult(TypedDict):
     id: Optional[str]
     rank: Optional[int]
     score: float
-    text: str
     percent_difference: Optional[float]
+    text: str
 
 
 class FilterResult(TypedDict):

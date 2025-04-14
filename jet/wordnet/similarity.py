@@ -101,7 +101,7 @@ def query_similarity_scores(
     texts: Union[str, List[str]],
     threshold: float = 0.0,
     model_name: Union[str, List[str]] = "all-MiniLM-L6-v2",
-    fuse_method: str = "average",
+    fuse_method: Literal["average", "max", "min"] = "average",
     ids: Union[List[str], None] = None,
     metrics: Literal["cosine", "dot", "euclidean"] = "cosine"
 ) -> List[SimilarityResult]:
@@ -281,8 +281,8 @@ def fuse_all_results(
                 "id": key[0],
                 "rank": None,
                 "score": float(sum(data["scores"]) / len(data["scores"])),
-                "text": key[1],
-                "percent_difference": None
+                "percent_difference": None,
+                "text": key[1]
             }
             for key, data in text_data.items()
         ]
@@ -292,8 +292,8 @@ def fuse_all_results(
                 "id": key[0],
                 "rank": None,
                 "score": float(max(data["scores"])),
-                "text": key[1],
-                "percent_difference": None
+                "percent_difference": None,
+                "text": key[1]
             }
             for key, data in text_data.items()
         ]
@@ -303,8 +303,8 @@ def fuse_all_results(
                 "id": key[0],
                 "rank": None,
                 "score": float(min(data["scores"])),
-                "text": key[1],
-                "percent_difference": None
+                "percent_difference": None,
+                "text": key[1]
             }
             for key, data in text_data.items()
         ]
