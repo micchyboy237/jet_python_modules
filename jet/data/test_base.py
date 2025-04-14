@@ -1,5 +1,5 @@
 import unittest
-from jet.data.base import BaseModel, create_dynamic_model
+from jet.data.base import BaseModel, create_dynamic_model, extract_titles_descriptions
 
 
 class TestDynamicModelCreation(unittest.TestCase):
@@ -261,9 +261,214 @@ class TestDynamicModelCreation(unittest.TestCase):
             },
             "required": ["id"]
         }
+        expected = {
+            "properties": {
+                "id": {
+                    "title": "Id",
+                    "type": "string"
+                },
+                "count": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": None,
+                    "title": "Count"
+                }
+            },
+            "required": [
+                "id"
+            ],
+            "title": "DynamicModel",
+            "type": "object"
+        }
 
         Model = create_dynamic_model(schema)
-        self.assertEqual(Model.model_json_schema(), schema)
+        self.assertEqual(Model.model_json_schema(), expected)
+
+
+class TestExtractTitlesDescriptions(unittest.TestCase):
+    def test_basic_schema(self):
+        schema = {
+            "title": "Person",
+            "description": "A person object",
+            "type": "object"
+        }
+        result = extract_titles_descriptions(schema)
+        expected = [
+            {"path": "", "title": "Person", "description": "A person object"}
+        ]
+        self.assertEqual(result, expected)
+
+    def test_nested_properties(self):
+        schema = {
+            "type": "object",
+            "title": "Person",
+            "description": "A person object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "title": "Name",
+                    "description": "The person's name"
+                },
+                "address": {
+                    "type": "object",
+                    "title": "Address",
+                    "description": "The person's address",
+                    "properties": {
+                        "street": {
+                            "type": "string",
+                            "title": "Street",
+                            "description": "Street name"
+                        }
+                    }
+                }
+            }
+        }
+        result = extract_titles_descriptions(schema)
+        expected = [
+            {"path": "", "title": "Person", "description": "A person object"},
+            {"path": "name", "title": "Name", "description": "The person's name"},
+            {"path": "address", "title": "Address",
+                "description": "The person's address"},
+            {"path": "address.street", "title": "Street",
+                "description": "Street name"}
+        ]
+        self.assertEqual(result, expected)
+
+    def test_array_items(self):
+        schema = {
+            "type": "array",
+            "title": "Hobbies",
+            "description": "List of hobbies",
+            "items": {
+                "type": "string",
+                "title": "Hobby",
+                "description": "A single hobby"
+            }
+        }
+        result = extract_titles_descriptions(schema)
+        expected = [
+            {"path": "", "title": "Hobbies", "description": "List of hobbies"},
+            {"path": "items", "title": "Hobby", "description": "A single hobby"}
+        ]
+        self.assertEqual(result, expected)
+
+    def test_allOf_combiner(self):
+        schema = {
+            "type": "object",
+            "title": "Person",
+            "description": "A person object",
+            "allOf": [
+                {
+                    "type": "object",
+                    "title": "NamePart",
+                    "description": "Name details",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "title": "Name",
+                            "description": "The person's name"
+                        }
+                    }
+                }
+            ]
+        }
+        result = extract_titles_descriptions(schema)
+        expected = [
+            {"path": "", "title": "Person", "description": "A person object"},
+            {"path": "allOf[0]", "title": "NamePart",
+                "description": "Name details"},
+            {"path": "allOf[0].name", "title": "Name",
+                "description": "The person's name"}
+        ]
+        self.assertEqual(result, expected)
+
+    def test_missing_title_or_description(self):
+        schema = {
+            "type": "object",
+            "title": "Person",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The person's name"
+                },
+                "age": {
+                    "type": "integer",
+                    "title": "Age"
+                }
+            }
+        }
+        result = extract_titles_descriptions(schema)
+        expected = [
+            {"path": "", "title": "Person", "description": None},
+            {"path": "name", "title": None, "description": "The person's name"},
+            {"path": "age", "title": "Age", "description": None}
+        ]
+        self.assertEqual(result, expected)
+
+    def test_empty_schema(self):
+        schema = {}
+        result = extract_titles_descriptions(schema)
+        expected = []
+        self.assertEqual(result, expected)
+
+    def test_additional_properties(self):
+        schema = {
+            "type": "object",
+            "title": "Config",
+            "description": "Configuration object",
+            "additionalProperties": {
+                "type": "string",
+                "title": "ConfigValue",
+                "description": "A configuration value"
+            }
+        }
+        result = extract_titles_descriptions(schema)
+        expected = [
+            {"path": "", "title": "Config", "description": "Configuration object"},
+            {"path": "additionalProperties", "title": "ConfigValue",
+                "description": "A configuration value"}
+        ]
+        self.assertEqual(result, expected)
+
+    def test_no_titles_or_descriptions(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"}
+            }
+        }
+        result = extract_titles_descriptions(schema)
+        expected = []
+        self.assertEqual(result, expected)
+
+    def test_nested_empty_objects(self):
+        schema = {
+            "type": "object",
+            "title": "Root",
+            "description": "Root object",
+            "properties": {
+                "child": {
+                    "type": "object",
+                    "properties": {
+                        "grandchild": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        }
+        result = extract_titles_descriptions(schema)
+        expected = [
+            {"path": "", "title": "Root", "description": "Root object"}
+        ]
+        self.assertEqual(result, expected)
 
 
 if __name__ == "__main__":

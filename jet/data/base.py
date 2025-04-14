@@ -1,6 +1,6 @@
 import json
 from pydantic import create_model, BaseModel as PydanticBaseModel
-from typing import Any, Dict, Optional, Type, Union
+from typing import Type, TypedDict, Optional, Dict, Any, List, Union
 
 
 class BaseModel(PydanticBaseModel):
@@ -115,3 +115,54 @@ def convert_json_schema_to_model_instance(
 ) -> BaseModel:
     DynamicModel = create_dynamic_model(json_schema)
     return DynamicModel(**data)
+
+
+class SchemaInfo(TypedDict):
+    path: str
+    title: Optional[str]
+    description: Optional[str]
+
+
+def extract_titles_descriptions(schema: Dict[str, Any], path: str = "", result: Optional[List[SchemaInfo]] = None) -> List[SchemaInfo]:
+    if result is None:
+        result = []
+
+    # Handle schema types
+    if isinstance(schema, dict):
+        # Extract title and description at current level
+        title = schema.get("title")
+        description = schema.get("description")
+        if title or description:
+            result.append({"path": path, "title": title,
+                          "description": description})
+
+        # Handle properties for object schemas
+        if "properties" in schema:
+            for prop, subschema in schema.get("properties", {}).items():
+                new_path = f"{path}.{prop}" if path else prop
+                extract_titles_descriptions(subschema, new_path, result)
+
+        # Handle items for array schemas
+        if "items" in schema:
+            new_path = f"{path}.items" if path else "items"
+            extract_titles_descriptions(schema["items"], new_path, result)
+
+        # Handle additionalProperties if it's a schema
+        if "additionalProperties" in schema and isinstance(schema["additionalProperties"], dict):
+            new_path = f"{path}.additionalProperties" if path else "additionalProperties"
+            extract_titles_descriptions(
+                schema["additionalProperties"], new_path, result)
+
+        # Handle allOf, anyOf, oneOf
+        for combiner in ["allOf", "anyOf", "oneOf"]:
+            if combiner in schema:
+                for i, subschema in enumerate(schema[combiner]):
+                    new_path = f"{path}.{combiner}[{i}]" if path else f"{combiner}[{i}]"
+                    extract_titles_descriptions(subschema, new_path, result)
+
+        # Handle $ref (optional, depends on whether you want to resolve references)
+        if "$ref" in schema:
+            # If you have a resolver, you can resolve $ref here
+            pass
+
+    return result

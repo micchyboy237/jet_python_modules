@@ -9,6 +9,7 @@ from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.scrapers.crawler.web_crawler import WebCrawler
 from jet.scrapers.utils import safe_path_from_url, scrape_urls, search_data, validate_headers
 from jet.search.searxng import NoResultsFoundError, SearchResult, search_searxng
+from jet.wordnet.wordnet_types import SimilarityResult
 from jet.transformers.formatters import format_json
 from jet.utils.class_utils import class_to_string
 from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
@@ -97,7 +98,7 @@ class DocumentSelectionResult(BaseModel):
 
 class Document(BaseDocument):
     @staticmethod
-    def rerank_documents(query: str, docs: list['Document'], model: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS] = "paraphrase-multilingual") -> list[NodeWithScore]:
+    def rerank_documents(query: str | list[str], docs: list['Document'], model: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS] = "paraphrase-multilingual") -> list[SimilarityResult]:
         texts: list[str] = []
         ids: list[str] = []
 
@@ -107,9 +108,8 @@ class Document(BaseDocument):
 
         query_scores = query_similarity_scores(
             query, texts, model_name=model, ids=ids)
-        results = query_scores
 
-        return results
+        return query_scores
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
