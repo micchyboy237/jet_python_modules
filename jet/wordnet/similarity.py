@@ -109,6 +109,26 @@ def query_similarity_scores(
     fuse_method: str = "average",
     ids: Union[List[str], None] = None
 ) -> List[QuerySimilarityResult]:
+    """
+    Computes similarity scores for a query against texts using one or more embedding models.
+
+    If multiple models are provided, the results are fused using the specified method.
+
+    Args:
+        query: Single query or list of queries.
+        texts: Single text or list of texts to compare against.
+        threshold: Minimum similarity score to include in results (default: 0.0).
+        model_name: One or more embedding model names (default: "all-MiniLM-L6-v2").
+        fuse_method: Fusion method for multiple models (default: "average").
+        ids: Optional list of IDs for texts; must match texts length if provided.
+
+    Returns:
+        List of QuerySimilarityResult, each containing a query and its similarity results.
+        Results are empty if no scores meet the threshold.
+
+    Raises:
+        ValueError: If inputs are empty, model_name is empty, or ids length mismatches texts.
+    """
     if isinstance(query, str):
         query = [query]
     if isinstance(texts, str):
@@ -118,13 +138,18 @@ def query_similarity_scores(
 
     if not query or not texts:
         raise ValueError("Both query and texts must be non-empty.")
-    if len(model_name) < 1:
+    if not model_name:
         raise ValueError("At least one model name must be provided.")
     if ids is not None and len(ids) != len(texts):
-        raise ValueError("Length of ids must match length of texts.")
+        raise ValueError(
+            f"Length of ids ({len(ids)}) must match length of texts ({len(texts)})."
+        )
 
-    text_ids = ids if ids is not None else [
-        generate_key(text) for text in texts]
+    text_ids = (
+        ids
+        if ids is not None
+        else [generate_key(text, query[0] if query else None) for text in texts]
+    )
 
     all_model_results: List[List[QuerySimilarityResult]] = []
 
@@ -134,21 +159,32 @@ def query_similarity_scores(
         query_embeddings = np.array(embed_func(query))
         text_embeddings = np.array(embed_func(texts))
 
-        query_embeddings /= np.linalg.norm(query_embeddings,
-                                           axis=1, keepdims=True)
-        text_embeddings /= np.linalg.norm(text_embeddings,
-                                          axis=1, keepdims=True)
+        query_norms = np.linalg.norm(query_embeddings, axis=1, keepdims=True)
+        text_norms = np.linalg.norm(text_embeddings, axis=1, keepdims=True)
+
+        query_embeddings = np.divide(
+            query_embeddings,
+            query_norms,
+            out=np.zeros_like(query_embeddings),
+            where=query_norms != 0
+        )
+        text_embeddings = np.divide(
+            text_embeddings,
+            text_norms,
+            out=np.zeros_like(text_embeddings),
+            where=text_norms != 0
+        )
 
         similarity_matrix = np.dot(query_embeddings, text_embeddings.T)
 
         model_results: List[QuerySimilarityResult] = []
         for i, query_text in enumerate(query):
-            similarity_scores = similarity_matrix[i]
+            scores = similarity_matrix[i]
 
-            mask = similarity_scores >= threshold
+            mask = scores >= threshold
             filtered_texts = np.array(texts)[mask]
             filtered_ids = np.array(text_ids)[mask]
-            filtered_scores = similarity_scores[mask]
+            filtered_scores = scores[mask]
 
             sorted_indices = np.argsort(filtered_scores)[::-1]
             sorted_results: List[SimilarityResult] = [
@@ -157,10 +193,23 @@ def query_similarity_scores(
                     "rank": idx + 1,
                     "text": filtered_texts[j],
                     "score": float(filtered_scores[j]),
-                    "percent_difference": None
+                    "percent_difference": None  # Temporary, updated below
                 }
                 for idx, j in enumerate(sorted_indices)
             ]
+
+            # Calculate percent_difference, rounded to 2 decimal places
+            if sorted_results:
+                max_score = sorted_results[0]["score"]
+                if max_score != 0:
+                    for result in sorted_results:
+                        result["percent_difference"] = round(
+                            abs(max_score - result["score"]
+                                ) / max_score * 100, 2
+                        )
+                else:
+                    for result in sorted_results:
+                        result["percent_difference"] = 0.0
 
             model_results.append({
                 "query": query_text,
@@ -180,14 +229,17 @@ def fuse_similarity_scores(
     method: str = "average"
 ) -> List[QuerySimilarityResult]:
     """
-    Fuses similarity results from two or more models using the specified method.
+    Fuses similarity results from multiple models using the specified method.
 
     Args:
-        *results_sets (List[QuerySimilarityResult]): Two or more lists of query similarity results.
-        method (str): Fusion method - currently only 'average' is supported.
+        *results_sets: Two or more lists of query similarity results.
+        method: Fusion method (currently only "average" is supported).
 
     Returns:
-        List[QuerySimilarityResult]: List of fused query similarity results.
+        List of fused QuerySimilarityResult, with results sorted by score and ranked.
+
+    Raises:
+        ValueError: If fewer than two result sets, mismatched query counts, or invalid method.
     """
     if len(results_sets) < 2:
         raise ValueError("At least two result sets must be provided.")
@@ -195,47 +247,63 @@ def fuse_similarity_scores(
     num_queries = len(results_sets[0])
     if not all(len(rs) == num_queries for rs in results_sets):
         raise ValueError(
-            "All result sets must have the same number of queries.")
+            f"All result sets must have {num_queries} queries; got {[len(rs) for rs in results_sets]}."
+        )
+
+    supported_methods = {"average"}
+    if method not in supported_methods:
+        raise ValueError(
+            f"Fusion method must be one of {supported_methods}; got {method}.")
 
     fused_results = []
 
     for i in range(num_queries):
         query_text = results_sets[0][i]["query"]
-        combined_scores = defaultdict(list)
-        id_text_map = {}
+        combined_data = defaultdict(lambda: {"scores": [], "text": None})
 
-        # Collect scores and maintain id-text mapping
         for rs in results_sets:
             for result in rs[i]["results"]:
-                id_text_map[result["id"]] = result["text"]
-                combined_scores[result["id"]].append(result["score"])
+                combined_data[result["id"]]["scores"].append(result["score"])
+                combined_data[result["id"]]["text"] = result["text"]
 
         if method == "average":
             averaged_scores = [
                 {
                     "id": id,
-                    "text": id_text_map[id],
-                    "score": float(sum(scores) / len(scores)),
-                    "percent_difference": None
+                    "text": data["text"],
+                    "score": float(sum(data["scores"]) / len(data["scores"])),
+                    "percent_difference": None  # Temporary, updated below
                 }
-                for id, scores in combined_scores.items()
+                for id, data in combined_data.items()
             ]
         else:
             raise ValueError(f"Unsupported fusion method: {method}")
 
-        # Sort by score in descending order and add rank
+        # Sort by score and assign ranks
         sorted_scores = sorted(
             averaged_scores, key=lambda x: x["score"], reverse=True)
         sorted_scores = [
             {
                 "id": item["id"],
-                "rank": idx + 1,  # Add rank starting from 1
+                "rank": idx + 1,
                 "text": item["text"],
                 "score": item["score"],
-                "percent_difference": item["percent_difference"]
+                "percent_difference": None  # Temporary, updated below
             }
             for idx, item in enumerate(sorted_scores)
         ]
+
+        # Calculate percent_difference, rounded to 2 decimal places
+        if sorted_scores:
+            max_score = sorted_scores[0]["score"]
+            if max_score != 0:
+                for result in sorted_scores:
+                    result["percent_difference"] = round(
+                        abs(max_score - result["score"]) / max_score * 100, 2
+                    )
+            else:
+                for result in sorted_scores:
+                    result["percent_difference"] = 0.0
 
         fused_results.append({
             "query": query_text,
