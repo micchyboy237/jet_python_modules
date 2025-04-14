@@ -112,7 +112,7 @@ class Document(BaseDocument):
 # --- Core Functions ---
 
 def get_docs_from_html(html: str) -> list[Document]:
-    md_text = html_to_markdown(html, ignore_links=False)
+    md_text = html_to_markdown(html, ignore_links=True)
     header_contents = get_md_header_contents(md_text)
 
     docs: list[Document] = []
