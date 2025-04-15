@@ -437,7 +437,7 @@ class HtmlRerankResult(BaseModel):
 def compare_html_results(
     query: str,
     html_results: List[Dict],
-    method: Literal["top_score", "avg_top_n", "median_score"] = "avg_top_n",
+    method: Literal["top_score", "avg_top_n", "median_score"] = "top_score",
     top_n: int = 10
 ) -> List[Dict]:
     html_rerank_results: List[Dict] = []

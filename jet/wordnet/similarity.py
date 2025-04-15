@@ -978,14 +978,18 @@ def compute_info(results: List[SimilarityResult], top_n: int = 10) -> InfoStats:
             "avg_word_count": 0.0
         }
 
+    # Keep the original max_score for top_score
     max_score = max(scores)
+
+    # Normalize scores only for other metrics, if needed
     normalized_scores = [
         score / max_score for score in scores] if max_score > 0 else scores
 
     top_n_value = min(top_n, len(normalized_scores))
     top_scores = sorted(normalized_scores, reverse=True)[:top_n_value]
 
-    top_score = top_scores[0] if top_scores else 0.0
+    # Use original max_score for top_score
+    top_score = max_score if scores else 0.0
     avg_top_score = sum(top_scores) / len(top_scores) if top_scores else 0.0
     median_score = float(np.median(top_scores)) if top_scores else 0.0
     avg_word_count = sum(len(r["text"].split())
