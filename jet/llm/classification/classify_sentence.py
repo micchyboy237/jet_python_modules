@@ -1,76 +1,104 @@
-from typing import Dict, List
-from sentence_transformers import SentenceTransformer, util
+import os
+from jet.file.utils import load_file, save_file
 from transformers import pipeline
-from typing import List, Dict, TypedDict
+from tqdm import tqdm
+from enum import Enum
+from jet.logger import logger
+from jet.wordnet.pos_tagger import POSTagger
 
-
-class ClassificationResult(TypedDict):
-    label: str
-    score: float
-
-
-class SentencePairClassificationResult(TypedDict):
-    label: str
-    score: float
-    is_continuation: bool
-
-
-# Initialize the classifier once
+# Create pipeline for zero-shot classification
+print("Loading classification pipeline...")
 classifier = pipeline("zero-shot-classification",
                       model="facebook/bart-large-mnli")
 
+data = load_file(
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/llm/classification/data/transcriptions.json")
+output_dir = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+# Convert text to sentence attribute
+data = [{"id": item['id'], "sentence": item['text']} for item in data]
 
-def classify_sentence(sentence: str, labels: List[str]) -> List[ClassificationResult]:
-    """
-    Classify a sentence into one of the provided candidate labels using zero-shot classification
-    and return a list of results with label, sentence, and score.
+# Get unique labels from data
+tags = ['Question', 'Continuation', 'Statement']
 
-    Args:
-    - sentence (str): The sentence to be classified.
-    - labels (list): A list of possible labels to classify the sentence.
+print("\n------------------------------------------------------------------------\n")
+print("Sentence Pair Relationship\n")
 
-    Returns:
-    - List[ClassificationResult]: A list of dictionaries with labels, the sentence, and their corresponding scores.
-    """
-    # Perform classification using the already initialized classifier
-    result = classifier(sentence, labels)
+passed_count = 0
+results = []
+tagger = POSTagger()
 
-    # Prepare the list of result dictionaries
-    results = [
-        ClassificationResult(label=label, score=score)
-        for label, score in zip(result['labels'], result['scores'])
-    ]
+print("{:<35} {:<25} {:<15}".format("Text", "Label", "Passed"))
 
-    return sorted(results, key=lambda x: x['score'], reverse=True)
+pbar = tqdm(data)
 
+batch_size = 20
+batch_counter = 0
 
-def classify_sentence_pair(sentence_pair: Dict[str, str], labels: List[str] = ["Continuation/Elaboration", "Topic Shift/New Topic"]) -> List[SentencePairClassificationResult]:
-    """
-    Classify a pair of sentences into one of the provided candidate labels using zero-shot classification
-    and return a list of results with label, sentence pair, and score, sorted by score in descending order.
+for idx, item in enumerate(pbar):
+    sentence = item['sentence']
+    expected = item.get('label')
+    has_label = expected in tags
+    prev_result = None
+    passed = False
 
-    Args:
-    - sentence_pair (dict): A dictionary with 'sentence1' and 'sentence2'.
-    - labels (list): A list of possible labels to classify the sentence pair.
+    try:
+        # Check if sentence ends with a question mark
+        if sentence.strip()[-1] == "?":
+            result = "Question"
+        else:
+            pos_results = tagger.process_and_tag(sentence)
+            if pos_results[0]['pos'] in ['ADV', 'CCONJ', 'SCONJ']:
+                result = "Continuation"
+            else:
+                result = "Statement"
 
-    Returns:
-    - List[SentencePairClassificationResult]: A list of dictionaries with labels, the sentence pair, and their corresponding scores.
-    """
-    input = f"Current text:\n{sentence_pair['sentence1']}\n\nAdditional text:\n{sentence_pair['sentence2']}\n\nHow does additional text relate to the current text?"
+        passed = result == expected
 
-    result = classifier(input, labels)
+    except IndexError:
+        result = "Error"
+        passed = False
+    finally:
+        obj = {
+            "id": item['id'],
+            "sentence": sentence,
+            "label": result,
+        }
+        if has_label:
+            obj['expected'] = expected
+            obj['passed'] = passed
+            obj['prev_result'] = prev_result
 
-    # Prepare the list of result dictionaries
-    results = [
-        SentencePairClassificationResult(
-            label=label, score=score, is_continuation=labels.index(label) == 0)
-        for label, score in zip(result['labels'], result['scores'])
-    ]
+        results.append(obj)
 
-    return sorted(results, key=lambda x: x['score'], reverse=True)
+        batch_counter += 1
+        if batch_counter >= batch_size:
+            save_file(results, os.path.join(
+                output_dir, "sentence_intents.json"))
+            batch_counter = 0
 
+    if has_label:
+        passed_count += 1 if passed else 0
 
-__all__ = [
-    "classify_sentence",
-    "classify_sentence_pair",
-]
+        logger.info(
+            f"\n\n---------- Item {idx + 1} ---------- Passed Percent: {passed_count / (idx + 1) * 100:.2f}%; {passed_count}/{idx + 1}")
+        print("{:<35} {:<25} {:<15}".format(
+            sentence[:30], "Actual: " + result, ""))
+        print("{:<35} {:<25} {:<15}".format(
+            "", "Expected: " + expected, "Previous: " + prev_result if prev_result else ""))
+        logger.success(
+            f"Passed: {passed}") if passed else logger.error("Failed")
+
+        print("\n")
+
+save_file(results, os.path.join(output_dir, "sentence_intents.json"))
+
+num_errors = len([result for result in results if result['label'] == "Error"])
+num_errors_text = f"Errors: {num_errors}/{len(data)}"
+print("\n")
+if passed_count:
+    passed_percent = passed_count / len(data) * 100
+    passed_percent_text = f"Passed: {passed_percent:.2f}%; {passed_count}/{len(data)}"
+    logger.success(passed_percent_text)
+if num_errors:
+    logger.error(num_errors_text)

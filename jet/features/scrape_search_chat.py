@@ -121,9 +121,14 @@ class Document(BaseDocument):
         """
         Get content of this node and all of its child nodes recursively.
         """
-        texts = [self.metadata["content"]]
+        texts = [self.text]
+
         for child in self.child_nodes or []:
-            texts.append(child.metadata["content"])
+            texts.append(strip_left_hashes(child.metadata["header"]))
+
+        if self.parent_node:
+            texts.insert(0, self.parent_node.metadata["header"])
+
         return "\n".join(filter(None, texts))
 
 

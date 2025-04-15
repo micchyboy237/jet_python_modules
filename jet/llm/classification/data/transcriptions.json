@@ -1,0 +1,48 @@
+[
+  {
+    "id": "001",
+    "text": "What is the capital of France?",
+    "label": "Question"
+  },
+  {
+    "id": "002",
+    "text": "The capital is Paris.",
+    "label": "Statement"
+  },
+  {
+    "id": "003",
+    "text": "And it has many famous landmarks.",
+    "label": "Continuation"
+  },
+  {
+    "id": "004",
+    "text": "How do you make a cake?"
+  },
+  {
+    "id": "005",
+    "text": "First, gather your ingredients.",
+    "label": "Continuation"
+  },
+  {
+    "id": "006",
+    "text": "Baking is a fun activity."
+  },
+  {
+    "id": "007",
+    "text": "Why is the sky blue?",
+    "label": "Question"
+  },
+  {
+    "id": "008",
+    "text": "Because of light scattering.",
+    "label": "Statement"
+  },
+  {
+    "id": "009",
+    "text": "However, it can appear red at sunset."
+  },
+  {
+    "id": "010",
+    "text": "What time is it now?"
+  }
+]
