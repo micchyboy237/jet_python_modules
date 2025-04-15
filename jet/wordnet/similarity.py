@@ -963,7 +963,12 @@ class InfoStats(TypedDict):
     avg_word_count: float
 
 
-def compute_info(scores: List[float], results: List[dict], top_n: int) -> InfoStats:
+def compute_info(results: List[SimilarityResult], top_n: int = 10) -> InfoStats:
+    scores = [
+        r["score"] for r in results
+        if isinstance(r["score"], (int, float)) and r["score"] >= 0
+    ]
+
     if not scores:
         return {
             "top_score": 0.0,

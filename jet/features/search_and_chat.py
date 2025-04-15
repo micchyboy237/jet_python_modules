@@ -400,7 +400,7 @@ def search_and_filter_data(
         urls, max_depth=max_search_depth, query=query)
 
     url_html_tuples = []
-    pbar = tqdm(total=len(urls))
+    pbar = tqdm(total=top_search_n)
     for url, html in scraped_urls_results:
         domain = urlparse(url).netloc
         pbar.set_description(f"Domain: {domain}")
@@ -454,13 +454,6 @@ def compare_html_results(
     html_rerank_results: List[Dict] = []
 
     for result in html_results:
-        scores = [
-            r["score"] for r in result["results"]
-            if isinstance(r["score"], (int, float)) and r["score"] >= 0
-        ]
-        if not scores:
-            logging.info(f"No valid scores for URL: {result['url']}")
-            continue
 
         enriched_results = []
         for res in result["results"]:
@@ -475,7 +468,7 @@ def compare_html_results(
                             "word_count": word_count}
             enriched_results.append(enriched_res)
 
-        info = compute_info(scores, result["results"], top_n)
+        info = compute_info(result["results"], top_n)
 
         html_rerank_results.append({
             "query": result["query"],
