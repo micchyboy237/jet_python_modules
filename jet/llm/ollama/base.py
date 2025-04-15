@@ -4,7 +4,7 @@ from jet.token.token_utils import get_model_max_tokens, tokenize
 from jet.transformers.object import make_serializable
 from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from collections import defaultdict
-from typing import Callable, Dict, Optional, Sequence, Type, TypedDict, Any, Union
+from typing import AsyncGenerator, Callable, Dict, Optional, Sequence, Type, TypedDict, Any, Union
 from jet.decorators.error import wrap_retry
 from jet.decorators.function import retry_on_error
 from jet.llm.ollama.constants import DEFAULT_BASE_URL, DEFAULT_CONTEXT_WINDOW, DEFAULT_EMBED_BATCH_SIZE, DEFAULT_REQUEST_TIMEOUT, OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
@@ -387,6 +387,64 @@ class Ollama(BaseOllama):
             )
 
         return wrap_retry(run)
+
+    async def stream_chat(self, query: str, context: str = "", model: str = None, **kwargs: Any) -> AsyncGenerator[str, None]:
+        """
+        Stream chat responses from Ollama as chunks.
+
+        Args:
+            query: The user query string.
+            context: Optional context string to prepend to the query.
+            model: The model to use (defaults to self.model).
+            **kwargs: Additional arguments like tools, format, options.
+
+        Yields:
+            str: Each chunk of the response content.
+        """
+        from jet.actions.generation import call_ollama_chat
+        from jet.token.token_utils import get_ollama_tokenizer
+
+        # Initialize and set tokenizer
+        tokenizer = get_ollama_tokenizer(self.model)
+        set_global_tokenizer(tokenizer)
+
+        # Use provided model or fallback to instance model
+        model = model or self.model
+
+        # Prepare messages
+        messages = [
+            {"role": "user", "content": f"{context}\n\n{query}" if context else query}
+        ]
+
+        # Handle kwargs
+        tools = kwargs.get("tools", None)
+        format = kwargs.get("format", "json" if self.json_mode else None)
+        options = kwargs.get("options", {})
+
+        settings = {
+            **kwargs,
+            "model": model,
+            "messages": messages,
+            "stream": True,  # Force streaming
+            "format": format,
+            "tools": tools,
+            "keep_alive": self.keep_alive,
+            "full_stream_response": True,
+            "options": {
+                **self._model_kwargs,
+                **options,
+            },
+        }
+
+        response = call_ollama_chat(**settings)
+
+        if isinstance(response, dict) and "error" in response:
+            raise ValueError(f"Ollama API error:\n{response['error']}")
+
+        for chunk in response:
+            content = chunk["message"]["content"]
+            if content:  # Only yield non-empty content
+                yield content
 
     # @llm_chat_callback()
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
