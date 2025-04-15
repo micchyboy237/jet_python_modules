@@ -1021,7 +1021,7 @@ def search_data(query, **kwargs) -> list[SearchResult]:
     return results
 
 
-def scrape_urls(urls: list[str], *, max_depth: Optional[int] = None, query: Optional[str] = None) -> Generator[tuple[str, str], None, None]:
+def scrape_urls(urls: list[str], *, max_depth: Optional[int] = 2, query: Optional[str] = None) -> Generator[tuple[str, str], None, None]:
     from jet.scrapers.crawler.web_crawler import WebCrawler
 
     crawler = WebCrawler(max_depth=max_depth, query=query)

@@ -72,8 +72,8 @@ class SeleniumScraper:
         chrome_options.add_argument(f"--user-agent={random_user_agent}")
         try:
             driver: webdriver.Chrome = webdriver.Chrome(options=chrome_options)
-            driver.set_page_load_timeout(60)
-            driver.set_script_timeout(30)
+            # driver.set_page_load_timeout(60)
+            # driver.set_script_timeout(30)
             return driver
         except Exception as e:
             logger.error(f"Failed to initialize WebDriver: {e}")
@@ -131,7 +131,7 @@ class PageResult(TypedDict):
 
 
 class WebCrawler(SeleniumScraper):
-    def __init__(self, urls: Optional[List[str]] = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: Optional[int] = 1, query: Optional[str] = None, max_visited: Optional[int] = None, max_retries: int = 5, max_parallel: int = 5):
+    def __init__(self, urls: Optional[List[str]] = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: Optional[int] = 0, query: Optional[str] = None, max_visited: Optional[int] = None, max_retries: int = 5, max_parallel: int = 5):
         super().__init__(max_retries=max_retries)
         self.non_crawlable = False
         self.base_urls: List[str] = [normalize_url(
@@ -260,8 +260,11 @@ class WebCrawler(SeleniumScraper):
         html_str = self.get_html()
         result = {"url": url, "html": html_str}
 
-        extension = url.split('.')[-1].lower()
-        if extension in ["pdf", "doc", "docx", "ppt", "pptx"]:
+        # extension = url.split('.')[-1].lower()
+        # if extension in ["pdf", "doc", "docx", "ppt", "pptx"]:
+        #     return result, []
+
+        if depth + 1 > self.max_depth:
             return result, []
 
         try:
@@ -344,16 +347,16 @@ if __name__ == "__main__":
     from jet.scrapers.utils import search_data
 
     query = "Philippines tips for online selling 2025"
-    max_search_depth = 1
+    max_search_depth = 0
 
     search_results = search_data(query)
-    urls = [item["url"] for item in search_results]
+    urls = [item["url"] for item in search_results][:6]
 
-    max_depth = 1
-    crawler = WebCrawler(urls=urls, max_depth=max_depth, query=query)
+    crawler = WebCrawler(urls=urls, query=query)
 
     selected_html = []
     for result in crawler.crawl():
+        logger.success(f"Done crawling {result["url"]}")
         selected_html.append((result["url"], result["html"]))
 
     crawler.close()

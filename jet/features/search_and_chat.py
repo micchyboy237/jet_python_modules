@@ -388,7 +388,7 @@ class SearchRerankResult(TypedDict):
 def search_and_filter_data(
     query: str,
     top_search_n: int = 3,
-    max_search_depth: int = 1,
+    max_search_depth: int = 0,
     min_header_count: int = 5,
 ) -> SearchRerankResult:
 
