@@ -1,4 +1,5 @@
 import logging
+from jet.scrapers.browser.playwright_utils import scrape_multiple_urls
 import numpy as np
 from pydantic import BaseModel, ValidationError
 from typing import List, Literal, Optional, Dict
@@ -110,8 +111,6 @@ class Document(BaseDocument):
 
         for doc in docs:
             text = doc.get_recursive_text()
-            if doc.parent_node:
-                text = f"{doc.parent_node.metadata["header"]}\n{text}"
             texts.append(text)
             ids.append(doc.node_id)
 
@@ -301,21 +300,43 @@ def process_document(
 
         top_sub_node = reranked_sub_nodes[0]
 
-    sub_text = sub_text.lstrip(
-        doc.metadata['header']).strip()
+    sub_text = sub_text.lstrip(doc.metadata['header']).strip()
     sub_text = strip_left_hashes(sub_text)
 
     return TextNode(
         text=(
-            # f"Document number: {top_sub_node.metadata['doc_index'] + 1}\n"
             f"{top_sub_node.metadata['header']}\n{sub_text}"
         ),
         metadata=top_sub_node.metadata,
     )
 
 
-def _process_document_star(args):
-    return process_document(*args)
+def get_all_header_nodes(
+    header_docs: list[Document],
+    header_tokens: list[list[int]],
+    query: str,
+    llm_model: str,
+    embed_models: OLLAMA_EMBED_MODELS | list[OLLAMA_EMBED_MODELS],
+    sub_chunk_size: int,
+    sub_chunk_overlap: int,
+) -> list[TextNode]:
+    all_header_nodes: list[TextNode] = []
+
+    for doc_idx, doc in tqdm(enumerate(header_docs), total=len(header_docs), desc="Processing documents"):
+        node = process_document(
+            doc_idx,
+            doc,
+            header_docs,
+            header_tokens,
+            query,
+            llm_model,
+            embed_models,
+            sub_chunk_size,
+            sub_chunk_overlap
+        )
+        all_header_nodes.append(node)
+
+    return all_header_nodes
 
 
 class DocumentTokensExceedsError(Exception):
@@ -332,32 +353,6 @@ class EvalContextError(Exception):
     def __init__(self, message: str, eval_result: EvaluationResult):
         super().__init__(message)
         self.eval_result = eval_result
-
-
-def get_all_header_nodes(
-    header_docs: list[Document],
-    header_tokens: list[list[int]],
-    query: str,
-    llm_model: str,
-    embed_models: OLLAMA_EMBED_MODELS | list[OLLAMA_EMBED_MODELS],
-    sub_chunk_size: int,
-    sub_chunk_overlap: int,
-    max_workers: int = MAX_WORKERS,
-) -> list[TextNode]:
-    process_args = [
-        (doc_idx, doc, header_docs, header_tokens, query, llm_model,
-         embed_models, sub_chunk_size, sub_chunk_overlap)
-        for doc_idx, doc in enumerate(header_docs)
-    ]
-
-    all_header_nodes: list[TextNode] = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_process_document_star, args)
-                   for args in process_args]
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing documents"):
-            all_header_nodes.append(future.result())
-
-    return all_header_nodes
 
 
 def get_header_tokens_and_update_metadata(header_docs: list[Document], embed_model: OLLAMA_EMBED_MODELS) -> list[list[int]]:
@@ -388,24 +383,27 @@ class SearchRerankResult(TypedDict):
 async def search_and_filter_data(
     query: str,
     top_search_n: int = 3,
-    max_search_depth: int = 0,
-    max_new_urls: int = 0,
     min_header_count: int = 5,
 ) -> SearchRerankResult:
     # Search urls
     search_results = search_data(query)
-    urls = [normalize_url(item["url"]) for item in search_results]
-
-    max_visited = top_search_n + max_new_urls
+    urls = [normalize_url(item["url"])
+            for item in search_results][:top_search_n]
 
     url_html_tuples = []
-    pbar = tqdm(total=top_search_n)
-    async for url, html in scrape_urls(urls, max_depth=max_search_depth, query=query, max_visited=max_visited):
+    pbar = tqdm(total=top_search_n, desc="Scraping URLs")
+
+    # Scrape URLs using scrape_multiple_urls
+    html_contents = await scrape_multiple_urls(urls)
+
+    for url, html in zip(urls, html_contents):
         domain = urlparse(url).netloc
         pbar.set_description(f"Domain: {domain}")
+        pbar.update(1)
 
-        if url in urls:
-            pbar.update(1)
+        if not html:
+            logger.warning(f"Skipping url: {url} due to empty content")
+            continue
 
         if not validate_headers(html, min_count=min_header_count):
             logger.warning(
