@@ -7,6 +7,7 @@ from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.logger.timer import sleep_countdown
 from jet.scrapers.preprocessor import html_to_markdown
 from jet.scrapers.utils import scrape_links
+from jet.transformers.formatters import format_json
 from jet.utils.url_utils import normalize_url
 from jet.wordnet.similarity import query_similarity_scores
 from selenium import webdriver
@@ -24,7 +25,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
-# [Existing functions: extract_numbers, count_path_segments, sort_urls_numerically, get_headers_from_html]
+# [Existing functions unchanged]
 
 
 def extract_numbers(text):
@@ -52,12 +53,11 @@ def get_headers_from_html(html: str) -> list[str]:
 
 class SeleniumScraper:
     def __init__(self, max_retries: int = 5):
-        self.driver: webdriver.Chrome = self._setup_driver()
         self.max_retries = max_retries
 
     def _setup_driver(self) -> webdriver.Chrome:
-        """Sets up the Chrome WebDriver with optimized options for reliability and speed."""
-        chrome_options: Options = Options()
+        """Sets up a Chrome WebDriver with optimized options."""
+        chrome_options = Options()
         chrome_options.page_load_strategy = "eager"
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-gpu")
@@ -72,58 +72,15 @@ class SeleniumScraper:
         random_user_agent = ua.random
         chrome_options.add_argument(f"--user-agent={random_user_agent}")
         try:
-            driver: webdriver.Chrome = webdriver.Chrome(options=chrome_options)
-            # driver.set_page_load_timeout(60)
-            # driver.set_script_timeout(30)
+            driver = webdriver.Chrome(options=chrome_options)
             return driver
         except Exception as e:
             logger.error(f"Failed to initialize WebDriver: {e}")
             raise
 
-    def navigate_to_url(self, url: str):
-        """Navigate the browser to the given URL, retrying with exponential backoff."""
-        retries = 0
-        while retries < self.max_retries:
-            try:
-                self.driver.get(url)
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
-                )
-                logger.info(f"Loaded {url}")
-                return
-            except Exception as e:
-                retries += 1
-                wait_time = 2 ** retries
-                logger.error(
-                    f"Error loading {url}, attempt {retries}/{self.max_retries}: {e}")
-                if retries < self.max_retries:
-                    logger.info(f"Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"Max retries reached for {url}")
-                    raise
-
-    def get_html(self, wait_time: int = 10) -> str:
-        """Waits for full page load and returns the updated page source."""
-        retries = 0
-        while retries < self.max_retries:
-            try:
-                return self.driver.page_source
-            except Exception as e:
-                retries += 1
-                wait_time = 2 ** retries
-                logger.error(
-                    f"Error getting HTML, attempt {retries}/{self.max_retries}: {e}")
-                if retries < self.max_retries:
-                    logger.info(f"Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error("Max retries reached for getting HTML")
-                    raise
-
     def close(self):
-        """Closes the browser and cleans up the driver."""
-        self.driver.quit()
+        """Placeholder for compatibility; actual cleanup in WebCrawler."""
+        pass
 
 
 class PageResult(TypedDict):
@@ -159,12 +116,6 @@ class WebCrawler(SeleniumScraper):
         self.top_n = 5
         self.max_parallel = max_parallel
         self.executor = ThreadPoolExecutor(max_workers=max_parallel)
-
-    def change_url(self, url: str):
-        try:
-            self.navigate_to_url(url)
-        except Exception as e:
-            logger.error(f"Error navigating to URL {url}: {e}")
 
     async def crawl(self) -> AsyncGenerator[PageResult, None]:
         """Crawl all URLs (initial and child) in parallel, yielding results asynchronously."""
@@ -228,15 +179,8 @@ class WebCrawler(SeleniumScraper):
 
         pbar.close()
 
-    def _process_url_task(self, url: str, depth: int) -> tuple[Optional[PageResult], List[str]]:
-        """Process a single URL in a separate thread."""
-        try:
-            return self._process_url(url, depth)
-        finally:
-            pass  # SeleniumScraper cleanup handled by the main instance
-
     def _process_url(self, url: str, depth: int) -> tuple[Optional[PageResult], List[str]]:
-        """Process a single URL and return its result and child URLs."""
+        """Process a single URL with its own WebDriver instance."""
         if self.max_depth is not None and depth > self.max_depth:
             return None, []
         url = self._normalize_url(url)
@@ -248,40 +192,83 @@ class WebCrawler(SeleniumScraper):
             self.visited_urls.add(url)
 
         logger.info(f"Crawling (Depth {depth}): {url}")
+
+        # Create a new driver for this URL
+        driver = self._setup_driver()
         try:
-            self.change_url(url)
-        except Exception as e:
-            logger.error(f"Failed to navigate to {url}: {e}")
-            return None, []
+            # Navigate to URL with retries
+            retries = 0
+            while retries < self.max_retries:
+                try:
+                    driver.get(url)
+                    WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "body"))
+                    )
+                    logger.info(f"Loaded {url}")
+                    break
+                except Exception as e:
+                    retries += 1
+                    wait_time = 2 ** retries
+                    logger.error(
+                        f"Error loading {url}, attempt {retries}/{self.max_retries}: {e}")
+                    if retries < self.max_retries:
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"Max retries reached for {url}")
+                        driver.quit()
+                        return None, []
 
-        if url not in self.base_urls and self._should_exclude(url):
-            return None, []
+            if url not in self.base_urls and self._should_exclude(url):
+                driver.quit()
+                return None, []
 
-        self.passed_urls.add(url)
-        try:
-            html_str = self.get_html()
-        except Exception as e:
-            logger.error(f"Failed to get HTML for {url}: {e}")
-            return None, []
+            self.passed_urls.add(url)
 
-        result = {"url": url, "html": html_str}
+            # Get HTML with retries
+            retries = 0
+            while retries < self.max_retries:
+                try:
+                    html_str = driver.page_source
+                    break
+                except Exception as e:
+                    retries += 1
+                    wait_time = 2 ** retries
+                    logger.error(
+                        f"Error getting HTML for {url}, attempt {retries}/{self.max_retries}: {e}")
+                    if retries < self.max_retries:
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(
+                            f"Max retries reached for getting HTML for {url}")
+                        driver.quit()
+                        return None, []
 
-        if depth + 1 > self.max_depth:
-            return result, []
+            result = {"url": url, "html": html_str}
 
-        try:
-            sleep_countdown(1)
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_all_elements_located((By.TAG_NAME, "a"))
-            )
-        except Exception as e:
-            logger.error(f"Failed to find anchor elements for {url}: {e}")
-            return result, []
+            if depth + 1 > self.max_depth:
+                driver.quit()
+                return result, []
+
+            # Scrape links
+            try:
+                sleep_countdown(1)
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_all_elements_located((By.TAG_NAME, "a"))
+                )
+            except Exception as e:
+                logger.error(f"Failed to find anchor elements for {url}: {e}")
+                driver.quit()
+                return result, []
+
+            all_links = scrape_links(html_str)
+        finally:
+            driver.quit()  # Ensure driver is closed even on exceptions
 
         if self.non_crawlable:
             return result, []
 
-        all_links = scrape_links(html_str)
         full_urls = set()
         seen_keys = set()
 
@@ -339,8 +326,7 @@ class WebCrawler(SeleniumScraper):
         return normalize_url(url, base_url)
 
     def close(self):
-        """Closes the browser, executor, and cleans up resources."""
-        super().close()
+        """Closes the executor and cleans up resources."""
         self.executor.shutdown(wait=True)
 
 
@@ -352,7 +338,7 @@ if __name__ == "__main__":
     max_search_depth = 0
 
     search_results = search_data(query)
-    urls = [item["url"] for item in search_results][:6]
+    urls = [item["url"] for item in search_results][:3]
 
     crawler = WebCrawler(urls=urls, query=query,
                          max_visited=5, max_depth=max_search_depth)
@@ -367,3 +353,6 @@ if __name__ == "__main__":
     selected_html = asyncio.run(main())
     crawler.close()
     print(f"Crawled {len(selected_html)} pages")
+    results = [format_json({"url": url, "html": html[:1000]})
+               for url, html in selected_html]
+    logger.success("\n\n".join(results))
