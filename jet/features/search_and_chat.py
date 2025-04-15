@@ -1,5 +1,9 @@
+import logging
+import numpy as np
+from pydantic import BaseModel, ValidationError
+from typing import List, Literal, Optional, Dict
 import multiprocessing
-from typing import Any, List, Tuple, TypedDict
+from typing import Any, List, Literal, Tuple, TypedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
@@ -23,7 +27,7 @@ from jet.file.utils import load_file, save_file
 from jet.scrapers.preprocessor import html_to_markdown
 from jet.code.splitter_markdown_utils import count_md_header_contents, get_md_header_contents
 from jet.token.token_utils import get_model_max_tokens, group_nodes, group_texts, split_docs, token_counter
-from jet.wordnet.similarity import query_similarity_scores
+from jet.wordnet.similarity import query_similarity_scores, compute_info
 from llama_index.core.schema import Document as BaseDocument, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from jet.llm.evaluators.helpers.base import EvaluationResult
@@ -376,12 +380,17 @@ def get_header_tokens_and_update_metadata(header_docs: list[Document], embed_mod
     return header_tokens
 
 
-def search_and_rerank_data(
+class SearchRerankResult(TypedDict):
+    url_html_tuples: List[Tuple[str, str]]
+    search_results: List[SearchResult]
+
+
+def search_and_filter_data(
     query: str,
     top_search_n: int = 3,
     max_search_depth: int = 1,
     min_header_count: int = 5,
-) -> Tuple[List[SearchResult], List[Tuple[str, str]]]:
+) -> SearchRerankResult:
 
     # Search urls
     search_results = search_data(query)
@@ -390,7 +399,7 @@ def search_and_rerank_data(
     scraped_urls_results = scrape_urls(
         urls, max_depth=max_search_depth, query=query)
 
-    selected_html = []
+    url_html_tuples = []
     pbar = tqdm(total=len(urls))
     for url, html in scraped_urls_results:
         domain = urlparse(url).netloc
@@ -404,65 +413,93 @@ def search_and_rerank_data(
                 f"Skipping url: {url} due to header count < {min_header_count}")
             continue
 
-        selected_html.append((url, html))
+        url_html_tuples.append((url, html))
 
-        if top_search_n and len(selected_html) == top_search_n:
+        if top_search_n and len(url_html_tuples) == top_search_n:
             break
 
-    return search_results, selected_html
+    return {
+        "url_html_tuples": url_html_tuples,
+        "search_results": search_results,
+    }
 
 
-def compare_html_results(query: str, html_results: List[Tuple[str, str, str]], top_n: int = 1) -> List[dict]:
-    """
-    Compare reranked results across HTMLs to find the best match for the query.
+class QueryRerankResult(BaseModel):
+    url: str
+    query: str
+    results: List[SimilarityResult]
 
-    Args:
-        query: The query string used for reranking.
-        html_results: List of (url, output_dir, html) tuples.
-        top_n: Number of top scores to consider per HTML (default: 1).
 
-    Returns:
-        List of dictionaries with comparison metrics, sorted by top score.
-    """
-    comparison_results = []
+class InfoDict(BaseModel):
+    top_score: float
+    avg_top_score: float
+    num_results: int
+    median_score: Optional[float]
 
-    for url, output_dir, _ in html_results:
-        query_scores_path = os.path.join(output_dir, "query_scores.json")
-        if not os.path.exists(query_scores_path):
+
+class HtmlRerankResult(BaseModel):
+    query: str
+    rank: int
+    url: str
+    info: InfoDict
+    results: List[SimilarityResult]
+
+
+def compare_html_results(
+    query: str,
+    html_results: List[Dict],
+    method: Literal["top_score", "avg_top_n", "median_score"] = "avg_top_n",
+    top_n: int = 10
+) -> List[Dict]:
+    html_rerank_results: List[Dict] = []
+
+    for result in html_results:
+        scores = [
+            r["score"] for r in result["results"]
+            if isinstance(r["score"], (int, float)) and r["score"] >= 0
+        ]
+        if not scores:
+            logging.info(f"No valid scores for URL: {result['url']}")
             continue
 
-        with open(query_scores_path, 'r') as f:
-            data = json.load(f)
-            if data["query"] != query:
-                continue
+        enriched_results = []
+        for res in result["results"]:
+            word_count = len(res["text"].split())
+            keyword_matches = sum(1 for word in query.split()
+                                  if word.lower() in res["text"].lower())
+            length_factor = min(
+                1.0, word_count / 50.0) if word_count > 10 else 0.5
+            relevance = res["score"] * \
+                (1 + 0.1 * keyword_matches) * length_factor
+            enriched_res = {**res, "relevance": relevance,
+                            "word_count": word_count}
+            enriched_results.append(enriched_res)
 
-            scores = [result["score"]
-                      for result in data["results"] if "score" in result]
-            if not scores:
-                continue
+        info = compute_info(scores, result["results"], top_n)
 
-            # Compute metrics
-            top_scores = sorted(scores, reverse=True)[:top_n]
-            top_score = top_scores[0] if top_scores else 0.0
-            avg_top_score = sum(top_scores) / \
-                len(top_scores) if top_scores else 0.0
+        html_rerank_results.append({
+            "query": result["query"],
+            "rank": 0,
+            "url": result["url"],
+            "info": info,
+            "results": enriched_results,
+        })
 
-            comparison_results.append({
-                "url": url,
-                "top_score": top_score,
-                "avg_top_score": avg_top_score,
-                "num_results": len(scores),
-                "output_dir": output_dir
-            })
+    html_rerank_results.sort(
+        key=lambda x: (
+            x["info"]["avg_top_score"] if method == "avg_top_n" else
+            x["info"]["median_score"] if method == "median_score" else
+            x["info"]["top_score"],
+            x["info"]["top_score"],
+            x["info"]["avg_word_count"]
+        ),
+        reverse=True
+    )
 
-    # Sort by top_score in descending order
-    comparison_results.sort(key=lambda x: x["top_score"], reverse=True)
-
-    # Add rank to results
-    for idx, result in enumerate(comparison_results):
+    for idx, result in enumerate(html_rerank_results):
         result["rank"] = idx + 1
 
-    return comparison_results
+    return html_rerank_results
 
 
 def run_scrape_search_chat(

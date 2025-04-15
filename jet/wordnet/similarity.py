@@ -1,3 +1,4 @@
+from typing import List
 from collections import defaultdict
 from typing import Any, List, Optional, Literal
 from jet.data.utils import generate_key
@@ -952,6 +953,46 @@ if __name__ == '__main__':
     result = filter_highest_similarity(base_sentence, sentences_to_compare)
     print("Highest similarity result:")
     print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+class InfoStats(TypedDict):
+    top_score: float
+    avg_top_score: float
+    median_score: float
+    num_results: int
+    avg_word_count: float
+
+
+def compute_info(scores: List[float], results: List[dict], top_n: int) -> InfoStats:
+    if not scores:
+        return {
+            "top_score": 0.0,
+            "avg_top_score": 0.0,
+            "median_score": 0.0,
+            "num_results": 0,
+            "avg_word_count": 0.0
+        }
+
+    max_score = max(scores)
+    normalized_scores = [
+        score / max_score for score in scores] if max_score > 0 else scores
+
+    top_n_value = min(top_n, len(normalized_scores))
+    top_scores = sorted(normalized_scores, reverse=True)[:top_n_value]
+
+    top_score = top_scores[0] if top_scores else 0.0
+    avg_top_score = sum(top_scores) / len(top_scores) if top_scores else 0.0
+    median_score = float(np.median(top_scores)) if top_scores else 0.0
+    avg_word_count = sum(len(r["text"].split())
+                         for r in results) / len(results)
+
+    return {
+        "top_score": top_score,
+        "avg_top_score": avg_top_score,
+        "median_score": median_score,
+        "num_results": len(scores),
+        "avg_word_count": avg_word_count
+    }
 
 
 __all__ = [

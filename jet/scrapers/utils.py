@@ -1005,7 +1005,7 @@ def search_data(query, **kwargs) -> list[SearchResult]:
 
     # Simulating the search function with the placeholder for your search logic
     results: list[SearchResult] = search_searxng(
-        query_url="http://searxng.local:8080/search",
+        query_url="http://jetairm1:3000/search",
         query=query,
         filter_sites=filter_sites,
         engines=engines,

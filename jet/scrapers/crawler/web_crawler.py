@@ -309,16 +309,4 @@ if __name__ == "__main__":
         for result in crawler.crawl(url):
             selected_html.append((result["url"], result["html"]))
 
-    for start_url in urls:
-        batch_size = 5
-        batch_count = 0
-
-        results = []
-        for result in crawler.crawl(start_url):
-            output_file = f"generated/crawl/{crawler.host_name}_urls.json"
-            logger.info(
-                f"Saving {len(crawler.passed_urls)} pages to {output_file}")
-            results.append(result)
-            save_data(output_file, results, write=True)
-
     crawler.close()
