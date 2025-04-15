@@ -1,7 +1,8 @@
+from threading import Lock
 import re
 import time
 import fnmatch
-from typing import Generator, Optional, TypedDict, List
+from typing import AsyncGenerator, Generator, Optional, TypedDict, List
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.logger.timer import sleep_countdown
 from jet.scrapers.preprocessor import html_to_markdown
@@ -131,8 +132,13 @@ class PageResult(TypedDict):
 
 
 class WebCrawler(SeleniumScraper):
-    def __init__(self, urls: Optional[List[str]] = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: Optional[int] = 0, query: Optional[str] = None, max_visited: Optional[int] = None, max_retries: int = 5, max_parallel: int = 5):
+    def __init__(self, urls: Optional[List[str]] = None, includes=None, excludes=None,
+                 includes_all=None, excludes_all=None, visited=None, max_depth: Optional[int] = 0,
+                 query: Optional[str] = None, max_visited: Optional[int] = None,
+                 max_retries: int = 5, max_parallel: int = 5):
         super().__init__(max_retries=max_retries)
+        if max_visited is not None and max_visited <= 0:
+            raise ValueError("max_visited must be a positive integer or None")
         self.non_crawlable = False
         self.base_urls: List[str] = [normalize_url(
             url) for url in urls] if urls else []
@@ -141,6 +147,7 @@ class WebCrawler(SeleniumScraper):
             f"{urlparse(url).scheme}://{urlparse(url).hostname}" for url in self.base_urls}
         self.seen_urls: set[str] = set(self.base_urls)
         self.visited_urls: set[str] = set(visited) if visited else set()
+        self.visited_urls_lock = Lock()
         self.passed_urls: set[str] = set()
         self.includes = includes or []
         self.excludes = excludes or []
@@ -159,31 +166,28 @@ class WebCrawler(SeleniumScraper):
         except Exception as e:
             logger.error(f"Error navigating to URL {url}: {e}")
 
-    def crawl(self):
-        """Crawl all URLs (initial and child) in parallel."""
+    async def crawl(self) -> AsyncGenerator[PageResult, None]:
+        """Crawl all URLs (initial and child) in parallel, yielding results asynchronously."""
         if not self.base_urls:
             return
-        loop = asyncio.get_event_loop()
-        results = loop.run_until_complete(self._crawl_async())
-        for result in results:
+        async for result in self._crawl_async():
             yield result
 
-    async def _crawl_async(self) -> List[PageResult]:
+    async def _crawl_async(self) -> AsyncGenerator[PageResult, None]:
         """Asynchronous wrapper to manage parallel crawling of all URLs."""
-        results = []
         pending_urls = [(url, 0) for url in self.base_urls]  # (url, depth)
         tasks = []
 
         # Initialize progress bar
-        # Dynamic bar, no fixed total
-        pbar = tqdm(desc="Crawling URLs", unit="page")
+        pbar = tqdm(total=len(self.base_urls) if self.max_visited is None else min(self.max_visited, len(self.base_urls)),
+                    desc="Crawling URLs", unit="page")
 
         # Start initial tasks
         while len(tasks) < self.max_parallel and pending_urls:
             url, depth = pending_urls.pop(0)
             task = asyncio.get_event_loop().run_in_executor(
                 self.executor,
-                partial(self._process_url_task, url, depth)
+                partial(self._process_url, url, depth)
             )
             tasks.append((task, url, depth))
 
@@ -194,75 +198,73 @@ class WebCrawler(SeleniumScraper):
             )
             new_urls = []
             for task in completed:
-                result, child_urls = await task
-                if result:
-                    results.append(result)
-                    pbar.update(1)  # Update progress for each page
-                    pbar.set_description(
-                        f"Domain: {urlparse(result['url']).netloc}")
-                new_urls.extend((child_url, depth + 1)
-                                for child_url in child_urls)
+                try:
+                    result, child_urls = await task
+                    if result:
+                        with self.visited_urls_lock:
+                            visited_count = len(self.visited_urls)
+                            max_visited_str = f"/{self.max_visited}" if self.max_visited else ""
+                            pbar.set_description(
+                                f"Visited {visited_count}{max_visited_str} | Domain: {urlparse(result['url']).netloc}")
+                            pbar.update(1)
+                            yield result
+                        new_urls.extend((child_url, depth + 1)
+                                        for child_url in child_urls)
+                except Exception as e:
+                    logger.error(f"Task failed: {e}")
             tasks = [(task, url, depth)
                      for task, url, depth in tasks if task not in completed]
             # Add new URLs (prioritize child URLs to maintain depth-first behavior)
             pending_urls = new_urls + pending_urls
             while len(tasks) < self.max_parallel and pending_urls:
                 url, depth = pending_urls.pop(0)
-                task = asyncio.get_event_loop().run_in_executor(
-                    self.executor,
-                    partial(self._process_url_task, url, depth)
-                )
-                tasks.append((task, url, depth))
+                with self.visited_urls_lock:
+                    if url not in self.visited_urls and (self.max_visited is None or len(self.visited_urls) < self.max_visited):
+                        task = asyncio.get_event_loop().run_in_executor(
+                            self.executor,
+                            partial(self._process_url, url, depth)
+                        )
+                        tasks.append((task, url, depth))
 
         pbar.close()
-        return results
 
     def _process_url_task(self, url: str, depth: int) -> tuple[Optional[PageResult], List[str]]:
         """Process a single URL in a separate thread."""
-        scraper = SeleniumScraper(max_retries=self.max_retries)
-        crawler = WebCrawler(
-            urls=[url],
-            includes=self.includes,
-            excludes=self.excludes,
-            includes_all=self.includes_all,
-            excludes_all=self.excludes_all,
-            visited=self.visited_urls,
-            max_depth=self.max_depth,
-            query=self.query,
-            max_visited=self.max_visited,
-            max_retries=self.max_retries,
-            max_parallel=1  # Prevent nested parallelism
-        )
         try:
-            result, child_urls = crawler._process_url(url, depth)
-            return result, child_urls
+            return self._process_url(url, depth)
         finally:
-            crawler.close()
+            pass  # SeleniumScraper cleanup handled by the main instance
 
     def _process_url(self, url: str, depth: int) -> tuple[Optional[PageResult], List[str]]:
         """Process a single URL and return its result and child URLs."""
         if self.max_depth is not None and depth > self.max_depth:
             return None, []
         url = self._normalize_url(url)
-        if url in self.visited_urls:
-            return None, []
-        self.visited_urls.add(url)
-        if self.max_visited and len(self.visited_urls) >= self.max_visited:
-            return None, []
+        with self.visited_urls_lock:
+            if url in self.visited_urls:
+                return None, []
+            if self.max_visited and len(self.visited_urls) >= self.max_visited:
+                return None, []
+            self.visited_urls.add(url)
 
         logger.info(f"Crawling (Depth {depth}): {url}")
-        self.change_url(url)
+        try:
+            self.change_url(url)
+        except Exception as e:
+            logger.error(f"Failed to navigate to {url}: {e}")
+            return None, []
 
         if url not in self.base_urls and self._should_exclude(url):
             return None, []
 
         self.passed_urls.add(url)
-        html_str = self.get_html()
-        result = {"url": url, "html": html_str}
+        try:
+            html_str = self.get_html()
+        except Exception as e:
+            logger.error(f"Failed to get HTML for {url}: {e}")
+            return None, []
 
-        # extension = url.split('.')[-1].lower()
-        # if extension in ["pdf", "doc", "docx", "ppt", "pptx"]:
-        #     return result, []
+        result = {"url": url, "html": html_str}
 
         if depth + 1 > self.max_depth:
             return result, []
@@ -273,7 +275,7 @@ class WebCrawler(SeleniumScraper):
                 EC.presence_of_all_elements_located((By.TAG_NAME, "a"))
             )
         except Exception as e:
-            logger.error(f"Failed to find anchor elements: {e}")
+            logger.error(f"Failed to find anchor elements for {url}: {e}")
             return result, []
 
         if self.non_crawlable:
@@ -352,12 +354,16 @@ if __name__ == "__main__":
     search_results = search_data(query)
     urls = [item["url"] for item in search_results][:6]
 
-    crawler = WebCrawler(urls=urls, query=query)
+    crawler = WebCrawler(urls=urls, query=query,
+                         max_visited=5, max_depth=max_search_depth)
 
-    selected_html = []
-    for result in crawler.crawl():
-        logger.success(f"Done crawling {result["url"]}")
-        selected_html.append((result["url"], result["html"]))
+    async def main():
+        selected_html = []
+        async for result in crawler.crawl():
+            logger.success(f"Done crawling {result['url']}")
+            selected_html.append((result['url'], result['html']))
+        return selected_html
 
+    selected_html = asyncio.run(main())
     crawler.close()
     print(f"Crawled {len(selected_html)} pages")

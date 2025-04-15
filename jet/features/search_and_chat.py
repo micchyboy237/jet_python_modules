@@ -385,23 +385,22 @@ class SearchRerankResult(TypedDict):
     search_results: List[SearchResult]
 
 
-def search_and_filter_data(
+async def search_and_filter_data(
     query: str,
     top_search_n: int = 3,
     max_search_depth: int = 0,
+    max_new_urls: int = 0,
     min_header_count: int = 5,
 ) -> SearchRerankResult:
-
     # Search urls
     search_results = search_data(query)
     urls = [normalize_url(item["url"]) for item in search_results]
 
-    scraped_urls_results = scrape_urls(
-        urls, max_depth=max_search_depth, query=query)
+    max_visited = top_search_n + max_new_urls
 
     url_html_tuples = []
     pbar = tqdm(total=top_search_n)
-    for url, html in scraped_urls_results:
+    async for url, html in scrape_urls(urls, max_depth=max_search_depth, query=query, max_visited=max_visited):
         domain = urlparse(url).netloc
         pbar.set_description(f"Domain: {domain}")
 
@@ -418,6 +417,7 @@ def search_and_filter_data(
         if top_search_n and len(url_html_tuples) == top_search_n:
             break
 
+    pbar.close()
     return {
         "url_html_tuples": url_html_tuples,
         "search_results": search_results,

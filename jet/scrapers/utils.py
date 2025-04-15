@@ -3,7 +3,7 @@ import uuid
 from jet.search.formatters import decode_text_with_unidecode
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from pathlib import Path
-from typing import List, Optional, Tuple, TypedDict
+from typing import AsyncGenerator, List, Optional, Tuple, TypedDict
 from collections import defaultdict
 import os
 from typing import Generator, List, Optional
@@ -1021,16 +1021,15 @@ def search_data(query, **kwargs) -> list[SearchResult]:
     return results
 
 
-def scrape_urls(urls: list[str], *, max_depth: Optional[int] = 2, query: Optional[str] = None) -> Generator[tuple[str, str], None, None]:
+async def scrape_urls(urls: list[str], *, max_depth: Optional[int] = 0, query: Optional[str] = None, **kwargs) -> AsyncGenerator[tuple[str, str], None]:
     from jet.scrapers.crawler.web_crawler import WebCrawler
 
-    crawler = WebCrawler(max_depth=max_depth, query=query)
-
-    for url in urls:
-        for result in crawler.crawl(url):
+    crawler = WebCrawler(urls=urls, max_depth=max_depth, query=query, **kwargs)
+    try:
+        async for result in crawler.crawl():
             yield result["url"], result["html"]
-
-    crawler.close()
+    finally:
+        crawler.close()
 
 
 def validate_headers(html: str, min_count: int = 5) -> bool:
