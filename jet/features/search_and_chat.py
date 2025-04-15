@@ -110,7 +110,8 @@ class Document(BaseDocument):
         ids: list[str] = []
 
         for doc in docs:
-            text = doc.get_recursive_text()
+            text = doc.text
+            # text = doc.get_recursive_text()
 
             texts.append(text)
             ids.append(doc.node_id)
