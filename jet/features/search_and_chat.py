@@ -437,13 +437,12 @@ class HtmlRerankResult(BaseModel):
 def compare_html_results(
     query: str,
     html_results: List[Dict],
-    method: Literal["top_score", "avg_top_n", "median_score"] = "top_score",
+    method: Literal["top_score", "avg_top_n", "median_score", "all"] = "all",
     top_n: int = 10
 ) -> List[Dict]:
     html_rerank_results: List[Dict] = []
 
     for result in html_results:
-
         enriched_results = []
         for res in result["results"]:
             word_count = len(res["text"].split())
@@ -469,6 +468,10 @@ def compare_html_results(
 
     html_rerank_results.sort(
         key=lambda x: (
+            # For "all", compute a composite score
+            (x["info"]["top_score"] + x["info"]
+             ["avg_top_score"] + x["info"]["median_score"]) / 3
+            if method == "all" else
             x["info"]["avg_top_score"] if method == "avg_top_n" else
             x["info"]["median_score"] if method == "median_score" else
             x["info"]["top_score"],
