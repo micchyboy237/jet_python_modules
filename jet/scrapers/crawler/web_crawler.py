@@ -1,7 +1,7 @@
 import re
 import time
 import fnmatch
-from typing import Generator, Optional, TypedDict
+from typing import Generator, Optional, TypedDict, List
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.logger.timer import sleep_countdown
 from jet.scrapers.preprocessor import html_to_markdown
@@ -19,6 +19,11 @@ from jet.wordnet.sentence import split_sentences
 from jet.file.utils import save_data
 from jet.logger import logger
 from tqdm import tqdm
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+
+# [Existing functions: extract_numbers, count_path_segments, sort_urls_numerically, get_headers_from_html]
 
 
 def extract_numbers(text):
@@ -52,34 +57,22 @@ class SeleniumScraper:
     def _setup_driver(self) -> webdriver.Chrome:
         """Sets up the Chrome WebDriver with optimized options for reliability and speed."""
         chrome_options: Options = Options()
-
-        # Use "eager" to start interacting with the page sooner (use "normal" if required)
         chrome_options.page_load_strategy = "eager"
-
-        # Reduce resource load (optional: remove headless mode if debugging)
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-infobars")
-        chrome_options.add_argument("--no-sandbox")  # For Linux servers
-        # Prevent crashes on low-memory systems
+        chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        # Prevents sites from detecting Selenium automation.
         chrome_options.add_argument(
             "--disable-blink-features=AutomationControlled")
-        # Ensure a clean profile for performance (optional)
         chrome_options.add_argument("--incognito")
-        # Set user-agent to avoid bot detection
         ua = UserAgent()
         random_user_agent = ua.random
         chrome_options.add_argument(f"--user-agent={random_user_agent}")
-
-        # Initialize the driver with error handling
         try:
             driver: webdriver.Chrome = webdriver.Chrome(options=chrome_options)
-            # Increase timeout to handle slow pages
             driver.set_page_load_timeout(60)
-            # Increase JavaScript execution timeout
             driver.set_script_timeout(30)
             return driver
         except Exception as e:
@@ -99,7 +92,6 @@ class SeleniumScraper:
                 return
             except Exception as e:
                 retries += 1
-                # Exponential backoff (2^retries seconds)
                 wait_time = 2 ** retries
                 logger.error(
                     f"Error loading {url}, attempt {retries}/{self.max_retries}: {e}")
@@ -118,7 +110,6 @@ class SeleniumScraper:
                 return self.driver.page_source
             except Exception as e:
                 retries += 1
-                # Exponential backoff (2^retries seconds)
                 wait_time = 2 ** retries
                 logger.error(
                     f"Error getting HTML, attempt {retries}/{self.max_retries}: {e}")
@@ -140,25 +131,27 @@ class PageResult(TypedDict):
 
 
 class WebCrawler(SeleniumScraper):
-    def __init__(self, url: Optional[str] = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: Optional[int] = None, query: Optional[str] = None, max_visited: Optional[int] = None, max_retries: int = 5):
+    def __init__(self, urls: Optional[List[str]] = None, includes=None, excludes=None, includes_all=None, excludes_all=None, visited=None, max_depth: Optional[int] = 1, query: Optional[str] = None, max_visited: Optional[int] = None, max_retries: int = 5, max_parallel: int = 5):
         super().__init__(max_retries=max_retries)
-
         self.non_crawlable = False
-        self.base_url: str = normalize_url(url) if url else ""
-        self.host_name = urlparse(self.base_url).hostname
-        self.base_host_url = f"{urlparse(self.base_url).scheme}://{self.host_name}"
-        self.seen_urls: set[str] = {self.base_url}
+        self.base_urls: List[str] = [normalize_url(
+            url) for url in urls] if urls else []
+        self.host_names = {urlparse(url).hostname for url in self.base_urls}
+        self.base_host_urls = {
+            f"{urlparse(url).scheme}://{urlparse(url).hostname}" for url in self.base_urls}
+        self.seen_urls: set[str] = set(self.base_urls)
         self.visited_urls: set[str] = set(visited) if visited else set()
         self.passed_urls: set[str] = set()
         self.includes = includes or []
         self.excludes = excludes or []
-        self.includes_all = includes_all or []  # NEW: AND condition includes
-        self.excludes_all = excludes_all or []  # NEW: AND condition excludes
-        # max depth (None = unlimited)
+        self.includes_all = includes_all or []
+        self.excludes_all = excludes_all or []
         self.max_depth = max_depth
         self.max_visited = max_visited
         self.query = query
         self.top_n = 5
+        self.max_parallel = max_parallel
+        self.executor = ThreadPoolExecutor(max_workers=max_parallel)
 
     def change_url(self, url: str):
         try:
@@ -166,56 +159,122 @@ class WebCrawler(SeleniumScraper):
         except Exception as e:
             logger.error(f"Error navigating to URL {url}: {e}")
 
-    def crawl(self, url: str):
-        self.non_crawlable = ".php" in url
-        self.base_url: str = self._normalize_url(url)
-        self.host_name = urlparse(self.base_url).hostname
-        self.seen_urls: set[str] = {self.base_url}
-
-        yield from self._crawl_recursive(url, depth=0)
-
-    def _crawl_recursive(self, url: str, depth: int) -> Generator[PageResult, None, None]:
-        if self.max_depth is not None and depth > self.max_depth:
-            # logger.info(f"Max depth reached for {url}")
+    def crawl(self):
+        """Crawl all URLs (initial and child) in parallel."""
+        if not self.base_urls:
             return
+        loop = asyncio.get_event_loop()
+        results = loop.run_until_complete(self._crawl_async())
+        for result in results:
+            yield result
 
+    async def _crawl_async(self) -> List[PageResult]:
+        """Asynchronous wrapper to manage parallel crawling of all URLs."""
+        results = []
+        pending_urls = [(url, 0) for url in self.base_urls]  # (url, depth)
+        tasks = []
+
+        # Initialize progress bar
+        # Dynamic bar, no fixed total
+        pbar = tqdm(desc="Crawling URLs", unit="page")
+
+        # Start initial tasks
+        while len(tasks) < self.max_parallel and pending_urls:
+            url, depth = pending_urls.pop(0)
+            task = asyncio.get_event_loop().run_in_executor(
+                self.executor,
+                partial(self._process_url_task, url, depth)
+            )
+            tasks.append((task, url, depth))
+
+        # Process tasks dynamically
+        while tasks:
+            completed, pending = await asyncio.wait(
+                [task for task, _, _ in tasks], return_when=asyncio.FIRST_COMPLETED
+            )
+            new_urls = []
+            for task in completed:
+                result, child_urls = await task
+                if result:
+                    results.append(result)
+                    pbar.update(1)  # Update progress for each page
+                    pbar.set_description(
+                        f"Domain: {urlparse(result['url']).netloc}")
+                new_urls.extend((child_url, depth + 1)
+                                for child_url in child_urls)
+            tasks = [(task, url, depth)
+                     for task, url, depth in tasks if task not in completed]
+            # Add new URLs (prioritize child URLs to maintain depth-first behavior)
+            pending_urls = new_urls + pending_urls
+            while len(tasks) < self.max_parallel and pending_urls:
+                url, depth = pending_urls.pop(0)
+                task = asyncio.get_event_loop().run_in_executor(
+                    self.executor,
+                    partial(self._process_url_task, url, depth)
+                )
+                tasks.append((task, url, depth))
+
+        pbar.close()
+        return results
+
+    def _process_url_task(self, url: str, depth: int) -> tuple[Optional[PageResult], List[str]]:
+        """Process a single URL in a separate thread."""
+        scraper = SeleniumScraper(max_retries=self.max_retries)
+        crawler = WebCrawler(
+            urls=[url],
+            includes=self.includes,
+            excludes=self.excludes,
+            includes_all=self.includes_all,
+            excludes_all=self.excludes_all,
+            visited=self.visited_urls,
+            max_depth=self.max_depth,
+            query=self.query,
+            max_visited=self.max_visited,
+            max_retries=self.max_retries,
+            max_parallel=1  # Prevent nested parallelism
+        )
+        try:
+            result, child_urls = crawler._process_url(url, depth)
+            return result, child_urls
+        finally:
+            crawler.close()
+
+    def _process_url(self, url: str, depth: int) -> tuple[Optional[PageResult], List[str]]:
+        """Process a single URL and return its result and child URLs."""
+        if self.max_depth is not None and depth > self.max_depth:
+            return None, []
         url = self._normalize_url(url)
         if url in self.visited_urls:
-            return
-
+            return None, []
         self.visited_urls.add(url)
-
         if self.max_visited and len(self.visited_urls) >= self.max_visited:
-            return
+            return None, []
 
         logger.info(f"Crawling (Depth {depth}): {url}")
         self.change_url(url)
 
-        if url != self.base_url and self._should_exclude(url):
-            return
+        if url not in self.base_urls and self._should_exclude(url):
+            return None, []
 
         self.passed_urls.add(url)
         html_str = self.get_html()
-        yield {
-            "url": url,
-            "html": html_str,
-        }
+        result = {"url": url, "html": html_str}
 
         extension = url.split('.')[-1].lower()
         if extension in ["pdf", "doc", "docx", "ppt", "pptx"]:
-            return
+            return result, []
 
         try:
             sleep_countdown(1)
-            anchor_elements = WebDriverWait(self.driver, 10).until(
+            WebDriverWait(self.driver, 10).until(
                 EC.presence_of_all_elements_located((By.TAG_NAME, "a"))
             )
         except Exception as e:
             logger.error(f"Failed to find anchor elements: {e}")
-            return
+            return result, []
 
         if self.non_crawlable:
-            return
+            return result, []
 
         all_links = scrape_links(html_str)
         full_urls = set()
@@ -225,37 +284,26 @@ class WebCrawler(SeleniumScraper):
             try:
                 if not link or link.startswith("#"):
                     continue
-
                 link = self._normalize_url(link)
-
-                if self.base_url == link:
+                if link in self.base_urls:
                     continue
-
                 parsed = urlparse(link)
-
-                if link.startswith(self.base_host_url) or parsed.hostname is None:
+                if any(link.startswith(base_host_url) for base_host_url in self.base_host_urls) or parsed.hostname is None:
                     if self._should_exclude(link):
                         continue
-
-                    # Create unique key using hostname + path only
-                    # Normalize path
                     key = (parsed.hostname, parsed.path.rstrip("/"))
                     if key not in seen_keys:
                         seen_keys.add(key)
-                        # Rebuild URL with only scheme, hostname, path
                         clean_url = urlunparse(
                             (parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
                         full_urls.add(clean_url)
-
             except Exception as e:
                 logger.error(f"Failed to process anchor: {e}")
                 continue
 
         full_urls = list(full_urls)
-
         if full_urls:
             full_urls = sort_urls_numerically(full_urls)
-
             if self.query:
                 search_link_results = query_similarity_scores(
                     self.query, full_urls)
@@ -263,9 +311,10 @@ class WebCrawler(SeleniumScraper):
                                  for result in search_link_results]
             else:
                 relevant_urls = full_urls
+        else:
+            relevant_urls = []
 
-            for relevant_url in relevant_urls:
-                yield from self._crawl_recursive(relevant_url, depth=depth + 1)
+        return result, relevant_urls
 
     def _should_exclude(self, url: str) -> bool:
         """Check if a URL should be excluded based on filtering rules."""
@@ -273,16 +322,21 @@ class WebCrawler(SeleniumScraper):
             fnmatch.fnmatch(url.lower(), pattern.lower()) for pattern in self.includes)
         failed_excludes = self.excludes and any(
             fnmatch.fnmatch(url.lower(), pattern.lower()) for pattern in self.excludes)
-
         failed_includes_all = self.includes_all and not all(
             fnmatch.fnmatch(url.lower(), pattern.lower()) for pattern in self.includes_all)
         failed_excludes_all = self.excludes_all and all(
             fnmatch.fnmatch(url.lower(), pattern.lower()) for pattern in self.excludes_all)
-
         return failed_includes or failed_excludes or failed_includes_all or failed_excludes_all
 
     def _normalize_url(self, url: str) -> str:
-        return normalize_url(url, self.base_url)
+        """Normalize a URL relative to the first base URL."""
+        base_url = self.base_urls[0] if self.base_urls else ""
+        return normalize_url(url, base_url)
+
+    def close(self):
+        """Closes the browser, executor, and cleans up resources."""
+        super().close()
+        self.executor.shutdown(wait=True)
 
 
 # Example usage
@@ -295,18 +349,12 @@ if __name__ == "__main__":
     search_results = search_data(query)
     urls = [item["url"] for item in search_results]
 
-    max_depth = None
-
-    crawler = WebCrawler(max_depth=max_depth, query=query)
+    max_depth = 1
+    crawler = WebCrawler(urls=urls, max_depth=max_depth, query=query)
 
     selected_html = []
-    pbar = tqdm(total=len(urls))
-    for url in urls:
-        domain = urlparse(url).netloc
-        pbar.set_description(f"Domain: {domain}")
-        pbar.update(1)
-
-        for result in crawler.crawl(url):
-            selected_html.append((result["url"], result["html"]))
+    for result in crawler.crawl():
+        selected_html.append((result["url"], result["html"]))
 
     crawler.close()
+    print(f"Crawled {len(selected_html)} pages")
