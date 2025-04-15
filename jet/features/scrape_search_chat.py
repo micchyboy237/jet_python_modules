@@ -1,5 +1,5 @@
 import multiprocessing
-from typing import Any, List, TypedDict
+from typing import Any, List, Tuple, TypedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
@@ -121,7 +121,7 @@ class Document(BaseDocument):
         """
         Get content of this node and all of its child nodes recursively.
         """
-        texts = [self.text]
+        texts = [self.text, "\n"]
 
         for child in self.child_nodes or []:
             texts.append(strip_left_hashes(child.metadata["header"]))
@@ -219,7 +219,7 @@ def get_nodes_parent_mapping(nodes: list[TextNode], docs: list[Document]) -> dic
     return parent_map
 
 
-def rerank_nodes(query: str | list[str], docs: List[Document], embed_models: List[OLLAMA_EMBED_MODELS]) -> List[NodeWithScore]:
+def rerank_nodes(query: str | list[str], docs: List[Document], embed_models: List[OLLAMA_EMBED_MODELS]) -> Tuple[List[SimilarityResult], List[NodeWithScore]]:
     query_scores = Document.rerank_documents(
         query, docs, embed_models)
     header_docs_dict: dict[str, Document] = {
@@ -235,7 +235,7 @@ def rerank_nodes(query: str | list[str], docs: List[Document], embed_models: Lis
             results.append(NodeWithScore(node=TextNode(
                 text=doc.text, metadata=doc.metadata), score=item["score"]))
 
-    return results
+    return query_scores, results
 
 
 def strip_left_hashes(text: str) -> str:
