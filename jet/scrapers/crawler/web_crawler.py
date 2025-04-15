@@ -17,6 +17,7 @@ from fake_useragent import UserAgent
 from jet.wordnet.sentence import split_sentences
 from jet.file.utils import save_data
 from jet.logger import logger
+from tqdm import tqdm
 
 
 def extract_numbers(text):
@@ -297,16 +298,27 @@ class WebCrawler(SeleniumScraper):
 
 # Example usage
 if __name__ == "__main__":
-    urls = [
-        "https://reelgood.com/show/ill-become-a-villainess-who-goes-down-in-history-2024",
-    ]
+    from jet.scrapers.utils import search_data
 
-    includes_all = ["*villainess*", "*down*", "*history*"]
-    excludes = []
+    query = "Philippines tips for online selling 2025"
+    max_search_depth = 1
+
+    search_results = search_data(query)
+    urls = [item["url"] for item in search_results]
+
     max_depth = None
 
-    crawler = WebCrawler(
-        excludes=excludes, includes_all=includes_all, max_depth=max_depth)
+    crawler = WebCrawler(max_depth=max_depth, query=query)
+
+    selected_html = []
+    pbar = tqdm(total=len(urls))
+    for url in urls:
+        domain = urlparse(url).netloc
+        pbar.set_description(f"Domain: {domain}")
+        pbar.update(1)
+
+        for result in crawler.crawl(url):
+            selected_html.append((result["url"], result["html"]))
 
     for start_url in urls:
         batch_size = 5

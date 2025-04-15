@@ -993,7 +993,7 @@ def safe_path_from_url(url: str, output_dir: str) -> str:
     return os.path.join(output_dir, safe_host)
 
 
-def search_data(query) -> list[SearchResult]:
+def search_data(query, **kwargs) -> list[SearchResult]:
     filter_sites = []
     engines = [
         "google",
@@ -1012,6 +1012,7 @@ def search_data(query) -> list[SearchResult]:
         config={
             "port": 3101
         },
+        **kwargs
     )
 
     if not results:
@@ -1023,15 +1024,11 @@ def search_data(query) -> list[SearchResult]:
 def scrape_urls(urls: list[str], *, max_depth: Optional[int] = None, query: Optional[str] = None) -> Generator[tuple[str, str], None, None]:
     from jet.scrapers.crawler.web_crawler import WebCrawler
 
-    includes_all = []
-    excludes = []
+    crawler = WebCrawler(max_depth=max_depth, query=query)
 
-    crawler = WebCrawler(
-        excludes=excludes, includes_all=includes_all, max_depth=max_depth, query=query)
-
-    for start_url in urls:
-        for result in crawler.crawl(start_url):
-            yield start_url, result["html"]
+    for url in urls:
+        for result in crawler.crawl(url):
+            yield result["url"], result["html"]
 
     crawler.close()
 
