@@ -100,7 +100,7 @@ def query_similarity_scores(
     query: Union[str, List[str]],
     texts: Union[str, List[str]],
     threshold: float = 0.0,
-    model_name: Union[str, List[str]] = "all-MiniLM-L6-v2",
+    model: Union[str, List[str]] = "all-MiniLM-L6-v2",
     fuse_method: Literal["average", "max", "min"] = "average",
     ids: Union[List[str], None] = None,
     metrics: Literal["cosine", "dot", "euclidean"] = "cosine"
@@ -116,7 +116,7 @@ def query_similarity_scores(
         query: Single query or list of queries.
         texts: Single text or list of texts to compare against.
         threshold: Minimum similarity score to include in results (default: 0.0).
-        model_name: One or more embedding model names (default: "all-MiniLM-L6-v2").
+        model: One or more embedding model names (default: "all-MiniLM-L6-v2").
         fuse_method: Fusion method for combining scores ('average', 'max', or 'min') (default: "average").
         ids: Optional list of IDs for texts; must match texts length if provided.
         metrics: Similarity metric to use ('cosine', 'euclidean', 'dot') (default: "cosine").
@@ -126,19 +126,19 @@ def query_similarity_scores(
         sorted by score in descending order with ranks and percent_difference.
 
     Raises:
-        ValueError: If inputs are empty, model_name is empty, ids length mismatches texts,
+        ValueError: If inputs are empty, model is empty, ids length mismatches texts,
                     invalid fuse_method, or invalid metrics.
     """
     if isinstance(query, str):
         query = [query]
     if isinstance(texts, str):
         texts = [texts]
-    if isinstance(model_name, str):
-        model_name = [model_name]
+    if isinstance(model, str):
+        model = [model]
 
     if not query or not texts:
         raise ValueError("Both query and texts must be non-empty.")
-    if not model_name:
+    if not model:
         raise ValueError("At least one model name must be provided.")
     if ids is not None and len(ids) != len(texts):
         raise ValueError(
@@ -166,8 +166,8 @@ def query_similarity_scores(
     # Collect all results across queries and models
     all_results: List[Dict[str, Any]] = []
 
-    for model in model_name:
-        embed_func = get_embedding_function(model)
+    for model_name in model:
+        embed_func = get_embedding_function(model_name)
 
         query_embeddings = np.array(embed_func(query))
         text_embeddings = np.array(embed_func(texts))

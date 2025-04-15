@@ -1,3 +1,5 @@
+from typing import Optional
+from urllib.parse import unquote, urlparse
 import requests
 import xml.etree.ElementTree as ET
 import re
@@ -50,6 +52,25 @@ def get_all_sitemap_urls(base_url: str) -> list:
 
     print(f"[INFO] Root sitemap: {root_sitemap_url}")
     return parse_sitemap_recursive(root_sitemap_url)
+
+
+def normalize_url(url: str, base_url: Optional[str] = None) -> str:
+    if not url:
+        return ""
+
+    non_crawlable = ".php" in url
+    if non_crawlable:
+        return url
+
+    parsed = urlparse(url)
+
+    # If the URL is relative, append it to base URL
+    if base_url:
+        if not parsed.scheme or not parsed.netloc:
+            return f"{base_url.rstrip('/')}/{url.lstrip('/')}"
+
+    normalized_url = parsed.scheme + "://" + parsed.netloc + parsed.path
+    return unquote(normalized_url.rstrip('/'))
 
 
 # Example

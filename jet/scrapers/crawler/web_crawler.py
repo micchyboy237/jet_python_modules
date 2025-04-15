@@ -6,6 +6,7 @@ from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.logger.timer import sleep_countdown
 from jet.scrapers.preprocessor import html_to_markdown
 from jet.scrapers.utils import scrape_links
+from jet.utils.url_utils import normalize_url
 from jet.wordnet.similarity import query_similarity_scores
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -143,7 +144,7 @@ class WebCrawler(SeleniumScraper):
         super().__init__(max_retries=max_retries)
 
         self.non_crawlable = False
-        self.base_url: str = self.normalize_url(url)
+        self.base_url: str = normalize_url(url) if url else ""
         self.host_name = urlparse(self.base_url).hostname
         self.base_host_url = f"{urlparse(self.base_url).scheme}://{self.host_name}"
         self.seen_urls: set[str] = {self.base_url}
@@ -167,7 +168,7 @@ class WebCrawler(SeleniumScraper):
 
     def crawl(self, url: str):
         self.non_crawlable = ".php" in url
-        self.base_url: str = self.normalize_url(url)
+        self.base_url: str = self._normalize_url(url)
         self.host_name = urlparse(self.base_url).hostname
         self.seen_urls: set[str] = {self.base_url}
 
@@ -178,7 +179,7 @@ class WebCrawler(SeleniumScraper):
             # logger.info(f"Max depth reached for {url}")
             return
 
-        url = self.normalize_url(url)
+        url = self._normalize_url(url)
         if url in self.visited_urls:
             return
 
@@ -225,7 +226,7 @@ class WebCrawler(SeleniumScraper):
                 if not link or link.startswith("#"):
                     continue
 
-                link = self.normalize_url(link)
+                link = self._normalize_url(link)
 
                 if self.base_url == link:
                     continue
@@ -256,9 +257,10 @@ class WebCrawler(SeleniumScraper):
             full_urls = sort_urls_numerically(full_urls)
 
             if self.query:
-                search_link_results = list(query_similarity_scores(
-                    self.query, full_urls)[0]["results"].items())
-                relevant_urls = [text for text, score in search_link_results]
+                search_link_results = query_similarity_scores(
+                    self.query, full_urls)
+                relevant_urls = [result["text"]
+                                 for result in search_link_results]
             else:
                 relevant_urls = full_urls
 
@@ -279,21 +281,8 @@ class WebCrawler(SeleniumScraper):
 
         return failed_includes or failed_excludes or failed_includes_all or failed_excludes_all
 
-    def normalize_url(self, url: str) -> str:
-        if not url:
-            return ""
-
-        if self.non_crawlable:
-            return url
-
-        parsed = urlparse(url)
-
-        # If the URL is relative, append it to base URL
-        if not parsed.scheme or not parsed.netloc:
-            return f"{self.base_url.rstrip('/')}/{url.lstrip('/')}"
-
-        normalized_url = parsed.scheme + "://" + parsed.netloc + parsed.path
-        return unquote(normalized_url.rstrip('/'))
+    def _normalize_url(self, url: str) -> str:
+        return normalize_url(url, self.base_url)
 
 
 # Example usage
