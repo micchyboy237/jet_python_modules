@@ -1,5 +1,3 @@
-import os
-from jet.cache.joblib.utils import load_persistent_cache, save_persistent_cache, ttl_cache
 from jet.file.utils import save_file
 from jet.wordnet.words import get_words
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
@@ -55,17 +53,10 @@ class DocumentRelevanceList(BaseModel):
     )
 
 
-def load_documents(data_file: str, cache_file: str) -> list:
+def load_documents(data_file: str) -> list:
     """Load documents from cache or read from file if cache is empty."""
-    load_persistent_cache(cache_file)
 
-    if cache_file in ttl_cache:
-        documents = ttl_cache[cache_file]
-        logger.success(f"Cache hit: {cache_file} - Length: {len(documents)}")
-    else:
-        documents = SimpleDirectoryReader(input_files=[data_file]).load_data()
-        ttl_cache[cache_file] = documents
-        save_persistent_cache(cache_file)
+    documents = SimpleDirectoryReader(input_files=[data_file]).load_data()
 
     return documents
 

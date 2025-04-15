@@ -1,4 +1,3 @@
-from jet.cache.joblib.utils import load_persistent_cache, save_persistent_cache, ttl_cache
 from jet.data.utils import generate_key, hash_text
 from jet.token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
 import numpy as np
@@ -220,53 +219,25 @@ def initialize_embed_function(
 
 
 def get_embedding_function(
-    model_name: str, batch_size: int = 64
+    model_name: str,
+    batch_size: int = 64
 ) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
-    """Retrieve or cache embeddings using TTLCache and persistent storage."""
-
-    # ✅ Load cache from embeddings.pkl
-    cache_file = "embeddings.pkl"
-    load_persistent_cache(cache_file)
-
+    """Retrieve embeddings directly without using cache."""
     embed_func = initialize_embed_function(model_name, batch_size)
 
-    def cached_embedding(input_text: str | list[str]):
-        """Fetch embedding from cache or compute if not cached."""
+    def embedding_function(input_text: str | list[str]):
+        """Compute embeddings directly without caching."""
         single_input = False
         if isinstance(input_text, str):
             input_text = [input_text]
             single_input = True
 
-        results = [None] * len(input_text)
-        missing_texts, missing_indices = [], []
+        # Compute embeddings for all inputs
+        computed_embeddings = embed_func(input_text)
 
-        # ✅ Check TTLCache first
-        for idx, text in enumerate(input_text):
-            text_key = generate_key(model_name, text)
+        return computed_embeddings[0] if single_input else computed_embeddings
 
-            if text_key in ttl_cache:
-                results[idx] = ttl_cache[text_key]
-                # logger.success(f"Cache hit: Embedding {idx} - {text[:30]}")
-            else:
-                missing_texts.append(text)
-                missing_indices.append(idx)
-                # logger.debug(f"Cache miss: Embedding {idx} - {text[:30]}")
-
-        # ✅ Compute missing embeddings
-        if missing_texts:
-            computed_embeddings = embed_func(missing_texts)
-
-            for idx, (text, embedding) in zip(missing_indices, zip(missing_texts, computed_embeddings)):
-                text_key = generate_key(model_name, text)
-                ttl_cache[text_key] = embedding  # ✅ Store in TTLCache
-                results[idx] = embedding
-
-            # ✅ Save updated cache to embeddings.pkl
-            save_persistent_cache(cache_file)
-
-        return results[0] if single_input else results
-
-    return cached_embedding
+    return embedding_function
 
 
 def get_reranking_function(

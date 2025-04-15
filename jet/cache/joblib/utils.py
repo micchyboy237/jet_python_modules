@@ -17,23 +17,23 @@ from cachetools import TTLCache
 from jet.logger import logger
 
 
-# ✅ Cache Configuration
-CACHE_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/cache/joblib/.cache"
-CACHE_TTL = 3600  # Time-to-live for TTLCache (seconds) (1 hour)
-CACHE_SIZE = 10000  # Max number of items in TTLCache
-CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
+# # ✅ Cache Configuration
+# CACHE_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/cache/joblib/.cache"
+# CACHE_TTL = 3600  # Time-to-live for TTLCache (seconds) (1 hour)
+# CACHE_SIZE = 10000  # Max number of items in TTLCache
+# CACHE_CLEANUP_INTERVAL = 600  # Cleanup every 10 minutes
 
-MAX_CACHE_FILE_SIZE = 5 * 1024 * 1024  # 5 MB (example limit)
+# MAX_CACHE_FILE_SIZE = 5 * 1024 * 1024  # 5 MB (example limit)
 
-# ✅ Ensure cache directory exists
-os.makedirs(CACHE_DIR, exist_ok=True)
+# # ✅ Ensure cache directory exists
+# os.makedirs(CACHE_DIR, exist_ok=True)
 
-# ✅ Initialize TTLCache
-ttl_cache: TTLCache = TTLCache(maxsize=CACHE_SIZE, ttl=CACHE_TTL)
+# # ✅ Initialize TTLCache
+# ttl_cache: TTLCache = TTLCache(maxsize=CACHE_SIZE, ttl=CACHE_TTL)
 
-# ✅ Track loaded caches and original cache states
-loaded_caches = set()
-original_cache_data = {}
+# # ✅ Track loaded caches and original cache states
+# loaded_caches = set()
+# original_cache_data = {}
 
 
 def load_persistent_cache(cache_files: Optional[Union[str, list[str]]] = None):
@@ -305,9 +305,7 @@ def cleanup_on_exit():
 # atexit.register(cleanup_on_exit)
 
 # ✅ Start cleanup thread safely
-start_cleanup_thread()
-# ✅ Load existing cache on startup
-# load_persistent_cache()
+# start_cleanup_thread()
 
 
 __all__ = [

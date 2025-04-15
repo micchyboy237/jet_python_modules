@@ -111,6 +111,7 @@ class Document(BaseDocument):
 
         for doc in docs:
             text = doc.get_recursive_text()
+
             texts.append(text)
             ids.append(doc.node_id)
 
@@ -129,7 +130,7 @@ class Document(BaseDocument):
         texts = [self.text, "\n"]
 
         for child in self.child_nodes or []:
-            texts.append(strip_left_hashes(child.metadata["header"]))
+            texts.append(child.metadata["header"])
 
         if self.parent_node:
             texts.insert(0, self.parent_node.metadata["header"])
@@ -155,7 +156,6 @@ def get_docs_from_html(html: str) -> list[Document]:
                 "doc_index": i,
                 "header_level": level,
                 "header": header["header"],
-                "content": header["content"],
             },
         )
 
@@ -187,7 +187,7 @@ def get_docs_from_html(html: str) -> list[Document]:
     return docs
 
 
-def get_nodes_from_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS], chunk_size: Optional[int] = None, chunk_overlap: int = 40) -> tuple[list[TextNode], dict[str, TextNode]]:
+def get_nodes_from_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS], chunk_size: Optional[int] = None, chunk_overlap: int = 40) -> list[TextNode]:
     if isinstance(embed_models, str):
         embed_models = [embed_models]
     model = min(embed_models, key=get_model_max_tokens)
@@ -195,18 +195,8 @@ def get_nodes_from_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_M
 
     nodes = split_docs(docs, model=model, chunk_size=chunk_size,
                        chunk_overlap=chunk_overlap)
-    parent_map = {}
-    for node in nodes:
-        if node.parent_node and not node.parent_node.node_id in parent_map:
-            parent_doc = docs[node.parent_node.metadata["doc_index"]]
-            parent_node = TextNode(
-                node_id=node.parent_node.node_id,
-                text=parent_doc.text,
-                metadata=node.parent_node.metadata
-            )
-            parent_map[node.parent_node.node_id] = parent_node
 
-    return nodes, parent_map
+    return nodes
 
 
 def get_nodes_parent_mapping(nodes: list[TextNode], docs: list[Document]) -> dict:

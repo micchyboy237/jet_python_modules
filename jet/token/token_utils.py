@@ -1,6 +1,6 @@
 from typing import Callable, Literal, Optional, TypedDict, Union
 from jet.logger import logger
-from jet.utils.doc_utils import add_parent_child_relationship
+from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
 from jet.wordnet.words import get_words
 from llama_index.core.base.llms.types import ChatMessage
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
@@ -493,21 +493,27 @@ def split_docs(
                 chunk_size=chunk_size, chunk_overlap=chunk_overlap)
             splitted_texts = splitter.split_text(doc.text)
 
+            prev_sibling: Optional[TextNode] = None
             for subtext in splitted_texts:
-                start_idx, end_idx = get_subtext_indices(doc.text, subtext)
+                # start_idx, end_idx = get_subtext_indices(doc.text, subtext)
 
                 sub_node = TextNode(
                     text=subtext,
                     metadata={
                         **doc.metadata,
-                        "start_idx": start_idx,
-                        "end_idx": end_idx,
+                        # "start_idx": start_idx,
+                        # "end_idx": end_idx,
                     })
                 nodes.append(sub_node)
                 add_parent_child_relationship(
                     parent_node=node,
                     child_node=sub_node,
                 )
+
+                if prev_sibling:
+                    add_sibling_relationship(prev_sibling, sub_node)
+
+                prev_sibling = sub_node
         else:
             nodes.append(node)
 

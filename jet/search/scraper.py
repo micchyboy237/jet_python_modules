@@ -1,4 +1,4 @@
-from jet.scrapers.browser.playwright import scrape_sync, setup_browser_page, setup_sync_browser_page
+from jet.scrapers.browser.playwright_helpers import scrape_sync, setup_browser_page, setup_sync_browser_page
 from jet.scrapers.browser.selenium_utils import UrlScraper
 from jet.scrapers.preprocessor import scrape_markdown
 import hashlib
