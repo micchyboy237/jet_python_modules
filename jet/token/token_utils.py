@@ -235,7 +235,7 @@ def group_nodes(
     # New argument to enforce minimum token count per group
     min_tokens: Optional[int | float] = None,
     max_tokens: Optional[int | float] = None,
-) -> list[list[TextNode]]:
+) -> list[list[TextNode] | list[NodeWithScore]]:
     if not max_tokens:
         max_tokens = 0.5
     if not min_tokens:

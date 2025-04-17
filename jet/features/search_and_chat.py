@@ -27,8 +27,8 @@ from jet.logger import logger
 from jet.file.utils import load_file, save_file
 from jet.scrapers.preprocessor import html_to_markdown
 from jet.code.splitter_markdown_utils import count_md_header_contents, get_md_header_contents
-from jet.token.token_utils import get_model_max_tokens, group_nodes, group_texts, split_docs, token_counter
-from jet.wordnet.similarity import query_similarity_scores, compute_info
+from jet.token.token_utils import get_model_max_tokens, group_nodes, group_texts, split_docs, token_counter, truncate_texts
+from jet.wordnet.similarity import InfoStats, query_similarity_scores, compute_info
 from llama_index.core.schema import Document as BaseDocument, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from jet.llm.evaluators.helpers.base import EvaluationResult
@@ -188,16 +188,14 @@ def get_docs_from_html(html: str) -> list[Document]:
     return docs
 
 
-def get_nodes_from_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS], chunk_size: Optional[int] = None, chunk_overlap: int = 40) -> list[TextNode]:
-    if isinstance(embed_models, str):
-        embed_models = [embed_models]
-    model = min(embed_models, key=get_model_max_tokens)
-    chunk_size = chunk_size or get_model_max_tokens(model)
-
-    nodes = split_docs(docs, model=model, chunk_size=chunk_size,
-                       chunk_overlap=chunk_overlap)
-
-    return nodes
+def truncate_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS]) -> list[Document]:
+    model = max(embed_models, key=get_model_max_tokens)
+    max_tokens = get_model_max_tokens(model)
+    texts = [doc.text for doc in docs]
+    truncated_texts = truncate_texts(texts, model, max_tokens)
+    for doc, text in zip(docs, truncated_texts):
+        doc.set_content(text)
+    return docs
 
 
 def get_nodes_parent_mapping(nodes: list[TextNode], docs: list[Document]) -> dict:
@@ -485,6 +483,73 @@ def compare_html_results(
         result["rank"] = idx + 1
 
     return html_rerank_results
+
+
+class ComparisonResultItem(TypedDict):
+    url: str
+    info: InfoStats
+    query_scores: List[SimilarityResult]
+    reranked_nodes: List[NodeWithScore]
+
+
+class ComparisonResults(TypedDict):
+    top_url: str
+    top_query_scores: List[SimilarityResult]
+    top_header_docs: List[Document]
+    top_reranked_nodes: List[NodeWithScore]
+    comparison_results: List[ComparisonResultItem]
+
+
+def compare_html_query_scores(
+    query: str,
+    url_html_tuples: List[Tuple[str, str]],
+    embed_models: List[OLLAMA_EMBED_MODELS],
+    method: Literal["top_score", "avg_top_n", "median_score", "all"] = "all",
+    top_n: int = 10
+) -> ComparisonResults:
+    html_list = [item[1] for item in url_html_tuples]
+    header_docs_matrix: List[List[Document]] = [
+        get_docs_from_html(html) for html in html_list]
+    header_docs_matrix: List[List[Document]] = [truncate_docs(
+        docs, embed_models) for docs in header_docs_matrix]
+    first_headers: List[Document] = [docs[0] for docs in header_docs_matrix]
+    first_headers_dict: dict[str, Dict] = {
+        docs[0].node_id: {"url": url_html_tuples[idx][0], "docs": docs} for idx, docs in enumerate(header_docs_matrix)}
+
+    first_headers_query_scores, first_headers_reranked_results = rerank_nodes(
+        query, first_headers, embed_models)
+
+    top_result = first_headers_dict[first_headers_query_scores[0]["id"]]
+    top_url = top_result["url"]
+    top_header_docs: List[Document] = top_result["docs"]
+
+    top_query_scores, top_reranked_nodes = rerank_nodes(
+        query, top_header_docs, embed_models)
+
+    # Reuse first_headers_query_scores and first_headers_reranked_results for comparison_results
+    comparison_results: List[ComparisonResultItem] = []
+    for idx, doc in enumerate(first_headers):
+        url = url_html_tuples[idx][0]
+        # Find the query_score for this document
+        query_score = [
+            score for score in first_headers_query_scores if score["id"] == doc.node_id]
+        # Find the reranked_node for this document
+        reranked_node = [node for node in first_headers_reranked_results if node.node.metadata.get(
+            "doc_index") == doc.metadata.get("doc_index")]
+        comparison_results.append({
+            "url": url,
+            "info": compute_info(query_score),
+            "query_scores": query_score,
+            "reranked_nodes": reranked_node
+        })
+
+    return {
+        "top_url": top_url,
+        "top_query_scores": top_query_scores,
+        "top_header_docs": top_header_docs,
+        "top_reranked_nodes": top_reranked_nodes,
+        "comparison_results": comparison_results
+    }
 
 
 def run_scrape_search_chat(

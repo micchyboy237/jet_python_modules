@@ -13,8 +13,8 @@ REDIS_CONFIG = RedisConfigParams(
 
 async def fetch_page_content(page, url: str) -> str:
     try:
-        await page.goto(url, timeout=8000)
-        await page.wait_for_load_state("networkidle")
+        await page.goto(url)
+        await page.wait_for_load_state("load")
         content = await page.content()
         return content
     except Exception as e:
@@ -27,8 +27,26 @@ async def scrape_with_playwright(urls: List[str]) -> List[str]:
     user_agent = ua.chrome  # Or ua.random for truly random
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent=user_agent)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                '--window-size=1512,982',  # MacBook M1 default viewport size
+                '--force-device-scale-factor=0.8',  # Set zoom to 80%
+                "--disable-infobars",
+                "--disable-notifications",
+                "--disable-gpu",
+                "--disable-extensions",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",  # For Linux server
+                "--incognito",
+                "--mute-audio"
+            ]
+        )
+        context = await browser.new_context(
+            user_agent=user_agent,
+            color_scheme='dark',
+        )
 
         pages = [await context.new_page() for _ in urls]
         tasks = [fetch_page_content(page, url)

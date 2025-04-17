@@ -1,4 +1,10 @@
-from jet.data.utils import generate_key, hash_text
+from pathlib import Path
+import os
+import json
+import threading
+from typing import Callable, Union, List
+from jet.data.utils import hash_text
+from functools import lru_cache
 from jet.token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
 import numpy as np
 
@@ -30,6 +36,112 @@ GenerateEmbeddingsReturnType = list[float] | list[list[float]]
 
 GenerateMultipleReturnType = Callable[[
     Union[str, List[str]]], List[MemoryEmbedding]]
+
+
+# Cache file configuration
+CACHE_FILE = "embedding_cache.json"
+CACHE_DIR = ".cache"
+Path(CACHE_DIR).mkdir(exist_ok=True)
+CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
+
+# Thread-safe lock for file access
+_cache_lock = threading.Lock()
+
+
+def load_cache() -> dict:
+    """Load cache from file, return empty dict if file doesn't exist or is invalid."""
+    try:
+        with open(CACHE_PATH, 'r') as f:
+            cache = json.load(f)
+            logger.debug(
+                f"Loaded cache from {CACHE_PATH} with {len(cache)} entries.")
+            return cache
+    except (FileNotFoundError, json.JSONDecodeError, IOError) as e:
+        logger.debug(
+            f"Failed to load cache from {CACHE_PATH}: {e}. Starting with empty cache.")
+        return {}
+
+
+def save_cache(cache: dict):
+    """Save cache to file."""
+    try:
+        with open(CACHE_PATH, 'w') as f:
+            json.dump(cache, f)
+            logger.debug(
+                f"Saved cache to {CACHE_PATH} with {len(cache)} entries.")
+    except IOError as e:
+        logger.error(f"Failed to save cache to {CACHE_PATH}: {e}")
+
+
+def get_embedding_function(
+    model_name: str,
+    batch_size: int = 64
+) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
+    """Retrieve embeddings with file-based caching based on model name, batch size, and input text."""
+    embed_func = initialize_embed_function(model_name, batch_size)
+
+    # Load cache from file
+    cache = load_cache()
+
+    def generate_cache_key(input_text: str | list[str]) -> str:
+        """Generate a cache key based on model name, batch size, and input text."""
+        if isinstance(input_text, str):
+            text_hash = hash_text(input_text)
+        else:
+            # Sort for consistent hashing
+            text_hash = hash_text("".join(sorted(input_text)))
+        return f"embed:{model_name}:{batch_size}:{text_hash}"
+
+    def embedding_function(input_text: str | list[str]) -> list[float] | list[list[float]]:
+        """Compute embeddings with file-based caching."""
+        # Determine input type and prepare log summary
+        single_input = isinstance(input_text, str)
+        text_count = 1 if single_input else len(input_text)
+        if single_input:
+            text_summary = input_text[:100] + \
+                ("..." if len(input_text) > 100 else "")
+        else:
+            # Summarize up to 3 texts, each truncated to 30 chars
+            summary = ", ".join(t[:30] for t in input_text[:3])
+            text_summary = summary[:100] + \
+                ("..." if len(summary) > 100 or len(input_text) > 3 else "")
+
+        # Generate cache key
+        cache_key = generate_cache_key(input_text)
+
+        # Check cache
+        with _cache_lock:
+            if cache_key in cache:
+                logger.success(
+                    f"Cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                    f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
+                )
+                return cache[cache_key]
+
+        logger.warning(
+            f"Cache miss for {'1 text' if single_input else f'{text_count} texts'} "
+            f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}. Computing embeddings..."
+        )
+
+        # Compute embeddings if not in cache
+        if single_input:
+            input_text = [input_text]
+
+        # Compute embeddings using the embed_func
+        computed_embeddings = embed_func(input_text)
+
+        # Store in cache and save to file
+        with _cache_lock:
+            cache[cache_key] = computed_embeddings[0] if single_input else computed_embeddings
+            save_cache(cache)
+            logger.info(
+                f"Cached and saved embeddings for {'1 text' if single_input else f'{text_count} texts'} "
+                f"(key: {cache_key}, model: {model_name}, batch_size: {batch_size}, file: {CACHE_PATH})."
+            )
+
+        return computed_embeddings[0] if single_input else computed_embeddings
+
+    return embedding_function
 
 
 class OllamaEmbeddingFunction():
@@ -95,37 +207,6 @@ class SFEmbeddingFunction():
         logger.debug(f"Model: {self.model_name}")
         logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
         logger.debug(f"Batch size: {self.batch_size}")
-
-        # if isinstance(input, str):
-        #     input = [input]
-
-        # # Tokenize the input and calculate token counts for each document
-        # token_counts = self.calculate_tokens(input)
-
-        # batched_input = []
-        # current_batch = []
-        # current_token_count = 0
-
-        # # Split the input into batches based on the batch_size
-        # for doc, token_count in zip(input, token_counts):
-        #     # Start a new batch when the batch size limit is reached
-        #     if len(current_batch) >= self.batch_size:
-        #         batched_input.append(current_batch)
-        #         current_batch = [doc]
-        #         current_token_count = token_count
-        #     else:
-        #         current_batch.append(doc)
-        #         current_token_count += token_count
-
-        # if current_batch:  # Don't forget to add the last batch
-        #     batched_input.append(current_batch)
-
-        # # Embed each batch using encode and decode methods
-        # all_embeddings = []
-        # for batch in batched_input:
-        #     # Encode documents into embeddings
-        #     embeddings = self.model.encode(batch, show_progress_bar=False)
-        #     all_embeddings.extend(embeddings)
 
         all_embeddings = self.model.encode(
             base_input, convert_to_tensor=True, show_progress_bar=False)
@@ -218,26 +299,26 @@ def initialize_embed_function(
     return global_embed_model_func
 
 
-def get_embedding_function(
-    model_name: str,
-    batch_size: int = 64
-) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
-    """Retrieve embeddings directly without using cache."""
-    embed_func = initialize_embed_function(model_name, batch_size)
+# def get_embedding_function(
+#     model_name: str,
+#     batch_size: int = 64
+# ) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
+#     """Retrieve embeddings directly without using cache."""
+#     embed_func = initialize_embed_function(model_name, batch_size)
 
-    def embedding_function(input_text: str | list[str]):
-        """Compute embeddings directly without caching."""
-        single_input = False
-        if isinstance(input_text, str):
-            input_text = [input_text]
-            single_input = True
+#     def embedding_function(input_text: str | list[str]):
+#         """Compute embeddings directly without caching."""
+#         single_input = False
+#         if isinstance(input_text, str):
+#             input_text = [input_text]
+#             single_input = True
 
-        # Compute embeddings for all inputs
-        computed_embeddings = embed_func(input_text)
+#         # Compute embeddings for all inputs
+#         computed_embeddings = embed_func(input_text)
 
-        return computed_embeddings[0] if single_input else computed_embeddings
+#         return computed_embeddings[0] if single_input else computed_embeddings
 
-    return embedding_function
+#     return embedding_function
 
 
 def get_reranking_function(

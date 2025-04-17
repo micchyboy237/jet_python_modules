@@ -12,7 +12,7 @@ class SimilarityResult(TypedDict):
         score: Similarity score between query and text.
         percent_difference: Percentage difference from the highest score, rounded to 2 decimals.
     """
-    id: Optional[str]
+    id: str
     rank: Optional[int]
     score: float
     percent_difference: Optional[float]

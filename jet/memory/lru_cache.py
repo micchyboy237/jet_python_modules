@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Optional, ItemsView, Any
+from typing import ItemsView, Any
 
 
 class LRUCache:
