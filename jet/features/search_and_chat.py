@@ -110,8 +110,8 @@ class Document(BaseDocument):
         ids: list[str] = []
 
         for doc in docs:
-            text = doc.text
-            # text = doc.get_recursive_text()
+            # text = doc.text
+            text = doc.get_recursive_text()
 
             texts.append(text)
             ids.append(doc.node_id)
@@ -403,7 +403,7 @@ async def search_and_filter_data(
 
         url_html_tuples.append((url, html))
 
-        if top_search_n and len(url_html_tuples) == top_search_n:
+        if len(url_html_tuples) == top_search_n:
             break
 
     pbar.close()

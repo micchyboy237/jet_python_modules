@@ -1,3 +1,4 @@
+from fake_useragent import UserAgent
 import asyncio
 from jet.cache.redis.types import RedisConfigParams
 from jet.cache.redis.utils import RedisCache
@@ -12,19 +13,22 @@ REDIS_CONFIG = RedisConfigParams(
 
 async def fetch_page_content(page, url: str) -> str:
     try:
-        await page.goto(url, timeout=15000)
+        await page.goto(url, timeout=8000)
         await page.wait_for_load_state("networkidle")
         content = await page.content()
         return content
     except Exception as e:
-        print(f"Failed to load {url}: {e}")
+        logger.warning(f"Failed to load {url}: {e}")
         return ""
 
 
 async def scrape_with_playwright(urls: List[str]) -> List[str]:
+    ua = UserAgent()
+    user_agent = ua.chrome  # Or ua.random for truly random
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
+        context = await browser.new_context(user_agent=user_agent)
 
         pages = [await context.new_page() for _ in urls]
         tasks = [fetch_page_content(page, url)
