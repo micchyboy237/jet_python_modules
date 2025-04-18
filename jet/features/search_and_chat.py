@@ -128,7 +128,7 @@ class Document(BaseDocument):
             query_str = query
         bm25_results = bm25_plus_search(texts, query_str)
 
-        hybrid_query_scores: list[SimilarityResult] = [
+        query_scores: list[SimilarityResult] = [
             {
                 **query_scores[result["doc_index"]],
                 "score": result["score"]
@@ -136,7 +136,7 @@ class Document(BaseDocument):
             for result in bm25_results
         ]
 
-        return hybrid_query_scores
+        return query_scores
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
@@ -383,7 +383,7 @@ class SearchRerankResult(TypedDict):
 async def search_and_filter_data(
     query: str,
     top_search_n: int = 3,
-    min_header_count: int = 1,
+    min_header_count: int = 5,
 ) -> SearchRerankResult:
     # Search urls
     search_results = search_data(query)

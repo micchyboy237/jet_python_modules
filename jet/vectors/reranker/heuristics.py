@@ -32,7 +32,6 @@ def bm25_plus_search(corpus: List[str], query: str) -> List[SearchResult]:
     tokenized_corpus = [doc.lower().split() for doc in corpus]
     tokenized_query = query.lower().split()
     # bm25 = BM25Plus(tokenized_corpus)
-
     # Set b=0 to disable length normalization
     # This prevents penalizing long documents
     bm25 = BM25Plus(tokenized_corpus, b=0.0)

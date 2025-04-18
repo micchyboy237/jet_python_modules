@@ -93,7 +93,7 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
             # Step 3: Store scraped results in cache and assign to results
             results_count = 0
             for idx, html_content, url in zip(batch_indices, scraped_results, batch_urls):
-                if html_content and validate_headers(html_content, min_count=1):
+                if html_content and validate_headers(html_content, min_count=5):
                     # Store in cache with TTL of 3600 seconds (1 hour)
                     cache_key = f"html:{url}"
                     cache.set(cache_key, {'content': html_content}, ttl=3600)
