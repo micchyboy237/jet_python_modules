@@ -138,7 +138,7 @@ def evaluate_html_processing(query_scores: list, reranked_nodes: list, grouped_n
     return evaluation
 
 
-def evaluate_llm_response(query: str, context: str, response: str, embed_model: OLLAMA_EMBED_MODELS = "mxbai-embed-large", llm_model: OLLAMA_MODEL_NAMES = "gemma3:4b", output_dir: Optional[str] = None) -> dict:
+def evaluate_llm_response(query: str, context: str, response: str, embed_model: OLLAMA_EMBED_MODELS = "mxbai-embed-large", llm_model: OLLAMA_MODEL_NAMES = "llama3.2", output_dir: Optional[str] = None) -> dict:
     """Evaluate LLM response for relevance and coherence."""
     evaluation = {
         "query_response_similarity": 0.0,
