@@ -200,9 +200,9 @@ def evaluate_llm_response(query: str, context: str, response: str, embed_model: 
     sentences = nltk.sent_tokenize(response)
     print(f"Number of sentences: {len(sentences)}")
     if len(sentences) > 1:
-        sentence_embeddings = [np.array(embed_func(s)) for s in sentences]
+        sentences_embeddings = np.array(embed_func(sentences))
         similarities = [
-            cosine_similarity(sentence_embeddings[i], sentence_embeddings[j])
+            cosine_similarity(sentences_embeddings[i], sentences_embeddings[j])
             for i in range(len(sentences))
             for j in range(i + 1, len(sentences))
         ]
