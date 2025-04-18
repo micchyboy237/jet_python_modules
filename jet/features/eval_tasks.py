@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.ERROR,
 
 try:
     nltk.data.find('sentiment/vader_lexicon.zip')
-except nltk.downloader.DownloadError:
+except:
     nltk.download('vader_lexicon')
 
 # Set the multiprocessing start method
