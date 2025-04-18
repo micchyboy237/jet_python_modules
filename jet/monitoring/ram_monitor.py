@@ -2,8 +2,6 @@ import rumps
 import psutil
 import sys
 import time
-import subprocess
-import re
 from PyQt6.QtWidgets import (
     QApplication, QLabel, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QTextEdit
@@ -13,74 +11,15 @@ from PyQt6.QtCore import Qt, QTimer
 ram_history = []
 
 
-def bytes_to_gb(bytes_value):
-    """Convert bytes to GB with 2 decimal places."""
-    return round(bytes_value / (1024 ** 3), 2)
-
-
-def get_memory_stats():
-    """Retrieve memory stats similar to Activity Monitor."""
-    # Physical Memory
-    physical_memory = int(subprocess.check_output(
-        ["sysctl", "-n", "hw.memsize"]).decode().strip())
-    physical_memory_gb = bytes_to_gb(physical_memory)
-
-    # Memory Used (from top)
-    top_output = subprocess.check_output(["top", "-l", "1"]).decode()
-    memory_used_match = re.search(r"PhysMem:\s*(\d+\.?\d*[GM])", top_output)
-    if memory_used_match:
-        memory_used_str = memory_used_match.group(1)
-        if "G" in memory_used_str:
-            memory_used = float(memory_used_str.replace("G", ""))
-        elif "M" in memory_used_str:
-            memory_used = float(memory_used_str.replace("M", "")) / 1024
-        memory_used_gb = bytes_to_gb(memory_used * (1024 ** 3))
-    else:
-        memory_used_gb = 0.0
-
-    # Cached Files (from vm_stat)
-    vm_stat_output = subprocess.check_output(["vm_stat"]).decode()
-    page_size_match = re.search(r"page size of (\d+) bytes", vm_stat_output)
-    cached_files_pages_match = re.search(
-        r"Pages speculative:\s*(\d+)", vm_stat_output)
-    if page_size_match and cached_files_pages_match:
-        page_size = int(page_size_match.group(1))
-        cached_files_pages = int(cached_files_pages_match.group(1))
-        cached_files_bytes = cached_files_pages * page_size
-        cached_files_gb = bytes_to_gb(cached_files_bytes)
-    else:
-        cached_files_gb = 0.0
-
-    # Swap Used
-    swap_output = subprocess.check_output(
-        ["sysctl", "-n", "vm.swapusage"]).decode()
-    swap_used_match = re.search(r"used = (\d+\.?\d*[GM])", swap_output)
-    if swap_used_match:
-        swap_used_str = swap_used_match.group(1)
-        if "G" in swap_used_str:
-            swap_used = float(swap_used_str.replace("G", ""))
-        elif "M" in swap_used_str:
-            swap_used = float(swap_used_str.replace("M", "")) / 1024
-        swap_used_gb = bytes_to_gb(swap_used * (1024 ** 3))
-    else:
-        swap_used_gb = 0.0
-
-    return {
-        "physical_memory_gb": physical_memory_gb,
-        "memory_used_gb": memory_used_gb,
-        "cached_files_gb": cached_files_gb,
-        "swap_used_gb": swap_used_gb
-    }
-
-
 def add_ram_history_entry():
-    """Add a RAM usage entry to history based on Memory Used."""
-    stats = get_memory_stats()
-    ram_usage_gb = stats["memory_used_gb"]
+    mem = psutil.virtual_memory()
+    ram_usage_gb = round(mem.used / (1024**3) * 2) / 2
     ram_history.append((time.time(), ram_usage_gb))
     three_hours_ago = time.time() - 3 * 60 * 60
+    # print(f"Before pruning: {ram_history}")  # Debug before pruning
     while ram_history and ram_history[0][0] < three_hours_ago:
         ram_history.pop(0)
+    # print(f"After pruning: {ram_history}")  # Debug after pruning
 
 
 class HistoryWindow(QWidget):
@@ -101,12 +40,16 @@ class HistoryWindow(QWidget):
             self.history_label.setText("No data available.")
             return
 
+        # Sort history by RAM usage (descending order)
         sorted_history = sorted(ram_history, key=lambda x: x[1], reverse=True)
+
         peaks = []
         prev_peak = None
         prev_time = None
 
+        # Select peaks with at least 0.5 GB difference or 10 seconds since the previous peak
         for timestamp, ram_usage in sorted_history:
+            # Check if it's the first peak or if the new peak satisfies the 0.5 GB or 10-second condition
             if not peaks or (ram_usage - prev_peak >= 0.5 or (timestamp - prev_time >= 10)):
                 peaks.append((ram_usage, timestamp))
                 prev_peak = ram_usage
@@ -114,7 +57,8 @@ class HistoryWindow(QWidget):
             if len(peaks) == self.top_n:
                 break
 
-        if not peaks:
+        # If less than top_n peaks are available, show only those
+        if len(peaks) == 0:
             self.history_label.setText("No significant data.")
             return
 
@@ -122,6 +66,7 @@ class HistoryWindow(QWidget):
             f"Peak {i + 1}: {ram_usage:.1f} GB (Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))})"
             for i, (ram_usage, timestamp) in enumerate(peaks)
         ])
+
         self.history_label.setText(formatted)
 
 
@@ -137,10 +82,12 @@ class ProcessListWindow(QWidget):
         self.text_area.setReadOnly(True)
         self.layout.addWidget(self.text_area)
 
+        # Refresh Button
         self.refresh_button = QPushButton("Refresh", self)
         self.refresh_button.clicked.connect(self.load_processes)
         self.layout.addWidget(self.refresh_button)
 
+        # Pagination buttons
         button_layout = QHBoxLayout()
         self.prev_button = QPushButton("Previous")
         self.next_button = QPushButton("Next")
@@ -157,12 +104,13 @@ class ProcessListWindow(QWidget):
         self.setLayout(self.layout)
 
         self.page = 0
-        self.items_per_page = 20
+        self.items_per_page = 20  # Show 20 items per page
         self.processes = []
 
+        # Periodic update timer
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.load_processes)
-        self.update_timer.start(10000)
+        self.update_timer.start(10000)  # Update every 10 seconds
 
     def load_processes(self):
         processes = []
@@ -182,11 +130,13 @@ class ProcessListWindow(QWidget):
         end = start + self.items_per_page
         page_items = self.processes[start:end]
 
+        # Define maximum length for process names (e.g., 40 characters)
         max_name_length = 40
         formatted = "\n".join(
-            [f"{i + 1 + start:<4} {name[:max_name_length]:<40} {bytes_to_gb(mem):>10.2f} GB"
+            [f"{i + 1 + start:<4} {name[:max_name_length]:<40} {mem / (1024**2):>10.2f} MB"
              for i, (mem, name) in enumerate(page_items)]
         )
+
         self.text_area.setText(formatted or "No processes to show")
         self.page_label.setText(
             f"Page {self.page + 1} / {max(1, (len(self.processes)-1)//self.items_per_page + 1)}")
@@ -241,14 +191,8 @@ class RAMMonitorWindow(QWidget):
         self.process_label.setText(self.get_top_processes())
 
     def get_ram_usage(self):
-        stats = get_memory_stats()
-        percent = (stats["memory_used_gb"] / stats["physical_memory_gb"]) * 100
-        return (
-            f"Physical Memory: {stats['physical_memory_gb']:.2f} GB\n"
-            f"Memory Used: {stats['memory_used_gb']:.2f} GB ({percent:.1f}%)\n"
-            f"Cached Files: {stats['cached_files_gb']:.2f} GB\n"
-            f"Swap Used: {stats['swap_used_gb']:.2f} GB"
-        )
+        mem = psutil.virtual_memory()
+        return f'RAM Usage: {mem.used / (1024**3):.2f} GB / {mem.total / (1024**3):.2f} GB ({mem.percent:.2f}%)'
 
     def get_top_processes(self):
         processes = []
@@ -261,7 +205,7 @@ class RAMMonitorWindow(QWidget):
                 pass
         processes.sort(reverse=True, key=lambda x: x[0])
         top_processes = processes[:5]
-        return "\n".join([f"{name}: {bytes_to_gb(mem):.2f} GB" for mem, name in top_processes])
+        return "\n".join([f"{name}: {mem / (1024**3):.2f} GB" for mem, name in top_processes])
 
     def refresh(self):
         self.update_data()
@@ -295,7 +239,8 @@ class RAMMonitorApp(rumps.App):
         main_y = screen_geometry.top() + margin
         self.window.setGeometry(main_x, main_y, main_width, main_height)
 
-        process_list_x = main_x - 500 - margin
+        # Position the process list window to the left of the RAM Monitor window by default
+        process_list_x = main_x - 500 - margin  # Adjust 500 for window width
         process_list_y = main_y
         self.process_list_window.setGeometry(
             process_list_x, process_list_y, 500, 450)
@@ -323,20 +268,20 @@ class RAMMonitorApp(rumps.App):
 
         self.update_ram_usage()
 
+        # New flag for process window visibility
         self.is_process_window_visible = False
 
     def set_icon(self, path):
         self.icon = path
 
     def update_ram_usage(self):
-        stats = get_memory_stats()
-        percent = (stats["memory_used_gb"] / stats["physical_memory_gb"]) * 100
-        self.title = f'RAM: {percent:.1f}%'
+        mem = psutil.virtual_memory()
+        self.title = f'RAM: {mem.percent:.1f}%'
         self.window.ram_label.setText(self.window.get_ram_usage())
 
     def track_usage(self):
         add_ram_history_entry()
-        self.history_window.update_history()
+        self.history_window.update_history()  # Explicitly update the history window
         self.update_ram_usage()
         self.seconds_until_next = 10
 
@@ -348,11 +293,11 @@ class RAMMonitorApp(rumps.App):
 
     def show_all_processes(self):
         if self.is_process_window_visible:
-            self.process_list_window.hide()
+            self.process_list_window.hide()  # Hide the process window if it's currently visible
         else:
-            self.process_list_window.load_processes()
+            self.process_list_window.load_processes()  # Load and show processes
             self.process_list_window.show()
-        self.is_process_window_visible = not self.is_process_window_visible
+        self.is_process_window_visible = not self.is_process_window_visible  # Toggle the flag
 
     @rumps.clicked("Show History")
     def toggle_history(self, _):
