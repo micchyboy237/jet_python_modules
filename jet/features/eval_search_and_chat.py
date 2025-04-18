@@ -1,5 +1,6 @@
 import os
 import time
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.llm.utils.embeddings import get_embedding_function
 import numpy as np
 from scipy.stats import entropy
@@ -12,15 +13,12 @@ from urllib.parse import urlparse
 import nltk
 import math
 import psutil
-from rq import Worker, Queue
-from redis import Redis
 from typing import Any, List, Dict
+from jet.llm.evaluators.context_relevancy_evaluator import evaluate_context_relevancy
+from jet.llm.evaluators.answer_relevancy_evaluator import evaluate_answer_relevancy
 
 # Download NLTK data for tokenization
 nltk.download('punkt', quiet=True)
-
-# Initialize Redis connection
-redis_conn = Redis(host='localhost', port=6379, db=0)
 
 
 def save_output(data: Any, filepath: str) -> None:
@@ -133,12 +131,14 @@ def evaluate_html_processing(query_scores: list, reranked_nodes: list, grouped_n
     return evaluation
 
 
-async def evaluate_llm_response(query: str, response: str, context: str, embed_model: str, output_dir: str) -> dict:
+def evaluate_llm_response(query: str, response: str, context: str, output_dir: str = os.path.join(os.path.dirname(__file__), "generated"), embed_model: OLLAMA_EMBED_MODELS = "mxbai-embed-large", llm_model: OLLAMA_MODEL_NAMES = "deepseek-r1") -> dict:
     """Evaluate LLM response for relevance and coherence."""
     evaluation = {
         "query_response_similarity": 0.0,
         "context_response_similarity": 0.0,
         "response_coherence_score": 0.0,
+        "context_relevancy": {},
+        "answer_relevancy": {}
     }
 
     # Early return for empty inputs
@@ -146,6 +146,30 @@ async def evaluate_llm_response(query: str, response: str, context: str, embed_m
         save_output(evaluation, os.path.join(
             output_dir, "llm_response_evaluation.json"))
         return evaluation
+
+    # Evaluate context relevancy
+    context_result = evaluate_context_relevancy(
+        model=llm_model,
+        query=query,
+        contexts=context
+    )
+    evaluation["context_relevancy"] = {
+        "passing": context_result.passing,
+        "score": context_result.score,
+        "feedback": context_result.feedback
+    }
+
+    # Evaluate answer relevancy
+    answer_result = evaluate_answer_relevancy(
+        model=llm_model,
+        query=query,
+        response=response
+    )
+    evaluation["answer_relevancy"] = {
+        "passing": answer_result.passing,
+        "score": answer_result.score,
+        "feedback": answer_result.feedback
+    }
 
     embed_func = get_embedding_function(embed_model)
 
@@ -195,14 +219,3 @@ def evaluate_pipeline(start_time: float, output_dir: str, error_count: int) -> d
     save_output(evaluation, os.path.join(
         output_dir, "pipeline_evaluation.json"))
     return evaluation
-
-
-def run_worker():
-    """Run the RQ worker with Redis connection."""
-    queue = Queue(connection=redis_conn)
-    worker = Worker([queue])
-    worker.work()
-
-
-if __name__ == "__main__":
-    run_worker()

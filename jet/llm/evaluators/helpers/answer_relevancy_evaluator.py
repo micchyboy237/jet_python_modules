@@ -1,18 +1,18 @@
 import re
-from jet.llm.evaluators.helpers.base import EvaluationResult, default_parser_function, parse_excerpts, parse_feedback
+from jet.llm.evaluators.helpers.base import EvaluationResult, default_parser_function, parse_feedback
 from llama_index.core.llms.llm import LLM
 from llama_index.core.schema import Document
 from llama_index.core.prompts import BasePromptTemplate
-from llama_index.core.evaluation import ContextRelevancyEvaluator as BaseContextRelevancyEvaluator
+from llama_index.core.evaluation import AnswerRelevancyEvaluator as BaseAnswerRelevancyEvaluator
 from typing import Any, Callable, Optional, Sequence
 
 _DEFAULT_SCORE_THRESHOLD = 2.0
 
 
-class ContextRelevancyEvaluator(BaseContextRelevancyEvaluator):
-    """Enhanced Context Relevancy Evaluator.
+class AnswerRelevancyEvaluator(BaseAnswerRelevancyEvaluator):
+    """Enhanced Answer Relevancy Evaluator.
 
-    Extends the base ContextRelevancyEvaluator and introduces additional logic
+    Extends the base AnswerRelevancyEvaluator and introduces additional logic
     for determining if the response is passing or not.
     """
 
@@ -46,7 +46,7 @@ class ContextRelevancyEvaluator(BaseContextRelevancyEvaluator):
         sleep_time_in_seconds: int = 0,
         **kwargs: Any,
     ) -> EvaluationResult:
-        """Evaluate whether the contexts are relevant to the query, and 
+        """Evaluate whether the answer is accurate based on the query, and 
         return whether the evaluation passes based on a custom threshold."""
         result = await super().aevaluate(query, response, contexts, sleep_time_in_seconds, **kwargs)
 
@@ -58,8 +58,7 @@ class ContextRelevancyEvaluator(BaseContextRelevancyEvaluator):
 
         extended_result = EvaluationResult(
             **result.model_dump(),
-            details=parse_feedback(result.feedback),
-            excerpts=parse_excerpts(result.feedback) if result.passing else []
+            details=parse_feedback(result.feedback)
         )
 
         return extended_result

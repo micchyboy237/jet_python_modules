@@ -1,12 +1,25 @@
-import json
 import re
+from typing import Dict, List, TypedDict, Optional
+import json
 from typing import Optional
 from llama_index.core.evaluation.base import EvaluationResult as BaseEvaluationResult
-from llama_index.core.bridge.pydantic import Field
-from jet.utils.markdown import extract_json_block_content
+from llama_index.core.bridge.pydantic import BaseModel, Field
+
+
+class Comment(BaseModel):
+    text: str
+    score: float
+
+
+class EvaluationDetails(BaseModel):
+    comments: List[Comment] = []
 
 
 class EvaluationResult(BaseEvaluationResult):
+    details: EvaluationDetails = Field(
+        default_factory=lambda: EvaluationDetails(comments=[]),
+        description="Detailed evaluation of the response, including specific comments."
+    )
     excerpts: list[str] = Field(
         default=[],
         description="A list of relevant excerpts from the context that directly answer the query. These are specific sections or pieces of the context that provide concrete, actionable answers to the user's query. If no relevant excerpts exist, an empty list should be provided."
@@ -29,6 +42,43 @@ def default_parser_function(output_str: str) -> tuple[Optional[float], Optional[
         return score, feedback.strip()
     else:
         return None, None
+
+
+def parse_feedback(feedback_str: Optional[str]) -> EvaluationDetails:
+    """
+    Parses a feedback string to extract the score and individual comments.
+
+    Args:
+        feedback_str: The string containing the feedback, score, and comments.
+                    This is now optional.
+
+    Returns:
+        An instance of EvaluationDetails.
+    """
+    results = EvaluationDetails()
+    if not feedback_str:  # Handle the case where feedback_str is None or empty
+        return results
+
+    feedback_match = re.search(
+        r"Feedback:\n(.*?)\n\n\[RESULT\]", feedback_str, re.DOTALL)
+
+    if feedback_match:
+        comments_str = feedback_match.group(1).strip()
+        comment_lines = [line.strip()
+                         for line in comments_str.split('\n') if line.strip()]
+        for line in comment_lines:
+            parts = line.split('(Score: ')
+            text = parts[0].strip()
+            score = None
+            if len(parts) > 1:
+                score_str = parts[1].rstrip(')')
+                try:
+                    score = float(score_str)
+                except ValueError:
+                    score = None  # Handle cases where the score isn't a valid number
+            results.comments.append(Comment(text=text, score=score))
+
+    return results  # Return EvaluationDetails
 
 
 def parse_excerpts(output_str: str) -> list[str]:

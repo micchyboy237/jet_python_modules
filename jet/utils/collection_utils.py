@@ -1,13 +1,30 @@
+import re
 from collections import defaultdict
-from typing import List, Dict, Any, Union
+from typing import Sequence, Union, Dict, Any, TypedDict, List
 
 
-def group_by(data: List[Union[Dict[str, Any], object]], key: str) -> Dict[Any, List[Any]]:
+class GroupedResult(TypedDict):
+    group: Any
+    items: List[Any]
+
+
+def get_nested_value(item: Union[Dict[str, Any], object], path: str) -> Any:
+    path = re.sub(r"\[['\"]?([^'\"]+)['\"]?\]", r".\1", path)
+    keys = path.strip(".").split(".")
+
+    current = item
+    for key in keys:
+        if isinstance(current, dict):
+            current = current.get(key)
+        else:
+            current = getattr(current, key, None)
+    return current
+
+
+def group_by(data: Sequence[Union[Dict[str, Any], object]], key: str) -> List[GroupedResult]:
+
     grouped = defaultdict(list)
     for item in data:
-        if isinstance(item, dict):
-            value = item.get(key)
-        else:
-            value = getattr(item, key, None)
+        value = get_nested_value(item, key)
         grouped[value].append(item)
-    return dict(grouped)
+    return [{"group": group_key, "items": items} for group_key, items in grouped.items()]

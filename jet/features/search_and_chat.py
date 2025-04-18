@@ -213,23 +213,17 @@ def get_nodes_parent_mapping(nodes: list[TextNode], docs: list[Document]) -> dic
     return parent_map
 
 
-def rerank_nodes(query: str | list[str], docs: List[Document], embed_models: List[OLLAMA_EMBED_MODELS]) -> Tuple[List[SimilarityResult], List[NodeWithScore]]:
+def rerank_nodes(query: str | list[str], docs: List[Document], embed_models: List[OLLAMA_EMBED_MODELS]) -> List[SimilarityResult]:
     query_scores = Document.rerank_documents(
         query, docs, embed_models)
     header_docs_dict: dict[str, Document] = {
         doc.node_id: doc for doc in docs}
 
-    results = []
-    seen_docs = set()
     for item in query_scores:
         doc = header_docs_dict[item["id"]]
-        doc_index = doc.metadata["doc_index"]
-        if doc_index not in seen_docs:
-            seen_docs.add(doc_index)
-            results.append(NodeWithScore(node=TextNode(
-                text=doc.text, metadata=doc.metadata), score=item["score"]))
+        item["metadata"] = doc.metadata
 
-    return query_scores, results
+    return query_scores
 
 
 def strip_left_hashes(text: str) -> str:
@@ -372,7 +366,7 @@ class SearchRerankResult(TypedDict):
 async def search_and_filter_data(
     query: str,
     top_search_n: int = 3,
-    min_header_count: int = 5,
+    min_header_count: int = 1,
 ) -> SearchRerankResult:
     # Search urls
     search_results = search_data(query)
@@ -493,62 +487,66 @@ class ComparisonResultItem(TypedDict):
 
 
 class ComparisonResults(TypedDict):
-    top_url: str
+    # top_url: str
+    top_urls: List[str]
     top_query_scores: List[SimilarityResult]
-    top_header_docs: List[Document]
-    top_reranked_nodes: List[NodeWithScore]
-    comparison_results: List[ComparisonResultItem]
+    # top_header_docs: List[Document]
+    # top_reranked_nodes: List[NodeWithScore]
+    # comparison_results: List[ComparisonResultItem]
 
 
 def compare_html_query_scores(
     query: str,
     url_html_tuples: List[Tuple[str, str]],
     embed_models: List[OLLAMA_EMBED_MODELS],
-    method: Literal["top_score", "avg_top_n", "median_score", "all"] = "all",
-    top_n: int = 10
 ) -> ComparisonResults:
+    top_urls = [item[0] for item in url_html_tuples]
     html_list = [item[1] for item in url_html_tuples]
     header_docs_matrix: List[List[Document]] = [
         get_docs_from_html(html) for html in html_list]
+    for idx, docs in enumerate(header_docs_matrix):
+        url = top_urls[idx]
+        for doc in docs:
+            doc.metadata["url"] = url
     header_docs_matrix: List[List[Document]] = [truncate_docs(
         docs, embed_models) for docs in header_docs_matrix]
-    first_headers: List[Document] = [docs[0] for docs in header_docs_matrix]
-    first_headers_dict: dict[str, Dict] = {
-        docs[0].node_id: {"url": url_html_tuples[idx][0], "docs": docs} for idx, docs in enumerate(header_docs_matrix)}
 
-    first_headers_query_scores, first_headers_reranked_results = rerank_nodes(
-        query, first_headers, embed_models)
+    all_headers: List[Document] = [
+        doc for docs in header_docs_matrix for doc in docs]
 
-    top_result = first_headers_dict[first_headers_query_scores[0]["id"]]
-    top_url = top_result["url"]
-    top_header_docs: List[Document] = top_result["docs"]
+    # first_headers: List[Document] = [docs[0] for docs in header_docs_matrix]
+    # first_headers_dict: dict[str, Dict] = {
+    #     docs[0].node_id: {"url": url_html_tuples[idx][0], "docs": docs} for idx, docs in enumerate(header_docs_matrix)}
+    # first_headers_query_scores, first_headers_reranked_results = rerank_nodes(
+    #     query, first_headers, embed_models)
+    # top_result = first_headers_dict[first_headers_query_scores[0]["id"]]
+    # top_url = top_result["url"]
+    # top_header_docs: List[Document] = top_result["docs"]
 
-    top_query_scores, top_reranked_nodes = rerank_nodes(
-        query, top_header_docs, embed_models)
+    top_query_scores = rerank_nodes(query, all_headers, embed_models)
 
     # Reuse first_headers_query_scores and first_headers_reranked_results for comparison_results
-    comparison_results: List[ComparisonResultItem] = []
-    for idx, doc in enumerate(first_headers):
-        url = url_html_tuples[idx][0]
-        # Find the query_score for this document
-        query_score = [
-            score for score in first_headers_query_scores if score["id"] == doc.node_id]
-        # Find the reranked_node for this document
-        reranked_node = [node for node in first_headers_reranked_results if node.node.metadata.get(
-            "doc_index") == doc.metadata.get("doc_index")]
-        comparison_results.append({
-            "url": url,
-            "info": compute_info(query_score),
-            "query_scores": query_score,
-            "reranked_nodes": reranked_node
-        })
+    # comparison_results: List[ComparisonResultItem] = []
+    # for idx, doc in enumerate(first_headers):
+    #     url = url_html_tuples[idx][0]
+    #     # Find the query_score for this document
+    #     query_score = [
+    #         score for score in first_headers_query_scores if score["id"] == doc.node_id]
+    #     # Find the reranked_node for this document
+    #     reranked_node = [node for node in first_headers_reranked_results if node.node.metadata.get(
+    #         "doc_index") == doc.metadata.get("doc_index")]
+    #     comparison_results.append({
+    #         "url": url,
+    #         "info": compute_info(query_score),
+    #         "query_scores": query_score,
+    #         "reranked_nodes": reranked_node
+    #     })
 
     return {
-        "top_url": top_url,
+        "top_urls": top_urls,
         "top_query_scores": top_query_scores,
-        "top_header_docs": top_header_docs,
-        "top_reranked_nodes": top_reranked_nodes,
-        "comparison_results": comparison_results
+        # "top_header_docs": top_header_docs,
+        # "top_reranked_nodes": top_reranked_nodes,
     }
 
 
