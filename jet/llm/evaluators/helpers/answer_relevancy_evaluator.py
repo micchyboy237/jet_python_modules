@@ -48,15 +48,18 @@ class AnswerRelevancyEvaluator(BaseAnswerRelevancyEvaluator):
         return whether the evaluation passes based on a custom threshold."""
         result = await super().aevaluate(query, response, contexts, sleep_time_in_seconds, **kwargs)
 
+        details = parse_feedback(result.feedback)
+        score = result.score if result.score is not None else sum(
+            comment.score for comment in details.comments)
         # Check if the score passes the custom threshold
-        passing = result.score >= self.passing_score_threshold
+        passing = score >= self.passing_score_threshold
 
         # Update the result to include the passing flag
         result.passing = passing
 
         extended_result = EvaluationResult(
             **result.model_dump(),
-            details=parse_feedback(result.feedback)
+            details=details
         )
 
         return extended_result

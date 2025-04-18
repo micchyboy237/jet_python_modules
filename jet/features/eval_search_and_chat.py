@@ -1,3 +1,5 @@
+from jet.logger import logger
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import os
 import time
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
@@ -19,6 +21,11 @@ from jet.llm.evaluators.answer_relevancy_evaluator import evaluate_answer_releva
 
 # Download NLTK data for tokenization
 nltk.download('punkt', quiet=True)
+
+try:
+    nltk.data.find('sentiment/vader_lexicon.zip')
+except nltk.downloader.DownloadError:
+    nltk.download('vader_lexicon')
 
 
 def save_output(data: Any, filepath: str) -> None:
@@ -131,7 +138,7 @@ def evaluate_html_processing(query_scores: list, reranked_nodes: list, grouped_n
     return evaluation
 
 
-def evaluate_llm_response(query: str, response: str, context: str, embed_model: OLLAMA_EMBED_MODELS = "mxbai-embed-large", llm_model: OLLAMA_MODEL_NAMES = "gemma3:4b", output_dir: Optional[str] = None) -> dict:
+def evaluate_llm_response(query: str, context: str, response: str, embed_model: OLLAMA_EMBED_MODELS = "mxbai-embed-large", llm_model: OLLAMA_MODEL_NAMES = "gemma3:4b", output_dir: Optional[str] = None) -> dict:
     """Evaluate LLM response for relevance and coherence."""
     evaluation = {
         "query_response_similarity": 0.0,
@@ -213,7 +220,7 @@ def evaluate_llm_response(query: str, response: str, context: str, embed_model: 
     # Save evaluation
     if output_dir:
         save_output(evaluation, os.path.join(
-            output_dir, "llm_context_and_response_evaluation.json"))
+            output_dir, "evaluation", "eval_llm_context_and_response.json"))
 
     return evaluation
 
@@ -232,3 +239,22 @@ def evaluate_pipeline(start_time: float, output_dir: str, error_count: int) -> d
     save_output(evaluation, os.path.join(
         output_dir, "pipeline_evaluation.json"))
     return evaluation
+
+
+def evaluate_response_tone(query: str, response: str, output_dir: str):
+    """Evaluates the sentiment/tone of the LLM response."""
+    try:
+        analyzer = SentimentIntensityAnalyzer()
+        vs = analyzer.polarity_scores(response)
+        tone = "Neutral"
+        if vs['compound'] >= 0.05:
+            tone = "Positive"
+        elif vs['compound'] <= -0.05:
+            tone = "Negative"
+        output_path = os.path.join(output_dir, f"tone_evaluation.json")
+        save_output({"query": query, "response": response,
+                     "tone": tone, "sentiment_scores": vs}, output_path)
+        print(f"Tone evaluation results saved to: {output_path}")
+    except Exception as e:
+        logger.error(f"Error in evaluate_response_tone: {e}", exc_info=True)
+        raise

@@ -35,8 +35,9 @@ COLORS = {
 
 
 def colorize_log(text: str, color: str):
-    if color in COLORS:
-        color = COLORS[color]
+    color_attr = color.upper()
+    if color_attr in COLORS:
+        color = COLORS[color_attr]
     return f"{color}{text}{RESET}"
 
 

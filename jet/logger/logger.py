@@ -1,21 +1,23 @@
 import os
 import logging
+import traceback
 import unidecode
 
 from typing import List, Callable, Optional, Any
-from jet.logger.config import COLORS, RESET
+from jet.logger.config import COLORS, RESET, colorize_log
 from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
 from jet.utils.text import fix_and_unidecode
+from jet.utils.inspect_utils import log_filtered_stack_trace
 
 
 class CustomLogger:
-    def __init__(self, log_file: Optional[str] = None):
+    def __init__(self, log_file: Optional[str] = None, name: str = "default"):
         self.log_file = log_file
-        self.logger = self._initialize_logger()
+        self.logger = self._initialize_logger(name)
 
-    def _initialize_logger(self) -> logging.Logger:
-        logger = logging.getLogger("CustomLogger")
+    def _initialize_logger(self, name: str) -> logging.Logger:
+        logger = logging.getLogger(name)
         logger.setLevel(logging.DEBUG)
 
         # Console handler
@@ -40,6 +42,7 @@ class CustomLogger:
             flush: bool = False,
             end: str = None,
             colors: list[str] = None,
+            exc_info: bool = True,
         ) -> None:
             messages = list(messages)  # Convert tuple to list
 
@@ -67,6 +70,12 @@ class CustomLogger:
                 f"{COLORS.get(color, COLORS['LOG'])}{message}{RESET}" for message, color in zip(messages, colors)
             ]
             output = " ".join(formatted_messages)
+
+            if level.lower() == "error" and exc_info:
+                print(colorize_log("Trace exception:", "gray"))
+                print(colorize_log(traceback.format_exc(), level))
+                # Log filtered stack trace
+                # log_filtered_stack_trace(exc)
 
             if not end:
                 end = "" if flush else "\n"

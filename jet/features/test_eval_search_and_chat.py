@@ -124,7 +124,7 @@ class TestEvaluateHtmlProcessing(unittest.TestCase):
 
 class TestEvaluateLlmResponse(unittest.IsolatedAsyncioTestCase):
     @patch("jet.llm.utils.embeddings.get_embedding_function", new=AsyncMock())
-    async def test_normal_case(self, mock_get_embedding):
+    def test_normal_case(self, mock_get_embedding):
         mock_get_embedding.side_effect = [
             np.array([1.0, 0.0]),
             np.array([0.9, 0.1]),
@@ -132,17 +132,18 @@ class TestEvaluateLlmResponse(unittest.IsolatedAsyncioTestCase):
             np.array([0.9, 0.1]),
             np.array([0.8, 0.2]),
         ]
-        result = await evaluate_llm_response(
-            "test query", "This is a test response. It is coherent.",
-            "This is the context.", "mxbai-embed-large", "/tmp/test_output"
+        result = evaluate_llm_response(
+            "test query", "This is the context.", "This is a test response. It is coherent.",
+            embed_model="mxbai-embed-large", llm_model="gemma3:4b", output_dir="/tmp/test_output"
         )
         self.assertGreater(result["query_response_similarity"], 0.9)
         self.assertGreater(result["context_response_similarity"], 0.8)
         self.assertGreater(result["response_coherence_score"], 0.8)
 
     @patch("worker.save_output")
-    async def test_empty_response(self, mock_save_output):
-        result = await evaluate_llm_response("test query", "", "This is the context.", "mxbai-embed-large", "/tmp/test_output")
+    def test_empty_response(self, mock_save_output):
+        result = evaluate_llm_response("test query", "This is the context.", "",
+                                       embed_model="mxbai-embed-large", llm_model="gemma3:4b", output_dir="/tmp/test_output")
         self.assertEqual(result["query_response_similarity"], 0.0)
         self.assertEqual(result["context_response_similarity"], 0.0)
         self.assertEqual(result["response_coherence_score"], 0.0)

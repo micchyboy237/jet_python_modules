@@ -1,0 +1,45 @@
+{
+  "llm_model": "gemma3:4b",
+  "embed_model": "mxbai-embed-large",
+  "query_response_similarity": 0.8787480770424305,
+  "context_response_similarity": 0.8755603430491682,
+  "response_coherence_score": 1.0,
+  "context_relevancy": {
+    "passing": true,
+    "score": 1.0,
+    "feedback": "Q1: YES - The context directly addresses the query about the capital of France. (Score: 1.0)\nQ2: YES - The context provides a specific answer (\"Paris\") to the user's question. (Score: 1.0)\n\n[RESULT] 2.0",
+    "details": {
+      "comments": [
+        {
+          "text": "Q1: YES - The context directly addresses the query about the capital of France.",
+          "score": 1.0,
+          "passing": true
+        },
+        {
+          "text": "Q2: YES - The context provides a specific answer (\"Paris\") to the user's question.",
+          "score": 1.0,
+          "passing": true
+        }
+      ]
+    }
+  },
+  "answer_relevancy": {
+    "passing": true,
+    "score": 1.0,
+    "feedback": "Q1: YES - The response directly answers the question about the capital of France. (Score: 1.0)\nQ2: YES - The response provides a specific answer, aligning with the user's request for information. (Score: 1.0)\n\n[RESULT] 2.0",
+    "details": {
+      "comments": [
+        {
+          "text": "Q1: YES - The response directly answers the question about the capital of France.",
+          "score": 1.0,
+          "passing": true
+        },
+        {
+          "text": "Q2: YES - The response provides a specific answer, aligning with the user's request for information.",
+          "score": 1.0,
+          "passing": true
+        }
+      ]
+    }
+  }
+}

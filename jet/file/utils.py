@@ -122,7 +122,13 @@ def load_file(input_file: str) -> Optional[str | dict | list]:
 
 def save_file(data: str | dict | list | BaseModel, output_file: str):
     import os
+    import re
+    import json
     from jet.transformers import make_serializable
+
+    # Allow only valid file path characters ('/', '.', '-', '_')
+    output_file = re.sub(r"[^\w\-/\.]", "", output_file)
+
     # Ensure directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
