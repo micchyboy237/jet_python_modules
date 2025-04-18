@@ -4,7 +4,7 @@ from jet.llm.ollama.base import Ollama
 from jet.llm.evaluators.helpers.answer_relevancy_evaluator import AnswerRelevancyEvaluator
 from jet.logger import logger
 from llama_index.core.prompts.base import PromptTemplate
-from llama_index.core.evaluation.base import EvaluationResult
+from jet.llm.evaluators.helpers.base import EvaluationResult
 
 EVAL_QUESTIONS = [
     "Does the provided response match the subject matter of the user's query?",
@@ -12,14 +12,27 @@ EVAL_QUESTIONS = [
 ]
 
 ANSWER_EVAL_TEMPLATE = PromptTemplate(
-    "Your task is to evaluate if the response is relevant to the query.\n"
-    "The evaluation should be performed in a step-by-step manner by answering the following questions:\n"
+    "Your task is to evaluate whether the provided response contains specific, concrete, and logically complete information that answers the user's query.\n"
+    "Evaluate the following questions step-by-step:\n"
     "{questions_str}\n"
-    "Each question above is worth 1 point. Provide detailed feedback on response according to the criteria questions above  "
-    "After your feedback provide a final result by strictly following this format: '[RESULT] followed by the integer number representing the total score assigned to the response'\n\n"
-    "Example feedback format:\nFeedback:\n<generated_feedback>\n\n[RESULT] <total_int_score>\n\n"
-    "Query: \n {query}\n"
-    "Response: \n {response}\n"
+    "Each question is worth 1.0 point. Partial scores are allowed. Use strict criteria—generic mentions or vague claims are not sufficient.\n\n"
+    "**Important:** For each question:\n"
+    "- Answer YES or NO\n"
+    "- Provide a short explanation\n"
+    "- Provide a score (between 0.0 and 1.0)\n\n"
+    "**Scoring Guide:**\n"
+    "- 1.0 = Fully and concretely answered with clear, complete info\n"
+    "- 0.5 = Partially answered or missing important details\n"
+    "- 0.0 = Not answered at all or only vaguely mentioned\n\n"
+    "At the end, write the result in the following exact format:\n"
+    "[RESULT] <total_score>  # This is the sum of the individual question scores.\n\n"
+    "Example:\n"
+    "Feedback:\n"
+    "Q1: YES - The response clearly addresses the topic of the query. (Score: 1.0)\n"
+    "Q2: NO - The response does not adopt the requested perspective. (Score: 0.0)\n\n"
+    "[RESULT] 1.0\n\n"
+    "Query:\n{query}\n"
+    "Response:\n{response}\n"
     "Feedback:"
 )
 

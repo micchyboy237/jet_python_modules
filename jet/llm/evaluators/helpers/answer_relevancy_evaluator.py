@@ -21,7 +21,6 @@ class AnswerRelevancyEvaluator(BaseAnswerRelevancyEvaluator):
         llm: Optional[LLM] = None,
         raise_error: bool = False,
         eval_template: str | BasePromptTemplate | None = None,
-        refine_template: str | BasePromptTemplate | None = None,
         score_threshold: float = _DEFAULT_SCORE_THRESHOLD,
         parser_function: Callable[[
             str], tuple[Optional[float], Optional[str]]] = default_parser_function,
@@ -32,7 +31,6 @@ class AnswerRelevancyEvaluator(BaseAnswerRelevancyEvaluator):
             llm=llm,
             raise_error=raise_error,
             eval_template=eval_template,
-            refine_template=refine_template,
             score_threshold=score_threshold,
             parser_function=parser_function,
         )

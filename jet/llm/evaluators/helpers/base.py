@@ -1,7 +1,6 @@
 import re
 from typing import Dict, List, TypedDict, Optional
 import json
-from typing import Optional
 from llama_index.core.evaluation.base import EvaluationResult as BaseEvaluationResult
 from llama_index.core.bridge.pydantic import BaseModel, Field
 
@@ -9,6 +8,9 @@ from llama_index.core.bridge.pydantic import BaseModel, Field
 class Comment(BaseModel):
     text: str
     score: float
+    passing: bool = Field(
+        description="Indicates whether the comment's score is sufficient (score >= 0.5)."
+    )
 
 
 class EvaluationDetails(BaseModel):
@@ -26,27 +28,10 @@ class EvaluationResult(BaseEvaluationResult):
     )
 
 
-def default_parser_function(output_str: str) -> tuple[Optional[float], Optional[str]]:
-    # Pattern to match the feedback and response
-    # This pattern looks for any text ending with '[RESULT]' followed by a number
-    pattern = r"([\s\S]+)(?:\[RESULT\]\s*)([\d.]+)"
-
-    # Using regex to find all matches
-    result = re.search(pattern, output_str)
-
-    # Check if any match is found
-    if result:
-        # Assuming there's only one match in the text, extract feedback and response
-        feedback, score = result.groups()
-        score = float(score) if score is not None else score
-        return score, feedback.strip()
-    else:
-        return None, None
-
-
 def parse_feedback(feedback_str: Optional[str]) -> EvaluationDetails:
     """
     Parses a feedback string to extract the score and individual comments.
+    Handles feedback strings with or without the "Feedback:" prefix.
 
     Args:
         feedback_str: The string containing the feedback, score, and comments.
@@ -59,26 +44,36 @@ def parse_feedback(feedback_str: Optional[str]) -> EvaluationDetails:
     if not feedback_str:  # Handle the case where feedback_str is None or empty
         return results
 
+    # Updated regex to match feedback format with or without "Feedback:" prefix
     feedback_match = re.search(
-        r"Feedback:\n(.*?)\n\n\[RESULT\]", feedback_str, re.DOTALL)
+        r"(?:Feedback:\n)?(.*?)\n\n\[RESULT\]", feedback_str, re.DOTALL)
 
     if feedback_match:
         comments_str = feedback_match.group(1).strip()
-        comment_lines = [line.strip()
-                         for line in comments_str.split('\n') if line.strip()]
+        # Split comments by lines starting with "Q" followed by a number
+        comment_lines = [line.strip() for line in comments_str.split(
+            '\n') if line.strip() and line.startswith('Q')]
         for line in comment_lines:
-            parts = line.split('(Score: ')
-            text = parts[0].strip()
-            score = None
-            if len(parts) > 1:
-                score_str = parts[1].rstrip(')')
+            # Regex to parse each comment line: QX: YES/NO - explanation (Score: X.X)
+            comment_match = re.match(
+                r"Q\d+:\s*(YES|NO)\s*-\s*(.*?)\s*\(Score:\s*(\d*\.?\d*)\)", line, re.DOTALL)
+            if comment_match:
+                yes_no = comment_match.group(1)
+                explanation = comment_match.group(2).strip()
+                score_str = comment_match.group(3)
                 try:
                     score = float(score_str)
+                    # Construct the full comment text
+                    text = f"Q{line[1]}: {yes_no} - {explanation}"
+                    # Determine passing status (score >= 0.5)
+                    passing = score >= 0.5
+                    results.comments.append(
+                        Comment(text=text, score=score, passing=passing))
                 except ValueError:
-                    score = None  # Handle cases where the score isn't a valid number
-            results.comments.append(Comment(text=text, score=score))
+                    # Skip if score is not a valid float
+                    continue
 
-    return results  # Return EvaluationDetails
+    return results
 
 
 def parse_excerpts(output_str: str) -> list[str]:
@@ -110,3 +105,21 @@ def parse_excerpts(output_str: str) -> list[str]:
     else:
         # Return an empty list if no excerpts are found
         return []
+
+
+def default_parser_function(output_str: str) -> tuple[Optional[float], Optional[str]]:
+    # Pattern to match the feedback and response
+    # This pattern looks for any text ending with '[RESULT]' followed by a number
+    pattern = r"([\s\S]+)(?:\[RESULT\]\s*)([\d.]+)"
+
+    # Using regex to find all matches
+    result = re.search(pattern, output_str)
+
+    # Check if any match is found
+    if result:
+        # Assuming there's only one match in the text, extract feedback and response
+        feedback, score = result.groups()
+        score = float(score) if score is not None else score
+        return score, feedback.strip()
+    else:
+        return None, None

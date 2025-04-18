@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 import nltk
 import math
 import psutil
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 from jet.llm.evaluators.context_relevancy_evaluator import evaluate_context_relevancy
 from jet.llm.evaluators.answer_relevancy_evaluator import evaluate_answer_relevancy
 
@@ -131,7 +131,7 @@ def evaluate_html_processing(query_scores: list, reranked_nodes: list, grouped_n
     return evaluation
 
 
-def evaluate_llm_response(query: str, response: str, context: str, output_dir: str = os.path.join(os.path.dirname(__file__), "generated"), embed_model: OLLAMA_EMBED_MODELS = "mxbai-embed-large", llm_model: OLLAMA_MODEL_NAMES = "deepseek-r1") -> dict:
+def evaluate_llm_response(query: str, response: str, context: str, embed_model: OLLAMA_EMBED_MODELS = "mxbai-embed-large", llm_model: OLLAMA_MODEL_NAMES = "gemma3:4b", output_dir: Optional[str] = None) -> dict:
     """Evaluate LLM response for relevance and coherence."""
     evaluation = {
         "query_response_similarity": 0.0,
@@ -156,7 +156,8 @@ def evaluate_llm_response(query: str, response: str, context: str, output_dir: s
     evaluation["context_relevancy"] = {
         "passing": context_result.passing,
         "score": context_result.score,
-        "feedback": context_result.feedback
+        "feedback": context_result.feedback,
+        "details": context_result.details,
     }
 
     # Evaluate answer relevancy
@@ -168,7 +169,8 @@ def evaluate_llm_response(query: str, response: str, context: str, output_dir: s
     evaluation["answer_relevancy"] = {
         "passing": answer_result.passing,
         "score": answer_result.score,
-        "feedback": answer_result.feedback
+        "feedback": answer_result.feedback,
+        "details": answer_result.details,
     }
 
     embed_func = get_embedding_function(embed_model)
@@ -189,6 +191,7 @@ def evaluate_llm_response(query: str, response: str, context: str, output_dir: s
 
     # Response coherence (pairwise similarity of sentences)
     sentences = nltk.sent_tokenize(response)
+    print(f"Number of sentences: {len(sentences)}")
     if len(sentences) > 1:
         sentence_embeddings = [np.array(embed_func(s)) for s in sentences]
         similarities = [
@@ -198,10 +201,20 @@ def evaluate_llm_response(query: str, response: str, context: str, output_dir: s
         ]
         evaluation["response_coherence_score"] = np.mean(
             similarities) if similarities else 0.0
+    else:
+        evaluation["response_coherence_score"] = 1.0  # Single sentence case
+
+    evaluation = {
+        "llm_model": llm_model,
+        "embed_model": embed_model,
+        **evaluation,
+    }
 
     # Save evaluation
-    save_output(evaluation, os.path.join(
-        output_dir, "llm_response_evaluation.json"))
+    if output_dir:
+        save_output(evaluation, os.path.join(
+            output_dir, "llm_context_and_response_evaluation.json"))
+
     return evaluation
 
 
