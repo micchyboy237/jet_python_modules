@@ -240,7 +240,7 @@ def get_entry_file_name():
     try:
         return Path(sys.modules["__main__"].__file__).name
     except (KeyError, AttributeError):
-        return "Interactive or unknown context"
+        return "server"
 
 
 __all__ = [
