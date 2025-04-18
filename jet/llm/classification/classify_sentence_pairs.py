@@ -2,8 +2,6 @@ from txtai.pipeline import Labels
 from tqdm import tqdm
 from instruction_generator.helpers.dataset import load_data, save_data, generate_hash
 from instruction_generator.utils.time_utils import time_it
-from instruction_generator.translation.translator import Translator
-from enum import Enum
 from instruction_generator.utils.logger import logger
 import json
 
@@ -15,27 +13,6 @@ data = load_data(
     "server/static/models/dost-asti-gpt2/base_model/datasets/foundational1/transcription_pairs.json")
 output_transcriptions_file = None
 
-
-@time_it
-def convert_tagalog_to_english(text):
-    model_name = "Helsinki-NLP/opus-mt-tl-en"
-
-    try:
-        translator = Translator(model_name)
-
-        generation_config = {
-            "early_stopping": False,
-            "num_beams": 4,
-            "num_return_sequences": 1,
-            "output_scores": False,
-        }
-        translation_result = translator.generate(text, generation_config)
-
-        return translation_result
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-
 # Get unique labels from data
 tags = list(set([item.get('label') for item in data]))
 tags = [tag for tag in tags if tag]  # remove None values
@@ -43,8 +20,6 @@ tags = [tag for tag in tags if tag]  # remove None values
 if not tags:
     tags = ["Continuation/Elaboration", "Contrast/Disagreement",
             "Cause-Effect", "Topic Shift/New Topic"]
-    # tags = ["Entailment", "Neutral", "Contradiction"]
-
 
 print("\n------------------------------------------------------------------------\n")
 print("Sentence Pair Relationship\n")
@@ -62,12 +37,7 @@ batch_counter = 0
 for idx, item in enumerate(pbar):
     sentence1 = item['sentence1']
     sentence2 = item['sentence2']
-    translation_text = None
-    translation_text2 = None
-
     expected = item.get('label', None)
-
-    prev_result = None
 
     try:
         id = generate_hash(f"{sentence1} {sentence2}")
@@ -89,7 +59,6 @@ for idx, item in enumerate(pbar):
                 batch_counter = 0
             continue
 
-        prev_result = result
         passed = result == expected
 
     except IndexError:

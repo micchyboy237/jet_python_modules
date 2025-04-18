@@ -1,5 +1,6 @@
 import logging
 from jet.scrapers.browser.playwright_utils import scrape_multiple_urls
+from jet.vectors.reranker.heuristics import bm25_plus_search
 import numpy as np
 from pydantic import BaseModel, ValidationError
 from typing import List, Literal, Optional, Dict
@@ -118,8 +119,24 @@ class Document(BaseDocument):
 
         query_scores = query_similarity_scores(
             query, texts, model=model, ids=ids)
+        texts = [result["text"] for result in query_scores]
 
-        return query_scores
+        # Hybrid reranking
+        if isinstance(query, list):
+            query_str = "\n".join(query)
+        else:
+            query_str = query
+        bm25_results = bm25_plus_search(texts, query_str)
+
+        hybrid_query_scores: list[SimilarityResult] = [
+            {
+                **query_scores[result["doc_index"]],
+                "score": result["score"]
+            }
+            for result in bm25_results
+        ]
+
+        return hybrid_query_scores
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
@@ -371,7 +388,7 @@ async def search_and_filter_data(
     # Search urls
     search_results = search_data(query)
     urls = [normalize_url(item["url"])
-            for item in search_results][:top_search_n]
+            for item in search_results]
 
     url_html_tuples = []
     pbar = tqdm(total=top_search_n, desc="Scraping URLs")

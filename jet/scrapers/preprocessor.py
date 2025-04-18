@@ -9,6 +9,15 @@ from .utils import clean_newlines, clean_tags, clean_text
 from jet.logger import logger
 
 
+def minify_html(html: str) -> str:
+    # Remove newlines and tabs
+    html = re.sub(r'\s*\n\s*', '', html)
+    html = re.sub(r'\s*\t\s*', '', html)
+    # Remove spaces between tags
+    html = re.sub(r'>\s+<', '><', html)
+    return html
+
+
 def remove_markdown_comments(markdown_text: str) -> str:
     """Removes all HTML-style markdown comments and strips the result."""
     cleaned = re.sub(r'<!--.*?-->', '', markdown_text, flags=re.DOTALL)
@@ -155,6 +164,8 @@ def html_to_markdown(
     ignore_links: bool = True
 ) -> str:
     from bs4 import BeautifulSoup
+
+    html_str = minify_html(html_str)
 
     # Parse the HTML with BeautifulSoup
     soup = BeautifulSoup(html_str, 'html.parser')

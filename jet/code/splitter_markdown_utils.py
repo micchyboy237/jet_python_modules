@@ -2,6 +2,7 @@ import re
 from typing import Callable, Optional, List, Dict, TypedDict, Union
 
 from jet.scrapers.preprocessor import scrape_markdown
+from langchain_text_splitters import MarkdownHeaderTextSplitter
 
 
 class HeaderMetadata(TypedDict):
@@ -175,7 +176,6 @@ def get_header_contents(md_text: str,
 
 
 def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[Header]:
-    from jet.code.helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
 
     headers_to_split_on = headers_to_split_on or [
         ("#", "h1"),

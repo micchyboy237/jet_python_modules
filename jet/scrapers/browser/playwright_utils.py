@@ -1,8 +1,10 @@
+import time
 from fake_useragent import UserAgent
 import asyncio
 from jet.cache.redis.types import RedisConfigParams
 from jet.cache.redis.utils import RedisCache
 from jet.logger import logger
+from jet.scrapers.utils import validate_headers
 from playwright.async_api import async_playwright
 from typing import List
 
@@ -57,7 +59,7 @@ async def scrape_with_playwright(urls: List[str]) -> List[str]:
         return html_results
 
 
-async def scrape_multiple_urls(urls: List[str]) -> List[str]:
+async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3) -> List[str]:
     cache = RedisCache(config=REDIS_CONFIG)
     # Initialize result list to maintain order
     html_results = [None] * len(urls)
@@ -79,18 +81,29 @@ async def scrape_multiple_urls(urls: List[str]) -> List[str]:
             uncached_urls.append(url)
             uncached_indices.append(i)
 
-    # Step 2: Scrape all uncached URLs together
+    # Step 2: Scrape uncached URLs in batches
     if uncached_urls:
-        logger.info(f"Scraping {len(uncached_urls)} uncached URLs together...")
-        scraped_results = await scrape_with_playwright(uncached_urls)
+        logger.info(
+            f"Scraping {len(uncached_urls)} uncached URLs in batches of {num_parallel}...")
+        for i in range(0, len(uncached_urls), num_parallel):
+            batch_urls = uncached_urls[i:i + num_parallel]
+            batch_indices = uncached_indices[i:i + num_parallel]
+            scraped_results = await scrape_with_playwright(batch_urls)
 
-        # Step 3: Store scraped results in cache and assign to results
-        for idx, html_content, url in zip(uncached_indices, scraped_results, uncached_urls):
-            if html_content:
-                # Store in cache with TTL of 3600 seconds (1 hour)
-                cache_key = f"html:{url}"
-                cache.set(cache_key, {'content': html_content}, ttl=3600)
-            html_results[idx] = html_content
+            # Step 3: Store scraped results in cache and assign to results
+            results_count = 0
+            for idx, html_content, url in zip(batch_indices, scraped_results, batch_urls):
+                if html_content and validate_headers(html_content, min_count=1):
+                    # Store in cache with TTL of 3600 seconds (1 hour)
+                    cache_key = f"html:{url}"
+                    cache.set(cache_key, {'content': html_content}, ttl=3600)
+                    html_results[idx] = html_content
+                    results_count += 1
+
+                    if results_count == top_n:
+                        return html_results
+                else:
+                    continue
 
     return html_results
 
@@ -98,7 +111,8 @@ if __name__ == "__main__":
     urls = [
         "https://example.com",
         "https://httpbin.org/html",
-        "https://www.python.org"
+        "https://www.python.org",
+        "https://www.reddit.com/r/nba/",
     ]
     # Run the async function
     html_list = asyncio.run(scrape_multiple_urls(urls))
