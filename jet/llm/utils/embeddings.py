@@ -81,25 +81,25 @@ def load_cache() -> dict:
 
 
 def save_cache(cache: dict):
-    """Save cache to file with compression."""
+    """Save cache to file with compression and pruning."""
     try:
-        # Prune cache if too large
         if len(cache) > MEMORY_CACHE_MAX_SIZE:
-            # Sort by key for determinism
             sorted_items = sorted(cache.items(), key=lambda x: x[0])
-            cache.clear()
-            cache.update(
-                sorted_items[:int(MEMORY_CACHE_MAX_SIZE * MEMORY_CACHE_PRUNE_RATIO)])
+            pruned_size = int(MEMORY_CACHE_MAX_SIZE * MEMORY_CACHE_PRUNE_RATIO)
+            pruned_cache = dict(sorted_items[:pruned_size])
             logger.info(
-                f"Pruned cache to {len(cache)} entries to manage size.")
+                f"Pruned cache to {len(pruned_cache)} entries to manage size.")
+        else:
+            pruned_cache = cache
 
-        # Compress and save to pickle
-        data = pickle.dumps(cache)
-        compressed_data = zlib.compress(
-            data, level=6)  # Balanced compression level
+        data = pickle.dumps(pruned_cache)
+        compressed_data = zlib.compress(data, level=6)
+
         with open(CACHE_PATH, 'wb') as f:
             f.write(compressed_data)
-        logger.debug(f"Saved cache to {CACHE_PATH} with {len(cache)} entries.")
+
+        logger.debug(
+            f"Saved cache to {CACHE_PATH} with {len(pruned_cache)} entries.")
     except (pickle.PickleError, zlib.error, IOError) as e:
         logger.error(f"Failed to save cache to {CACHE_PATH}: {e}")
 
