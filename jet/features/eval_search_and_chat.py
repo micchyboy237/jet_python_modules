@@ -24,7 +24,7 @@ nltk.download('punkt', quiet=True)
 
 try:
     nltk.data.find('sentiment/vader_lexicon.zip')
-except nltk.downloader.DownloadError:
+except:
     nltk.download('vader_lexicon')
 
 
