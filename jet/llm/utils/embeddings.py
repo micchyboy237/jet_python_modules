@@ -1,3 +1,5 @@
+import zlib
+import pickle
 from pathlib import Path
 import os
 import json
@@ -39,7 +41,7 @@ GenerateMultipleReturnType = Callable[[
 
 
 # Cache file configuration
-CACHE_FILE = "embedding_cache.json"
+CACHE_FILE = "embedding_cache.pkl"  # Switch to pickle for compression
 CACHE_DIR = ".cache"
 Path(CACHE_DIR).mkdir(exist_ok=True)
 CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
@@ -47,29 +49,58 @@ CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
 # Thread-safe lock for file access
 _cache_lock = threading.Lock()
 
+# In-memory cache to reduce file I/O
+_memory_cache = {}
+MEMORY_CACHE_MAX_SIZE = 10000  # Max entries in memory cache
+MEMORY_CACHE_PRUNE_RATIO = 0.8  # Prune to 80% when full
+
 
 def load_cache() -> dict:
     """Load cache from file, return empty dict if file doesn't exist or is invalid."""
+    global _memory_cache
+    if _memory_cache:
+        logger.debug(
+            f"Using in-memory cache with {len(_memory_cache)} entries.")
+        return _memory_cache
+
     try:
-        with open(CACHE_PATH, 'r') as f:
-            cache = json.load(f)
+        with open(CACHE_PATH, 'rb') as f:
+            # Decompress and load pickle
+            compressed_data = f.read()
+            data = zlib.decompress(compressed_data)
+            cache = pickle.loads(data)
             logger.debug(
                 f"Loaded cache from {CACHE_PATH} with {len(cache)} entries.")
+            _memory_cache = cache
             return cache
-    except (FileNotFoundError, json.JSONDecodeError, IOError) as e:
+    except (FileNotFoundError, pickle.PickleError, zlib.error, IOError) as e:
         logger.debug(
             f"Failed to load cache from {CACHE_PATH}: {e}. Starting with empty cache.")
+        _memory_cache = {}
         return {}
 
 
 def save_cache(cache: dict):
-    """Save cache to file."""
+    """Save cache to file with compression."""
     try:
-        with open(CACHE_PATH, 'w') as f:
-            json.dump(cache, f)
-            logger.debug(
-                f"Saved cache to {CACHE_PATH} with {len(cache)} entries.")
-    except IOError as e:
+        # Prune cache if too large
+        if len(cache) > MEMORY_CACHE_MAX_SIZE:
+            # Sort by key for determinism
+            sorted_items = sorted(cache.items(), key=lambda x: x[0])
+            cache.clear()
+            cache.update(
+                sorted_items[:int(MEMORY_CACHE_MAX_SIZE * MEMORY_CACHE_PRUNE_RATIO)])
+            logger.info(
+                f"Pruned cache to {len(cache)} entries to manage size.")
+
+        # Compress and save to pickle
+        data = pickle.dumps(cache)
+        compressed_data = zlib.compress(
+            data, level=6)  # Balanced compression level
+        with open(CACHE_PATH, 'wb') as f:
+            f.write(compressed_data)
+        logger.debug(f"Saved cache to {CACHE_PATH} with {len(cache)} entries.")
+    except (pickle.PickleError, zlib.error, IOError) as e:
         logger.error(f"Failed to save cache to {CACHE_PATH}: {e}")
 
 
@@ -77,43 +108,46 @@ def get_embedding_function(
     model_name: str,
     batch_size: int = 64
 ) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
-    """Retrieve embeddings with file-based caching based on model name, batch size, and input text."""
+    """Retrieve embeddings with in-memory and file-based caching."""
     embed_func = initialize_embed_function(model_name, batch_size)
-
-    # Load cache from file
-    cache = load_cache()
 
     def generate_cache_key(input_text: str | list[str]) -> str:
         """Generate a cache key based on model name, batch size, and input text."""
         if isinstance(input_text, str):
             text_hash = hash_text(input_text)
         else:
-            # Sort for consistent hashing
             text_hash = hash_text("".join(sorted(input_text)))
         return f"embed:{model_name}:{batch_size}:{text_hash}"
 
     def embedding_function(input_text: str | list[str]) -> list[float] | list[list[float]]:
-        """Compute embeddings with file-based caching."""
-        # Determine input type and prepare log summary
+        """Compute embeddings with caching."""
         single_input = isinstance(input_text, str)
         text_count = 1 if single_input else len(input_text)
-        if single_input:
-            text_summary = input_text[:100] + \
-                ("..." if len(input_text) > 100 else "")
-        else:
-            # Summarize up to 3 texts, each truncated to 30 chars
-            summary = ", ".join(t[:30] for t in input_text[:3])
-            text_summary = summary[:100] + \
-                ("..." if len(summary) > 100 or len(input_text) > 3 else "")
+        text_summary = (
+            input_text[:100] + ("..." if len(input_text) > 100 else "")
+            if single_input
+            else ", ".join(t[:30] for t in input_text[:3])[:100] + ("..." if len(input_text) > 3 else "")
+        )
 
         # Generate cache key
         cache_key = generate_cache_key(input_text)
 
-        # Check cache
+        # Check in-memory cache
         with _cache_lock:
-            if cache_key in cache:
+            if cache_key in _memory_cache:
                 logger.success(
-                    f"Cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                    f"Memory cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                    f"(key: {cache_key}): {text_summary}"
+                )
+                return _memory_cache[cache_key]
+
+        # Check file cache
+        with _cache_lock:
+            cache = load_cache()
+            if cache_key in cache:
+                _memory_cache[cache_key] = cache[cache_key]
+                logger.success(
+                    f"File cache hit for {'1 text' if single_input else f'{text_count} texts'} "
                     f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
                 )
                 return cache[cache_key]
@@ -123,19 +157,17 @@ def get_embedding_function(
             f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}. Computing embeddings..."
         )
 
-        # Compute embeddings if not in cache
-        if single_input:
-            input_text = [input_text]
+        # Compute embeddings
+        input_texts = [input_text] if single_input else input_text
+        computed_embeddings = embed_func(input_texts)
 
-        # Compute embeddings using the embed_func
-        computed_embeddings = embed_func(input_text)
-
-        # Store in cache and save to file
+        # Store in caches
         with _cache_lock:
+            _memory_cache[cache_key] = computed_embeddings[0] if single_input else computed_embeddings
             cache[cache_key] = computed_embeddings[0] if single_input else computed_embeddings
             save_cache(cache)
             logger.info(
-                f"Cached and saved embeddings for {'1 text' if single_input else f'{text_count} texts'} "
+                f"Cached embeddings for {'1 text' if single_input else f'{text_count} texts'} "
                 f"(key: {cache_key}, model: {model_name}, batch_size: {batch_size}, file: {CACHE_PATH})."
             )
 
