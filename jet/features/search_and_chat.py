@@ -122,19 +122,20 @@ class Document(BaseDocument):
         texts = [result["text"] for result in query_scores]
 
         # Hybrid reranking
-        if isinstance(query, list):
-            query_str = "\n".join(query)
-        else:
-            query_str = query
-        bm25_results = bm25_plus_search(texts, query_str)
+        # if isinstance(query, list):
+        #     query_str = "\n".join(query)
+        # else:
+        #     query_str = query
+        # bm25_results = bm25_plus_search(texts, query_str)
 
-        query_scores: list[SimilarityResult] = [
-            {
-                **query_scores[result["doc_index"]],
-                "score": result["score"]
-            }
-            for result in bm25_results
-        ]
+        # query_scores: list[SimilarityResult] = [
+        #     {
+        #         **query_scores[result["doc_index"]],
+        #         "score": result["score"],
+        #         "rank": rank
+        #     }
+        #     for rank, result in enumerate(bm25_results, 1)
+        # ]
 
         return query_scores
 
@@ -206,7 +207,7 @@ def get_docs_from_html(html: str) -> list[Document]:
 
 
 def truncate_docs(docs: list[Document], embed_models: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS]) -> list[Document]:
-    model = max(embed_models, key=get_model_max_tokens)
+    model = min(embed_models, key=get_model_max_tokens)
     max_tokens = get_model_max_tokens(model)
     texts = [doc.text for doc in docs]
     truncated_texts = truncate_texts(texts, model, max_tokens)
