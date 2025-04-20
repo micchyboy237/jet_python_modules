@@ -1,12 +1,8 @@
 import unittest
 from unittest.mock import MagicMock
 
-from jet.token.token_utils import group_texts, split_texts, token_counter
-
-# Mock dependencies
-OLLAMA_MODEL_EMBEDDING_TOKENS = {
-    "test-model": 100  # Default token limit for testing
-}
+from jet.llm.models import OLLAMA_LLM_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS
+from jet.token.token_utils import get_model_by_max_predict, group_texts, split_texts, token_counter
 
 
 def get_tokenizer(model):
@@ -177,6 +173,42 @@ class TestGroupTextsOptimized(unittest.TestCase):
             expected_groups.append(current_group)
 
         self.assertEqual(result, expected_groups)
+
+
+class TestGetModelByMaxPredict(unittest.TestCase):
+
+    def test_short_text_fits_all(self):
+        sample = "Hello world!"
+        max_predict = 100
+        # Safely select the model with the smallest embedding token limit
+        valid_models = {
+            model: tokens
+            for model, tokens in OLLAMA_MODEL_EMBEDDING_TOKENS.items()
+            if model in OLLAMA_LLM_MODELS.__args__
+        }
+
+        if not valid_models:
+            raise ValueError(
+                "No valid models found in both OLLAMA_MODEL_EMBEDDING_TOKENS and OLLAMA_LLM_MODELS.")
+
+        # Choose the model with the minimum token limit
+        expected = min(valid_models.items(), key=lambda item: item[1])[0]
+        result = get_model_by_max_predict(sample, max_predict)
+        self.assertEqual(result, expected)
+
+    def test_text_needs_larger_model(self):
+        sample = "This is a longer text. " * 100
+        max_predict = 1000
+        result = get_model_by_max_predict(sample, max_predict)
+        sample_tokens = token_counter(sample)
+        self.assertTrue(sample_tokens + max_predict <=
+                        OLLAMA_MODEL_EMBEDDING_TOKENS[result])
+
+    def test_no_model_fits(self):
+        sample = "a " * 100_000
+        max_predict = 5000
+        with self.assertRaises(ValueError):
+            get_model_by_max_predict(sample, max_predict)
 
 
 if __name__ == "__main__":

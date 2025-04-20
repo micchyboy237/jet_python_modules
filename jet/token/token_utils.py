@@ -9,8 +9,10 @@ import tiktoken
 from jet.llm.llm_types import Message
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from jet.llm.models import (
+    OLLAMA_EMBED_MODELS,
     OLLAMA_HF_MODEL_NAMES,
     OLLAMA_HF_MODELS,
+    OLLAMA_LLM_MODELS,
     OLLAMA_MODEL_EMBEDDING_TOKENS,
     OLLAMA_MODEL_NAMES,
 )
@@ -518,6 +520,31 @@ def split_docs(
             nodes.append(node)
 
     return nodes
+
+
+def get_model_by_max_predict(text: str, max_predict: int = 500, type: Literal["llm", "embed"] = "llm") -> OLLAMA_LLM_MODELS:
+    """
+    Returns the first OLLAMA model (sorted by max tokens) that can accommodate
+    the given text plus max_predict tokens. Raises error if none fits.
+    """
+    models = OLLAMA_LLM_MODELS.__args__ if type == "llm" else OLLAMA_EMBED_MODELS.__args__
+
+    sorted_models = sorted(
+        models,
+        key=lambda name: OLLAMA_MODEL_EMBEDDING_TOKENS[name]
+    )
+
+    text_token_count: int = token_counter(text)
+
+    for model in sorted_models:
+        max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+        if text_token_count + max_predict <= max_tokens:
+            return model
+
+    raise ValueError(
+        f"No suitable model found. Required tokens: {text_token_count + max_predict}, "
+        f"but highest model max is {OLLAMA_MODEL_EMBEDDING_TOKENS[sorted_models[-1]]}"
+    )
 
 
 if __name__ == "__main__":

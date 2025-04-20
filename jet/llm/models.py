@@ -30,11 +30,23 @@ OLLAMA_MODEL_NAMES = Literal[
     "mistral",
     "mxbai-embed-large",
     "llama3.1",
+    "llama3.2",
     "codellama",
-    "llava",
-    "llama3.2"
+    "llava"
 ]
 
+OLLAMA_LLM_MODELS = Literal[
+    "deepseek-r1",
+    "deepseek-r1:1.5b",
+    "gemma3:1b",
+    "gemma3:4b",
+    "qwen2.5-coder",
+    "mistral",
+    "llama3.1",
+    "llama3.2",
+    "codellama",
+    "llava"
+]
 
 OLLAMA_EMBED_MODELS = Literal[
     "nomic-embed-text",
