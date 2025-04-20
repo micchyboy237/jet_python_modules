@@ -378,7 +378,7 @@ def get_header_tokens_and_update_metadata(header_docs: list[Document], embed_mod
 
 class SearchRerankResult(TypedDict):
     url_html_tuples: List[Tuple[str, str]]
-    search_results: List[SearchResult]
+    search_results: List[Dict[str, Any]]
 
 
 async def search_and_filter_data(
@@ -388,35 +388,15 @@ async def search_and_filter_data(
 ) -> SearchRerankResult:
     # Search urls
     search_results = search_data(query)
-    urls = [normalize_url(item["url"])
-            for item in search_results]
+    urls = [normalize_url(item["url"]) for item in search_results]
 
     url_html_tuples = []
-    pbar = tqdm(total=top_search_n, desc="Scraping URLs")
+    async for url, html in scrape_multiple_urls(urls, top_n=top_search_n, num_parallel=3):
+        if html and validate_headers(html, min_count=min_header_count):
+            url_html_tuples.append((url, html))
+            if len(url_html_tuples) == top_search_n:
+                break
 
-    # Scrape URLs using scrape_multiple_urls
-    html_contents = await scrape_multiple_urls(urls)
-
-    for url, html in zip(urls, html_contents):
-        domain = urlparse(url).netloc
-        pbar.set_description(f"Domain: {domain}")
-        pbar.update(1)
-
-        if not html:
-            logger.warning(f"Skipping url: {url} due to empty content")
-            continue
-
-        if not validate_headers(html, min_count=min_header_count):
-            logger.warning(
-                f"Skipping url: {url} due to header count < {min_header_count}")
-            continue
-
-        url_html_tuples.append((url, html))
-
-        if len(url_html_tuples) == top_search_n:
-            break
-
-    pbar.close()
     return {
         "url_html_tuples": url_html_tuples,
         "search_results": search_results,
