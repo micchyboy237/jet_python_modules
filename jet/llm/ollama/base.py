@@ -488,7 +488,7 @@ class OllamaEmbedding(BaseOllamaEmbedding):
         description="Base url the model is hosted by Ollama",
     )
     model_name: OLLAMA_EMBED_MODELS = Field(
-        default="mxbai-embed-large",
+        default=OLLAMA_SMALL_EMBED_MODEL,
         description="The Ollama model to use.",
     )
     embed_batch_size: int = Field(
@@ -760,7 +760,7 @@ class VectorStoreIndex(BaseVectorStoreIndex):
         self,
         *args,
         # Accept model_name explicitly
-        model_name: OLLAMA_EMBED_MODELS = "mxbai-embed-large",
+        model_name: OLLAMA_EMBED_MODELS = OLLAMA_SMALL_EMBED_MODEL,
         embed_model: Optional[EmbedType] = None,
         **kwargs
     ):

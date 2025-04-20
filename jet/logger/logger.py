@@ -2,6 +2,7 @@ import os
 import logging
 import traceback
 import unidecode
+from datetime import datetime
 
 from typing import List, Callable, Optional, Any
 from jet.logger.config import COLORS, RESET, colorize_log
@@ -9,11 +10,13 @@ from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
 from jet.utils.text import fix_and_unidecode
 from jet.utils.inspect_utils import log_filtered_stack_trace
+from jet.utils.class_utils import is_class_instance
 
 
 class CustomLogger:
-    def __init__(self, log_file: Optional[str] = None, name: str = "default"):
+    def __init__(self, log_file: Optional[str] = None, name: str = "default", overwrite: bool = False):
         self.log_file = log_file
+        self.overwrite = overwrite
         self.logger = self._initialize_logger(name)
 
     def _initialize_logger(self, name: str) -> logging.Logger:
@@ -28,6 +31,8 @@ class CustomLogger:
 
         # File handler
         if self.log_file:
+            if self.overwrite and os.path.exists(self.log_file):
+                os.remove(self.log_file)
             file_handler = logging.FileHandler(self.log_file)
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(logging.Formatter("%(message)s"))
@@ -55,9 +60,12 @@ class CustomLogger:
                     ((len(messages) + len(colors) - 1) // len(colors))
 
             if len(messages) == 1:
-                parsed_message = parse_json(messages[0])
-                if isinstance(parsed_message, (dict, list)):
-                    messages[0] = format_json(parsed_message)
+                if is_class_instance(messages[0]):
+                    messages[0] = str(messages[0])
+                else:
+                    parsed_message = parse_json(messages[0])
+                    if isinstance(parsed_message, (dict, list)):
+                        messages[0] = format_json(parsed_message)
 
             # Decode unicode characters if any
             messages = [
@@ -81,10 +89,14 @@ class CustomLogger:
                 end = "" if flush else "\n"
             print(output, end=end)
 
-            # File handler
+            # File handler with metadata as readable text on one line, message on next
             if self.log_file:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                metadata = f"[{level.upper()}] {timestamp}"
+                message = " ".join(str(m) for m in messages)
                 with open(self.log_file, "a") as file:
-                    file.write(" ".join(messages) + end)
+                    file.write(metadata + "\n")
+                    file.write(message + end)
 
         return wrapper
 
@@ -145,7 +157,10 @@ class CustomLogger:
         print(prompt_log)
 
         if self.log_file:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            metadata = f"[PRETTY] {timestamp}"
             with open(self.log_file, "a") as file:
+                file.write(metadata + "\n")
                 file.write(format_json(prompt) + "\n")
 
     def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
@@ -238,5 +253,5 @@ if __name__ == "__main__":
 
     file_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(file_dir, "log.txt")
-    logger_with_file = CustomLogger(log_file=file_path)
+    logger_with_file = CustomLogger(log_file=file_path, overwrite=True)
     logger_examples(logger_with_file)

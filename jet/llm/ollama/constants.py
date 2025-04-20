@@ -37,8 +37,8 @@ DEFAULT_APP_URL = "https://cloud.llamaindex.ai"
 # Ollama constants
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_BASE_EMBED_URL = "http://localhost:11434"
-OLLAMA_SMALL_LLM_MODEL = "gemma3:1b"
-OLLAMA_LARGE_LLM_MODEL = "gemma3:4b"
+OLLAMA_LARGE_LLM_MODEL = "llama3.1"
+OLLAMA_SMALL_LLM_MODEL = "llama3.2"
 DEFAULT_OLLAMA_MODEL = OLLAMA_LARGE_LLM_MODEL
 
 OLLAMA_SMALL_EMBED_MODEL = "mxbai-embed-large"
