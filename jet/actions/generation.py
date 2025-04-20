@@ -99,11 +99,6 @@ def call_ollama_chat(
     tokenizer = get_ollama_tokenizer(model)
     set_global_tokenizer(tokenizer)
 
-    # logger.info("pre stop_event:", stop_event)
-    # logger.orange(stop_event and stop_event.is_set())
-    # if stop_event and stop_event.is_set():
-    #     stop_event.clear()
-
     if track:
         from aim import Run, Text
 
@@ -119,6 +114,24 @@ def call_ollama_chat(
         messages = [
             Message(content=prompt, role=MessageRole.USER)
         ]
+
+    # Merge multiple system messages into one, separated by two newlines
+    system_messages = [m['content']
+                       for m in messages if m['role'] == MessageRole.SYSTEM]
+    if system_messages:
+        merged_system = "\n\n".join(system_messages)
+        # Remove all system messages from the original list
+        messages = [m for m in messages if m['role'] != MessageRole.SYSTEM]
+        # Insert the merged system message at the beginning
+        messages.insert(0, Message(
+            content=merged_system, role=MessageRole.SYSTEM))
+
+    # Use the provided system parameter if available, overriding merged system messages
+    if system:
+        # Remove any existing system messages
+        messages = [m for m in messages if m['role'] != MessageRole.SYSTEM]
+        # Insert the provided system message at the beginning
+        messages.insert(0, Message(content=system, role=MessageRole.SYSTEM))
 
     # Updates latest user message with context if available
     if context:
@@ -149,11 +162,11 @@ def call_ollama_chat(
     model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
     prompt_tokens: int = token_counter(messages, model)
 
-    system = system or next(
+    # Get the system message for token counting (from the first message if it's a system message)
+    system_content = next(
         (m['content'] for m in messages if m['role'] == MessageRole.SYSTEM), None)
-    system_tokens: int = 0
-    if system:
-        system_tokens = token_counter(system, model)
+    system_tokens: int = token_counter(
+        system_content, model) if system_content else 0
 
     logger.newline()
     logger.orange("Calling Ollama chat...")
@@ -174,12 +187,6 @@ def call_ollama_chat(
 
     num_predict = options.get("num_predict", -1)
     num_ctx = model_max_length
-    # if max_prediction_ratio and (not num_predict or num_predict <= 0):
-    # calc_result = calculate_num_predict_ctx(messages, model, system=system)
-    # num_predict = calc_result["num_predict"]
-    # num_ctx = calc_result["num_ctx"]
-    # else:
-    # num_ctx = options.get("num_ctx", model_max_length)
     predict_tokens = num_ctx - (system_tokens + prompt_tokens)
     max_prompt_tokens = model_max_length - buffer
     derived_options = {
@@ -216,11 +223,6 @@ def call_ollama_chat(
 
     logger.debug("Generating response...")
 
-    if system and not any(m['role'] == MessageRole.SYSTEM for m in messages):
-        messages = [m for m in messages if m['role'] != MessageRole.SYSTEM]
-        messages.insert(0, Message(
-            content=system, role=MessageRole.SYSTEM))
-
     if tools:
         stream = False
         options["temperature"] = 0
@@ -233,11 +235,7 @@ def call_ollama_chat(
         "model": model,
         "messages": messages,
         "stream": stream,
-        # "template": template,
-        # "keep_alive": keep_alive,
-        # "raw": False,
         "tools": tools,
-        # "format": str(format) if format else None,
         "format": format,
         "options": options,
     }
@@ -259,17 +257,13 @@ def call_ollama_chat(
     # Define headers
     event = EventSettings.call_ollama_chat()
     pre_start_hook_start_time = EventSettings.event_data["pre_start_hook"]["start_time"]
-    # log_filename = f"{event['filename'].split(".")[0]}_{
-    #     pre_start_hook_start_time}"
     log_filename = event['filename'].split(".")[0]
     logger.log("Log-Filename:", log_filename, colors=["WHITE", "DEBUG"])
-    # Sanitize headers to remove invalid characters
     headers = {
-        # Include the token count here
         "Tokens": str(system_tokens + prompt_tokens),
         "Log-Filename": sanitize_header_value(log_filename),
         "Event-Start-Time": sanitize_header_value(pre_start_hook_start_time),
-        "System": sanitize_header_value(system),
+        "System": sanitize_header_value(system_content) if system_content else "",
         "Context": sanitize_header_value(context) if context else "",
         "Template": sanitize_header_value(template.template) if template else ""
     }
@@ -289,10 +283,7 @@ def call_ollama_chat(
 
             def line_generator():
                 for line in r.iter_lines():
-                    # logger.info("post stop_event:", stop_event)
-                    # logger.orange(stop_event and stop_event.is_set())
-
-                    if stop_event and stop_event.is_set():  # Check if stop event is triggered
+                    if stop_event and stop_event.is_set():
                         logger.newline()
                         logger.warning(
                             "post stop_event: Streaming stopped by user.")
@@ -341,13 +332,11 @@ def call_ollama_chat(
                                 logger.newline()
 
                                 # Get durations
-                                # Print all duration values from decoded_chunk
                                 durations = {
                                     k: v for k, v in response_info.items() if k.endswith('duration')}
                                 if durations:
                                     logger.info("Durations:")
                                     for key, value in durations.items():
-                                        # Convert nanoseconds to seconds/minutes/milliseconds
                                         seconds = value / 1e9
                                         if seconds >= 60:
                                             minutes = seconds / 60
@@ -364,8 +353,6 @@ def call_ollama_chat(
                                 logger.newline()
                                 logger.newline()
                                 logger.info("Final tokens info:")
-                                # logger.success(json.dumps(
-                                #     response_info, indent=2))
                                 response_prompt_tokens = response_info['prompt_eval_count']
                                 response_tokens = response_info['eval_count']
                                 total_tokens = system_tokens + response_prompt_tokens + response_tokens
@@ -381,12 +368,11 @@ def call_ollama_chat(
 
                                 # For Aim tracking
                                 if track:
-                                    # Log the prompt (messages) to Aim
                                     prompt = messages[-1]['content']
                                     response = "".join(response_chunks)
 
                                     value = {
-                                        "system": system,
+                                        "system": system_content,
                                         "prompt": prompt,
                                         "response": response,
                                     }
@@ -459,13 +445,11 @@ def call_ollama_chat(
             logger.newline()
 
             # Get durations
-            # Print all duration values from decoded_chunk
             durations = {
                 k: v for k, v in response_info.items() if k.endswith('duration')}
             if durations:
                 logger.info("Durations:")
                 for key, value in durations.items():
-                    # Convert nanoseconds to seconds/minutes/milliseconds
                     seconds = value / 1e9
                     if seconds >= 60:
                         minutes = seconds / 60
@@ -481,10 +465,9 @@ def call_ollama_chat(
 
             logger.newline()
             logger.info("Final tokens info:")
-            # logger.success(json.dumps(response_info, indent=2))
             response_prompt_tokens = response_info['prompt_eval_count']
             response_tokens = response_info['eval_count']
-            total_tokens = response_prompt_tokens + response_tokens
+            total_tokens = system_tokens + response_prompt_tokens + response_tokens
             logger.log("System tokens:", system_tokens,
                        colors=["DEBUG", "SUCCESS"])
             logger.log("Prompt tokens:", response_prompt_tokens,
@@ -509,10 +492,6 @@ def call_ollama_chat(
         logger.error(f"Error class name: {get_class_name(e)}")
         traceback.print_exc()
         return {"error": str(e)}
-
-    # finally:
-    #     if track:
-    #         run.close()
 
 
 def convert_tool_outputs_to_string(ollama_messages: list[Message]):
