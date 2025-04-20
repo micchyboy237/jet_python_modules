@@ -32,6 +32,7 @@ OLLAMA_MODEL_NAMES = Literal[
     "llama3.1",
     "llama3.2",
     "codellama",
+    "codegemma",
     "llava"
 ]
 
@@ -45,6 +46,7 @@ OLLAMA_LLM_MODELS = Literal[
     "llama3.1",
     "llama3.2",
     "codellama",
+    "codegemma",
     "llava"
 ]
 
@@ -84,6 +86,7 @@ OLLAMA_MODEL_CONTEXTS = {
     "mxbai-embed-large": 512,
     "llama3.1": 131072,
     "codellama": 16384,
+    "codegemma": 8192,
     "llava": 32768,
     "llama3.2": 131072
 }
@@ -109,6 +112,7 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "mxbai-embed-large": 1024,
     "llama3.1": 4096,
     "codellama": 4096,
+    "codegemma": 3072,
     "llava": 4096,
     "llama3.2": 3072
 }
@@ -123,6 +127,7 @@ OLLAMA_HF_MODELS = {
     "deepseek-r1:1.5b": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
     "gemma3:1b": "google/gemma-3-1b-it",
     "gemma3:4b": "google/gemma-3-4b-it",
+    "codegemma": "google/codegemma-7b",
     "codellama": "meta-llama/CodeLlama-7b-hf",
     "qwen2.5-coder": "Qwen/Qwen2.5-Coder-7B-Instruct",
     # Embed
@@ -150,6 +155,7 @@ OLLAMA_HF_MODEL_NAMES = Literal[
     "google/gemma-2-9b",
     "google/gemma-3-1b-it",
     "google/gemma-3-4b-it",
+    "google/codegemma-7b",
     "meta-llama/CodeLlama-7b-hf",
     "Qwen/Qwen2.5-Coder-7B-Instruct",
     # Embed
@@ -245,7 +251,8 @@ def build_ollama_model_contexts():
         context_length = [model_info[key] for key in list(
             model_info.keys()) if "context_length" in key][0]
 
-        ollama_models[model_name] = context_length
+        clean_model_name = model_name.removesuffix(":latest")
+        ollama_models[clean_model_name] = context_length
 
     return ollama_models
 
@@ -262,7 +269,8 @@ def build_ollama_model_embeddings():
         embedding_length = [model_info[key] for key in list(
             model_info.keys()) if "embedding_length" in key][0]
 
-        ollama_models[model_name] = embedding_length
+        clean_model_name = model_name.removesuffix(":latest")
+        ollama_models[clean_model_name] = embedding_length
 
     return ollama_models
 
