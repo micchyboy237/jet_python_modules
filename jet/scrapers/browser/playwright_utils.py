@@ -16,7 +16,7 @@ REDIS_CONFIG = RedisConfigParams(
 async def fetch_page_content(page, url: str) -> str:
     try:
         await page.goto(url)
-        await page.wait_for_load_state("load")
+        await page.wait_for_load_state("load", timeout=10000)  # 10 seconds
         content = await page.content()
         return content
     except Exception as e:

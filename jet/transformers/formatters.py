@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 from jet.transformers.object import make_serializable
 
 
@@ -34,7 +35,7 @@ def prettify_value(prompt, level=0):
     return prompt_log
 
 
-def format_json(value, indent=2):
+def format_json(value, indent: Optional[int] = 2):
     serialized = make_serializable(value)
     return json.dumps(serialized, indent=indent)
 
