@@ -115,23 +115,23 @@ def call_ollama_chat(
             Message(content=prompt, role=MessageRole.USER)
         ]
 
-    # Merge multiple system messages into one, separated by two newlines
-    system_messages = [m['content']
-                       for m in messages if m['role'] == MessageRole.SYSTEM]
-    if system_messages:
-        merged_system = "\n\n".join(system_messages)
-        # Remove all system messages from the original list
-        messages = [m for m in messages if m['role'] != MessageRole.SYSTEM]
-        # Insert the merged system message at the beginning
-        messages.insert(0, Message(
-            content=merged_system, role=MessageRole.SYSTEM))
-
     # Use the provided system parameter if available, overriding merged system messages
     if system:
         # Remove any existing system messages
         messages = [m for m in messages if m['role'] != MessageRole.SYSTEM]
         # Insert the provided system message at the beginning
         messages.insert(0, Message(content=system, role=MessageRole.SYSTEM))
+
+    # Merge multiple system messages into one, separated by two newlines
+    system_messages = [m['content']
+                       for m in messages if m['role'] == MessageRole.SYSTEM]
+    if system_messages and len(system_messages) > 1:
+        merged_system = "\n\n".join(system_messages)
+        # Remove all system messages from the original list
+        messages = [m for m in messages if m['role'] != MessageRole.SYSTEM]
+        # Insert the merged system message at the beginning
+        messages.insert(0, Message(
+            content=merged_system, role=MessageRole.SYSTEM))
 
     # Updates latest user message with context if available
     if context:

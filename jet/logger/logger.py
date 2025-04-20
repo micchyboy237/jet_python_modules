@@ -18,6 +18,7 @@ class CustomLogger:
         self.log_file = log_file
         self.overwrite = overwrite
         self.logger = self._initialize_logger(name)
+        self._last_message_flushed = False  # Track if the last message was flushed
 
     def _initialize_logger(self, name: str) -> logging.Logger:
         logger = logging.getLogger(name)
@@ -89,14 +90,24 @@ class CustomLogger:
                 end = "" if flush else "\n"
             print(output, end=end)
 
-            # File handler with metadata as readable text on one line, message on next
+            # File handler logic
             if self.log_file:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 metadata = f"[{level.upper()}] {timestamp}"
                 message = " ".join(str(m) for m in messages)
+
                 with open(self.log_file, "a") as file:
-                    file.write(metadata + "\n")
+                    # Write metadata only if:
+                    # - This is not a flush message, or
+                    # - The last message was not flushed
+                    if not flush and self._last_message_flushed:
+                        file.write("\n")
+                    if not flush or (flush and not self._last_message_flushed):
+                        file.write(metadata + "\n")
                     file.write(message + end)
+
+                # Update flush state
+                self._last_message_flushed = flush
 
         return wrapper
 
@@ -106,6 +117,7 @@ class CustomLogger:
         if self.log_file:
             with open(self.log_file, "a") as file:
                 file.write("\n")
+        self._last_message_flushed = False  # Reset flush state on newline
 
     def pretty(self, prompt, level=0):
         MAX_STRING_LENGTH = 100  # Maximum allowed string length
@@ -162,6 +174,7 @@ class CustomLogger:
             with open(self.log_file, "a") as file:
                 file.write(metadata + "\n")
                 file.write(format_json(prompt) + "\n")
+        self._last_message_flushed = False  # Reset flush state after pretty
 
     def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
         if name.upper() in COLORS:
