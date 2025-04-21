@@ -48,6 +48,7 @@ from pydantic.fields import Field
 from pydantic.main import BaseModel
 from transformers.tokenization_utils_base import EncodedInput, PreTokenizedInput, TextInput
 from ollama import Message as OllamaMessage, ChatResponse as OllamaChatResponse
+from jet.llm.tools.types import BaseTool
 
 NON_DETERMINISTIC_LLM_SETTINGS = {
     # "seed": random.randint(0, 1000),
@@ -377,7 +378,7 @@ class Ollama(BaseOllama):
                             }
                         }
 
-            return ChatResponse(
+            chat_response = ChatResponse(
                 message=ChatMessage(
                     role=role,
                     content=content,
@@ -385,6 +386,7 @@ class Ollama(BaseOllama):
                 ),
                 raw=final_response,
             )
+            return chat_response
 
         return wrap_retry(run)
 

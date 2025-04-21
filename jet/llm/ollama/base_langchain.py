@@ -1,6 +1,7 @@
-from typing import Iterator, Mapping, Optional, Dict, Any, Union, cast
+from typing import Iterator, Mapping, Optional, Dict, Any, Union, cast, override
 from jet.actions.generation import call_ollama_chat
 from jet.transformers.object import make_serializable
+from jet.utils.class_utils import get_non_empty_attributes
 from langchain_ollama import ChatOllama as BaseChatOllama, OllamaEmbeddings as BaseOllamaEmbeddings
 from jet.logger import logger
 from langchain_core.language_models import LanguageModelInput
@@ -95,15 +96,16 @@ class ChatOllama(BaseChatOllama):
         **kwargs: Any,
     ) -> Iterator[Union[Mapping[str, Any], str]]:
         chat_params = self._chat_params(messages, stop, **kwargs)
-        chat_messages: list[OllamaMessage] = chat_params["messages"]
-        messages: list[Message] = make_serializable(chat_messages)
+        chat_params = make_serializable(chat_params)
+        chat_params["options"] = get_non_empty_attributes(
+            chat_params["options"])
 
         def run():
             if chat_params["stream"]:
                 logger.newline()
                 logger.info("With stream response:")
                 response = ""
-                for chunk in call_ollama_chat(messages, self.model):
+                for chunk in call_ollama_chat(**chat_params):
                     response += chunk
                 yield ChatResponse(
                     message=OllamaMessage(
@@ -114,7 +116,7 @@ class ChatOllama(BaseChatOllama):
             else:
                 logger.newline()
                 logger.info("No stream response:")
-                response = call_ollama_chat(messages, self.model, stream=False)
+                response = call_ollama_chat(**chat_params)
                 yield ChatResponse(
                     message=OllamaMessage(
                         content=response["message"],
@@ -124,30 +126,51 @@ class ChatOllama(BaseChatOllama):
 
         yield from wrap_retry(run)
 
-    # def invoke(
-    #     self,
-    #     input: LanguageModelInput,
-    #     config: Optional[RunnableConfig] = None,
-    #     *,
-    #     stop: Optional[list[str]] = None,
-    #     **kwargs: Any,
-    # ) -> BaseMessage:
-    #     config = ensure_config(config)
-    #     result = cast(
-    #         ChatGeneration,
-    #         self.generate_prompt(
-    #             [self._convert_input(input)],
-    #             stop=stop,
-    #             callbacks=config.get("callbacks"),
-    #             tags=config.get("tags"),
-    #             metadata=config.get("metadata"),
-    #             run_name=config.get("run_name"),
-    #             run_id=config.pop("run_id", None),
-    #             **kwargs,
-    #         ).generations[0][0],
-    #     ).message
+    @override
+    def invoke(
+        self,
+        input: LanguageModelInput,
+        config: Optional[RunnableConfig] = None,
+        *,
+        stop: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> BaseMessage:
+        config = ensure_config(config)
+        return cast(
+            "ChatGeneration",
+            self.generate_prompt(
+                [self._convert_input(input)],
+                stop=stop,
+                callbacks=config.get("callbacks"),
+                tags=config.get("tags"),
+                metadata=config.get("metadata"),
+                run_name=config.get("run_name"),
+                run_id=config.pop("run_id", None),
+                **kwargs,
+            ).generations[0][0],
+        ).message
 
-    #     return result
+    @override
+    async def ainvoke(
+        self,
+        input: LanguageModelInput,
+        config: Optional[RunnableConfig] = None,
+        *,
+        stop: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> BaseMessage:
+        config = ensure_config(config)
+        llm_result = await self.agenerate_prompt(
+            [self._convert_input(input)],
+            stop=stop,
+            callbacks=config.get("callbacks"),
+            tags=config.get("tags"),
+            metadata=config.get("metadata"),
+            run_name=config.get("run_name"),
+            run_id=config.pop("run_id", None),
+            **kwargs,
+        )
+        return cast("ChatGeneration", llm_result.generations[0][0]).message
 
 
 Ollama = ChatOllama
