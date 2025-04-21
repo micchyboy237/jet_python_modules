@@ -397,6 +397,7 @@ async def search_and_filter_data(
             logger.orange(
                 f"Scraped urls count: {len(url_html_tuples)} / {top_search_n}")
             if len(url_html_tuples) == top_search_n:
+                logger.success(f"Done scraping urls for query: {query}")
                 break
 
     return {
@@ -500,6 +501,7 @@ def compare_html_query_scores(
     url_html_tuples: List[Tuple[str, str]],
     embed_models: List[OLLAMA_EMBED_MODELS],
 ) -> ComparisonResults:
+    logger.info("Comparing html query scores...")
     top_urls = [item[0] for item in url_html_tuples]
     html_list = [item[1] for item in url_html_tuples]
     header_docs_matrix: List[List[Document]] = [
