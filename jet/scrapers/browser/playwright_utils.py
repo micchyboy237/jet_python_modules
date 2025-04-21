@@ -109,67 +109,83 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
                     "--mute-audio"
                 ]
             )
-            context = await browser.new_context(
-                user_agent=UserAgent().chrome,
-                color_scheme='dark',
-            )
-
-            async def process_url(index: int, url: str):
-                page = await context.new_page()
-                try:
-                    result = await fetch_page_content(page, url)
-                    return (index, url, result[2])
-                finally:
-                    await page.close()
-
-            # Start initial tasks up to num_parallel
-            while url_queue and len(active_tasks) < num_parallel:
-                index, url = url_queue.pop(0)
-                in_progress_urls.add(url)
-                task = asyncio.create_task(process_url(index, url))
-                active_tasks.append((task, index, url))
-
-            # Process tasks and add new ones dynamically
-            while active_tasks and results_count < top_n:
-                done, _ = await asyncio.wait(
-                    [task for task, _, _ in active_tasks],
-                    return_when=asyncio.FIRST_COMPLETED
+            try:
+                context = await browser.new_context(
+                    user_agent=UserAgent().chrome,
+                    color_scheme='dark',
                 )
-                for completed_task in done:
-                    index, url, html_content = completed_task.result()
-                    in_progress_urls.discard(url)
-                    active_tasks = [(t, i, u) for t, i,
-                                    u in active_tasks if t != completed_task]
 
-                    if html_content and validate_headers(html_content, min_count=5):
-                        cache_key = f"html:{url}"
-                        cache.set(
-                            cache_key, {'content': html_content}, ttl=3600)
-                        html_results[index] = html_content
-                        results_count += 1
-                        yield url, html_content
-                    else:
-                        # Handle failed scrape
-                        if retries[url] < max_retries:
-                            retries[url] += 1
-                            logger.info(
-                                f"Retrying {url} (attempt {retries[url]}/{max_retries})")
-                            url_queue.append((index, url))  # Requeue for retry
-                        else:
+                async def process_url(index: int, url: str):
+                    page = await context.new_page()
+                    try:
+                        result = await fetch_page_content(page, url)
+                        return (index, url, result[2])
+                    finally:
+                        await page.close()
+
+                # Start initial tasks up to num_parallel
+                while url_queue and len(active_tasks) < num_parallel and results_count < top_n:
+                    index, url = url_queue.pop(0)
+                    in_progress_urls.add(url)
+                    task = asyncio.create_task(process_url(index, url))
+                    active_tasks.append((task, index, url))
+
+                # Process tasks and add new ones dynamically
+                while active_tasks and results_count < top_n:
+                    done, _ = await asyncio.wait(
+                        [task for task, _, _ in active_tasks],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for completed_task in done:
+                        try:
+                            index, url, html_content = completed_task.result()
+                        except Exception as e:
                             logger.error(
-                                f"Max retries reached for {url}, skipping")
+                                f"Task for {url} failed with error: {e}")
+                            index, url = next(
+                                (i, u) for t, i, u in active_tasks if t == completed_task)
+                            html_content = ""
 
-                    # Add a new task if there are more URLs and we're below num_parallel
-                    while url_queue and len(active_tasks) < num_parallel and results_count < top_n:
-                        new_index, new_url = url_queue.pop(0)
-                        in_progress_urls.add  # Ensure we don't re-add a URL that's already in progress
-                        if new_url not in in_progress_urls:
-                            in_progress_urls.add(new_url)
-                            new_task = asyncio.create_task(
-                                process_url(new_index, new_url))
-                            active_tasks.append((new_task, new_index, new_url))
+                        in_progress_urls.discard(url)
+                        active_tasks = [
+                            (t, i, u) for t, i, u in active_tasks if t != completed_task]
 
-            await browser.close()
+                        if html_content and validate_headers(html_content, min_count=5):
+                            logger.success(f"Valid content scraped for {url}")
+                            cache_key = f"html:{url}"
+                            cache.set(
+                                cache_key, {'content': html_content}, ttl=3600)
+                            html_results[index] = html_content
+                            results_count += 1
+                            yield url, html_content
+                        else:
+                            logger.warning(
+                                f"Invalid or empty content for {url}")
+                            if retries[url] < max_retries:
+                                retries[url] += 1
+                                logger.info(
+                                    f"Retrying {url} (attempt {retries[url]}/{max_retries})")
+                                # Requeue for retry
+                                url_queue.append((index, url))
+                            else:
+                                logger.error(
+                                    f"Max retries reached for {url}, skipping")
+
+                        # Add new tasks if possible
+                        while url_queue and len(active_tasks) < num_parallel and results_count < top_n:
+                            new_index, new_url = url_queue.pop(0)
+                            if new_url not in in_progress_urls:
+                                in_progress_urls.add(new_url)
+                                new_task = asyncio.create_task(
+                                    process_url(new_index, new_url))
+                                active_tasks.append(
+                                    (new_task, new_index, new_url))
+
+            finally:
+                await browser.close()
+
+    logger.info(f"Scraping completed with {results_count} valid results")
+
 if __name__ == "__main__":
     import sys
 
