@@ -36,6 +36,7 @@ grequests==0.7.0
 guidance==0.1.16
 gunicorn==22.0.0
 gymnasium==1.0.0
+hdbscan==0.8.40
 hrequests==0.9.2
 html2text==2024.2.26
 httptools==0.6.4
@@ -44,7 +45,7 @@ isoduration==20.11.0
 jupyter==1.1.1
 langchain-chroma==0.2.2
 langchain-huggingface==0.1.2
--e git+ssh://git@github.com/langchain-ai/langchain-postgres.git@be2fc470744d49b619b231fd73eb164ddd83517f#egg=langchain_postgres
+-e git+ssh://git@github.com/langchain-ai/langchain-postgres.git@1f1f03fd7488a72059c113b160f02d9a68a72b15#egg=langchain_postgres
 langchain-text-splitters==0.3.2
 lark==1.2.2
 llama-parse==0.6.1
@@ -65,6 +66,7 @@ pdfminer.six==20240706
 peewee-migrate==1.13.0
 pip-autoremove==0.10.0
 pipdeptree==2.25.0
+plotly==6.0.1
 psycopg2-binary==2.9.10
 pycountry==24.6.1
 PyGetWindow==0.0.9
