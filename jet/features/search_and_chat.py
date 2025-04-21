@@ -394,6 +394,8 @@ async def search_and_filter_data(
     async for url, html in scrape_multiple_urls(urls, top_n=top_search_n, num_parallel=3):
         if html and validate_headers(html, min_count=min_header_count):
             url_html_tuples.append((url, html))
+            logger.orange(
+                f"Scraped urls count: {len(url_html_tuples)} / {top_search_n}")
             if len(url_html_tuples) == top_search_n:
                 break
 

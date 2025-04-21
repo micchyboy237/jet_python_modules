@@ -157,6 +157,8 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
                                 cache_key, {'content': html_content}, ttl=3600)
                             html_results[index] = html_content
                             results_count += 1
+                            logger.info(
+                                f"Results count: {results_count} / {top_n}")
                             yield url, html_content
                         else:
                             logger.warning(
