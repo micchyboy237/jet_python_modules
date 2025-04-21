@@ -504,7 +504,9 @@ class Ollama(BaseOllama):
         if history_messages:
             history_messages = _convert_to_ollama_messages(history_messages)
 
-        user_input = f"{context}\n\n{query}" if context else query
+        # user_input = f"{context}\n\n{query}" if context else query
+        # new_user_msg = {"role": "user", "content": user_input}
+        user_input = query
         new_user_msg = {"role": "user", "content": user_input}
 
         messages = history_messages + [new_user_msg]
@@ -517,6 +519,7 @@ class Ollama(BaseOllama):
             **kwargs,
             "model": model,
             "messages": messages,
+            "context": context,
             "stream": True,
             "format": format,
             "tools": tools,
