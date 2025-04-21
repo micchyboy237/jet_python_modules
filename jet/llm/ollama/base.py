@@ -1,3 +1,9 @@
+from langchain_core.messages import BaseMessage
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
+from jet.llm.llm_types import MessageRole
+from langchain_postgres import PostgresChatMessageHistory
+import psycopg
+import uuid
 from jet.data.utils import generate_unique_hash
 from jet.llm.utils.embeddings import get_embedding_function
 from jet.token.token_utils import get_model_max_tokens, tokenize
@@ -258,12 +264,36 @@ def create_embed_model(
     return embed_model
 
 
+DEFAULT_DB = "chat_history_db1"
+DEFAULT_USER = "jethroestrada"
+DEFAULT_PASSWORD = ""
+DEFAULT_HOST = "localhost"
+DEFAULT_PORT = 5432
+
+DEFAULT_TABLE_NAME = "chat_history"
+
+# Initialize database connection
+sync_connection = psycopg.connect(
+    dbname=DEFAULT_DB,
+    user=DEFAULT_USER,
+    password=DEFAULT_PASSWORD,
+    host=DEFAULT_HOST,
+    port=DEFAULT_PORT
+)
+
+# Create table if it doesn't exist
+PostgresChatMessageHistory.create_tables(
+    sync_connection, DEFAULT_TABLE_NAME)
+
+
 class Ollama(BaseOllama):
     model: OLLAMA_MODEL_NAMES = "llama3.1"
     max_tokens: Optional[Union[int, float]] = None
     max_prediction_ratio: Optional[float] = None
+    session_id: str
+    chat_history: PostgresChatMessageHistory
 
-    def __init__(self, model: str, **kwargs) -> None:
+    def __init__(self, model: str, session_id: Optional[str] = None, **kwargs) -> None:
         context_window = kwargs.get("context_window")
         temperature = kwargs.get("temperature", 0.3)
         max_model_tokens = get_model_max_tokens(model)
@@ -274,14 +304,22 @@ class Ollama(BaseOllama):
             "context_window": context_window,
             "temperature": temperature,
         }
-        super().__init__(model=model, **kwargs)
+
+        if not session_id:
+            session_id = generate_unique_hash()
+        chat_history = PostgresChatMessageHistory(
+            DEFAULT_TABLE_NAME,
+            session_id,
+            sync_connection=sync_connection
+        )
+        super().__init__(model=model, session_id=session_id,
+                         chat_history=chat_history, **kwargs)
 
     def encode(self, texts: Union[str, Sequence[str]] = '') -> list[int] | list[list[int]]:
         """Calls get_general_text_embedding to get the embeddings."""
         tokens = tokenize(self.model, texts)
         return tokens
 
-    # @llm_chat_callback()
     def chat(self, messages: str | Sequence[ChatMessage] | PromptTemplate, **kwargs: Any) -> ChatResponse:
         from jet.actions.generation import call_ollama_chat
         from jet.token.token_utils import token_counter, get_ollama_tokenizer
@@ -293,20 +331,45 @@ class Ollama(BaseOllama):
         tools = kwargs.get("tools", None)
         format = kwargs.get("format", "json" if self.json_mode else None)
         options = kwargs.get("options", {})
-        stream = not tools and kwargs.get("stream", False)
+        stream = kwargs.get("stream", not tools)
         template_vars = kwargs.get("template_vars", {})
+        system = kwargs.get("system", None)
+
+        # Get existing messages from history
+        history_messages = self.chat_history.get_messages()
+
+        if history_messages:
+            history_messages = _convert_to_ollama_messages(history_messages)
 
         ollama_messages = messages
-        if isinstance(messages, list) and isinstance(messages[0], ChatMessage):
-            ollama_messages = _convert_to_ollama_messages(
-                messages) if not isinstance(messages, str) else messages
+        if isinstance(messages, list) and isinstance(messages[0], (ChatMessage, BaseMessage)):
+            ollama_messages = _convert_to_ollama_messages(messages)
         elif isinstance(messages, PromptTemplate):
             ollama_messages = messages.format(**template_vars)
 
+        # Combine history with new messages
+        if isinstance(ollama_messages, list):
+            combined_messages = history_messages + ollama_messages
+        else:
+            combined_messages = history_messages + \
+                [{"role": "user", "content": ollama_messages}]
+
+        system_messages = [system] if system else []
+
+        if isinstance(messages, list):
+            system_messages = system_messages + [
+                m['content'] for m in combined_messages if m['role'] == MessageRole.SYSTEM]
+
+            system = "\n\n".join(system_messages)
+            # Remove all system messages from the original list
+            combined_messages = [
+                m for m in combined_messages if m['role'] != MessageRole.SYSTEM]
+
         settings = {
             **kwargs,
+            "system": system,
             "model": self.model,
-            "messages": ollama_messages,
+            "messages": combined_messages,
             "stream": stream,
             "format": format,
             "tools": tools,
@@ -333,7 +396,8 @@ class Ollama(BaseOllama):
                 if final_response_tool_calls:
                     final_response_content += f"\n{final_response_tool_calls}".strip()
 
-                prompt_token_count = token_counter(ollama_messages, self.model)
+                prompt_token_count = token_counter(
+                    combined_messages, self.model)
                 response_token_count = token_counter(
                     final_response_content, self.model)
 
@@ -346,24 +410,42 @@ class Ollama(BaseOllama):
                     }
                 }
 
+                # Save messages to history
+                user_message = ollama_messages if isinstance(
+                    ollama_messages, str) else ollama_messages[-1]['content']
+
+                if system:
+                    chat_messages = self.chat_history.get_messages()
+                    has_system_message = any(isinstance(
+                        message, SystemMessage) for message in chat_messages)
+                    if not has_system_message:
+                        # Insert system message at the beginning of history
+                        self.chat_history.clear()  # Clear existing messages
+                        self.chat_history.add_messages([
+                            SystemMessage(content=system),
+                        ] + chat_messages)
+
+                self.chat_history.add_messages([
+                    HumanMessage(content=user_message),
+                    AIMessage(content=content),
+                ])
+
             else:
                 content = ""
                 role = ""
                 tool_calls = []
 
                 if isinstance(response, dict) and "error" in response:
-                    raise ValueError(
-                        f"Ollama API error:\n{response['error']}")
+                    raise ValueError(f"Ollama API error:\n{response['error']}")
 
                 for chunk in response:
-
                     content += chunk["message"]["content"]
                     if not role:
                         role = chunk["message"]["role"]
                     if chunk["done"]:
-                        prompt_token_count: int = token_counter(
-                            ollama_messages, self.model)
-                        response_token_count: int = token_counter(
+                        prompt_token_count = token_counter(
+                            combined_messages, self.model)
+                        response_token_count = token_counter(
                             content, self.model)
 
                         updated_chunk = chunk.copy()
@@ -378,6 +460,19 @@ class Ollama(BaseOllama):
                             }
                         }
 
+                        # Save messages to history
+                        user_message = ollama_messages if isinstance(
+                            ollama_messages, str) else ollama_messages[-1]['content']
+
+                        if system:
+                            self.chat_history.add_messages([
+                                SystemMessage(content=system),
+                            ])
+                        self.chat_history.add_messages([
+                            HumanMessage(content=user_message),
+                            AIMessage(content=content),
+                        ])
+
             chat_response = ChatResponse(
                 message=ChatMessage(
                     role=role,
@@ -391,43 +486,38 @@ class Ollama(BaseOllama):
         return wrap_retry(run)
 
     async def stream_chat(self, query: str, context: str = "", model: str = None, **kwargs: Any) -> AsyncGenerator[str, None]:
-        """
-        Stream chat responses from Ollama as chunks.
-
-        Args:
-            query: The user query string.
-            context: Optional context string to prepend to the query.
-            model: The model to use (defaults to self.model).
-            **kwargs: Additional arguments like tools, format, options.
-
-        Yields:
-            str: Each chunk of the response content.
-        """
         from jet.actions.generation import call_ollama_chat
-        from jet.token.token_utils import get_ollama_tokenizer
+        from jet.token.token_utils import token_counter, get_ollama_tokenizer
 
-        # Initialize and set tokenizer
+        # Initialize tokenizer
         tokenizer = get_ollama_tokenizer(self.model)
         set_global_tokenizer(tokenizer)
 
-        # Use provided model or fallback to instance model
         model = model or self.model
-
-        # Prepare messages
-        messages = [
-            {"role": "user", "content": f"{context}\n\n{query}" if context else query}
-        ]
-
-        # Handle kwargs
         tools = kwargs.get("tools", None)
         format = kwargs.get("format", "json" if self.json_mode else None)
         options = kwargs.get("options", {})
+        system = kwargs.get("system", None)
+
+        # Get and convert history messages
+        history_messages = self.chat_history.get_messages()
+        if history_messages:
+            history_messages = _convert_to_ollama_messages(history_messages)
+
+        user_input = f"{context}\n\n{query}" if context else query
+        new_user_msg = {"role": "user", "content": user_input}
+
+        messages = history_messages + [new_user_msg]
+
+        if system:
+            system_msg = {"role": "system", "content": system}
+            messages.insert(0, system_msg)
 
         settings = {
             **kwargs,
             "model": model,
             "messages": messages,
-            "stream": True,  # Force streaming
+            "stream": True,
             "format": format,
             "tools": tools,
             "keep_alive": self.keep_alive,
@@ -443,16 +533,39 @@ class Ollama(BaseOllama):
         if isinstance(response, dict) and "error" in response:
             raise ValueError(f"Ollama API error:\n{response['error']}")
 
-        for chunk in response:
-            content = chunk["message"]["content"]
-            if content:  # Only yield non-empty content
-                yield content
+        content = ""
+        role = ""
+        tool_calls = []
 
-    # @llm_chat_callback()
+        for chunk in response:
+            chunk_content = chunk["message"]["content"]
+            content += chunk_content
+            yield chunk_content
+
+            if not role:
+                role = chunk["message"]["role"]
+
+            if chunk["done"]:
+                # Save history
+                if system:
+                    chat_messages = self.chat_history.get_messages()
+                    has_system_message = any(isinstance(
+                        message, SystemMessage) for message in chat_messages)
+                    if not has_system_message:
+                        # Insert system message at the beginning of history
+                        self.chat_history.clear()  # Clear existing messages
+                        self.chat_history.add_messages([
+                            SystemMessage(content=system),
+                        ] + chat_messages)
+
+                self.chat_history.add_messages([
+                    HumanMessage(content=user_input),
+                    AIMessage(content=content),
+                ])
+
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         return self.chat(messages, **kwargs)
 
-    @dispatcher.span
     def structured_predict(
         self,
         output_cls: Type[BaseModel],
@@ -461,6 +574,9 @@ class Ollama(BaseOllama):
         llm_kwargs: dict[str, Any] = {},
         **prompt_args: Any,
     ) -> BaseModel:
+        # Get existing messages from history
+        history_messages = self.chat_history.get_messages()
+
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
             llm_kwargs["format"] = output_cls.model_json_schema()
 
@@ -470,18 +586,21 @@ class Ollama(BaseOllama):
             }
 
             messages = prompt.format_messages(**prompt_args)
-            response = self.chat(messages, **llm_kwargs)
+            # Combine with history
+            combined_messages = history_messages + messages
+            response = self.chat(combined_messages, **llm_kwargs)
 
             extracted_result = extract_json_block_content(
                 response.message.content or "")
             validation_result = validate_json(
                 extracted_result, output_cls.model_json_schema())
 
+            # Save messages to history
+            self.chat_history.add_messages(messages + [response.message])
+
             return output_cls.model_validate_json(json.dumps(validation_result["data"]))
         else:
-            return super().structured_predict(
-                output_cls, prompt, llm_kwargs, **prompt_args
-            )
+            return super().structured_predict(output_cls, prompt, llm_kwargs, **prompt_args)
 
 
 class OllamaEmbedding(BaseOllamaEmbedding):
@@ -542,31 +661,54 @@ class OllamaEmbedding(BaseOllamaEmbedding):
         return wrap_retry(run)
 
 
-def _convert_to_ollama_messages(messages: Sequence[ChatMessage]) -> Dict:
+def _convert_to_ollama_messages(messages: Sequence[ChatMessage] | list[BaseMessage]) -> Dict:
     ollama_messages = []
     for message in messages:
-        cur_ollama_message = {
-            "role": message.role.value,
-            "content": "",
-        }
-        for block in message.blocks:
-            if isinstance(block, TextBlock):
-                cur_ollama_message["content"] += block.text
-            elif isinstance(block, ImageBlock):
-                if "images" not in cur_ollama_message:
-                    cur_ollama_message["images"] = []
-                cur_ollama_message["images"].append(
-                    block.resolve_image(as_base64=True).read().decode("utf-8")
-                )
-            else:
-                raise ValueError(f"Unsupported block type: {type(block)}")
+        if isinstance(message, BaseMessage):
+            content = message.content
+            if isinstance(message, SystemMessage):
+                role = MessageRole.SYSTEM
+            elif isinstance(message, HumanMessage):
+                role = MessageRole.USER
+            elif isinstance(message, AIMessage):
+                role = MessageRole.ASSISTANT
 
-        if "tool_calls" in message.additional_kwargs:
-            cur_ollama_message["tool_calls"] = message.additional_kwargs[
-                "tool_calls"
-            ]
+            cur_ollama_message = {
+                "role": role,
+                "content": content,
+            }
 
-        ollama_messages.append(cur_ollama_message)
+            if "tool_calls" in message.additional_kwargs:
+                cur_ollama_message["tool_calls"] = message.additional_kwargs[
+                    "tool_calls"
+                ]
+
+            ollama_messages.append(cur_ollama_message)
+
+        else:
+            cur_ollama_message = {
+                "role": message.role.value,
+                "content": "",
+            }
+            for block in message.blocks:
+                if isinstance(block, TextBlock):
+                    cur_ollama_message["content"] += block.text
+                elif isinstance(block, ImageBlock):
+                    if "images" not in cur_ollama_message:
+                        cur_ollama_message["images"] = []
+                    cur_ollama_message["images"].append(
+                        block.resolve_image(
+                            as_base64=True).read().decode("utf-8")
+                    )
+                else:
+                    raise ValueError(f"Unsupported block type: {type(block)}")
+
+            if "tool_calls" in message.additional_kwargs:
+                cur_ollama_message["tool_calls"] = message.additional_kwargs[
+                    "tool_calls"
+                ]
+
+            ollama_messages.append(cur_ollama_message)
 
     return ollama_messages
 

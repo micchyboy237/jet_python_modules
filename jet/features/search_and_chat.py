@@ -381,9 +381,10 @@ class SearchRerankResult(TypedDict):
     search_results: List[SearchResult]
 
 
-async def search_and_filter_data(
+def search_and_filter_data(
     query: str,
     top_search_n: int = 3,
+    num_parallel: int = 3,
     min_header_count: int = 5,
 ) -> SearchRerankResult:
     logger.info(f"Starting search_and_filter_data for query: {query}")
@@ -398,7 +399,7 @@ async def search_and_filter_data(
         logger.debug(f"Normalized {len(urls)} URLs")
 
         url_html_tuples = []
-        async for url, html in scrape_multiple_urls(urls, top_n=top_search_n, num_parallel=3):
+        for url, html in scrape_multiple_urls(urls, top_n=top_search_n, num_parallel=num_parallel, min_header_count=min_header_count):
             if html and validate_headers(html, min_header_count):
                 url_html_tuples.append((url, html))
                 logger.orange(

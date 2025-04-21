@@ -2,6 +2,8 @@ import ast
 import re
 from pathlib import Path
 
+from jet.logger import logger
+
 
 def strip_comments(content):
     """
@@ -77,6 +79,11 @@ def remove_comments(source):
             # Write the modified content back to the file
             with open(source, 'w', encoding='utf-8') as file:
                 file.write(modified_content)
+            logger.log(
+                "Removed comments from:",
+                source,
+                colors=["SUCCESS", "BRIGHT_SUCCESS"]
+            )
 
             return
 

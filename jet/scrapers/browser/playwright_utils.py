@@ -333,12 +333,20 @@ def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3,
                 batch = url_queue[:num_parallel]
                 url_queue = url_queue[num_parallel:]
 
-                futures = [executor.submit(process_url, index, url)
-                           for index, url in batch]
+                # Create futures and keep track of index and url
+                futures = []
+                future_to_url_index = {}
+                for index, url in batch:
+                    future = executor.submit(process_url, index, url)
+                    futures.append(future)
+                    future_to_url_index[future] = (index, url)
 
                 for future in futures:
+                    # Get index and url for this future
+                    index, url = future_to_url_index[future]
                     try:
-                        index, url, html_content = future.result()
+                        # Unpack result, but we already have index and url
+                        _, _, html_content = future.result()
                     except Exception as e:
                         logger.error(
                             f"Thread for {url} failed with error: {e}")
@@ -362,6 +370,7 @@ def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3,
                                 retries[url] += 1
                                 logger.info(
                                     f"Retrying {url} (attempt {retries[url]}/{max_retries})")
+                                # Now index is guaranteed to be available
                                 url_queue.append((index, url))
                             else:
                                 logger.error(
