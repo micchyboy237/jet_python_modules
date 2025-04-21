@@ -15,9 +15,11 @@ REDIS_CONFIG = RedisConfigParams(
 
 async def fetch_page_content(page, url: str) -> Tuple[int, str, str]:
     try:
+        logger.debug(f"Scraping url: {url}")
         await page.goto(url)
         await page.wait_for_load_state("load", timeout=10000)  # 10 seconds
         content = await page.content()
+        logger.success(f"Done scraping url: {url}")
         return (0, url, content)
     except Exception as e:
         logger.warning(f"Failed to load {url}: {e}")
@@ -59,11 +61,12 @@ async def scrape_with_playwright(urls: List[str]) -> List[str]:
         return html_results
 
 
-async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3) -> AsyncGenerator[Tuple[str, Any], None]:
+async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3, max_retries: int = 1) -> AsyncGenerator[Tuple[str, Any], None]:
     cache = RedisCache(config=REDIS_CONFIG)
     html_results = [None] * len(urls)
     uncached_urls = []
     uncached_indices = []
+    retries = {url: 0 for url in urls}  # Track retries per URL
 
     # Check cache for each URL
     for i, url in enumerate(urls):
@@ -125,7 +128,6 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
                 in_progress_urls.add(url)
                 task = asyncio.create_task(process_url(index, url))
                 active_tasks.append((task, index, url))
-                # yield "in_progress", list(in_progress_urls)
 
             # Process tasks and add new ones dynamically
             while active_tasks and results_count < top_n:
@@ -146,20 +148,28 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
                         html_results[index] = html_content
                         results_count += 1
                         yield url, html_content
-                        if results_count >= top_n:
-                            break
+                    else:
+                        # Handle failed scrape
+                        if retries[url] < max_retries:
+                            retries[url] += 1
+                            logger.info(
+                                f"Retrying {url} (attempt {retries[url]}/{max_retries})")
+                            url_queue.append((index, url))  # Requeue for retry
+                        else:
+                            logger.error(
+                                f"Max retries reached for {url}, skipping")
 
                     # Add a new task if there are more URLs and we're below num_parallel
-                    if url_queue and len(active_tasks) < num_parallel and results_count < top_n:
+                    while url_queue and len(active_tasks) < num_parallel and results_count < top_n:
                         new_index, new_url = url_queue.pop(0)
-                        in_progress_urls.add(new_url)
-                        new_task = asyncio.create_task(
-                            process_url(new_index, new_url))
-                        active_tasks.append((new_task, new_index, new_url))
-                        # yield "in_progress", list(in_progress_urls)
+                        in_progress_urls.add  # Ensure we don't re-add a URL that's already in progress
+                        if new_url not in in_progress_urls:
+                            in_progress_urls.add(new_url)
+                            new_task = asyncio.create_task(
+                                process_url(new_index, new_url))
+                            active_tasks.append((new_task, new_index, new_url))
 
             await browser.close()
-
 if __name__ == "__main__":
     import sys
 
