@@ -485,7 +485,7 @@ class Ollama(BaseOllama):
 
         return wrap_retry(run)
 
-    async def stream_chat(self, query: str, context: str = "", model: str = None, **kwargs: Any) -> AsyncGenerator[str, None]:
+    async def stream_chat(self, query: str, context: Optional[str] = None, model: Optional[str] = None, **kwargs: Any) -> AsyncGenerator[str, None]:
         from jet.actions.generation import call_ollama_chat
         from jet.token.token_utils import token_counter, get_ollama_tokenizer
 
