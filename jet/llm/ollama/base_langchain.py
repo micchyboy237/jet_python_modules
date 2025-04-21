@@ -1,5 +1,6 @@
 from typing import Iterator, Mapping, Optional, Dict, Any, Union, cast, override
 from jet.actions.generation import call_ollama_chat
+from jet.token.token_utils import token_counter
 from jet.transformers.object import make_serializable
 from jet.utils.class_utils import get_non_empty_attributes
 from langchain_ollama import ChatOllama as BaseChatOllama, OllamaEmbeddings as BaseOllamaEmbeddings
@@ -12,7 +13,6 @@ from langchain_core.outputs import ChatGeneration
 from jet.decorators.error import wrap_retry
 from ollama import AsyncClient, Client, Message as OllamaMessage, Options
 
-from jet.llm.llm_types import Message
 from ollama._types import ChatResponse
 from shared.setup.events import EventSettings
 
@@ -100,31 +100,82 @@ class ChatOllama(BaseChatOllama):
         chat_params["options"] = get_non_empty_attributes(
             chat_params["options"])
 
-        def run():
-            if chat_params["stream"]:
-                logger.newline()
-                logger.info("With stream response:")
-                response = ""
-                for chunk in call_ollama_chat(**chat_params):
-                    response += chunk
-                yield ChatResponse(
-                    message=OllamaMessage(
-                        content=response,
-                        role='assistant'
-                    )
-                )
-            else:
-                logger.newline()
-                logger.info("No stream response:")
-                response = call_ollama_chat(**chat_params)
-                yield ChatResponse(
-                    message=OllamaMessage(
-                        content=response["message"],
-                        role='assistant'
-                    )
-                )
+        stream = not chat_params.get("tools") and chat_params["stream"]
 
-        yield from wrap_retry(run)
+        settings = {
+            **chat_params,
+            "full_stream_response": True,
+        }
+
+        response = call_ollama_chat(**settings)
+
+        final_response = {}
+
+        if not stream:
+            content = response["message"]["content"]
+            role = response["message"]["role"]
+            tool_calls = response["message"].get("tool_calls", [])
+
+            final_response_content = content
+            final_response_tool_calls = tool_calls
+            if final_response_tool_calls:
+                final_response_content += f"\n{final_response_tool_calls}".strip()
+
+            # prompt_token_count = token_counter(messages, model)
+            # response_token_count = token_counter(
+            #     final_response_content, model)
+
+            final_response = {
+                **response.copy(),
+                # "usage": {
+                #     "prompt_tokens": prompt_token_count,
+                #     "completion_tokens": response_token_count,
+                #     "total_tokens": prompt_token_count + response_token_count,
+                # }
+            }
+
+        else:
+            content = ""
+            role = ""
+            tool_calls = []
+
+            if isinstance(response, dict) and "error" in response:
+                raise ValueError(
+                    f"Ollama API error:\n{response['error']}")
+
+            for chunk in response:
+
+                content += chunk["message"]["content"]
+                if not role:
+                    role = chunk["message"]["role"]
+                if chunk["done"]:
+                    # prompt_token_count: int = token_counter(
+                    #     messages, model)
+                    # response_token_count: int = token_counter(
+                    #     content, model)
+
+                    updated_chunk = chunk.copy()
+                    updated_chunk["message"]["content"] = content
+
+                    final_response = {
+                        **updated_chunk,
+                        # "usage": {
+                        #     "prompt_tokens": prompt_token_count,
+                        #     "completion_tokens": response_token_count,
+                        #     "total_tokens": prompt_token_count + response_token_count,
+                        # }
+                    }
+
+        final_response.pop("message")
+        chat_response = ChatResponse(
+            message=OllamaMessage(
+                role=role,
+                content=content,
+                tool_calls=tool_calls,
+            ),
+            **final_response
+        )
+        yield chat_response
 
     @override
     def invoke(

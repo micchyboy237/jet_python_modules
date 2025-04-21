@@ -293,7 +293,7 @@ class Ollama(BaseOllama):
         tools = kwargs.get("tools", None)
         format = kwargs.get("format", "json" if self.json_mode else None)
         options = kwargs.get("options", {})
-        stream = kwargs.get("stream", not tools)
+        stream = not tools and kwargs.get("stream", False)
         template_vars = kwargs.get("template_vars", {})
 
         ollama_messages = messages
