@@ -173,6 +173,16 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
                                 logger.error(
                                     f"Max retries reached for {url}, skipping")
 
+                        # Stop processing if we have enough results
+                        if results_count >= top_n:
+                            # Cancel remaining tasks
+                            for task, _, _ in active_tasks:
+                                task.cancel()
+                            # Clear queue and active tasks
+                            url_queue.clear()
+                            active_tasks.clear()
+                            break
+
                         # Add new tasks if possible
                         while url_queue and len(active_tasks) < num_parallel and results_count < top_n:
                             new_index, new_url = url_queue.pop(0)
@@ -187,7 +197,6 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
                 await browser.close()
 
     logger.info(f"Scraping completed with {results_count} valid results")
-
 if __name__ == "__main__":
     import sys
 

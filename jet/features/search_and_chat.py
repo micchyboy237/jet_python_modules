@@ -397,8 +397,11 @@ async def search_and_filter_data(
             logger.orange(
                 f"Scraped urls count: {len(url_html_tuples)} / {top_search_n}")
             if len(url_html_tuples) == top_search_n:
-                logger.success(f"Done scraping urls for query: {query}")
+                logger.success(
+                    f"Scraped urls ({len(url_html_tuples)}) now match {top_search_n}")
                 break
+
+    logger.success(f"Done scraping urls for query: {query}")
 
     return {
         "url_html_tuples": url_html_tuples,
