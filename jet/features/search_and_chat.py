@@ -378,7 +378,7 @@ def get_header_tokens_and_update_metadata(header_docs: list[Document], embed_mod
 
 class SearchRerankResult(TypedDict):
     url_html_tuples: List[Tuple[str, str]]
-    search_results: List[Dict[str, Any]]
+    search_results: List[SearchResult]
 
 
 async def search_and_filter_data(
@@ -386,27 +386,39 @@ async def search_and_filter_data(
     top_search_n: int = 3,
     min_header_count: int = 5,
 ) -> SearchRerankResult:
-    # Search urls
-    search_results = search_data(query)
-    urls = [normalize_url(item["url"]) for item in search_results]
+    logger.info(f"Starting search_and_filter_data for query: {query}")
 
-    url_html_tuples = []
-    async for url, html in scrape_multiple_urls(urls, top_n=top_search_n, num_parallel=3):
-        if html and validate_headers(html, min_count=min_header_count):
-            url_html_tuples.append((url, html))
-            logger.orange(
-                f"Scraped urls count: {len(url_html_tuples)} / {top_search_n}")
-            if len(url_html_tuples) == top_search_n:
-                logger.success(
-                    f"Scraped urls ({len(url_html_tuples)}) now match {top_search_n}")
-                break
+    try:
+        # Search urls
+        logger.debug("Calling search_data")
+        search_results = search_data(query)
+        logger.debug(f"search_data returned {len(search_results)} results")
 
-    logger.success(f"Done scraping urls for query: {query}")
+        urls = [normalize_url(item["url"]) for item in search_results]
+        logger.debug(f"Normalized {len(urls)} URLs")
 
-    return {
-        "url_html_tuples": url_html_tuples,
-        "search_results": search_results,
-    }
+        url_html_tuples = []
+        async for url, html in scrape_multiple_urls(urls, top_n=top_search_n, num_parallel=3):
+            if html and validate_headers(html, min_header_count):
+                url_html_tuples.append((url, html))
+                logger.orange(
+                    f"Scraped urls count: {len(url_html_tuples)} / {top_search_n}")
+                if len(url_html_tuples) == top_search_n:
+                    logger.success(
+                        f"Scraped urls ({len(url_html_tuples)}) now match {top_search_n}")
+                    break
+
+        logger.success(f"Done scraping urls for query: {query}")
+
+        return {
+            "url_html_tuples": url_html_tuples,
+            "search_results": search_results,
+        }
+
+    except Exception as e:
+        logger.error(
+            f"Error in search_and_filter_data: {str(e)}", exc_info=True)
+        raise
 
 
 class QueryRerankResult(BaseModel):

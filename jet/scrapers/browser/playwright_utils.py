@@ -1,12 +1,15 @@
 import time
 from fake_useragent import UserAgent
 import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from jet.cache.redis.types import RedisConfigParams
 from jet.cache.redis.utils import RedisCache
 from jet.logger import logger
 from jet.scrapers.utils import validate_headers
 from playwright.async_api import async_playwright
-from typing import Any, AsyncGenerator, List, Tuple
+from playwright.sync_api import sync_playwright
+from typing import Any, AsyncGenerator, List, Tuple, Generator
 
 REDIS_CONFIG = RedisConfigParams(
     port=3102
@@ -16,9 +19,22 @@ REDIS_CONFIG = RedisConfigParams(
 async def fetch_page_content(page, url: str) -> Tuple[int, str, str]:
     try:
         logger.debug(f"Scraping url: {url}")
-        await page.goto(url)
-        await page.wait_for_load_state("load", timeout=10000)  # 10 seconds
+        await page.goto(url, timeout=5000)
+        await page.wait_for_load_state("load", timeout=5000)
         content = await page.content()
+        logger.success(f"Done scraping url: {url}")
+        return (0, url, content)
+    except Exception as e:
+        logger.warning(f"Failed to load {url}: {e}")
+        return (0, url, "")
+
+
+def sync_fetch_page_content(page, url: str) -> Tuple[int, str, str]:
+    try:
+        logger.debug(f"Scraping url: {url}")
+        page.goto(url, timeout=5000)
+        page.wait_for_load_state("load", timeout=5000)
+        content = page.content()
         logger.success(f"Done scraping url: {url}")
         return (0, url, content)
     except Exception as e:
@@ -61,12 +77,50 @@ async def scrape_with_playwright(urls: List[str]) -> List[str]:
         return html_results
 
 
-async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3, max_retries: int = 1) -> AsyncGenerator[Tuple[str, Any], None]:
+def sync_scrape_with_playwright(urls: List[str]) -> List[str]:
+    ua = UserAgent()
+    user_agent = ua.chrome
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                '--window-size=1512,982',
+                '--force-device-scale-factor=0.8',
+                "--disable-infobars",
+                "--disable-notifications",
+                "--disable-gpu",
+                "--disable-extensions",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--incognito",
+                "--mute-audio"
+            ]
+        )
+        context = browser.new_context(
+            user_agent=user_agent,
+            color_scheme='dark',
+        )
+
+        results = []
+        for url in urls:
+            page = context.new_page()
+            result = sync_fetch_page_content(page, url)
+            results.append(result)
+            page.close()
+
+        browser.close()
+        return results
+
+
+async def ascrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3, min_header_count: int = 5, max_retries: int = 1) -> AsyncGenerator[Tuple[str, Any], None]:
     cache = RedisCache(config=REDIS_CONFIG)
     html_results = [None] * len(urls)
     uncached_urls = []
     uncached_indices = []
-    retries = {url: 0 for url in urls}  # Track retries per URL
+    retries = {url: 0 for url in urls}
+    results_count = 0
 
     # Check cache for each URL
     for i, url in enumerate(urls):
@@ -75,21 +129,25 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
         if cached_content:
             logger.success(f"Cache hit for {url}")
             html_results[i] = cached_content['content']
-            if cached_content['content'] and validate_headers(cached_content['content'], min_count=5):
+            if cached_content['content'] and validate_headers(cached_content['content'], min_count=min_header_count) and results_count < top_n:
+                results_count += 1
                 yield url, cached_content['content']
+                if results_count >= top_n:
+                    return
         else:
             logger.warning(f"Cache miss for {url}, will scrape...")
             uncached_urls.append(url)
             uncached_indices.append(i)
 
-    # Scrape uncached URLs dynamically
+    if results_count >= top_n:
+        return
+
     if uncached_urls:
         logger.info(
             f"Scraping {len(uncached_urls)} uncached URLs with max {num_parallel} parallel tasks...")
         active_tasks = []
-        results_count = 0
-        url_queue = list(zip(uncached_indices, uncached_urls)
-                         )  # [(index, url), ...]
+
+        url_queue = list(zip(uncached_indices, uncached_urls))
         in_progress_urls = set()
 
         async with async_playwright() as p:
@@ -123,34 +181,33 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
                     finally:
                         await page.close()
 
-                # Start initial tasks up to num_parallel
+                # Start initial tasks
                 while url_queue and len(active_tasks) < num_parallel and results_count < top_n:
                     index, url = url_queue.pop(0)
                     in_progress_urls.add(url)
                     task = asyncio.create_task(process_url(index, url))
                     active_tasks.append((task, index, url))
 
-                # Process tasks and add new ones dynamically
                 while active_tasks and results_count < top_n:
                     done, _ = await asyncio.wait(
                         [task for task, _, _ in active_tasks],
                         return_when=asyncio.FIRST_COMPLETED
                     )
                     for completed_task in done:
+                        index, url = next(
+                            (i, u) for t, i, u in active_tasks if t == completed_task)
+                        active_tasks = [
+                            (t, i, u) for t, i, u in active_tasks if t != completed_task]
+                        in_progress_urls.discard(url)
+
                         try:
-                            index, url, html_content = completed_task.result()
+                            _, _, html_content = completed_task.result()
                         except Exception as e:
                             logger.error(
                                 f"Task for {url} failed with error: {e}")
-                            index, url = next(
-                                (i, u) for t, i, u in active_tasks if t == completed_task)
                             html_content = ""
 
-                        in_progress_urls.discard(url)
-                        active_tasks = [
-                            (t, i, u) for t, i, u in active_tasks if t != completed_task]
-
-                        if html_content and validate_headers(html_content, min_count=5):
+                        if html_content and validate_headers(html_content, min_count=min_header_count) and results_count < top_n:
                             logger.success(f"Valid content scraped for {url}")
                             cache_key = f"html:{url}"
                             cache.set(
@@ -161,29 +218,22 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
                                 f"Results count: {results_count} / {top_n}")
                             yield url, html_content
                         else:
-                            logger.warning(
-                                f"Invalid or empty content for {url}")
+                            if html_content:
+                                logger.warning(
+                                    f"Content for {url} ignored as top_n reached or invalid")
+                            else:
+                                logger.warning(
+                                    f"Invalid or empty content for {url}")
                             if retries[url] < max_retries:
                                 retries[url] += 1
                                 logger.info(
                                     f"Retrying {url} (attempt {retries[url]}/{max_retries})")
-                                # Requeue for retry
                                 url_queue.append((index, url))
                             else:
                                 logger.error(
                                     f"Max retries reached for {url}, skipping")
 
-                        # Stop processing if we have enough results
-                        if results_count >= top_n:
-                            # Cancel remaining tasks
-                            for task, _, _ in active_tasks:
-                                task.cancel()
-                            # Clear queue and active tasks
-                            url_queue.clear()
-                            active_tasks.clear()
-                            break
-
-                        # Add new tasks if possible
+                        # Start new tasks if needed
                         while url_queue and len(active_tasks) < num_parallel and results_count < top_n:
                             new_index, new_url = url_queue.pop(0)
                             if new_url not in in_progress_urls:
@@ -193,10 +243,137 @@ async def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: in
                                 active_tasks.append(
                                     (new_task, new_index, new_url))
 
+                        if results_count >= top_n:
+                            break
+
+                    if results_count >= top_n:
+                        break
+
+                # Cancel any remaining tasks
+                for task, _, _ in active_tasks:
+                    task.cancel()
+                await asyncio.gather(*[task for task, _, _ in active_tasks], return_exceptions=True)
+
             finally:
                 await browser.close()
 
     logger.info(f"Scraping completed with {results_count} valid results")
+
+
+def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3, min_header_count: int = 5, max_retries: int = 1) -> Generator[Tuple[str, Any], None, None]:
+    cache = RedisCache(config=REDIS_CONFIG)
+    html_results = [None] * len(urls)
+    uncached_urls = []
+    uncached_indices = []
+    retries = {url: 0 for url in urls}
+    results_count = 0
+    lock = threading.Lock()
+
+    # Check cache for each URL
+    for i, url in enumerate(urls):
+        cache_key = f"html:{url}"
+        cached_content = cache.get(cache_key)
+        if cached_content:
+            logger.success(f"Cache hit for {url}")
+            html_results[i] = cached_content['content']
+            if cached_content['content'] and validate_headers(cached_content['content'], min_count=min_header_count) and results_count < top_n:
+                yield url, cached_content['content']
+                with lock:
+                    results_count += 1
+                if results_count >= top_n:
+                    return
+        else:
+            logger.warning(f"Cache miss for {url}, will scrape...")
+            uncached_urls.append(url)
+            uncached_indices.append(i)
+
+    if results_count >= top_n:
+        return
+
+    if uncached_urls:
+        logger.info(
+            f"Scraping {len(uncached_urls)} uncached URLs with max {num_parallel} parallel threads...")
+        url_queue = list(zip(uncached_indices, uncached_urls))
+
+        def process_url(index: int, url: str) -> Tuple[int, str, str]:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        '--window-size=1512,982',
+                        '--force-device-scale-factor=0.8',
+                        "--disable-infobars",
+                        "--disable-notifications",
+                        "--disable-gpu",
+                        "--disable-extensions",
+                        "--disable-dev-shm-usage",
+                        "--no-sandbox",
+                        "--incognito",
+                        "--mute-audio"
+                    ]
+                )
+                try:
+                    context = browser.new_context(
+                        user_agent=UserAgent().chrome,
+                        color_scheme='dark',
+                    )
+                    page = context.new_page()
+                    try:
+                        result = sync_fetch_page_content(page, url)
+                        return (index, url, result[2])
+                    finally:
+                        page.close()
+                finally:
+                    browser.close()
+
+        with ThreadPoolExecutor(max_workers=num_parallel) as executor:
+            while url_queue and results_count < top_n:
+                # Process up to num_parallel URLs at a time
+                batch = url_queue[:num_parallel]
+                url_queue = url_queue[num_parallel:]
+
+                futures = [executor.submit(process_url, index, url)
+                           for index, url in batch]
+
+                for future in futures:
+                    try:
+                        index, url, html_content = future.result()
+                    except Exception as e:
+                        logger.error(
+                            f"Thread for {url} failed with error: {e}")
+                        html_content = ""
+
+                    if html_content and validate_headers(html_content, min_count=min_header_count):
+                        logger.success(f"Valid content scraped for {url}")
+                        cache_key = f"html:{url}"
+                        cache.set(
+                            cache_key, {'content': html_content}, ttl=3600)
+                        with lock:
+                            html_results[index] = html_content
+                            results_count += 1
+                            logger.info(
+                                f"Results count: {results_count} / {top_n}")
+                            yield url, html_content
+                    else:
+                        logger.warning(f"Invalid or empty content for {url}")
+                        with lock:
+                            if retries[url] < max_retries:
+                                retries[url] += 1
+                                logger.info(
+                                    f"Retrying {url} (attempt {retries[url]}/{max_retries})")
+                                url_queue.append((index, url))
+                            else:
+                                logger.error(
+                                    f"Max retries reached for {url}, skipping")
+
+                    if results_count >= top_n:
+                        url_queue.clear()
+                        break
+
+    logger.info(f"Scraping completed with {results_count} valid results")
+
+
 if __name__ == "__main__":
     import sys
 
@@ -214,13 +391,13 @@ if __name__ == "__main__":
             "https://www.reddit.com"
         ]
 
-        print("Starting scrape...")
-        async for status, content in scrape_multiple_urls(sample_urls, top_n=5, num_parallel=3):
-            if status == "in_progress":
-                logger.info(f"Scraping in progress for: {content}")
-            else:
-                logger.success(
-                    f"Scraped {status}, content length: {len(content)}")
+        print("\nStarting sync scrape...")
+        for url, content in scrape_multiple_urls(sample_urls, top_n=5):
+            logger.success(f"Scraped {url}, content length: {len(content)}")
+
+        print("Starting async scrape...")
+        async for url, content in ascrape_multiple_urls(sample_urls, top_n=5, num_parallel=3):
+            logger.success(f"Scraped {url}, content length: {len(content)}")
 
     try:
         asyncio.run(main())

@@ -42,7 +42,7 @@ GenerateMultipleReturnType = Callable[[
 
 # Cache file configuration
 CACHE_FILE = "embedding_cache.pkl"  # Switch to pickle for compression
-CACHE_DIR = ".cache"
+CACHE_DIR = os.path.expanduser("~/.cache/jet_python_modules")
 Path(CACHE_DIR).mkdir(exist_ok=True)
 CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
 
