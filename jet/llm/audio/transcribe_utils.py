@@ -1,5 +1,6 @@
 import os
 import asyncio
+from jet.logger import logger
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
 from tqdm import tqdm  # For progress bar
@@ -131,6 +132,12 @@ def transcribe_file(audio_file: str, output_dir: str, *, chunk_duration_ms: int 
             f"Transcription complete. Original audio file '{audio_file}' was NOT removed.")
 
 
+async def transcribe_file_async(audio_file: str, output_dir: str, chunk_duration_ms: int = 30000, overlap_ms: int = 1000, remove_audio: bool = False):
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, transcribe_file, audio_file, output_dir, chunk_duration_ms=chunk_duration_ms, overlap_ms=overlap_ms, remove_audio=remove_audio)
+    logger.success(f"Completed transcription for {audio_file}")
+
+
 def transcribe_files(path: str, output_dir: str, *, chunk_duration_ms: int = 30000, overlap_ms: int = 1000, remove_audio: bool = False):
     audio_files = []
 
@@ -158,11 +165,6 @@ def transcribe_files(path: str, output_dir: str, *, chunk_duration_ms: int = 300
                         overlap_ms=overlap_ms,
                         remove_audio=remove_audio)
 
-
-async def transcribe_file_async(audio_file: str, output_dir: str, chunk_duration_ms: int = 30000, overlap_ms: int = 1000, remove_audio: bool = False):
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, transcribe_file, audio_file, output_dir, chunk_duration_ms, overlap_ms, remove_audio)
-    logger.info(f"Completed transcription for {audio_file}")
 
 # Run the script
 if __name__ == "__main__":
