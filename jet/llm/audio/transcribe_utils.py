@@ -143,17 +143,20 @@ def combine_audio_files(file_paths: list[str], output_file: str) -> Optional[str
         return None
     try:
         combined = AudioSegment.empty()
+        valid_files = []
         for file_path in file_paths:
             if os.path.exists(file_path):
                 audio = AudioSegment.from_mp3(file_path)
                 combined += audio
+                valid_files.append(file_path)
             else:
                 logger.warning(f"Audio file not found: {file_path}")
-        if not combined:
-            logger.warning("No valid audio segments to combine")
+        if not valid_files:
+            logger.error("No valid audio files found to combine")
             return None
         combined.export(output_file, format="mp3", bitrate="64k")
-        logger.success(f"Combined audio saved: {output_file}")
+        logger.success(
+            f"Combined audio saved: {output_file} from {len(valid_files)} files")
         return output_file
     except Exception as e:
         logger.error(f"Error combining audio files: {e}")
