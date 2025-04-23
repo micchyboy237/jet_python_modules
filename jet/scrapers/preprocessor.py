@@ -5,7 +5,6 @@ import parsel
 import math
 from bs4 import BeautifulSoup
 import bs4.element
-from .utils import clean_newlines, clean_tags, clean_text
 from jet.logger import logger
 
 
@@ -136,6 +135,8 @@ def merge_header_contents(header_contents: list[dict], max_chars: int = 1000) ->
 
 
 def extract_header_contents(md_text: str, max_chars_per_chunk: int = 1000) -> list[dict]:
+    from .utils import clean_newlines
+
     headers_to_split_on = [
         ("#", "h1"),
         ("##", "h2"),
@@ -164,6 +165,7 @@ def html_to_markdown(
     ignore_links: bool = True
 ) -> str:
     from bs4 import BeautifulSoup
+    from .utils import clean_text
 
     html_str = minify_html(html_str)
 
@@ -210,6 +212,7 @@ def html_to_markdown(
 
 def scrape_markdown(html_str: str) -> dict:
     """Scrape text contents from the HTML string and convert to Markdown, including video URLs under each heading."""
+    from .utils import clean_text
 
     # Initialize a selector with the input HTML string
     selector = parsel.Selector(text=html_str)

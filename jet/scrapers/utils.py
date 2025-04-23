@@ -1,6 +1,8 @@
 from copy import deepcopy
 import uuid
+from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.search.formatters import decode_text_with_unidecode
+from jet.wordnet.words import count_words
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional, Tuple, TypedDict
@@ -1032,13 +1034,22 @@ async def scrape_urls(urls: list[str], *, max_depth: Optional[int] = 0, query: O
         crawler.close()
 
 
-def validate_headers(html: str, min_count: int = 5) -> bool:
+def validate_headers(html: str, min_count: int = 5, min_avg_word_count: int = 20) -> bool:
     from jet.scrapers.preprocessor import html_to_markdown
     from jet.code.splitter_markdown_utils import count_md_header_contents
 
     md_text = html_to_markdown(html)
     header_count = count_md_header_contents(md_text)
+
     return header_count >= min_count
+
+    # headers = get_md_header_contents(md_text)
+    # header_texts = [header["content"] for header in headers]
+    # header_word_counts = [count_words(text) for text in header_texts]
+    # avg_word_count = sum(header_word_counts) / \
+    #     len(header_word_counts) if header_word_counts else 0
+
+    # return header_count >= min_count and avg_word_count >= min_avg_word_count
 
 
 __all__ = [

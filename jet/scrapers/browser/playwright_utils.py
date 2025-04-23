@@ -114,7 +114,7 @@ def sync_scrape_with_playwright(urls: List[str]) -> List[str]:
         return results
 
 
-async def ascrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3, min_header_count: int = 5, max_retries: int = 1) -> AsyncGenerator[Tuple[str, Any], None]:
+async def ascrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3, min_header_count: int = 5, min_avg_word_count: int = 20, max_retries: int = 1) -> AsyncGenerator[Tuple[str, Any], None]:
     cache = RedisCache(config=REDIS_CONFIG)
     html_results = [None] * len(urls)
     uncached_urls = []
@@ -129,7 +129,7 @@ async def ascrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: i
         if cached_content:
             logger.success(f"Cache hit for {url}")
             html_results[i] = cached_content['content']
-            if cached_content['content'] and validate_headers(cached_content['content'], min_count=min_header_count) and results_count < top_n:
+            if cached_content['content'] and validate_headers(cached_content['content'], min_count=min_header_count, min_avg_word_count=min_avg_word_count) and results_count < top_n:
                 results_count += 1
                 yield url, cached_content['content']
                 if results_count >= top_n:
@@ -207,7 +207,7 @@ async def ascrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: i
                                 f"Task for {url} failed with error: {e}")
                             html_content = ""
 
-                        if html_content and validate_headers(html_content, min_count=min_header_count) and results_count < top_n:
+                        if html_content and validate_headers(html_content, min_count=min_header_count, min_avg_word_count=min_avg_word_count) and results_count < top_n:
                             logger.success(f"Valid content scraped for {url}")
                             cache_key = f"html:{url}"
                             cache.set(
@@ -260,7 +260,7 @@ async def ascrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: i
     logger.info(f"Scraping completed with {results_count} valid results")
 
 
-def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3, min_header_count: int = 5, max_retries: int = 1) -> Generator[Tuple[str, Any], None, None]:
+def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3, min_header_count: int = 5, min_avg_word_count: int = 20, max_retries: int = 1) -> Generator[Tuple[str, Any], None, None]:
     cache = RedisCache(config=REDIS_CONFIG)
     html_results = [None] * len(urls)
     uncached_urls = []
@@ -276,7 +276,7 @@ def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3,
         if cached_content:
             logger.success(f"Cache hit for {url}")
             html_results[i] = cached_content['content']
-            if cached_content['content'] and validate_headers(cached_content['content'], min_count=min_header_count) and results_count < top_n:
+            if cached_content['content'] and validate_headers(cached_content['content'], min_count=min_header_count, min_avg_word_count=min_avg_word_count) and results_count < top_n:
                 yield url, cached_content['content']
                 with lock:
                     results_count += 1
@@ -352,7 +352,7 @@ def scrape_multiple_urls(urls: List[str], top_n: int = 3, num_parallel: int = 3,
                             f"Thread for {url} failed with error: {e}")
                         html_content = ""
 
-                    if html_content and validate_headers(html_content, min_count=min_header_count):
+                    if html_content and validate_headers(html_content, min_count=min_header_count, min_avg_word_count=min_avg_word_count):
                         logger.success(f"Valid content scraped for {url}")
                         cache_key = f"html:{url}"
                         cache.set(

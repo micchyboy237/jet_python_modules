@@ -961,6 +961,7 @@ class InfoStats(TypedDict):
     median_score: float
     num_results: int
     avg_word_count: float
+    word_diversity: float
 
 
 def compute_info(results: List[SimilarityResult], top_n: int = 10) -> InfoStats:
@@ -975,7 +976,8 @@ def compute_info(results: List[SimilarityResult], top_n: int = 10) -> InfoStats:
             "avg_top_score": 0.0,
             "median_score": 0.0,
             "num_results": 0,
-            "avg_word_count": 0.0
+            "avg_word_count": 0.0,
+            "word_diversity": 0.0
         }
 
     # Keep the original max_score for top_score
@@ -987,6 +989,16 @@ def compute_info(results: List[SimilarityResult], top_n: int = 10) -> InfoStats:
 
     top_n_value = min(top_n, len(normalized_scores))
     top_scores = sorted(normalized_scores, reverse=True)[:top_n_value]
+
+    # Calculate word diversity
+    all_words = []
+    for r in results:
+        words = r["text"].lower().split()
+        all_words.extend(words)
+
+    total_words = len(all_words)
+    unique_words = len(set(all_words))
+    word_diversity = unique_words / total_words if total_words > 0 else 0.0
 
     # Use original max_score for top_score
     top_score = max_score if scores else 0.0
@@ -1000,7 +1012,8 @@ def compute_info(results: List[SimilarityResult], top_n: int = 10) -> InfoStats:
         "avg_top_score": avg_top_score,
         "median_score": median_score,
         "num_results": len(scores),
-        "avg_word_count": avg_word_count
+        "avg_word_count": avg_word_count,
+        "word_diversity": word_diversity
     }
 
 

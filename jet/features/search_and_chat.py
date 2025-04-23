@@ -1,3 +1,4 @@
+from itertools import combinations
 import logging
 from jet.scrapers.browser.playwright_utils import scrape_multiple_urls
 from jet.vectors.reranker.heuristics import bm25_plus_search
@@ -240,6 +241,7 @@ def rerank_nodes(query: str | list[str], docs: List[Document], embed_models: Lis
     for item in query_scores:
         doc = header_docs_dict[item["id"]]
         item["metadata"] = doc.metadata
+        item["text"] = doc.text
 
     return query_scores
 
@@ -516,6 +518,7 @@ def compare_html_query_scores(
     query: str,
     url_html_tuples: List[Tuple[str, str]],
     embed_models: List[OLLAMA_EMBED_MODELS],
+    method: Literal["top_score", "avg_top_n", "median_score", "all"] = "all",
 ) -> ComparisonResults:
     logger.info("Comparing html query scores...")
     top_urls = [item[0] for item in url_html_tuples]
@@ -541,7 +544,17 @@ def compare_html_query_scores(
     # top_url = top_result["url"]
     # top_header_docs: List[Document] = top_result["docs"]
 
+    # comparison_results = []
+    # for idx, docs in enumerate(header_docs_matrix):
+    #     url = top_urls[idx]
+    #     query_scores = rerank_nodes(query, docs, embed_models)
+    #     query_scores = sort_for_word_diversity(query_scores)
+    #     comparison_results.append({"url": url, "query": query, "info": compute_info(
+    #         query_scores), "results": query_scores})
+    # top_query_scores = comparison_results[0]["results"]
+
     top_query_scores = rerank_nodes(query, all_headers, embed_models)
+    top_query_scores = sort_for_word_diversity(top_query_scores)
 
     # Reuse first_headers_query_scores and first_headers_reranked_results for comparison_results
     # comparison_results: List[ComparisonResultItem] = []
@@ -563,9 +576,104 @@ def compare_html_query_scores(
     return {
         "top_urls": top_urls,
         "top_query_scores": top_query_scores,
+        # "comparison_results": comparison_results,
         # "top_header_docs": top_header_docs,
         # "top_reranked_nodes": top_reranked_nodes,
     }
+
+
+def sort_for_word_diversity(results: List[SimilarityResult], top_n: int = 5) -> List[SimilarityResult]:
+    """
+    Sorts a list of SimilarityResult to maximize the number of texts in top N with diverse words
+    and prioritizes texts with longer lengths (higher word counts) in the top N.
+
+    Args:
+        results: List of SimilarityResult dictionaries
+        top_n: Number of results to prioritize for diversity and length
+
+    Returns:
+        Sorted list of SimilarityResult with top N having diverse words and longer texts
+    """
+    if not results or top_n <= 0:
+        return []
+
+    # Initial sort by score descending
+    sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)
+
+    # If we have fewer results than top_n, return them all
+    if len(sorted_results) <= top_n:
+        return sorted_results
+
+    # Use a larger candidate pool (top 4*top_n to maximize text inclusion)
+    candidate_pool = sorted_results[:min(len(sorted_results), top_n * 4)]
+
+    # Calculate word sets and word counts for each result
+    word_sets = [set(r['text'].lower().split()) for r in candidate_pool]
+    word_counts = [len(r['text'].split()) for r in candidate_pool]
+
+    # Normalize word counts for scoring (relative to max word count)
+    max_word_count = max(word_counts) if word_counts else 1
+    normalized_word_counts = [wc / max_word_count for wc in word_counts]
+
+    # Calculate pairwise wordoverlap scores (lower is more diverse)
+    overlap_scores = {}
+    for i, j in combinations(range(len(word_sets)), 2):
+        common_words = len(word_sets[i] & word_sets[j])
+        total_words = len(word_sets[i] | word_sets[j])
+        overlap_scores[(i, j)] = common_words / \
+            total_words if total_words > 0 else 0
+
+    # Select up to top_n results with minimum overlap and preference for longer texts
+    selected_indices = []
+    remaining_indices = list(range(len(candidate_pool)))
+
+    # Start with the highest-scoring result
+    selected_indices.append(0)
+    remaining_indices.remove(0)
+
+    # Greedily select results to maximize diversity and text length
+    while len(selected_indices) < top_n and remaining_indices:
+        min_score = float('inf')
+        best_idx = None
+
+        for idx in remaining_indices:
+            # Calculate average overlap with already selected results
+            total_overlap = sum(
+                overlap_scores.get(tuple(sorted([idx, sel])), 0)
+                for sel in selected_indices
+            )
+            avg_overlap = total_overlap / \
+                len(selected_indices) if selected_indices else 0
+
+            # Incorporate similarity score (normalized)
+            score_penalty = (
+                candidate_pool[idx]['score'] / candidate_pool[0]['score']) * 0.1
+
+            # Incorporate word count (favor longer texts)
+            # Weight for length preference
+            length_bonus = normalized_word_counts[idx] * 0.4
+
+            # Combined score: lower overlap, higher score, longer text
+            combined_score = avg_overlap - score_penalty - length_bonus
+
+            if combined_score < min_score:
+                min_score = combined_score
+                best_idx = idx
+
+        if best_idx is not None:
+            selected_indices.append(best_idx)
+            remaining_indices.remove(best_idx)
+
+    # Create final result list: selected diverse and longer results + remaining sorted results
+    final_results = [candidate_pool[i] for i in selected_indices]
+
+    # Add remaining results from candidate pool and original list
+    remaining_results = [
+        r for i, r in enumerate(sorted_results)
+        if i not in selected_indices and r not in final_results
+    ]
+
+    return final_results + remaining_results
 
 
 def run_scrape_search_chat(
