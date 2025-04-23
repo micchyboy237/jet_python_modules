@@ -120,7 +120,7 @@ def load_file(input_file: str) -> Optional[str | dict | list]:
         raise
 
 
-def save_file(data: str | dict | list | BaseModel, output_file: str):
+def save_file(data: str | dict | list | BaseModel, output_file: str, verbose: bool = True):
     import os
     import re
     import json
@@ -147,19 +147,21 @@ def save_file(data: str | dict | list | BaseModel, output_file: str):
             else:
                 prefix = "Save JSON data to:"
 
-            logger.log(
-                prefix,
-                output_file,
-                colors=["SUCCESS", "BRIGHT_SUCCESS"]
-            )
+            if verbose:
+                logger.log(
+                    prefix,
+                    output_file,
+                    colors=["SUCCESS", "BRIGHT_SUCCESS"]
+                )
         else:
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(data)
-            logger.log(
-                "Save data to:",
-                output_file,
-                colors=["SUCCESS", "BRIGHT_SUCCESS"]
-            )
+            if verbose:
+                logger.log(
+                    "Save data to:",
+                    output_file,
+                    colors=["SUCCESS", "BRIGHT_SUCCESS"]
+                )
     except Exception as e:
         logger.error(f"Failed to save file: {e}")
 
