@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 from jet.wordnet.sentence import (
     handle_long_sentence,
+    is_last_word_in_sentence,
     merge_sentences,
     process_sentence_newlines,
     adaptive_split,
@@ -9,7 +10,9 @@ from jet.wordnet.sentence import (
     is_ordered_list_sentence,
     count_sentences,
     get_sentences,
-    split_by_punctuations
+    split_by_punctuations,
+    split_sentences,
+    split_sentences_nltk
 )
 from jet.wordnet.words import count_words
 
@@ -453,6 +456,47 @@ class TestOrderedListDetection(unittest.TestCase):
         for sentence, expected in test_cases:
             with self.subTest(sentence=sentence):
                 self.assertEqual(is_ordered_list_sentence(sentence), expected)
+
+
+class TestSentenceUtils(unittest.TestCase):
+
+    def test_split_sentences_with_abbreviations(self):
+        sample = "Dr. Smith lives in the U.S. He works at Acme Inc. He's great."
+        expected = ["Dr. Smith lives in the U.S.",
+                    "He works at Acme Inc.", "He's great."]
+        result = split_sentences(sample)
+        self.assertEqual(result, expected)
+
+    def test_split_sentences_with_enumerated_lists(self):
+        sample = "1. Apples are red. 2. Bananas are yellow. 3. Grapes are purple."
+        expected = [
+            "1. Apples are red.",
+            "2. Bananas are yellow.",
+            "3. Grapes are purple."
+        ]
+        result = split_sentences(sample)
+        self.assertEqual(result, expected)
+
+    def test_is_last_word_in_sentence_with_normal_case(self):
+        sample = "This is a sentence. Another one ends here."
+        self.assertTrue(is_last_word_in_sentence("sentence", sample))
+        self.assertFalse(is_last_word_in_sentence("ends", sample))
+        self.assertTrue(is_last_word_in_sentence("here.", sample))
+
+    def test_is_last_word_with_abbreviations_and_punctuations(self):
+        sample = "Dr. Smith is from the U.S. He works at Acme Inc. He's great."
+        self.assertTrue(is_last_word_in_sentence("U.S.", sample))
+        self.assertTrue(is_last_word_in_sentence("Inc.", sample))
+        self.assertTrue(is_last_word_in_sentence("great.", sample))
+        self.assertFalse(is_last_word_in_sentence("Dr.", sample))
+
+    def test_is_last_word_with_enumerated_lists(self):
+        sample = "1. Apples are red. 2. Bananas are yellow. 3. Grapes are purple."
+        self.assertTrue(is_last_word_in_sentence("purple", sample))
+        self.assertTrue(is_last_word_in_sentence(
+            "yellow", sample))  # not last overall
+        # not last in its own sentence
+        self.assertFalse(is_last_word_in_sentence("apples", sample))
 
 
 if __name__ == "__main__":

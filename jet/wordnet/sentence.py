@@ -3,7 +3,7 @@ import re
 from typing import Callable, Optional
 
 from tqdm import tqdm
-from nltk.tokenize import sent_tokenize
+from nltk.tokenize import sent_tokenize, word_tokenize
 from jet.wordnet.words import count_words, get_words
 
 # nltk.download('punkt')
@@ -67,33 +67,53 @@ def handle_long_sentence(sentence, count_tokens_func, max_tokens):
 
 def get_list_marker_pattern_substring():
     roman_numeral = r'(X{0,3}(IX|IV|V?I{0,3}))'
-    pattern = r'^(\d+|[a-zA-Z]|' + roman_numeral + r')[\.\)]+\s?'
+    ordered_pattern = r'(\d+|[a-zA-Z]|' + roman_numeral + r')[\.\)]+\s?'
+    unordered_pattern = r'[-*+]\s?'
+    return ordered_pattern + '|' + unordered_pattern
 
-    return pattern
+
+def get_ordered_list_marker_pattern_substring():
+    roman_numeral = r'(X{0,3}(IX|IV|V?I{0,3}))'
+    ordered_pattern = r'(\d+|[a-zA-Z]|' + roman_numeral + r')[\.\)]+\s?'
+    return ordered_pattern
 
 
 def get_list_marker_pattern():
     pattern = get_list_marker_pattern_substring() + r'$'
-
     return pattern
 
 
 def get_list_sentence_pattern():
     pattern = get_list_marker_pattern_substring() + r'[\w]+'
-
     return pattern
 
 
 def is_ordered_list_marker(marker):
-    pattern = get_list_marker_pattern()
-
+    pattern = get_ordered_list_marker_pattern_substring() + r'$'
     return bool(re.match(pattern, marker.strip(), re.IGNORECASE))
 
 
 def is_ordered_list_sentence(sentence):
-    pattern = get_list_sentence_pattern()
-
+    pattern = get_ordered_list_marker_pattern_substring() + r'[\w]+'
     return bool(re.match(pattern, sentence.strip(), re.IGNORECASE))
+
+
+def is_list_marker(marker):
+    ordered_pattern = r'^(\d+|[a-zA-Z]|' + \
+        r'(X{0,3}(IX|IV|V?I{0,3}))' + r')[\.\)]+\s?$'
+    unordered_pattern = r'^[-*+]\s?$'
+    pattern = r'(' + ordered_pattern + r'|' + unordered_pattern + r')'
+    return bool(re.match(pattern, marker.strip(), re.IGNORECASE))
+
+
+def is_list_sentence(sentence):
+    pattern = get_list_sentence_pattern()
+    return not is_list_marker(sentence) and bool(re.match(pattern, sentence.strip(), re.IGNORECASE))
+
+
+def is_unordered_list_marker(marker):
+    pattern = r'^[-*+]\s?$'
+    return bool(re.match(pattern, marker.strip(), re.IGNORECASE))
 
 
 def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
@@ -169,22 +189,44 @@ def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
     return segments
 
 
-def split_sentences(text: str):
+def is_last_word_in_sentence(word, text):
+    word = word.strip(".,!?\"'”)").lower()
+    sentences = split_sentences(text)
+    for sentence in sentences:
+        words = word_tokenize(sentence)
+        real_words = [w.strip(".,!?\"'”)").lower()
+                      for w in words if any(c.isalnum() for c in w)]
+        if real_words and real_words[-1] == word:
+            return True
+    return False
+
+
+def split_sentences_nltk(text: str) -> list[str]:
+    sentences = sent_tokenize(text)
+    return sentences
+
+
+def split_sentences(text: str) -> list[str]:
     sentences = sent_tokenize(text)
     adjusted_sentences = []
 
     i = 0
     while i < len(sentences):
         current_sentence = sentences[i]
-        # Check if the current sentence is a list marker and not the last sentence
-        if i + 1 < len(sentences) and is_ordered_list_sentence(current_sentence):
-            # Merge with the next sentence
-            adjusted_sentences.append(
-                current_sentence + ' ' + sentences[i + 1])
-            i += 2  # Skip the next sentence as it's merged
+
+        if is_list_marker(current_sentence) and i + 1 < len(sentences):
+            combined = current_sentence + ' ' + sentences[i + 1]
+            if is_list_sentence(combined):
+                adjusted_sentences.append(combined)
+                i += 2
+                continue
+            # fallback: treat marker and next as separate if not a valid list sentence
+        elif is_list_sentence(current_sentence):
+            adjusted_sentences.append(current_sentence)
         else:
             adjusted_sentences.append(current_sentence)
-            i += 1
+
+        i += 1
 
     return adjusted_sentences
 
@@ -267,6 +309,7 @@ __all__ = [
     "is_ordered_list_marker",
     "is_ordered_list_sentence",
     "adaptive_split",
+    "split_sentences_nltk",
     "split_sentences",
     "merge_sentences",
     "group_sentences",
@@ -274,6 +317,7 @@ __all__ = [
     "get_sentences",
     "split_by_punctuations",
     "encode_text_to_strings",
+    "is_last_word_in_sentence",
 ]
 
 if __name__ == "__main__":
