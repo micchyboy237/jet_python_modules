@@ -132,9 +132,9 @@ def transcribe_file(audio_file: str, output_dir: str, *, chunk_duration_ms: int 
             f"Transcription complete. Original audio file '{audio_file}' was NOT removed.")
 
 
-async def transcribe_file_async(audio_file: str, output_dir: str, chunk_duration_ms: int = 30000, overlap_ms: int = 1000, remove_audio: bool = False):
+async def transcribe_file_async(audio_file: str, output_dir: str, *, chunk_duration_ms: int = 30000, overlap_ms: int = 1000, remove_audio: bool = False):
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, transcribe_file, audio_file, output_dir, chunk_duration_ms=chunk_duration_ms, overlap_ms=overlap_ms, remove_audio=remove_audio)
+    await loop.run_in_executor(None, transcribe_file, audio_file, output_dir)
     logger.success(f"Completed transcription for {audio_file}")
 
 
