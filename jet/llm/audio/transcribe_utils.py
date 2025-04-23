@@ -1,6 +1,7 @@
 import os
 import asyncio
 from typing import Optional
+from jet.file.utils import save_file
 from jet.logger import logger
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
@@ -21,59 +22,75 @@ def is_audio_file_or_dir(path: str) -> bool:
     return is_audio_file(path) or is_audio_dir(path)
 
 
-def transcribe_chunk(model, audio_chunk, output_file, time_offset=0):
+def transcribe_chunk(model, audio_chunk, time_offset=0):
     global last_transcribed_end_time
     segments, info = model.transcribe(audio_chunk, beam_size=5)
-    with open(output_file, "a") as f:
-        for segment in segments:
-            start_time = segment.start + time_offset
-            end_time = segment.end + time_offset
-            if start_time < last_transcribed_end_time:
-                continue
-            transcription = f"[{start_time:.2f}s -> {end_time:.2f}s] {segment.text}\n"
-            print(transcription, end="")
-            f.write(transcription)
-            last_transcribed_end_time = end_time
+
+    for segment in segments:
+        start_time = segment.start + time_offset
+        end_time = segment.end + time_offset
+        if start_time < last_transcribed_end_time:
+            continue
+
+        item = {
+            "start": start_time,
+            "end": end_time,
+            "text": segment.text.strip(),
+            "tokens": segment.tokens,
+            "avg_logprob": segment.avg_logprob,
+            "no_speech_prob": segment.no_speech_prob,
+            "compression_ratio": segment.compression_ratio
+        }
+
+        print(f"[{item['start']}s -> {item['end']}s] {item['text']}")
+        yield item
+
+        last_transcribed_end_time = end_time
 
 
 def transcribe_in_buffers(audio_file, output_dir, chunk_duration_ms=30000, overlap_ms=1000):
     global last_transcribed_end_time
     last_transcribed_end_time = 0.0
+
     audio = AudioSegment.from_file(audio_file)
     original_extension = os.path.splitext(audio_file)[1].lower().lstrip(".")
-    if original_extension == "mp3":
-        export_format = "mp3"
-    elif original_extension == "wav":
-        export_format = "wav"
-    else:
-        export_format = "wav"
-        print(
-            f"Unsupported input format '{original_extension}'. Using WAV for chunks.")
+    export_format = "mp3" if original_extension == "mp3" else "wav"
+
     model = WhisperModel("small", compute_type="int8")
     total_duration = len(audio)
     print(f"Total audio duration: {total_duration / 1000} seconds")
+
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+
     audio_base_name = os.path.splitext(os.path.basename(audio_file))[0]
-    output_file = os.path.join(output_dir, f"{audio_base_name}.txt")
+    output_file = os.path.join(output_dir, f"{audio_base_name}.json")
+
     if os.path.exists(output_file):
         os.remove(output_file)
+
     step_size = chunk_duration_ms - overlap_ms
-    num_chunks = (total_duration + step_size -
-                  1) // step_size
+    num_chunks = (total_duration + step_size - 1) // step_size
+
+    results = []
     with tqdm(total=num_chunks, desc="Transcribing", unit="chunk") as pbar:
         for start_ms in range(0, total_duration, step_size):
             end_ms = min(start_ms + chunk_duration_ms, total_duration)
             audio_chunk = audio[start_ms:end_ms]
+
             chunk_file = os.path.join(
                 output_dir, f"temp_chunk.{original_extension}")
             audio_chunk.export(chunk_file, format=export_format)
+
             time_offset = start_ms / 1000.0
-            transcribe_chunk(model, chunk_file, output_file,
-                             time_offset=time_offset)
+            for item in transcribe_chunk(model, chunk_file, time_offset=time_offset):
+                results.append(item)
+                save_file(results, output_file, verbose=False)
+
             os.remove(chunk_file)
             pbar.update(1)
-    print(f"Transcription saved to {output_file}")
+
+    logger.success(f"Transcriptions ({len(results)}) saved to {output_file}")
 
 
 def transcribe_file(audio_file: str, output_dir: str, *, chunk_duration_ms: int = 30000, overlap_ms: int = 1000, remove_audio: bool = False):
