@@ -494,6 +494,109 @@ def call_ollama_chat(
         return {"error": str(e)}
 
 
+def call_ollama_generate(
+    prompt: str,
+    model: str = "llama3.2",
+    *,
+    system: Optional[str] = None,
+    format: Optional[Union[str, dict]] = None,
+    options: OllamaChatOptions = {},
+    stream: bool = True,
+    keep_alive: Union[str, int] = "15m",
+    context: Optional[str] = None,
+    track: Track = None,
+    stop_event: Optional[threading.Event] = None,
+    full_stream_response: bool = False
+) -> Union[str, Generator[str, None, None]]:
+    """
+    Calls Ollama's /api/generate endpoint using a prompt string.
+
+    Args:
+        prompt (str): The raw prompt string to be sent to the model.
+        model (str): Model to use.
+        options (dict): Generation options.
+        stream (bool): Whether to stream the response.
+        track (Track): For optional tracking via Aim.
+    """
+    from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS
+    from jet.token.token_utils import get_ollama_tokenizer, token_counter
+    tokenizer = get_ollama_tokenizer(model)
+    set_global_tokenizer(tokenizer)
+
+    URL = "http://localhost:11434/api/generate"
+
+    if context:
+        prompt = PROMPT_CONTEXT_TEMPLATE.format(context=context, query=prompt)
+
+    model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+    prompt_tokens = token_counter(prompt, model)
+
+    options = {
+        **DETERMINISTIC_LLM_SETTINGS,
+        **(options or {})
+    }
+
+    body = {
+        "model": model,
+        "prompt": prompt,
+        "stream": stream,
+        "format": format,
+        "options": options,
+    }
+
+    body = make_serializable(body)
+
+    logger.newline()
+    logger.orange("Calling Ollama generate...")
+    logger.log("Prompt Tokens:", prompt_tokens, colors=["GRAY", "INFO"])
+    logger.log("Model:", model, colors=["GRAY", "INFO"])
+    logger.newline()
+
+    try:
+        r = requests.post(
+            url=URL,
+            json=body,
+            stream=stream,
+        )
+        r.raise_for_status()
+
+        if stream:
+            def stream_generator():
+                for line in r.iter_lines():
+                    if stop_event and stop_event.is_set():
+                        logger.warning("Stopped by user (stop_event).")
+                        break
+                    if line:
+                        decoded = line.decode("utf-8")
+                        try:
+                            chunk = json.loads(decoded)
+                            content = chunk.get("response", "")
+                            logger.success(content, flush=True)
+                            if full_stream_response:
+                                yield chunk
+                            else:
+                                yield content
+                        except json.JSONDecodeError:
+                            logger.warning(f"JSON decode error: {decoded}")
+
+            return stream_generator()
+        else:
+            response = r.json()
+            result = response.get("response", "")
+            logger.success(result)
+            return result
+
+    except requests.RequestException as e:
+        logger.error(f"Request failed - {get_class_name(e)}: {e}")
+        traceback.print_exc()
+        return {"error": str(e)}
+
+    except Exception as e:
+        logger.error(f"Error class name: {get_class_name(e)}")
+        traceback.print_exc()
+        return {"error": str(e)}
+
+
 def convert_tool_outputs_to_string(ollama_messages: list[Message]):
     for message in ollama_messages:
         if message.get("role") == "tool" and not isinstance(message.get("content"), str):
