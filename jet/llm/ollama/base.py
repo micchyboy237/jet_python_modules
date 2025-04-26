@@ -316,6 +316,7 @@ class ChatHistory:
 
     def add_messages(self, messages: list[dict]) -> None:
         """Add messages to the chat history."""
+        messages = _convert_to_ollama_messages(messages)
         for msg in messages:
             if msg["role"] == "system":
                 self.history.add_messages(

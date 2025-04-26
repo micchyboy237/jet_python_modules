@@ -34,7 +34,7 @@ class TestTimeItDecorator(unittest.TestCase):
         @wraps(self.test_time_it_decorator_logging)
         def sample_function(duration):
             time.sleep(duration)
-        with patch("jet.logger.logger.logger.opt") as mock_logger:
+        with patch("jet.logger.logger.opt") as mock_logger:
             mock_logger.return_value.info = MagicMock()
             sample_function(3)
             mock_logger.return_value.info.assert_called_with(

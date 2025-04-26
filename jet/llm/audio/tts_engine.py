@@ -5,7 +5,7 @@ import shutil
 from typing import Optional
 import threading
 from gtts import gTTS
-from jet.logger.logger import CustomLogger
+from jet.logger import CustomLogger
 import pygame
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
