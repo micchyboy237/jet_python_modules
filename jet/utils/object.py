@@ -91,12 +91,37 @@ def extract_null_keys(data: Union[dict, list], parent_key: str = "") -> list[str
     return null_keys
 
 
+def max_getattr(obj, attr_name, default=None):
+    """
+    Find the maximum value of `attr_name` across shallow and nested attributes.
+    """
+    candidates = []
+
+    # 1. Shallow check
+    shallow_value = getattr(obj, attr_name, None)
+    if isinstance(shallow_value, (int, float)):
+        candidates.append(shallow_value)
+
+    # 2. Nested check
+    for sub_attr in dir(obj):
+        try:
+            sub_obj = getattr(obj, sub_attr)
+            nested_value = getattr(sub_obj, attr_name, None)
+            if isinstance(nested_value, (int, float)):
+                candidates.append(nested_value)
+        except AttributeError:
+            continue
+
+    return max(candidates) if candidates else default
+
+
 __all__ = [
     "check_object_type",
     "print_types_recursive",
     "get_values_by_paths",
     "extract_values_by_paths",
     "extract_null_keys",
+    "max_getattr",
 ]
 
 # Example usage
