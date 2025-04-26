@@ -4,102 +4,66 @@ from sentence_transformers import SentenceTransformer, util
 
 
 class HybridSearchEngine:
-    def __init__(self, model_name="all-MiniLM-L6-v2", diversity_penalty=0.3):
+    def __init__(self, model_name="all-MiniLM-L6-v2"):
         self.dense_model = SentenceTransformer(model_name)
         self.sparse_vectorizer = TfidfVectorizer()
         self.documents = []
         self.dense_embeddings = None
         self.sparse_matrix = None
-        self.diversity_penalty = diversity_penalty
 
     def fit(self, documents):
-        """Fit the engine with documents."""
         self.documents = documents
         self.dense_embeddings = self.dense_model.encode(
             documents, normalize_embeddings=True)
         self.sparse_matrix = self.sparse_vectorizer.fit_transform(documents)
 
-    def search(self, query, top_n=5, alpha=0.5, diversity=True):
-        """Search with a query using hybrid scoring."""
+    def search(self, query, top_n=5, alpha=0.5, use_mmr=True, lambda_param=0.7):
         if not self.documents:
-            raise ValueError(
-                "You must call `fit(documents)` before searching.")
+            raise ValueError("Call `fit(documents)` before searching.")
 
         # Encode query
         query_dense = self.dense_model.encode(
             [query], normalize_embeddings=True)
         query_sparse = self.sparse_vectorizer.transform([query])
 
-        # Dense similarity
+        # Dense and Sparse similarities
         dense_scores = util.cos_sim(query_dense, self.dense_embeddings)[
             0].cpu().numpy()
-
-        # Sparse similarity
         sparse_scores = (query_sparse @ self.sparse_matrix.T).toarray()[0]
 
-        # Final hybrid score
-        final_scores = alpha * dense_scores + (1 - alpha) * sparse_scores
+        # Hybrid score
+        hybrid_scores = alpha * dense_scores + (1 - alpha) * sparse_scores
+        # more candidates for reranking
+        top_indices = hybrid_scores.argsort()[::-1][:top_n * 2]
 
-        # Top N results before diversity
-        top_indices = final_scores.argsort()[::-1][:top_n]
+        if use_mmr:
+            selected = self.mmr_rerank(
+                top_indices, query_dense, lambda_param, top_n)
+            return [{"document": self.documents[i], "score": float(hybrid_scores[i])} for i in selected]
 
-        if diversity:
-            # Re-rank with diversity
-            final_scores, top_indices = self.apply_diversity(
-                top_indices, final_scores, top_n)
+        sorted_indices = hybrid_scores.argsort()[::-1][:top_n]
+        return [{"document": self.documents[i], "score": float(hybrid_scores[i])} for i in sorted_indices]
 
-        # Sort by score in descending order
-        sorted_indices = final_scores.argsort()[::-1]
+    def mmr_rerank(self, candidate_indices, query_vec, lambda_param, top_n):
+        selected = []
+        candidates = list(candidate_indices)
 
-        return [
-            {
-                "document": self.documents[idx],
-                "score": float(final_scores[idx])
-            }
-            for idx in sorted_indices[:top_n]
-        ]
+        embeddings = self.dense_embeddings
 
-    def apply_diversity(self, top_indices, final_scores, top_n):
-        """Apply diversity penalty to the top N results."""
-        selected_indices = []
-        selected_scores = []
-        selected_embeddings = []
+        while len(selected) < top_n and candidates:
+            mmr_scores = []
+            for idx in candidates:
+                sim_to_query = util.cos_sim(
+                    query_vec, embeddings[idx])[0].item()
+                sim_to_selected = max([util.cos_sim(embeddings[idx], embeddings[j])[0].item()
+                                       for j in selected], default=0)
+                mmr_score = lambda_param * sim_to_query - \
+                    (1 - lambda_param) * sim_to_selected
+                mmr_scores.append((mmr_score, idx))
 
-        for idx in top_indices:
-            # Check similarity with already selected results
-            doc_embedding = self.dense_embeddings[idx]
-            if not selected_embeddings:
-                selected_indices.append(idx)
-                selected_scores.append(final_scores[idx])
-                selected_embeddings.append(doc_embedding)
-            else:
-                # Calculate cosine similarity with previous selections
-                similarities = [util.cos_sim(doc_embedding, prev_emb)[
-                    0] for prev_emb in selected_embeddings]
-                min_similarity = min(similarities)
+            # Select document with max MMR score
+            _, selected_idx = max(mmr_scores, key=lambda x: x[0])
+            selected.append(selected_idx)
+            candidates.remove(selected_idx)
 
-                if min_similarity < self.diversity_penalty:
-                    # This document is sufficiently different, add it
-                    selected_indices.append(idx)
-                    selected_scores.append(final_scores[idx])
-                    selected_embeddings.append(doc_embedding)
-
-            # Ensure we stop if we have selected enough documents
-            if len(selected_indices) >= top_n:
-                break
-
-        # If fewer documents are selected due to diversity, fill up with the remaining top ones
-        remaining_indices = list(set(top_indices) - set(selected_indices))
-
-        # Sort remaining indices by the highest final scores
-        remaining_indices.sort(key=lambda idx: final_scores[idx], reverse=True)
-
-        # Add remaining documents to meet the top_n requirement
-        while len(selected_indices) < top_n and remaining_indices:
-            selected_indices.append(remaining_indices.pop(0))
-
-        # Ensure the final selection is sorted by score in descending order
-        selected_indices_sorted = sorted(
-            selected_indices, key=lambda idx: final_scores[idx], reverse=True)
-
-        return np.array(final_scores)[selected_indices_sorted], np.array(selected_indices_sorted)
+        return selected
