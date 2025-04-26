@@ -5,10 +5,22 @@ from pathlib import Path
 from jet.logger import logger
 
 
+def preprocess_content(content: str):
+    """Comment out lines starting with '!' or '%'."""
+    content_lines = content.splitlines()
+    processed_lines = [
+        f"# {line}" if line.lstrip().startswith(('!', '%')) else line
+        for line in content_lines
+    ]
+    processed_content = "\n".join(processed_lines)
+    return processed_content
+
+
 def strip_comments(content):
     """
     Remove all comments except lines starting with '#' that are inside triple-quoted strings.
     """
+    content = preprocess_content(content)
     lines = content.split('\n')
     triple_quoted_lines = set()
 

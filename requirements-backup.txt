@@ -2,20 +2,22 @@
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/starlette
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/text-splitters
+# -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres
+# -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/text-splitters
 
 # .venv/bin/python
 aim==3.26.1
 airportsdata==20241001
 annoy==1.17.3
 APScheduler==3.11.0
+av==14.3.0
 banks==2.1.0
 bm25s==0.2.5
 camoufox==0.3.10
 chardet==5.2.0
 chonkie==0.5.0
 colbert-ai==0.2.21
+ctranslate2==4.6.0
 deeplake==3.9.37
 docutils==0.21.2
 elasticsearch==8.16.0
@@ -34,6 +36,7 @@ geoip2==4.8.1
 gliner-spacy==0.0.11
 graspologic==3.4.1
 grequests==0.7.0
+gTTS==2.5.4
 guidance==0.1.16
 gunicorn==22.0.0
 gymnasium==1.0.0
@@ -46,10 +49,11 @@ isoduration==20.11.0
 jupyter==1.1.1
 langchain-chroma==0.2.2
 langchain-huggingface==0.1.2
--e git+ssh://git@github.com/langchain-ai/langchain-postgres.git@164810f161085c55adc57e75e2a93930b63a2e6b#egg=langchain_postgres
+-e git+ssh://git@github.com/langchain-ai/langchain-postgres.git@4c86319607d8181d7c2891961c680ed5a0f8d588#egg=langchain_postgres
 langchain-text-splitters==0.3.2
 language_tool_python==2.9.3
 lark==1.2.2
+llama_cpp_python==0.3.8
 llama-parse==0.6.1
 logfire-api==3.14.0
 lxml_html_clean==0.4.1
@@ -73,11 +77,11 @@ pipdeptree==2.25.0
 plotly==6.0.1
 psycopg2-binary==2.9.10
 pycountry==24.6.1
+pydub==0.25.1
 PyGetWindow==0.0.9
 PyMsgBox==1.0.9
 PyNaCl==1.5.0
 pynput==1.8.1
-pyobjc==10.3.2
 pypdf==5.1.0
 pyppeteer
 PyQt6==6.8.1
@@ -86,6 +90,7 @@ PyScreeze==1.0.1
 PyStemmer==2.2.0.3
 pytest-playwright==0.7.0
 pytrec_eval==0.5
+pyttsx3==2.98
 pytweening==1.2.0
 pyvis==0.3.2
 rank-bm25==0.2.2
@@ -111,3 +116,4 @@ watchfiles==1.0.0
 webcolors==24.11.1
 webdriver-manager==4.0.2
 wikipedia==1.4.0
+yt-dlp==2025.3.31
