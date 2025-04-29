@@ -172,17 +172,34 @@ class MLX:
 
     @dataclass
     class Config:
-        model: Optional[str] = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+        model: str
         adapter_path: Optional[str] = None
         draft_model: Optional[str] = None
         trust_remote_code: bool = False
         chat_template: Optional[str] = None
         use_default_chat_template: bool = True
 
-    def __init__(self, config: Optional[Config] = None, db_config: Optional[DBConfig] = None):
+    def __init__(
+        self,
+        model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        adapter_path: Optional[str] = None,
+        draft_model: Optional[str] = None,
+        trust_remote_code: bool = False,
+        chat_template: Optional[str] = None,
+        use_default_chat_template: bool = True,
+        config: Optional[Config] = None,
+        db_config: Optional[DBConfig] = None,
+    ):
         """Initialize the MLX client with configuration and optional database."""
         if config is None:
-            config = self.Config()
+            config = self.Config(
+                model=model,
+                adapter_path=adapter_path,
+                draft_model=draft_model,
+                trust_remote_code=trust_remote_code,
+                chat_template=chat_template,
+                use_default_chat_template=use_default_chat_template,
+            )
 
         # Initialize MLXLMClient
         self.client = MLXLMClient(MLXLMClient.Config(
