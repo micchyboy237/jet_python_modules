@@ -12,6 +12,8 @@ from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache, can_trim_p
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import load
 
+DEFAULT_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+
 # Typed dictionaries for structured data
 
 
@@ -116,7 +118,7 @@ class MLXLMClient:
     def chat(
         self,
         messages: List[Message],
-        model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        model: str = DEFAULT_MODEL,
         draft_model: Optional[str] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
@@ -191,7 +193,7 @@ class MLXLMClient:
     def generate(
         self,
         prompt: str,
-        model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        model: str = DEFAULT_MODEL,
         draft_model: Optional[str] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
