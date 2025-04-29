@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from jet.logger import logger
 from jet.file.utils import load_file, save_file
 from jet.scrapers.preprocessor import html_to_markdown
-from jet.code.splitter_markdown_utils import count_md_header_contents, get_md_header_contents
+from jet.code.splitter_markdown_utils import count_md_header_contents, extract_md_header_contents, get_md_header_contents
 from jet.token.token_utils import get_model_max_tokens, group_nodes, group_texts, split_docs, token_counter, truncate_texts
 from jet.wordnet.similarity import InfoStats, query_similarity_scores, compute_info
 from llama_index.core.schema import Document as BaseDocument, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
@@ -162,7 +162,9 @@ class Document(BaseDocument):
 
 def get_docs_from_html(html: str) -> list[Document]:
     md_text = html_to_markdown(html, ignore_links=True)
-    header_contents = get_md_header_contents(md_text)
+    # header_contents = get_md_header_contents(md_text)
+    header_contents = extract_md_header_contents(
+        md_text, min_tokens_per_chunk=300, max_tokens_per_chunk=500)
 
     docs: list[Document] = []
     parent_stack: list[tuple[int, Document]] = []  # (header_level, doc)

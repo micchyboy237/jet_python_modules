@@ -87,7 +87,7 @@ class CustomLogger:
                 # log_filtered_stack_trace(exc)
 
             if not end:
-                end = "" if flush else "\n"
+                end = "" if flush else "\n\n"
             print(output, end=end)
 
             # File handler logic
@@ -101,7 +101,7 @@ class CustomLogger:
                     # - This is not a flush message, or
                     # - The last message was not flushed
                     if not flush and self._last_message_flushed:
-                        file.write("\n")
+                        file.write("\n\n")
                     if not flush or (flush and not self._last_message_flushed):
                         file.write(metadata + "\n")
                     file.write(message + end)

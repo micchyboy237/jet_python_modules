@@ -12,6 +12,9 @@ DEFAULT_SF_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
 
 # Get the list of ollama models
 OLLAMA_MODEL_NAMES = Literal[
+    "gemma3:1b-it-qat",
+    "deepseek-r1:1.5b",
+    "llama3.2:1b",
     "granite-embedding:278m",
     "granite-embedding",
     "paraphrase-multilingual",
@@ -21,33 +24,14 @@ OLLAMA_MODEL_NAMES = Literal[
     "snowflake-arctic-embed:33m",
     "snowflake-arctic-embed:137m",
     "snowflake-arctic-embed",
-    "deepseek-r1",
-    "deepseek-r1:1.5b",
-    "gemma3:1b",
-    "gemma3:4b",
-    "qwen2.5-coder",
     "nomic-embed-text",
-    "mistral",
-    "mxbai-embed-large",
-    "llama3.1",
-    "llama3.2",
-    "codellama",
-    "codegemma",
-    "llava"
+    "mxbai-embed-large"
 ]
 
 OLLAMA_LLM_MODELS = Literal[
-    "deepseek-r1",
+    "gemma3:1b-it-qat",
     "deepseek-r1:1.5b",
-    "gemma3:1b",
-    "gemma3:4b",
-    "qwen2.5-coder",
-    "mistral",
-    "llama3.1",
-    "llama3.2",
-    "codellama",
-    "codegemma",
-    "llava"
+    "llama3.2:1b",
 ]
 
 OLLAMA_EMBED_MODELS = Literal[
@@ -67,6 +51,9 @@ OLLAMA_EMBED_MODELS = Literal[
 
 # Map models to context window sizes
 OLLAMA_MODEL_CONTEXTS = {
+    "gemma3:1b-it-qat": 32768,
+    "deepseek-r1:1.5b": 131072,
+    "llama3.2:1b": 131072,
     "granite-embedding:278m": 512,
     "granite-embedding": 512,
     "paraphrase-multilingual": 512,
@@ -76,23 +63,15 @@ OLLAMA_MODEL_CONTEXTS = {
     "snowflake-arctic-embed:33m": 512,
     "snowflake-arctic-embed:137m": 2048,
     "snowflake-arctic-embed": 512,
-    "deepseek-r1": 131072,
-    "deepseek-r1:1.5b": 131072,
-    "gemma3:1b": 32768,
-    "gemma3:4b": 131072,
-    "qwen2.5-coder": 32768,
     "nomic-embed-text": 2048,
-    "mistral": 32768,
-    "mxbai-embed-large": 512,
-    "llama3.1": 131072,
-    "codellama": 16384,
-    "codegemma": 8192,
-    "llava": 32768,
-    "llama3.2": 131072
+    "mxbai-embed-large": 512
 }
 
 # Map models to embedding sizes
 OLLAMA_MODEL_EMBEDDING_TOKENS = {
+    "gemma3:1b-it-qat": 1152,
+    "deepseek-r1:1.5b": 1536,
+    "llama3.2:1b": 2048,
     "granite-embedding:278m": 768,
     "granite-embedding": 384,
     "paraphrase-multilingual": 768,
@@ -102,19 +81,8 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "snowflake-arctic-embed:33m": 384,
     "snowflake-arctic-embed:137m": 768,
     "snowflake-arctic-embed": 1024,
-    "deepseek-r1": 3584,
-    "deepseek-r1:1.5b": 1536,
-    "gemma3:1b": 1152,
-    "gemma3:4b": 2560,
-    "qwen2.5-coder": 3584,
     "nomic-embed-text": 768,
-    "mistral": 4096,
-    "mxbai-embed-large": 1024,
-    "llama3.1": 4096,
-    "codellama": 4096,
-    "codegemma": 3072,
-    "llava": 4096,
-    "llama3.2": 3072
+    "mxbai-embed-large": 1024
 }
 
 
@@ -122,6 +90,7 @@ OLLAMA_HF_MODELS = {
     # LLM
     "llama3.1": "meta-llama/Llama-3.1-8B",
     "llama3.2": "meta-llama/Llama-3.2-3B",
+    "llama3.2:1b": "meta-llama/Llama-3.2-1B",
     "mistral": "mistralai/Mistral-7B-Instruct-v0.3",
     "deepseek-r1": "deepseek-ai/DeepSeek-R1",
     "deepseek-r1:1.5b": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
@@ -148,6 +117,7 @@ OLLAMA_HF_MODEL_NAMES = Literal[
     # LLM
     "meta-llama/Llama-3.1-8B",
     "meta-llama/Llama-3.2-3B",
+    "meta-llama/Llama-3.2-1B",
     "mistralai/Mistral-7B-Instruct-v0.3",
     "deepseek-ai/DeepSeek-R1",
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",

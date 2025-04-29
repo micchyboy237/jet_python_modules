@@ -288,6 +288,8 @@ def extract_md_header_contents(md_text: str, min_tokens_per_chunk: int = 256, ma
     # Clean newlines and extra spaces
     for header_content in header_contents:
         header_content["content"] = clean_newlines(header_content["content"])
+        header_content["header_level"] = get_header_level(
+            header_content["header"])
 
     return header_contents
 
