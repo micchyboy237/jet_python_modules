@@ -61,3 +61,14 @@ class RedisCache:
     def set(self, key: str, value: dict, ttl: int = 3600):
         """Store the result in cache."""
         self.redis_client.set(key, json.dumps(value), ttl)
+
+    def clear(self, key: Optional[str] = None):
+        """Clear the cache. If key is provided, clear only that key. Otherwise, clear all keys."""
+        try:
+            if key:
+                self.redis_client.delete(key)
+            else:
+                self.redis_client.flushdb()
+        except ConnectionError as e:
+            logger.error(f"Error clearing cache: {str(e)}")
+            traceback.print_exc()

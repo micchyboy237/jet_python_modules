@@ -14,6 +14,7 @@ class SimilarityResult(TypedDict):
     """
     id: str
     rank: Optional[int]
+    doc_index: int
     score: float
     percent_difference: Optional[float]
     text: str

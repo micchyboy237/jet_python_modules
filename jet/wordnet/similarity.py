@@ -124,7 +124,7 @@ def query_similarity_scores(
 
     Returns:
         List of SimilarityResult, containing one fused result per text,
-        sorted by score in descending order with ranks and percent_difference.
+        sorted by score in descending order with ranks, percent_difference, and doc_index.
 
     Raises:
         ValueError: If inputs are empty, model is empty, ids length mismatches texts,
@@ -198,13 +198,11 @@ def query_similarity_scores(
             similarity_matrix = np.dot(query_embeddings, text_embeddings.T)
         elif metrics == "euclidean":
             # Euclidean distance (lower is better, so we negate and add 1 to make higher better)
-            # This transforms the range from [0, ∞) to (-∞, 1] where 1 is perfect match
             similarity_matrix = np.zeros((len(query), len(texts)))
             for i in range(len(query)):
                 for j in range(len(texts)):
                     dist = np.linalg.norm(
                         query_embeddings[i] - text_embeddings[j])
-                    # Convert distance to a similarity score (1 for identical, approaching 0 for very different)
                     similarity_matrix[i, j] = 1 / (1 + dist)
 
         for i, query_text in enumerate(query):
@@ -214,6 +212,8 @@ def query_similarity_scores(
             filtered_texts = np.array(texts)[mask]
             filtered_ids = np.array(text_ids)[mask]
             filtered_scores = scores[mask]
+            filtered_indices = np.arange(
+                len(texts))[mask]  # Track original indices
 
             sorted_indices = np.argsort(filtered_scores)[::-1]
             for idx, j in enumerate(sorted_indices):
@@ -221,13 +221,36 @@ def query_similarity_scores(
                     "id": filtered_ids[j],
                     "query": query_text,
                     "text": filtered_texts[j],
-                    "score": float(filtered_scores[j])
+                    "score": float(filtered_scores[j]),
+                    "doc_index": int(filtered_indices[j])
                 })
 
     # Fuse results
     fused_results = fuse_all_results(all_results, method=fuse_method)
 
-    return fused_results
+    # Update fused results to include doc_index
+    # Fixed: Use result["id"] instead of result.id
+    fused_dict = {result["id"]: result for result in fused_results}
+    for result in all_results:
+        if result["id"] in fused_dict:
+            fused_dict[result["id"]]["doc_index"] = result["doc_index"]
+
+    # Convert dictionaries to SimilarityResult TypedDict
+    final_results = [
+        {
+            "id": result["id"],
+            "rank": result["rank"],
+            "score": result["score"],
+            "percent_difference": result["percent_difference"],
+            "text": result["text"],
+            "doc_index": result.get("doc_index", 0),  # Default to 0 if not set
+            "relevance": None,  # Optional field, not computed here
+            "word_count": None  # Optional field, not computed here
+        }
+        for result in fused_dict.values()
+    ]
+
+    return final_results
 
 
 def fuse_all_results(

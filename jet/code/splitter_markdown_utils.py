@@ -1,7 +1,7 @@
 import re
 from typing import Callable, Optional, List, Dict, TypedDict, Union
 
-from jet.scrapers.preprocessor import scrape_markdown
+from jet.scrapers.preprocessor import html_to_markdown, is_html, scrape_markdown
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 
 
@@ -176,6 +176,10 @@ def get_header_contents(md_text: str,
 
 
 def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[Header]:
+
+    # Check if input is HTML and convert to Markdown if necessary
+    if is_html(md_text):
+        md_text = html_to_markdown(md_text)
 
     headers_to_split_on = headers_to_split_on or [
         ("#", "h1"),

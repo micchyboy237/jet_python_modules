@@ -115,7 +115,7 @@ class TestCleanNonAlphanumeric(unittest.TestCase):
 
     def test_include_chars_spaces(self):
         self.assertEqual(clean_non_alphanumeric(
-            "Hello, World! 123", include_chars=[" "]), "Hello World123")
+            "Hello, World! 123", include_chars=[" "]), "Hello World 123")
 
     def test_include_chars_commas(self):
         self.assertEqual(clean_non_alphanumeric(
@@ -134,113 +134,201 @@ class TestSafePathFromUrl(unittest.TestCase):
     def test_basic_url(self):
         url = "https://example.com/assets/image.png"
         output_dir = "downloads"
-        expected = os.path.join("downloads", "example_com", "image")
+        expected = "_".join(["downloads", "example_com", "image"])
         result = safe_path_from_url(url, output_dir)
         self.assertEqual(result, expected)
 
     def test_url_with_port_and_special_chars(self):
         url = "http://my.site.com:8080/media/@files/video.mp4"
         output_dir = "cache"
-        expected = os.path.join("cache", "my_site_com", "video")
+        expected = "_".join(["cache", "my_site_com", "video"])
         result = safe_path_from_url(url, output_dir)
         self.assertEqual(result, expected)
 
     def test_url_with_no_path(self):
         url = "https://test.org"
         output_dir = "static"
-        expected = os.path.join("static", "test_org", "root")
+        expected = "_".join(["static", "test_org", "root"])
         result = safe_path_from_url(url, output_dir)
         self.assertEqual(result, expected)
 
     def test_url_with_trailing_slash(self):
         url = "https://example.com/path/to/"
         output_dir = "out"
-        expected = os.path.join("out", "example_com", "to")
+        expected = "_".join(["out", "example_com", "to"])
         result = safe_path_from_url(url, output_dir)
         self.assertEqual(result, expected)
 
     def test_url_with_empty_hostname(self):
         url = "file:///usr/local/bin/script.sh"
         output_dir = "bin"
-        expected = os.path.join("bin", "unknown_host", "script")
+        expected = "_".join(["bin", "unknown_host", "script"])
         result = safe_path_from_url(url, output_dir)
         self.assertEqual(result, expected)
 
     def test_url_with_dot_in_filename(self):
         url = "https://example.com/files/archive.tar.gz"
         output_dir = "extracted"
-        expected = os.path.join("extracted", "example_com", "archive.tar")
+        expected = "_".join(["extracted", "example_com", "archive.tar"])
         result = safe_path_from_url(url, output_dir)
         self.assertEqual(result, expected)
 
     def test_absolute_output_dir(self):
         url = "https://cdn.site.com/assets/font.woff"
         output_dir = "/var/cache/fonts"
-        expected = os.path.join("/var/cache/fonts", "cdn_site_com", "font")
+        expected = "_".join(["/var/cache/fonts", "cdn_site_com", "font"])
         result = safe_path_from_url(url, output_dir)
         self.assertEqual(result, expected)
 
 
 class TestScrapeLinks(unittest.TestCase):
-
-    def test_absolute_urls(self):
-        sample = '<a href="https://example.com/page"></a>'
-        expected = ['https://example.com/page']
-        result = scrape_links(sample)
-        self.assertEqual(result, expected)
-
-    def test_relative_paths(self):
-        sample = '<form action="/submit-form"></form>'
-        expected = ['/submit-form']
-        result = scrape_links(sample)
-        self.assertEqual(result, expected)
-
-    def test_hash_links(self):
-        sample = '<div data-href="#section1"></div>'
-        expected = ['#section1']
-        result = scrape_links(sample)
-        self.assertEqual(result, expected)
-
-    def test_numeric_url(self):
-        sample = '<a href="https://sitegiant.ph/blog/2024/12/10/">Link</a>'
-        expected = ['https://sitegiant.ph/blog/2024/12/10/']
-        result = scrape_links(sample)
-        self.assertEqual(result, expected)
-
-    def test_protocol_relative(self):
-        sample = '<script src="//cdn.example.com/js"></script><a href="//cdn.example.com/css">'
-        expected = ['//cdn.example.com/css']
-        result = scrape_links(sample)
-        self.assertEqual(result, expected)
-
-    def test_mixed_attributes(self):
-        sample = '''
-            <a href="https://a.com"></a>
-            <form action="/do"></form>
-            <div data-href="#x"></div>
-            <a href='//cdn.com/script.js'></a>
+    def test_extracts_valid_links_no_base_url(self):
+        html = '''
+        <a href="https://example.com/page1">Page 1</a>
+        <a data-href='https://example.com/page2'>Page 2</a>
+        <form action="https://example.com/submit">Submit</form>
+        <a href="#">Anchor</a>
+        <a href="javascript:void(0)">JS Link</a>
+        <a href="">Empty</a>
+        <a href="subpage.html">Subpage</a>
+        <a href="/path">Path</a>
         '''
-        expected = ['https://a.com', '/do', '#x', '//cdn.com/script.js']
-        result = scrape_links(sample)
-        self.assertEqual(result, expected)
+        expected = [
+            "https://example.com/page1",
+            "https://example.com/page2",
+            "https://example.com/submit"
+        ]
+        result = scrape_links(html)
+        self.assertEqual(sorted(result), sorted(expected))
 
-    def test_ignores_non_target_attrs(self):
-        sample = '<img src="https://img.com/a.png"><meta content="https://meta.com">'
-        expected = []
-        result = scrape_links(sample)
-        self.assertEqual(result, expected)
+    def test_empty_html_no_base_url(self):
+        html = ""
+        result = scrape_links(html)
+        self.assertEqual(result, [])
 
-    def test_case_insensitivity(self):
-        sample = '<A HREF="https://upper.com"><FORM ACTION="/upper"></FORM>'
-        expected = ['https://upper.com', '/upper']
-        result = scrape_links(sample)
-        self.assertEqual(result, expected)
+    def test_no_valid_links_no_base_url(self):
+        html = '''
+        <a href="#">Anchor</a>
+        <a href="javascript:alert('hi')">JS Link</a>
+        <a href="">Empty</a>
+        '''
+        result = scrape_links(html)
+        self.assertEqual(result, [])
 
-    def test_empty_input(self):
-        sample = ''
-        expected = []
-        result = scrape_links(sample)
-        self.assertEqual(result, expected)
+    def test_no_host_links_no_base_url(self):
+        html = '''
+        <a href="subpage.html">Subpage</a>
+        <a href="/absolute/path">Absolute</a>
+        <a href="relative/page.html">Relative</a>
+        <a href="#section">Section</a>
+        <a href="#">Anchor</a>
+        '''
+        result = scrape_links(html)
+        self.assertEqual(result, [])
+
+    def test_extracts_valid_links_with_base_url(self):
+        html = '''
+        <a href="https://example.com/page1">Page 1</a>
+        <a href="https://other.com/page2">Page 2</a>
+        <a href="#section">Section</a>
+        <a href="/subpage">Subpage</a>
+        <a href="relative.html">Relative</a>
+        <a href="javascript:void(0)">JS Link</a>
+        '''
+        base_url = "https://example.com"
+        expected = [
+            "https://example.com/page1",
+            "https://example.com#section",
+            "https://example.com/subpage",
+            "https://example.com/relative.html"
+        ]
+        result = scrape_links(html, base_url=base_url)
+        self.assertEqual(sorted(result), sorted(expected))
+
+    def test_anchor_links_with_base_url(self):
+        html = '''
+        <a href="#section1">Section 1</a>
+        <a href="#section2">Section 2</a>
+        <a href="#">Anchor</a>
+        '''
+        base_url = "https://example.com/path/page.html"
+        expected = [
+            "https://example.com/path/page.html#section1",
+            "https://example.com/path/page.html#section2",
+            "https://example.com/path/page.html#"
+        ]
+        result = scrape_links(html, base_url=base_url)
+        self.assertEqual(sorted(result), sorted(expected))
+
+    def test_relative_and_absolute_urls_with_base_url(self):
+        html = '''
+        <a href="/absolute/path">Absolute</a>
+        <a href="relative/page.html">Relative</a>
+        <a href="https://example.com/full/path">Full</a>
+        <a href="https://other.com/different">Other</a>
+        '''
+        base_url = "https://example.com"
+        expected = [
+            "https://example.com/absolute/path",
+            "https://example.com/relative/page.html",
+            "https://example.com/full/path"
+        ]
+        result = scrape_links(html, base_url=base_url)
+        self.assertEqual(sorted(result), sorted(expected))
+
+    def test_mixed_quote_types(self):
+        html = '''
+        <a href="https://example.com/page1">Page 1</a>
+        <a href='https://example.com/page2'>Page 2</a>
+        <form action="https://example.com/submit">Submit</form>
+        '''
+        expected = [
+            "https://example.com/page1",
+            "https://example.com/page2",
+            "https://example.com/submit"
+        ]
+        result = scrape_links(html)
+        self.assertEqual(sorted(result), sorted(expected))
+
+    def test_case_insensitive_attributes(self):
+        html = '''
+        <a HREF="https://example.com/page1">Page 1</a>
+        <a DATA-HREF="https://example.com/page2">Page 2</a>
+        <form ACTION="https://example.com/submit">Submit</form>
+        '''
+        expected = [
+            "https://example.com/page1",
+            "https://example.com/page2",
+            "https://example.com/submit"
+        ]
+        result = scrape_links(html)
+        self.assertEqual(sorted(result), sorted(expected))
+
+    def test_base_url_with_fragment(self):
+        html = '''
+        <a href="#section">Section</a>
+        <a href="subpage.html">Subpage</a>
+        '''
+        base_url = "https://example.com/path/page.html#existing"
+        expected = [
+            "https://example.com/path/page.html#section",
+            "https://example.com/path/subpage.html"
+        ]
+        result = scrape_links(html, base_url=base_url)
+        self.assertEqual(sorted(result), sorted(expected))
+
+    def test_malformed_html(self):
+        html = '''
+        <a href="https://example.com/page1" malformed
+        <a href='https://example.com/page2'>Page 2</a>
+        <a href=unquoted>Invalid</a>
+        '''
+        expected = [
+            "https://example.com/page1",
+            "https://example.com/page2"
+        ]
+        result = scrape_links(html)
+        self.assertEqual(sorted(result), sorted(expected))
 
 
 if __name__ == '__main__':

@@ -23,7 +23,12 @@ import parsel
 import unidecode
 
 
-def scrape_links(html: str) -> List[str]:
+from typing import List, Optional
+import re
+from urllib.parse import urlparse, urljoin
+
+
+def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
     # Target attributes to extract
     attributes = ['href', 'data-href', 'action']
 
@@ -38,12 +43,42 @@ def scrape_links(html: str) -> List[str]:
 
     matches = re.findall(quote_pattern, html, flags=re.IGNORECASE)
 
-    # Filter out empty, '#' and javascript: links
-    filtered = [
-        match[1] for match in matches
-        if match[1].strip() not in ('', '#') and not match[1].lower().startswith('javascript:')
-    ]
-    return filtered
+    # Filter and process links
+    filtered = []
+    for match in matches:
+        link = match[1].strip()
+        # Skip empty, javascript:, or invalid links
+        if not link or link.lower().startswith('javascript:'):
+            continue
+
+        if base_url:
+            # Parse base_url to get scheme and netloc for filtering
+            parsed_base = urlparse(base_url)
+            base_scheme_netloc = f"{parsed_base.scheme}://{parsed_base.netloc}"
+
+            # Resolve relative URLs and anchor links
+            if link.startswith('#'):
+                # Prepend base_url's scheme, netloc, and path to anchor links
+                link = f"{base_scheme_netloc}{parsed_base.path}{link}"
+            else:
+                # Resolve relative URLs against base_url
+                link = urljoin(base_url, link)
+
+            # Filter links from the same domain (scheme and netloc)
+            if urlparse(link).netloc != parsed_base.netloc:
+                continue
+        else:
+            # If no base_url, filter out fragment-only links and links without a host
+            if link == '#' or link.startswith('#'):
+                continue
+            parsed_link = urlparse(link)
+            if not (parsed_link.scheme and parsed_link.netloc):
+                continue
+
+        filtered.append(link)
+
+    # Return unique links only
+    return list(set(filtered))
 
 
 def get_max_prompt_char_length(context_length: int, avg_chars_per_token: float = 4.0) -> int:
@@ -985,14 +1020,13 @@ def safe_path_from_url(url: str, output_dir: str) -> str:
     host = parsed.hostname or 'unknown_host'
     safe_host = re.sub(r'\W+', '_', host)
 
-    # # Last path segment without extension
-    # path_parts = [part for part in parsed.path.split('/') if part]
-    # last_path = path_parts[-1] if path_parts else 'root'
-    # last_path_no_ext = os.path.splitext(last_path)[0]
+    # Last path segment without extension
+    path_parts = [part for part in parsed.path.split('/') if part]
+    last_path = path_parts[-1] if path_parts else 'root'
+    last_path_no_ext = os.path.splitext(last_path)[0]
 
-    # Build final safe path: output_dir / safe_host / last_path_no_ext
-    # return os.path.join(output_dir, safe_host, last_path_no_ext)
-    return os.path.join(output_dir, safe_host)
+    # Build final safe path: output_dir_safe_host_last_path_no_ext
+    return "_".join([output_dir, safe_host, last_path_no_ext])
 
 
 def search_data(query, **kwargs) -> list[SearchResult]:

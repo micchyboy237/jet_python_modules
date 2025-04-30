@@ -8,6 +8,15 @@ import bs4.element
 from jet.logger import logger
 
 
+def is_html(text: str) -> bool:
+    """Check if the input string is valid HTML."""
+    try:
+        soup = BeautifulSoup(text, 'html.parser')
+        return bool(soup.find())
+    except:
+        return False
+
+
 def minify_html(html: str) -> str:
     # Remove newlines and tabs
     html = re.sub(r'\s*\n\s*', '', html)

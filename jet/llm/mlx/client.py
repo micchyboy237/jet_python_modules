@@ -57,8 +57,11 @@ class Choice(TypedDict):
 
 class Usage(TypedDict):
     prompt_tokens: int
+    prompt_tps: float
     completion_tokens: int
+    completion_tps: float
     total_tokens: int
+    peak_memory: float
 
 
 class CompletionResponse(TypedDict):
@@ -480,7 +483,10 @@ class MLXLMClient:
         object_type: str,
         model: str,
         prompt_token_count: Optional[int] = None,
+        prompt_tps: Optional[float] = None,
         completion_token_count: Optional[int] = None,
+        completion_tps: Optional[float] = None,
+        peak_memory: Optional[float] = None,
         token_logprobs: Optional[List[float]] = None,
         top_tokens: Optional[List[Dict[int, float]]] = None,
         tokens: Optional[List[int]] = None,
@@ -514,20 +520,23 @@ class MLXLMClient:
             "usage": None
         }
 
-        if not stream:
-            if not (isinstance(prompt_token_count, int) and isinstance(completion_token_count, int)):
-                raise ValueError(
-                    "Response type is complete, but token counts not provided")
-            response["usage"] = {
-                "prompt_tokens": prompt_token_count,
-                "completion_tokens": completion_token_count,
-                "total_tokens": prompt_token_count + completion_token_count,
-            }
+        if not (isinstance(prompt_token_count, int) and isinstance(completion_token_count, int)):
+            raise ValueError(
+                "Response type is complete, but token counts not provided")
+        response["usage"] = {
+            "prompt_tokens": prompt_token_count,
+            "prompt_tps": prompt_tps,
+            "completion_tokens": completion_token_count,
+            "completion_tps": completion_tps,
+            "peak_memory": peak_memory,
+            "total_tokens": prompt_token_count + completion_token_count,
+        }
 
         choice = response["choices"][0]
         if object_type.startswith("chat.completion"):
-            key_name = "delta" if stream else "message"
-            choice[key_name] = {"role": "assistant", "content": text}
+            # key_name = "delta" if stream else "message"
+            # choice[key_name] = {"role": "assistant", "content": text}
+            choice["message"] = {"role": "assistant", "content": text}
         elif object_type == "text_completion":
             choice["text"] = text
         else:
@@ -618,7 +627,7 @@ class MLXLMClient:
         token_logprobs: List[float] = []
         top_tokens: List[Dict[int, float]] = []
         text: str = ""
-        finish_reason: Literal["length", "stop"] = "length"
+        finish_reason: Optional[Literal["length", "stop"]] = None
 
         prompt = self._get_prompt_cache(prompt)
         sampler = make_sampler(
@@ -633,6 +642,7 @@ class MLXLMClient:
             logit_bias, repetition_penalty, repetition_context_size
         )
 
+        stop_texts = tokenizer.batch_decode(stop_id_sequences)
         for gen_response in stream_generate(
             model=model_obj,
             tokenizer=tokenizer,
@@ -649,6 +659,7 @@ class MLXLMClient:
             token: int = gen_response.token
             logprobs_data: mx.array = gen_response.logprobs
             tokens.append(token)
+            finish_reason = gen_response.finish_reason
 
             if logprobs > 0:
                 sorted_indices: mx.array = mx.argpartition(
@@ -661,50 +672,43 @@ class MLXLMClient:
 
             token_logprobs.append(logprobs_data[token].item())
 
-            stop_condition = stopping_criteria(
-                tokens, stop_id_sequences, tokenizer.eos_token_id)
-            if stop_condition.stop_met:
-                finish_reason = "stop"
-                if stop_condition.trim_length:
-                    stop_sequence_suffix: str = tokenizer.decode(
-                        tokens[-stop_condition.trim_length:])
-                    text = text[:-len(stop_sequence_suffix)]
-                yield self._generate_response(
-                    text=text,
-                    finish_reason=finish_reason,
-                    request_id=request_id,
-                    object_type=object_type,
-                    model=self.model_provider.model_key[0],
-                    stream=True
-                )
+            # Check for stop texts in the generated text
+            for stop_text in stop_texts:
+                if stop_text in text:
+                    finish_reason = "stop"
+                    # Trim text up to stop_text
+                    text = text[:text.index(stop_text)]
+                    segment = segment[:segment.index(stop_text)]
+                    break
+
+            yield self._generate_response(
+                text=segment,
+                finish_reason=finish_reason,
+                request_id=request_id,
+                object_type=object_type,
+                model=self.model_provider.model_key[0],
+                stream=True,
+                prompt_token_count=gen_response.prompt_tokens,
+                prompt_tps=gen_response.prompt_tps,
+                completion_token_count=len(tokens),
+                completion_tps=gen_response.generation_tps,
+                peak_memory=gen_response.peak_memory,
+                token_logprobs=token_logprobs,
+                top_tokens=top_tokens,
+                tokens=tokens,
+            )
+
+            if finish_reason:
                 break
 
-            if segment and not any(sequence_overlap(tokens, seq) for seq in stop_id_sequences):
-                yield self._generate_response(
-                    text=segment,
-                    finish_reason=None,
-                    request_id=request_id,
-                    object_type=object_type,
-                    model=self.model_provider.model_key[0],
-                    stream=True
-                )
-
         self.prompt_cache.tokens.extend(tokens)
-        yield self._generate_response(
-            text="",
-            finish_reason=finish_reason,
-            request_id=request_id,
-            object_type=object_type,
-            model=self.model_provider.model_key[0],
-            stream=True
-        )
-        if {"include_usage": True} in [self.cli_args.__dict__.get("stream_options", {})]:
-            yield self._completion_usage_response(
-                request_id=request_id,
-                model=self.model_provider.model_key[0],
-                prompt_token_count=len(prompt),
-                completion_token_count=len(tokens)
-            )
+        # if {"include_usage": True} in [self.cli_args.__dict__.get("stream_options", {})]:
+        #     yield self._completion_usage_response(
+        #         request_id=request_id,
+        #         model=self.model_provider.model_key[0],
+        #         prompt_token_count=len(prompt),
+        #         completion_token_count=len(tokens)
+        #     )
 
     def _generate_completion(
         self,
@@ -749,6 +753,7 @@ class MLXLMClient:
 
         if stream:
             responses: List[CompletionResponse] = []
+            stop_texts = tokenizer.batch_decode(stop_id_sequences)
             for gen_response in stream_generate(
                 model=model_obj,
                 tokenizer=tokenizer,
@@ -765,6 +770,7 @@ class MLXLMClient:
                 token: int = gen_response.token
                 logprobs_data: mx.array = gen_response.logprobs
                 tokens.append(token)
+                finish_reason = gen_response.finish_reason
 
                 if logprobs > 0:
                     sorted_indices: mx.array = mx.argpartition(
@@ -777,52 +783,45 @@ class MLXLMClient:
 
                 token_logprobs.append(logprobs_data[token].item())
 
-                stop_condition = stopping_criteria(
-                    tokens, stop_id_sequences, tokenizer.eos_token_id)
-                if stop_condition.stop_met:
-                    finish_reason = "stop"
-                    if stop_condition.trim_length:
-                        stop_sequence_suffix: str = tokenizer.decode(
-                            tokens[-stop_condition.trim_length:])
-                        text = text[:-len(stop_sequence_suffix)]
-                    responses.append(self._generate_response(
-                        text=text,
-                        finish_reason=finish_reason,
-                        request_id=request_id,
-                        object_type=object_type,
-                        model=self.model_provider.model_key[0],
-                        stream=stream
-                    ))
+                # Check for stop texts in the generated text
+                for stop_text in stop_texts:
+                    if stop_text in text:
+                        # Trim text up to stop_text
+                        text = text[:text.index(stop_text)]
+                        segment = segment[:segment.index(stop_text)]
+                        break
+
+                responses.append(self._generate_response(
+                    text="",
+                    finish_reason=finish_reason,
+                    request_id=request_id,
+                    object_type=object_type,
+                    model=self.model_provider.model_key[0],
+                    stream=True,
+                    prompt_token_count=gen_response.prompt_tokens,
+                    prompt_tps=gen_response.prompt_tps,
+                    completion_token_count=len(tokens),
+                    completion_tps=gen_response.generation_tps,
+                    peak_memory=gen_response.peak_memory,
+                    token_logprobs=token_logprobs,
+                    top_tokens=top_tokens,
+                    tokens=tokens,
+                ))
+
+                if finish_reason:
                     break
 
-                if segment and not any(sequence_overlap(tokens, seq) for seq in stop_id_sequences):
-                    responses.append(self._generate_response(
-                        text=segment,
-                        finish_reason=None,
-                        request_id=request_id,
-                        object_type=object_type,
-                        model=self.model_provider.model_key[0],
-                        stream=stream
-                    ))
-
             self.prompt_cache.tokens.extend(tokens)
-            responses.append(self._generate_response(
-                text="",
-                finish_reason=finish_reason,
-                request_id=request_id,
-                object_type=object_type,
-                model=self.model_provider.model_key[0],
-                stream=stream
-            ))
-            if stream and {"include_usage": True} in [self.cli_args.__dict__.get("stream_options", {})]:
-                responses.append(self._completion_usage_response(
-                    request_id=request_id,
-                    model=self.model_provider.model_key[0],
-                    prompt_token_count=len(prompt),
-                    completion_token_count=len(tokens)
-                ))
+            # if {"include_usage": True} in [self.cli_args.__dict__.get("stream_options", {})]:
+            #     responses.append(self._completion_usage_response(
+            #         request_id=request_id,
+            #         model=self.model_provider.model_key[0],
+            #         prompt_token_count=len(prompt),
+            #         completion_token_count=len(tokens)
+            #     ))
             return responses
         else:
+            stop_texts = tokenizer.batch_decode(stop_id_sequences)
             for gen_response in stream_generate(
                 model=model_obj,
                 tokenizer=tokenizer,
@@ -839,6 +838,7 @@ class MLXLMClient:
                 token: int = gen_response.token
                 logprobs_data: mx.array = gen_response.logprobs
                 tokens.append(token)
+                finish_reason = gen_response.finish_reason
 
                 if logprobs > 0:
                     sorted_indices: mx.array = mx.argpartition(
@@ -851,14 +851,15 @@ class MLXLMClient:
 
                 token_logprobs.append(logprobs_data[token].item())
 
-                stop_condition = stopping_criteria(
-                    tokens, stop_id_sequences, tokenizer.eos_token_id)
-                if stop_condition.stop_met:
-                    finish_reason = "stop"
-                    if stop_condition.trim_length:
-                        stop_sequence_suffix: str = tokenizer.decode(
-                            tokens[-stop_condition.trim_length:])
-                        text = text[:-len(stop_sequence_suffix)]
+                # Check for stop texts in the generated text
+                for stop_text in stop_texts:
+                    if stop_text in text:
+                        # Trim text up to stop_text
+                        text = text[:text.index(stop_text)]
+                        segment = segment[:segment.index(stop_text)]
+                        break
+
+                if finish_reason:
                     break
 
             self.prompt_cache.tokens.extend(tokens)
@@ -868,10 +869,13 @@ class MLXLMClient:
                 request_id=request_id,
                 object_type=object_type,
                 model=self.model_provider.model_key[0],
-                prompt_token_count=len(prompt),
+                stream=True,
+                prompt_token_count=gen_response.prompt_tokens,
+                prompt_tps=gen_response.prompt_tps,
                 completion_token_count=len(tokens),
+                completion_tps=gen_response.generation_tps,
+                peak_memory=gen_response.peak_memory,
                 token_logprobs=token_logprobs,
                 top_tokens=top_tokens,
                 tokens=tokens,
-                stream=stream
             )
