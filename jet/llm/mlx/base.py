@@ -360,7 +360,7 @@ class MLX:
         ):
             if response.get("choices"):
                 content = response["choices"][0].get(
-                    "delta", {}).get("content", "")
+                    "message", {}).get("content", "")
                 assistant_content += content
             yield response
 
