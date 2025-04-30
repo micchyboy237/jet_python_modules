@@ -24,7 +24,7 @@ async def fetch_page_content(page, url: str) -> Tuple[int, str, str, List[str]]:
         await page.wait_for_load_state("load", timeout=5000)
         html_str = await page.content()
         all_links = scrape_links(html_str, base_url=url)
-        title_and_metadata = extract_title_and_metadata(html_str)
+        # title_and_metadata = extract_title_and_metadata(html_str)
         logger.success(f"Done scraping url: {url} | Links ({len(all_links)})")
         return (0, url, html_str, all_links)
     except Exception as e:
@@ -39,7 +39,7 @@ def sync_fetch_page_content(page, url: str) -> Tuple[int, str, str, List[str]]:
         page.wait_for_load_state("load", timeout=5000)
         html_str = page.content()
         all_links = scrape_links(html_str, base_url=url)
-        title_and_metadata = extract_title_and_metadata(html_str)
+        # title_and_metadata = extract_title_and_metadata(html_str)
         logger.success(f"Done scraping url: {url} | Links ({len(all_links)})")
         return (0, url, html_str, all_links)
     except Exception as e:
