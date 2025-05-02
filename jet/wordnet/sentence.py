@@ -240,7 +240,10 @@ def split_sentences_nltk(text: str) -> list[str]:
     return sentences
 
 
-def split_sentences(text: str) -> list[str]:
+def split_sentences(text: str, num_sentence: int = 1) -> list[str]:
+    if num_sentence < 1:
+        raise ValueError("num_sentence must be a positive integer")
+
     sentences = sent_tokenize(text)
     adjusted_sentences = []
 
@@ -254,16 +257,20 @@ def split_sentences(text: str) -> list[str]:
                 adjusted_sentences.append(combined)
                 i += 2
                 continue
-            # fallback: treat marker and next as separate if not a valid list sentence
         elif is_list_sentence(current_sentence):
             adjusted_sentences.append(current_sentence)
-        # elif is_sentence(current_sentence):
         else:
             adjusted_sentences.append(current_sentence)
 
         i += 1
 
-    return adjusted_sentences
+    # Combine sentences based on num_sentence
+    combined_results = []
+    for j in range(0, len(adjusted_sentences), num_sentence):
+        chunk = adjusted_sentences[j:j + num_sentence]
+        combined_results.append('\n'.join(chunk))
+
+    return combined_results
 
 
 def merge_sentences(sentences: list[str], max_tokens: int) -> list[str]:

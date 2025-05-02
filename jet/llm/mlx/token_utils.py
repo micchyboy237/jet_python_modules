@@ -24,6 +24,7 @@ def merge_texts(
     tokenizer: transformers.PreTrainedTokenizerBase,
     skip_special_tokens: bool = True,
     max_length: Optional[int] = None
+    split_fn: Optional[Callable[[str], List[str]]] = None
 ) -> MergeResult:
     # Encode the text into token IDs
     token_ids: List[int] = tokenizer.encode(text, add_special_tokens=False)
@@ -56,7 +57,8 @@ def merge_texts(
     )
 
     # Split text into sentences using NLTK
-    sentences: List[str] = split_sentences(decoded_text)
+    sentences: List[str] = split_fn(
+        decoded_text) if split_fn else split_sentences(decoded_text)
 
     # Initialize variables for grouping texts
     grouped_texts: List[str] = []
