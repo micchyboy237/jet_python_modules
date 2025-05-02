@@ -1,5 +1,6 @@
+from jet.wordnet.sentence import split_sentences
 from lxml.etree import Comment
-from typing import Callable, Optional, List, Dict, TypedDict
+from typing import Callable, Optional, List, Dict, TypedDict, Union
 from bs4 import BeautifulSoup
 import uuid
 from jet.code.splitter_markdown_utils import get_md_header_contents
@@ -948,7 +949,7 @@ def extract_texts_by_hierarchy(
         ("#####", "h5"),
         ("######", "h6"),
     ],
-    ignore_links: bool = False,
+    ignore_links: bool = True,
     excludes: list[str] = [
         "nav", "footer", "script", "style", "noscript", "template",
         "svg", "canvas", "iframe", "form", "input", "button",
@@ -1021,9 +1022,14 @@ def extract_texts_by_hierarchy(
     return results
 
 
+class MergedTextsResult(TypedDict):
+    text: str
+    token_count: int
+
+
 def merge_texts_by_hierarchy(
     source: str,
-    tokenizer: Callable[[List[str]], List[List[str]]],
+    tokenizer: Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]],
     max_tokens: int,
     tags_to_split_on: list[tuple[str, str]] = [
         ("#", "h1"),
@@ -1033,25 +1039,111 @@ def merge_texts_by_hierarchy(
         ("#####", "h5"),
         ("######", "h6"),
     ],
-    ignore_links: bool = False,
+    ignore_links: bool = True,
     excludes: list[str] = [
         "nav", "footer", "script", "style", "noscript", "template",
         "svg", "canvas", "iframe", "form", "input", "button",
         "select", "option", "label", "aside", "meta", "link",
         "header", "figure", "figcaption", "object", "embed"
-    ]
-) -> List[TextHierarchyResult]:
+    ],
+    split_fn: Optional[Callable[[str], List[str]]] = None
+) -> List[MergedTextsResult]:
+    # Extract texts with hierarchy
     results = extract_texts_by_hierarchy(
         source, tags_to_split_on=tags_to_split_on, ignore_links=ignore_links, excludes=excludes)
     texts = [result["text"] for result in results]
-    batched_token_texts = tokenizer(texts)
-    token_counts = [len(token_texts) for token_texts in batched_token_texts]
 
-    grouped_texts = []
-    for result, token_count in zip(results, token_counts):
-        header = result["text"]
+    # Initialize variables for grouping
+    grouped_texts: List[str] = []
+    current_group: List[str] = []
+    current_token_count: int = 0
+
+    for i, (result, text) in enumerate(zip(results, texts)):
+        # Skip empty texts
+        if not text.strip():
+            continue
+
+        # Tokenize the current text
+        tokenized_text = tokenizer(text) if isinstance(
+            tokenizer(text), list) else tokenizer(text)[0]
+        token_count = len(tokenized_text)
+
+        # Get parent header for context
+        parent_header = result["parent_text"].splitlines(
+        )[0] if result["parent_text"] else ""
+
+        # If single text exceeds max_tokens, split into sentences
         if token_count > max_tokens:
-            pass
+            sentences: List[str] = split_fn(
+                text) if split_fn else split_sentences(text)
+            for sentence in sentences:
+                sentence_tokens = tokenizer(sentence) if isinstance(
+                    tokenizer(sentence), list) else tokenizer(sentence)[0]
+                sentence_token_count = len(sentence_tokens)
+
+                if current_token_count + sentence_token_count <= max_tokens:
+                    current_group.append(sentence)
+                    current_token_count += sentence_token_count
+                else:
+                    if current_group:
+                        # Add parent header to maintain hierarchy
+                        grouped_texts.append(
+                            parent_header + " " + " ".join(current_group))
+                        current_group = []
+                        current_token_count = 0
+                    if sentence_token_count <= max_tokens:
+                        current_group.append(sentence)
+                        current_token_count = sentence_token_count
+        else:
+            # If text fits within max_tokens, try to add to current group
+            if current_token_count + token_count <= max_tokens:
+                current_group.append(text)
+                current_token_count += token_count
+            else:
+                if current_group:
+                    grouped_texts.append(
+                        parent_header + " " + " ".join(current_group))
+                    current_group = [text]
+                    current_token_count = token_count
+                else:
+                    current_group = [text]
+                    current_token_count = token_count
+
+        # Try merging with next text if possible
+        if i + 1 < len(texts) and current_token_count > 0:
+            next_text = texts[i + 1]
+            if not next_text.strip():
+                continue
+            next_tokenized = tokenizer(next_text) if isinstance(
+                tokenizer(next_text), list) else tokenizer(next_text)[0]
+            next_token_count = len(next_tokenized)
+
+            if current_token_count + next_token_count <= max_tokens:
+                merged_text = " ".join(current_group) + " " + next_text
+                merged_tokens = tokenizer(merged_text) if isinstance(
+                    tokenizer(merged_text), list) else tokenizer(merged_text)[0]
+                if len(merged_tokens) <= max_tokens:
+                    current_group.append(next_text)
+                    current_token_count += next_token_count
+                    texts[i + 1] = ""  # Mark as processed
+
+    # Add final group if it exists
+    if current_group:
+        parent_header = results[-1]["parent_text"].splitlines(
+        )[0] if results[-1]["parent_text"] else ""
+        grouped_texts.append(parent_header + " " + " ".join(current_group))
+
+    # Filter out empty strings
+    filtered_texts = [text.strip() for text in grouped_texts if text.strip()]
+    batched_token_texts: List[List[str]] = tokenizer(filtered_texts)
+    token_counts: List[int] = [len(token_texts)
+                               for token_texts in batched_token_texts]
+
+    merged_texts = []
+    for text, token_count in zip(filtered_texts, token_counts):
+        merged_texts.append({"text": text, "token_count": token_count})
+
+    return merged_texts
 
 
 def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "script", "style"], timeout_ms: int = 1000) -> List[str]:
