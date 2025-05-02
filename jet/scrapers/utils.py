@@ -728,7 +728,6 @@ def exclude_elements(doc: pq, excludes: List[str]) -> None:
     :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
     """
     for tag in excludes:
-        # Remove all elements of the excluded tag from the document
         for element in doc(tag):
             pq(element).remove()
 
@@ -808,7 +807,6 @@ def extract_tree_with_text(
 
         for child in el_pq.children():
             child_pq = pq(child)
-            # Skip comment nodes
             if child.tag is Comment or str(child.tag).startswith('<cyfunction Comment'):
                 continue
 
@@ -816,9 +814,8 @@ def extract_tree_with_text(
             text = decode_text_with_unidecode(child.text)
             class_names = [cls for cls in (child_pq.attr(
                 "class") or "").split() if not cls.startswith("css-")]
-            element_id = child_pq.attr("id")
+            element_id = child_piselement_id = child_pq.attr("id")
 
-            # Extract link from href, data-href, or action attributes
             link = (child_pq.attr("href") or
                     child_pq.attr("data-href") or
                     child_pq.attr("action") or
@@ -873,7 +870,6 @@ def extract_by_heading_hierarchy(
         new_id = node.id if node.id not in seen_ids else f"auto_{uuid.uuid4().hex[:8]}"
         seen_ids.add(new_id)
 
-        # Prepend prefix from tags_to_split_on based on header level
         text = node.text
         if node.tag in [tag[1] for tag in tags_to_split_on]:
             for prefix, tag in tags_to_split_on:
@@ -939,6 +935,7 @@ class TextHierarchyResult(TypedDict):
     depth: int
     id: str
     parent: Optional[str]
+    parent_text: Optional[str]
 
 
 def extract_texts_by_hierarchy(
@@ -961,7 +958,7 @@ def extract_texts_by_hierarchy(
 ) -> List[TextHierarchyResult]:
     """
     Extracts a list of dictionaries from HTML, each containing the combined text of a heading
-    and its descendants, a list of unique links, depth, id, and parent attributes.
+    and its descendants, a list of unique links, depth, id, parent, and parent_text attributes.
 
     Args:
         source: HTML string, URL, or file path to process.
@@ -971,16 +968,17 @@ def extract_texts_by_hierarchy(
 
     Returns:
         List of dictionaries, each with 'text' (combined text of heading and descendants),
-        'links' (list of unique links), 'depth' (node depth), 'id' (node ID), and 'parent' (parent node ID or None).
+        'links' (list of unique links), 'depth' (node depth), 'id' (node ID), 
+        'parent' (parent node ID or None), and 'parent_text' (combined text of parent and its descendants or None).
     """
-    def collect_text_and_links(node: TreeNode) -> TextHierarchyResult:
+    def collect_text_and_links(node: TreeNode) -> Tuple[TextHierarchyResult, str]:
         """
-        Recursively collects text, unique links, depth, id, and parent from a node and its children.
+        Recursively collects text, unique links, depth, id, parent, and parent_text from a node and its children,
+        and returns the combined text for the node.
         """
         texts = []
         links = set()
 
-        # Include text only if node is not a link when ignore_links is True
         if node.text and node.text.strip():
             if not (ignore_links and node.link):
                 texts.append(node.text.strip())
@@ -988,30 +986,45 @@ def extract_texts_by_hierarchy(
             links.add(node.link)
 
         for child in node.children:
-            child_result = collect_text_and_links(child)
-            if child_result["text"]:
-                texts.append(child_result["text"])
+            child_result, child_text = collect_text_and_links(child)
+            if child_text:
+                texts.append(child_text)
             links.update(child_result["links"])
 
+        combined_text = "\n".join(text for text in texts if text)
+
         return {
-            "text": "\n".join(text for text in texts if text),
+            "text": combined_text,
             "links": list(links),
             "depth": node.depth,
             "id": node.id,
-            "parent": node.parent
-        }
+            "parent": node.parent,
+            "parent_text": None  # Will be populated later using id_to_text
+        }, combined_text
 
-    # Get the hierarchy of TreeNodes split by headings
     heading_nodes = extract_by_heading_hierarchy(
         source, tags_to_split_on, excludes)
 
-    # Extract text, links, depth, id, and parent for each heading node and its descendants
-    return [collect_text_and_links(node) for node in heading_nodes]
+    # Collect full text (including descendants) for each heading node
+    id_to_text = {}
+    results = []
+    for node in heading_nodes:
+        result, combined_text = collect_text_and_links(node)
+        id_to_text[node.id] = combined_text
+        results.append(result)
+
+    # Populate parent_text using id_to_text
+    for result in results:
+        if result["parent"]:
+            result["parent_text"] = id_to_text.get(result["parent"], None)
+
+    return results
 
 
 def merge_texts_by_hierarchy(
     source: str,
     tokenizer: Callable[[List[str]], List[List[str]]],
+    max_tokens: int,
     tags_to_split_on: list[tuple[str, str]] = [
         ("#", "h1"),
         ("##", "h2"),
@@ -1028,8 +1041,17 @@ def merge_texts_by_hierarchy(
         "header", "figure", "figcaption", "object", "embed"
     ]
 ) -> List[TextHierarchyResult]:
-    texts = extract_texts_by_hierarchy(
-        source, ignore_links=ignore_links, excludes=excludes)
+    results = extract_texts_by_hierarchy(
+        source, tags_to_split_on=tags_to_split_on, ignore_links=ignore_links, excludes=excludes)
+    texts = [result["text"] for result in results]
+    batched_token_texts = tokenizer(texts)
+    token_counts = [len(token_texts) for token_texts in batched_token_texts]
+
+    grouped_texts = []
+    for result, token_count in zip(results, token_counts):
+        header = result["text"]
+        if token_count > max_tokens:
+            pass
 
 
 def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "script", "style"], timeout_ms: int = 1000) -> List[str]:
