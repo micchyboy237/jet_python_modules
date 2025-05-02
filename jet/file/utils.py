@@ -4,7 +4,7 @@ import json
 import pickle
 import pandas as pd
 
-from typing import Optional
+from typing import Dict, Optional
 from jet.logger import logger
 from pydantic.main import BaseModel
 
@@ -120,7 +120,7 @@ def load_file(input_file: str) -> Optional[str | dict | list]:
         raise
 
 
-def save_file(data: str | dict | list | BaseModel, output_file: str, verbose: bool = True):
+def save_file(data: str | list | Dict | BaseModel, output_file: str, verbose: bool = True):
     import os
     import re
     import json

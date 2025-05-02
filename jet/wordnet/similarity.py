@@ -219,10 +219,10 @@ def query_similarity_scores(
             for idx, j in enumerate(sorted_indices):
                 all_results.append({
                     "id": filtered_ids[j],
+                    "doc_index": int(filtered_indices[j]),
                     "query": query_text,
                     "text": filtered_texts[j],
                     "score": float(filtered_scores[j]),
-                    "doc_index": int(filtered_indices[j])
                 })
 
     # Fuse results
@@ -240,10 +240,10 @@ def query_similarity_scores(
         {
             "id": result["id"],
             "rank": result["rank"],
+            "doc_index": result.get("doc_index", 0),  # Default to 0 if not set
             "score": result["score"],
             "percent_difference": result["percent_difference"],
             "text": result["text"],
-            "doc_index": result.get("doc_index", 0),  # Default to 0 if not set
             "relevance": None,  # Optional field, not computed here
             "word_count": None  # Optional field, not computed here
         }
@@ -947,36 +947,6 @@ if __name__ == "__main__":
 
     print("Done")
 
-if __name__ == '__main__':
-    base_sentence = "October seven is the date of our vacation to Camarines Sur."
-    sentences_to_compare = [
-        "October 7 is our holiday in Camarines Sur.",
-        "October 7 is the day we went on vacation to Camarines Sur.",
-        "The seventh of October is the day of our vacation in Camarines Sur."
-    ]
-
-    {
-        "text": "The seventh of October is the day of our vacation in Camarines Sur.",
-        "score": 0.9571385864934139,
-        "others": [
-            {
-                "text": "October 7 is the day we went on vacation to Camarines Sur.",
-                "score": 0.9564081690435453,
-                "percent_difference": 0.07631261137893704
-            },
-            {
-                "text": "October 7 is our holiday in Camarines Sur.",
-                "score": 0.898377777869796,
-                "percent_difference": 6.139216353077435
-            }
-        ]
-    }
-
-    print(f"Base sentence:\n{base_sentence}")
-    result = filter_highest_similarity(base_sentence, sentences_to_compare)
-    print("Highest similarity result:")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
-
 
 class InfoStats(TypedDict):
     top_score: float
@@ -1006,12 +976,9 @@ def compute_info(results: List[SimilarityResult], top_n: int = 10) -> InfoStats:
     # Keep the original max_score for top_score
     max_score = max(scores)
 
-    # Normalize scores only for other metrics, if needed
-    normalized_scores = [
-        score / max_score for score in scores] if max_score > 0 else scores
-
-    top_n_value = min(top_n, len(normalized_scores))
-    top_scores = sorted(normalized_scores, reverse=True)[:top_n_value]
+    # Use original scores for top_n calculations
+    top_n_value = min(top_n, len(scores))
+    top_scores = sorted(scores, reverse=True)[:top_n_value]
 
     # Calculate word diversity
     all_words = []
@@ -1039,6 +1006,36 @@ def compute_info(results: List[SimilarityResult], top_n: int = 10) -> InfoStats:
         "word_diversity": word_diversity
     }
 
+
+if __name__ == '__main__':
+    base_sentence = "October seven is the date of our vacation to Camarines Sur."
+    sentences_to_compare = [
+        "October 7 is our holiday in Camarines Sur.",
+        "October 7 is the day we went on vacation to Camarines Sur.",
+        "The seventh of October is the day of our vacation in Camarines Sur."
+    ]
+
+    {
+        "text": "The seventh of October is the day of our vacation in Camarines Sur.",
+        "score": 0.9571385864934139,
+        "others": [
+            {
+                "text": "October 7 is the day we went on vacation to Camarines Sur.",
+                "score": 0.9564081690435453,
+                "percent_difference": 0.07631261137893704
+            },
+            {
+                "text": "October 7 is our holiday in Camarines Sur.",
+                "score": 0.898377777869796,
+                "percent_difference": 6.139216353077435
+            }
+        ]
+    }
+
+    print(f"Base sentence:\n{base_sentence}")
+    result = filter_highest_similarity(base_sentence, sentences_to_compare)
+    print("Highest similarity result:")
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
 __all__ = [
     "sentence_similarity",

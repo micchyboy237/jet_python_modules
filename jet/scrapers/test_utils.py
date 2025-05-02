@@ -1,6 +1,6 @@
 import os
 import unittest
-from jet.scrapers.utils import clean_punctuations, clean_spaces, clean_non_alphanumeric, safe_path_from_url, scrape_links
+from jet.scrapers.utils import TitleMetadata, clean_punctuations, clean_spaces, clean_non_alphanumeric, safe_path_from_url, scrape_links, scrape_title_and_metadata
 
 
 class TestCleanSpaces(unittest.TestCase):
@@ -329,6 +329,119 @@ class TestScrapeLinks(unittest.TestCase):
         ]
         result = scrape_links(html)
         self.assertEqual(sorted(result), sorted(expected))
+
+
+class TestScrapeTitleAndMetadata(unittest.TestCase):
+    def test_basic_html_with_title_and_metadata(self):
+        html = """
+        <html>
+            <head>
+                <title>Test Page</title>
+                <meta name="description" content="This is a test page">
+                <meta name="keywords" content="test, page, example">
+                <meta charset="UTF-8">
+            </head>
+            <body></body>
+        </html>
+        """
+        expected: TitleMetadata = {
+            'title': 'Test Page',
+            'metadata': {
+                'description': 'This is a test page',
+                'keywords': 'test, page, example',
+                'charset': 'UTF-8'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_html_without_title(self):
+        html = """
+        <html>
+            <head>
+                <meta name="author" content="John Doe">
+                <meta charset="UTF-8">
+            </head>
+            <body></body>
+        </html>
+        """
+        expected: TitleMetadata = {
+            'title': None,
+            'metadata': {
+                'author': 'John Doe',
+                'charset': 'UTF-8'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_html_with_open_graph_metadata(self):
+        html = """
+        <html>
+            <head>
+                <title>OG Test</title>
+                <meta property="og:title" content="Open Graph Title">
+                <meta property="og:description" content="OG Description">
+            </head>
+            <body></body>
+        </html>
+        """
+        expected: TitleMetadata = {
+            'title': 'OG Test',
+            'metadata': {
+                'og:title': 'Open Graph Title',
+                'og:description': 'OG Description'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_html_with_http_equiv(self):
+        html = """
+        <html>
+            <head>
+                <title>HTTP Equiv Test</title>
+                <meta http-equiv="refresh" content="30">
+                <meta charset="ISO-8859-1">
+            </head>
+            <body></body>
+        </html>
+        """
+        expected: TitleMetadata = {
+            'title': 'HTTP Equiv Test',
+            'metadata': {
+                'http-equiv:refresh': '30',
+                'charset': 'ISO-8859-1'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_empty_html(self):
+        html = "<html><head></head><body></body></html>"
+        expected: TitleMetadata = {
+            'title': None,
+            'metadata': {}
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_malformed_html(self):
+        html = """
+        <html>
+            <head>
+                <title>Unclosed Title
+                <meta name="description" content="Malformed HTML">
+            </head>
+        """
+        expected: TitleMetadata = {
+            'title': 'Unclosed Title',
+            'metadata': {
+                'description': 'Malformed HTML'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
 
 
 if __name__ == '__main__':

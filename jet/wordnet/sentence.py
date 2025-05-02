@@ -201,6 +201,40 @@ def is_last_word_in_sentence(word, text):
     return False
 
 
+def is_sentence(text: str) -> bool:
+    """Validate if the input text is a single, well-formed sentence using NLTK, with no newlines."""
+    # Strip whitespace for consistent comparison
+    text = text.strip()
+    if not text:
+        return False
+
+    # Check for newlines (\n, \r, or \r\n)
+    if any(newline in text for newline in ['\n', '\r']):
+        return False
+
+    # Use NLTK's sent_tokenize to check if text is recognized as a single sentence
+    sentences: list[str] = sent_tokenize(text)
+    if len(sentences) != 1:
+        return False
+
+    # Verify the tokenized sentence matches the input (ignoring whitespace)
+    if sentences[0].strip() != text:
+        return False
+
+    # Additional heuristic: Ensure at least one word token exists
+    tokens: list[str] = word_tokenize(text)
+    if not tokens:
+        return False
+
+    # Optional heuristic: Check for ending punctuation (., !, ?)
+    # This is lenient to allow flexibility (e.g., for informal text)
+    has_punctuation: bool = text[-1] in '.!?'
+
+    # Ensure there is at least one non-punctuation token
+    non_punct_tokens: list[str] = [t for t in tokens if t not in '.!?,;:']
+    return len(non_punct_tokens) > 0 and has_punctuation
+
+
 def split_sentences_nltk(text: str) -> list[str]:
     sentences = sent_tokenize(text)
     return sentences
@@ -223,7 +257,7 @@ def split_sentences(text: str) -> list[str]:
             # fallback: treat marker and next as separate if not a valid list sentence
         elif is_list_sentence(current_sentence):
             adjusted_sentences.append(current_sentence)
-        else:
+        elif is_sentence(current_sentence):
             adjusted_sentences.append(current_sentence)
 
         i += 1

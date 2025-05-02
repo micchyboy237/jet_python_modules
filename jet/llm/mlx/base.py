@@ -233,7 +233,7 @@ class MLX:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
-        repetition_penalty: float = 1.0,
+        repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
@@ -298,7 +298,7 @@ class MLX:
 
     def stream_chat(
         self,
-        message: Union[str, List[Message]],
+        messages: Union[str, List[Message]],
         model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
         draft_model: Optional[str] = None,
         adapter: Optional[str] = None,
@@ -318,15 +318,14 @@ class MLX:
     ) -> Iterator[Union[CompletionResponse, List[CompletionResponse]]]:
         """Stream chat completions with history management."""
         # Prepare messages with history
-        messages: List[Message] = []
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
             self.history.add_message("system", system_prompt)
 
-        # Handle message input: str or List[Message]
-        if isinstance(message, str):
-            self.history.add_message("user", message)
-        elif isinstance(message, list):
-            for msg in message:
+        # Handle messages input: str or List[Message]
+        if isinstance(messages, str):
+            self.history.add_message("user", messages)
+        elif isinstance(messages, list):
+            for msg in messages:
                 if "role" in msg and "content" in msg:
                     self.history.add_message(msg["role"], msg["content"])
                 else:
@@ -334,14 +333,14 @@ class MLX:
                         "Each message in the list must have 'role' and 'content' keys")
         else:
             raise TypeError(
-                "message must be a string or a list of Message dictionaries")
+                "messages must be a string or a list of Message dictionaries")
 
-        messages = self.history.get_messages()
+        all_messages = self.history.get_messages()
 
         # Stream responses
         assistant_content = ""
         for response in self.client.stream_chat(
-            messages=messages,
+            messages=all_messages,
             model=model,
             draft_model=draft_model,
             adapter=adapter,
@@ -413,7 +412,7 @@ class MLX:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
-        repetition_penalty: float = 1.0,
+        repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,

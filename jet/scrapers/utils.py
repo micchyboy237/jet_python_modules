@@ -1,4 +1,5 @@
-from copy import deepcopy
+from typing import Optional, List, Dict, TypedDict
+from bs4 import BeautifulSoup
 import uuid
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.search.formatters import decode_text_with_unidecode
@@ -14,18 +15,12 @@ from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
 from pyquery import PyQuery as pq
 from jet.logger.config import colorize_log
 from jet.logger import logger
-from typing import List, Dict, Optional
 import json
 import re
 import string
 from jet.utils.text import fix_and_unidecode
 import parsel
 import unidecode
-
-
-from typing import List, Optional
-import re
-from urllib.parse import urlparse, urljoin
 
 
 def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
@@ -79,6 +74,57 @@ def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
 
     # Return unique links only
     return list(set(filtered))
+
+
+class TitleMetadata(TypedDict):
+    title: Optional[str]
+    metadata: Dict[str, str]
+
+
+def scrape_title_and_metadata(html: str) -> TitleMetadata:
+    """
+    Scrape the title and metadata from an HTML string.
+
+    Args:
+        html: The HTML content to scrape.
+
+    Returns:
+        A TitleMetadata dictionary containing the page title and metadata key-value pairs.
+    """
+    # Parse HTML with BeautifulSoup
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # Initialize result
+    result: TitleMetadata = {
+        'title': None,
+        'metadata': {}
+    }
+
+    # Extract title
+    title_tag = soup.find('title')
+    if title_tag:
+        result['title'] = title_tag.get_text().strip()
+
+    # Extract metadata from meta tags
+    meta_tags = soup.find_all('meta')
+    for meta in meta_tags:
+        # Look for meta tags with name and content attributes
+        name = meta.get('name') or meta.get('property')
+        content = meta.get('content')
+        if name and content:
+            result['metadata'][name] = content
+
+        # Handle Open Graph and other meta tags with http-equiv
+        http_equiv = meta.get('http-equiv')
+        if http_equiv and content:
+            result['metadata'][f'http-equiv:{http_equiv}'] = content
+
+        # Handle charset meta tags
+        charset = meta.get('charset')
+        if charset:
+            result['metadata']['charset'] = charset
+
+    return result
 
 
 def get_max_prompt_char_length(context_length: int, avg_chars_per_token: float = 4.0) -> int:
@@ -309,11 +355,6 @@ def find_elements_with_text(html: str):
                 seen_parents.add(element_html)  # Mark as seen
 
     return matching_parents  # Returns list of dictionaries
-
-
-class TitleMetadata(TypedDict):
-    title: Optional[str]
-    metadata: Dict[str, str]
 
 
 def extract_title_and_metadata(source: str, timeout_ms: int = 1000) -> TitleMetadata:
@@ -657,28 +698,17 @@ def extract_search_inputs(source: str, timeout_ms: int = 1000) -> List[str]:
         return search_inputs
 
 
-def exclude_elements(doc, excludes: List[str]) -> None:
-    """
-    Removes elements from the document that match the tags in the excludes list.
-
-    :param doc: The PyQuery object representing the HTML document.
-    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
-    """
-    for tag in excludes:
-        # Remove all elements of the excluded tag from the document
-        for element in doc(tag):
-            pq(element).remove()
-
-
 class TreeNode:
     def __init__(self, tag: str, text: Optional[str], depth: int, id: str,
-                 parent: Optional[str], class_names: List[str] = [], children: Optional[List['TreeNode']] = None):
+                 parent: Optional[str], class_names: List[str] = [],
+                 link: Optional[str] = None, children: Optional[List['TreeNode']] = None):
         self.tag = tag
         self.text = text
         self.depth = depth
         self.id = id
         self.parent = parent
         self.class_names = class_names
+        self.link = link
         self.children: List['TreeNode'] = children if children is not None else [
         ]
 
@@ -687,6 +717,11 @@ class TreeNode:
         for child in self.children:
             content += child.get_content()
         return content.strip()
+
+
+def exclude_elements(doc: pq, excludes: List[str]) -> None:
+    for tag in excludes:
+        doc(tag).remove()
 
 
 def add_child_nodes(flat_nodes: List[TreeNode]) -> List[TreeNode]:
@@ -712,7 +747,7 @@ def extract_tree_with_text(
     timeout_ms: int = 1000
 ) -> Optional[TreeNode]:
     """
-    Extracts a tree structure from HTML with id and parent attributes on each node.
+    Extracts a tree structure from HTML with id, parent, and link attributes on each node.
     """
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
@@ -752,6 +787,7 @@ def extract_tree_with_text(
         id=root_id,
         parent=None,
         class_names=[],
+        link=None,
         children=[]
     )
 
@@ -764,14 +800,16 @@ def extract_tree_with_text(
         for child in el_pq.children():
             child_pq = pq(child)
             tag = child.tag if isinstance(child.tag, str) else str(child.tag)
-
-            # ✅ Preserve all text, even when children exist
-            # text = child_pq.text().strip()
             text = decode_text_with_unidecode(child.text)
-
             class_names = [cls for cls in (child_pq.attr(
                 "class") or "").split() if not cls.startswith("css-")]
             element_id = child_pq.attr("id")
+
+            # Extract link from href, data-href, or action attributes
+            link = (child_pq.attr("href") or
+                    child_pq.attr("data-href") or
+                    child_pq.attr("action") or
+                    None)
 
             if not element_id or not re.match(r'^[a-zA-Z_-]+$', element_id):
                 element_id = f"auto_{uuid.uuid4().hex[:8]}"
@@ -783,6 +821,7 @@ def extract_tree_with_text(
                 id=element_id,
                 parent=parent_node.id,
                 class_names=class_names,
+                link=link,
                 children=[]
             )
 
@@ -798,26 +837,44 @@ def extract_by_heading_hierarchy(
     source: str,
     tags_to_split_on: List[str] = ["h1", "h2", "h3", "h4", "h5", "h6"]
 ) -> List[TreeNode]:
+    """
+    Extracts a list of TreeNode hierarchies split by heading tags, avoiding duplicates,
+    with heading text prepended by '#' based on header level.
+    """
     results: List[TreeNode] = []
     parent_stack: List[Tuple[int, TreeNode]] = []
+    seen_ids: set = set()
 
-    def clone_subtree(node: TreeNode, new_parent_id: Optional[str] = None, new_depth: int = 0) -> TreeNode:
+    def clone_node(node: TreeNode, new_parent_id: Optional[str] = None, new_depth: int = 0) -> TreeNode:
+        """
+        Clones a node with a new parent and depth, preserving structure without duplicating IDs.
+        """
+        new_id = node.id if node.id not in seen_ids else f"auto_{uuid.uuid4().hex[:8]}"
+        seen_ids.add(new_id)
+
+        # Prepend '#' * n to heading text based on header level
+        text = node.text
+        if node.tag in tags_to_split_on:
+            level = tags_to_split_on.index(node.tag) + 1
+            text = f"{'#' * level} {node.text.strip()}" if node.text else node.text
+
         cloned = TreeNode(
             tag=node.tag,
-            text=node.text,
+            text=text,
             depth=new_depth,
-            id=node.id,
+            id=new_id,
             parent=new_parent_id,
             class_names=node.class_names,
+            link=node.link,
             children=[]
         )
-        for child in node.children:
-            cloned_child = clone_subtree(child, cloned.id, new_depth + 1)
-            cloned.children.append(cloned_child)
         return cloned
 
     def traverse(node: TreeNode) -> None:
-        nonlocal parent_stack
+        nonlocal parent_stack, results
+
+        if node.id in seen_ids:
+            return
 
         if node.tag in tags_to_split_on:
             level = tags_to_split_on.index(node.tag)
@@ -828,17 +885,19 @@ def extract_by_heading_hierarchy(
             parent_node = parent_stack[-1][1] if parent_stack else None
             depth = parent_node.depth + 1 if parent_node else 0
 
-            heading_node = clone_subtree(
+            heading_node = clone_node(
                 node, parent_node.id if parent_node else None, depth)
             results.append(heading_node)
+            seen_ids.add(heading_node.id)
             parent_stack.append((level, heading_node))
 
         else:
             if parent_stack:
                 parent_node = parent_stack[-1][1]
-                child_node = clone_subtree(
+                child_node = clone_node(
                     node, parent_node.id, parent_node.depth + 1)
                 parent_node.children.append(child_node)
+                seen_ids.add(child_node.id)
 
         for child in node.children:
             traverse(child)
@@ -847,10 +906,64 @@ def extract_by_heading_hierarchy(
     if tree:
         traverse(tree)
 
-    # ✅ Rebuild child relationships
-    # results_with_child_nodes = add_child_nodes(results)
-    # return results_with_child_nodes
     return results
+
+
+class TextHierarchyResult(TypedDict):
+    text: str
+    links: List[str]
+    depth: int
+    id: str
+    parent: Optional[str]
+
+
+def extract_texts_by_hierarchy(
+    source: str,
+    tags_to_split_on: List[str] = ["h1", "h2", "h3", "h4", "h5", "h6"]
+) -> List[TextHierarchyResult]:
+    """
+    Extracts a list of dictionaries from HTML, each containing the combined text of a heading
+    and its descendants, a list of unique links, depth, id, and parent attributes.
+
+    Args:
+        source: HTML string, URL, or file path to process.
+        tags_to_split_on: List of heading tags to split the hierarchy (e.g., ["h1", "h2", "h3"]).
+
+    Returns:
+        List of dictionaries, each with 'text' (combined text of heading and descendants),
+        'links' (list of unique links), 'depth' (node depth), 'id' (node ID), and 'parent' (parent node ID or None).
+    """
+    def collect_text_and_links(node: TreeNode) -> TextHierarchyResult:
+        """
+        Recursively collects text, unique links, depth, id, and parent from a node and its children.
+        """
+        texts = []
+        links = set()
+
+        if node.text and node.text.strip():
+            texts.append(node.text.strip())
+        if node.link:
+            links.add(node.link)
+
+        for child in node.children:
+            child_result = collect_text_and_links(child)
+            if child_result["text"]:
+                texts.append(child_result["text"])
+            links.update(child_result["links"])
+
+        return {
+            "text": "\n".join(text for text in texts if text),
+            "links": list(links),
+            "depth": node.depth,
+            "id": node.id,
+            "parent": node.parent
+        }
+
+    # Get the hierarchy of TreeNodes split by headings
+    heading_nodes = extract_by_heading_hierarchy(source, tags_to_split_on)
+
+    # Extract text, links, depth, id, and parent for each heading node and its descendants
+    return [collect_text_and_links(node) for node in heading_nodes]
 
 
 def extract_text_elements(source: str, excludes: List[str] = ["style", "script"], timeout_ms: int = 1000) -> List[str]:

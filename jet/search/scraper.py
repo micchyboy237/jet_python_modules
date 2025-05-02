@@ -6,7 +6,7 @@ import os
 import json
 from jet.cache.redis import RedisCache, RedisConfigParams
 from jet.logger import logger
-from jet.scrapers.hrequests import request_url
+from jet.scrapers.hrequests_utils import scrape_url
 
 REDIS_CONFIG = RedisConfigParams(
     port=3102
@@ -41,7 +41,7 @@ def main_selenium(url):
 
 
 def main_hrequests(url):
-    html_parser = request_url(url)
+    html_parser = scrape_url(url)
     html_str = html_parser.raw_html.decode('utf-8')
     return html_str
 

@@ -1,3 +1,6 @@
+import time
+import logging
+from typing import Optional, List
 import zlib
 import pickle
 from pathlib import Path
@@ -8,6 +11,7 @@ from typing import Callable, Union, List
 from jet.data.utils import hash_text
 from functools import lru_cache
 from jet.token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
+from jet.transformers.formatters import format_json
 import numpy as np
 
 from jet.logger import logger
@@ -420,9 +424,11 @@ def generate_embeddings(
 @time_it
 def generate_ollama_batch_embeddings(
     model: OLLAMA_MODEL_NAMES,
-    texts: list[str], url: str,
+    texts: list[str],
+    url: str,
     key: str = "",
     max_tokens: Optional[int | float] = None,
+    max_retries: int = 3
 ) -> list[list[float]]:
     if not max_tokens:
         max_tokens = 0.5
@@ -452,26 +458,32 @@ def generate_ollama_batch_embeddings(
         # texts = split_texts(texts, model, max_tokens, 100)
         texts = truncate_texts(texts, model, max_tokens)
 
-    try:
-        headers = {"Content-Type": "application/json"}
-        if key:
-            headers["Authorization"] = f"Bearer {key}"
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
 
-        r = requests.post(
-            f"{url}/api/embed",
-            headers=headers,
-            json={"model": model, "input": texts},
-            timeout=300  # Set a timeout for reliability
-        )
-        r.raise_for_status()
-        data = r.json()
+    for attempt in range(max_retries):
+        try:
+            r = requests.post(
+                f"{url}/api/embed",
+                headers=headers,
+                json={"model": model, "input": texts},
+                timeout=300  # Set a timeout for reliability
+            )
+            r.raise_for_status()
+            data = r.json()
 
-        if "embeddings" in data:
-            return data["embeddings"]
-        else:
-            logger.error("No embeddings found in response.")
-            raise ValueError("Invalid response: missing embeddings")
+            if "embeddings" in data:
+                return data["embeddings"]
+            else:
+                logger.error("No embeddings found in response.")
+                raise ValueError("Invalid response: missing embeddings")
 
-    except requests.RequestException as e:
-        logger.error(f"Request error: {e}")
-        raise e
+        except requests.RequestException as e:
+            logger.error(
+                f"Attempt {attempt + 1} failed with error: {e}, Response text: {r.text if 'r' in locals() else 'No response'}")
+            logger.error(f"\nModel: {model}")
+            logger.error(f"\nTexts:\n{format_json(texts)}")
+            if attempt == max_retries - 1:
+                raise e
+            time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s

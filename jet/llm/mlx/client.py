@@ -11,78 +11,15 @@ from mlx_lm.generate import stream_generate
 from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache, can_trim_prompt_cache
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import load
+from jet.llm.mlx.types import (
+    Message,
+    Tool,
+    RoleMapping,
+    CompletionResponse,
+    ModelsResponse,
+)
 
 DEFAULT_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
-
-# Typed dictionaries for structured data
-
-
-class Message(TypedDict):
-    role: str
-    content: str
-
-
-class Delta(TypedDict):
-    role: Optional[str]
-    content: Optional[str]
-
-
-class Tool(TypedDict):
-    type: str
-    function: Dict[str, Any]
-
-
-class RoleMapping(TypedDict, total=False):
-    system_prompt: str
-    system: str
-    user: str
-    assistant: str
-    stop: str
-
-
-class Logprobs(TypedDict):
-    token_logprobs: List[float]
-    top_logprobs: List[Dict[int, float]]
-    tokens: List[int]
-
-
-class Choice(TypedDict):
-    index: int
-    logprobs: Logprobs
-    finish_reason: Optional[Literal["length", "stop"]]
-    message: Optional[Message]
-    delta: Optional[Delta]
-    text: Optional[str]
-
-
-class Usage(TypedDict):
-    prompt_tokens: int
-    prompt_tps: float
-    completion_tokens: int
-    completion_tps: float
-    total_tokens: int
-    peak_memory: float
-
-
-class CompletionResponse(TypedDict):
-    id: str
-    system_fingerprint: str
-    object: str
-    model: str
-    created: int
-    choices: List[Choice]
-    usage: Optional[Usage]
-
-
-class ModelInfo(TypedDict):
-    id: str
-    object: str
-    created: int
-
-
-class ModelsResponse(TypedDict):
-    object: str
-    data: List[ModelInfo]
 
 
 class MLXLMClient:
@@ -127,7 +64,7 @@ class MLXLMClient:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
-        repetition_penalty: float = 1.0,
+        repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
@@ -199,7 +136,7 @@ class MLXLMClient:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
-        repetition_penalty: float = 1.0,
+        repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
@@ -262,7 +199,7 @@ class MLXLMClient:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
-        repetition_penalty: float = 1.0,
+        repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
@@ -431,7 +368,7 @@ class MLXLMClient:
         max_tokens: int,
         temperature: float,
         top_p: float,
-        repetition_penalty: float,
+        repetition_penalty: Optional[float],
         repetition_context_size: int,
         xtc_probability: float,
         xtc_threshold: float,
@@ -449,8 +386,10 @@ class MLXLMClient:
             raise ValueError("temperature must be a non-negative float")
         if not isinstance(top_p, (float, int)) or top_p < 0 or top_p > 1:
             raise ValueError("top_p must be a float between 0 and 1")
-        if not isinstance(repetition_penalty, (float, int)) or repetition_penalty < 0:
-            raise ValueError("repetition_penalty must be a non-negative float")
+        if repetition_penalty is not None:
+            if not isinstance(repetition_penalty, (float, int)) or repetition_penalty < 0:
+                raise ValueError(
+                    "repetition_penalty must be a non-negative float")
         if logprobs != -1 and not (0 < logprobs <= 10):
             raise ValueError(
                 f"logprobs must be between 1 and 10 but got {logprobs}")
@@ -611,7 +550,7 @@ class MLXLMClient:
         max_tokens: int,
         temperature: float,
         top_p: float,
-        repetition_penalty: float,
+        repetition_penalty: Optional[float],
         repetition_context_size: int,
         xtc_probability: float,
         xtc_threshold: float,
@@ -719,7 +658,7 @@ class MLXLMClient:
         max_tokens: int,
         temperature: float,
         top_p: float,
-        repetition_penalty: float,
+        repetition_penalty: Optional[float],
         repetition_context_size: int,
         xtc_probability: float,
         xtc_threshold: float,
