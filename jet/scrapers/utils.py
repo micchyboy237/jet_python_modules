@@ -1,3 +1,4 @@
+from lxml.etree import Comment
 from typing import Optional, List, Dict, TypedDict
 from bs4 import BeautifulSoup
 import uuid
@@ -720,8 +721,16 @@ class TreeNode:
 
 
 def exclude_elements(doc: pq, excludes: List[str]) -> None:
+    """
+    Removes elements from the document that match the tags in the excludes list.
+
+    :param doc: The PyQuery object representing the HTML document.
+    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
+    """
     for tag in excludes:
-        doc(tag).remove()
+        # Remove all elements of the excluded tag from the document
+        for element in doc(tag):
+            pq(element).remove()
 
 
 def add_child_nodes(flat_nodes: List[TreeNode]) -> List[TreeNode]:
@@ -743,7 +752,7 @@ def add_child_nodes(flat_nodes: List[TreeNode]) -> List[TreeNode]:
 
 def extract_tree_with_text(
     source: str,
-    excludes: List[str] = ["style", "script"],
+    excludes: list[str] = ["nav", "footer", "script", "style"],
     timeout_ms: int = 1000
 ) -> Optional[TreeNode]:
     """
@@ -799,6 +808,10 @@ def extract_tree_with_text(
 
         for child in el_pq.children():
             child_pq = pq(child)
+            # Skip comment nodes
+            if child.tag is Comment or str(child.tag).startswith('<cyfunction Comment'):
+                continue
+
             tag = child.tag if isinstance(child.tag, str) else str(child.tag)
             text = decode_text_with_unidecode(child.text)
             class_names = [cls for cls in (child_pq.attr(
@@ -842,7 +855,8 @@ def extract_by_heading_hierarchy(
         ("####", "h4"),
         ("#####", "h5"),
         ("######", "h6"),
-    ]
+    ],
+    excludes: list[str] = ["nav", "footer", "script", "style"]
 ) -> List[TreeNode]:
     """
     Extracts a list of TreeNode hierarchies split by heading tags, avoiding duplicates,
@@ -912,7 +926,7 @@ def extract_by_heading_hierarchy(
         for child in node.children:
             traverse(child)
 
-    tree = extract_tree_with_text(source)
+    tree = extract_tree_with_text(source, excludes=excludes)
     if tree:
         traverse(tree)
 
@@ -936,7 +950,8 @@ def extract_texts_by_hierarchy(
         ("####", "h4"),
         ("#####", "h5"),
         ("######", "h6"),
-    ]
+    ],
+    excludes: list[str] = ["nav", "footer", "script", "style"]
 ) -> List[TextHierarchyResult]:
     """
     Extracts a list of dictionaries from HTML, each containing the combined text of a heading
@@ -945,6 +960,7 @@ def extract_texts_by_hierarchy(
     Args:
         source: HTML string, URL, or file path to process.
         tags_to_split_on: List of tuples with (prefix, tag) to split the hierarchy (e.g., [("#", "h1"), ("##", "h2")]).
+        excludes: List of HTML tags whose text and links should be excluded (e.g., ["footer", "nav"]).
 
     Returns:
         List of dictionaries, each with 'text' (combined text of heading and descendants),
@@ -977,19 +993,20 @@ def extract_texts_by_hierarchy(
         }
 
     # Get the hierarchy of TreeNodes split by headings
-    heading_nodes = extract_by_heading_hierarchy(source, tags_to_split_on)
+    heading_nodes = extract_by_heading_hierarchy(
+        source, tags_to_split_on, excludes)
 
     # Extract text, links, depth, id, and parent for each heading node and its descendants
     return [collect_text_and_links(node) for node in heading_nodes]
 
 
-def extract_text_elements(source: str, excludes: List[str] = ["style", "script"], timeout_ms: int = 1000) -> List[str]:
+def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "script", "style"], timeout_ms: int = 1000) -> List[str]:
     """
     Extracts a flattened list of text elements from the HTML document, ignoring specific elements like <style> and <script>.
     Uses Playwright to render dynamic content if needed.
 
     :param source: The HTML string or URL to parse.
-    :param excludes: A list of tag names to exclude (e.g., ["style", "script"]).
+    :param excludes: A list of tag names to exclude (e.g., ["nav", "footer", "script", "style"]).
     :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
     :return: A list of text elements found in the HTML.
     """
@@ -1051,58 +1068,11 @@ def extract_text_elements(source: str, excludes: List[str] = ["style", "script"]
     return text_elements
 
 
-def format_html(html: str, excludes: List[str] = ["style", "script"]) -> str:
-    """
-    Converts the tree-like structure of HTML elements and text into a single formatted string.
-    """
-    tree = extract_tree_with_text(html, excludes)
-
-    def build_html(node: TreeNode, indent=0) -> str:
-        result = ""
-
-        if node:
-            # Skip node if its tag is in the excludes list
-            if node.tag in excludes:
-                return result
-
-            # Only include nodes with meaningful content or children
-            has_text = bool(node.text)
-            has_id = bool(node.id)
-            has_class = bool(node.class_names)
-            has_child_text = node.children and node.children[0].text
-
-            if has_text or has_id or has_class or has_child_text:
-                tag_text = node.tag
-                if has_id:
-                    tag_text += f' id="{node.id}"'
-                if has_class:
-                    tag_text += ' class="' + " ".join(node.class_names) + '"'
-
-                if has_text:
-                    result += '  ' * indent + \
-                        f"<{tag_text}>{node.text}</{node.tag}>\n"
-                else:
-                    result += '  ' * indent + f"<{tag_text}>\n"
-
-                for child in node.children:
-                    result += build_html(child, indent + 1)
-
-                if not has_text:
-                    result += '  ' * indent + f"</{node.tag}>\n"
-            else:
-                for child in node.children:
-                    result += build_html(child, indent + 1)
-
-        return result
-
-    return build_html(tree)
-
-
 # Function to print the tree-like structure recursively
 def print_html(html: str):
     tree = extract_tree_with_text(html)
 
-    def print_tree(node: TreeNode, indent=0, excludes: List[str] = ["style", "script"]):
+    def print_tree(node: TreeNode, indent=0, excludes: list[str] = ["nav", "footer", "script", "style"]):
         if node:
             if node.tag in excludes:
                 return
@@ -1233,7 +1203,6 @@ __all__ = [
     "find_elements_with_text",
     "extract_text_elements",
     "extract_tree_with_text",
-    "format_html",
     "print_html",
 ]
 

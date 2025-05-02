@@ -6,6 +6,8 @@ from .import_modules import (
     logger,
 
     make_serializable,
+    minify_html,
+    format_html,
     format_json,
 
     inspect_original_script_path,
@@ -53,7 +55,6 @@ from .import_modules import (
     find_elements_with_text,
     extract_text_elements,
     extract_tree_with_text,
-    format_html,
     print_html,
 
     remove_markdown_comments,
@@ -122,6 +123,10 @@ def inject_globals():
         builtins.make_serializable = make_serializable
     if not hasattr(builtins, "format_json"):
         builtins.format_json = format_json
+    if not hasattr(builtins, "minify_html"):
+        builtins.minify_html = minify_html
+    if not hasattr(builtins, "format_html"):
+        builtins.format_html = format_html
     if not hasattr(builtins, "inspect_original_script_path"):
         builtins.inspect_original_script_path = inspect_original_script_path
     if not hasattr(builtins, "print_inspect_original_script_path"):
@@ -204,8 +209,6 @@ def inject_globals():
         builtins.extract_text_elements = extract_text_elements
     if not hasattr(builtins, "extract_tree_with_text"):
         builtins.extract_tree_with_text = extract_tree_with_text
-    if not hasattr(builtins, "format_html"):
-        builtins.format_html = format_html
     if not hasattr(builtins, "print_html"):
         builtins.print_html = print_html
     if not hasattr(builtins, "remove_markdown_comments"):

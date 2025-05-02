@@ -42,78 +42,119 @@ def format_json(value, indent: Optional[int] = 2):
     return json.dumps(serialized, indent=indent)
 
 
-def format_html(html: str, indent: Optional[int] = 2) -> str:
+def minify_html(html: str) -> str:
+    # Remove newlines and tabs
+    html = re.sub(r'\s*\n\s*', '', html)
+    html = re.sub(r'\s*\t\s*', '', html)
+    # Remove spaces between tags
+    html = re.sub(r'>\s+<', '><', html)
+    return html
+
+
+def format_html(html: str, indent: int = 2) -> str:
     """
-    Formats an HTML string with proper indentation and line breaks, ensuring all nested
-    elements are indented correctly according to their depth.
+    Beautifies an HTML string by correctly indenting each level.
+    Keeps void elements' start and end tags inline and preserves spaces in text-containing elements.
 
-    :param html: HTML string to format.
-    :param indent: Number of spaces for each indentation level (default: 2).
-    :return: Formatted HTML string.
+    Args:
+        html (str): The input HTML string to beautify
+        indent (int): Number of spaces for each indentation level (default: 2)
+
+    Returns:
+        str: The beautified HTML string with proper indentation
     """
-    # Handle empty or whitespace-only input
-    if not html or html.isspace():
-        return ""
+    # Void elements that cannot have children
+    VOID_ELEMENTS = {
+        'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+        'link', 'meta', 'param', 'source', 'track', 'wbr'
+    }
 
-    # Parse HTML with BeautifulSoup
-    soup = BeautifulSoup(html, 'html.parser')
+    # Elements that inherently contain text
+    TEXT_ELEMENTS = {
+        'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'del', 'dfn',
+        'em', 'i', 'ins', 'kbd', 'mark', 'q', 's', 'samp', 'small',
+        'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'p',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'label', 'legend',
+        'option', 'title', 'figcaption'
+    }
 
-    def format_element(element, level: int = 0) -> list:
-        """
-        Recursively formats an element and its children, applying correct indentation.
+    html = minify_html(html)
 
-        :param element: BeautifulSoup Tag or NavigableString.
-        :param level: Current indentation level.
-        :return: List of formatted lines.
-        """
-        lines = []
+    # Normalize input HTML
+    html = ' '.join(html.split()).replace('> <', '><').strip()
 
-        if isinstance(element, NavigableString):
-            # Handle text nodes
-            text = str(element).strip()
+    result = []
+    current_indent = 0
+    i = 0
+
+    while i < len(html):
+        if html[i] == '<':
+            # Extract tag content
+            end = html.find('>', i)
+            tag_content = html[i + 1:end]
+            is_closing = tag_content.startswith('/')
+            tag_name = tag_content.lstrip('/').split()[0].lower()
+
+            # Handle closing tags (not for void elements, as they are handled inline)
+            if is_closing and tag_name not in VOID_ELEMENTS:
+                current_indent -= 1
+                tag = html[i:end + 1]
+                result.append(' ' * (current_indent * indent) + tag)
+                i = end + 1
+            # Handle void elements
+            elif tag_name in VOID_ELEMENTS:
+                # Check if the next segment is the closing tag
+                next_start = html.find('<', end + 1)
+                if next_start != -1 and html[end + 1:next_start].strip() == '':
+                    next_tag = html[next_start:html.find('>', next_start) + 1]
+                    if next_tag == f'</{tag_name}>':
+                        # Combine start and end tags inline
+                        tag = html[i:html.find('>', next_start) + 1]
+                        result.append(' ' * (current_indent * indent) + tag)
+                        i = html.find('>', next_start) + 1
+                    else:
+                        # Just the opening tag (self-closing or malformed)
+                        tag = html[i:end + 1]
+                        result.append(' ' * (current_indent * indent) + tag)
+                        i = end + 1
+                else:
+                    # Just the opening tag
+                    tag = html[i:end + 1]
+                    result.append(' ' * (current_indent * indent) + tag)
+                    i = end + 1
+            # Handle comments
+            elif tag_content.startswith('!'):
+                tag = html[i:end + 1]
+                result.append(' ' * (current_indent * indent) + tag)
+                i = end + 1
+            # Handle opening tags
+            else:
+                tag = html[i:end + 1]
+                result.append(' ' * (current_indent * indent) + tag)
+                if tag_name not in TEXT_ELEMENTS:
+                    current_indent += 1
+                i = end + 1
+        else:
+            # Handle text content
+            end = html.find('<', i)
+            if end == -1:
+                end = len(html)
+            text = html[i:end]
+            # Only strip text if not within text element context
+            if result and result[-1].strip().startswith('<') and result[-1].strip()[1:].split()[0].lower() not in TEXT_ELEMENTS:
+                text = text.strip()
             if text:
-                lines.append(' ' * (level * indent) + text)
-            return lines
+                result.append(' ' * (current_indent * indent) + text)
+            i = end
 
-        if isinstance(element, Tag):
-            # Opening tag
-            tag_str = f"<{element.name}"
-            if element.attrs:
-                for attr, value in element.attrs.items():
-                    tag_str += f' {attr}="{value}"'
-            tag_str += ">"
-            lines.append(' ' * (level * indent) + tag_str)
+    return '\n'.join(line.rstrip() for line in result if line.strip())
 
-            # Process children
-            for child in element.children:
-                child_lines = format_element(child, level + 1)
-                lines.extend(child_lines)
 
-            # Closing tag
-            lines.append(' ' * (level * indent) + f"</{element.name}>")
-
-        return lines
-
-    # Start formatting from the root
-    formatted_lines = []
-    if soup.html:
-        # Handle DOCTYPE if present
-        if soup.find(string=lambda s: isinstance(s, str) and s.strip().startswith('<!DOCTYPE')):
-            formatted_lines.append('<!DOCTYPE html>')
-
-        # Format the <html> tag and its children
-        formatted_lines.extend(format_element(soup.html, 0))
-    else:
-        # If no <html> tag, format all top-level elements
-        for element in soup.children:
-            formatted_lines.extend(format_element(element, 0))
-
-    # Join lines
-    formatted = '\n'.join(line.rstrip()
-                          for line in formatted_lines if line.strip())
-
-    return formatted.rstrip()
-
+__all__ = [
+    "format_json",
+    "minify_html",
+    "format_html",
+]
 
 # Example Usage
 if __name__ == "__main__":
@@ -141,6 +182,6 @@ if __name__ == "__main__":
 
     # Example for format_html
     html_input = '<!DOCTYPE html><html><head><title>Test</title></head><body><p>Hello <b>World</b></p></body></html>'
-    formatted_html = format_html(html_input, indent=4)
+    formatted_html = format_html(html_input)
     print("\nFormatted HTML:")
     print(formatted_html)

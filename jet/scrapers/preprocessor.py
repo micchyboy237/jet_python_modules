@@ -1,6 +1,7 @@
 import json
 import re
 import html2text
+from jet.transformers.formatters import minify_html
 import parsel
 import math
 from bs4 import BeautifulSoup
@@ -15,15 +16,6 @@ def is_html(text: str) -> bool:
         return bool(soup.find())
     except:
         return False
-
-
-def minify_html(html: str) -> str:
-    # Remove newlines and tabs
-    html = re.sub(r'\s*\n\s*', '', html)
-    html = re.sub(r'\s*\t\s*', '', html)
-    # Remove spaces between tags
-    html = re.sub(r'>\s+<', '><', html)
-    return html
 
 
 def remove_markdown_comments(markdown_text: str) -> str:
