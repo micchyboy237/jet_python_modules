@@ -835,7 +835,14 @@ def extract_tree_with_text(
 
 def extract_by_heading_hierarchy(
     source: str,
-    tags_to_split_on: List[str] = ["h1", "h2", "h3", "h4", "h5", "h6"]
+    tags_to_split_on: list[tuple[str, str]] = [
+        ("#", "h1"),
+        ("##", "h2"),
+        ("###", "h3"),
+        ("####", "h4"),
+        ("#####", "h5"),
+        ("######", "h6"),
+    ]
 ) -> List[TreeNode]:
     """
     Extracts a list of TreeNode hierarchies split by heading tags, avoiding duplicates,
@@ -852,11 +859,13 @@ def extract_by_heading_hierarchy(
         new_id = node.id if node.id not in seen_ids else f"auto_{uuid.uuid4().hex[:8]}"
         seen_ids.add(new_id)
 
-        # Prepend '#' * n to heading text based on header level
+        # Prepend prefix from tags_to_split_on based on header level
         text = node.text
-        if node.tag in tags_to_split_on:
-            level = tags_to_split_on.index(node.tag) + 1
-            text = f"{'#' * level} {node.text.strip()}" if node.text else node.text
+        if node.tag in [tag[1] for tag in tags_to_split_on]:
+            for prefix, tag in tags_to_split_on:
+                if tag == node.tag:
+                    text = f"{prefix} {node.text.strip()}" if node.text else node.text
+                    break
 
         cloned = TreeNode(
             tag=node.tag,
@@ -876,8 +885,9 @@ def extract_by_heading_hierarchy(
         if node.id in seen_ids:
             return
 
-        if node.tag in tags_to_split_on:
-            level = tags_to_split_on.index(node.tag)
+        if node.tag in [tag[1] for tag in tags_to_split_on]:
+            level = next(i for i, t in enumerate(
+                tags_to_split_on) if t[1] == node.tag)
 
             while parent_stack and parent_stack[-1][0] >= level:
                 parent_stack.pop()
@@ -919,7 +929,14 @@ class TextHierarchyResult(TypedDict):
 
 def extract_texts_by_hierarchy(
     source: str,
-    tags_to_split_on: List[str] = ["h1", "h2", "h3", "h4", "h5", "h6"]
+    tags_to_split_on: list[tuple[str, str]] = [
+        ("#", "h1"),
+        ("##", "h2"),
+        ("###", "h3"),
+        ("####", "h4"),
+        ("#####", "h5"),
+        ("######", "h6"),
+    ]
 ) -> List[TextHierarchyResult]:
     """
     Extracts a list of dictionaries from HTML, each containing the combined text of a heading
@@ -927,7 +944,7 @@ def extract_texts_by_hierarchy(
 
     Args:
         source: HTML string, URL, or file path to process.
-        tags_to_split_on: List of heading tags to split the hierarchy (e.g., ["h1", "h2", "h3"]).
+        tags_to_split_on: List of tuples with (prefix, tag) to split the hierarchy (e.g., [("#", "h1"), ("##", "h2")]).
 
     Returns:
         List of dictionaries, each with 'text' (combined text of heading and descendants),

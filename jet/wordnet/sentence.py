@@ -257,7 +257,8 @@ def split_sentences(text: str) -> list[str]:
             # fallback: treat marker and next as separate if not a valid list sentence
         elif is_list_sentence(current_sentence):
             adjusted_sentences.append(current_sentence)
-        elif is_sentence(current_sentence):
+        # elif is_sentence(current_sentence):
+        else:
             adjusted_sentences.append(current_sentence)
 
         i += 1
