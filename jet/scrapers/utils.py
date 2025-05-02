@@ -1072,11 +1072,11 @@ def merge_texts_by_hierarchy(
         parent_header = result["parent_text"].splitlines(
         )[0] if result["parent_text"] else ""
 
-        # If single text exceeds max_tokens, split into sentences
+        # If single text exceeds max_tokens, split and handle parts
         if token_count > max_tokens:
             sentences: List[str] = split_fn(
                 text) if split_fn else split_sentences(text)
-            for sentence in sentences:
+            for split_n, sentence in enumerate(sentences):
                 sentence_tokens = tokenizer(sentence) if isinstance(
                     tokenizer(sentence), list) else tokenizer(sentence)[0]
                 sentence_token_count = len(sentence_tokens)
@@ -1086,13 +1086,14 @@ def merge_texts_by_hierarchy(
                     current_token_count += sentence_token_count
                 else:
                     if current_group:
-                        # Add parent header to maintain hierarchy
-                        grouped_texts.append(
-                            parent_header + " " + " ".join(current_group))
+                        grouped_texts.append("\n".join(current_group))
                         current_group = []
                         current_token_count = 0
                     if sentence_token_count <= max_tokens:
-                        current_group.append(sentence)
+                        # Prepend header with part number only when splitting
+                        header_with_part = f"{parent_header} - {split_n + 1}" if parent_header else None
+                        current_group.append(
+                            (header_with_part + " " + sentence) if header_with_part else sentence)
                         current_token_count = sentence_token_count
         else:
             # If text fits within max_tokens, try to add to current group
@@ -1101,8 +1102,7 @@ def merge_texts_by_hierarchy(
                 current_token_count += token_count
             else:
                 if current_group:
-                    grouped_texts.append(
-                        parent_header + " " + " ".join(current_group))
+                    grouped_texts.append("\n".join(current_group))
                     current_group = [text]
                     current_token_count = token_count
                 else:
@@ -1129,9 +1129,7 @@ def merge_texts_by_hierarchy(
 
     # Add final group if it exists
     if current_group:
-        parent_header = results[-1]["parent_text"].splitlines(
-        )[0] if results[-1]["parent_text"] else ""
-        grouped_texts.append(parent_header + " " + " ".join(current_group))
+        grouped_texts.append("\n".join(current_group))
 
     # Filter out empty strings
     filtered_texts = [text.strip() for text in grouped_texts if text.strip()]

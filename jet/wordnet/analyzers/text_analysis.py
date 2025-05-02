@@ -5,6 +5,7 @@ from textstat import textstat as ts
 
 OverallDifficultyCategoryType = Literal["very_easy",
                                         "easy", "moderate", "difficult", "very_difficult"]
+ScoresCategoryType = Literal["very_low", "low", "medium", "high"]
 
 
 class TextStats(TypedDict):
@@ -62,8 +63,220 @@ class TextStats(TypedDict):
     reading_time: float
     text_standard: float
     text_standard_description: str
+    mltd: float
+    mltd_category: ScoresCategoryType
     overall_difficulty: float
     overall_difficulty_category: OverallDifficultyCategoryType
+
+
+class MLTDScores(TypedDict):
+    text_without_punctuation: str
+    lexicon_count: int
+
+
+class ReadabilityScores(TypedDict):
+    flesch_kincaid_grade: float
+    flesch_reading_ease: float
+    gunning_fog: float
+    smog_index: float
+    automated_readability_index: float
+
+
+class ReadabilityResult(TypedDict):
+    scores: ReadabilityScores
+    categories: Dict[str, str]
+    overall_difficulty: float
+    overall_difficulty_category: OverallDifficultyCategoryType
+    overall_difficulty_description: str
+
+
+def categorize_score(metric: str, value: float, thresholds) -> str:
+    """Categorizes a readability score based on predefined thresholds."""
+    drifted_value = value if metric != 'flesch_reading_ease' or value >= 0 else 0
+    if metric not in thresholds:
+        return "N/A"
+    t = thresholds[metric]
+
+    if metric == 'flesch_reading_ease':  # Inverted scale: higher is easier
+        if drifted_value > t['very_easy']:
+            return "very_easy"
+        elif drifted_value > t['easy']:
+            return "easy"
+        elif drifted_value > t['moderate']:
+            return "moderate"
+        elif drifted_value > t['difficult']:
+            return "difficult"
+        else:
+            return "very_difficult"
+    else:  # Normal scale: higher is harder
+        if drifted_value < t['very_easy']:
+            return "very_easy"
+        elif drifted_value < t['easy']:
+            return "easy"
+        elif drifted_value < t['moderate']:
+            return "moderate"
+        elif drifted_value < t['difficult']:
+            return "difficult"
+        else:
+            return "very_difficult"
+
+
+def get_readability_description(category: OverallDifficultyCategoryType) -> str:
+    """Maps full category name to simplified readability value."""
+    category_map = {
+        "very_easy": "Very Easy (Elementary)",
+        "easy": "Easy (Middle School)",
+        "moderate": "Moderate (High School)",
+        "difficult": "Difficult (College)",
+        "very_difficult": "Very Difficult (Specialist)",
+    }
+    return category_map.get(category, "N/A")
+
+
+def calculate_mtld(text_stats: MLTDScores) -> float:
+    """
+    Calculates the Measure of Textual Lexical Diversity (MTLD) for the given text stats.
+
+    Args:
+        text_stats: Dictionary containing text analysis metrics from analyze_text,
+                   including 'text_without_punctuation' and 'lexicon_count'.
+
+    Returns:
+        float: The MTLD score, representing lexical diversity.
+               Returns 0.0 for texts with fewer than 10 words or invalid input.
+    """
+    # Extract required metrics from text_stats
+    text = text_stats.get('text_without_punctuation', '')
+    lexicon_count = text_stats.get('lexicon_count', 0)
+
+    # Return 0.0 for short or invalid texts
+    if not text or lexicon_count < 10:
+        return 0.0
+
+    # Tokenize the text into words
+    words = ts.remove_punctuation(text).lower().split()
+
+    # Validate lexicon_count against tokenized words
+    if len(words) != lexicon_count:
+        lexicon_count = len(words)
+
+    # Return 0.0 if still too short
+    if lexicon_count < 10:
+        return 0.0
+
+    # Define TTR threshold for segmenting
+    TTR_THRESHOLD = 0.72
+
+    def compute_factors(word_list: list[str]) -> float:
+        """Computes the number of factors and their average length for a word list."""
+        factor_count = 0.0  # Use float for partial factors
+        current_words = []
+        unique_words = set()
+
+        for word in word_list:
+            current_words.append(word)
+            unique_words.add(word)
+            ttr = len(unique_words) / \
+                len(current_words) if current_words else 1.0
+
+            # Complete factor only if TTR drops below threshold and segment is long enough
+            if ttr < TTR_THRESHOLD and len(current_words) >= 15:
+                factor_count += 1
+                current_words = []
+                unique_words = set()
+
+        # Handle remaining words
+        if current_words:
+            ttr = len(unique_words) / \
+                len(current_words) if current_words else 1.0
+            if ttr >= TTR_THRESHOLD or len(current_words) >= 15:
+                factor_count += 1  # Count as full factor if diverse or long
+            else:
+                # Proportional contribution
+                factor_count += min(ttr / TTR_THRESHOLD, 1.0)
+
+        # Return average factor length
+        total_words = len(word_list)
+        return total_words / factor_count if factor_count > 0 else total_words
+
+    # Calculate MTLD in forward and backward directions
+    forward_mtld = compute_factors(words)
+    backward_mtld = compute_factors(words[::-1])
+
+    # Average the forward and backward MTLD scores
+    return (forward_mtld + backward_mtld) / 2
+
+
+def calculate_mtld_category(mtld_score: float, medium_threshold: float = 60.0) -> ScoresCategoryType:
+    """
+    Categorizes an MTLD score into one of four lexical diversity categories based on a medium threshold.
+
+    Args:
+        mtld_score: The MTLD score calculated by calculate_mtld.
+        medium_threshold: The lower bound for the medium category (default 60.0).
+
+    Returns:
+        ScoresCategoryType: The category of lexical diversity.
+    """
+    very_low_threshold = medium_threshold * \
+        0.67  # e.g., 40 if medium_threshold = 60
+    low_threshold = medium_threshold
+    high_threshold = medium_threshold * 1.33  # e.g., 80 if medium_threshold = 60
+
+    if mtld_score < very_low_threshold:
+        return "very_low"
+    elif mtld_score < low_threshold:
+        return "low"
+    elif mtld_score < high_threshold:
+        return "medium"
+    else:
+        return "high"
+
+
+def calculate_overall_difficulty_category(difficulty: float) -> OverallDifficultyCategoryType:
+    """Converts a float difficulty score to a categorical label."""
+    if difficulty <= 1.5:
+        return "very_easy"
+    elif difficulty <= 2.5:
+        return "easy"
+    elif difficulty <= 3.5:
+        return "moderate"
+    elif difficulty <= 4.5:
+        return "difficult"
+    else:
+        return "very_difficult"
+
+
+def calculate_overall_difficulty(scores: ReadabilityScores, thresholds: Dict[str, Dict[str, float]]) -> float:
+    """Calculates the overall difficulty as a float based on weighted readability scores."""
+    weights = {
+        'flesch_kincaid_grade': 0.45,
+        'flesch_reading_ease': 0.35,
+        'gunning_fog': 0.1,
+        'smog_index': 0.05,
+        'automated_readability_index': 0.05
+    }
+
+    # Map categories to numerical values for float calculation
+    category_values = {
+        "very_easy": 1.0,
+        "easy": 2.0,
+        "moderate": 3.0,
+        "difficult": 4.0,
+        "very_difficult": 5.0
+    }
+
+    weighted_sum = 0.0
+    total_weight = 0.0
+    categories = {metric: categorize_score(
+        metric, value, thresholds) for metric, value in scores.items()}
+    for metric, category_label in categories.items():
+        weight = weights.get(metric, 0)
+        if category_label in category_values:
+            weighted_sum += category_values[category_label] * weight
+            total_weight += weight
+
+    return weighted_sum / total_weight if total_weight > 0 else 3.0
 
 
 def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int = 2, ms_per_char: float = 14.69) -> TextStats:
@@ -97,6 +310,14 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
         'automated_readability_index': ts.automated_readability_index(text)
     }
 
+    # Compute mltd scores
+    mltd_scores: MLTDScores = {
+        "text_without_punctuation": ts.remove_punctuation(text),
+        "lexicon_count": ts.lexicon_count(text, removepunct=True),
+    }
+    mltd = calculate_mtld(mltd_scores)
+    mltd_category = calculate_mtld_category(mltd)
+
     overall_difficulty = calculate_overall_difficulty(scores, thresholds)
     overall_difficulty_category = calculate_overall_difficulty_category(
         overall_difficulty)
@@ -114,11 +335,11 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
 
         # Text Processing
         # Removes all punctuation from the text
-        "text_without_punctuation": ts.remove_punctuation(text),
+        "text_without_punctuation": mltd_scores["text_without_punctuation"],
 
         # Word and Sentence Counts
         # Counts total words, optionally removing punctuation
-        "lexicon_count": ts.lexicon_count(text, removepunct=True),
+        "lexicon_count": mltd_scores["lexicon_count"],
         # Counts words with 3 or fewer characters
         "miniword_count": ts.miniword_count(text, max_size=miniword_max_size),
         # Counts total sentences in the text
@@ -230,116 +451,15 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
         # Text description of the overall grade level
         "text_standard_description": str(ts.text_standard(text, float_output=False)),
 
+        # Diversity Metrics
+        "mltd": mltd,
+        "mltd_category": mltd_category,
+
         # Overall Difficulty
         # Now float
         "overall_difficulty": overall_difficulty,
         "overall_difficulty_category": overall_difficulty_category
     }
-
-
-class ReadabilityScores(TypedDict):
-    flesch_kincaid_grade: float
-    flesch_reading_ease: float
-    gunning_fog: float
-    smog_index: float
-    automated_readability_index: float
-
-
-class ReadabilityResult(TypedDict):
-    scores: ReadabilityScores
-    categories: Dict[str, str]
-    overall_difficulty: float
-    overall_difficulty_category: OverallDifficultyCategoryType
-    overall_difficulty_description: str
-
-
-def categorize_score(metric: str, value: float, thresholds) -> str:
-    """Categorizes a readability score based on predefined thresholds."""
-    drifted_value = value if metric != 'flesch_reading_ease' or value >= 0 else 0
-    if metric not in thresholds:
-        return "N/A"
-    t = thresholds[metric]
-
-    if metric == 'flesch_reading_ease':  # Inverted scale: higher is easier
-        if drifted_value > t['very_easy']:
-            return "very_easy"
-        elif drifted_value > t['easy']:
-            return "easy"
-        elif drifted_value > t['moderate']:
-            return "moderate"
-        elif drifted_value > t['difficult']:
-            return "difficult"
-        else:
-            return "very_difficult"
-    else:  # Normal scale: higher is harder
-        if drifted_value < t['very_easy']:
-            return "very_easy"
-        elif drifted_value < t['easy']:
-            return "easy"
-        elif drifted_value < t['moderate']:
-            return "moderate"
-        elif drifted_value < t['difficult']:
-            return "difficult"
-        else:
-            return "very_difficult"
-
-
-def get_readability_description(category: OverallDifficultyCategoryType) -> str:
-    """Maps full category name to simplified readability value."""
-    category_map = {
-        "very_easy": "Very Easy (Elementary)",
-        "easy": "Easy (Middle School)",
-        "moderate": "Moderate (High School)",
-        "difficult": "Difficult (College)",
-        "very_difficult": "Very Difficult (Specialist)",
-    }
-    return category_map.get(category, "N/A")
-
-
-def calculate_overall_difficulty_category(difficulty: float) -> OverallDifficultyCategoryType:
-    """Converts a float difficulty score to a categorical label."""
-    if difficulty <= 1.5:
-        return "very_easy"
-    elif difficulty <= 2.5:
-        return "easy"
-    elif difficulty <= 3.5:
-        return "moderate"
-    elif difficulty <= 4.5:
-        return "difficult"
-    else:
-        return "very_difficult"
-
-
-def calculate_overall_difficulty(scores: ReadabilityScores, thresholds: Dict[str, Dict[str, float]]) -> float:
-    """Calculates the overall difficulty as a float based on weighted readability scores."""
-    weights = {
-        'flesch_kincaid_grade': 0.45,
-        'flesch_reading_ease': 0.35,
-        'gunning_fog': 0.1,
-        'smog_index': 0.05,
-        'automated_readability_index': 0.05
-    }
-
-    # Map categories to numerical values for float calculation
-    category_values = {
-        "very_easy": 1.0,
-        "easy": 2.0,
-        "moderate": 3.0,
-        "difficult": 4.0,
-        "very_difficult": 5.0
-    }
-
-    weighted_sum = 0.0
-    total_weight = 0.0
-    categories = {metric: categorize_score(
-        metric, value, thresholds) for metric, value in scores.items()}
-    for metric, category_label in categories.items():
-        weight = weights.get(metric, 0)
-        if category_label in category_values:
-            weighted_sum += category_values[category_label] * weight
-            total_weight += weight
-
-    return weighted_sum / total_weight if total_weight > 0 else 3.0
 
 
 def analyze_readability(text: str) -> ReadabilityResult:
