@@ -58,6 +58,7 @@ class TextStats(TypedDict):
     reading_time: float
     text_standard: float
     text_standard_description: str
+    overall_difficulty_category: str
 
 
 def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int = 2, ms_per_char: float = 14.69) -> TextStats:
@@ -83,7 +84,7 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
     }
 
     # Compute readability scores
-    scores = {
+    scores: ReadabilityScores = {
         'flesch_kincaid_grade': ts.flesch_kincaid_grade(text),
         'flesch_reading_ease': ts.flesch_reading_ease(text),
         'gunning_fog': ts.gunning_fog(text),
@@ -220,7 +221,8 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
         # Text description of the overall grade level
         "text_standard_description": str(ts.text_standard(text, float_output=False)),
 
-
+        # Overall Difficulty
+        "overall_difficulty_category": calculate_overall_difficulty(scores, thresholds)
     }
 
 
@@ -236,6 +238,70 @@ class ReadabilityResult(TypedDict):
     scores: ReadabilityScores
     categories: Dict[str, str]
     overall_difficulty: str
+    overall_difficulty_description: str
+
+
+def categorize_score(metric: str, value: float, thresholds) -> str:
+    """Categorizes a readability score based on predefined thresholds."""
+    drifted_value = value if metric != 'flesch_reading_ease' or value >= 0 else 0
+    if metric not in thresholds:
+        return "N/A"
+    t = thresholds[metric]
+
+    if metric == 'flesch_reading_ease':  # Inverted scale: higher is easier
+        if drifted_value > t['very_easy']:
+            return "very_easy"
+        elif drifted_value > t['easy']:
+            return "easy"
+        elif drifted_value > t['moderate']:
+            return "moderate"
+        elif drifted_value > t['difficult']:
+            return "difficult"
+        else:
+            return "very_difficult"
+    else:  # Normal scale: higher is harder
+        if drifted_value < t['very_easy']:
+            return "very_easy"
+        elif drifted_value < t['easy']:
+            return "easy"
+        elif drifted_value < t['moderate']:
+            return "moderate"
+        elif drifted_value < t['difficult']:
+            return "difficult"
+        else:
+            return "very_difficult"
+
+
+def get_readability_description(category: str) -> str:
+    """Maps full category name to simplified readability value."""
+    category_map = {
+        "very_easy": "Very Easy (Elementary)",
+        "easy": "Easy (Middle School)",
+        "moderate": "Moderate (High School)",
+        "difficult": "Difficult (College)",
+        "very_difficult": "Very Difficult (Specialist)",
+    }
+    return category_map.get(category, "N/A")
+
+
+def calculate_overall_difficulty(scores: ReadabilityScores, thresholds: Dict[str, Dict[str, float]]) -> str:
+    """Calculates the overall difficulty category based on weighted readability scores."""
+    weights = {
+        'flesch_kincaid_grade': 0.45,
+        'flesch_reading_ease': 0.35,
+        'gunning_fog': 0.1,
+        'smog_index': 0.05,
+        'automated_readability_index': 0.05
+    }
+
+    weighted_scores = Counter()
+    categories = {metric: categorize_score(
+        metric, value, thresholds) for metric, value in scores.items()}
+    for metric, category_label in categories.items():
+        weight = weights.get(metric, 0)
+        weighted_scores[category_label] += weight
+
+    return max(weighted_scores, key=weighted_scores.get) if weighted_scores else "N/A"
 
 
 def analyze_readability(text: str) -> ReadabilityResult:
@@ -289,54 +355,12 @@ def analyze_readability(text: str) -> ReadabilityResult:
         weight = weights.get(metric, 0)
         weighted_scores[category_label] += weight
 
-    overall_difficulty = max(
-        weighted_scores, key=weighted_scores.get) if weighted_scores else "N/A"
+    overall_difficulty = calculate_overall_difficulty(scores, thresholds)
 
     return {
         'scores': scores,
         'categories': categories,
-        'overall_difficulty': get_readability_description(overall_difficulty)
+        'overall_difficulty': overall_difficulty,
+        # Overall Difficulty
+        "overall_difficulty_description": get_readability_description(overall_difficulty)
     }
-
-
-def categorize_score(metric: str, value: float, thresholds) -> str:
-    """Categorizes a readability score based on predefined thresholds."""
-    drifted_value = value if metric != 'flesch_reading_ease' or value >= 0 else 0
-    if metric not in thresholds:
-        return "N/A"
-    t = thresholds[metric]
-
-    if metric == 'flesch_reading_ease':  # Inverted scale: higher is easier
-        if drifted_value > t['very_easy']:
-            return "very_easy"
-        elif drifted_value > t['easy']:
-            return "easy"
-        elif drifted_value > t['moderate']:
-            return "moderate"
-        elif drifted_value > t['difficult']:
-            return "difficult"
-        else:
-            return "very_difficult"
-    else:  # Normal scale: higher is harder
-        if drifted_value < t['very_easy']:
-            return "very_easy"
-        elif drifted_value < t['easy']:
-            return "easy"
-        elif drifted_value < t['moderate']:
-            return "moderate"
-        elif drifted_value < t['difficult']:
-            return "difficult"
-        else:
-            return "very_difficult"
-
-
-def get_readability_description(category: str) -> str:
-    """Maps full category name to simplified readability value."""
-    category_map = {
-        "very_easy": "Very Easy (Elementary)",
-        "easy": "Easy (Middle School)",
-        "moderate": "Moderate (High School)",
-        "difficult": "Difficult (College)",
-        "very_difficult": "Very Difficult (Specialist)",
-    }
-    return category_map.get(category, "N/A")
