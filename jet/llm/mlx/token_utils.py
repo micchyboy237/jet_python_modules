@@ -2,7 +2,7 @@ from jet.wordnet.sentence import split_sentences
 from mlx_lm import load
 
 
-def extract_texts(text, tokenizer, skip_special_tokens=True, max_length=None):
+def merge_texts(text, tokenizer, skip_special_tokens=True, max_length=None):
     # Encode the text into token IDs
     token_ids = tokenizer.encode(text, add_special_tokens=False)
     total_tokens = len(token_ids)
@@ -129,7 +129,7 @@ if __name__ == "__main__":
     # Load the model and tokenizer
     model, tokenizer = load(model_path)
 
-    result = extract_texts(prompt, tokenizer, max_length=20)
+    result = merge_texts(prompt, tokenizer, max_length=20)
     print("Tokenized text (up to 20 tokens, NLTK sentence-truncated):",
           result["tokens"])
     print("Decoded tokens:", result["decoded_tokens"])
