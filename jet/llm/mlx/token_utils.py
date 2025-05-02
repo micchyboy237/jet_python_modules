@@ -1,13 +1,16 @@
-from typing import List, Dict, Optional, TypedDict, Union
+from typing import Callable, List, Dict, Optional, TypedDict, Union
 from jet.wordnet.sentence import split_sentences
 from mlx_lm import load
 import transformers  # Assuming tokenizer is from transformers
 
 
 class Metadata(TypedDict):
-    total_tokens: int
     texts_count: int
     is_truncated: bool
+    total_tokens: int
+    min_tokens: int
+    max_tokens: int
+    ave_tokens: int
 
 
 class MergeResult(TypedDict):
@@ -23,7 +26,7 @@ def merge_texts(
     text: str,
     tokenizer: transformers.PreTrainedTokenizerBase,
     skip_special_tokens: bool = True,
-    max_length: Optional[int] = None
+    max_length: Optional[int] = None,
     split_fn: Optional[Callable[[str], List[str]]] = None
 ) -> MergeResult:
     # Encode the text into token IDs
@@ -48,7 +51,14 @@ def merge_texts(
             "tokens": [token_ids],
             "token_strings": [token_strings],
             "decoded_tokens": [decoded_tokens],
-            "metadata": {"total_tokens": total_tokens, "texts_count": 1, "is_truncated": False}
+            "metadata": {
+                "texts_count": 1,
+                "is_truncated": False,
+                "total_tokens": total_tokens,
+                "min_tokens": total_tokens,
+                "max_tokens": total_tokens,
+                "ave_tokens": total_tokens,
+            }
         }
 
     # Get the decoded text to find sentence boundaries
@@ -73,8 +83,12 @@ def merge_texts(
         )
         sentence_token_count: int = len(sentence_token_ids)
 
+        # If sentence token count > max_length, just add it
+        if not max_length or sentence_token_count > max_length:
+            grouped_texts.append(sentence)
+            grouped_token_ids.append(sentence_token_ids)
         # Check if adding the sentence exceeds max_length
-        if current_token_count + sentence_token_count <= max_length:
+        elif current_token_count + sentence_token_count <= max_length:
             selected_token_ids.extend(sentence_token_ids)
             current_token_count += sentence_token_count
             current_group.append(sentence)
@@ -137,9 +151,12 @@ def merge_texts(
 
     # Prepare metadata
     metadata: Metadata = {
-        "total_tokens": total_tokens,
         "texts_count": len(grouped_texts),
-        "is_truncated": len(grouped_texts) > 1
+        "is_truncated": len(grouped_texts) > 1,
+        "total_tokens": total_tokens,
+        "min_tokens": min(token_counts),
+        "max_tokens": max(token_counts),
+        "ave_tokens": sum(token_counts) / len(token_counts) if token_counts else 0,
     }
 
     return {
