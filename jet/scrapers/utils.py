@@ -1,5 +1,5 @@
 from lxml.etree import Comment
-from typing import Optional, List, Dict, TypedDict
+from typing import Callable, Optional, List, Dict, TypedDict
 from bs4 import BeautifulSoup
 import uuid
 from jet.code.splitter_markdown_utils import get_md_header_contents
@@ -1007,6 +1007,29 @@ def extract_texts_by_hierarchy(
 
     # Extract text, links, depth, id, and parent for each heading node and its descendants
     return [collect_text_and_links(node) for node in heading_nodes]
+
+
+def merge_texts_by_hierarchy(
+    source: str,
+    tokenizer: Callable[[List[str]], List[List[str]]],
+    tags_to_split_on: list[tuple[str, str]] = [
+        ("#", "h1"),
+        ("##", "h2"),
+        ("###", "h3"),
+        ("####", "h4"),
+        ("#####", "h5"),
+        ("######", "h6"),
+    ],
+    ignore_links: bool = False,
+    excludes: list[str] = [
+        "nav", "footer", "script", "style", "noscript", "template",
+        "svg", "canvas", "iframe", "form", "input", "button",
+        "select", "option", "label", "aside", "meta", "link",
+        "header", "figure", "figcaption", "object", "embed"
+    ]
+) -> List[TextHierarchyResult]:
+    texts = extract_texts_by_hierarchy(
+        source, ignore_links=ignore_links, excludes=excludes)
 
 
 def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "script", "style"], timeout_ms: int = 1000) -> List[str]:

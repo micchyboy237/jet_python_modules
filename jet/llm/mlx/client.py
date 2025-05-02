@@ -11,7 +11,7 @@ from mlx_lm.generate import stream_generate
 from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache, can_trim_prompt_cache
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import load
-from jet.llm.mlx.types import (
+from jet.llm.mlx.mlx_types import (
     Message,
     Tool,
     RoleMapping,
