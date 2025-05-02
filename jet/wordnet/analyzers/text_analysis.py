@@ -1,6 +1,10 @@
-from typing import Dict, TypedDict, List, Optional
+from typing import Dict, Literal, TypedDict, List, Optional
 from collections import Counter
 from textstat import textstat as ts
+
+
+OverallDifficultyCategoryType = Literal["very_easy",
+                                        "easy", "moderate", "difficult", "very_difficult"]
 
 
 class TextStats(TypedDict):
@@ -58,7 +62,8 @@ class TextStats(TypedDict):
     reading_time: float
     text_standard: float
     text_standard_description: str
-    overall_difficulty_category: str
+    overall_difficulty: float
+    overall_difficulty_category: OverallDifficultyCategoryType
 
 
 def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int = 2, ms_per_char: float = 14.69) -> TextStats:
@@ -91,6 +96,10 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
         'smog_index': ts.smog_index(text),
         'automated_readability_index': ts.automated_readability_index(text)
     }
+
+    overall_difficulty = calculate_overall_difficulty(scores, thresholds)
+    overall_difficulty_category = calculate_overall_difficulty_category(
+        overall_difficulty)
 
     return {
         # Character and Letter Counts
@@ -222,7 +231,9 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
         "text_standard_description": str(ts.text_standard(text, float_output=False)),
 
         # Overall Difficulty
-        "overall_difficulty_category": calculate_overall_difficulty(scores, thresholds)
+        # Now float
+        "overall_difficulty": overall_difficulty,
+        "overall_difficulty_category": overall_difficulty_category
     }
 
 
@@ -237,7 +248,8 @@ class ReadabilityScores(TypedDict):
 class ReadabilityResult(TypedDict):
     scores: ReadabilityScores
     categories: Dict[str, str]
-    overall_difficulty: str
+    overall_difficulty: float
+    overall_difficulty_category: OverallDifficultyCategoryType
     overall_difficulty_description: str
 
 
@@ -272,7 +284,7 @@ def categorize_score(metric: str, value: float, thresholds) -> str:
             return "very_difficult"
 
 
-def get_readability_description(category: str) -> str:
+def get_readability_description(category: OverallDifficultyCategoryType) -> str:
     """Maps full category name to simplified readability value."""
     category_map = {
         "very_easy": "Very Easy (Elementary)",
@@ -284,8 +296,22 @@ def get_readability_description(category: str) -> str:
     return category_map.get(category, "N/A")
 
 
-def calculate_overall_difficulty(scores: ReadabilityScores, thresholds: Dict[str, Dict[str, float]]) -> str:
-    """Calculates the overall difficulty category based on weighted readability scores."""
+def calculate_overall_difficulty_category(difficulty: float) -> OverallDifficultyCategoryType:
+    """Converts a float difficulty score to a categorical label."""
+    if difficulty <= 1.5:
+        return "very_easy"
+    elif difficulty <= 2.5:
+        return "easy"
+    elif difficulty <= 3.5:
+        return "moderate"
+    elif difficulty <= 4.5:
+        return "difficult"
+    else:
+        return "very_difficult"
+
+
+def calculate_overall_difficulty(scores: ReadabilityScores, thresholds: Dict[str, Dict[str, float]]) -> float:
+    """Calculates the overall difficulty as a float based on weighted readability scores."""
     weights = {
         'flesch_kincaid_grade': 0.45,
         'flesch_reading_ease': 0.35,
@@ -294,14 +320,26 @@ def calculate_overall_difficulty(scores: ReadabilityScores, thresholds: Dict[str
         'automated_readability_index': 0.05
     }
 
-    weighted_scores = Counter()
+    # Map categories to numerical values for float calculation
+    category_values = {
+        "very_easy": 1.0,
+        "easy": 2.0,
+        "moderate": 3.0,
+        "difficult": 4.0,
+        "very_difficult": 5.0
+    }
+
+    weighted_sum = 0.0
+    total_weight = 0.0
     categories = {metric: categorize_score(
         metric, value, thresholds) for metric, value in scores.items()}
     for metric, category_label in categories.items():
         weight = weights.get(metric, 0)
-        weighted_scores[category_label] += weight
+        if category_label in category_values:
+            weighted_sum += category_values[category_label] * weight
+            total_weight += weight
 
-    return max(weighted_scores, key=weighted_scores.get) if weighted_scores else "N/A"
+    return weighted_sum / total_weight if total_weight > 0 else 3.0
 
 
 def analyze_readability(text: str) -> ReadabilityResult:
@@ -356,11 +394,14 @@ def analyze_readability(text: str) -> ReadabilityResult:
         weighted_scores[category_label] += weight
 
     overall_difficulty = calculate_overall_difficulty(scores, thresholds)
+    overall_difficulty_category = calculate_overall_difficulty_category(
+        overall_difficulty)
 
     return {
         'scores': scores,
         'categories': categories,
         'overall_difficulty': overall_difficulty,
+        'overall_difficulty_category': overall_difficulty_category,
         # Overall Difficulty
-        "overall_difficulty_description": get_readability_description(overall_difficulty)
+        "overall_difficulty_description": get_readability_description(overall_difficulty_category)
     }
