@@ -951,7 +951,13 @@ def extract_texts_by_hierarchy(
         ("#####", "h5"),
         ("######", "h6"),
     ],
-    excludes: list[str] = ["nav", "footer", "script", "style"]
+    ignore_links: bool = False,
+    excludes: list[str] = [
+        "nav", "footer", "script", "style", "noscript", "template",
+        "svg", "canvas", "iframe", "form", "input", "button",
+        "select", "option", "label", "aside", "meta", "link",
+        "header", "figure", "figcaption", "object", "embed"
+    ]
 ) -> List[TextHierarchyResult]:
     """
     Extracts a list of dictionaries from HTML, each containing the combined text of a heading
@@ -960,6 +966,7 @@ def extract_texts_by_hierarchy(
     Args:
         source: HTML string, URL, or file path to process.
         tags_to_split_on: List of tuples with (prefix, tag) to split the hierarchy (e.g., [("#", "h1"), ("##", "h2")]).
+        ignore_links: If True, excludes text from nodes with 'a' tags but includes their links.
         excludes: List of HTML tags whose text and links should be excluded (e.g., ["footer", "nav"]).
 
     Returns:
@@ -973,8 +980,10 @@ def extract_texts_by_hierarchy(
         texts = []
         links = set()
 
+        # Include text only if node is not a link when ignore_links is True
         if node.text and node.text.strip():
-            texts.append(node.text.strip())
+            if not (ignore_links and node.link):
+                texts.append(node.text.strip())
         if node.link:
             links.add(node.link)
 

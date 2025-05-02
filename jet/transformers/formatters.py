@@ -51,103 +51,34 @@ def minify_html(html: str) -> str:
     return html
 
 
-def format_html(html: str, indent: int = 2) -> str:
+def format_html(html_string: str, parser: str = "html.parser", encoding: Optional[str] = None) -> str:
     """
-    Beautifies an HTML string by correctly indenting each level.
-    Keeps void elements' start and end tags inline and preserves spaces in text-containing elements.
+    Beautify an HTML string by formatting it with proper indentation.
 
     Args:
-        html (str): The input HTML string to beautify
-        indent (int): Number of spaces for each indentation level (default: 2)
+        html_string (str): The input HTML string to beautify.
+        parser (str, optional): The BeautifulSoup parser to use. Defaults to "html.parser".
+        encoding (str, optional): The encoding for the output string. If None, returns a Unicode string.
 
     Returns:
-        str: The beautified HTML string with proper indentation
+        str: The beautified HTML string with proper indentation.
+
+    Raises:
+        TypeError: If html_string is not a string.
+        ValueError: If the parser is invalid or html_string is empty.
     """
-    # Void elements that cannot have children
-    VOID_ELEMENTS = {
-        'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
-        'link', 'meta', 'param', 'source', 'track', 'wbr'
-    }
+    if not isinstance(html_string, str):
+        raise TypeError("html_string must be a string")
+    if not html_string.strip():
+        raise ValueError("html_string cannot be empty")
 
-    # Elements that inherently contain text
-    TEXT_ELEMENTS = {
-        'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'del', 'dfn',
-        'em', 'i', 'ins', 'kbd', 'mark', 'q', 's', 'samp', 'small',
-        'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'p',
-        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'label', 'legend',
-        'option', 'title', 'figcaption'
-    }
-
-    html = minify_html(html)
-
-    # Normalize input HTML
-    html = ' '.join(html.split()).replace('> <', '><').strip()
-
-    result = []
-    current_indent = 0
-    i = 0
-
-    while i < len(html):
-        if html[i] == '<':
-            # Extract tag content
-            end = html.find('>', i)
-            tag_content = html[i + 1:end]
-            is_closing = tag_content.startswith('/')
-            tag_name = tag_content.lstrip('/').split()[0].lower()
-
-            # Handle closing tags (not for void elements, as they are handled inline)
-            if is_closing and tag_name not in VOID_ELEMENTS:
-                current_indent -= 1
-                tag = html[i:end + 1]
-                result.append(' ' * (current_indent * indent) + tag)
-                i = end + 1
-            # Handle void elements
-            elif tag_name in VOID_ELEMENTS:
-                # Check if the next segment is the closing tag
-                next_start = html.find('<', end + 1)
-                if next_start != -1 and html[end + 1:next_start].strip() == '':
-                    next_tag = html[next_start:html.find('>', next_start) + 1]
-                    if next_tag == f'</{tag_name}>':
-                        # Combine start and end tags inline
-                        tag = html[i:html.find('>', next_start) + 1]
-                        result.append(' ' * (current_indent * indent) + tag)
-                        i = html.find('>', next_start) + 1
-                    else:
-                        # Just the opening tag (self-closing or malformed)
-                        tag = html[i:end + 1]
-                        result.append(' ' * (current_indent * indent) + tag)
-                        i = end + 1
-                else:
-                    # Just the opening tag
-                    tag = html[i:end + 1]
-                    result.append(' ' * (current_indent * indent) + tag)
-                    i = end + 1
-            # Handle comments
-            elif tag_content.startswith('!'):
-                tag = html[i:end + 1]
-                result.append(' ' * (current_indent * indent) + tag)
-                i = end + 1
-            # Handle opening tags
-            else:
-                tag = html[i:end + 1]
-                result.append(' ' * (current_indent * indent) + tag)
-                if tag_name not in TEXT_ELEMENTS:
-                    current_indent += 1
-                i = end + 1
-        else:
-            # Handle text content
-            end = html.find('<', i)
-            if end == -1:
-                end = len(html)
-            text = html[i:end]
-            # Only strip text if not within text element context
-            if result and result[-1].strip().startswith('<') and result[-1].strip()[1:].split()[0].lower() not in TEXT_ELEMENTS:
-                text = text.strip()
-            if text:
-                result.append(' ' * (current_indent * indent) + text)
-            i = end
-
-    return '\n'.join(line.rstrip() for line in result if line.strip())
+    try:
+        soup = BeautifulSoup(html_string, parser)
+        pretty_html = soup.prettify(encoding=encoding)
+        # Handle byte string output when encoding is specified
+        return pretty_html.decode(encoding or 'utf-8') if isinstance(pretty_html, bytes) else pretty_html
+    except Exception as e:
+        raise ValueError(f"Failed to beautify HTML: {str(e)}")
 
 
 __all__ = [
