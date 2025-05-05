@@ -151,7 +151,7 @@ def clean_tags(root: parsel.Selector) -> parsel.Selector:
     Retain only text-bearing elements.
     """
     # Exclude elements that don't contribute to visible text
-    tags_to_exclude = ["style", "script", "nav", "header", "footer",
+    tags_to_exclude = ["style", "script", "nav", "footer",
                        "aside", "img", "sup", "sub"]
     for tag in tags_to_exclude:
         # Remove elements with the specified tag
@@ -954,7 +954,7 @@ def extract_texts_by_hierarchy(
         "nav", "footer", "script", "style", "noscript", "template",
         "svg", "canvas", "iframe", "form", "input", "button",
         "select", "option", "label", "aside", "meta", "link",
-        "header", "figure", "figcaption", "object", "embed"
+        "figure", "figcaption", "object", "embed"
     ]
 ) -> List[TextHierarchyResult]:
     """
@@ -1044,7 +1044,7 @@ def merge_texts_by_hierarchy(
         "nav", "footer", "script", "style", "noscript", "template",
         "svg", "canvas", "iframe", "form", "input", "button",
         "select", "option", "label", "aside", "meta", "link",
-        "header", "figure", "figcaption", "object", "embed"
+        "figure", "figcaption", "object", "embed"
     ],
     split_fn: Optional[Callable[[str], List[str]]] = None
 ) -> List[MergedTextsResult]:
