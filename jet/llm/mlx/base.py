@@ -181,45 +181,42 @@ class MLX:
 
     def __init__(
         self,
+        # Model Config
         model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
         adapter_path: Optional[str] = None,
         draft_model: Optional[str] = None,
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
-        config: Optional[Config] = None,
-        db_config: Optional[DBConfig] = None,
+        # DB Config
+        dbname: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        host: Optional[str] = None,
+        port: Optional[str] = None,
+        session_id: Optional[str] = None,
     ):
         """Initialize the MLX client with configuration and optional database."""
-        if config is None:
-            config = self.Config(
-                model=model,
-                adapter_path=adapter_path,
-                draft_model=draft_model,
-                trust_remote_code=trust_remote_code,
-                chat_template=chat_template,
-                use_default_chat_template=use_default_chat_template,
-            )
 
         # Initialize MLXLMClient
-        self.client = MLXLMClient(MLXLMClient.Config(
-            model=config.model,
-            adapter_path=config.adapter_path,
-            draft_model=config.draft_model,
-            trust_remote_code=config.trust_remote_code,
-            chat_template=config.chat_template,
-            use_default_chat_template=config.use_default_chat_template
-        ))
+        self.client = MLXLMClient(
+            model=model,
+            adapter_path=adapter_path,
+            draft_model=draft_model,
+            trust_remote_code=trust_remote_code,
+            chat_template=chat_template,
+            use_default_chat_template=use_default_chat_template
+        )
 
         # Initialize chat history
-        if db_config:
+        if dbname:
             self.history = ChatHistory(
-                dbname=db_config.dbname,
-                user=db_config.user,
-                password=db_config.password,
-                host=db_config.host,
-                port=db_config.port,
-                session_id=db_config.session_id
+                dbname=dbname,
+                user=user,
+                password=password,
+                host=host,
+                port=port,
+                session_id=session_id
             )
         else:
             self.history = ChatHistory()

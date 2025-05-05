@@ -17,27 +17,67 @@ from jet.llm.mlx.mlx_types import (
     RoleMapping,
     CompletionResponse,
     ModelsResponse,
+    ModelType,
+    ModelKey,
+    ModelValue,
 )
+from jet.llm.mlx.models import AVAILABLE_MODELS
 
-DEFAULT_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+DEFAULT_MODEL: ModelValue = "mlx-community/Llama-3.2-3B-Instruct-4bit"
 
 
 class MLXLMClient:
     """A client for interacting with MLX-LM models directly in Python."""
 
+    @staticmethod
+    def _get_model_value(model: ModelType) -> ModelValue:
+        """Convert a model key to its full value if it exists in AVAILABLE_MODELS."""
+        if not isinstance(model, str):
+            raise ValueError("Model must be a string (ModelKey or ModelValue)")
+
+        # Check if the model is a valid ModelValue (full path)
+        if model in AVAILABLE_MODELS.values():
+            return model  # type: ignore
+
+        # Check if the model is a valid ModelKey (short name)
+        if model in AVAILABLE_MODELS:
+            return AVAILABLE_MODELS[model]
+
+        # If not found, return the input as is (assuming it's a valid ModelValue)
+        return model  # type: ignore
+
     @dataclass
     class Config:
-        model: Optional[str] = None
+        model: Optional[ModelType] = None
         adapter_path: Optional[str] = None
-        draft_model: Optional[str] = None
+        draft_model: Optional[ModelType] = None
         trust_remote_code: bool = False
         chat_template: Optional[str] = None
         use_default_chat_template: bool = True
 
-    def __init__(self, config: Optional[Config] = None) -> None:
+    def __init__(
+        self,
+        model: Optional[ModelType] = None,
+        adapter_path: Optional[str] = None,
+        draft_model: Optional[ModelType] = None,
+        trust_remote_code: bool = False,
+        chat_template: Optional[str] = None,
+        use_default_chat_template: bool = True,
+    ) -> None:
         """Initialize the client with configuration."""
-        if config is None:
-            config = self.Config()
+        # Convert model keys to values
+        model_value = self._get_model_value(model) if model else None
+        draft_model_value = self._get_model_value(
+            draft_model) if draft_model else None
+
+        config = self.Config(
+            model=model_value,
+            adapter_path=adapter_path,
+            draft_model=draft_model_value,
+            trust_remote_code=trust_remote_code,
+            chat_template=chat_template,
+            use_default_chat_template=use_default_chat_template
+        )
 
         # Create CLI args equivalent
         self.cli_args: argparse.Namespace = argparse.Namespace(
@@ -58,8 +98,8 @@ class MLXLMClient:
     def stream_chat(
         self,
         messages: List[Message],
-        model: str = DEFAULT_MODEL,
-        draft_model: Optional[str] = None,
+        model: ModelType = DEFAULT_MODEL,
+        draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -75,16 +115,24 @@ class MLXLMClient:
         tools: Optional[List[Tool]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions as they are generated."""
+        # Convert model keys to values
+        model_value = self._get_model_value(model)
+        draft_model_value = self._get_model_value(
+            draft_model) if draft_model else None
+
         # Validate parameters
         self._validate_parameters(
             True, max_tokens, temperature, top_p, repetition_penalty,
             repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model, adapter
+            logit_bias, logprobs, model_value, adapter
         )
 
         # Load model
         model_obj, tokenizer = self.model_provider.load(
-            model, adapter, draft_model)
+            model_value, adapter, draft_model_value)
+
+        if tokenizer is None:
+            raise ValueError("Failed to load tokenizer")
 
         # Prepare stop sequences
         stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
@@ -130,8 +178,8 @@ class MLXLMClient:
     def stream_generate(
         self,
         prompt: str,
-        model: str = DEFAULT_MODEL,
-        draft_model: Optional[str] = None,
+        model: ModelType = DEFAULT_MODEL,
+        draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -145,16 +193,24 @@ class MLXLMClient:
         stop: Optional[Union[str, List[str]]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream text completions as they are generated."""
+        # Convert model keys to values
+        model_value = self._get_model_value(model)
+        draft_model_value = self._get_model_value(
+            draft_model) if draft_model else None
+
         # Validate parameters
         self._validate_parameters(
             True, max_tokens, temperature, top_p, repetition_penalty,
             repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model, adapter
+            logit_bias, logprobs, model_value, adapter
         )
 
         # Load model
         model_obj, tokenizer = self.model_provider.load(
-            model, adapter, draft_model)
+            model_value, adapter, draft_model_value)
+
+        if tokenizer is None:
+            raise ValueError("Failed to load tokenizer")
 
         # Prepare stop sequences
         stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
@@ -193,8 +249,8 @@ class MLXLMClient:
     def chat(
         self,
         messages: List[Message],
-        model: str = DEFAULT_MODEL,
-        draft_model: Optional[str] = None,
+        model: ModelType = DEFAULT_MODEL,
+        draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -211,18 +267,24 @@ class MLXLMClient:
         tools: Optional[List[Tool]] = None
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion."""
+        # Convert model keys to values
+        model_value = self._get_model_value(model)
+        draft_model_value = self._get_model_value(
+            draft_model) if draft_model else None
+
         # Validate parameters
         self._validate_parameters(
             stream, max_tokens, temperature, top_p, repetition_penalty,
             repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model, adapter
+            logit_bias, logprobs, model_value, adapter
         )
 
         # Load model
-        model_obj: Any
-        tokenizer: Any
         model_obj, tokenizer = self.model_provider.load(
-            model, adapter, draft_model)
+            model_value, adapter, draft_model_value)
+
+        if tokenizer is None:
+            raise ValueError("Failed to load tokenizer")
 
         # Prepare stop sequences
         stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
@@ -268,8 +330,8 @@ class MLXLMClient:
     def generate(
         self,
         prompt: str,
-        model: str = DEFAULT_MODEL,
-        draft_model: Optional[str] = None,
+        model: ModelType = DEFAULT_MODEL,
+        draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -284,18 +346,24 @@ class MLXLMClient:
         stream: bool = False
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a text completion."""
+        # Convert model keys to values
+        model_value = self._get_model_value(model)
+        draft_model_value = self._get_model_value(
+            draft_model) if draft_model else None
+
         # Validate parameters
         self._validate_parameters(
             stream, max_tokens, temperature, top_p, repetition_penalty,
             repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model, adapter
+            logit_bias, logprobs, model_value, adapter
         )
 
         # Load model
-        model_obj: Any
-        tokenizer: Any
         model_obj, tokenizer = self.model_provider.load(
-            model, adapter, draft_model)
+            model_value, adapter, draft_model_value)
+
+        if tokenizer is None:
+            raise ValueError("Failed to load tokenizer")
 
         # Prepare stop sequences
         stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
@@ -374,7 +442,7 @@ class MLXLMClient:
         xtc_threshold: float,
         logit_bias: Optional[Dict[int, float]],
         logprobs: int,
-        model: str,
+        model: ModelType,
         adapter: Optional[str]
     ) -> None:
         """Validate model parameters."""
@@ -402,8 +470,8 @@ class MLXLMClient:
         if not isinstance(xtc_threshold, float) or not 0.0 <= xtc_threshold <= 0.5:
             raise ValueError(
                 "xtc_threshold must be a float between 0.0 and 0.5")
-        if not isinstance(model, str):
-            raise ValueError("model must be a string")
+        if not isinstance(model, (str, ModelKey, ModelValue)):
+            raise ValueError("model must be a string or valid model type")
         if adapter is not None and not isinstance(adapter, str):
             raise ValueError("adapter must be a string")
         if logit_bias is not None:

@@ -69,3 +69,43 @@ class ModelInfo(TypedDict):
 class ModelsResponse(TypedDict):
     object: str
     data: List[ModelInfo]
+
+
+# Model key types
+ModelKey = Literal[
+    "dolphin3.0-llama3.1-8b-4bit",
+    "gemma-3-1b-it-qat-4bit",
+    "gemma-3-4b-it-qat-4bit",
+    "llama-3.1-8b-instruct-4bit",
+    "llama-3.2-1b-instruct-4bit",
+    "llama-3.2-3b-instruct-4bit",
+    "mistral-nemo-instruct-2407-4bit",
+    "qwen2.5-7b-instruct-4bit",
+    "qwen2.5-14b-instruct-4bit",
+    "qwen2.5-coder-14b-instruct-4bit",
+    "qwen3-0.6b-4bit",
+    "qwen3-1.7b-3bit",
+    "qwen3-4b-3bit",
+    "qwen3-8b-3bit"
+]
+
+# Model value types
+ModelValue = Literal[
+    "mlx-community/Dolphin3.0-Llama3.1-8B-4bit",
+    "mlx-community/gemma-3-1b-it-qat-4bit",
+    "mlx-community/gemma-3-4b-it-qat-4bit",
+    "mlx-community/Llama-3.1-8B-Instruct-4bit",
+    "mlx-community/Llama-3.2-1B-Instruct-4bit",
+    "mlx-community/Llama-3.2-3B-Instruct-4bit",
+    "mlx-community/Mistral-Nemo-Instruct-2407-4bit",
+    "mlx-community/Qwen2.5-7B-Instruct-4bit",
+    "mlx-community/Qwen2.5-14B-Instruct-4bit",
+    "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
+    "mlx-community/Qwen3-0.6B-4bit",
+    "mlx-community/Qwen3-1.7B-3bit",
+    "mlx-community/Qwen3-4B-3bit",
+    "mlx-community/Qwen3-8B-3bit"
+]
+
+# Combined model type
+ModelType = Union[ModelKey, ModelValue]

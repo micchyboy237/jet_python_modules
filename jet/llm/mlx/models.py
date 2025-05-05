@@ -1,10 +1,12 @@
 # Configuration file for available MLX models with shortened names
+from typing import Dict, Tuple, Optional, TypedDict
 from jet.transformers.formatters import format_json
 from jet.utils.object import max_getattr
 from jet.logger import logger
 from transformers import AutoConfig
+from .mlx_types import ModelKey, ModelValue, ModelType
 
-AVAILABLE_MODELS = {
+AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
     "dolphin3.0-llama3.1-8b-4bit": "mlx-community/Dolphin3.0-Llama3.1-8B-4bit",
     "gemma-3-1b-it-qat-4bit": "mlx-community/gemma-3-1b-it-qat-4bit",
     "gemma-3-4b-it-qat-4bit": "mlx-community/gemma-3-4b-it-qat-4bit",
@@ -21,7 +23,7 @@ AVAILABLE_MODELS = {
     "qwen3-8b-3bit": "mlx-community/Qwen3-8B-3bit",
 }
 
-MODEL_CONTEXTS = {
+MODEL_CONTEXTS: Dict[ModelKey, int] = {
     "dolphin3.0-llama3.1-8b-4bit": 131072,
     "gemma-3-1b-it-qat-4bit": 32768,
     "gemma-3-4b-it-qat-4bit": 131072,
@@ -38,7 +40,7 @@ MODEL_CONTEXTS = {
     "qwen3-8b-3bit": 40960
 }
 
-MODEL_EMBEDDING_TOKENS = {
+MODEL_EMBEDDING_TOKENS: Dict[ModelKey, int] = {
     "dolphin3.0-llama3.1-8b-4bit": 4096,
     "gemma-3-1b-it-qat-4bit": 1152,
     "gemma-3-4b-it-qat-4bit": 2560,
@@ -56,7 +58,7 @@ MODEL_EMBEDDING_TOKENS = {
 }
 
 
-def get_model_limits(model_id):
+def get_model_limits(model_id: ModelType) -> Tuple[Optional[int], Optional[int]]:
     config = AutoConfig.from_pretrained(model_id)
 
     max_context = max_getattr(config, 'max_position_embeddings', None)
@@ -66,8 +68,13 @@ def get_model_limits(model_id):
     return max_context, max_embeddings
 
 
-def get_model_info():
-    model_info = {"contexts": {}, "embeddings": {}}
+class ModelInfoDict(TypedDict):
+    contexts: Dict[ModelKey, int]
+    embeddings: Dict[ModelKey, int]
+
+
+def get_model_info() -> ModelInfoDict:
+    model_info: ModelInfoDict = {"contexts": {}, "embeddings": {}}
     for short_name, model_path in AVAILABLE_MODELS.items():
         try:
             max_contexts, max_embeddings = get_model_limits(model_path)
@@ -85,7 +92,8 @@ def get_model_info():
             model_info["embeddings"][short_name] = max_embeddings
 
         except Exception as e:
-            logger.error(f"Failed to get config for {short_name}: {e}")
+            logger.error(
+                f"Failed to get config for {short_name}: {e}", exc_info=True)
             raise
 
     return model_info
