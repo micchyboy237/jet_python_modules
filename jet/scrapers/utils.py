@@ -733,23 +733,6 @@ def exclude_elements(doc: pq, excludes: List[str]) -> None:
             pq(element).remove()
 
 
-def add_child_nodes(flat_nodes: List[TreeNode]) -> List[TreeNode]:
-    """
-    Given a flat list of TreeNodes with parent references,
-    this reconstructs the hierarchy by assigning children accordingly.
-    """
-    id_map: Dict[str, TreeNode] = {node.id: node for node in flat_nodes}
-    root_nodes: List[TreeNode] = []
-
-    for node in flat_nodes:
-        if node.parent and node.parent in id_map:
-            parent_node = id_map[node.parent]
-            parent_node.children.append(node)
-        root_nodes.append(node)
-
-    return root_nodes
-
-
 def extract_tree_with_text(
     source: str,
     excludes: list[str] = ["nav", "footer", "script", "style"],
