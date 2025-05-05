@@ -8,18 +8,21 @@ class TestMTLDCalculator(unittest.TestCase):
     def setUp(self):
         # Sample texts for each MTLD category
         self.very_low_text = "cat cat cat cat cat dog dog dog dog dog " * 10  # Highly repetitive
-        self.low_text = ("the quick brown fox jumps over the lazy dog " * 5 +
-                         "the cat runs fast and the dog sleeps")  # Moderate repetition
-        self.medium_text = ("the quick brown fox jumps over the lazy dog. "
-                            "a cat runs fast while a bird flies high. "
-                            "trees grow tall and rivers flow deep. "
-                            "children play games as adults work hard. "
-                            "stars shine bright in the night sky.")  # Balanced diversity
-        self.high_text = ("the swift cheetah sprints across vast savannas. "
-                          "eagles soar majestically above rugged mountains. "
-                          "coral reefs teem with vibrant marine biodiversity. "
-                          "ancient civilizations crafted intricate artifacts. "
-                          "quantum physicists unravel cosmic mysteries.")  # High diversity
+        self.low_text = ("the quick brown fox jumps over the lazy dog. "
+                         "a cat runs fast and a dog sleeps. "
+                         "birds sing sweetly in green trees. "
+                         "the sun shines brightly today. "
+                         "people walk slowly in the park.")  # Moderate diversity
+        self.medium_text = ("the swift fox leaps over obstacles in dense forests. "
+                            "rivers flow gently through quiet valleys. "
+                            "children laugh and play in vibrant gardens. "
+                            "stars twinkle above serene lakes at night. "
+                            "farmers harvest golden crops under wide skies.")  # Balanced diversity
+        self.high_text = ("a majestic eagle soars over towering mountains. "
+                          "vibrant coral reefs thrive in crystal oceans. "
+                          "ancient poets weave intricate tales of heroism. "
+                          "scientists explore uncharted frontiers of quantum physics. "
+                          "musicians craft symphonies that echo through time.")  # High diversity
         self.short_text = "cat dog bird"  # Fewer than 10 words
 
         # Prepare MLTDScores inputs
@@ -45,14 +48,14 @@ class TestMTLDCalculator(unittest.TestCase):
         }
 
     def test_calculate_mtld_very_low(self):
-        score = calculate_mtld(self.very_low_stats["text_without_punctuation"])
+        score = calculate_mtld(self.very_low_stats)
         self.assertLess(score, 40, f"Expected MTLD score < 40, got {score}")
         category = calculate_mtld_category(score)
         self.assertEqual(category, "very_low",
                          f"Expected category 'very_low', got {category}")
 
     def test_calculate_mtld_low(self):
-        score = calculate_mtld(self.low_stats["text_without_punctuation"])
+        score = calculate_mtld(self.low_stats)
         self.assertTrue(40 <= score < 60,
                         f"Expected MTLD score in [40, 60), got {score}")
         category = calculate_mtld_category(score)
@@ -60,7 +63,7 @@ class TestMTLDCalculator(unittest.TestCase):
             category, "low", f"Expected category 'low', got {category}")
 
     def test_calculate_mtld_medium(self):
-        score = calculate_mtld(self.medium_stats["text_without_punctuation"])
+        score = calculate_mtld(self.medium_stats)
         self.assertTrue(60 <= score < 80,
                         f"Expected MTLD score in [60, 80), got {score}")
         category = calculate_mtld_category(score)
@@ -68,7 +71,7 @@ class TestMTLDCalculator(unittest.TestCase):
                          f"Expected category 'medium', got {category}")
 
     def test_calculate_mtld_high(self):
-        score = calculate_mtld(self.high_stats["text_without_punctuation"])
+        score = calculate_mtld(self.high_stats)
         self.assertGreaterEqual(
             score, 80, f"Expected MTLD score >= 80, got {score}")
         category = calculate_mtld_category(score)
@@ -76,7 +79,7 @@ class TestMTLDCalculator(unittest.TestCase):
                          f"Expected category 'high', got {category}")
 
     def test_calculate_mtld_short_text(self):
-        score = calculate_mtld(self.short_stats["text_without_punctuation"])
+        score = calculate_mtld(self.short_stats)
         self.assertEqual(
             score, 0.0, f"Expected MTLD score 0.0 for short text, got {score}")
         category = calculate_mtld_category(score)
