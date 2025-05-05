@@ -43,11 +43,19 @@ def format_json(value, indent: Optional[int] = 2):
 
 
 def minify_html(html: str) -> str:
-    # Remove newlines and tabs
-    html = re.sub(r'\s*\n\s*', '', html)
-    html = re.sub(r'\s*\t\s*', '', html)
-    # Remove spaces between tags
-    html = re.sub(r'>\s+<', '><', html)
+    # Ensure whitespace between inline elements and surrounding text
+    # Add space after closing inline tags if followed by text or another inline tag
+    html = re.sub(
+        r'(?<=[a-zA-Z0-9])(<(strong|em|span|a|b|i|code)[^>]*>)', r' \1', html)
+    html = re.sub(
+        r'(</(strong|em|span|a|b|i|code)>)(?=[a-zA-Z0-9<])', r'\1 ', html)
+
+    # Explicitly add space between consecutive inline tags
+    html = re.sub(
+        r'(</(strong|em|span|a|b|i|code)>)\s*(<(strong|em|span|a|b|i|code)[^>]*>)', r'\1 \3', html)
+
+    # Reduce consecutive newlines and remove tabs
+    html = re.sub(r'\s*\n\s*', '\n', html)
     return html
 
 

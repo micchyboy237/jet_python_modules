@@ -175,11 +175,12 @@ def get_header_contents(md_text: str,
     return hierarchy
 
 
-def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = []) -> list[Header]:
+def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = [], ignore_links: bool = True) -> list[Header]:
+    from jet.scrapers.utils import clean_newlines, clean_text
 
     # Check if input is HTML and convert to Markdown if necessary
     if is_html(md_text):
-        md_text = html_to_markdown(md_text)
+        md_text = html_to_markdown(md_text, ignore_links=ignore_links)
 
     headers_to_split_on = headers_to_split_on or [
         ("#", "h1"),
@@ -196,6 +197,8 @@ def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, st
     md_header_contents: list[Header] = []
     for split in md_header_splits:
         content = split.page_content
+        content = clean_newlines(clean_text(
+            content), max_newlines=1, strip_lines=True)
         # metadata = split.metadata
 
         if content.strip():
@@ -291,7 +294,6 @@ def extract_md_header_contents(md_text: str, min_tokens_per_chunk: int = 256, ma
 
     # Clean newlines and extra spaces
     for header_content in header_contents:
-        header_content["content"] = clean_newlines(header_content["content"])
         header_content["header_level"] = get_header_level(
             header_content["header"])
 
@@ -318,15 +320,6 @@ def extract_html_header_contents(html_str: str) -> list[dict]:
         scraped_result['content'], headers_to_split_on)
 
     return header_contents
-
-
-def clean_newlines(content):
-    """Remove consecutive newlines from the content."""
-    # Remove trailing whitespace for each line
-    content = '\n'.join([line.rstrip() for line in content.split('\n')])
-    # Reduce consecutive newlines to a single newline
-    content = re.sub(r'\n+', '\n', content)
-    return content
 
 
 def count_tokens(text: str, tokenizer: Optional[Callable[[str], List]] = None) -> int:

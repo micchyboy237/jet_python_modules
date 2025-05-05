@@ -177,16 +177,26 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def clean_newlines(content, max_newlines: int = 3) -> str:
-    """Merge consecutive newlines from the content, but limit to at most max_newlines consecutive newlines."""
-    # Remove trailing whitespace for each line
-    content = '\n'.join([line.rstrip() for line in content.split('\n')])
+def clean_newlines(content, max_newlines: int = 2, strip_lines: bool = False) -> str:
+    """
+    Merge consecutive newlines from the content, but limit to at most max_newlines consecutive newlines.
+
+    Args:
+        content (str): The input text.
+        max_newlines (int): Maximum allowed consecutive newlines.
+        strip_lines (bool): If True, strip both leading and trailing whitespace from each line.
+
+    Returns:
+        str: The cleaned text.
+    """
+    if strip_lines:
+        content = '\n'.join([line.strip() for line in content.split('\n')])
+    else:
+        content = '\n'.join([line.rstrip() for line in content.split('\n')])
 
     if max_newlines == 0:
-        # Replace all consecutive newlines with a single space
         content = re.sub(r'\n+', ' ', content)
     else:
-        # Reduce consecutive newlines to at most max_newlines newlines
         content = re.sub(
             r'(\n{' + str(max_newlines + 1) + r',})', '\n' * max_newlines, content)
 
@@ -1032,9 +1042,9 @@ def merge_texts_by_hierarchy(
     split_fn: Optional[Callable[[str], List[str]]] = None
 ) -> List[MergedTextsResult]:
     # Extract texts with hierarchy
-    results = extract_texts_by_hierarchy(
-        source, tags_to_split_on=tags_to_split_on, ignore_links=ignore_links, excludes=excludes)
-    texts = [result["text"] for result in results]
+    results = get_md_header_contents(
+        source, headers_to_split_on=tags_to_split_on, ignore_links=ignore_links)
+    texts = [result["content"] for result in results]
 
     # Initialize variables for grouping
     grouped_texts: List[str] = []
@@ -1052,8 +1062,7 @@ def merge_texts_by_hierarchy(
         token_count = len(tokenized_text)
 
         # Get parent header for context
-        parent_header = result["parent_text"].splitlines(
-        )[0] if result["parent_text"] else ""
+        parent_header = result["header"]
 
         # If single text exceeds max_tokens, split and handle parts
         if token_count > max_tokens:
