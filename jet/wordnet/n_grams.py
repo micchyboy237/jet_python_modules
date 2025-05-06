@@ -357,6 +357,20 @@ def nwise(iterable, n=1):
     return zip(*iters)
 
 
+def get_common_texts(texts, includes_pos=["PROPN", "NOUN", "VERB", "ADJ"], lang='en'):
+    tagger = POSTagger()
+    # Update each text using tagger.filter_pos
+    filtered_texts = []
+    for text in tqdm(texts):
+        pos_reults = tagger.filter_pos(text, includes_pos)
+        filtered_text = [pos_result['word'] for pos_result in pos_reults]
+        filtered_text = " ".join(filtered_text)
+        filtered_texts.append(filtered_text)
+
+    most_common_dict = get_most_common_ngrams(filtered_texts)
+    return list(most_common_dict.keys())
+
+
 if __name__ == "__main__":
     texts = [
         "Describe the structure of an important roadmap.",

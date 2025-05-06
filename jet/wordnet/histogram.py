@@ -84,15 +84,28 @@ class TextAnalysis:
     @time_it
     def perform_dynamic_collocation_analysis(self, ngram_range, separated_texts):
         all_collocations = {}
-        separated_texts = [text.replace(self.eos_token_str, '')
-                           for text in separated_texts]
-        for n in range(ngram_range[0], ngram_range[1] + 1):
-            ngram_collocations = nltk.ngrams(separated_texts, n)
-            freq_dist = FreqDist(ngram_collocations)
-            for ngram, freq in freq_dist.items():
-                ngram_text = ' '.join(ngram)
-                if ngram_text not in all_collocations:
-                    all_collocations[ngram_text] = freq
+        # Process each text separately to avoid n-grams spanning text boundaries
+        # Use self.data (original texts) instead of separated_texts
+        for text in self.data:
+            if isinstance(text, str):
+                text_content = text
+            else:
+                keys_to_use = self.include_keys if self.include_keys else text.keys()
+                text_content = "\n".join(
+                    str(text[key]) for key in keys_to_use
+                    if key != "id" and key not in self.exclude_keys
+                )
+            # Tokenize the individual text
+            tokens = get_words(text_content.replace(self.eos_token_str, ''))
+            # Generate n-grams for this text
+            for n in range(ngram_range[0], ngram_range[1] + 1):
+                ngram_collocations = nltk.ngrams(tokens, n)
+                freq_dist = FreqDist(ngram_collocations)
+                for ngram, freq in freq_dist.items():
+                    ngram_text = ' '.join(ngram)
+                    if ngram_text not in all_collocations:
+                        all_collocations[ngram_text] = 0
+                    all_collocations[ngram_text] += freq
         return all_collocations
 
     def format_results(self, scored_collocations, top_ngrams, is_top=True, apply_tfidf=True, from_start=False, top_n=None):
@@ -151,12 +164,10 @@ class TextAnalysis:
         for ngram_range in ngram_ranges:
             print(f"\nAnalyzing for ngram range: {ngram_range}")
             ngram_range_str = "{}-{}".format(*ngram_range)
-            highest_ngram_max = ngram_range[1]
-            separated_texts = self.tokenize_and_clean_for_collocation_start(
-                n=highest_ngram_max) if from_start else self.tokens_collocation_any
             print("Performing dynamic collocation analysis...")
             collocation_results = self.perform_dynamic_collocation_analysis(
-                ngram_range, separated_texts)
+                # Pass None as separated_texts, handled in perform_dynamic_collocation_analysis
+                ngram_range, None)
             top_ngrams = self.perform_tfidf_analysis(
                 ngram_range) if apply_tfidf else None
             results_dict = self.format_results(

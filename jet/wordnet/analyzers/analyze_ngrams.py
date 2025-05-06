@@ -11,7 +11,7 @@ from typing import Dict, List, Callable
 
 
 @time_it
-def limit_ngram_occurrences(high_ngram_tl_texts: List[Dict[str, float]], min_score: float = 0.03, texts_dict: Dict = None) -> List[Dict[str, float]]:
+def limit_ngram_occurrences(high_ngram_tl_texts: List[Dict[str, float]], min_score: float = 0.05, texts_dict: Dict = None) -> List[Dict[str, float]]:
     high_ngram_tl_texts = [
         item for item in high_ngram_tl_texts if item['score'] >= min_score]
     if not high_ngram_tl_texts:
@@ -20,8 +20,8 @@ def limit_ngram_occurrences(high_ngram_tl_texts: List[Dict[str, float]], min_sco
 
     high_ngram_tl_texts = sorted(
         high_ngram_tl_texts,
-        key=lambda x: (x['score'], texts_dict[x['text']]
-                       ['rating'] if texts_dict else 0),
+        key=lambda x: (x['score'], texts_dict[x['text']]['rating']
+                       * 0.2 if texts_dict else 0),  # Weight rating higher
         reverse=True
     )
     high_ngram_tl_texts_dict = {item['text']
@@ -39,11 +39,10 @@ def limit_ngram_occurrences(high_ngram_tl_texts: List[Dict[str, float]], min_sco
         print(f"Processing n-gram '{ngram}' with {len(texts)} texts")
         diverse_texts = filter_different_texts(texts, threshold=0.5)
         if diverse_texts:
-            # Select up to 2 texts per n-gram, prioritizing score and rating
             sorted_texts = sorted(
                 [high_ngram_tl_texts_dict[text] for text in diverse_texts],
                 key=lambda x: (x['score'], texts_dict[x['text']]
-                               ['rating'] if texts_dict else 0),
+                               ['rating'] * 0.2 if texts_dict else 0),
                 reverse=True
             )[:2]
             for top_text in sorted_texts:
@@ -54,13 +53,13 @@ def limit_ngram_occurrences(high_ngram_tl_texts: List[Dict[str, float]], min_sco
     return [high_ngram_tl_texts_dict[text] for text in set(limited_texts)]
 
 
-def analyze_ngrams(texts, texts_dict, min_tfidf=0.03):
+def analyze_ngrams(texts, texts_dict, min_tfidf=0.05):
     ta = TextAnalysis(texts)
     most_any_results = ta.generate_histogram(
         is_top=True,
         from_start=False,
         apply_tfidf=True,
-        ngram_ranges=[(1, 3)],
+        ngram_ranges=[(2, 3)],
         top_n=100,
     )
     most_any_results_text_dict = {}
@@ -68,7 +67,8 @@ def analyze_ngrams(texts, texts_dict, min_tfidf=0.03):
         "but the", "and a", "life and", "the battery", "battery life and",
         "life and a", "but the battery", "battery life and a", "the phone",
         "the camera", "during heavy", "is fast", "is stunning", "when recording",
-        "are slow", "with a"
+        "are slow", "with a", "battery", "phone", "camera", "processor",
+        "life", "display", "fast", "gaming", "heavy", "best", "frustrating"
     }
     results = [
         item for sublist in most_any_results for item in sublist['results']
@@ -78,14 +78,13 @@ def analyze_ngrams(texts, texts_dict, min_tfidf=0.03):
     for result in results:
         print(f"  {result['ngram']}: {result['tfidf']:.4f}")
 
-    # Normalize TF-IDF scores
     max_score = max((result['tfidf'] for result in results), default=1)
     results = [
         item for item in results
         if item['tfidf'] / max_score > min_tfidf and item['ngram'] not in stop_ngrams
     ]
     print(
-        f"Found {len(results)} n-grams with normalized TF-IDF > {min_tfidf} after stopword filter:")
+        f"Found {len(results)} n-grams close with normalized TF-IDF > {min_tfidf} after stopword filter:")
     for result in results:
         most_any_results_text_dict[result['ngram']] = result['tfidf']
         print(f"  {result['ngram']}: {result['tfidf']:.4f}")
@@ -132,9 +131,9 @@ def analyze_ngrams(texts, texts_dict, min_tfidf=0.03):
 
     filtered_tl_texts = sorted(
         filtered_tl_texts,
-        key=lambda x: (x['max_tfidf'], x['rating']),
+        key=lambda x: (x['max_tfidf'], x['rating'] * 0.2),
         reverse=True
-    )[:5]
+    )[:4]  # Cap at 4 texts
 
     return filtered_tl_texts
 
@@ -145,27 +144,27 @@ def generate_histograms(data):
     most_start_results = ta.generate_histogram(
         is_top=True,
         from_start=True,
-        ngram_ranges=[(1, 1), (2, 2)],
+        ngram_ranges=[(1, 1), (2, 3)],
         top_n=100,
     )
     least_start_results = ta.generate_histogram(
         is_top=False,
         from_start=True,
-        ngram_ranges=[(1, 1), (2, 2)],
+        ngram_ranges=[(1, 1), (2, 3)],
         top_n=100,
     )
     most_any_results = ta.generate_histogram(
         is_top=True,
         from_start=False,
         apply_tfidf=True,
-        ngram_ranges=[(2, 2), (3, 5)],
+        ngram_ranges=[(2, 3), (4, 6)],
         top_n=100,
     )
     least_any_results = ta.generate_histogram(
         is_top=False,
         from_start=False,
         apply_tfidf=True,
-        ngram_ranges=[(2, 2), (3, 5)],
+        ngram_ranges=[(2, 3), (4, 6)],
         top_n=100,
     )
 
