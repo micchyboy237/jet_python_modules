@@ -108,6 +108,41 @@ def get_most_common_ngrams(texts: Union[str, List[str]], min_words: int = 1, min
     return filtered_ngrams
 
 
+def count_ngrams_with_texts(
+    texts: List[str],
+    min_words: int = 1,
+    min_count: int = 2,
+    max_words: Optional[int] = None
+) -> List[dict]:
+    """
+    Modified count_ngrams to return n-grams with counts and associated texts.
+    This is a placeholder implementation; adjust based on your actual count_ngrams.
+    """
+    ngrams_dict = {}
+    for text_idx, text in enumerate(texts):
+        words = get_words(text)
+        for n in range(min_words, max_words or len(words) + 1):
+            for i in range(len(words) - n + 1):
+                ngram = ' '.join(words[i:i + n])
+                if ngram not in ngrams_dict:
+                    ngrams_dict[ngram] = {'count': 0, 'texts': set()}
+                ngrams_dict[ngram]['count'] += 1
+                ngrams_dict[ngram]['texts'].add(text_idx)
+
+    # Convert to list of dicts and filter by min_count
+    result = [
+        {
+            'ngram': ngram,
+            'count': data['count'],
+            'texts': list(data['texts'])  # List of text indices
+        }
+        for ngram, data in ngrams_dict.items()
+        if data['count'] >= min_count
+    ]
+
+    return result
+
+
 def group_sentences_by_ngram(
         sentences: list,
         min_words: int = 2,
@@ -357,7 +392,7 @@ def nwise(iterable, n=1):
     return zip(*iters)
 
 
-def get_common_texts(texts, includes_pos=["PROPN", "NOUN", "VERB", "ADJ"], lang='en'):
+def get_common_texts(texts, includes_pos=["PROPN", "NOUN", "VERB", "ADJ"]):
     tagger = POSTagger()
     # Update each text using tagger.filter_pos
     filtered_texts = []
@@ -405,6 +440,16 @@ if __name__ == "__main__":
     result = get_most_common_ngrams([text.lower() for text in texts])
     print(result)
 
+    print("\nCommon texts:")
+    result = get_common_texts([text.lower()
+                              for text in texts], includes_pos=["PROPN", "NOUN"])
+    print(result)
+
+    print("\nGrouped sentences by ngram:")
+    result = group_sentences_by_ngram([text.lower()
+                                       for text in texts], is_start_ngrams=False)
+    print(result)
+
     # Specific n-grams count
     specific_ngrams = count_ngrams([text.lower()
                                    for text in texts], min_words=1, max_words=3)
@@ -414,9 +459,9 @@ if __name__ == "__main__":
     print(
         f"\nTotal counts of all n-grams: {get_total_counts_of_ngrams(specific_ngrams)}")
 
-    specific_ngram = ('This', 'is')  # Example specific n-gram
-    print(
-        f"\nCount of {specific_ngram}: {get_specific_ngram_count(specific_ngrams, specific_ngram)}")
+    # specific_ngram = ('This', 'is')  # Example specific n-gram
+    # print(
+    #     f"\nCount of {specific_ngram}: {get_specific_ngram_count(specific_ngrams, specific_ngram)}")
 
     print("\nN-grams of Specific Range:")
     for ngram_dict in get_ngrams_by_range(texts, min_words=1, max_words=2, count=(2, ), show_count=True):

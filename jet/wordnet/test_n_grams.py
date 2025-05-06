@@ -1,3 +1,5 @@
+from jet.wordnet.stopwords import StopWords
+from jet.wordnet.pos_tagger import POSTagger, POSItem
 from collections import Counter
 from jet.wordnet.words import count_words
 from jet.wordnet.n_grams import (
@@ -5,6 +7,7 @@ from jet.wordnet.n_grams import (
     count_ngrams,
     extract_ngrams,
     filter_texts_by_multi_ngram_count,
+    get_common_texts,
     get_most_common_ngrams,
     get_ngram_weight,
     get_ngrams,
@@ -566,6 +569,171 @@ class TestGetNgrams(unittest.TestCase):
         sample = ""
         expected = []
         result = get_ngrams(sample)
+        self.assertEqual(result, expected)
+
+
+class TestGetCommonTexts(unittest.TestCase):
+    def setUp(self):
+        self.tagger = POSTagger()
+        self.stopwords = StopWords()
+
+    def test_single_text(self):
+        # Test with a single text input
+        texts = ["The quick brown fox jumps"]
+        result = get_common_texts(
+            texts, includes_pos=["NOUN", "VERB", "ADJ", "PROPN"])
+        # Expected: "quick brown fox jumps" (filtered by POS, stopwords removed)
+        self.assertEqual(result, ['quick brown fox jumps'])
+
+    def test_multiple_texts(self):
+        # Test with multiple texts
+        texts = [
+            "The quick brown fox jumps",
+            "Quick brown fox runs fast"
+        ]
+        result = get_common_texts(
+            texts, includes_pos=["NOUN", "VERB", "ADJ", "PROPN"])
+        # Expected: "quick brown fox" (common n-gram across both texts)
+        self.assertEqual(result, ['quick brown fox'])
+
+    def test_empty_input(self):
+        # Test with empty input
+        texts = []
+        result = get_common_texts(texts)
+        self.assertEqual(result, [])
+
+    def test_stopwords_filtering(self):
+        # Test that stopwords are filtered out
+        texts = ["The quick fox is running"]
+        result = get_common_texts(texts)
+        # Expected: "quick fox running" (stopwords "the", "is" removed)
+        self.assertEqual(result, ['quick fox running'])
+
+    def test_different_pos_tags(self):
+        # Test with different POS tags
+        texts = ["The quick brown fox"]
+        result = get_common_texts(texts, includes_pos=["NOUN", "ADJ"])
+        # Expected: "quick brown fox" (only NOUN and ADJ retained)
+        self.assertEqual(result, ['quick brown fox'])
+
+    def test_no_matching_pos(self):
+        # Test when no words match the POS criteria
+        texts = ["The quick brown fox"]
+        result = get_common_texts(texts, includes_pos=["VERB"])
+        # Expected: [] (no verbs in filtered output)
+        self.assertEqual(result, [])
+
+    def test_case_insensitivity(self):
+        # Test that text is processed case-insensitively
+        texts = ["Quick Brown Fox", "quick brown fox"]
+        result = get_common_texts(texts)
+        # Expected: "quick brown fox" (case-insensitive matching)
+        self.assertEqual(result, ['quick brown fox'])
+
+
+class TestGroupSentencesByNgram(unittest.TestCase):
+    def setUp(self):
+        # Sample sentences for testing
+        self.sentences = [
+            "the quick brown fox",
+            "the quick brown dog",
+            "a slow green turtle",
+            "the fast blue bird",
+            "a quick brown cat"
+        ]
+
+    def test_start_ngrams_single_word(self):
+        # Test with min_words=1, is_start_ngrams=True
+        result = group_sentences_by_ngram(
+            self.sentences, min_words=1, top_n=2, is_start_ngrams=True)
+
+        # Expected: Groups by first word
+        expected = {
+            'the': ['the quick brown fox', 'the quick brown dog'],
+            'a': ['a slow green turtle', 'a quick brown cat']
+        }
+
+        self.assertEqual(result, expected)
+
+    def test_start_ngrams_two_words(self):
+        # Test with min_words=2, is_start_ngrams=True
+        result = group_sentences_by_ngram(
+            self.sentences, min_words=2, top_n=2, is_start_ngrams=True)
+
+        # Expected: Groups by first two words
+        expected = {
+            'the quick': ['the quick brown fox', 'the quick brown dog'],
+            'a slow': ['a slow green turtle'],
+            'the fast': ['the fast blue bird'],
+            'a quick': ['a quick brown cat']
+        }
+
+        self.assertEqual(result, expected)
+
+    def test_non_start_ngrams(self):
+        # Test with min_words=2, is_start_ngrams=False
+        result = group_sentences_by_ngram(
+            self.sentences, min_words=2, top_n=2, is_start_ngrams=False)
+
+        # Expected: Groups by all unique 2-grams, limited to top_n=2 sentences
+        # Note: Exact n-grams depend on get_words, but we can test structure
+        self.assertTrue(isinstance(result, dict))
+        for ngram, sentences in result.items():
+            self.assertTrue(isinstance(ngram, str))
+            self.assertTrue(isinstance(sentences, list))
+            self.assertLessEqual(len(sentences), 2)  # top_n=2
+            for sentence in sentences:
+                self.assertIn(sentence, self.sentences)
+
+    def test_top_n_limit(self):
+        # Test top_n limiting the number of sentences per n-gram
+        sentences = [
+            "the quick brown fox",
+            "the quick brown dog",
+            "the quick brown cat",
+            "the quick brown bird"
+        ]
+        result = group_sentences_by_ngram(
+            sentences, min_words=2, top_n=2, is_start_ngrams=True)
+
+        # Expected: Only 2 sentences for 'the quick' despite 4 matches
+        expected = {
+            'the quick': ['the quick brown fox', 'the quick brown dog']
+        }
+
+        self.assertEqual(result, expected)
+
+    def test_empty_sentences(self):
+        # Test with empty sentence list
+        result = group_sentences_by_ngram(
+            [], min_words=2, top_n=2, is_start_ngrams=True)
+        self.assertEqual(result, {})
+
+    def test_sentences_with_no_ngrams(self):
+        # Test with sentences too short for min_words
+        sentences = ["the", "a"]
+        result = group_sentences_by_ngram(
+            sentences, min_words=2, top_n=2, is_start_ngrams=True)
+        self.assertEqual(result, {})
+
+    def test_sorting_by_word_count_and_index(self):
+        # Test sorting logic (shorter sentences first, then by original index)
+        sentences = [
+            "the quick brown fox jumps",  # 5 words, index 0
+            "the quick brown dog",       # 4 words, index 1
+            "the quick brown cat runs"   # 5 words, index 2
+        ]
+        result = group_sentences_by_ngram(
+            sentences, min_words=2, top_n=2, is_start_ngrams=True)
+
+        # Expected: 'the quick' group sorted by word count, then index
+        expected = {
+            'the quick': [
+                'the quick brown dog',           # 4 words
+                'the quick brown fox jumps'     # 5 words, earlier index
+            ]
+        }
+
         self.assertEqual(result, expected)
 
 
