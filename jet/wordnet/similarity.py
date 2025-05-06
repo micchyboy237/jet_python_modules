@@ -476,15 +476,17 @@ def is_not_alnum(s):
     return not s.isalnum()
 
 
-def score_texts_similarity(text1, text2, isjunk=is_not_alnum):
-    # Create a SequenceMatcher with isjunk function to ignore non-alphanumeric characters
-    score = SequenceMatcher(isjunk, text1, text2, autojunk=False).ratio()
+def score_texts_similarity(text1: str, text2: str, isjunk: Callable[[str], bool] = None) -> float:
+    matcher = SequenceMatcher(isjunk, text1.lower(),
+                              text2.lower(), autojunk=False)
+    score = matcher.ratio()
+    print(
+        f"Similarity between '{text1[:30]}...' and '{text2[:30]}...': {score:.4f}")
     return score
 
 
-def are_texts_similar(text1, text2, threshold=0.7):
-    is_similar = score_texts_similarity(text1, text2) >= threshold
-    return is_similar
+def are_texts_similar(text1: str, text2: str, threshold: float = 0.5) -> bool:
+    return score_texts_similarity(text1, text2) >= threshold
 
 
 def filter_similar_texts(texts: List[str], threshold: float = 0.7) -> List[str]:
@@ -497,11 +499,17 @@ def filter_similar_texts(texts: List[str], threshold: float = 0.7) -> List[str]:
     return filtered_texts
 
 
-def filter_different_texts(texts, threshold=0.7):
+def filter_different_texts(texts: List[str], threshold: float = 0.5) -> List[str]:
     filtered_texts = []
+    print(
+        f"Filtering {len(texts)} texts with similarity threshold {threshold}")
     for text in texts:
         if all(not are_texts_similar(text, existing_text, threshold) for existing_text in filtered_texts):
             filtered_texts.append(text)
+            print(f"Kept text: '{text[:30]}...'")
+        else:
+            print(f"Skipped similar text: '{text[:30]}...'")
+    print(f"Retained {len(filtered_texts)} diverse texts")
     return filtered_texts
 
 

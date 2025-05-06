@@ -3,6 +3,7 @@ import json
 import time
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
+from jet.llm.mlx.mlx_types import ModelType
 import psycopg
 from psycopg.rows import dict_row
 # Assuming MLXLMClient is in a separate module
@@ -161,30 +162,12 @@ class ChatHistory:
 class MLX:
     """Wrapper class for MLXLMClient with chat history management."""
 
-    @dataclass
-    class DBConfig:
-        dbname: str
-        user: str
-        password: str
-        host: str
-        port: str
-        session_id: Optional[str] = None
-
-    @dataclass
-    class Config:
-        model: str
-        adapter_path: Optional[str] = None
-        draft_model: Optional[str] = None
-        trust_remote_code: bool = False
-        chat_template: Optional[str] = None
-        use_default_chat_template: bool = True
-
     def __init__(
         self,
         # Model Config
-        model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
         adapter_path: Optional[str] = None,
-        draft_model: Optional[str] = None,
+        draft_model: Optional[ModelType] = None,
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
@@ -224,8 +207,8 @@ class MLX:
     def chat(
         self,
         message: Union[str, List[Message]],
-        model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
-        draft_model: Optional[str] = None,
+        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -296,8 +279,8 @@ class MLX:
     def stream_chat(
         self,
         messages: Union[str, List[Message]],
-        model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
-        draft_model: Optional[str] = None,
+        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -367,8 +350,8 @@ class MLX:
     def generate(
         self,
         prompt: str,
-        model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
-        draft_model: Optional[str] = None,
+        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -403,8 +386,8 @@ class MLX:
     def stream_generate(
         self,
         prompt: str,
-        model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
-        draft_model: Optional[str] = None,
+        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
