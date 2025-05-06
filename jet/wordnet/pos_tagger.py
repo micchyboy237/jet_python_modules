@@ -243,15 +243,18 @@ if __name__ == '__main__':
 
     texts = [
         "Dr. Jose Rizal is the only example of a genius in many fields who became the greatest hero of a nation",
-        "Which then spawned the short-lived First Philippine Republic.",
-        "It's more fun in Republic of the Congo."
+        # "Which then spawned the short-lived First Philippine Republic.",
+        # "It's more fun in Republic of the Congo."
     ]
 
     print("Tagging Words:")
     for text in texts:
         pos_results = tagger.process_and_tag(text)
         tagged_text = tagger.format_tags(pos_results)
+        merged_results = tagger.merge_multi_word_pos(pos_results)
 
         print(f"Tagged Text:\n{tagged_text}")
         print(
             f"POS Results:\n{json.dumps(pos_results, indent=2, ensure_ascii=False)}")
+        print(
+            f"Merged Results:\n{json.dumps(merged_results, indent=2, ensure_ascii=False)}")
