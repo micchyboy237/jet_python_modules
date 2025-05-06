@@ -133,7 +133,7 @@ def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
     segments = []
     current_segment = ''
 
-    for sentence in tqdm(processed_sentences):
+    for sentence in processed_sentences:
         # Skip empty sentences
         if not sentence.strip():
             continue

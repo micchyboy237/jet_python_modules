@@ -1,5 +1,5 @@
 
-from jet.wordnet.pos_tagger import POSItem, POSTagger
+from jet.wordnet.pos_tagger import POSItem, POSTag, POSTagger
 from itertools import tee, islice
 from typing import List
 from jet.wordnet.sentence import split_by_punctuations, split_sentences
@@ -144,17 +144,41 @@ def count_ngrams_with_texts(
 
 
 def group_sentences_by_ngram(
-        sentences: list,
+        sentences: List[str],
         min_words: int = 2,
         top_n: int = 2,
-        is_start_ngrams: bool = True) -> dict:
+        is_start_ngrams: bool = True,
+        includes_pos: Optional[List[POSTag]] = None) -> Dict[str, List[str]]:
     sentence_ngrams = defaultdict(list)
+    tagger = POSTagger()
+
     for sentence in tqdm(sentences, desc="Grouping sentences"):
         ngrams_list = get_words(sentence, min_words)
-        if is_start_ngrams and ngrams_list:
-            sentence_ngrams[ngrams_list[0]].append(sentence)
+        if not ngrams_list:
+            continue
+
+        # Filter n-grams based on POS tags if includes_pos is specified
+        valid_ngrams = []
+        if includes_pos:
+            for ngram in ngrams_list:
+                pos_results = tagger.process_and_tag(ngram)
+                # Check if all words in n-gram have at least one matching POS
+                all_words_valid = all(
+                    any(
+                        pos in includes_pos
+                        for pos in (pos_result['pos'] if isinstance(pos_result['pos'], list) else [pos_result['pos']])
+                    )
+                    for pos_result in pos_results
+                )
+                if all_words_valid:
+                    valid_ngrams.append(ngram)
+        else:
+            valid_ngrams = ngrams_list
+
+        if is_start_ngrams and valid_ngrams:
+            sentence_ngrams[valid_ngrams[0]].append(sentence)
         elif not is_start_ngrams:
-            unique_ngrams = set(ngrams_list)
+            unique_ngrams = set(valid_ngrams)
             for ngram in unique_ngrams:
                 sentence_ngrams[ngram].append(sentence)
 
