@@ -206,7 +206,7 @@ class MLX:
 
     def chat(
         self,
-        message: Union[str, List[Message]],
+        messages: Union[str, List[Message]],
         model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
         draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
@@ -226,15 +226,14 @@ class MLX:
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion with history management."""
         # Prepare messages with history
-        messages: List[Message] = []
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
             self.history.add_message("system", system_prompt)
 
-        # Handle message input: str or List[Message]
-        if isinstance(message, str):
-            self.history.add_message("user", message)
-        elif isinstance(message, list):
-            for msg in message:
+        # Handle messages input: str or List[Message]
+        if isinstance(messages, str):
+            self.history.add_message("user", messages)
+        elif isinstance(messages, list):
+            for msg in messages:
                 if "role" in msg and "content" in msg:
                     self.history.add_message(msg["role"], msg["content"])
                 else:
@@ -242,13 +241,13 @@ class MLX:
                         "Each message in the list must have 'role' and 'content' keys")
         else:
             raise TypeError(
-                "message must be a string or a list of Message dictionaries")
+                "messages must be a string or a list of Message dictionaries")
 
-        messages = self.history.get_messages()
+        all_messages = self.history.get_messages()
 
         # Call MLXLMClient.chat
         response = self.client.chat(
-            messages=messages,
+            messages=all_messages,
             model=model,
             draft_model=draft_model,
             adapter=adapter,
