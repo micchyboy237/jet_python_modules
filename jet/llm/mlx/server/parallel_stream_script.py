@@ -63,7 +63,6 @@ def parallel_stream_generate(
                 "task_id": task_id
             }, dest=0)
             return
-
         for prompt in prompts:
             prompt_id = str(uuid.uuid4())
             try:
@@ -126,7 +125,6 @@ def parallel_stream_generate(
                         "task_id": task_id,
                         "truncated": tokens_generated >= max_tokens
                     }, dest=0)
-
                 comm.send({
                     "type": "result",
                     "prompt": prompt,
@@ -205,7 +203,6 @@ def parallel_chat_generate(
                 "task_id": task_id
             }, dest=0)
             return
-
         for message_str in messages:
             prompt_id = str(uuid.uuid4())
             try:
@@ -238,6 +235,9 @@ def parallel_chat_generate(
                     ):
                         content = chunk["choices"][0].get(
                             "message", {}).get("content", "")
+                        if worker_verbose:
+                            logger.info(
+                                f"Rank {rank}: Prompt ID {prompt_id}: Stream chunk content={content[:50]}...")
                         tokens_generated += len(content.split())
                         comm.send({
                             "type": "chunk",
@@ -246,9 +246,6 @@ def parallel_chat_generate(
                             "prompt_id": prompt_id,
                             "task_id": task_id
                         }, dest=0)
-                        if worker_verbose:
-                            logger.info(
-                                f"Rank {rank}: Prompt ID {prompt_id}: {content[:50]}...")
                 else:
                     response = mlx.chat(
                         messages=messages_typed,
@@ -267,8 +264,14 @@ def parallel_chat_generate(
                         tools=tools,
                         system_prompt=system_prompt
                     )
+                    if worker_verbose:
+                        logger.info(
+                            f"Rank {rank}: Prompt ID {prompt_id}: Full response={response}")
                     content = response["choices"][0].get(
                         "message", {}).get("content", "")
+                    if not content and worker_verbose:
+                        logger.warning(
+                            f"Rank {rank}: Prompt ID {prompt_id}: Empty content in response")
                     tokens_generated += len(content.split())
                     comm.send({
                         "type": "result",
@@ -278,7 +281,6 @@ def parallel_chat_generate(
                         "task_id": task_id,
                         "truncated": tokens_generated >= max_tokens
                     }, dest=0)
-
                 comm.send({
                     "type": "result",
                     "prompt": message_str,
