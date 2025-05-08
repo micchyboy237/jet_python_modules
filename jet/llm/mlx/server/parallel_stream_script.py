@@ -94,7 +94,7 @@ def parallel_stream_generate(
 if __name__ == "__main__":
     logger.debug(format_json(sys.argv))
     if len(sys.argv) < 2:
-        print("error: Usage: mpirun -np 4 python _test_for_running_temp_scripts.py <input_json>", flush=True)
+        print("error: Usage: mpirun -np 4 python parallel_stream_script.py <input_json>", flush=True)
         sys.exit(1)
 
     try:
