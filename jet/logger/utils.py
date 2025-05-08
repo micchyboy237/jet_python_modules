@@ -1,3 +1,4 @@
+import re
 from jet.types import DB_Result
 from jet.logger import logger
 
@@ -40,3 +41,17 @@ def log_sql_results(sql_results):
     if not success:
         logger.error(message)
         raise Exception(message)
+
+
+def clean_ansi(text: str) -> str:
+    """
+    Remove ANSI escape sequences from a string.
+
+    Args:
+        text (str): The string potentially containing ANSI codes.
+
+    Returns:
+        str: A clean string without ANSI codes.
+    """
+    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+    return ansi_escape.sub('', text)

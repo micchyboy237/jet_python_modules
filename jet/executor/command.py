@@ -29,10 +29,10 @@ def run_command(command: str, *, work_dir: str = None, separator: str = " ") -> 
             message = line.decode('utf-8').strip()
             data = message
 
-            if message.startswith("result: "):
+            if data.startswith(("data: ", "result: ", "error: ")):
                 yield f"{data}\n\n"
             else:
-                yield f"data: {data}\n\n"
+                yield f"other: {data}\n\n"
         for line in process.stderr:
             yield f"error: {line.decode('utf-8').strip()}\n\n"
     except Exception as e:
