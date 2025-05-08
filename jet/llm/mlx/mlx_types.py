@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 
 # Type definitions
@@ -71,6 +72,31 @@ class ModelsResponse(TypedDict):
     data: List[ModelInfo]
 
 
+class ModelTypeEnum(Enum):
+    DOLPHIN3_LLAMA3_8B_4BIT = "dolphin3.0-llama3.1-8b-4bit"
+    GEMMA_3_1B_IT_QAT_4BIT = "gemma-3-1b-it-qat-4bit"
+    GEMMA_3_4B_IT_QAT_4BIT = "gemma-3-4b-it-qat-4bit"
+    LLAMA_3_1_8B_INSTRUCT_4BIT = "llama-3.1-8b-instruct-4bit"
+    LLAMA_3_2_1B_INSTRUCT_4BIT = "llama-3.2-1b-instruct-4bit"
+    LLAMA_3_2_3B_INSTRUCT_4BIT = "llama-3.2-3b-instruct-4bit"
+    MISTRAL_NEMO_INSTRUCT_2407_4BIT = "mistral-nemo-instruct-2407-4bit"
+    QWEN2_5_7B_INSTRUCT_4BIT = "qwen2.5-7b-instruct-4bit"
+    QWEN2_5_14B_INSTRUCT_4BIT = "qwen2.5-14b-instruct-4bit"
+    QWEN2_5_CODER_14B_INSTRUCT_4BIT = "qwen2.5-coder-14b-instruct-4bit"
+    QWEN3_0_6B_4BIT = "qwen3-0.6b-4bit"
+    QWEN3_1_7B_3BIT = "qwen3-1.7b-3bit"
+    QWEN3_4B_3BIT = "qwen3-4b-3bit"
+    QWEN3_8B_3BIT = "qwen3-8b-3bit"
+
+    @property
+    def key(self) -> str:
+        return self.value
+
+    @property
+    def model_path(self) -> str:
+        return f"mlx-community/{self.value.replace('.', '.').replace('_', '-')}"
+
+
 # Model key types
 ModelKey = Literal[
     "dolphin3.0-llama3.1-8b-4bit",
@@ -108,4 +134,4 @@ ModelValue = Literal[
 ]
 
 # Combined model type
-ModelType = Union[ModelKey, ModelValue]
+ModelType = Union[ModelKey, ModelValue, ModelTypeEnum]
