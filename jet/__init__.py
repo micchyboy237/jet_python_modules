@@ -1,5 +1,5 @@
 # Initialize all shared modules
-# import shared.setup.builtin_modules
+import shared.setup.builtin_modules
 
 # from shared.setup.events import setup_events
 

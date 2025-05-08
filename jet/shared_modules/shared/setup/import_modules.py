@@ -2,7 +2,7 @@
 # Shared modules should be on top
 from jet.utils.text import *
 
-from jet.logger import logger
+from jet.logger import *
 
 from jet.utils.class_utils import *
 

@@ -259,6 +259,7 @@ logger = CustomLogger()
 
 __all__ = [
     "logger",
+    "CustomLogger",
 ]
 
 if __name__ == "__main__":
