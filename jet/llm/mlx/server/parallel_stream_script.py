@@ -1,6 +1,6 @@
+import uuid
 from jet.llm.mlx.base import MLX
 from jet.logger import logger
-import uuid
 from mpi4py import MPI
 
 comm = MPI.COMM_WORLD
@@ -62,30 +62,3 @@ def parallel_stream_generate(model_name, prompts, max_tokens, temp, verbose, wor
     else:
         # Main process (rank 0) should not process prompts
         pass
-
-
-if __name__ == "__main__":
-    import json
-    import sys
-
-    logger.debug(json.dumps(sys.argv))
-    if len(sys.argv) < 2:
-        print("error: Usage: mpirun -np 5 python parallel_stream_script.py <input_json>", flush=True)
-        sys.exit(1)
-    try:
-        input_json = ' '.join(sys.argv[1:]).strip("'")
-        input_data = json.loads(input_json)
-    except json.JSONDecodeError as e:
-        print(f"error: Invalid JSON input: {str(e)}", flush=True)
-        sys.exit(1)
-
-    parallel_stream_generate(
-        model_name=input_data["model"],
-        prompts=input_data["prompts"],
-        max_tokens=input_data["max_tokens"],
-        temp=input_data["temp"],
-        verbose=input_data["verbose"],
-        task_id=input_data.get("task_id"),
-        worker_verbose=True
-    )
-    MPI.Finalize()
