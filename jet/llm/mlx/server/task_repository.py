@@ -1,4 +1,3 @@
-from jet.transformers.formatters import format_json
 import psycopg
 import json
 from typing import Dict, List, Optional
@@ -298,8 +297,6 @@ class TaskRepository:
                     tasks = cur.fetchall()
                     result = []
                     for task in tasks:
-                        logger.debug(
-                            f"DB Task ({task["task_id"]}):\n{task}")
                         cur.execute("""
                             SELECT * FROM prompts WHERE task_id = %s
                         """, (task["task_id"],))
@@ -340,6 +337,8 @@ class TaskRepository:
                                 } for prompt in prompts
                             }
                         })
+                    logger.debug(
+                        f"DB Tasks ({len(result)}):\n{json.dumps(result, indent=2)}")
                     return result
                 except psycopg.Error as e:
                     logger.error(f"Failed to retrieve all tasks: {str(e)}")
