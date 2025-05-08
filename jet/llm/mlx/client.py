@@ -17,6 +17,7 @@ from jet.llm.mlx.mlx_types import (
     RoleMapping,
     CompletionResponse,
     ModelsResponse,
+    ModelInfo,
     ModelType,
     ModelKey,
     ModelValue,

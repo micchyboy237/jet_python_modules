@@ -7,27 +7,9 @@ from jet.llm.mlx.mlx_types import ModelType
 import psycopg
 from psycopg.rows import dict_row
 # Assuming MLXLMClient is in a separate module
-from .client import MLXLMClient, CompletionResponse, Message, RoleMapping, Tool
+from .client import MLXLMClient, ModelsResponse, CompletionResponse, Message, RoleMapping, Tool
 
 # Typed dictionaries for structured data (reused from MLXLMClient for consistency)
-
-
-class Message(TypedDict):
-    role: str
-    content: str
-
-
-class RoleMapping(TypedDict, total=False):
-    system_prompt: str
-    system: str
-    user: str
-    assistant: str
-    stop: str
-
-
-class Tool(TypedDict):
-    type: str
-    function: Dict[str, Any]
 
 
 class PostgresChatMessageHistory:
@@ -203,6 +185,9 @@ class MLX:
             )
         else:
             self.history = ChatHistory()
+
+    def get_models(self) -> ModelsResponse:
+        return self.client.get_models()
 
     def chat(
         self,

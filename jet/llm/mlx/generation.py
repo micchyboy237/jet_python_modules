@@ -87,6 +87,8 @@ class UnifiedCompletionResponse(BaseModel):
 
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Hugging Face repo ID")
+    object: Optional[str] = Field(
+        "model", description="Type of object, default is 'model'")
     created: int = Field(..., description="Timestamp for model creation")
 
 
