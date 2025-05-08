@@ -1,6 +1,6 @@
 import unittest
 
-from jet.transformers import to_snake_case
+from jet.transformers.text import to_snake_case
 
 
 class TestToSnakeCase(unittest.TestCase):

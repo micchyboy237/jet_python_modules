@@ -58,7 +58,7 @@ def main():
     hierarchical_summary = generate_hierarchical_summary(thought_tree)
 
     import json
-    from jet.transformers import make_serializable
+    from jet.transformers.object import make_serializable
     from jet.logger import logger
     hierarchical_summary_str = json.dumps(
         make_serializable(hierarchical_summary), indent=2)

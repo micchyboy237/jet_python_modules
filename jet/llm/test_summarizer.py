@@ -68,7 +68,7 @@ summary_list = [summary['summary']['response'] for summary in summaries]
 
 if __name__ == "__main__":
     from jet.logger import logger
-    from jet.transformers import format_json
+    from jet.transformers.formatters import format_json
 
     model = "mistral"
     system = (

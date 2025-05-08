@@ -50,7 +50,7 @@ def save_json(results, file_path="generated/results.json"):
     """
     Save results to a JSON file, merging with existing results if the file exists.
     """
-    from jet.transformers import make_serializable
+    from jet.transformers.object import make_serializable
     try:
         # Serialize results
         results = make_serializable(results)
@@ -124,7 +124,7 @@ def save_file(data: str | list | Dict | BaseModel, output_file: str, verbose: bo
     import os
     import re
     import json
-    from jet.transformers import make_serializable
+    from jet.transformers.object import make_serializable
 
     # Allow only valid file path characters ('/', '.', '-', '_')
     output_file = re.sub(r"[^\w\-/\.]", "", output_file)

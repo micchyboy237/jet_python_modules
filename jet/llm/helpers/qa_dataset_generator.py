@@ -4,7 +4,7 @@ from jet.llm.ollama.base import initialize_ollama_settings
 from jet.llm.ollama.constants import OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_LLM_MODEL
 from jet.llm.query.retrievers import get_fusion_retriever, setup_retrievers
 from jet.logger import logger
-from jet.transformers import make_serializable
+from jet.transformers.object import make_serializable
 from jet.token.token_utils import get_tokenizer
 from llama_index.core.evaluation.dataset_generation import DatasetGenerator
 from llama_index.core.evaluation.retrieval.evaluator import RetrieverEvaluator

@@ -22,7 +22,7 @@ from jet.llm.llm_types import (
 )
 from jet.utils.class_utils import get_class_name
 from jet.logger import logger
-from jet.transformers import make_serializable
+from jet.transformers.object import make_serializable
 from shared.setup.events import EventSettings
 
 DETERMINISTIC_LLM_SETTINGS = {

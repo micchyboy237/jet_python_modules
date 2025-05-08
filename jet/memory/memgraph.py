@@ -15,7 +15,7 @@ import os
 from jet.validation.graph_validation import extract_cypher_block_content
 from langchain_community.graphs import MemgraphGraph
 from langchain_core.prompts import PromptTemplate
-from jet.transformers import format_json
+from jet.transformers.formatters import format_json
 from jet.memory.config import (
     CYPHER_GENERATION_PROMPT,
     CONTEXT_QA_PROMPT,

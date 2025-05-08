@@ -12,7 +12,7 @@ from jet.db.chroma import (
 )
 from jet.llm.ollama.base import get_embedding_function
 from jet.llm.model import get_model_path
-from jet.transformers import make_serializable
+from jet.transformers.object import make_serializable
 from jet.logger import logger
 
 # Defaults

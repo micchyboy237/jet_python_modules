@@ -1,7 +1,7 @@
 from chromadb.api.types import QueryResult
 from jet.db.chroma import SearchResult
 from jet.data.utils import generate_key
-from jet.transformers import make_serializable
+from jet.transformers.object import make_serializable
 
 
 def calculate_vector_scores(distances: list[float]) -> list[float]:
