@@ -29,20 +29,13 @@ def parallel_stream_generate(
     task_id: str = "",
     stream: bool = True
 ) -> None:
-    """
-    Parallel text generation across MPI workers, supporting both streaming and non-streaming modes.
-    Sends chunks or results to rank 0 via MPI.
-    """
     if rank != 0:
         try:
-            # Validate model path
             if model not in AVAILABLE_MODELS.values():
                 raise ValueError(
                     f"Invalid model path: {model}. Must be one of {list(AVAILABLE_MODELS.values())}")
             if verbose:
                 logger.info(f"Rank {rank}: Validating model path {model}")
-
-            # Check model limits
             max_context, max_embeddings = get_model_limits(model)
             if not max_context or not max_embeddings:
                 raise ValueError(
@@ -50,8 +43,7 @@ def parallel_stream_generate(
             if verbose:
                 logger.info(
                     f"Rank {rank}: Model {model} limits: max_context={max_context}, max_embeddings={max_embeddings}")
-
-            # Initialize MLX
+            # Instantiate MLX per task to avoid state retention
             mlx = MLX(model=model)
         except Exception as e:
             error_msg = f"Rank {rank}: Failed to load model {model}: {str(e)}"
@@ -89,6 +81,9 @@ def parallel_stream_generate(
                         stop=stop
                     ):
                         content = chunk["choices"][0].get("text", "")
+                        if worker_verbose:
+                            logger.info(
+                                f"Rank {rank}: Prompt ID {prompt_id}: Stream chunk content={content[:50]}...")
                         tokens_generated += len(content.split())
                         comm.send({
                             "type": "chunk",
@@ -97,9 +92,15 @@ def parallel_stream_generate(
                             "prompt_id": prompt_id,
                             "task_id": task_id
                         }, dest=0)
-                        if worker_verbose:
-                            logger.info(
-                                f"Rank {rank}: Prompt ID {prompt_id}: {content[:50]}...")
+                    # Send final result for streaming
+                    comm.send({
+                        "type": "result",
+                        "prompt": prompt,
+                        "content": "",
+                        "prompt_id": prompt_id,
+                        "task_id": task_id,
+                        "truncated": tokens_generated >= max_tokens
+                    }, dest=0)
                 else:
                     response = mlx.generate(
                         prompt=prompt,
@@ -115,7 +116,13 @@ def parallel_stream_generate(
                         logprobs=logprobs,
                         stop=stop
                     )
+                    if worker_verbose:
+                        logger.info(
+                            f"Rank {rank}: Prompt ID {prompt_id}: Full response={response}")
                     content = response["choices"][0].get("text", "")
+                    if not content and worker_verbose:
+                        logger.warning(
+                            f"Rank {rank}: Prompt ID {prompt_id}: Empty content in response")
                     tokens_generated += len(content.split())
                     comm.send({
                         "type": "result",
@@ -125,14 +132,6 @@ def parallel_stream_generate(
                         "task_id": task_id,
                         "truncated": tokens_generated >= max_tokens
                     }, dest=0)
-                comm.send({
-                    "type": "result",
-                    "prompt": prompt,
-                    "content": "",
-                    "prompt_id": prompt_id,
-                    "task_id": task_id,
-                    "truncated": tokens_generated >= max_tokens
-                }, dest=0)
             except Exception as e:
                 error_msg = f"Rank {rank}: Prompt ID {prompt_id} failed: {str(e)}"
                 if worker_verbose:
@@ -169,20 +168,13 @@ def parallel_chat_generate(
     session_id: Optional[str] = None,
     stream: bool = True
 ) -> None:
-    """
-    Parallel chat generation across MPI workers, supporting both streaming and non-streaming modes.
-    Sends chunks or results to rank 0 via MPI, maintaining chat history with session_id.
-    """
     if rank != 0:
         try:
-            # Validate model path
             if model not in AVAILABLE_MODELS.values():
                 raise ValueError(
                     f"Invalid model path: {model}. Must be one of {list(AVAILABLE_MODELS.values())}")
             if verbose:
                 logger.info(f"Rank {rank}: Validating model path {model}")
-
-            # Check model limits
             max_context, max_embeddings = get_model_limits(model)
             if not max_context or not max_embeddings:
                 raise ValueError(
@@ -190,9 +182,9 @@ def parallel_chat_generate(
             if verbose:
                 logger.info(
                     f"Rank {rank}: Model {model} limits: max_context={max_context}, max_embeddings={max_embeddings}")
-
-            # Initialize MLX
-            mlx = MLX(model=model, session_id=session_id)
+            # Instantiate MLX per task, reset session state unless session_id is provided
+            mlx = MLX(
+                model=model, session_id=session_id if session_id else str(uuid.uuid4()))
         except Exception as e:
             error_msg = f"Rank {rank}: Failed to load model {model}: {str(e)}"
             logger.error(error_msg)
@@ -246,6 +238,15 @@ def parallel_chat_generate(
                             "prompt_id": prompt_id,
                             "task_id": task_id
                         }, dest=0)
+                    # Send final result for streaming
+                    comm.send({
+                        "type": "result",
+                        "prompt": message_str,
+                        "content": "",
+                        "prompt_id": prompt_id,
+                        "task_id": task_id,
+                        "truncated": tokens_generated >= max_tokens
+                    }, dest=0)
                 else:
                     response = mlx.chat(
                         messages=messages_typed,
@@ -281,14 +282,6 @@ def parallel_chat_generate(
                         "task_id": task_id,
                         "truncated": tokens_generated >= max_tokens
                     }, dest=0)
-                comm.send({
-                    "type": "result",
-                    "prompt": message_str,
-                    "content": "",
-                    "prompt_id": prompt_id,
-                    "task_id": task_id,
-                    "truncated": tokens_generated >= max_tokens
-                }, dest=0)
             except Exception as e:
                 error_msg = f"Rank {rank}: Prompt ID {prompt_id} failed: {str(e)}"
                 if worker_verbose:

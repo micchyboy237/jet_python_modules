@@ -16,6 +16,7 @@ from jet.llm.mlx.server.parallel_stream_script import parallel_stream_generate, 
 from jet.llm.mlx.mlx_types import ModelType, Message, ModelTypeEnum, RoleMapping, Tool
 from jet.llm.mlx.models import AVAILABLE_MODELS, get_model_limits
 
+
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
@@ -73,15 +74,19 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
 
 
-async def stream_generate(request: GenerateRequest, is_chat: bool = False, stream: bool = True):
+async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat: bool = False, stream: bool = True):
     task_id = request.task_id or str(uuid.uuid4())
-    prompts = request.prompts if not is_chat else [
-        json.dumps(request.messages)]
-    if not prompts:
-        raise HTTPException(
-            status_code=400, detail="At least one prompt or message is required")
-
-    # Validate model
+    prompts = []
+    if is_chat:
+        if not hasattr(request, 'messages') or not request.messages:
+            raise HTTPException(
+                status_code=400, detail="Messages are required for chat requests")
+        prompts = [json.dumps(request.messages)]
+    else:
+        if not hasattr(request, 'prompts') or not request.prompts:
+            raise HTTPException(
+                status_code=400, detail="Prompts are required for generate requests")
+        prompts = request.prompts
     model_key = request.model
     if model_key not in AVAILABLE_MODELS:
         raise HTTPException(
@@ -100,12 +105,18 @@ async def stream_generate(request: GenerateRequest, is_chat: bool = False, strea
         raise HTTPException(
             status_code=500, detail=f"Model validation failed for {model_key}: {str(e)}")
 
+    # Clear MPI queue of stale messages
+    for worker_rank in range(1, size):
+        while comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
+            comm.recv(source=worker_rank, tag=MPI.ANY_TAG)
+            if request.verbose:
+                logger.info(f"Cleared stale message from worker {worker_rank}")
+
     num_prompts = len(prompts)
     prompts_per_worker = [[] for _ in range(size - 1)]
     for i, prompt in enumerate(prompts):
         worker_idx = i % (size - 1)
         prompts_per_worker[worker_idx].append(prompt)
-
     active_workers = set()
     remaining_prompts = {}
     for worker_rank in range(1, size):
@@ -115,9 +126,8 @@ async def stream_generate(request: GenerateRequest, is_chat: bool = False, strea
             remaining_prompts[worker_rank] = len(worker_prompts)
             if request.verbose:
                 logger.info(
-                    f"{time.time()}: Sending {len(worker_prompts)} prompts to worker {worker_rank}")
-        comm.send(
-            {
+                    f"{time.time()}: Sending {len(worker_prompts)} prompts to worker {worker_rank}: {worker_prompts}")
+            task = {
                 "model": model_path,
                 "prompts" if not is_chat else "messages": worker_prompts,
                 "max_tokens": request.max_tokens,
@@ -139,15 +149,20 @@ async def stream_generate(request: GenerateRequest, is_chat: bool = False, strea
                 "session_id": getattr(request, "session_id", None),
                 "is_chat": is_chat,
                 "stream": stream
-            },
-            dest=worker_rank
-        )
+            }
+            comm.send(task, dest=worker_rank)
 
     async def stream_results():
         while active_workers:
             for worker_rank in list(active_workers):
                 if comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
                     message = comm.recv(source=worker_rank, tag=MPI.ANY_TAG)
+                    # Validate task_id to ignore stale messages
+                    if message.get("task_id") != task_id:
+                        if request.verbose:
+                            logger.warning(
+                                f"Ignoring stale message from worker {worker_rank} with task_id {message.get('task_id')}")
+                        continue
                     if request.verbose:
                         logger.info(
                             f"{time.time()}: Received message from worker {worker_rank}: {message}")
@@ -163,7 +178,6 @@ async def stream_generate(request: GenerateRequest, is_chat: bool = False, strea
                                 logger.info(
                                     f"{time.time()}: Worker {worker_rank} has completed all prompts")
             await asyncio.sleep(0.005)
-
     if stream:
         return StreamingResponse(stream_results(), media_type="application/json")
     else:
@@ -172,6 +186,12 @@ async def stream_generate(request: GenerateRequest, is_chat: bool = False, strea
             for worker_rank in list(active_workers):
                 if comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
                     message = comm.recv(source=worker_rank, tag=MPI.ANY_TAG)
+                    # Validate task_id to ignore stale messages
+                    if message.get("task_id") != task_id:
+                        if request.verbose:
+                            logger.warning(
+                                f"Ignoring stale message from worker {worker_rank} with task_id {message.get('task_id')}")
+                        continue
                     if message["type"] == "result":
                         results.append(message)
                         remaining_prompts[worker_rank] -= 1
@@ -222,17 +242,16 @@ if __name__ == "__main__":
         while True:
             if comm.Iprobe(source=0):
                 task = comm.recv(source=0)
-                # Check for either "prompts" or "messages" safely
                 prompts = task.get("prompts")
                 messages = task.get("messages")
                 if prompts or messages:
                     if task["verbose"]:
                         logger.info(
-                            f"{time.time()}: Worker {rank} received task with {len(prompts or messages)} items")
+                            f"{time.time()}: Worker {rank} received task {task['task_id']} with {len(prompts or messages)} items")
                     if task["is_chat"]:
                         parallel_chat_generate(
                             model=task["model"],
-                            messages=messages,  # Use messages for chat tasks
+                            messages=messages,
                             max_tokens=task["max_tokens"],
                             temperature=task["temperature"],
                             top_p=task["top_p"],
@@ -255,7 +274,7 @@ if __name__ == "__main__":
                     else:
                         parallel_stream_generate(
                             model=task["model"],
-                            prompts=prompts,  # Use prompts for non-chat tasks
+                            prompts=prompts,
                             max_tokens=task["max_tokens"],
                             temperature=task["temperature"],
                             top_p=task["top_p"],

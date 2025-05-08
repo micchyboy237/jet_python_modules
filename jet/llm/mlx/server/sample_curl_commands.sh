@@ -22,7 +22,7 @@ curl -X POST "http://localhost:9000/generate" \
     "stop": ["\n\n"],
     "verbose": true,
     "worker_verbose": true,
-    "task_id": "task-001"
+    "task_id": "text-001"
   }'
 
 # 2. /chat (Streaming Chat Generation)
@@ -73,7 +73,7 @@ curl -X POST "http://localhost:9000/generate_non_stream" \
     "stop": null,
     "verbose": true,
     "worker_verbose": true,
-    "task_id": "task-002"
+    "task_id": "text-002"
   }'
 
 # 4. /chat_non_stream (Non-Streaming Chat Generation)
