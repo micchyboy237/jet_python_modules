@@ -1,3 +1,4 @@
+from jet.transformers.formatters import format_json
 import psycopg
 import json
 from typing import Dict, List, Optional
@@ -254,13 +255,13 @@ class TaskRepository:
                         "repetition_context_size": task.get("repetition_context_size", 20),
                         "xtc_probability": task.get("xtc_probability", 0.0),
                         "xtc_threshold": task.get("xtc_threshold", 0.0),
-                        "logit_bias": json.loads(task["logit_bias"]) if task.get("logit_bias") else None,
+                        "logit_bias": task.get("logit_bias"),
                         "logprobs": task.get("logprobs", -1),
-                        "stop": json.loads(task["stop"]) if task.get("stop") else None,
+                        "stop": task.get("stop"),
                         "verbose": task.get("verbose", False),
                         "worker_verbose": task.get("worker_verbose", False),
-                        "role_mapping": json.loads(task["role_mapping"]) if task.get("role_mapping") else None,
-                        "tools": json.loads(task["tools"]) if task.get("tools") else None,
+                        "role_mapping": task.get("role_mapping"),
+                        "tools": task.get("tools"),
                         "system_prompt": task.get("system_prompt"),
                         "session_id": task.get("session_id"),
                         "created_at": task["created_at"].timestamp(),
@@ -297,6 +298,8 @@ class TaskRepository:
                     tasks = cur.fetchall()
                     result = []
                     for task in tasks:
+                        logger.debug(
+                            f"DB Task ({task["task_id"]}):\n{task}")
                         cur.execute("""
                             SELECT * FROM prompts WHERE task_id = %s
                         """, (task["task_id"],))
@@ -314,13 +317,13 @@ class TaskRepository:
                             "repetition_context_size": task.get("repetition_context_size", 20),
                             "xtc_probability": task.get("xtc_probability", 0.0),
                             "xtc_threshold": task.get("xtc_threshold", 0.0),
-                            "logit_bias": json.loads(task["logit_bias"]) if task.get("logit_bias") else None,
+                            "logit_bias": task.get("logit_bias"),
                             "logprobs": task.get("logprobs", -1),
-                            "stop": json.loads(task["stop"]) if task.get("stop") else None,
+                            "stop": task.get("stop"),
                             "verbose": task.get("verbose", False),
                             "worker_verbose": task.get("worker_verbose", False),
-                            "role_mapping": json.loads(task["role_mapping"]) if task.get("role_mapping") else None,
-                            "tools": json.loads(task["tools"]) if task.get("tools") else None,
+                            "role_mapping": task.get("role_mapping"),
+                            "tools": task.get("tools"),
                             "system_prompt": task.get("system_prompt"),
                             "session_id": task.get("session_id"),
                             "created_at": task["created_at"].timestamp(),

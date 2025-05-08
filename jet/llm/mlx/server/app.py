@@ -41,7 +41,7 @@ class GenerateRequest(BaseModel):
     xtc_probability: float = 0.0
     xtc_threshold: float = 0.0
     logit_bias: Optional[Dict[int, float]] = None
-    logprobs: int
+    logprobs: int = -1
     stop: Optional[Union[str, List[str]]] = None
     verbose: bool = False
     worker_verbose: bool = False
