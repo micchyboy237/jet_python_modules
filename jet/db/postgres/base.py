@@ -21,15 +21,7 @@ class PostgresDB:
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
     ) -> None:
-        """Initialize PostgresDB with connection parameters.
-
-        Args:
-            default_db (str): Name of the default database.
-            user (str): Database user.
-            password (str): Database password.
-            host (str): Database host address.
-            port (int): Database port number.
-        """
+        """Initialize PostgresDB with connection parameters."""
         self.default_db = default_db
         self.user = user
         self.password = password
@@ -43,22 +35,9 @@ class PostgresDB:
         password: Optional[str] = None,
         host: Optional[str] = None,
         port: Optional[int] = None,
+        autocommit: bool = False,
     ) -> psycopg.Connection:
-        """Establish a connection to a specified database.
-
-        Args:
-            dbname (str): Name of the database to connect to.
-            user (Optional[str]): Database user. Defaults to instance user.
-            password (Optional[str]): Database password. Defaults to instance password.
-            host (Optional[str]): Database host. Defaults to instance host.
-            port (Optional[int]): Database port. Defaults to instance port.
-
-        Returns:
-            psycopg.Connection: A connection object to the specified database.
-
-        Raises:
-            Exception: If the connection attempt fails.
-        """
+        """Establish a connection to a specified database."""
         try:
             return psycopg.connect(
                 dbname=dbname,
@@ -66,7 +45,7 @@ class PostgresDB:
                 password=password or self.password,
                 host=host or self.host,
                 port=port or self.port,
-                autocommit=True,
+                autocommit=autocommit,
                 row_factory=dict_row,
             )
         except psycopg.Error as e:
@@ -74,14 +53,7 @@ class PostgresDB:
                 f"Failed to connect to database {dbname}: {str(e)}")
 
     def connect_default_db(self) -> psycopg.Connection:
-        """Connect to the default database, creating it if it doesn't exist.
-
-        Returns:
-            psycopg.Connection: A connection object to the default database.
-
-        Raises:
-            Exception: If database creation or connection fails.
-        """
+        """Connect to the default database, creating it if it doesn't exist."""
         # Check if default database exists by connecting to 'postgres'
         try:
             with self.connect_db(
@@ -90,6 +62,7 @@ class PostgresDB:
                 password=self.password,
                 host=self.host,
                 port=self.port,
+                autocommit=True,  # Use autocommit for database creation
             ) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -109,41 +82,57 @@ class PostgresDB:
             password=self.password,
             host=self.host,
             port=self.port,
+            autocommit=False,  # Default to transaction control for normal operations
         )
 
     def create_db(self, dbname: str) -> None:
-        """Create a new database.
-
-        Args:
-            dbname (str): Name of the database to create.
-
-        Raises:
-            Exception: If database creation fails.
-        """
-        with self.connect_default_db() as conn:
-            with conn.cursor() as cur:
-                try:
+        """Create a new database."""
+        try:
+            with self.connect_db(
+                dbname="postgres",
+                user=self.user,
+                password=self.password,
+                host=self.host,
+                port=self.port,
+                autocommit=True,  # Autocommit required for CREATE DATABASE
+            ) as conn:
+                with conn.cursor() as cur:
                     cur.execute(f"CREATE DATABASE {dbname}")
-                except psycopg.Error as e:
-                    raise Exception(
-                        f"Failed to create database {dbname}: {str(e)}")
+        except psycopg.Error as e:
+            raise Exception(f"Failed to create database {dbname}: {str(e)}")
 
     def delete_db(self, dbname: str) -> None:
-        """Delete a specified database.
+        """Delete a specified database."""
+        try:
+            with self.connect_db(
+                dbname="postgres",
+                user=self.user,
+                password=self.password,
+                host=self.host,
+                port=self.port,
+                autocommit=True,  # Autocommit required for DROP DATABASE
+            ) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(f"DROP DATABASE IF EXISTS {dbname}")
+        except psycopg.Error as e:
+            raise Exception(f"Failed to delete database {dbname}: {str(e)}")
 
-        Args:
-            dbname (str): Name of the database to delete.
-
-        Raises:
-            Exception: If database deletion fails.
-        """
+    def verify_foreign_key(self, table: str, constraint: str) -> bool:
+        """Verify if a foreign key constraint exists."""
         with self.connect_default_db() as conn:
             with conn.cursor() as cur:
                 try:
-                    cur.execute(f"DROP DATABASE IF EXISTS {dbname}")
+                    cur.execute("""
+                        SELECT constraint_name
+                        FROM information_schema.table_constraints
+                        WHERE table_name = %s
+                        AND constraint_type = 'FOREIGN KEY'
+                        AND constraint_name = %s
+                    """, (table, constraint))
+                    return bool(cur.fetchone())
                 except psycopg.Error as e:
                     raise Exception(
-                        f"Failed to delete database {dbname}: {str(e)}")
+                        f"Failed to verify foreign key {constraint}: {str(e)}")
 
 
 __all__ = ["PostgresDB"]

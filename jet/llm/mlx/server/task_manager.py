@@ -272,7 +272,11 @@ class TaskManager:
                 self.tasks.clear()
                 for db_task in db_tasks:
                     self.tasks[db_task["task_id"]] = db_task
-                self.repository.cleanup_old_tasks()
+                try:
+                    self.repository.cleanup_old_tasks()
+                except Exception as e:
+                    logger.error(
+                        f"Failed to clean up old tasks, continuing with task retrieval: {str(e)}")
                 return self.tasks
             except Exception as e:
                 logger.error(

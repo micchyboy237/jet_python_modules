@@ -5,90 +5,99 @@ from datetime import datetime
 from jet.db.postgres import PostgresDB
 from jet.logger import logger
 
+DB_NAME = "tasks_db1"
+
 
 class TaskRepository:
     """A repository class for task-specific database operations."""
 
     def __init__(self):
-        self.db = PostgresDB()
+        self.db = PostgresDB(DB_NAME)
         self.initialize_task_schema()
 
-    def initialize_task_schema(self) -> None:
-        """Initialize the database schema for task management and migrate if needed."""
+    def reset_schema(self) -> None:
+        """Drop and recreate tasks and prompts tables to ensure correct schema."""
         with self.db.connect_default_db() as conn:
             with conn.cursor() as cur:
                 try:
-                    # Create tasks table if it doesn't exist
+                    # Drop tables and associated types in reverse order to avoid conflicts
+                    cur.execute("DROP TABLE IF EXISTS prompts")
+                    cur.execute("DROP TABLE IF EXISTS tasks")
+                    # Explicitly drop the 'tasks' type if it exists to avoid namespace conflicts
+                    cur.execute("DROP TYPE IF EXISTS tasks CASCADE")
+                    logger.info(
+                        "Dropped existing tasks, prompts tables, and tasks type")
+
+                    # Create tasks table with quoted 'verbose' column
                     cur.execute("""
-                        CREATE TABLE IF NOT EXISTS tasks (
+                        CREATE TABLE tasks (
                             task_id TEXT PRIMARY KEY,
                             model TEXT NOT NULL,
                             is_chat BOOLEAN NOT NULL,
                             stream BOOLEAN NOT NULL,
                             status TEXT NOT NULL,
                             created_at TIMESTAMP NOT NULL,
-                            updated_at TIMESTAMP NOT NULL
+                            updated_at TIMESTAMP NOT NULL,
+                            max_tokens INTEGER NOT NULL DEFAULT 512,
+                            temperature FLOAT NOT NULL DEFAULT 0.0,
+                            top_p FLOAT NOT NULL DEFAULT 1.0,
+                            repetition_penalty FLOAT,
+                            repetition_context_size INTEGER NOT NULL DEFAULT 20,
+                            xtc_probability FLOAT NOT NULL DEFAULT 0.0,
+                            xtc_threshold FLOAT NOT NULL DEFAULT 0.0,
+                            logit_bias JSONB,
+                            logprobs INTEGER NOT NULL DEFAULT -1,
+                            stop JSONB,
+                            "verbose" BOOLEAN NOT NULL DEFAULT FALSE,
+                            worker_verbose BOOLEAN NOT NULL DEFAULT FALSE,
+                            role_mapping JSONB,
+                            tools JSONB,
+                            system_prompt TEXT,
+                            session_id TEXT
                         )
                     """)
-                    # Create prompts table if it doesn't exist
+                    # Create prompts table with ON DELETE CASCADE
                     cur.execute("""
-                        CREATE TABLE IF NOT EXISTS prompts (
+                        CREATE TABLE prompts (
                             prompt_id TEXT PRIMARY KEY,
-                            task_id TEXT REFERENCES tasks(task_id) ON DELETE CASCADE,
+                            task_id TEXT NOT NULL,
                             prompt TEXT NOT NULL,
                             status TEXT NOT NULL,
                             error TEXT,
                             response TEXT,
                             tokens_generated INTEGER DEFAULT 0,
                             created_at TIMESTAMP NOT NULL,
-                            updated_at TIMESTAMP NOT NULL
+                            updated_at TIMESTAMP NOT NULL,
+                            CONSTRAINT prompts_task_id_fkey
+                            FOREIGN KEY (task_id)
+                            REFERENCES tasks(task_id)
+                            ON DELETE CASCADE
                         )
                     """)
-                    # Check existing columns
-                    cur.execute("""
-                        SELECT column_name
-                        FROM information_schema.columns
-                        WHERE table_name = 'tasks'
-                    """)
-                    existing_columns = {row["column_name"]
-                                        for row in cur.fetchall()}
-
-                    # Define new columns with their types and constraints
-                    new_columns = [
-                        ("max_tokens", "INTEGER NOT NULL DEFAULT 512"),
-                        ("temperature", "FLOAT NOT NULL DEFAULT 0.0"),
-                        ("top_p", "FLOAT NOT NULL DEFAULT 1.0"),
-                        ("repetition_penalty", "FLOAT"),
-                        ("repetition_context_size", "INTEGER NOT NULL DEFAULT 20"),
-                        ("xtc_probability", "FLOAT NOT NULL DEFAULT 0.0"),
-                        ("xtc_threshold", "FLOAT NOT NULL DEFAULT 0.0"),
-                        ("logit_bias", "JSONB"),
-                        ("logprobs", "INTEGER NOT NULL DEFAULT -1"),
-                        ("stop", "JSONB"),
-                        ("verbose", "BOOLEAN NOT NULL DEFAULT FALSE"),
-                        ("worker_verbose", "BOOLEAN NOT NULL DEFAULT FALSE"),
-                        ("role_mapping", "JSONB"),
-                        ("tools", "JSONB"),
-                        ("system_prompt", "TEXT"),
-                        ("session_id", "TEXT")
-                    ]
-
-                    # Add new columns only if they don't exist
-                    for column_name, column_type in new_columns:
-                        if column_name not in existing_columns:
-                            logger.info(
-                                f"Adding missing column: {column_name} ({column_type})")
-                            cur.execute(f"""
-                                ALTER TABLE tasks
-                                ADD COLUMN {column_name} {column_type}
-                            """)
-                        else:
-                            logger.info(
-                                f"Column {column_name} already exists in tasks table, skipping addition")
-
-                    conn.commit()  # Save changes
-
+                    conn.commit()
+                    logger.info(
+                        "Recreated tasks and prompts tables with correct schema")
                 except psycopg.Error as e:
+                    conn.rollback()
+                    logger.error(f"Failed to reset schema: {str(e)}")
+                    raise Exception(f"Failed to reset schema: {str(e)}")
+
+    def initialize_task_schema(self) -> None:
+        """Initialize the database schema for task management."""
+        with self.db.connect_default_db() as conn:
+            with conn.cursor() as cur:
+                try:
+                    # Check if foreign key constraint exists and is correct
+                    if not self.db.verify_foreign_key("prompts", "prompts_task_id_fkey"):
+                        logger.warning(
+                            "Foreign key constraint missing or incorrect, resetting schema")
+                        self.reset_schema()
+                    else:
+                        logger.info(
+                            "Foreign key constraint verified, schema is correct")
+                    conn.commit()
+                except psycopg.Error as e:
+                    conn.rollback()
                     logger.error(f"Failed to initialize task schema: {str(e)}")
                     raise Exception(
                         f"Failed to initialize task schema: {str(e)}")
@@ -98,7 +107,7 @@ class TaskRepository:
         with self.db.connect_default_db() as conn:
             with conn.cursor() as cur:
                 try:
-                    # Upsert task
+                    # Upsert task with quoted 'verbose' column
                     cur.execute("""
                         INSERT INTO tasks (
                             task_id, model, is_chat, stream, status, max_tokens, temperature, top_p,
@@ -186,7 +195,9 @@ class TaskRepository:
                             datetime.fromtimestamp(task["created_at"]),
                             datetime.now()
                         ))
+                    conn.commit()
                 except psycopg.Error as e:
+                    conn.rollback()
                     logger.error(
                         f"Failed to save task {task['task_id']}: {str(e)}")
                     raise Exception(
@@ -220,7 +231,9 @@ class TaskRepository:
                         datetime.now(),
                         prompt_id
                     ))
+                    conn.commit()
                 except psycopg.Error as e:
+                    conn.rollback()
                     logger.error(
                         f"Failed to update prompt {prompt_id} status: {str(e)}")
                     raise Exception(
@@ -277,8 +290,10 @@ class TaskRepository:
                             } for prompt in prompts
                         }
                     }
+                    conn.commit()
                     return task_data
                 except psycopg.Error as e:
+                    conn.rollback()
                     logger.error(
                         f"Failed to retrieve task {task_id}: {str(e)}")
                     raise Exception(
@@ -339,8 +354,10 @@ class TaskRepository:
                         })
                     logger.debug(
                         f"DB Tasks ({len(result)}):\n{json.dumps(result, indent=2)}")
+                    conn.commit()
                     return result
                 except psycopg.Error as e:
+                    conn.rollback()
                     logger.error(f"Failed to retrieve all tasks: {str(e)}")
                     raise Exception(f"Failed to retrieve all tasks: {str(e)}")
 
@@ -349,11 +366,40 @@ class TaskRepository:
         with self.db.connect_default_db() as conn:
             with conn.cursor() as cur:
                 try:
+                    # Log tasks to be deleted
+                    cur.execute("""
+                        SELECT COUNT(*) FROM tasks
+                        WHERE status = 'completed'
+                        AND updated_at < NOW() - INTERVAL '%s hours'
+                    """, (hours,))
+                    task_count = cur.fetchone()["count"]
+                    logger.info(
+                        f"Found {task_count} completed tasks older than {hours} hours to clean up")
+
+                    # Fallback: Explicitly delete prompts for tasks to be cleaned
+                    cur.execute("""
+                        DELETE FROM prompts
+                        WHERE task_id IN (
+                            SELECT task_id FROM tasks
+                            WHERE status = 'completed'
+                            AND updated_at < NOW() - INTERVAL '%s hours'
+                        )
+                    """, (hours,))
+                    prompt_count = cur.rowcount
+                    logger.info(
+                        f"Deleted {prompt_count} prompts as fallback before task cleanup")
+
+                    # Delete tasks (ON DELETE CASCADE should also work)
                     cur.execute("""
                         DELETE FROM tasks
                         WHERE status = 'completed'
                         AND updated_at < NOW() - INTERVAL '%s hours'
                     """, (hours,))
+                    deleted_tasks = cur.rowcount
+                    logger.info(f"Deleted {deleted_tasks} tasks")
+
+                    conn.commit()
                 except psycopg.Error as e:
+                    conn.rollback()
                     logger.error(f"Failed to cleanup old tasks: {str(e)}")
                     raise Exception(f"Failed to cleanup old tasks: {str(e)}")
