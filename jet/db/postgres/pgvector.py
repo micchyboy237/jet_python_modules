@@ -1,10 +1,17 @@
-import psycopg
+from psycopg import connect, sql
 from pgvector.psycopg import register_vector
 import numpy as np
 import uuid
 from typing import List, Dict, Optional, Tuple, TypedDict
 from psycopg.rows import dict_row
-from jet.db.pgvector.scoring import calculate_vector_scores
+from jet.db.postgres.scoring import calculate_vector_scores
+from .config import (
+    DEFAULT_DB,
+    DEFAULT_USER,
+    DEFAULT_PASSWORD,
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+)
 
 
 class SearchResult(TypedDict):
@@ -13,19 +20,46 @@ class SearchResult(TypedDict):
 
 
 class PgVectorClient:
-    def __init__(self, dbname: str, user: str, password: str, host: str = 'localhost', port: int = 5432) -> None:
-        """Initialize the database connection."""
-        self.conn = psycopg.connect(
+    def __init__(
+        self,
+        dbname: str = DEFAULT_DB,
+        user: str = DEFAULT_USER,
+        password: str = DEFAULT_PASSWORD,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT
+    ) -> None:
+        """Ensure database exists, then connect and initialize."""
+        self._ensure_database_exists(dbname, user, password, host, port)
+
+        self.conn = connect(
             dbname=dbname,
             user=user,
             password=password,
             host=host,
             port=port,
-            autocommit=False,  # Enable manual transaction control
+            autocommit=False,
             row_factory=dict_row
         )
         self._initialize_extension()
         register_vector(self.conn)
+
+    def _ensure_database_exists(self, dbname, user, password, host, port):
+        """Connect to default DB and create the target DB if it doesn't exist."""
+        with connect(
+            dbname="postgres",
+            user=user,
+            password=password,
+            host=host,
+            port=port,
+            autocommit=True
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM pg_database WHERE datname = %s;", (dbname,))
+                exists = cur.fetchone()
+                if not exists:
+                    cur.execute(sql.SQL("CREATE DATABASE {}").format(
+                        sql.Identifier(dbname)))
 
     def _initialize_extension(self) -> None:
         """Ensure the pgvector extension is enabled."""
