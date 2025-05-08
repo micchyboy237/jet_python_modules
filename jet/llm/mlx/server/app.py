@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import time
 import uuid
 import uvicorn
@@ -15,11 +14,10 @@ from jet.llm.mlx.server.parallel_stream_script import parallel_stream_generate, 
 from jet.llm.mlx.server.task_manager import TaskManager, TaskStatus
 from jet.llm.mlx.mlx_types import ModelType, Message, ModelTypeEnum, RoleMapping, Tool
 from jet.llm.mlx.models import AVAILABLE_MODELS, get_model_limits
-
+from jet.logger import logger
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
-
 app = FastAPI(title="Parallel MLX Stream Generation Server")
 app.add_middleware(
     CORSMiddleware,
@@ -28,9 +26,7 @@ app.add_middleware(
     allow_methods=["POST", "GET"],
     allow_headers=["Content-Type", "Accept"],
 )
-
 executor = ThreadPoolExecutor()
-logger = logging.getLogger(__name__)
 task_manager = TaskManager()
 
 
@@ -45,7 +41,7 @@ class GenerateRequest(BaseModel):
     xtc_probability: float = 0.0
     xtc_threshold: float = 0.0
     logit_bias: Optional[Dict[int, float]] = None
-    logprobs: int = -1
+    logprobs: int
     stop: Optional[Union[str, List[str]]] = None
     verbose: bool = False
     worker_verbose: bool = False
@@ -87,13 +83,11 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             raise HTTPException(
                 status_code=400, detail="Prompts are required for generate requests")
         prompts = request.prompts
-
     model_key = request.model
     if model_key not in AVAILABLE_MODELS:
         raise HTTPException(
             status_code=400, detail=f"Invalid model: {model_key}. Must be one of {list(AVAILABLE_MODELS.keys())}")
     model_path = AVAILABLE_MODELS[model_key]
-
     try:
         max_context, max_embeddings = get_model_limits(model_path)
         if not max_context or not max_embeddings:
@@ -106,28 +100,46 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
         logger.error(f"Failed to validate model {model_key}: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Model validation failed for {model_key}: {str(e)}")
-
     prompt_ids = [str(uuid.uuid4()) for _ in prompts]
     try:
         task_manager.create_task(
-            task_id, model_key, is_chat, stream, prompts, prompt_ids)
+            task_id=task_id,
+            model=model_path,
+            is_chat=is_chat,
+            stream=stream,
+            prompts=prompts,
+            prompt_ids=prompt_ids,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_p=request.top_p,
+            repetition_penalty=request.repetition_penalty,
+            repetition_context_size=request.repetition_context_size,
+            xtc_probability=request.xtc_probability,
+            xtc_threshold=request.xtc_threshold,
+            logit_bias=request.logit_bias,
+            logprobs=request.logprobs,
+            stop=request.stop,
+            verbose=request.verbose,
+            worker_verbose=request.worker_verbose,
+            role_mapping=getattr(request, "role_mapping", None),
+            tools=getattr(request, "tools", None),
+            system_prompt=getattr(request, "system_prompt", None),
+            session_id=getattr(request, "session_id", None)
+        )
     except Exception as e:
         logger.error(f"Failed to create task {task_id}: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to create task: {str(e)}")
-
     for worker_rank in range(1, size):
         while comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
             comm.recv(source=worker_rank, tag=MPI.ANY_TAG)
             if request.verbose:
                 logger.info(f"Cleared stale message from worker {worker_rank}")
-
     prompts_per_worker = [[] for _ in range(size - 1)]
     for i, (prompt, prompt_id) in enumerate(zip(prompts, prompt_ids)):
         worker_idx = i % (size - 1)
         prompts_per_worker[worker_idx].append(
             {"prompt": prompt, "prompt_id": prompt_id})
-
     active_workers = set()
     remaining_prompts = {}
     for worker_rank in range(1, size):
@@ -201,7 +213,6 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             task_manager.complete_task(task_id)
         except Exception as e:
             logger.error(f"Failed to complete task {task_id}: {str(e)}")
-
     if stream:
         return StreamingResponse(stream_results(), media_type="application/json")
     else:
@@ -290,6 +301,37 @@ async def get_task(task_id: str):
         logger.error(f"Failed to retrieve task {task_id}: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to retrieve task: {str(e)}")
+
+
+@app.post("/rerun_failed/{task_id}")
+async def rerun_failed(task_id: str):
+    """Rerun failed prompts for a specific task."""
+    try:
+        task_manager.rerun_task(task_id, only_failed=True)
+        return {"message": f"Successfully triggered rerun of failed prompts for task {task_id}"}
+    except ValueError as e:
+        logger.error(f"Invalid task {task_id}: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(
+            f"Failed to rerun failed prompts for task {task_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to rerun failed prompts: {str(e)}")
+
+
+@app.post("/rerun_pending/{task_id}")
+async def rerun_pending(task_id: str):
+    """Rerun a specific task with pending, processing, or failed prompts."""
+    try:
+        task_manager.rerun_task(task_id, only_failed=False)
+        return {"message": f"Successfully triggered rerun for task {task_id}"}
+    except ValueError as e:
+        logger.error(f"Invalid task {task_id}: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to rerun task {task_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to rerun task {task_id}: {str(e)}")
 
 if __name__ == "__main__":
     if rank == 0:

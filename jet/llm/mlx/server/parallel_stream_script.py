@@ -5,7 +5,7 @@ from jet.llm.mlx.base import MLX
 from jet.logger import logger
 from mpi4py import MPI
 from jet.llm.mlx.mlx_types import Message, ModelType, RoleMapping, Tool, CompletionResponse
-from jet.llm.mlx.models import AVAILABLE_MODELS, get_model_limits
+from jet.llm.mlx.models import AVAILABLE_MODELS, get_model_limits, resolve_model
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -32,9 +32,7 @@ def parallel_stream_generate(
 ) -> None:
     if rank != 0:
         try:
-            if model not in AVAILABLE_MODELS.values():
-                raise ValueError(
-                    f"Invalid model path: {model}. Must be one of {list(AVAILABLE_MODELS.values())}")
+            model = resolve_model(model, AVAILABLE_MODELS)
             if verbose:
                 logger.info(f"Rank {rank}: Validating model path {model}")
             max_context, max_embeddings = get_model_limits(model)
@@ -175,9 +173,7 @@ def parallel_chat_generate(
 ) -> None:
     if rank != 0:
         try:
-            if model not in AVAILABLE_MODELS.values():
-                raise ValueError(
-                    f"Invalid model path: {model}. Must be one of {list(AVAILABLE_MODELS.values())}")
+            model = resolve_model(model, AVAILABLE_MODELS)
             if verbose:
                 logger.info(f"Rank {rank}: Validating model path {model}")
             max_context, max_embeddings = get_model_limits(model)

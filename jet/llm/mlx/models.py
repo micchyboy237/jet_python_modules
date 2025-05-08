@@ -97,3 +97,28 @@ def get_model_info() -> ModelInfoDict:
             raise
 
     return model_info
+
+
+def resolve_model(model_name: ModelType, available_models: dict) -> ModelType:
+    """
+    Resolves a model name or path against available models.
+
+    Args:
+        model_name: A short key or full model path.
+        available_models: A dictionary of {short_name: full_path}.
+
+    Returns:
+        The resolved full model path.
+
+    Raises:
+        ValueError: If the model name/path is not recognized.
+    """
+    if model_name in available_models:
+        return available_models[model_name]
+    elif model_name in available_models.values():
+        return model_name
+    else:
+        raise ValueError(
+            f"Invalid model: {model_name}. Must be one of: "
+            f"{list(available_models.keys()) + list(available_models.values())}"
+        )
