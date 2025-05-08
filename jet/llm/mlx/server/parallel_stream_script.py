@@ -1,15 +1,13 @@
 from jet.llm.mlx.base import MLX
 from jet.logger import logger
 import uuid
-import json
-import sys
 from mpi4py import MPI
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
 
-def parallel_stream_generate(prompts, model_name, max_tokens, temp, verbose, task_id):
+def parallel_stream_generate(model_name, prompts, max_tokens, temp, verbose, worker_verbose, task_id):
     if rank != 0:  # Only worker processes (non-rank 0) execute this
         try:
             mlx = MLX(model_name)
@@ -23,11 +21,14 @@ def parallel_stream_generate(prompts, model_name, max_tokens, temp, verbose, tas
         for prompt in prompts:
             prompt_id = str(uuid.uuid4())
             try:
-                if verbose:
-                    print(
-                        f"data: Rank {rank}: Generating for prompt: {prompt}", flush=True)
+                if worker_verbose:
+                    logger.info(
+                        f"Rank {rank}: Generating for prompt: {prompt}")
+                tokens_generated = 0
                 for chunk in mlx.stream_chat(prompt, model=model_name, temperature=temp, max_tokens=max_tokens):
                     content = chunk["choices"][0]["message"]["content"]
+                    # Approximate token count
+                    tokens_generated += len(content.split())
                     # Send each chunk to the main process
                     comm.send({
                         "type": "chunk",
@@ -36,21 +37,22 @@ def parallel_stream_generate(prompts, model_name, max_tokens, temp, verbose, tas
                         "prompt_id": prompt_id,
                         "task_id": task_id
                     }, dest=0)
-                    if verbose:
-                        print(
-                            f"data: Rank {rank}: Prompt ID {prompt_id}: {content}", flush=True)
+                    if worker_verbose:
+                        logger.info(
+                            f"Rank {rank}: Prompt ID {prompt_id}: {content}")
                 # Send a result marker
                 comm.send({
                     "type": "result",
                     "prompt": prompt,
                     "content": "",
                     "prompt_id": prompt_id,
-                    "task_id": task_id
+                    "task_id": task_id,
+                    "truncated": tokens_generated >= max_tokens  # Indicate if max_tokens was reached
                 }, dest=0)
             except Exception as e:
-                if verbose:
-                    print(
-                        f"error: Rank {rank}: Prompt ID {prompt_id} failed: {str(e)}", flush=True)
+                if worker_verbose:
+                    logger.error(
+                        f"Rank {rank}: Prompt ID {prompt_id} failed: {str(e)}")
                 comm.send({
                     "type": "error",
                     "message": str(e),
@@ -63,6 +65,9 @@ def parallel_stream_generate(prompts, model_name, max_tokens, temp, verbose, tas
 
 
 if __name__ == "__main__":
+    import json
+    import sys
+
     logger.debug(json.dumps(sys.argv))
     if len(sys.argv) < 2:
         print("error: Usage: mpirun -np 5 python parallel_stream_script.py <input_json>", flush=True)
