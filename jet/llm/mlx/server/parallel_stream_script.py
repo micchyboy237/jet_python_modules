@@ -13,7 +13,8 @@ rank = comm.Get_rank()
 
 def parallel_stream_generate(
     model: ModelType,
-    prompts: List[str],
+    # Updated to expect list of {"prompt": ..., "prompt_id": ...}
+    prompts: List[Dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.0,
     top_p: float = 1.0,
@@ -43,7 +44,6 @@ def parallel_stream_generate(
             if verbose:
                 logger.info(
                     f"Rank {rank}: Model {model} limits: max_context={max_context}, max_embeddings={max_embeddings}")
-            # Instantiate MLX per task to avoid state retention
             mlx = MLX(model=model)
         except Exception as e:
             error_msg = f"Rank {rank}: Failed to load model {model}: {str(e)}"
@@ -55,15 +55,19 @@ def parallel_stream_generate(
                 "task_id": task_id
             }, dest=0)
             return
-        for prompt in prompts:
-            prompt_id = str(uuid.uuid4())
+        for prompt_data in prompts:
+            prompt = prompt_data["prompt"]
+            prompt_id = prompt_data["prompt_id"]
             try:
                 if not isinstance(prompt, str):
                     raise ValueError(
                         f"Prompt must be a string, got {type(prompt)}")
+                if not isinstance(prompt_id, str):
+                    raise ValueError(
+                        f"Prompt ID must be a string, got {type(prompt_id)}")
                 if worker_verbose:
                     logger.info(
-                        f"Rank {rank}: Generating for prompt: {prompt[:50]}...")
+                        f"Rank {rank}: Generating for prompt: {prompt[:50]}... with prompt_id: {prompt_id}")
                 tokens_generated = 0
                 if stream:
                     for chunk in mlx.stream_generate(
@@ -148,7 +152,8 @@ def parallel_stream_generate(
 
 def parallel_chat_generate(
     model: ModelType,
-    messages: List[str],
+    # Updated to expect list of {"prompt": ..., "prompt_id": ...}
+    messages: List[Dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.0,
     top_p: float = 1.0,
@@ -182,7 +187,6 @@ def parallel_chat_generate(
             if verbose:
                 logger.info(
                     f"Rank {rank}: Model {model} limits: max_context={max_context}, max_embeddings={max_embeddings}")
-            # Instantiate MLX per task, reset session state unless session_id is provided
             mlx = MLX(
                 model=model, session_id=session_id if session_id else str(uuid.uuid4()))
         except Exception as e:
@@ -195,17 +199,21 @@ def parallel_chat_generate(
                 "task_id": task_id
             }, dest=0)
             return
-        for message_str in messages:
-            prompt_id = str(uuid.uuid4())
+        for message_data in messages:
+            message_str = message_data["prompt"]
+            prompt_id = message_data["prompt_id"]
             try:
                 message_list = json.loads(message_str)
                 if not isinstance(message_list, list) or not all(isinstance(m, dict) and "role" in m and "content" in m for m in message_list):
                     raise ValueError(
                         f"Messages must be a list of dictionaries with 'role' and 'content' keys, got {message_str}")
+                if not isinstance(prompt_id, str):
+                    raise ValueError(
+                        f"Prompt ID must be a string, got {type(prompt_id)}")
                 messages_typed: List[Message] = message_list
                 if worker_verbose:
                     logger.info(
-                        f"Rank {rank}: Generating for messages: {messages_typed}")
+                        f"Rank {rank}: Generating for messages: {messages_typed} with prompt_id: {prompt_id}")
                 tokens_generated = 0
                 if stream:
                     for chunk in mlx.stream_chat(
@@ -283,7 +291,7 @@ def parallel_chat_generate(
                         "truncated": tokens_generated >= max_tokens
                     }, dest=0)
             except Exception as e:
-                error_msg = f"Rank {rank}: Prompt ID {prompt_id} failed: {str(e)}"
+                error_msg = f"Rank {rank}: Prompt KEID {prompt_id} failed: {str(e)}"
                 if worker_verbose:
                     logger.error(error_msg)
                 comm.send({

@@ -12,10 +12,10 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from mpi4py import MPI
 from pydantic import BaseModel
+from threading import Lock
 from jet.llm.mlx.server.parallel_stream_script import parallel_stream_generate, parallel_chat_generate
 from jet.llm.mlx.mlx_types import ModelType, Message, ModelTypeEnum, RoleMapping, Tool
 from jet.llm.mlx.models import AVAILABLE_MODELS, get_model_limits
-
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -26,12 +26,25 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["POST"],
+    allow_methods=["POST", "GET"],
     allow_headers=["Content-Type", "Accept"],
 )
 
 executor = ThreadPoolExecutor()
 logger = logging.getLogger(__name__)
+
+# Task manager to track running tasks and prompt statuses
+task_manager = {
+    "tasks": {}
+}
+task_manager_lock = Lock()
+
+
+class TaskStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class GenerateRequest(BaseModel):
@@ -105,6 +118,22 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
         raise HTTPException(
             status_code=500, detail=f"Model validation failed for {model_key}: {str(e)}")
 
+    # Initialize task in task_manager with prompt_ids
+    with task_manager_lock:
+        prompt_ids = [str(uuid.uuid4()) for _ in prompts]
+        task_manager["tasks"][task_id] = {
+            "model": model_key,
+            "is_chat": is_chat,
+            "stream": stream,
+            "prompts": {
+                prompt_id: {"prompt": prompt,
+                            "status": TaskStatus.PENDING, "error": None}
+                for prompt_id, prompt in zip(prompt_ids, prompts)
+            },
+            "created_at": time.time(),
+            "status": "running"
+        }
+
     # Clear MPI queue of stale messages
     for worker_rank in range(1, size):
         while comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
@@ -114,9 +143,12 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
 
     num_prompts = len(prompts)
     prompts_per_worker = [[] for _ in range(size - 1)]
-    for i, prompt in enumerate(prompts):
+    prompt_id_to_prompt = {prompt_id: prompt for prompt_id,
+                           prompt in zip(prompt_ids, prompts)}
+    for i, (prompt, prompt_id) in enumerate(zip(prompts, prompt_ids)):
         worker_idx = i % (size - 1)
-        prompts_per_worker[worker_idx].append(prompt)
+        prompts_per_worker[worker_idx].append(
+            {"prompt": prompt, "prompt_id": prompt_id})
     active_workers = set()
     remaining_prompts = {}
     for worker_rank in range(1, size):
@@ -126,7 +158,7 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             remaining_prompts[worker_rank] = len(worker_prompts)
             if request.verbose:
                 logger.info(
-                    f"{time.time()}: Sending {len(worker_prompts)} prompts to worker {worker_rank}: {worker_prompts}")
+                    f"{time.time()}: Sending {len(worker_prompts)} prompts to worker {worker_rank}: {[p['prompt'] for p in worker_prompts]}")
             task = {
                 "model": model_path,
                 "prompts" if not is_chat else "messages": worker_prompts,
@@ -157,7 +189,6 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             for worker_rank in list(active_workers):
                 if comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
                     message = comm.recv(source=worker_rank, tag=MPI.ANY_TAG)
-                    # Validate task_id to ignore stale messages
                     if message.get("task_id") != task_id:
                         if request.verbose:
                             logger.warning(
@@ -166,18 +197,32 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                     if request.verbose:
                         logger.info(
                             f"{time.time()}: Received message from worker {worker_rank}: {message}")
+                    # Update prompt status in task_manager
+                    with task_manager_lock:
+                        prompt_id = message.get("prompt_id")
+                        if prompt_id not in task_manager["tasks"][task_id]["prompts"]:
+                            logger.error(
+                                f"Invalid prompt_id {prompt_id} for task {task_id}")
+                            continue
+                        if message["type"] == "chunk":
+                            task_manager["tasks"][task_id]["prompts"][prompt_id]["status"] = TaskStatus.PROCESSING
+                        elif message["type"] == "result":
+                            task_manager["tasks"][task_id]["prompts"][prompt_id]["status"] = TaskStatus.COMPLETED
+                            remaining_prompts[worker_rank] -= 1
+                            if remaining_prompts[worker_rank] == 0:
+                                active_workers.remove(worker_rank)
+                                if request.verbose:
+                                    logger.info(
+                                        f"{time.time()}: Worker {worker_rank} has completed all prompts")
+                        elif message["type"] == "error":
+                            task_manager["tasks"][task_id]["prompts"][prompt_id]["status"] = TaskStatus.FAILED
+                            task_manager["tasks"][task_id]["prompts"][prompt_id]["error"] = message["message"]
                     yield f"{json.dumps(message)}\n"
-                    if message["type"] == "result":
-                        remaining_prompts[worker_rank] -= 1
-                        if request.verbose:
-                            logger.info(
-                                f"{time.time()}: Worker {worker_rank} has {remaining_prompts[worker_rank]} prompts left")
-                        if remaining_prompts[worker_rank] == 0:
-                            active_workers.remove(worker_rank)
-                            if request.verbose:
-                                logger.info(
-                                    f"{time.time()}: Worker {worker_rank} has completed all prompts")
             await asyncio.sleep(0.005)
+        # Mark task as completed when all prompts are done
+        with task_manager_lock:
+            if task_id in task_manager["tasks"]:
+                task_manager["tasks"][task_id]["status"] = "completed"
     if stream:
         return StreamingResponse(stream_results(), media_type="application/json")
     else:
@@ -186,7 +231,6 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             for worker_rank in list(active_workers):
                 if comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
                     message = comm.recv(source=worker_rank, tag=MPI.ANY_TAG)
-                    # Validate task_id to ignore stale messages
                     if message.get("task_id") != task_id:
                         if request.verbose:
                             logger.warning(
@@ -194,10 +238,29 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                         continue
                     if message["type"] == "result":
                         results.append(message)
+                        with task_manager_lock:
+                            prompt_id = message.get("prompt_id")
+                            if prompt_id not in task_manager["tasks"][task_id]["prompts"]:
+                                logger.error(
+                                    f"Invalid prompt_id {prompt_id} for task {task_id}")
+                                continue
+                            task_manager["tasks"][task_id]["prompts"][prompt_id]["status"] = TaskStatus.COMPLETED
                         remaining_prompts[worker_rank] -= 1
                         if remaining_prompts[worker_rank] == 0:
                             active_workers.remove(worker_rank)
+                    elif message["type"] == "error":
+                        with task_manager_lock:
+                            prompt_id = message.get("prompt_id")
+                            if prompt_id not in task_manager["tasks"][task_id]["prompts"]:
+                                logger.error(
+                                    f"Invalid prompt_id {prompt_id} for task {task_id}")
+                                continue
+                            task_manager["tasks"][task_id]["prompts"][prompt_id]["status"] = TaskStatus.FAILED
+                            task_manager["tasks"][task_id]["prompts"][prompt_id]["error"] = message["message"]
             await asyncio.sleep(0.005)
+        with task_manager_lock:
+            if task_id in task_manager["tasks"]:
+                task_manager["tasks"][task_id]["status"] = "completed"
         return results
 
 
@@ -224,6 +287,20 @@ async def chat_non_stream(chat_request: ChatRequest):
 @app.get("/health")
 async def health():
     return {"status": "healthy", "rank": rank, "size": size}
+
+
+@app.get("/tasks")
+async def get_tasks():
+    with task_manager_lock:
+        # Clean up completed tasks older than 1 hour to prevent memory growth
+        current_time = time.time()
+        tasks_to_remove = [
+            task_id for task_id, task in task_manager["tasks"].items()
+            if task["status"] == "completed" and current_time - task["created_at"] > 3600
+        ]
+        for task_id in tasks_to_remove:
+            del task_manager["tasks"][task_id]
+        return {"tasks": task_manager["tasks"]}
 
 if __name__ == "__main__":
     if rank == 0:
