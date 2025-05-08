@@ -85,6 +85,7 @@ if __name__ == "__main__":
         max_tokens=input_data["max_tokens"],
         temp=input_data["temp"],
         verbose=input_data["verbose"],
-        task_id=input_data.get("task_id")
+        task_id=input_data.get("task_id"),
+        worker_verbose=True
     )
     MPI.Finalize()
