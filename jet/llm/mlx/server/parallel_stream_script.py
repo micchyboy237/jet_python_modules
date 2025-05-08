@@ -1,102 +1,72 @@
-from jet.llm.mlx.mlx_types import ModelType
 from jet.llm.mlx.base import MLX
 from jet.logger import logger
-from jet.transformers.formatters import format_json
-from mpi4py import MPI
-import numpy as np
+import uuid
 import json
 import sys
-import uuid
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
 
 
-def parallel_stream_generate(
-    prompts: list,
-    model_name: ModelType = "llama-3.2-1b-instruct-4bit",
-    max_tokens: int = 100,
-    temp: float = 0.7,
-    verbose: bool = False,
-    task_id: str = None
-) -> list:
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    size = comm.Get_size()
-
-    # Debug: Confirm process initialization
-    print(f"data: Process {rank} of {size} initialized", flush=True)
-
-    try:
-        mlx = MLX(model_name)
-    except Exception as e:
-        print(
-            f"error: Failed to load model {model_name}: {str(e)}", flush=True)
-        return []
-
-    # Distribute prompts across processes, ensuring at least one prompt per process if possible
-    local_prompts = []
-    if prompts:
-        # Assign prompts using a round-robin approach to handle cases where len(prompts) < size
-        for i in range(len(prompts)):
-            if i % size == rank:
-                local_prompts.append(prompts[i])
-
-    # Debug: Log assigned prompts
-    print(
-        f"data: Process {rank} assigned prompts: {local_prompts}", flush=True)
-
-    local_results = []
-    for prompt in local_prompts:
-        response = ""
-        prompt_id = str(uuid.uuid4())  # Unique ID for each prompt
+def parallel_stream_generate(prompts, model_name, max_tokens, temp, verbose, task_id):
+    if rank != 0:  # Only worker processes (non-rank 0) execute this
         try:
-            if verbose:
-                print(
-                    f"data: Process {rank} (Prompt ID: {prompt_id}) generating for prompt: {prompt}", flush=True)
-            stream_response = mlx.stream_chat(
-                prompt,
-                model=model_name,
-                temperature=temp,
-                max_tokens=max_tokens
-            )
-            for chunk in stream_response:
-                content = chunk["choices"][0]["message"]["content"]
-                response += content
-                print(
-                    f"data: Process {rank} (Prompt ID: {prompt_id}): {content}", flush=True)
-            local_results.append((prompt, response, prompt_id))
-            if verbose and rank == 0:
-                print("data: ", flush=True)
+            mlx = MLX(model_name)
         except Exception as e:
-            print(
-                f"error: Process {rank} (Prompt ID: {prompt_id}) failed for prompt '{prompt}': {str(e)}", flush=True)
+            logger.error(
+                f"Rank {rank}: Failed to load model {model_name}: {str(e)}")
+            comm.send({"type": "error", "message": str(e),
+                      "prompt_id": None, "task_id": task_id}, dest=0)
+            return
 
-    # Gather results from all processes
-    all_results = comm.gather(local_results, root=0)
-
-    if rank == 0:
-        try:
-            flattened_results = [
-                item for sublist in all_results for item in sublist]
-            for i, (prompt, response, prompt_id) in enumerate(flattened_results):
-                result = json.dumps({
+        for prompt in prompts:
+            prompt_id = str(uuid.uuid4())
+            try:
+                if verbose:
+                    print(
+                        f"data: Rank {rank}: Generating for prompt: {prompt}", flush=True)
+                for chunk in mlx.stream_chat(prompt, model=model_name, temperature=temp, max_tokens=max_tokens):
+                    content = chunk["choices"][0]["message"]["content"]
+                    # Send each chunk to the main process
+                    comm.send({
+                        "type": "chunk",
+                        "prompt": prompt,
+                        "content": content,
+                        "prompt_id": prompt_id,
+                        "task_id": task_id
+                    }, dest=0)
+                    if verbose:
+                        print(
+                            f"data: Rank {rank}: Prompt ID {prompt_id}: {content}", flush=True)
+                # Send a result marker
+                comm.send({
+                    "type": "result",
                     "prompt": prompt,
-                    "response": response,
+                    "content": "",
                     "prompt_id": prompt_id,
                     "task_id": task_id
-                })
-                print(f"result: {result}", flush=True)
-            return flattened_results
-        except Exception as e:
-            print(f"error: Failed to process results: {str(e)}", flush=True)
-
-    return []
+                }, dest=0)
+            except Exception as e:
+                if verbose:
+                    print(
+                        f"error: Rank {rank}: Prompt ID {prompt_id} failed: {str(e)}", flush=True)
+                comm.send({
+                    "type": "error",
+                    "message": str(e),
+                    "prompt_id": prompt_id,
+                    "task_id": task_id
+                }, dest=0)
+    else:
+        # Main process (rank 0) should not process prompts
+        pass
 
 
 if __name__ == "__main__":
-    logger.debug(format_json(sys.argv))
+    logger.debug(json.dumps(sys.argv))
     if len(sys.argv) < 2:
-        print("error: Usage: mpirun -np 4 python parallel_stream_script.py <input_json>", flush=True)
+        print("error: Usage: mpirun -np 5 python parallel_stream_script.py <input_json>", flush=True)
         sys.exit(1)
-
     try:
         input_json = ' '.join(sys.argv[1:]).strip("'")
         input_data = json.loads(input_json)
@@ -104,7 +74,7 @@ if __name__ == "__main__":
         print(f"error: Invalid JSON input: {str(e)}", flush=True)
         sys.exit(1)
 
-    results = parallel_stream_generate(
+    parallel_stream_generate(
         model_name=input_data["model"],
         prompts=input_data["prompts"],
         max_tokens=input_data["max_tokens"],

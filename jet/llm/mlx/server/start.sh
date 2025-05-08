@@ -1,0 +1,1 @@
+mpirun -np 5 --oversubscribe python app.py

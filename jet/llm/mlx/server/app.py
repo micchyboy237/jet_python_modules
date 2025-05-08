@@ -2,17 +2,21 @@ import asyncio
 from typing import List, Optional
 import uuid
 import json
-import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
+from mpi4py import MPI
 from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.server.parallel_stream_script import parallel_stream_generate
 from pydantic import BaseModel
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
-from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from jet.executor.command import arun_command
+from contextlib import asynccontextmanager
 from jet.logger import logger
-import shlex
-import re
 
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
 app = FastAPI(title="Parallel MLX Stream Generation Server")
 app.add_middleware(
     CORSMiddleware,
@@ -21,8 +25,15 @@ app.add_middleware(
     allow_methods=["POST"],
     allow_headers=["Content-Type", "Accept"],
 )
-semaphore = asyncio.Semaphore(4)
-MPIRUN_GENERATE_FILE = "./parallel_stream_script.py"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(f"Process {rank}: Starting application")
+    yield
+    logger.info(f"Process {rank}: Shutting down application")
+
+app.router.lifespan_context = lifespan
 
 
 class GenerateRequest(BaseModel):
@@ -34,120 +45,156 @@ class GenerateRequest(BaseModel):
     task_id: Optional[str] = None
 
 
-class StreamingError(Exception):
-    """Custom exception for handling streaming-specific errors."""
-    pass
+# Thread pool for synchronous MPI calls
+executor = ThreadPoolExecutor(max_workers=1)
 
 
-async def run_mpi_process(
-    prompts: List[str],
-    model: ModelType = "llama-3.2-1b-instruct-4bit",
-    max_tokens: Optional[int] = None,
-    temp: Optional[float] = None,
-    verbose: Optional[bool] = None,
-    task_id: Optional[str] = None
-):
-    """Run the MPI script as a subprocess and stream its output."""
-    task_id = task_id or str(uuid.uuid4())
-    input_data = {
-        "model": model,
-        "prompts": prompts,
-        "max_tokens": max_tokens,
-        "temp": temp,
-        "verbose": verbose,
-        "task_id": task_id
-    }
-    input_json = json.dumps(input_data)
-    command = f"mpirun -np 4 python {MPIRUN_GENERATE_FILE} {shlex.quote(input_json)}"
+def receive_message(worker_rank):
+    """Run synchronous MPI receive in a separate thread."""
+    if comm.Iprobe(source=worker_rank):
+        message = comm.recv(source=worker_rank)
+        return message
+    return None
 
+
+async def run_mpi_task(prompts, model, max_tokens, temp, verbose, task_id):
     async def stream_output():
-        error_messages = []
-        try:
-            async for line in arun_command(command, separator=" "):
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith("error: "):
-                    error_message = line[7:].strip()
-                    error_messages.append(error_message)
-                    yield json.dumps({"type": "error", "message": error_message}) + "\n"
-                elif line.startswith("data: "):
-                    content = line[6:].strip()
-                    token_match = re.match(
-                        r"Process \d+ \(Prompt ID: ([^)]+)\): (.+)", content)
-                    if token_match:
-                        prompt_id, token = token_match.groups()
-                        prompt_index = int(content.split()[1]) % len(prompts)
-                        prompt = prompts[prompt_index]
-                        yield json.dumps({
-                            "type": "token",
-                            "prompt_id": prompt_id,
-                            "task_id": task_id,
-                            "prompt": prompt,
-                            "token": token
-                        }) + "\n"
-                    else:
-                        yield json.dumps({
-                            "type": "info",
-                            "message": content
-                        }) + "\n"
-                elif line.startswith("result: "):
-                    result_json = json.loads(line[8:].strip())
-                    yield json.dumps({
-                        "type": "result",
-                        "prompt": result_json["prompt"],
-                        "response": result_json["response"],
-                        "prompt_id": result_json["prompt_id"],
-                        "task_id": result_json["task_id"]
-                    }) + "\n"
-            if error_messages:
-                raise StreamingError(
-                    f"Streaming errors: {'\n'.join(error_messages)}")
-        except StreamingError as e:
-            error_message = str(e)
-            logger.error(f"Streaming failed:\n{error_message}")
-            yield json.dumps({"type": "error", "message": error_message}) + "\n"
-            raise
-        except Exception as e:
-            error_message = str(e)
-            unique_errors = [
-                err for err in error_messages if err not in error_message]
-            if unique_errors:
-                error_message += f"; Other errors encountered: {'; '.join(unique_errors)}"
-            logger.error(f"Unexpected error during streaming: {error_message}")
-            yield json.dumps({"type": "error", "message": error_message}) + "\n"
-            raise RuntimeError(error_message)
+        if rank == 0:  # Main process handles receiving and streaming
+            try:
+                # Distribute prompts to workers
+                prompts_per_worker = [[] for _ in range(size - 1)]
+                for i, prompt in enumerate(prompts):
+                    # Distribute to ranks 1 to size-1
+                    worker_rank = (i % (size - 1)) + 1
+                    prompts_per_worker[worker_rank - 1].append(prompt)
+
+                # Track remaining prompts per worker and initialize active workers
+                remaining_prompts = {}
+                active_workers = set()
+                for i in range(size - 1):
+                    if prompts_per_worker[i]:  # Only include workers with prompts
+                        worker_rank = i + 1
+                        remaining_prompts[worker_rank] = len(
+                            prompts_per_worker[i])
+                        active_workers.add(worker_rank)
+                logger.debug(f"Initial remaining prompts: {remaining_prompts}")
+                logger.debug(f"Active workers: {active_workers}")
+
+                # Send prompts to workers
+                for worker_rank in range(1, size):
+                    worker_prompts = prompts_per_worker[worker_rank - 1]
+                    logger.debug(
+                        f"Sending {len(worker_prompts)} prompts to worker {worker_rank}")
+                    comm.send({
+                        "model": model,
+                        "prompts": worker_prompts,
+                        "max_tokens": max_tokens,
+                        "temp": temp,
+                        "verbose": verbose,
+                        "task_id": task_id or str(uuid.uuid4())
+                    }, dest=worker_rank)
+
+                # Receive and yield chunks from workers
+                while active_workers:
+                    for worker_rank in list(active_workers):
+                        # Run synchronous MPI receive in a thread to avoid blocking asyncio
+                        message = await asyncio.get_event_loop().run_in_executor(
+                            executor, receive_message, worker_rank
+                        )
+                        if message:
+                            logger.debug(
+                                f"Received message from worker {worker_rank}: {message}")
+                            yield json.dumps(message) + "\n"
+                            if message["type"] == "result" or message["type"] == "error":
+                                # Decrement the remaining prompt count for this worker
+                                remaining_prompts[worker_rank] -= 1
+                                logger.debug(
+                                    f"Worker {worker_rank} has {remaining_prompts[worker_rank]} prompts left")
+                                if remaining_prompts[worker_rank] <= 0:
+                                    logger.debug(
+                                        f"Worker {worker_rank} has completed all prompts")
+                                    active_workers.discard(worker_rank)
+                    # Prevent tight loop from consuming CPU
+                    await asyncio.sleep(0.01)
+            except Exception as e:
+                error_message = f"Stream error: {str(e)}"
+                logger.error(error_message)
+                yield json.dumps({
+                    "type": "error",
+                    "message": error_message,
+                    "prompt_id": None,
+                    "task_id": task_id
+                }) + "\n"
+        else:  # Worker processes
+            try:
+                # Receive task from main process
+                task = comm.recv(source=0)
+                logger.debug(
+                    f"Worker {rank} received task with {len(task['prompts'])} prompts")
+                # Process task
+                parallel_stream_generate(
+                    model_name=task["model"],
+                    prompts=task["prompts"],
+                    max_tokens=task["max_tokens"],
+                    temp=task["temp"],
+                    verbose=task["verbose"],
+                    task_id=task["task_id"]
+                )
+            except Exception as e:
+                logger.error(f"Rank {rank}: Worker error: {str(e)}")
+                comm.send({
+                    "type": "error",
+                    "message": str(e),
+                    "prompt_id": None,
+                    "task_id": task.get("task_id")
+                }, dest=0)
 
     return stream_output
 
 
 @app.post("/generate")
 async def generate(request: GenerateRequest):
-    """Endpoint to generate text for given prompts in parallel."""
-    async with semaphore:
-        try:
-            stream_gen = await run_mpi_process(
-                model=request.model,
-                prompts=request.prompts,
-                max_tokens=request.max_tokens,
-                temp=request.temp,
-                verbose=request.verbose,
-                task_id=request.task_id
-            )
-            return StreamingResponse(
-                stream_gen(),
-                media_type="application/json"
-            )
-        except StreamingError as e:
-            raise HTTPException(
-                status_code=500, detail=f"Streaming error: {str(e)}")
-        except RuntimeError as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
-            raise HTTPException(
-                status_code=500, detail=f"Unexpected error: {str(e)}")
+    stream_gen = await run_mpi_task(
+        model=request.model,
+        prompts=request.prompts,
+        max_tokens=request.max_tokens,
+        temp=request.temp,
+        verbose=request.verbose,
+        task_id=request.task_id
+    )
+    return StreamingResponse(
+        stream_gen(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"}
+    )
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=9000, reload=True)
+    if rank == 0:
+        logger.info("Starting Uvicorn server on rank 0")
+        import uvicorn
+        uvicorn.run(
+            "app:app",
+            host="0.0.0.0",
+            port=9000,
+            reload=False,
+            log_level="info",
+            proxy_headers=True,
+            server_header=False
+        )
+    else:
+        logger.info(f"Process {rank}: Waiting for MPI tasks")
+        # Workers stay in a loop to process tasks
+        while True:
+            if comm.Iprobe(source=0):
+                task = comm.recv(source=0)
+                logger.debug(
+                    f"Worker {rank} received task in main loop with {len(task['prompts'])} prompts")
+                parallel_stream_generate(
+                    model_name=task["model"],
+                    prompts=task["prompts"],
+                    max_tokens=task["max_tokens"],
+                    temp=task["temp"],
+                    verbose=task["verbose"],
+                    task_id=task["task_id"]
+                )
+            time.sleep(0.1)  # Prevent busy-waiting
