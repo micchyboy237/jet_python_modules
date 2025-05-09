@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from jet.llm.mlx.mlx_types import ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.utils import get_model_max_tokens
-from jet.llm.mlx.token_utils import count_tokens, merge_texts
+from jet.llm.mlx.token_utils import count_tokens, get_tokenizer_fn, merge_texts
 import psycopg
 from psycopg.rows import dict_row
 # Assuming MLXLMClient is in a separate module
@@ -431,8 +431,8 @@ class MLX:
         """Clear the chat history."""
         self.history.clear()
 
-    def count_tokens(self, messages: str | List[str] | List[Message]) -> int:
-        return count_tokens(self.tokenizer, messages)
+    def count_tokens(self, messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
+        return count_tokens(self.model_path, messages, prevent_total)
 
     def filter_docs(self, messages: str | List[str] | List[Message]) -> str:
         """Filter documents to fit within model token limits."""
