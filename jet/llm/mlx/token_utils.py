@@ -5,7 +5,96 @@ from jet.llm.mlx.mlx_types import ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.wordnet.sentence import split_sentences
 from mlx_lm import load
+from mlx_lm.tokenizer_utils import TokenizerWrapper
+import mlx.core as mx
 import transformers  # Assuming tokenizer is from transformers
+
+
+def count_tokens(
+    tokenizer: Union[PreTrainedTokenizer, TokenizerWrapper],
+    prompt: Union[str, List[int], mx.array, List[dict], List[str]],
+    system_prompt: Optional[str] = None,
+    prefill_response: Optional[str] = None,
+    ignore_chat_template: bool = False,
+    use_default_chat_template: bool = False,
+    chat_template_config: Optional[dict] = None,
+) -> int:
+    """
+    Count the number of tokens in a prompt.
+
+    Args:
+        tokenizer (Union[PreTrainedTokenizer, TokenizerWrapper]): The tokenizer to use.
+        prompt (Union[str, List[int], mx.array, List[dict], List[str]]): The input prompt as a string,
+            list of token IDs, mx.array, list of message dictionaries with role/content, or list of strings.
+        system_prompt (Optional[str]): Optional system prompt for chat template. Default: None.
+        prefill_response (Optional[str]): Optional prefill response for chat template. Default: None.
+        ignore_chat_template (bool): If True, bypass chat template and encode prompt directly. Default: False.
+        use_default_chat_template (bool): If True, use the tokenizer's default chat template. Default: False.
+        chat_template_config (Optional[dict]): Additional config for chat template as a dictionary. Default: None.
+
+    Returns:
+        int: The number of tokens in the prompt.
+    """
+    if not isinstance(tokenizer, TokenizerWrapper):
+        tokenizer = TokenizerWrapper(tokenizer)
+
+    # Handle tokenized input (list of integers or mx.array)
+    if isinstance(prompt, (list, mx.array)) and (isinstance(prompt, mx.array) or
+                                                 (isinstance(prompt, list) and all(isinstance(x, int) for x in prompt))):
+        if isinstance(prompt, list):
+            prompt = mx.array(prompt)
+        return prompt.size
+
+    # Set up chat template
+    if use_default_chat_template and tokenizer.chat_template is None:
+        tokenizer.chat_template = tokenizer.default_chat_template
+
+    template_kwargs = chat_template_config or {}
+
+    if not ignore_chat_template and tokenizer.chat_template is not None:
+        # Handle prompt as list of dictionaries (chat messages)
+        if isinstance(prompt, list) and all(isinstance(msg, dict) and "role" in msg and "content" in msg for msg in prompt):
+            messages = [{"role": "system", "content": system_prompt}
+                        ] if system_prompt else []
+            messages.extend(prompt)
+        # Handle prompt as list of strings (each string is a user message)
+        elif isinstance(prompt, list) and all(isinstance(msg, str) for msg in prompt):
+            messages = [{"role": "system", "content": system_prompt}
+                        ] if system_prompt else []
+            messages.extend({"role": "user", "content": msg} for msg in prompt)
+        else:
+            # Handle prompt as single string
+            messages = [{"role": "system", "content": system_prompt}
+                        ] if system_prompt else []
+            messages.append({"role": "user", "content": prompt})
+
+        has_prefill = prefill_response is not None
+        if has_prefill:
+            messages.append({"role": "assistant", "content": prefill_response})
+
+        prompt_text = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            continue_final_message=has_prefill,
+            add_generation_prompt=not has_prefill,
+            **template_kwargs,
+        )
+        # Encode without special tokens to match generate() behavior
+        tokens = tokenizer.encode(prompt_text, add_special_tokens=False)
+    else:
+        # Encode directly with special tokens handling
+        if isinstance(prompt, list) and all(isinstance(msg, dict) and "role" in msg and "content" in msg for msg in prompt):
+            # Concatenate content from messages if chat template is ignored
+            prompt = " ".join(msg["content"] for msg in prompt)
+        elif isinstance(prompt, list) and all(isinstance(msg, str) for msg in prompt):
+            # Concatenate strings if chat template is ignored
+            prompt = " ".join(prompt)
+        add_special_tokens = tokenizer.bos_token is None or not prompt.startswith(
+            tokenizer.bos_token)
+        tokens = tokenizer.encode(
+            prompt, add_special_tokens=add_special_tokens)
+
+    return len(tokens)
 
 
 class Metadata(TypedDict):
@@ -195,7 +284,7 @@ def get_tokenizer_fn(model: ModelType) -> Callable[[Union[str, List[str]]], Unio
     return _tokenizer
 
 
-def chunk_text(text: Union[str, List[str]], n: Optional[int] = None, overlap: int = 0, model: Optional[ModelType] = None) -> Union[List[str], List[List[str]]]:
+def chunk_text(text: Union[str, List[str]], n: Optional[int] = None, overlap: int = 0, model: Optional[ModelType] = None) -> List[str]:
     def chunk_tokens(tokens: List[str], tokenizer: Optional[PreTrainedTokenizer] = None) -> List[str]:
         chunks = []
         for i in range(0, len(tokens), chunk_size - overlap):
@@ -217,8 +306,8 @@ def chunk_text(text: Union[str, List[str]], n: Optional[int] = None, overlap: in
             chunk_size = 512  # Default chunk size when no model and n is not provided
         else:
             max_tokens = get_model_max_tokens(model)
-            # Use 30% of max tokens as chunk size
-            chunk_size = int(max_tokens * 0.3)
+            # Use 80% of max tokens as chunk size
+            chunk_size = int(max_tokens * 0.8)
 
     if isinstance(text, str):
         if model is None:
@@ -232,9 +321,16 @@ def chunk_text(text: Union[str, List[str]], n: Optional[int] = None, overlap: in
     # Handle list of strings
     if model is None:
         # Character-based chunking for list
-        return [[text[j][i:i + chunk_size] for i in range(0, len(text[j]), chunk_size - overlap)] for j in range(len(text))]
+        chunks = []
+        for t in text:
+            chunks.extend([t[i:i + chunk_size]
+                          for i in range(0, len(t), chunk_size - overlap)])
+        return chunks
 
     # Batch tokenization for list
     tokenizer = get_tokenizer(model)
     tokenized_texts = get_tokenizer_fn(model)(text)
-    return [chunk_tokens(tokens, tokenizer) for tokens in tokenized_texts]
+    chunks = []
+    for tokens in tokenized_texts:
+        chunks.extend(chunk_tokens(tokens, tokenizer))
+    return chunks

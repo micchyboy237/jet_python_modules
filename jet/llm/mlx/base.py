@@ -4,6 +4,9 @@ import time
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
 from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.models import resolve_model
+from jet.llm.mlx.utils import get_model_max_tokens
+from jet.llm.mlx.token_utils import count_tokens
 import psycopg
 from psycopg.rows import dict_row
 # Assuming MLXLMClient is in a separate module
@@ -163,6 +166,7 @@ class MLX:
     ):
         """Initialize the MLX client with configuration and optional database."""
 
+        self.model_path = resolve_model(model)
         # Initialize MLXLMClient
         self.client = MLXLMClient(
             model=model,
@@ -172,6 +176,8 @@ class MLX:
             chat_template=chat_template,
             use_default_chat_template=use_default_chat_template
         )
+        self.model = self.client.model_provider.model
+        self.tokenizer = self.client.model_provider.tokenizer
 
         # Initialize chat history
         if dbname:
@@ -229,6 +235,10 @@ class MLX:
                 "messages must be a string or a list of Message dictionaries")
 
         all_messages = self.history.get_messages()
+
+        if max_tokens == -1:
+            # Set remaining tokens as max tokens
+            max_tokens = self.get_remaining_tokens(all_messages)
 
         # Call MLXLMClient.chat
         response = self.client.chat(
@@ -300,6 +310,10 @@ class MLX:
                 "messages must be a string or a list of Message dictionaries")
 
         all_messages = self.history.get_messages()
+
+        if max_tokens == -1:
+            # Set remaining tokens as max tokens
+            max_tokens = self.get_remaining_tokens(all_messages)
 
         # Stream responses
         assistant_content = ""
@@ -405,3 +419,13 @@ class MLX:
     def clear_history(self):
         """Clear the chat history."""
         self.history.clear()
+
+    def count_tokens(self, messages: str | List[str] | List[Message]) -> int:
+        return count_tokens(self.tokenizer, messages)
+
+    def get_remaining_tokens(self, messages: str | List[str] | List[Message]) -> int:
+        model_max_tokens = get_model_max_tokens(self.model_path)
+        prompt_tokens = self.count_tokens(messages)
+        # Set remaining tokens as max tokens
+        remaining_tokens = model_max_tokens - prompt_tokens
+        return remaining_tokens
