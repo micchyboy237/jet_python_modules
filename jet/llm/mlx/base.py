@@ -3,7 +3,7 @@ import json
 import time
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import ModelKey, ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.utils import get_model_max_tokens
 from jet.llm.mlx.token_utils import count_tokens, get_tokenizer_fn, merge_texts
@@ -11,6 +11,8 @@ import psycopg
 from psycopg.rows import dict_row
 # Assuming MLXLMClient is in a separate module
 from .client import MLXLMClient, ModelsResponse, CompletionResponse, Message, RoleMapping, Tool
+
+DEFAULT_MODEL: ModelKey = "llama-3.2-1b-instruct-4bit"
 
 # Typed dictionaries for structured data (reused from MLXLMClient for consistency)
 
@@ -150,7 +152,7 @@ class MLX:
     def __init__(
         self,
         # Model Config
-        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        model: ModelType = DEFAULT_MODEL,
         adapter_path: Optional[str] = None,
         draft_model: Optional[ModelType] = None,
         trust_remote_code: bool = False,
@@ -199,7 +201,7 @@ class MLX:
     def chat(
         self,
         messages: Union[str, List[Message]],
-        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        model: ModelType = DEFAULT_MODEL,
         draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
@@ -279,7 +281,7 @@ class MLX:
     def stream_chat(
         self,
         messages: Union[str, List[Message]],
-        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        model: ModelType = DEFAULT_MODEL,
         draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
@@ -359,7 +361,7 @@ class MLX:
     def generate(
         self,
         prompt: str,
-        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        model: ModelType = DEFAULT_MODEL,
         draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
@@ -395,7 +397,7 @@ class MLX:
     def stream_generate(
         self,
         prompt: str,
-        model: ModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        model: ModelType = DEFAULT_MODEL,
         draft_model: Optional[ModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
