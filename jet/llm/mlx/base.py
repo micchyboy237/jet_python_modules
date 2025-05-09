@@ -167,6 +167,7 @@ class MLX:
     ):
         """Initialize the MLX client with configuration and optional database."""
         self.model_path = resolve_model(model)
+        self.with_history = with_history  # Store the with_history flag
         # Initialize MLXLMClient
         self.client = MLXLMClient(
             model=model,
@@ -218,15 +219,18 @@ class MLX:
         """Generate a chat completion with history management."""
         # Prepare messages with history
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
-            self.history.add_message("system", system_prompt)
+            if self.with_history:
+                self.history.add_message("system", system_prompt)
 
         # Handle messages input: str or List[Message]
         if isinstance(messages, str):
-            self.history.add_message("user", messages)
+            if self.with_history:
+                self.history.add_message("user", messages)
         elif isinstance(messages, list):
             for msg in messages:
                 if "role" in msg and "content" in msg:
-                    self.history.add_message(msg["role"], msg["content"])
+                    if self.with_history:
+                        self.history.add_message(msg["role"], msg["content"])
                 else:
                     raise ValueError(
                         "Each message in the list must have 'role' and 'content' keys")
@@ -234,7 +238,9 @@ class MLX:
             raise TypeError(
                 "messages must be a string or a list of Message dictionaries")
 
-        all_messages = self.history.get_messages()
+        all_messages = self.history.get_messages() if self.with_history else (
+            [{"role": "system", "content": system_prompt}] if system_prompt else []
+        ) + ([{"role": "user", "content": messages}] if isinstance(messages, str) else messages)
 
         if max_tokens == -1:
             # Set remaining tokens as max tokens
@@ -262,7 +268,7 @@ class MLX:
         )
 
         # Add assistant response to history
-        if isinstance(response, dict) and response.get("choices"):
+        if self.with_history and isinstance(response, dict) and response.get("choices"):
             assistant_content = response["choices"][0].get(
                 "message", {}).get("content", "")
             if assistant_content:
@@ -293,15 +299,18 @@ class MLX:
         """Stream chat completions with history management."""
         # Prepare messages with history
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
-            self.history.add_message("system", system_prompt)
+            if self.with_history:
+                self.history.add_message("system", system_prompt)
 
         # Handle messages input: str or List[Message]
         if isinstance(messages, str):
-            self.history.add_message("user", messages)
+            if self.with_history:
+                self.history.add_message("user", messages)
         elif isinstance(messages, list):
             for msg in messages:
                 if "role" in msg and "content" in msg:
-                    self.history.add_message(msg["role"], msg["content"])
+                    if self.with_history:
+                        self.history.add_message(msg["role"], msg["content"])
                 else:
                     raise ValueError(
                         "Each message in the list must have 'role' and 'content' keys")
@@ -309,7 +318,9 @@ class MLX:
             raise TypeError(
                 "messages must be a string or a list of Message dictionaries")
 
-        all_messages = self.history.get_messages()
+        all_messages = self.history.get_messages() if self.with_history else (
+            [{"role": "system", "content": system_prompt}] if system_prompt else []
+        ) + ([{"role": "user", "content": messages}] if isinstance(messages, str) else messages)
 
         if max_tokens == -1:
             # Set remaining tokens as max tokens
@@ -342,7 +353,7 @@ class MLX:
             yield response
 
         # Add assistant response to history
-        if assistant_content:
+        if self.with_history and assistant_content:
             self.history.add_message("assistant", assistant_content)
 
     def generate(
