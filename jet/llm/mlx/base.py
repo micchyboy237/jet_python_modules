@@ -163,9 +163,9 @@ class MLX:
         host: Optional[str] = None,
         port: Optional[str] = None,
         session_id: Optional[str] = None,
+        with_history: bool = False
     ):
         """Initialize the MLX client with configuration and optional database."""
-
         self.model_path = resolve_model(model)
         # Initialize MLXLMClient
         self.client = MLXLMClient(
@@ -180,7 +180,7 @@ class MLX:
         self.tokenizer = self.client.model_provider.tokenizer
 
         # Initialize chat history
-        if dbname:
+        if with_history and dbname:
             self.history = ChatHistory(
                 dbname=dbname,
                 user=user,
@@ -455,10 +455,10 @@ class MLX:
         for text, token_count in zip(merged_texts["texts"], merged_texts["token_counts"]):
             if current_token_count + token_count > max_tokens:
                 break
-            filtered_context += text
+            filtered_context += "\n\n" + text
             current_token_count += token_count
 
-        return filtered_context
+        return filtered_context.strip()
 
     def get_remaining_tokens(self, messages: str | List[str] | List[Message]) -> int:
         model_max_tokens = get_model_max_tokens(self.model_path)
