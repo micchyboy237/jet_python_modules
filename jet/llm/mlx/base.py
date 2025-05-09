@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from jet.llm.mlx.mlx_types import ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.utils import get_model_max_tokens
-from jet.llm.mlx.token_utils import count_tokens
+from jet.llm.mlx.token_utils import count_tokens, merge_texts
 import psycopg
 from psycopg.rows import dict_row
 # Assuming MLXLMClient is in a separate module
@@ -422,6 +422,43 @@ class MLX:
 
     def count_tokens(self, messages: str | List[str] | List[Message]) -> int:
         return count_tokens(self.tokenizer, messages)
+
+    def filter_docs(self, messages: str | List[str] | List[Message]) -> str:
+        """Filter documents to fit within model token limits."""
+        # Convert messages to a single string
+        if isinstance(messages, str):
+            context = messages
+        elif isinstance(messages, list):
+            if all(isinstance(msg, str) for msg in messages):
+                context = "\n\n".join(messages)
+            elif all(isinstance(msg, dict) and "content" in msg for msg in messages):
+                context = "\n\n".join(msg["content"] for msg in messages)
+            else:
+                raise ValueError(
+                    "Messages list must contain strings or Message dictionaries")
+        else:
+            raise TypeError(
+                "Messages must be a string or list of strings/dictionaries")
+
+        # Get model max tokens and reserve buffer
+        model_max_tokens = get_model_max_tokens(self.model_path)
+        max_tokens = model_max_tokens - 640
+
+        # Merge texts to fit within token limit
+        merged_texts = merge_texts(
+            context, self.tokenizer, max_length=max_tokens)
+
+        # Build filtered context
+        filtered_context = ""
+        current_token_count = 0
+
+        for text, token_count in zip(merged_texts["texts"], merged_texts["token_counts"]):
+            if current_token_count + token_count > max_tokens:
+                break
+            filtered_context += text
+            current_token_count += token_count
+
+        return filtered_context
 
     def get_remaining_tokens(self, messages: str | List[str] | List[Message]) -> int:
         model_max_tokens = get_model_max_tokens(self.model_path)

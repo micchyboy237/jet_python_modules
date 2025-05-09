@@ -33,7 +33,7 @@ task_manager = TaskManager()
 
 class GenerateRequest(BaseModel):
     model: ModelType = ModelTypeEnum.LLAMA_3_2_1B_INSTRUCT_4BIT
-    prompts: List[str]
+    prompt: Union[str, List[str]]  # Renamed from prompts to prompt
     max_tokens: int = 512
     temperature: float = 0.0
     top_p: float = 1.0
@@ -51,7 +51,7 @@ class GenerateRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     model: ModelType = ModelTypeEnum.LLAMA_3_2_1B_INSTRUCT_4BIT
-    messages: List[Message]
+    messages: Union[str, List[Message]]  # Allow str or List[Message]
     max_tokens: int = 512
     temperature: float = 0.0
     top_p: float = 1.0
@@ -78,12 +78,18 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
         if not hasattr(request, 'messages') or not request.messages:
             raise HTTPException(
                 status_code=400, detail="Messages are required for chat requests")
-        prompts = [json.dumps(request.messages)]
+        # Convert string to List[Message] if necessary
+        messages = request.messages
+        if isinstance(messages, str):
+            messages = [Message(role="user", content=messages)]
+        prompts = [json.dumps(messages)]  # Serialize the list of messages
     else:
-        if not hasattr(request, 'prompts') or not request.prompts:
+        if not hasattr(request, 'prompt') or not request.prompt:
             raise HTTPException(
-                status_code=400, detail="Prompts are required for generate requests")
-        prompts = request.prompts
+                status_code=400, detail="Prompt is required for generate requests")
+        # Convert string to List[str] if necessary
+        prompts = [request.prompt] if isinstance(
+            request.prompt, str) else request.prompt
     model_key = request.model
     if model_key not in AVAILABLE_MODELS:
         raise HTTPException(
