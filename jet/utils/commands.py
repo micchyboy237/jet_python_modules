@@ -22,6 +22,14 @@ def copy_to_clipboard(text: Any):
     logger.orange(f"Copied {len(text)} chars to clipboard!")
 
 
+def copy_test_result(result, expected):
+    import inspect
+    func_name = inspect.currentframe().f_back.f_code.co_name
+    copy_to_clipboard(
+        f"{func_name}:\n\nResult:\n{result}\n\nExpected:\n{expected}")
+
+
 __all__ = [
     "copy_to_clipboard",
+    "copy_test_result",
 ]

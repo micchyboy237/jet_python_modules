@@ -27,10 +27,10 @@ class HeaderItem(TypedDict):
 
 
 class Header(TypedDict):
-    content: str
-    length: int
     header: str
     header_level: int
+    length: int
+    content: str
 
 
 def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat_list: Optional[List[HeaderNode]] = None) -> List[HeaderNode]:
@@ -204,10 +204,10 @@ def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, st
         if content.strip():
             try:
                 md_header_contents.append({
-                    "content": content.strip(),
-                    "length": len(content.strip()),
                     "header": get_header_text(content),
                     "header_level": get_header_level(content),
+                    "length": len(content.strip()),
+                    "content": content.strip(),
                 })
             except ValueError:
                 continue
@@ -251,9 +251,9 @@ def merge_md_header_contents(
                     if get_header_level(last_header) < get_header_level(header)
                 ]
                 merged_header_contents.append({
-                    "content": merged_content,
-                    "length": merged_content_len,
                     "header": header,
+                    "length": merged_content_len,
+                    "content": merged_content,
                     "parent_headers": parent_headers,
                 })
                 merged_content = ""
@@ -278,9 +278,9 @@ def merge_md_header_contents(
             if get_header_level(last_header) < get_header_level(header)
         ]
         merged_header_contents.append({
-            "content": merged_content,
-            "length": count_tokens(merged_content, tokenizer),
             "header": header,
+            "length": count_tokens(merged_content, tokenizer),
+            "content": merged_content,
             "parent_headers": parent_headers,
         })
 

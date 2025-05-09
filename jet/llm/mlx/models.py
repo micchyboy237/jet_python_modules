@@ -99,7 +99,7 @@ def get_model_info() -> ModelInfoDict:
     return model_info
 
 
-def resolve_model(model_name: ModelType, available_models: dict) -> ModelType:
+def resolve_model(model_name: ModelType, available_models: dict = AVAILABLE_MODELS) -> ModelType:
     """
     Resolves a model name or path against available models.
 

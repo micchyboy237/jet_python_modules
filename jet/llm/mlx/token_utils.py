@@ -1,4 +1,8 @@
+from jet.llm.mlx.utils import get_model_max_tokens
+from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from typing import Callable, List, Dict, Optional, TypedDict, Union
+from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.models import resolve_model
 from jet.wordnet.sentence import split_sentences
 from mlx_lm import load
 import transformers  # Assuming tokenizer is from transformers
@@ -167,3 +171,70 @@ def merge_texts(
         "decoded_tokens": grouped_decoded_tokens,
         "metadata": metadata
     }
+
+
+def get_tokenizer(model: ModelType) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
+    model_name = resolve_model(model)
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    return tokenizer
+
+
+def get_tokenizer_fn(model: ModelType) -> Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]]:
+    tokenizer = get_tokenizer(model)
+
+    def _tokenizer(text: Union[str, List[str]]) -> Union[List[str], List[List[str]]]:
+        if isinstance(text, str):
+            token_ids = tokenizer.encode(
+                text, add_special_tokens=False)
+            return tokenizer.convert_ids_to_tokens(token_ids)
+        else:
+            token_ids_list = tokenizer.batch_encode_plus(
+                text, add_special_tokens=False)["input_ids"]
+            return [tokenizer.convert_ids_to_tokens(ids) for ids in token_ids_list]
+    return _tokenizer
+
+
+def chunk_text(text: Union[str, List[str]], n: Optional[int] = None, overlap: int = 0, model: Optional[ModelType] = None) -> Union[List[str], List[List[str]]]:
+    def chunk_tokens(tokens: List[str], tokenizer: Optional[PreTrainedTokenizer] = None) -> List[str]:
+        chunks = []
+        for i in range(0, len(tokens), chunk_size - overlap):
+            chunk_tokens = tokens[i:i + chunk_size]
+            if tokenizer:
+                chunk_text = tokenizer.decode(
+                    tokenizer.convert_tokens_to_ids(chunk_tokens),
+                    skip_special_tokens=True
+                )
+            else:
+                chunk_text = ''.join(chunk_tokens)
+            chunks.append(chunk_text)
+        return chunks
+
+    # Determine chunk size
+    chunk_size = n
+    if n is None:
+        if model is None:
+            chunk_size = 512  # Default chunk size when no model and n is not provided
+        else:
+            max_tokens = get_model_max_tokens(model)
+            # Use 30% of max tokens as chunk size
+            chunk_size = int(max_tokens * 0.3)
+
+    if isinstance(text, str):
+        if model is None:
+            # Character-based chunking for single string
+            return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size - overlap)]
+        # Token-based chunking for single string
+        tokenizer = get_tokenizer(model)
+        tokens = get_tokenizer_fn(model)(text)
+        return chunk_tokens(tokens, tokenizer)
+
+    # Handle list of strings
+    if model is None:
+        # Character-based chunking for list
+        return [[text[j][i:i + chunk_size] for i in range(0, len(text[j]), chunk_size - overlap)] for j in range(len(text))]
+
+    # Batch tokenization for list
+    tokenizer = get_tokenizer(model)
+    tokenized_texts = get_tokenizer_fn(model)(text)
+    return [chunk_tokens(tokens, tokenizer) for tokens in tokenized_texts]

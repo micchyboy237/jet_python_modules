@@ -2,7 +2,7 @@ import builtins
 
 from jet.logger import logger
 from jet.transformers.object import make_serializable
-from jet.utils.commands import copy_to_clipboard
+from jet.utils.commands import copy_to_clipboard, copy_test_result
 from jet.transformers.formatters import format_json
 
 # from .import_modules import (
@@ -125,6 +125,8 @@ def inject_globals():
         builtins.make_serializable = make_serializable
     if not hasattr(builtins, "copy_to_clipboard"):
         builtins.copy_to_clipboard = copy_to_clipboard
+    if not hasattr(builtins, "copy_test_result"):
+        builtins.copy_test_result = copy_test_result
     if not hasattr(builtins, "format_json"):
         builtins.format_json = format_json
 

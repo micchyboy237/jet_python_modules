@@ -126,3 +126,36 @@ class MarkdownCodeExtractor:
             )
 
         return code_blocks
+
+    def remove_code_blocks(self, markdown: str, keep_file_paths: bool = False) -> str:
+        """Remove code blocks from Markdown content, optionally preserving file path lines.
+
+        Args:
+            markdown (str): Markdown content.
+            keep_file_paths (bool): Whether to keep file path lines associated with code blocks.
+
+        Returns:
+            str: Markdown content with code blocks removed.
+        """
+        lines = markdown.strip().splitlines()
+        result = []
+        inside_code_block = False
+
+        for line in lines:
+            # Check for file path pattern
+            file_path_match = re.match(FILE_PATH_PATTERN, line)
+            if file_path_match:
+                if keep_file_paths:
+                    result.append(line)
+                continue
+
+            # Handle code block boundaries
+            if line.startswith("```"):
+                inside_code_block = not inside_code_block
+                continue
+
+            # Add non-code block lines to result
+            if not inside_code_block:
+                result.append(line)
+
+        return "\n".join(result).rstrip()
