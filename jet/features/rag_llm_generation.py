@@ -530,8 +530,8 @@ def rewrite_query(original_query: str) -> str:
     return response
 
 
-def rerank_llm(texts: list[str], top_k: int = 10, threshold: float = 0.0, use_bm25: bool = True, bm25_k: int = 100) -> List[SimilarityResult]:
-    query = write_query(texts)
+def rerank_llm(query: str, texts: list[str], top_k: int = 10, threshold: float = 0.0, use_bm25: bool = True, bm25_k: int = 100) -> List[SimilarityResult]:
+    # query = write_query(texts)
 
     logger.info(
         f"Reranking {len(texts)} for query: {query}")
@@ -543,7 +543,8 @@ def rerank_llm(texts: list[str], top_k: int = 10, threshold: float = 0.0, use_bm
         threshold=threshold,
         use_bm25=use_bm25,
         bm25_k=bm25_k,
-        model=["all-MiniLM-L12-v2", "distilbert-base-nli-stsb-mean-tokens"],
+        # model=["all-MiniLM-L12-v2", "distilbert-base-nli-stsb-mean-tokens"],
+        model=["all-MiniLM-L12-v2"],
         fuse_method="average",
         metrics="cosine",
         domain=None,

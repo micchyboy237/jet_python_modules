@@ -434,7 +434,7 @@ class MLX:
     def count_tokens(self, messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
         return count_tokens(self.model_path, messages, prevent_total)
 
-    def filter_docs(self, messages: str | List[str] | List[Message]) -> str:
+    def filter_docs(self, messages: str | List[str] | List[Message], chunk_size: int) -> list[str]:
         """Filter documents to fit within model token limits."""
         # Convert messages to a single string
         if isinstance(messages, str):
@@ -453,23 +453,23 @@ class MLX:
 
         # Get model max tokens and reserve buffer
         model_max_tokens = get_model_max_tokens(self.model_path)
-        max_tokens = model_max_tokens - 640
+        max_tokens = model_max_tokens - 512
 
         # Merge texts to fit within token limit
         merged_texts = merge_texts(
-            context, self.tokenizer, max_length=max_tokens)
+            context, self.tokenizer, max_length=chunk_size)
 
         # Build filtered context
-        filtered_context = ""
+        filtered_contexts = []
         current_token_count = 0
 
         for text, token_count in zip(merged_texts["texts"], merged_texts["token_counts"]):
             if current_token_count + token_count > max_tokens:
                 break
-            filtered_context += "\n\n" + text
+            filtered_contexts.append(text)
             current_token_count += token_count
 
-        return filtered_context.strip()
+        return filtered_contexts
 
     def get_remaining_tokens(self, messages: str | List[str] | List[Message]) -> int:
         model_max_tokens = get_model_max_tokens(self.model_path)
