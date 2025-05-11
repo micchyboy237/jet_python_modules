@@ -13,6 +13,21 @@ from jet.utils.inspect_utils import log_filtered_stack_trace
 from jet.utils.class_utils import is_class_instance
 
 
+def clean_ansi(text: str) -> str:
+    """
+    Remove ANSI escape sequences from a string.
+
+    Args:
+        text (str): The string potentially containing ANSI codes.
+
+    Returns:
+        str: A clean string without ANSI codes.
+    """
+    import re
+    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+    return ansi_escape.sub('', text)
+
+
 class CustomLogger:
     def __init__(self, log_file: Optional[str] = None, name: str = "default", overwrite: bool = False):
         self.log_file = log_file
@@ -105,7 +120,7 @@ class CustomLogger:
                         file.write("\n\n")
                     if not flush or (flush and not self._last_message_flushed):
                         file.write(metadata + "\n")
-                    file.write(message + end)
+                    file.write(clean_ansi(message) + end)
 
                 # Update flush state
                 self._last_message_flushed = flush
