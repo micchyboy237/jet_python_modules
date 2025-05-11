@@ -53,14 +53,10 @@ def answer_multiple_choice(
     choices: List[str],
     model_path: ModelType = DEFAULT_MODEL,
     method: str = "stream_generate",
-    max_tokens: int = 1,
+    max_tokens: int = 10,  # Increased to allow multi-token choices
     temperature: float = 0.0,
     top_p: float = 0.9
 ) -> AnswerResult:
-    """
-    General function for handling multiple-choice questions. It will ask the model to choose one
-    of the provided options based on the question asked.
-    """
     model_path = resolve_model(model_path)
     try:
         try:
@@ -73,12 +69,10 @@ def answer_multiple_choice(
 
         system_prompt = f"Answer the following question by choosing one of the options provided without any additional text.\nOptions:\n{'\n'.join(choices)}"
         messages = [
-            {
-                "role": "system",
-                "content": system_prompt
-            },
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": question}
         ]
+
         logger.gray("System:")
         logger.debug(system_prompt)
         logger.gray("Tokenized System:")
@@ -91,23 +85,25 @@ def answer_multiple_choice(
             messages, tokenize=False, add_generation_prompt=True
         )
 
-        # Encode each option to handle logits processing later
-        option_tokens = []
+        # Encode each choice and store all tokens
+        choice_token_map = {}
         for choice in choices:
-            token = tokenizer.encode(choice, add_special_tokens=False)[0]
-            option_tokens.append(token)
-            logger.log(f"Token for '{choice}':",
-                       token, colors=["GRAY", "ORANGE"])
+            tokens = tokenizer.encode(choice, add_special_tokens=False)
+            choice_token_map[choice] = tokens
+            logger.log(f"Tokens for '{choice}':",
+                       tokens, colors=["GRAY", "ORANGE"])
 
-        logit_bias = {token: 0.0 for token in option_tokens}
-
+        # Use the first token of each choice for logit bias to guide generation
+        logit_bias = {tokens[0]: 0.0 for choice,
+                      tokens in choice_token_map.items() if tokens}
         logits_processors = make_logits_processors(logit_bias=logit_bias)
         sampler = make_sampler(temp=temperature, top_p=top_p)
-
         stop_tokens = tokenizer.encode("\n") + list(tokenizer.eos_token_ids)
 
         answer = ""
         token_id = -1
+        generated_tokens = []
+
         if method == "stream_generate":
             for output in stream_generate(
                 model=model,
@@ -118,11 +114,13 @@ def answer_multiple_choice(
                 sampler=sampler
             ):
                 if output.token in stop_tokens:
-                    raise InvalidOutputError(
-                        "Generated token is a stop token.")
-                answer += output.text
+                    break
+                generated_tokens.append(output.token)
                 token_id = output.token
-                break
+                answer = tokenizer.decode(generated_tokens)
+                # Check if the decoded answer matches any choice
+                if answer in choices:
+                    break
         else:
             input_ids = mx.array(tokenizer.encode(
                 formatted_prompt, add_special_tokens=False))
@@ -136,18 +134,30 @@ def answer_multiple_choice(
                 prompt_cache=prompt_cache
             ):
                 if token in stop_tokens:
-                    raise InvalidOutputError(
-                        "Generated token is a stop token.")
-                answer = tokenizer.decode([token])
+                    break
+                generated_tokens.append(token)
                 token_id = token
-                break
+                answer = tokenizer.decode(generated_tokens)
+                if answer in choices:
+                    break
 
-        # Check that the answer is one of the provided options
+        # Validate the final answer
         if answer not in choices:
             raise InvalidOutputError(
                 f"Output '{answer}' is not one of the provided choices.")
 
-        return AnswerResult(answer=answer, token_id=token_id, is_valid=True, method=method, error=None)
-
+        return AnswerResult(
+            answer=answer,
+            token_id=token_id,
+            is_valid=True,
+            method=method,
+            error=None
+        )
     except Exception as e:
-        return AnswerResult(answer="", token_id=-1, is_valid=False, method=method, error=str(e))
+        return AnswerResult(
+            answer="",
+            token_id=-1,
+            is_valid=False,
+            method=method,
+            error=str(e)
+        )
