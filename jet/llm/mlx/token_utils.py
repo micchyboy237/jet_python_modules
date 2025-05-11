@@ -278,6 +278,18 @@ def merge_texts(
     }
 
 
+def tokenize_strings(text: Union[str, List[str]], model: ModelType) -> Union[str, list[str]]:
+    tokenizer = get_tokenizer(model)
+    if isinstance(text, str):
+        token_ids = tokenizer.encode(
+            text, add_special_tokens=False)
+        return tokenizer.convert_ids_to_tokens(token_ids)
+    else:
+        token_ids_list = tokenizer.batch_encode_plus(
+            text, add_special_tokens=False)["input_ids"]
+        return [tokenizer.convert_ids_to_tokens(ids) for ids in token_ids_list]
+
+
 def get_tokenizer(model: ModelType) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
     model_name = resolve_model(model)
 
