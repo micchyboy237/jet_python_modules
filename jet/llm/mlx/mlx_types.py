@@ -1,3 +1,4 @@
+from typing import Literal, Union
 from enum import Enum
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 
@@ -135,3 +136,38 @@ ModelValue = Literal[
 
 # Combined model type
 ModelType = Union[ModelKey, ModelValue, ModelTypeEnum]
+
+
+class EmbedModelTypeEnum(Enum):
+    EMBED_ALL_MINILM_L6_V2_BF16 = "all-minilm-l6-v2-bf16"
+    EMBED_ALL_MINILM_L6_V2_8BIT = "all-minilm-l6-v2-8bit"
+    EMBED_ALL_MINILM_L6_V2_6BIT = "all-minilm-l6-v2-6bit"
+    EMBED_ALL_MINILM_L6_V2_4BIT = "all-minilm-l6-v2-4bit"
+
+    @property
+    def key(self) -> str:
+        return self.value
+
+    @property
+    def model_path(self) -> str:
+        return f"mlx-community/{self.value.replace('.', '.').replace('_', '-')}"
+
+
+# Embed model key types
+EmbedModelKey = Literal[
+    "all-minilm-l6-v2-bf16",
+    "all-minilm-l6-v2-8bit",
+    "all-minilm-l6-v2-6bit",
+    "all-minilm-l6-v2-4bit"
+]
+
+# Embed model value types
+EmbedModelValue = Literal[
+    "mlx-community/all-MiniLM-L6-v2-bf16",
+    "mlx-community/all-MiniLM-L6-v2-8bit",
+    "mlx-community/all-MiniLM-L6-v2-6bit",
+    "mlx-community/all-MiniLM-L6-v2-4bit"
+]
+
+# Combined embed model type
+EmbedModelType = Union[EmbedModelKey, EmbedModelValue, EmbedModelTypeEnum]
