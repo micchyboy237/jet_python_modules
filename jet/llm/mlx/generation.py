@@ -1,13 +1,16 @@
+# jet_python_modules/jet/llm/mlx/generation.py
 import json
 import time
 import uuid
 from jet.llm.mlx.mlx_types import ModelKey
+from jet.llm.mlx.models import resolve_model
 from jet.transformers.formatters import format_json
 import requests
 from typing import List, Dict, Optional, Union, Literal, Generator
 from pydantic import BaseModel, Field, ValidationError
 from fastapi import HTTPException
 from jet.logger import logger
+from jet.llm.mlx.model_cache import MODEL_CACHE, MODEL_LIST_CACHE_LOCK
 
 BASE_URL = "http://localhost:9000"
 
@@ -65,8 +68,8 @@ class BaseCompletionRequest(BaseModel):
 
 
 class ChatCompletionRequest(BaseCompletionRequest):
-    messages: Union[str, List[Message]] = Field(
-        ..., description="String or array of message objects representing conversation history")
+    messages: Union[str, List[Message], List[List[Message]]] = Field(
+        ..., description="String, array of message objects, or array of arrays of message objects representing conversation history")
     role_mapping: Optional[Dict[str, str]] = Field(
         default=None, description="Custom role prefixes for prompt generation")
     tools: Optional[List[Dict]] = Field(
@@ -181,7 +184,6 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
             prompt_id=server_response.get("prompt_id"),
             task_id=server_response.get("task_id")
         )
-
     if is_stream:
         def stream_chunks():
             accumulated_content = ""
@@ -218,13 +220,11 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
                     raise HTTPException(
                         status_code=500, detail=f"Invalid response format: {str(e)}")
         return stream_chunks()
-
     response_text = response.text
     if not response_text.strip():
         logger.error("Empty response received from the server")
         raise HTTPException(
             status_code=500, detail="Empty response from MLX LM server")
-
     try:
         response_json = response.json()
         server_response = ParallelCompletionResponse(**response_json)
@@ -249,21 +249,9 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
 
 def chat(request: ChatCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
     try:
-        # Convert string messages to List[Message] if necessary
         if isinstance(request.messages, str):
             request.messages = [Message(role="user", content=request.messages)]
         request_payload = request.dict(exclude_none=True)
-        if request_payload.get("model"):
-            models_response = list_models()
-            for model_info in models_response.data:
-                if model_info.id == request_payload["model"]:
-                    request_payload["model"] = model_info.short_name
-                    break
-            else:
-                logger.error(
-                    f"Model {request_payload['model']} not found in available models")
-                raise HTTPException(
-                    status_code=400, detail=f"Model {request_payload['model']} not found")
         endpoint = "/chat" if request.stream else "/chat_non_stream"
         logger.info(f"Sending request to {BASE_URL}{endpoint}...")
         logger.gray("Request payload:")
@@ -294,21 +282,9 @@ def chat(request: ChatCompletionRequest) -> Union[UnifiedCompletionResponse, Gen
 
 def generate(request: TextCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
     try:
-        # Convert string prompt to List[str] if necessary
         if isinstance(request.prompt, str):
             request.prompt = [request.prompt]
         request_payload = request.dict(exclude_none=True)
-        if request_payload.get("model"):
-            models_response = list_models()
-            for model_info in models_response.data:
-                if model_info.id == request_payload["model"]:
-                    request_payload["model"] = model_info.short_name
-                    break
-            else:
-                logger.error(
-                    f"Model {request_payload['model']} not found in available models")
-                raise HTTPException(
-                    status_code=400, detail=f"Model {request_payload['model']} not found")
         endpoint = "/generate" if request.stream else "/generate_non_stream"
         logger.info(f"Sending request to {BASE_URL}{endpoint}...")
         logger.gray("Request payload:")
@@ -339,6 +315,10 @@ def generate(request: TextCompletionRequest) -> Union[UnifiedCompletionResponse,
 
 def list_models() -> ModelsResponse:
     try:
+        with MODEL_LIST_CACHE_LOCK:
+            if MODEL_CACHE.get("models") is not None:  # Updated condition
+                logger.info("Returning cached model list")
+                return ModelsResponse(**MODEL_CACHE["models"])
         response = requests.get(
             f"{BASE_URL}/models",
             headers={"Content-Type": "application/json"}
@@ -351,6 +331,8 @@ def list_models() -> ModelsResponse:
                 status_code=500, detail=f"Server returned non-JSON response: Content-Type {content_type}")
         response.raise_for_status()
         structured_response = ModelsResponse(**response.json())
+        with MODEL_LIST_CACHE_LOCK:
+            MODEL_CACHE["models"] = structured_response.dict()
         logger.success(format_json(structured_response.dict()))
         return structured_response
     except requests.exceptions.HTTPError as e:

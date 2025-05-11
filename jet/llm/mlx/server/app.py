@@ -25,10 +25,10 @@ size = comm.Get_size()
 app = FastAPI(title="Parallel MLX Stream Generation Server")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allows all origins
     allow_credentials=True,
-    allow_methods=["POST", "GET"],
-    allow_headers=["Content-Type", "Accept"],
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 executor = ThreadPoolExecutor()
@@ -94,12 +94,20 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                 status_code=400, detail="Messages are required for chat requests")
         messages = request.messages
         if isinstance(messages, list) and all(is_valid_message(msg) for msg in messages):
+            # Single conversation treated as one prompt
             prompts = [json.dumps(messages)]
             prompt_ids = [str(uuid.uuid4())]
+            if request.verbose:
+                logger.info(
+                    f"Task {task_id}: Processing single chat conversation with prompt_id {prompt_ids[0]}")
         elif isinstance(messages, list) and all(isinstance(msg_list, list) and all(is_valid_message(msg) for msg in msg_list) for msg_list in messages):
+            # Multiple conversations, each treated as a separate prompt
             prompts = [json.dumps(msg_list) for msg_list in messages]
-            prompt_ids = [
-                f"{str(uuid.uuid4())}_{i}" for i in range(len(messages))]
+            base_uuid = str(uuid.uuid4())
+            prompt_ids = [f"{base_uuid}_{i}" for i in range(len(messages))]
+            if request.verbose:
+                logger.info(
+                    f"Task {task_id}: Processing {len(prompts)} chat conversations with prompt_ids {prompt_ids}")
         else:
             raise HTTPException(
                 status_code=400, detail="Invalid messages format: must be List[Message] or List[List[Message]]")
@@ -110,6 +118,9 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
         prompts = [request.prompt] if isinstance(
             request.prompt, str) else request.prompt
         prompt_ids = [str(uuid.uuid4()) for _ in prompts]
+        if request.verbose:
+            logger.info(
+                f"Task {task_id}: Processing {len(prompts)} generate prompts with prompt_ids {prompt_ids}")
 
     model_key = request.model
     if model_key not in AVAILABLE_MODELS:
@@ -187,7 +198,7 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             remaining_prompts[worker_rank] = len(worker_prompts)
             if request.verbose:
                 logger.info(
-                    f"{time.time()}: Sending {len(worker_prompts)} prompts to worker {worker_rank}: {[p['prompt'][:50] for p in worker_prompts]}")
+                    f"{time.time()}: Sending {len(worker_prompts)} prompts to worker {worker_rank}: {[p['prompt_id'] for p in worker_prompts]}")
             task = {
                 "model": model_path,
                 "prompts" if not is_chat else "messages": worker_prompts,
@@ -214,10 +225,9 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             comm.send(task, dest=worker_rank)
 
     async def stream_results():
-        timeout = 90  # Increased timeout
+        timeout = 90
         start_time = time.time()
-        chunk_buffer = []  # Buffer chunks to avoid starting response prematurely
-
+        chunk_buffer = []
         while active_workers and (time.time() - start_time) < timeout:
             for worker_rank in list(active_workers):
                 if comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
@@ -261,15 +271,10 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                         logger.error(
                             f"Error receiving message from worker {worker_rank}: {str(e)}", exc_info=True)
                 await asyncio.sleep(0.005)
-
-            # Check TaskManager for task completion
             try:
                 task = task_manager.get_task(task_id)
-                all_done = all(
-                    prompt_data["status"] in [
-                        TaskStatus.COMPLETED, TaskStatus.FAILED]
-                    for prompt_data in task["prompts"].values()
-                )
+                all_done = all(prompt_data["status"] in [
+                               TaskStatus.COMPLETED, TaskStatus.FAILED] for prompt_data in task["prompts"].values())
                 if all_done:
                     active_workers.clear()
                     if request.verbose:
@@ -279,17 +284,12 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             except Exception as e:
                 logger.error(
                     f"Failed to check task {task_id} status: {str(e)}")
-
             await asyncio.sleep(0.005)
-
-        # Yield buffered chunks
         for chunk in chunk_buffer:
             yield chunk
-
         if active_workers:
             logger.error(
                 f"Timeout waiting for workers {active_workers} to respond for task {task_id}")
-            # Mark remaining prompts as failed
             try:
                 task = task_manager.get_task(task_id)
                 for prompt_id, prompt_data in task["prompts"].items():
@@ -305,7 +305,6 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                     f"Failed to mark timed-out prompts as failed: {str(e)}")
             raise HTTPException(
                 status_code=500, detail=f"Timeout waiting for workers {active_workers} to respond for task {task_id}")
-
         try:
             task_manager.complete_task(task_id)
         except Exception as e:
@@ -421,6 +420,43 @@ async def get_task(task_id: str):
             status_code=500, detail=f"Failed to retrieve task: {str(e)}")
 
 
+@app.delete("/tasks")
+async def clear_tasks():
+    try:
+        task_manager.repository.reset_schema()
+        task_manager.tasks.clear()
+        return {"message": "All tasks cleared successfully"}
+    except Exception as e:
+        logger.error(f"Failed to clear tasks: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to clear tasks: {str(e)}")
+
+
+@app.delete("/task/{task_id}")
+async def delete_task(task_id: str):
+    try:
+        task = task_manager.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        with task_manager.repository.db.connect_default_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM prompts WHERE task_id = %s", (task_id,))
+                cur.execute("DELETE FROM tasks WHERE task_id = %s", (task_id,))
+                conn.commit()
+        with task_manager.lock:
+            if task_id in task_manager.tasks:
+                del task_manager.tasks[task_id]
+        return {"message": f"Task {task_id} deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to delete task {task_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete task {task_id}: {str(e)}")
+
+
 @app.post("/rerun_failed/{task_id}")
 async def rerun_failed(task_id: str):
     """Rerun failed prompts for a specific task."""
@@ -470,8 +506,7 @@ async def get_models():
             return all(f in file_names for f in files)
         hf_cache_info = scan_cache_dir()
         downloaded_models = [
-            repo for repo in hf_cache_info.repos if probably_mlx_lm(repo)
-        ]
+            repo for repo in hf_cache_info.repos if probably_mlx_lm(repo)]
         models = []
         for repo in downloaded_models:
             repo_id = repo.repo_id
