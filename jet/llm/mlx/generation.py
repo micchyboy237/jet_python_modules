@@ -79,8 +79,12 @@ class UnifiedCompletionResponse(BaseModel):
     content: Optional[str] = Field(
         None, description="Generated content (text or message)")
     finish_reason: Optional[Literal["stop", "length"]] = Field(
-        None, description="Reason the completion ended")
+        None, description="Reason the generation ended")
     usage: Optional[Usage] = Field(None, description="Token usage information")
+    prompt_id: Optional[str] = Field(
+        None, description="Unique identifier for the prompt")
+    task_id: Optional[str] = Field(
+        None, description="Unique identifier for the task")
 
 
 class ModelInfo(BaseModel):
@@ -124,13 +128,28 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
             status_code=500, detail=f"Server returned unexpected Content-Type: {content_type}")
     response.raise_for_status()
 
-    def transform_to_unified(server_response: dict) -> UnifiedCompletionResponse:
+    def estimate_tokens(text: Optional[str]) -> int:
+        """Estimate token count by counting words (approximation)."""
+        if not text:
+            return 0
+        return len(text.split())
+
+    def transform_to_unified(server_response: dict, accumulated_content: str = "", prompt: Optional[str] = None) -> UnifiedCompletionResponse:
         response_type = server_response.get("type")
         content = server_response.get("content", "")
         finish_reason = None
+        usage = None
         if response_type == "result":
             finish_reason = "length" if server_response.get(
                 "truncated", False) else "stop"
+            # Compute usage for final response
+            prompt_tokens = estimate_tokens(prompt)
+            completion_tokens = estimate_tokens(accumulated_content)
+            usage = Usage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens
+            )
         elif response_type == "error":
             logger.error(
                 f"Server error: {server_response.get('message', 'Unknown error')}")
@@ -141,19 +160,30 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
             created=int(time.time()),
             content=content,
             finish_reason=finish_reason,
-            usage=None  # Usage info not provided by parallel_stream_generate
+            usage=usage,
+            prompt_id=server_response.get("prompt_id"),
+            task_id=server_response.get("task_id")
         )
 
     if is_stream:
         def stream_chunks():
+            accumulated_content = ""
+            prompt = None
             for line in response.iter_lines(decode_unicode=True):
                 if not line.strip():
                     continue
                 try:
                     chunk = json.loads(line)
                     server_response = ParallelCompletionResponse(**chunk)
+                    if prompt is None:
+                        prompt = server_response.prompt  # Set prompt from first chunk
+                    if server_response.content:
+                        accumulated_content += server_response.content
                     unified_response = transform_to_unified(
-                        server_response.dict())
+                        server_response.dict(),
+                        accumulated_content=accumulated_content,
+                        prompt=prompt
+                    )
                     logger.debug(
                         f"Streaming chunk: {unified_response.content}")
                     yield unified_response
@@ -180,7 +210,11 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
     try:
         response_json = response.json()
         server_response = ParallelCompletionResponse(**response_json)
-        unified_response = transform_to_unified(server_response.dict())
+        unified_response = transform_to_unified(
+            server_response.dict(),
+            accumulated_content=server_response.content or "",
+            prompt=server_response.prompt
+        )
         logger.success(unified_response.content)
         return unified_response
     except json.JSONDecodeError as e:
