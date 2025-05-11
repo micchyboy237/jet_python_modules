@@ -1,6 +1,4 @@
 from typing import List, Dict, Optional, TypedDict
-from uuid import uuid4
-from jet.llm.mlx.config import DEFAULT_MODEL
 from jet.llm.mlx.mlx_types import ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.token_utils import tokenize_strings
@@ -197,7 +195,7 @@ def validate_answer(answer: str, choices: List[str]) -> None:
 def answer_multiple_choice(
     question: str,
     choices: List[str],
-    model_path: ModelType = DEFAULT_MODEL,
+    model_path: ModelType,
     method: str = "stream_generate",
     max_tokens: int = 10,
     temperature: float = 0.0,
@@ -209,7 +207,7 @@ def answer_multiple_choice(
     Args:
         question: The question to be answered.
         choices: List of possible answer choices.
-        model_path: Path to the model (defaults to DEFAULT_MODEL).
+        model_path: Path to the model.
         method: Generation method ("stream_generate" or "generate_step").
         max_tokens: Maximum number of tokens to generate.
         temperature: Sampling temperature.

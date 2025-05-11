@@ -1,5 +1,4 @@
 from typing import List, Dict, Union, Optional, Callable, TypedDict
-from jet.llm.mlx.config import DEFAULT_MODEL
 from jet.llm.mlx.mlx_types import ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.logger import logger
@@ -54,12 +53,17 @@ class AnswerResult(TypedDict):
 
 def answer_yes_no(
     question: str,
-    model_path: ModelType = DEFAULT_MODEL,
+    model_path: ModelType,
     method: str = "stream_generate",
     max_tokens: int = 1,
     temperature: float = 0.1,
     top_p: float = 0.1
 ) -> AnswerResult:
+    if not question.strip():
+        raise PromptFormattingError("Question cannot be empty.")
+    if max_tokens == 0 or max_tokens < -1:
+        raise ValueError("Max tokens can only be -1 or a positive integer.")
+
     model_path = resolve_model(model_path)
 
     try:
@@ -156,4 +160,4 @@ def answer_yes_no(
         return AnswerResult(answer=answer, token_id=token_id, is_valid=True, method=method, error=None)
 
     except Exception as e:
-        return AnswerResult(answer="", token_id=-1, is_valid=False, method=method, error=str(e))
+        raise
