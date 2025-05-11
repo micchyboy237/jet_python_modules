@@ -11,9 +11,11 @@ from mlx_lm.generate import stream_generate, generate_step
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import TokenizerWrapper
 
+# Set the seed for reproducibility
+mx.random.seed(42)
+
+
 # Custom exceptions for specific error cases
-
-
 class ModelLoadError(Exception):
     pass
 
@@ -25,9 +27,8 @@ class InvalidMethodError(Exception):
 class InvalidOutputError(Exception):
     pass
 
+
 # Type definitions for structured data
-
-
 class ChatMessage(TypedDict):
     role: str
     content: str

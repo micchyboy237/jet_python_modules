@@ -9,6 +9,9 @@ from mlx_lm.generate import stream_generate, generate_step
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import TokenizerWrapper
 
+# Set the seed for reproducibility
+mx.random.seed(42)
+
 
 # === Custom Exceptions ===
 class ModelLoadError(Exception):

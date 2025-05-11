@@ -63,8 +63,12 @@ class MLXLMClient:
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
+        seed: Optional[int] = None,
     ) -> None:
         """Initialize the client with configuration."""
+        if seed:
+            mx.random.seed(seed)
+
         # Convert model keys to values
         model_value = self._get_model_value(model) if model else None
         draft_model_value = self._get_model_value(

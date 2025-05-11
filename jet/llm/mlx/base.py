@@ -165,7 +165,8 @@ class MLX:
         host: Optional[str] = None,
         port: Optional[str] = None,
         session_id: Optional[str] = None,
-        with_history: bool = False
+        with_history: bool = False,
+        seed: Optional[int] = None,
     ):
         """Initialize the MLX client with configuration and optional database."""
         self.model_path = resolve_model(model)
@@ -177,7 +178,8 @@ class MLX:
             draft_model=draft_model,
             trust_remote_code=trust_remote_code,
             chat_template=chat_template,
-            use_default_chat_template=use_default_chat_template
+            use_default_chat_template=use_default_chat_template,
+            seed=seed,
         )
         self.model = self.client.model_provider.model
         self.tokenizer = self.client.model_provider.tokenizer
