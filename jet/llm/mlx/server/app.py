@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from mpi4py import MPI
 from pydantic import BaseModel
+from huggingface_hub import scan_cache_dir
 from jet.llm.mlx.server.parallel_stream_script import parallel_stream_generate, parallel_chat_generate
 from jet.llm.mlx.server.task_manager import TaskManager, TaskStatus
 from jet.llm.mlx.mlx_types import ModelType, Message, ModelTypeEnum, RoleMapping, Tool
@@ -19,6 +20,7 @@ from jet.logger import logger
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
+
 app = FastAPI(title="Parallel MLX Stream Generation Server")
 app.add_middleware(
     CORSMiddleware,
@@ -27,13 +29,14 @@ app.add_middleware(
     allow_methods=["POST", "GET"],
     allow_headers=["Content-Type", "Accept"],
 )
+
 executor = ThreadPoolExecutor()
 task_manager = TaskManager()
 
 
 class GenerateRequest(BaseModel):
     model: ModelType = ModelTypeEnum.LLAMA_3_2_1B_INSTRUCT_4BIT
-    prompt: Union[str, List[str]]  # Renamed from prompts to prompt
+    prompt: Union[str, List[str]]
     max_tokens: int = 512
     temperature: float = 0.0
     top_p: float = 1.0
@@ -51,7 +54,7 @@ class GenerateRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     model: ModelType = ModelTypeEnum.LLAMA_3_2_1B_INSTRUCT_4BIT
-    messages: Union[str, List[Message]]  # Allow str or List[Message]
+    messages: Union[str, List[Message]]
     max_tokens: int = 512
     temperature: float = 0.0
     top_p: float = 1.0
@@ -78,16 +81,14 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
         if not hasattr(request, 'messages') or not request.messages:
             raise HTTPException(
                 status_code=400, detail="Messages are required for chat requests")
-        # Convert string to List[Message] if necessary
         messages = request.messages
         if isinstance(messages, str):
             messages = [Message(role="user", content=messages)]
-        prompts = [json.dumps(messages)]  # Serialize the list of messages
+        prompts = [json.dumps(messages)]
     else:
         if not hasattr(request, 'prompt') or not request.prompt:
             raise HTTPException(
                 status_code=400, detail="Prompt is required for generate requests")
-        # Convert string to List[str] if necessary
         prompts = [request.prompt] if isinstance(
             request.prompt, str) else request.prompt
     model_key = request.model
@@ -190,7 +191,7 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                     if message.get("task_id") != task_id:
                         if request.verbose:
                             logger.warning(
-                                f"Ignoring stale message from worker {worker_rank} with task_id {message.get('task_id')}")
+                                f"Ignoring stale message from workerETX {worker_rank} with task_id {message.get('task_id')}")
                         continue
                     if request.verbose:
                         logger.info(
@@ -233,6 +234,9 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                             logger.warning(
                                 f"Ignoring stale message from worker {worker_rank} with task_id {message.get('task_id')}")
                         continue
+                    if request.verbose:
+                        logger.info(
+                            f"{time.time()}: Received message from worker {worker_rank}: {message}")
                     prompt_id = message.get("prompt_id")
                     if not task_manager.validate_prompt_id(task_id, prompt_id):
                         logger.error(
@@ -339,6 +343,52 @@ async def rerun_pending(task_id: str):
         logger.error(f"Failed to rerun task {task_id}: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to rerun task {task_id}: {str(e)}")
+
+
+@app.get("/models")
+async def get_models():
+    """Retrieve a list of available MLX models from the Hugging Face cache."""
+    try:
+        created = int(time.time())
+        files = ["config.json", "model.safetensors.index.json",
+                 "tokenizer_config.json"]
+
+        def probably_mlx_lm(repo):
+            if repo.repo_type != "model":
+                return False
+            if "main" not in repo.refs:
+                return False
+            file_names = {f.file_path.name for f in repo.refs["main"].files}
+            return all(f in file_names for f in files)
+
+        # Scan the cache directory for downloaded MLX models
+        hf_cache_info = scan_cache_dir()
+        downloaded_models = [
+            repo for repo in hf_cache_info.repos if probably_mlx_lm(repo)
+        ]
+
+        # Create a list of available models with short_name
+        models = []
+        for repo in downloaded_models:
+            repo_id = repo.repo_id
+            # Find the short_name by matching repo_id with AVAILABLE_MODELS values
+            short_name = repo_id  # Default to repo_id if no match
+            for key, model_path in AVAILABLE_MODELS.items():
+                if repo_id == model_path:
+                    short_name = key
+                    break
+            models.append({
+                "id": repo_id,
+                "short_name": short_name,
+                "object": "model",
+                "created": created,
+            })
+
+        return {"object": "list", "data": models}
+    except Exception as e:
+        logger.error(f"Failed to retrieve models: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve models: {str(e)}")
 
 if __name__ == "__main__":
     if rank == 0:

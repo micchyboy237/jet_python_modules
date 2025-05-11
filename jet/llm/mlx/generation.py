@@ -1,14 +1,14 @@
 import json
+import time
+import uuid
+from jet.llm.mlx.mlx_types import ModelKey
 from jet.transformers.formatters import format_json
 import requests
 from typing import List, Dict, Optional, Union, Literal, Generator
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from fastapi import HTTPException
 from jet.logger import logger
-
-BASE_URL = "http://localhost:8003/v1"
-
-# Request Models
+BASE_URL = "http://localhost:9000"
 
 
 class Message(BaseModel):
@@ -63,8 +63,6 @@ class ChatCompletionRequest(BaseCompletionRequest):
 class TextCompletionRequest(BaseCompletionRequest):
     prompt: str = Field(..., description="Input prompt for text completion")
 
-# Response Models
-
 
 class Usage(BaseModel):
     prompt_tokens: int = Field(...,
@@ -87,89 +85,63 @@ class UnifiedCompletionResponse(BaseModel):
 
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Hugging Face repo ID")
+    short_name: str = Field(..., description="Model key")
     object: Optional[str] = Field(
         "model", description="Type of object, default is 'model'")
     created: int = Field(..., description="Timestamp for model creation")
 
 
 class ModelsResponse(BaseModel):
+    object: str = Field("list", description="Type of response, always 'list'")
     data: List[ModelInfo] = Field(..., description="List of available models")
 
-# Internal Response Models (for parsing server responses)
 
-
-class LogProbs(BaseModel):
-    token_logprobs: List[float] = Field(
-        default_factory=list, description="Log probabilities for generated tokens")
-    tokens: Optional[List[int]] = Field(
-        default=None, description="Generated token IDs")
-    top_logprobs: List[Dict[int, float]] = Field(
-        default_factory=list, description="Top tokens and their log probabilities")
-
-
-class Choice(BaseModel):
-    index: int = Field(..., description="Index of the choice in the list")
-    message: Optional[Message] = Field(
-        None, description="Text response from the model for non-streaming chat completions")
-    text: Optional[str] = Field(
-        None, description="Generated text for text completion")
-    delta: Optional[Delta] = Field(
-        None, description="Delta response for streaming chat completions")
-    logprobs: Optional[LogProbs] = Field(
-        None, description="Log probabilities for generated tokens")
-    finish_reason: Optional[Literal["stop", "length"]] = Field(
-        None, description="Reason the completion ended")
-
-
-class ServerCompletionResponse(BaseModel):
-    id: str = Field(..., description="Unique identifier for the chat")
-    system_fingerprint: str = Field(...,
-                                    description="Unique identifier for the system")
-    object: Literal["chat.completion", "chat.completion.chunk", "text.completion",
-                    "text.completion.chunk", "text_completion"] = Field(..., description="Type of response")
-    created: int = Field(...,
-                         description="Timestamp for when the request was processed")
-    choices: List[Choice] = Field(..., description="List of output choices")
-    usage: Optional[Usage] = Field(None, description="Token usage information")
-
-# Helper Function
+class ParallelCompletionResponse(BaseModel):
+    type: Literal["chunk", "result",
+                  "error"] = Field(..., description="Type of response")
+    prompt: Optional[str] = Field(
+        None, description="Original prompt or message")
+    content: Optional[str] = Field(None, description="Generated content")
+    prompt_id: Optional[str] = Field(
+        None, description="Unique identifier for the prompt")
+    task_id: Optional[str] = Field(
+        None, description="Unique identifier for the task")
+    truncated: Optional[bool] = Field(
+        None, description="Whether the response was truncated")
+    message: Optional[str] = Field(
+        None, description="Error message, if type is error")
 
 
 def _handle_response(response: requests.Response, is_stream: bool) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
     logger.info(f"Response status code: {response.status_code}")
     logger.info(f"Response headers: {response.headers}")
-
     content_type = response.headers.get("Content-Type", "")
-    expected_content_type = "text/event-stream" if is_stream else "application/json"
+    expected_content_type = "application/json"
     if expected_content_type not in content_type:
         logger.error(
             f"Unexpected Content-Type: {content_type}, expected {expected_content_type}")
         raise HTTPException(
             status_code=500, detail=f"Server returned unexpected Content-Type: {content_type}")
-
     response.raise_for_status()
 
     def transform_to_unified(server_response: dict) -> UnifiedCompletionResponse:
-        choices = server_response.get("choices", [])
-        content = ""
+        response_type = server_response.get("type")
+        content = server_response.get("content", "")
         finish_reason = None
-        if choices:
-            choice = choices[0]
-            if choice.get("delta") and choice["delta"].get("content"):
-                content = choice["delta"]["content"]
-            elif choice.get("message") and choice["message"].get("content"):
-                content = choice["message"]["content"]
-            elif choice.get("text"):
-                content = choice["text"]
-            finish_reason = choice.get("finish_reason")
-
+        if response_type == "result":
+            finish_reason = "length" if server_response.get(
+                "truncated", False) else "stop"
+        elif response_type == "error":
+            logger.error(
+                f"Server error: {server_response.get('message', 'Unknown error')}")
+            raise HTTPException(status_code=500, detail=server_response.get(
+                "message", "Server error"))
         return UnifiedCompletionResponse(
-            id=server_response["id"],
-            created=server_response["created"],
+            id=server_response.get("prompt_id", str(uuid.uuid4())),
+            created=int(time.time()),
             content=content,
             finish_reason=finish_reason,
-            usage=Usage(
-                **server_response["usage"]) if server_response.get("usage") else None
+            usage=None  # Usage info not provided by parallel_stream_generate
         )
 
     if is_stream:
@@ -177,34 +149,27 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
             for line in response.iter_lines(decode_unicode=True):
                 if not line.strip():
                     continue
-                if not line.startswith("data: "):
-                    logger.error(f"Invalid SSE chunk format: {line}")
-                    raise HTTPException(
-                        status_code=500, detail="Invalid server-sent event format")
-                json_data = line[len("data: "):].strip()
-                if not json_data:
-                    logger.error("Empty JSON data in SSE chunk")
-                    continue
                 try:
-                    chunk = json.loads(json_data)
-                    for choice in chunk.get("choices", []):
-                        if choice.get("logprobs") and choice["logprobs"].get("tokens") is None:
-                            choice["logprobs"]["tokens"] = []
-                    server_response = ServerCompletionResponse(**chunk)
+                    chunk = json.loads(line)
+                    server_response = ParallelCompletionResponse(**chunk)
                     unified_response = transform_to_unified(
                         server_response.dict())
-                    logger.success(unified_response.content, flush=True)
+                    logger.debug(
+                        f"Streaming chunk: {unified_response.content}")
                     yield unified_response
-                    if any(choice.get("finish_reason") for choice in chunk.get("choices", [])):
-                        logger.newline()
-                        logger.info(
-                            "Finish reason detected in chunk, stopping stream")
+                    if server_response.type == "result":
+                        logger.info("Result chunk received, stopping stream")
                         return
                 except json.JSONDecodeError as e:
                     logger.error(
-                        f"Failed to parse chunk JSON: {e}, chunk: {json_data}")
+                        f"Failed to parse chunk JSON: {e}, chunk: {line}")
                     raise HTTPException(
                         status_code=500, detail=f"Invalid JSON in streaming chunk: {str(e)}")
+                except ValidationError as e:
+                    logger.error(
+                        f"Validation error for chunk: {e}, chunk: {line}")
+                    raise HTTPException(
+                        status_code=500, detail=f"Invalid response format: {str(e)}")
         return stream_chunks()
 
     response_text = response.text
@@ -214,30 +179,31 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
             status_code=500, detail="Empty response from MLX LM server")
     try:
         response_json = response.json()
-        for choice in response_json.get("choices", []):
-            if choice.get("logprobs") and choice["logprobs"].get("tokens") is None:
-                choice["logprobs"]["tokens"] = []
-        server_response = ServerCompletionResponse(**response_json)
+        server_response = ParallelCompletionResponse(**response_json)
         unified_response = transform_to_unified(server_response.dict())
         logger.success(unified_response.content)
         return unified_response
-    except requests.exceptions.JSONDecodeError as e:
+    except json.JSONDecodeError as e:
         logger.error(
-            f"JSON decode error: {str(e)}, Response content: {response_text}")
+            f"JSON decode error: {e}, Response content: {response_text}")
         raise HTTPException(
             status_code=500, detail=f"Invalid JSON response from server: {str(e)}")
+    except ValidationError as e:
+        logger.error(
+            f"Validation error for response: {e}, Response content: {response_text}")
+        raise HTTPException(
+            status_code=500, detail=f"Invalid response format: {str(e)}")
 
-# API Calls
 
-
-def chat_completions(request: ChatCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
+def chat(request: ChatCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
     try:
         request_payload = request.dict(exclude_none=True)
-        logger.info(f"Sending request to {BASE_URL}/chat/completions...")
+        endpoint = "/chat" if request.stream else "/chat_non_stream"
+        logger.info(f"Sending request to {BASE_URL}{endpoint}...")
         logger.gray("Request payload:")
         logger.debug(format_json(request_payload))
         response = requests.post(
-            f"{BASE_URL}/chat/completions",
+            f"{BASE_URL}{endpoint}",
             json=request_payload,
             headers={"Content-Type": "application/json"},
             stream=request.stream
@@ -245,9 +211,10 @@ def chat_completions(request: ChatCompletionRequest) -> Union[UnifiedCompletionR
         return _handle_response(response, is_stream=request.stream)
     except requests.exceptions.HTTPError as e:
         logger.error(
-            f"HTTP error: {str(e)}, Response content: {response.text if 'response' in locals() else 'N/A'}")
+            f"HTTP error: {str(e)}, Response content: {e.response.text if e.response else 'N/A'}")
         raise HTTPException(
-            status_code=500, detail=f"MLX LM server error: {str(e)}")
+            status_code=e.response.status_code if e.response else 500,
+            detail=f"MLX LM server error: {str(e)}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {str(e)}")
         raise HTTPException(
@@ -258,14 +225,27 @@ def chat_completions(request: ChatCompletionRequest) -> Union[UnifiedCompletionR
             status_code=500, detail=f"Internal error: {str(e)}")
 
 
-def text_completions(request: TextCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
+def generate(request: TextCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
     try:
         request_payload = request.dict(exclude_none=True)
-        logger.info(f"Sending request to {BASE_URL}/completions...")
+        # Map model repo ID to short_name from /models endpoint
+        if request_payload.get("model"):
+            models_response = list_models()
+            for model_info in models_response.data:
+                if model_info.id == request_payload["model"]:
+                    request_payload["model"] = model_info.short_name
+                    break
+            else:
+                logger.error(
+                    f"Model {request_payload['model']} not found in available models")
+                raise HTTPException(
+                    status_code=400, detail=f"Model {request_payload['model']} not found")
+        endpoint = "/generate" if request.stream else "/generate_non_stream"
+        logger.info(f"Sending request to {BASE_URL}{endpoint}...")
         logger.gray("Request payload:")
         logger.debug(format_json(request_payload))
         response = requests.post(
-            f"{BASE_URL}/completions",
+            f"{BASE_URL}{endpoint}",
             json=request_payload,
             headers={"Content-Type": "application/json"},
             stream=request.stream
@@ -273,9 +253,10 @@ def text_completions(request: TextCompletionRequest) -> Union[UnifiedCompletionR
         return _handle_response(response, is_stream=request.stream)
     except requests.exceptions.HTTPError as e:
         logger.error(
-            f"HTTP error: {str(e)}, Response content: {response.text if 'response' in locals() else 'N/A'}")
+            f"HTTP error: {str(e)}, Response content: {e.response.text if e.response else 'N/A'}")
         raise HTTPException(
-            status_code=500, detail=f"MLX LM server error: {str(e)}")
+            status_code=e.response.status_code if e.response else 500,
+            detail=f"MLX LM server error: {str(e)}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {str(e)}")
         raise HTTPException(
@@ -300,11 +281,11 @@ def list_models() -> ModelsResponse:
                 status_code=500, detail=f"Server returned non-JSON response: Content-Type {content_type}")
         response.raise_for_status()
         structured_response = ModelsResponse(**response.json())
-        logger.success(format_json(structured_response.model_dump()))
+        logger.success(format_json(structured_response.dict()))
         return structured_response
     except requests.exceptions.HTTPError as e:
         logger.error(
-            f"HTTP error: {str(e)}, Response content: {response.text if 'response' in locals() else 'N/A'}")
+            f"HTTP error: {str(e)}, Response content: {e.response.text if e.response else 'N/A'}")
         raise HTTPException(
             status_code=500, detail=f"MLX LM server error: {str(e)}")
     except requests.exceptions.RequestException as e:
