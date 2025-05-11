@@ -6,7 +6,7 @@ import uuid
 import uvicorn
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Union, Dict, Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from mpi4py import MPI
@@ -25,10 +25,10 @@ size = comm.Get_size()
 app = FastAPI(title="Parallel MLX Stream Generation Server")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 executor = ThreadPoolExecutor()
@@ -84,7 +84,7 @@ def is_valid_message(msg: Any) -> bool:
     )
 
 
-async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat: bool = False, stream: bool = True):
+async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat: bool = False, stream: bool = True, background_tasks: BackgroundTasks = None):
     task_id = request.task_id or str(uuid.uuid4())
     prompts = []
     prompt_ids = []
@@ -94,14 +94,12 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                 status_code=400, detail="Messages are required for chat requests")
         messages = request.messages
         if isinstance(messages, list) and all(is_valid_message(msg) for msg in messages):
-            # Single conversation treated as one prompt
             prompts = [json.dumps(messages)]
             prompt_ids = [str(uuid.uuid4())]
             if request.verbose:
                 logger.info(
                     f"Task {task_id}: Processing single chat conversation with prompt_id {prompt_ids[0]}")
         elif isinstance(messages, list) and all(isinstance(msg_list, list) and all(is_valid_message(msg) for msg in msg_list) for msg_list in messages):
-            # Multiple conversations, each treated as a separate prompt
             prompts = [json.dumps(msg_list) for msg_list in messages]
             base_uuid = str(uuid.uuid4())
             prompt_ids = [f"{base_uuid}_{i}" for i in range(len(messages))]
@@ -227,7 +225,6 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
     async def stream_results():
         timeout = 90
         start_time = time.time()
-        chunk_buffer = []
         while active_workers and (time.time() - start_time) < timeout:
             for worker_rank in list(active_workers):
                 if comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
@@ -245,7 +242,7 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                             continue
                         if request.verbose:
                             logger.info(
-                                f"{time.time()}: Received message from worker {worker_rank}: {message}")
+                                f"{time.time()}: Yielding message from worker {worker_rank}: {message}")
                         prompt_id = message.get("prompt_id")
                         if not prompt_id or not task_manager.validate_prompt_id(task_id, prompt_id):
                             logger.error(
@@ -254,6 +251,7 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                         try:
                             task_manager.process_message(
                                 task_id, prompt_id, message)
+                            yield f"{json.dumps(message)}\n"
                         except Exception as e:
                             logger.error(
                                 f"Failed to process message for prompt {prompt_id}: {str(e)}", exc_info=True)
@@ -266,11 +264,11 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                                     if request.verbose:
                                         logger.info(
                                             f"{time.time()}: Worker {worker_rank} has completed all prompts")
-                        chunk_buffer.append(f"{json.dumps(message)}\n")
                     except Exception as e:
                         logger.error(
                             f"Error receiving message from worker {worker_rank}: {str(e)}", exc_info=True)
-                await asyncio.sleep(0.005)
+                # Reduced sleep to improve responsiveness
+                await asyncio.sleep(0.001)
             try:
                 task = task_manager.get_task(task_id)
                 all_done = all(prompt_data["status"] in [
@@ -284,9 +282,7 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             except Exception as e:
                 logger.error(
                     f"Failed to check task {task_id} status: {str(e)}")
-            await asyncio.sleep(0.005)
-        for chunk in chunk_buffer:
-            yield chunk
+            await asyncio.sleep(0.001)
         if active_workers:
             logger.error(
                 f"Timeout waiting for workers {active_workers} to respond for task {task_id}")
@@ -300,6 +296,7 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                             "task_id": task_id,
                             "message": "Worker timeout"
                         })
+                        yield f"{json.dumps({'type': 'error', 'prompt_id': prompt_id, 'task_id': task_id, 'message': 'Worker timeout'})}\n"
             except Exception as e:
                 logger.error(
                     f"Failed to mark timed-out prompts as failed: {str(e)}")
@@ -312,7 +309,11 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                 f"Failed to complete task {task_id}: {str(e)}", exc_info=True)
 
     if stream:
-        return StreamingResponse(stream_results(), media_type="application/json")
+        return StreamingResponse(
+            stream_results(),
+            media_type="application/json",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"}
+        )
     else:
         results = []
         timeout = 90
@@ -354,8 +355,8 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
                     except Exception as e:
                         logger.error(
                             f"Error receiving message from worker {worker_rank}: {str(e)}", exc_info=True)
-                await asyncio.sleep(0.005)
-            await asyncio.sleep(0.005)
+                await asyncio.sleep(0.001)
+            await asyncio.sleep(0.001)
         if active_workers:
             logger.error(
                 f"Timeout waiting for workers {active_workers} to respond for task {task_id}")
@@ -370,8 +371,8 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
 
 
 @app.post("/generate")
-async def generate(generate_request: GenerateRequest):
-    return await stream_generate(generate_request, is_chat=False, stream=True)
+async def generate(generate_request: GenerateRequest, background_tasks: BackgroundTasks):
+    return await stream_generate(generate_request, is_chat=False, stream=True, background_tasks=background_tasks)
 
 
 @app.post("/generate_non_stream")
@@ -380,8 +381,8 @@ async def generate_non_stream(generate_request: GenerateRequest):
 
 
 @app.post("/chat")
-async def chat(chat_request: ChatRequest):
-    return await stream_generate(chat_request, is_chat=True, stream=True)
+async def chat(chat_request: ChatRequest, background_tasks: BackgroundTasks):
+    return await stream_generate(chat_request, is_chat=True, stream=True, background_tasks=background_tasks)
 
 
 @app.post("/chat_non_stream")
