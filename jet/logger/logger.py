@@ -87,11 +87,12 @@ class CustomLogger:
                 # log_filtered_stack_trace(exc)
 
             if not end:
-                end = "" if flush else "\n\n"
+                end = "" if flush else "\n"
             print(output, end=end)
 
             # File handler logic
             if self.log_file:
+                end = "" if flush else "\n\n"
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 metadata = f"[{level.upper()}] {timestamp}"
                 message = " ".join(str(m) for m in messages)

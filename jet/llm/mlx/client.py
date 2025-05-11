@@ -5,6 +5,7 @@ import time
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
 from huggingface_hub import scan_cache_dir
+from jet.llm.mlx.config import DEFAULT_MODEL
 import mlx.core as mx
 from mlx_lm.server import ModelProvider, PromptCache, get_system_fingerprint, sequence_overlap, stopping_criteria, convert_chat, process_message_content
 from mlx_lm.generate import stream_generate
@@ -23,8 +24,6 @@ from jet.llm.mlx.mlx_types import (
     ModelValue,
 )
 from jet.llm.mlx.models import AVAILABLE_MODELS
-
-DEFAULT_MODEL: ModelValue = "mlx-community/Llama-3.2-3B-Instruct-4bit"
 
 
 class MLXLMClient:

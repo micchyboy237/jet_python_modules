@@ -3,6 +3,7 @@ import json
 import time
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
+from jet.llm.mlx.config import DEFAULT_MODEL
 from jet.llm.mlx.mlx_types import ModelKey, ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.utils import get_model_max_tokens
@@ -12,7 +13,6 @@ from psycopg.rows import dict_row
 # Assuming MLXLMClient is in a separate module
 from .client import MLXLMClient, ModelsResponse, CompletionResponse, Message, RoleMapping, Tool
 
-DEFAULT_MODEL: ModelKey = "llama-3.2-1b-instruct-4bit"
 
 # Typed dictionaries for structured data (reused from MLXLMClient for consistency)
 
