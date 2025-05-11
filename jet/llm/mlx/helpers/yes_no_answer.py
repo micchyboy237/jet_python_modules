@@ -49,7 +49,6 @@ class AnswerResult(TypedDict):
     error: Optional[str]
 
 
-# === Main Function ===
 def answer_yes_no(
     question: str,
     model_path: ModelType = DEFAULT_MODEL,
