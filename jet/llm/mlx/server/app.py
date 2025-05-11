@@ -1,10 +1,11 @@
+import argparse
 import asyncio
 import json
 import time
 import uuid
 import uvicorn
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional, Union, Dict
+from typing import List, Optional, Union, Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,7 +55,7 @@ class GenerateRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     model: ModelType = ModelTypeEnum.LLAMA_3_2_1B_INSTRUCT_4BIT
-    messages: Union[str, List[Message]]
+    messages: Union[List[Message], List[List[Message]]]
     max_tokens: int = 512
     temperature: float = 0.0
     top_p: float = 1.0
@@ -74,23 +75,42 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
 
 
+def is_valid_message(msg: Any) -> bool:
+    """Validate that msg is a dict with required Message fields."""
+    return (
+        isinstance(msg, dict) and
+        "role" in msg and isinstance(msg["role"], str) and
+        "content" in msg and isinstance(msg["content"], str)
+    )
+
+
 async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat: bool = False, stream: bool = True):
     task_id = request.task_id or str(uuid.uuid4())
     prompts = []
+    prompt_ids = []
     if is_chat:
         if not hasattr(request, 'messages') or not request.messages:
             raise HTTPException(
                 status_code=400, detail="Messages are required for chat requests")
         messages = request.messages
-        if isinstance(messages, str):
-            messages = [Message(role="user", content=messages)]
-        prompts = [json.dumps(messages)]
+        if isinstance(messages, list) and all(is_valid_message(msg) for msg in messages):
+            prompts = [json.dumps(messages)]
+            prompt_ids = [str(uuid.uuid4())]
+        elif isinstance(messages, list) and all(isinstance(msg_list, list) and all(is_valid_message(msg) for msg in msg_list) for msg_list in messages):
+            prompts = [json.dumps(msg_list) for msg_list in messages]
+            prompt_ids = [
+                f"{str(uuid.uuid4())}_{i}" for i in range(len(messages))]
+        else:
+            raise HTTPException(
+                status_code=400, detail="Invalid messages format: must be List[Message] or List[List[Message]]")
     else:
         if not hasattr(request, 'prompt') or not request.prompt:
             raise HTTPException(
                 status_code=400, detail="Prompt is required for generate requests")
         prompts = [request.prompt] if isinstance(
             request.prompt, str) else request.prompt
+        prompt_ids = [str(uuid.uuid4()) for _ in prompts]
+
     model_key = request.model
     if model_key not in AVAILABLE_MODELS:
         raise HTTPException(
@@ -105,10 +125,11 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             logger.info(
                 f"Model {model_key} validated: path={model_path}, max_context={max_context}, max_embeddings={max_embeddings}")
     except Exception as e:
-        logger.error(f"Failed to validate model {model_key}: {str(e)}")
+        logger.error(
+            f"Failed to validate model {model_key}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Model validation failed for {model_key}: {str(e)}")
-    prompt_ids = [str(uuid.uuid4()) for _ in prompts]
+
     try:
         task_manager.create_task(
             task_id=task_id,
@@ -135,19 +156,28 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             session_id=getattr(request, "session_id", None)
         )
     except Exception as e:
-        logger.error(f"Failed to create task {task_id}: {str(e)}")
+        logger.error(
+            f"Failed to create task {task_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to create task: {str(e)}")
+
+    if size < 2:
+        logger.error("No MPI workers available (size < 2)")
+        raise HTTPException(
+            status_code=500, detail="No MPI workers available to process the request")
+
     for worker_rank in range(1, size):
         while comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
             comm.recv(source=worker_rank, tag=MPI.ANY_TAG)
             if request.verbose:
                 logger.info(f"Cleared stale message from worker {worker_rank}")
+
     prompts_per_worker = [[] for _ in range(size - 1)]
     for i, (prompt, prompt_id) in enumerate(zip(prompts, prompt_ids)):
         worker_idx = i % (size - 1)
         prompts_per_worker[worker_idx].append(
             {"prompt": prompt, "prompt_id": prompt_id})
+
     active_workers = set()
     remaining_prompts = {}
     for worker_rank in range(1, size):
@@ -184,83 +214,159 @@ async def stream_generate(request: Union[GenerateRequest, ChatRequest], is_chat:
             comm.send(task, dest=worker_rank)
 
     async def stream_results():
-        while active_workers:
+        timeout = 90  # Increased timeout
+        start_time = time.time()
+        chunk_buffer = []  # Buffer chunks to avoid starting response prematurely
+
+        while active_workers and (time.time() - start_time) < timeout:
             for worker_rank in list(active_workers):
                 if comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
-                    message = comm.recv(source=worker_rank, tag=MPI.ANY_TAG)
-                    if message.get("task_id") != task_id:
-                        if request.verbose:
-                            logger.warning(
-                                f"Ignoring stale message from workerETX {worker_rank} with task_id {message.get('task_id')}")
-                        continue
-                    if request.verbose:
-                        logger.info(
-                            f"{time.time()}: Received message from worker {worker_rank}: {message}")
-                    prompt_id = message.get("prompt_id")
-                    if not task_manager.validate_prompt_id(task_id, prompt_id):
-                        logger.error(
-                            f"Invalid prompt_id {prompt_id} for task {task_id}")
-                        continue
                     try:
-                        task_manager.process_message(
-                            task_id, prompt_id, message)
+                        message = comm.recv(
+                            source=worker_rank, tag=MPI.ANY_TAG)
+                        if not isinstance(message, dict):
+                            logger.error(
+                                f"Invalid message from worker {worker_rank}: {message}")
+                            continue
+                        if message.get("task_id") != task_id:
+                            if request.verbose:
+                                logger.warning(
+                                    f"Ignoring stale message from worker {worker_rank} with task_id {message.get('task_id')}")
+                            continue
+                        if request.verbose:
+                            logger.info(
+                                f"{time.time()}: Received message from worker {worker_rank}: {message}")
+                        prompt_id = message.get("prompt_id")
+                        if not prompt_id or not task_manager.validate_prompt_id(task_id, prompt_id):
+                            logger.error(
+                                f"Invalid or missing prompt_id {prompt_id} for task {task_id}")
+                            continue
+                        try:
+                            task_manager.process_message(
+                                task_id, prompt_id, message)
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to process message for prompt {prompt_id}: {str(e)}", exc_info=True)
+                            continue
+                        if message["type"] in ["result", "error"]:
+                            if worker_rank in remaining_prompts:
+                                remaining_prompts[worker_rank] -= 1
+                                if remaining_prompts[worker_rank] <= 0:
+                                    active_workers.remove(worker_rank)
+                                    if request.verbose:
+                                        logger.info(
+                                            f"{time.time()}: Worker {worker_rank} has completed all prompts")
+                        chunk_buffer.append(f"{json.dumps(message)}\n")
                     except Exception as e:
                         logger.error(
-                            f"Failed to process message for prompt {prompt_id}: {str(e)}")
-                        continue
-                    if message["type"] == "result":
-                        remaining_prompts[worker_rank] -= 1
-                        if remaining_prompts[worker_rank] == 0:
-                            active_workers.remove(worker_rank)
-                            if request.verbose:
-                                logger.info(
-                                    f"{time.time()}: Worker {worker_rank} has completed all prompts")
-                    yield f"{json.dumps(message)}\n"
+                            f"Error receiving message from worker {worker_rank}: {str(e)}", exc_info=True)
+                await asyncio.sleep(0.005)
+
+            # Check TaskManager for task completion
+            try:
+                task = task_manager.get_task(task_id)
+                all_done = all(
+                    prompt_data["status"] in [
+                        TaskStatus.COMPLETED, TaskStatus.FAILED]
+                    for prompt_data in task["prompts"].values()
+                )
+                if all_done:
+                    active_workers.clear()
+                    if request.verbose:
+                        logger.info(
+                            f"All prompts for task {task_id} are completed or failed")
+                    break
+            except Exception as e:
+                logger.error(
+                    f"Failed to check task {task_id} status: {str(e)}")
+
             await asyncio.sleep(0.005)
+
+        # Yield buffered chunks
+        for chunk in chunk_buffer:
+            yield chunk
+
+        if active_workers:
+            logger.error(
+                f"Timeout waiting for workers {active_workers} to respond for task {task_id}")
+            # Mark remaining prompts as failed
+            try:
+                task = task_manager.get_task(task_id)
+                for prompt_id, prompt_data in task["prompts"].items():
+                    if prompt_data["status"] not in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
+                        task_manager.process_message(task_id, prompt_id, {
+                            "type": "error",
+                            "prompt_id": prompt_id,
+                            "task_id": task_id,
+                            "message": "Worker timeout"
+                        })
+            except Exception as e:
+                logger.error(
+                    f"Failed to mark timed-out prompts as failed: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Timeout waiting for workers {active_workers} to respond for task {task_id}")
+
         try:
             task_manager.complete_task(task_id)
         except Exception as e:
-            logger.error(f"Failed to complete task {task_id}: {str(e)}")
+            logger.error(
+                f"Failed to complete task {task_id}: {str(e)}", exc_info=True)
+
     if stream:
         return StreamingResponse(stream_results(), media_type="application/json")
     else:
         results = []
-        while active_workers:
+        timeout = 90
+        start_time = time.time()
+        while active_workers and (time.time() - start_time) < timeout:
             for worker_rank in list(active_workers):
                 if comm.Iprobe(source=worker_rank, tag=MPI.ANY_TAG):
-                    message = comm.recv(source=worker_rank, tag=MPI.ANY_TAG)
-                    if message.get("task_id") != task_id:
-                        if request.verbose:
-                            logger.warning(
-                                f"Ignoring stale message from worker {worker_rank} with task_id {message.get('task_id')}")
-                        continue
-                    if request.verbose:
-                        logger.info(
-                            f"{time.time()}: Received message from worker {worker_rank}: {message}")
-                    prompt_id = message.get("prompt_id")
-                    if not task_manager.validate_prompt_id(task_id, prompt_id):
-                        logger.error(
-                            f"Invalid prompt_id {prompt_id} for task {task_id}")
-                        continue
                     try:
-                        task_manager.process_message(
-                            task_id, prompt_id, message)
+                        message = comm.recv(
+                            source=worker_rank, tag=MPI.ANY_TAG)
+                        if message.get("task_id") != task_id:
+                            if request.verbose:
+                                logger.warning(
+                                    f"Ignoring stale message from worker {worker_rank} with task_id {message.get('task_id')}")
+                            continue
+                        if request.verbose:
+                            logger.info(
+                                f"{time.time()}: Received message from worker {worker_rank}: {message}")
+                        prompt_id = message.get("prompt_id")
+                        if not task_manager.validate_prompt_id(task_id, prompt_id):
+                            logger.error(
+                                f"Invalid prompt_id {prompt_id} for task {task_id}")
+                            continue
+                        try:
+                            task_manager.process_message(
+                                task_id, prompt_id, message)
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to process message for prompt {prompt_id}: {str(e)}", exc_info=True)
+                            continue
+                        if message["type"] == "result":
+                            results.append(message)
+                            remaining_prompts[worker_rank] -= 1
+                            if remaining_prompts[worker_rank] == 0:
+                                active_workers.remove(worker_rank)
+                        elif message["type"] == "error":
+                            logger.error(
+                                f"Worker {worker_rank} reported error for prompt {prompt_id}: {message.get('message')}")
                     except Exception as e:
                         logger.error(
-                            f"Failed to process message for prompt {prompt_id}: {str(e)}")
-                        continue
-                    if message["type"] == "result":
-                        results.append(message)
-                        remaining_prompts[worker_rank] -= 1
-                        if remaining_prompts[worker_rank] == 0:
-                            active_workers.remove(worker_rank)
-                    elif message["type"] == "error":
-                        pass
+                            f"Error receiving message from worker {worker_rank}: {str(e)}", exc_info=True)
+                await asyncio.sleep(0.005)
             await asyncio.sleep(0.005)
+        if active_workers:
+            logger.error(
+                f"Timeout waiting for workers {active_workers} to respond for task {task_id}")
+            raise HTTPException(
+                status_code=500, detail=f"Timeout waiting for workers to respond for task {task_id}")
         try:
             task_manager.complete_task(task_id)
         except Exception as e:
-            logger.error(f"Failed to complete task {task_id}: {str(e)}")
+            logger.error(
+                f"Failed to complete task {task_id}: {str(e)}", exc_info=True)
         return results
 
 
@@ -294,7 +400,7 @@ async def get_tasks():
     try:
         return {"tasks": task_manager.get_all_tasks()}
     except Exception as e:
-        logger.error(f"Failed to retrieve tasks: {str(e)}")
+        logger.error(f"Failed to retrieve tasks: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to retrieve tasks: {str(e)}")
 
@@ -309,7 +415,8 @@ async def get_task(task_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to retrieve task {task_id}: {str(e)}")
+        logger.error(
+            f"Failed to retrieve task {task_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to retrieve task: {str(e)}")
 
@@ -321,11 +428,11 @@ async def rerun_failed(task_id: str):
         task_manager.rerun_task(task_id, only_failed=True)
         return {"message": f"Successfully triggered rerun of failed prompts for task {task_id}"}
     except ValueError as e:
-        logger.error(f"Invalid task {task_id}: {str(e)}")
+        logger.error(f"Invalid task {task_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(
-            f"Failed to rerun failed prompts for task {task_id}: {str(e)}")
+            f"Failed to rerun failed prompts for task {task_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to rerun failed prompts: {str(e)}")
 
@@ -337,10 +444,11 @@ async def rerun_pending(task_id: str):
         task_manager.rerun_task(task_id, only_failed=False)
         return {"message": f"Successfully triggered rerun for task {task_id}"}
     except ValueError as e:
-        logger.error(f"Invalid task {task_id}: {str(e)}")
+        logger.error(f"Invalid task {task_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to rerun task {task_id}: {str(e)}")
+        logger.error(
+            f"Failed to rerun task {task_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to rerun task {task_id}: {str(e)}")
 
@@ -360,19 +468,14 @@ async def get_models():
                 return False
             file_names = {f.file_path.name for f in repo.refs["main"].files}
             return all(f in file_names for f in files)
-
-        # Scan the cache directory for downloaded MLX models
         hf_cache_info = scan_cache_dir()
         downloaded_models = [
             repo for repo in hf_cache_info.repos if probably_mlx_lm(repo)
         ]
-
-        # Create a list of available models with short_name
         models = []
         for repo in downloaded_models:
             repo_id = repo.repo_id
-            # Find the short_name by matching repo_id with AVAILABLE_MODELS values
-            short_name = repo_id  # Default to repo_id if no match
+            short_name = repo_id
             for key, model_path in AVAILABLE_MODELS.items():
                 if repo_id == model_path:
                     short_name = key
@@ -383,20 +486,24 @@ async def get_models():
                 "object": "model",
                 "created": created,
             })
-
         return {"object": "list", "data": models}
     except Exception as e:
-        logger.error(f"Failed to retrieve models: {str(e)}")
+        logger.error(f"Failed to retrieve models: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to retrieve models: {str(e)}")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Run the MLX Stream Generation Server")
+    parser.add_argument("--port", type=int, default=9000,
+                        help="Port to run the Uvicorn server on")
+    args = parser.parse_args()
     if rank == 0:
         logger.info(f"{time.time()}: Starting Uvicorn server on rank 0")
         uvicorn.run(
             "app:app",
             host="0.0.0.0",
-            port=9000,
+            port=args.port,
             reload=False,
             log_level="info",
             proxy_headers=True,

@@ -8,6 +8,7 @@ from typing import List, Dict, Optional, Union, Literal, Generator
 from pydantic import BaseModel, Field, ValidationError
 from fastapi import HTTPException
 from jet.logger import logger
+
 BASE_URL = "http://localhost:9000"
 
 
@@ -26,23 +27,27 @@ class Delta(BaseModel):
 
 class BaseCompletionRequest(BaseModel):
     temperature: Optional[float] = Field(
-        default=1.0, description="Sampling temperature", ge=0.0)
+        default=0.0, description="Sampling temperature", ge=0.0)
     top_p: Optional[float] = Field(
         default=1.0, description="Nucleus sampling parameter", ge=0.0, le=1.0)
     max_tokens: Optional[int] = Field(
-        default=100, description="Maximum number of tokens to generate", ge=1)
+        default=512, description="Maximum number of tokens to generate", ge=1)
     stream: Optional[bool] = Field(
         default=False, description="Whether to stream the response")
     stop: Optional[Union[str, List[str]]] = Field(
         default=None, description="Sequences where generation should stop")
     repetition_penalty: Optional[float] = Field(
-        default=1.0, description="Penalty for repeated tokens", ge=1.0)
+        default=None, description="Penalty for repeated tokens", ge=1.0)
     repetition_context_size: Optional[int] = Field(
         default=20, description="Context window size for repetition penalty", ge=1)
+    xtc_probability: Optional[float] = Field(
+        default=0.0, description="Probability for XTC", ge=0.0, le=1.0)
+    xtc_threshold: Optional[float] = Field(
+        default=0.0, description="Threshold for XTC", ge=0.0)
     logit_bias: Optional[Dict[int, float]] = Field(
         default=None, description="Token ID to bias value mapping")
     logprobs: Optional[int] = Field(
-        default=None, description="Number of top tokens and log probabilities to return", ge=1, le=10)
+        default=-1, description="Number of top tokens and log probabilities to return", ge=-1)
     model: Optional[str] = Field(
         default=None, description="Path to local model or Hugging Face repo ID")
     adapters: Optional[str] = Field(
@@ -51,17 +56,30 @@ class BaseCompletionRequest(BaseModel):
         default=None, description="Smaller model for speculative decoding")
     num_draft_tokens: Optional[int] = Field(
         default=3, description="Number of draft tokens for draft model", ge=1)
+    verbose: Optional[bool] = Field(
+        default=False, description="Whether to enable verbose logging")
+    worker_verbose: Optional[bool] = Field(
+        default=False, description="Whether to enable verbose logging for workers")
+    task_id: Optional[str] = Field(
+        default=None, description="Unique identifier for the task")
 
 
 class ChatCompletionRequest(BaseCompletionRequest):
-    messages: List[Message] = Field(
-        ..., description="Array of message objects representing conversation history")
+    messages: Union[str, List[Message]] = Field(
+        ..., description="String or array of message objects representing conversation history")
     role_mapping: Optional[Dict[str, str]] = Field(
         default=None, description="Custom role prefixes for prompt generation")
+    tools: Optional[List[Dict]] = Field(
+        default=None, description="List of tools available for the model")
+    system_prompt: Optional[str] = Field(
+        default=None, description="System prompt for the conversation")
+    session_id: Optional[str] = Field(
+        default=None, description="Unique identifier for the session")
 
 
 class TextCompletionRequest(BaseCompletionRequest):
-    prompt: str = Field(..., description="Input prompt for text completion")
+    prompt: Union[str, List[str]] = Field(
+        ..., description="Input prompt or prompts for text completion")
 
 
 class Usage(BaseModel):
@@ -142,7 +160,6 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
         if response_type == "result":
             finish_reason = "length" if server_response.get(
                 "truncated", False) else "stop"
-            # Compute usage for final response
             prompt_tokens = estimate_tokens(prompt)
             completion_tokens = estimate_tokens(accumulated_content)
             usage = Usage(
@@ -176,7 +193,7 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
                     chunk = json.loads(line)
                     server_response = ParallelCompletionResponse(**chunk)
                     if prompt is None:
-                        prompt = server_response.prompt  # Set prompt from first chunk
+                        prompt = server_response.prompt
                     if server_response.content:
                         accumulated_content += server_response.content
                     unified_response = transform_to_unified(
@@ -207,6 +224,7 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
         logger.error("Empty response received from the server")
         raise HTTPException(
             status_code=500, detail="Empty response from MLX LM server")
+
     try:
         response_json = response.json()
         server_response = ParallelCompletionResponse(**response_json)
@@ -231,9 +249,10 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
 
 def chat(request: ChatCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
     try:
-        # Transform messages into the format expected by parallel_chat_generate
+        # Convert string messages to List[Message] if necessary
+        if isinstance(request.messages, str):
+            request.messages = [Message(role="user", content=request.messages)]
         request_payload = request.dict(exclude_none=True)
-        # Map model repo ID to short_name from /models endpoint
         if request_payload.get("model"):
             models_response = list_models()
             for model_info in models_response.data:
@@ -275,8 +294,10 @@ def chat(request: ChatCompletionRequest) -> Union[UnifiedCompletionResponse, Gen
 
 def generate(request: TextCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
     try:
+        # Convert string prompt to List[str] if necessary
+        if isinstance(request.prompt, str):
+            request.prompt = [request.prompt]
         request_payload = request.dict(exclude_none=True)
-        # Map model repo ID to short_name from /models endpoint
         if request_payload.get("model"):
             models_response = list_models()
             for model_info in models_response.data:

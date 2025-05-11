@@ -13,7 +13,6 @@ rank = comm.Get_rank()
 
 def parallel_stream_generate(
     model: ModelType,
-    # Updated to expect list of {"prompt": ..., "prompt_id": ...}
     prompts: List[Dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.0,
@@ -94,7 +93,6 @@ def parallel_stream_generate(
                             "prompt_id": prompt_id,
                             "task_id": task_id
                         }, dest=0)
-                    # Send final result for streaming
                     comm.send({
                         "type": "result",
                         "prompt": prompt,
@@ -150,7 +148,6 @@ def parallel_stream_generate(
 
 def parallel_chat_generate(
     model: ModelType,
-    # Updated to expect list of {"prompt": ..., "prompt_id": ...}
     messages: List[Dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.0,
@@ -199,14 +196,16 @@ def parallel_chat_generate(
             message_str = message_data["prompt"]
             prompt_id = message_data["prompt_id"]
             try:
-                message_list = json.loads(message_str)
-                if not isinstance(message_list, list) or not all(isinstance(m, dict) and "role" in m and "content" in m for m in message_list):
+                if not isinstance(message_str, str):
                     raise ValueError(
-                        f"Messages must be a list of dictionaries with 'role' and 'content' keys, got {message_str}")
+                        f"Message prompt must be a string, got {type(message_str)}")
                 if not isinstance(prompt_id, str):
                     raise ValueError(
                         f"Prompt ID must be a string, got {type(prompt_id)}")
-                messages_typed: List[Message] = message_list
+                messages_typed = json.loads(message_str)
+                if not isinstance(messages_typed, list) or not all(isinstance(msg, dict) and "role" in msg and "content" in msg for msg in messages_typed):
+                    raise ValueError(
+                        f"Messages must be a list of dictionaries with 'role' and 'content' keys, got {message_str}")
                 if worker_verbose:
                     logger.info(
                         f"Rank {rank}: Generating for messages: {messages_typed} with prompt_id: {prompt_id}")
@@ -242,7 +241,6 @@ def parallel_chat_generate(
                             "prompt_id": prompt_id,
                             "task_id": task_id
                         }, dest=0)
-                    # Send final result for streaming
                     comm.send({
                         "type": "result",
                         "prompt": message_str,
@@ -287,7 +285,7 @@ def parallel_chat_generate(
                         "truncated": tokens_generated >= max_tokens
                     }, dest=0)
             except Exception as e:
-                error_msg = f"Rank {rank}: Prompt KEID {prompt_id} failed: {str(e)}"
+                error_msg = f"Rank {rank}: Prompt ID {prompt_id} failed: {str(e)}"
                 if worker_verbose:
                     logger.error(error_msg)
                 comm.send({
