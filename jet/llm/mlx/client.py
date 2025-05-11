@@ -689,7 +689,7 @@ class MLXLMClient:
                     finish_reason = "stop"
                     # Trim text up to stop_text
                     text = text[:text.index(stop_text)]
-                    segment = segment[:segment.index(stop_text.strip())]
+                    segment = segment[:segment.index(stop_text)]
                     break
 
             yield self._generate_response(
@@ -799,7 +799,7 @@ class MLXLMClient:
                     if stop_text in text:
                         # Trim text up to stop_text
                         text = text[:text.index(stop_text)]
-                        segment = segment[:segment.index(stop_text.strip())]
+                        segment = segment[:segment.index(stop_text)]
                         break
 
                 responses.append(self._generate_response(
@@ -867,7 +867,7 @@ class MLXLMClient:
                     if stop_text in text:
                         # Trim text up to stop_text
                         text = text[:text.index(stop_text)]
-                        segment = segment[:segment.index(stop_text.strip())]
+                        segment = segment[:segment.index(stop_text)]
                         break
 
                 if finish_reason:
