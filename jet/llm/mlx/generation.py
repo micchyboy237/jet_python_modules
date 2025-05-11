@@ -231,7 +231,20 @@ def _handle_response(response: requests.Response, is_stream: bool) -> Union[Unif
 
 def chat(request: ChatCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
     try:
+        # Transform messages into the format expected by parallel_chat_generate
         request_payload = request.dict(exclude_none=True)
+        # Map model repo ID to short_name from /models endpoint
+        if request_payload.get("model"):
+            models_response = list_models()
+            for model_info in models_response.data:
+                if model_info.id == request_payload["model"]:
+                    request_payload["model"] = model_info.short_name
+                    break
+            else:
+                logger.error(
+                    f"Model {request_payload['model']} not found in available models")
+                raise HTTPException(
+                    status_code=400, detail=f"Model {request_payload['model']} not found")
         endpoint = "/chat" if request.stream else "/chat_non_stream"
         logger.info(f"Sending request to {BASE_URL}{endpoint}...")
         logger.gray("Request payload:")
@@ -244,11 +257,12 @@ def chat(request: ChatCompletionRequest) -> Union[UnifiedCompletionResponse, Gen
         )
         return _handle_response(response, is_stream=request.stream)
     except requests.exceptions.HTTPError as e:
+        error_detail = e.response.text if e.response else str(e)
         logger.error(
-            f"HTTP error: {str(e)}, Response content: {e.response.text if e.response else 'N/A'}")
+            f"HTTP error: {str(e)}, Response content: {error_detail}")
         raise HTTPException(
             status_code=e.response.status_code if e.response else 500,
-            detail=f"MLX LM server error: {str(e)}")
+            detail=f"MLX LM server error: {error_detail}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {str(e)}")
         raise HTTPException(
@@ -286,11 +300,12 @@ def generate(request: TextCompletionRequest) -> Union[UnifiedCompletionResponse,
         )
         return _handle_response(response, is_stream=request.stream)
     except requests.exceptions.HTTPError as e:
+        error_detail = e.response.text if e.response else str(e)
         logger.error(
-            f"HTTP error: {str(e)}, Response content: {e.response.text if e.response else 'N/A'}")
+            f"HTTP error: {str(e)}, Response content: {error_detail}")
         raise HTTPException(
             status_code=e.response.status_code if e.response else 500,
-            detail=f"MLX LM server error: {str(e)}")
+            detail=f"MLX LM server error: {error_detail}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {str(e)}")
         raise HTTPException(
@@ -318,10 +333,11 @@ def list_models() -> ModelsResponse:
         logger.success(format_json(structured_response.dict()))
         return structured_response
     except requests.exceptions.HTTPError as e:
+        error_detail = e.response.text if e.response else str(e)
         logger.error(
-            f"HTTP error: {str(e)}, Response content: {e.response.text if e.response else 'N/A'}")
+            f"HTTP error: {str(e)}, Response content: {error_detail}")
         raise HTTPException(
-            status_code=500, detail=f"MLX LM server error: {str(e)}")
+            status_code=500, detail=f"MLX LM server error: {error_detail}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {str(e)}")
         raise HTTPException(
