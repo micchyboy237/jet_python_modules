@@ -1,10 +1,12 @@
+from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.models import resolve_model
 import mlx.core as mx
 from mlx_lm import load, generate
 from mlx_lm.sample_utils import make_sampler
 import random
 
 
-def predict_next_word(sentence, top_n=5, model_name="mlx-community/Llama-3.2-3B-Instruct-4bit"):
+def predict_next_word(sentence, top_n=5, model_name: ModelType = "llama-3.2-3b-instruct-4bit"):
     """
     Predict the top N most likely next words for an unfinished sentence.
 
@@ -17,15 +19,15 @@ def predict_next_word(sentence, top_n=5, model_name="mlx-community/Llama-3.2-3B-
         dict: Contains predicted words, their probabilities, and additional info.
     """
     # Load model and tokenizer
-    model, tokenizer = load(model_name)
+    model, tokenizer = load(resolve_model(model_name))
 
     # Prepare prompt
     prompt = sentence
-    if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
-        messages = [
-            {"role": "user", "content": f"Predict the next word: {prompt}"}]
-        prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True)
+    # if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
+    #     messages = [
+    #         {"role": "user", "content": f"Predict the next word: {prompt}"}]
+    #     prompt = tokenizer.apply_chat_template(
+    #         messages, tokenize=False, add_generation_prompt=True)
 
     # Tokenize input
     tokens = tokenizer.encode(prompt)
@@ -62,7 +64,7 @@ def predict_next_word(sentence, top_n=5, model_name="mlx-community/Llama-3.2-3B-
     return results
 
 
-def predict_finishing_words(sentence, top_n=5, model_name="mlx-community/Llama-3.2-3B-Instruct-4bit"):
+def predict_finishing_words(sentence, top_n=5, model_name: ModelType = "llama-3.2-3b-instruct-4bit"):
     """
     Predict the top N most likely finishing words for an unfinished sentence.
 
@@ -75,15 +77,15 @@ def predict_finishing_words(sentence, top_n=5, model_name="mlx-community/Llama-3
         dict: Contains predicted finishing words, their probabilities, and additional info.
     """
     # Load model and tokenizer
-    model, tokenizer = load(model_name)
+    model, tokenizer = load(resolve_model(model_name))
 
     # Prepare prompt
     prompt = sentence
-    if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
-        messages = [
-            {"role": "user", "content": f"Complete the sentence: {prompt}"}]
-        prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True)
+    # if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
+    #     messages = [
+    #         {"role": "user", "content": f"Complete the sentence: {prompt}"}]
+    #     prompt = tokenizer.apply_chat_template(
+    #         messages, tokenize=False, add_generation_prompt=True)
 
     # Tokenize input
     tokens = tokenizer.encode(prompt)
@@ -125,7 +127,7 @@ def predict_finishing_words(sentence, top_n=5, model_name="mlx-community/Llama-3
     return results
 
 
-def predict_top_completions(sentence, top_n=5, model_name="mlx-community/Llama-3.2-3B-Instruct-4bit"):
+def predict_top_completions(sentence, top_n=5, model_name: ModelType = "llama-3.2-3b-instruct-4bit"):
     """
     Predict the top N most likely sentence completions for an unfinished sentence.
 
@@ -138,15 +140,15 @@ def predict_top_completions(sentence, top_n=5, model_name="mlx-community/Llama-3
         dict: Contains predicted completions, their relative probabilities, and additional info.
     """
     # Load model and tokenizer
-    model, tokenizer = load(model_name)
+    model, tokenizer = load(resolve_model(model_name))
 
     # Prepare prompt
     prompt = sentence
-    if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
-        messages = [
-            {"role": "user", "content": f"Complete the sentence: {prompt}"}]
-        prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True)
+    # if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
+    #     messages = [
+    #         {"role": "user", "content": f"Complete the sentence: {prompt}"}]
+    #     prompt = tokenizer.apply_chat_template(
+    #         messages, tokenize=False, add_generation_prompt=True)
 
     # Generate multiple completions with varying parameters
     completions = []
