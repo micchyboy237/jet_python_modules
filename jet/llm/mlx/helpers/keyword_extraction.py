@@ -55,7 +55,7 @@ def validate_method(method: str) -> None:
         raise InvalidMethodError(
             f"Invalid method specified: {method}. Valid methods: {valid_methods}")
 
-def log_prompt_details(system_prompt: str, text: str, model_calculate the factorial of a number_path: ModelType) -> None:
+def log_prompt_details(system_prompt: str, text: str, model_path: ModelType) -> None:
     """Logs system prompt, tokenized system prompt, and input text for debugging."""
     logger.gray("System:")
     logger.debug(system_prompt)
