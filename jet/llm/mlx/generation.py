@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from jet.logger import logger
 from jet.llm.mlx.model_cache import MODEL_CACHE, MODEL_LIST_CACHE_LOCK
 from jet.llm.mlx.mlx_class_types import (
+    ChatCompletionRequest,
     Message,
     Usage,
     UnifiedCompletionResponse,
