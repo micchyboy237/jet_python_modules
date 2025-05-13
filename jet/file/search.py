@@ -7,15 +7,8 @@ from jet.logger import logger
 
 DEFAULT_EXCLUDES = [
     "**/.git",
-    "**/node_modules",
-    "**/dist",
-    "**/build",
-    "**/public",
-    "**/vector_db",
-    "**/generated",
     "**/.?cache*",
     "**/__pycache__",
-    "/Users/jethroestrada/Desktop/External_Projects/PortfolioBaseTemplates/firebase-resume"
 ]
 
 
