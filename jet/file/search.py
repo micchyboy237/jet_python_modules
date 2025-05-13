@@ -6,8 +6,6 @@ from jet.file.validation import validate_match
 from jet.logger import logger
 
 DEFAULT_EXCLUDES = [
-    "**/.git",
-    "**/.?cache*",
     "**/__pycache__",
 ]
 
