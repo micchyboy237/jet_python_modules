@@ -26,7 +26,7 @@ def traverse_directory(
     limit: Optional[int] = None,
     direction: str = "forward",
     max_backward_depth: Optional[int] = None,
-    max_forward_depth: Optional[int] = 3
+    max_forward_depth: Optional[int] = 3  # Added max_forward_depth
 ) -> Generator[tuple[str, int], None, None]:
     """
     Generator that traverses directories and yields folder paths 
@@ -42,9 +42,12 @@ def traverse_directory(
     """
     excludes = list(set(DEFAULT_EXCLUDES + excludes))
     visited_paths = set()  # Prevent circular references
-    passed_paths = set()  # Track passed paths
+    passed_paths = set()  # Prevent circular references
     yielded_count = 0
-    base_dir = os.path.abspath(base_dir)
+    current_forward_depth = 0
+    current_backward_depth = 0
+    current_dir = os.path.abspath(base_dir)
+    passed_dirs_dict = {}
 
     def match_patterns(path: str, patterns: list[str]) -> bool:
         """Checks if a path matches any of the given patterns."""
@@ -58,15 +61,8 @@ def traverse_directory(
                 return True
         return False
 
-    def calculate_depth(folder_path: str) -> int:
-        """Calculate the depth of a folder relative to base_dir."""
-        relative_path = os.path.relpath(folder_path, base_dir)
-        if relative_path == ".":
-            return 0
-        return len([p for p in relative_path.split(os.sep) if p])
-
-    def search_dir(directory: str) -> Generator[tuple[str, int], None, None]:
-        """Traverses a single directory and yields matching paths with their depths."""
+    def search_dir(directory: str) -> Generator[str, None, None]:
+        """Traverses a single directory and yields matching paths."""
         nonlocal yielded_count
         for root, dirs, _ in os.walk(directory, followlinks=False):
             root_matches_patterns = validate_match(root, includes, excludes)
@@ -74,42 +70,73 @@ def traverse_directory(
             if not root_matches_patterns:
                 continue
 
-            root_includes_real_path = any(
-                include in root for include in includes
-                if include.startswith("/") and os.path.exists(include)
-            )
-            root_excludes_real_path = any(
-                exclude in root for exclude in excludes
-                if exclude.startswith("/") and os.path.exists(exclude)
-            )
-            root_already_passed = any(
-                path.startswith(root) for path in passed_paths
-            )
+            root_includes_real_path = any(include in root for include in includes
+                                          if include.startswith("/") and os.path.exists(include))
+            root_excludes_real_path = any(exclude in root for exclude in excludes
+                                          if exclude.startswith("/") and os.path.exists(exclude))
+
+            root_already_passed = any([path.startswith(root)
+                                       for path in list(passed_paths)])
 
             include_passed = root_matches_patterns or root_includes_real_path
             exclude_passed = root_already_passed or root_excludes_real_path
             passes = include_passed and not exclude_passed
 
             if passes:
-                current_depth = calculate_depth(root)
-                if max_forward_depth is None or current_depth <= max_forward_depth:
-                    yield root, current_depth
-                    yielded_count += 1
-                    passed_paths.add(root)
-                    if limit and yielded_count >= limit:
-                        return
+                yield root, current_forward_depth
+                yielded_count += 1
+
+                passed_paths.add(root)
+                if limit and yielded_count >= limit:
+                    return
+
+            # root_passes_include = match_patterns(root, includes) or any(
+            #     include in root for include in includes)
+
+            # if root_passes_include:
+            #     yield root
+            #     yielded_count += 1
+            #     if limit and yielded_count >= limit:
+            #         return
+
+            # for folder in dirs:
+            #     folder_path = os.path.join(root, folder)
+            #     real_path = os.path.realpath(folder_path)
+
+            #     if real_path in visited_paths:
+            #         continue
+            #     visited_paths.add(real_path)
+
+            #     if match_patterns(folder_path, excludes) or any(exclude in folder_path for exclude in excludes):
+            #         continue
+            #     if match_patterns(folder_path, includes) or any(include in folder_path for include in includes):
+            #         yield folder_path
+            #         yielded_count += 1
+            #         if limit and yielded_count >= limit:
+            #             return
 
     # Traverse forward
     if direction in {"forward", "both"}:
-        for folder_path, depth in search_dir(base_dir):
-            yield folder_path, depth
+        while True:
+            search_results_stream = search_dir(current_dir)
+            depth_key = str(current_forward_depth)
+            passed_dirs = passed_dirs_dict.get(depth_key) or []
+            passed_dirs_dict[depth_key] = passed_dirs
+            for folder_path, current_depth in search_results_stream:
+                passed_dirs.append(folder_path)
+                yield folder_path, current_depth
+
+            if max_forward_depth is not None and current_forward_depth >= max_forward_depth:
+                break
+
+            logger.log(f"Depth:", depth_key, "|", f"Dirs:", len(
+                passed_dirs_dict[depth_key]), colors=["WHITE", "DEBUG", "GRAY", "WHITE", "SUCCESS"])
+            current_forward_depth += 1
             if limit and yielded_count >= limit:
                 return
 
     # Traverse backward
     elif direction in {"backward", "both"}:
-        current_dir = base_dir
-        current_backward_depth = 0
         while True:
             parent_dir = os.path.dirname(current_dir)
             if parent_dir == current_dir:  # Root directory reached
@@ -119,8 +146,10 @@ def traverse_directory(
             if max_backward_depth is not None and current_backward_depth > max_backward_depth:
                 break
             if match_patterns(current_dir, includes) or any(include in current_dir for include in includes):
-                yield current_dir, current_backward_depth
+                print("MATCHED:", current_dir)
+                yield current_dir
                 yielded_count += 1
+
             if limit and yielded_count >= limit:
                 return
 
