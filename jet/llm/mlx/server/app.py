@@ -531,7 +531,7 @@ async def get_models():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run the MLX Stream Generation Server")
-    parser.add_argument("--port", type=int, default=9000,
+    parser.add_argument("--port", type=int, default=8003,
                         help="Port to run the Uvicorn server on")
     args = parser.parse_args()
     if rank == 0:

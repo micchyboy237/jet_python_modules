@@ -19,7 +19,7 @@ from jet.llm.mlx.mlx_class_types import (
     ParallelCompletionResponse,
 )
 
-BASE_URL = "http://localhost:9000"
+BASE_URL = "http://localhost:8003"
 
 
 def _handle_response(response: requests.Response, is_stream: bool) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
