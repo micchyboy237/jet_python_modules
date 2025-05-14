@@ -85,6 +85,8 @@ class ReadabilityScores(TypedDict):
 class ReadabilityResult(TypedDict):
     scores: ReadabilityScores
     categories: Dict[str, str]
+    mltd: float
+    mltd_category: ScoresCategoryType
     overall_difficulty: float
     overall_difficulty_category: OverallDifficultyCategoryType
     overall_difficulty_description: str
@@ -221,7 +223,7 @@ def calculate_mtld_category(mtld_score: float, medium_threshold: float = 60.0) -
     very_low_threshold = medium_threshold * \
         0.67  # e.g., 40 if medium_threshold = 60
     low_threshold = medium_threshold
-    high_threshold = medium_threshold * 1.33  # e.g., 80 if medium_threshold = 60
+    high_threshold = medium_threshold * 1.66  # e.g., 100 if medium_threshold = 60
 
     if mtld_score < very_low_threshold:
         return "very_low"
@@ -513,15 +515,24 @@ def analyze_readability(text: str) -> ReadabilityResult:
         weight = weights.get(metric, 0)
         weighted_scores[category_label] += weight
 
+    mltd_scores: MLTDScores = {
+        "text_without_punctuation": ts.remove_punctuation(text),
+        "lexicon_count": ts.lexicon_count(text, removepunct=True),
+    }
+    mltd = calculate_mtld(mltd_scores)
+    mltd_category = calculate_mtld_category(mltd)
+
     overall_difficulty = calculate_overall_difficulty(scores, thresholds)
     overall_difficulty_category = calculate_overall_difficulty_category(
         overall_difficulty)
 
     return {
-        'scores': scores,
-        'categories': categories,
+        "mltd": mltd,
+        "mltd_category": mltd_category,
+        # Overall Difficulty
         'overall_difficulty': overall_difficulty,
         'overall_difficulty_category': overall_difficulty_category,
-        # Overall Difficulty
-        "overall_difficulty_description": get_readability_description(overall_difficulty_category)
+        "overall_difficulty_description": get_readability_description(overall_difficulty_category),
+        'categories': categories,
+        'scores': scores,
     }

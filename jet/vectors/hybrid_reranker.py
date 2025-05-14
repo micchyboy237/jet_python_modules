@@ -1,4 +1,4 @@
-from typing import List, Tuple, TypedDict
+from typing import List, Optional, Tuple, TypedDict
 import numpy as np
 import torch
 import faiss
@@ -45,7 +45,7 @@ def retrieve_candidates(embedder: SentenceTransformer, index: faiss.IndexFlatL2,
     """Retrieve top-k candidates using sentence transformer embeddings."""
     query_embedding: np.ndarray = embedder.encode(
         [query], convert_to_tensor=False)
-    distances, indices = index.search(query_embedding, k)
+    distances, indices = index.search(query_embedding, k=k)
     return indices[0], distances[0]
 
 
@@ -59,7 +59,7 @@ def rerank_candidates(cross_encoder: CrossEncoder, query: str, documents: List[s
 
 
 def search_documents(query: str, documents: List[str], embed_model: SentenceTransformer,
-                     rerank_model: CrossEncoder, k: int = 10) -> SearchResults:
+                     rerank_model: CrossEncoder, k: Optional[int] = 10) -> SearchResults:
     """
     Perform document search with retrieval and reranking.
 
@@ -68,11 +68,13 @@ def search_documents(query: str, documents: List[str], embed_model: SentenceTran
         documents: List of document strings
         embed_model: Sentence transformer model for initial retrieval
         rerank_model: Cross-encoder model for reranking
-        k: Number of candidates to retrieve initially
+        k: Number of candidates to retrieve initially (set 'None' to return all)
 
     Returns:
         SearchResults dictionary containing reranked and candidate indices and scores
     """
+    if k == None:
+        k = len(documents)
     index, _ = create_index(embed_model, documents)
     candidate_indices, candidate_distances = retrieve_candidates(
         embed_model, index, query, k)
@@ -89,7 +91,7 @@ def search_documents(query: str, documents: List[str], embed_model: SentenceTran
 
 def calculate_scores(query: str, documents: List[str], search_results: SearchResults) -> ScoreResults:
     """
-    Calculate distance, raw score, and normalized score for each document.
+    Calculate distance, raw score, and normalized score for each document, sorted by raw score descending.
 
     Args:
         query: Search query
@@ -112,11 +114,18 @@ def calculate_scores(query: str, documents: List[str], search_results: SearchRes
     # Normalize scores using sigmoid function
     normalized_scores = 1 / (1 + np.exp(-raw_scores))
 
+    # Sort by raw_scores in descending order
+    sort_indices = np.argsort(raw_scores)[::-1]
+    sorted_indices = candidate_indices[sort_indices]
+    sorted_distances = candidate_distances[sort_indices]
+    sorted_raw_scores = raw_scores[sort_indices]
+    sorted_normalized_scores = normalized_scores[sort_indices]
+
     return {
-        "indices": candidate_indices,
-        "distances": candidate_distances,
-        "raw_scores": raw_scores,
-        "normalized_scores": normalized_scores
+        "indices": sorted_indices,
+        "distances": sorted_distances,
+        "raw_scores": sorted_raw_scores,
+        "normalized_scores": sorted_normalized_scores
     }
 
 
@@ -147,7 +156,7 @@ def main() -> None:
     for idx, score in zip(results["reranked_indices"], results["reranked_scores"]):
         print(f"Doc {idx}: {documents[idx]} (Score: {score:.4f})")
 
-    print("\nCombined scores:")
+    print("\nCombined scores (sorted by raw score descending):")
     score_results: ScoreResults = calculate_scores(query, documents, results)
     for idx, dist, raw_score, norm_score in zip(
         score_results["indices"],
