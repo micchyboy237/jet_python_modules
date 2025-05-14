@@ -105,7 +105,7 @@ class HeaderDocument(Document):
     def get_metadata_str(self, mode: MetadataMode = MetadataMode.ALL):
         usable_metadata_keys = [
             "doc_index",
-            "chunk_idx"
+            "chunk_idx",
             "parent_header",
             "header",
         ]
