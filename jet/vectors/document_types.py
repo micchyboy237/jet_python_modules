@@ -115,8 +115,12 @@ class HeaderTextNode(TextNode):
         if not metadata_str:
             return self.text
 
+        content = self.text
+        if self.text.startswith(self.metadata["header"]):
+            content = "\n".join(self.text.splitlines()[1:])
+
         return self.text_template.format(
-            parent_header=self.metadata["parent_header"] or "", header=self.metadata["header"], content="\n".join(self.text.splitlines()[1:]), metadata_str=metadata_str
+            parent_header=self.metadata["parent_header"] or "", header=self.metadata["header"], content=content, metadata_str=metadata_str
         ).strip()
 
     @override
