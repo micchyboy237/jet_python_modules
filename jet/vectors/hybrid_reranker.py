@@ -17,6 +17,13 @@ class SearchResults(TypedDict):
     candidate_distances: np.ndarray
 
 
+class ScoreResults(TypedDict):
+    indices: np.ndarray
+    distances: np.ndarray
+    raw_scores: np.ndarray
+    normalized_scores: np.ndarray
+
+
 def load_models() -> Models:
     """Load sentence transformer and cross-encoder models."""
     embedder = SentenceTransformer('all-MiniLM-L6-v2')
@@ -80,6 +87,39 @@ def search_documents(query: str, documents: List[str], embed_model: SentenceTran
     }
 
 
+def calculate_scores(query: str, documents: List[str], search_results: SearchResults) -> ScoreResults:
+    """
+    Calculate distance, raw score, and normalized score for each document.
+
+    Args:
+        query: Search query
+        documents: List of document strings
+        search_results: SearchResults dictionary from search_documents
+
+    Returns:
+        ScoreResults dictionary containing indices, distances, raw scores, and normalized scores
+    """
+    candidate_indices = search_results["candidate_indices"]
+    candidate_distances = search_results["candidate_distances"]
+    reranked_indices = search_results["reranked_indices"]
+    reranked_scores = search_results["reranked_scores"]
+
+    # Map reranked scores to original candidate indices
+    raw_scores = np.zeros_like(candidate_distances)
+    for idx, score in zip(reranked_indices, reranked_scores):
+        raw_scores[np.where(candidate_indices == idx)[0]] = score
+
+    # Normalize scores using sigmoid function
+    normalized_scores = 1 / (1 + np.exp(-raw_scores))
+
+    return {
+        "indices": candidate_indices,
+        "distances": candidate_distances,
+        "raw_scores": raw_scores,
+        "normalized_scores": normalized_scores
+    }
+
+
 def main() -> None:
     documents: List[str] = [
         "The quick brown fox jumps over the lazy dog.",
@@ -106,6 +146,19 @@ def main() -> None:
     print("\nReranked results:")
     for idx, score in zip(results["reranked_indices"], results["reranked_scores"]):
         print(f"Doc {idx}: {documents[idx]} (Score: {score:.4f})")
+
+    print("\nCombined scores:")
+    score_results: ScoreResults = calculate_scores(query, documents, results)
+    for idx, dist, raw_score, norm_score in zip(
+        score_results["indices"],
+        score_results["distances"],
+        score_results["raw_scores"],
+        score_results["normalized_scores"]
+    ):
+        print(f"Doc {idx}: {documents[idx]}")
+        print(f"  Distance: {dist:.4f}")
+        print(f"  Raw Score: {raw_score:.4f}")
+        print(f"  Normalized Score: {norm_score:.4f}")
 
 
 if __name__ == "__main__":
