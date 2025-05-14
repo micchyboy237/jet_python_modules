@@ -28,6 +28,7 @@ class HeaderItem(TypedDict):
 
 class Header(TypedDict):
     header: str
+    parent_header: str
     header_level: int
     length: int
     content: str
@@ -175,13 +176,18 @@ def get_header_contents(md_text: str,
     return hierarchy
 
 
-def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, str]] = [], ignore_links: bool = True) -> list[Header]:
+def get_md_header_contents(
+    md_text: str,
+    headers_to_split_on: List[tuple[str, str]] = [],
+    ignore_links: bool = True
+) -> List[Header]:
     from jet.scrapers.utils import clean_newlines, clean_text
 
     # Check if input is HTML and convert to Markdown if necessary
     if is_html(md_text):
         md_text = html_to_markdown(md_text, ignore_links=ignore_links)
 
+    # Default headers if none provided
     headers_to_split_on = headers_to_split_on or [
         ("#", "h1"),
         ("##", "h2"),
@@ -191,26 +197,48 @@ def get_md_header_contents(md_text: str, headers_to_split_on: list[tuple[str, st
         ("######", "h6"),
     ]
 
+    # Initialize Markdown splitter
     markdown_splitter = MarkdownHeaderTextSplitter(
-        headers_to_split_on, strip_headers=False, return_each_line=False)
+        headers_to_split_on, strip_headers=False, return_each_line=False
+    )
     md_header_splits = markdown_splitter.split_text(md_text)
-    md_header_contents: list[Header] = []
+
+    md_header_contents: List[dict] = []
+    # Stack to track (level, header_text)
+    parent_stack: List[tuple[int, str]] = []
+
     for split in md_header_splits:
         content = split.page_content
         content = clean_newlines(clean_text(
             content), max_newlines=1, strip_lines=True)
-        # metadata = split.metadata
+        header = get_header_text(content)
 
-        if content.strip():
+        if content[len(header):].strip():
             try:
+                header_level = get_header_level(header)
+                # Determine parent header
+                parent_header = None
+                # Pop headers from stack with equal or higher level (lower precedence)
+                while parent_stack and parent_stack[-1][0] >= header_level:
+                    parent_stack.pop()
+                # If stack has a header, it's the parent
+                if parent_stack:
+                    parent_header = parent_stack[-1][1]
+
+                # Add current header to stack
+                parent_stack.append((header_level, header))
+
+                # Append header info with parent
                 md_header_contents.append({
-                    "header": get_header_text(content),
-                    "header_level": get_header_level(content),
+                    "header": header,
+                    "header_level": header_level,
+                    "parent_header": parent_header,
                     "length": len(content.strip()),
                     "content": content.strip(),
                 })
             except ValueError:
                 continue
+
     return md_header_contents
 
 

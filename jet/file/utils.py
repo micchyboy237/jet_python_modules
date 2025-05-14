@@ -77,14 +77,15 @@ def save_json(results, file_path="generated/results.json"):
         raise e
 
 
-def load_file(input_file: str) -> Optional[str | dict | list]:
+def load_file(input_file: str, verbose: bool = True) -> Optional[str | dict | list]:
     import os
     import json
     from jet.logger import logger  # Ensure this is your logger module
 
     # Check if file exists
     if not os.path.exists(input_file):
-        logger.warning(f"File does not exist: {input_file}")
+        if verbose:
+            logger.warning(f"File does not exist: {input_file}")
         # raise FileNotFoundError(f"File not found: {input_file}")
         return None
 
@@ -96,28 +97,30 @@ def load_file(input_file: str) -> Optional[str | dict | list]:
                 except:
                     data = None
 
-            if isinstance(data, list):
-                prefix = f"Loaded JSON data {len(data)} from:"
-            else:
-                prefix = "Loaded JSON data from:"
-
-            logger.log(
-                prefix,
-                input_file,
-                colors=["INFO", "BRIGHT_INFO"]
-            )
+            if verbose:
+                if isinstance(data, list):
+                    prefix = f"Loaded JSON data {len(data)} from:"
+                else:
+                    prefix = "Loaded JSON data from:"
+                logger.log(
+                    prefix,
+                    input_file,
+                    colors=["INFO", "BRIGHT_INFO"]
+                )
             return data
         else:
             with open(input_file, "r", encoding="utf-8") as f:
                 data = f.read()
-            logger.log(
-                "Loaded data from:",
-                input_file,
-                colors=["INFO", "BRIGHT_INFO"]
-            )
+            if verbose:
+                logger.log(
+                    "Loaded data from:",
+                    input_file,
+                    colors=["INFO", "BRIGHT_INFO"]
+                )
             return data
     except Exception as e:
-        logger.error(f"Failed to load file: {e}")
+        if verbose:
+            logger.error(f"Failed to load file: {e}")
         raise
 
 

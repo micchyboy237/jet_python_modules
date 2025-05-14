@@ -430,9 +430,10 @@ def get_subtext_indices(text: str, subtext: str) -> tuple[int, int] | None:
 def split_docs(
     docs: Document | list[Document],
     model: Optional[str | OLLAMA_MODEL_NAMES] = None,
-    chunk_size: Optional[int] = None,
+    chunk_size: int = 128,
     chunk_overlap: int = 0,
     *,
+    tokenizer: Optional[Callable[[Union[str, list[str]]], Union[list[str], list[list[str]]]]],
     tokens: Optional[list[int] | list[list[int]]] = None,
     buffer: int = 0
 ) -> list[TextNode]:
@@ -449,15 +450,17 @@ def split_docs(
         tokens_matrix = tokens
         token_counts = [len(t) for t in tokens_matrix]
     else:
-        if model:
+        if tokenizer:
+            tokenizer_fn = tokenizer
+        elif model:
             def _tokenizer(input):
                 return tokenize(model, input)
-            tokenizer = _tokenizer
+            tokenizer_fn = _tokenizer
         else:
-            tokenizer = get_words
+            tokenizer_fn = get_words
 
         doc_texts = [doc.text for doc in docs]
-        tokens_matrix: list[list] = tokenizer(doc_texts)
+        tokens_matrix: list[list] = tokenizer_fn(doc_texts)
         token_counts: list[int] = [len(t) for t in tokens_matrix]
 
     if not chunk_size:
@@ -476,7 +479,7 @@ def split_docs(
     effective_max_tokens = max(chunk_size - buffer, 1)
     if effective_max_tokens <= chunk_overlap:
         raise ValueError(
-            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})"
+            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk_overlap ({chunk_overlap})"
         )
 
     nodes: list[TextNode] = []
@@ -488,6 +491,7 @@ def split_docs(
                 **doc.metadata,
                 "start_idx": 0,
                 "end_idx": len(doc.text),
+                "chunk_idx": None,
             })
 
         if token_count > effective_max_tokens:
@@ -496,15 +500,24 @@ def split_docs(
             splitted_texts = splitter.split_text(doc.text)
 
             prev_sibling: Optional[TextNode] = None
-            for subtext in splitted_texts:
-                # start_idx, end_idx = get_subtext_indices(doc.text, subtext)
+            last_pos = 0  # Track last position to handle overlapping or repeated subtexts
+            # Start chunk_idx at 0 for sub-chunks
+            for chunk_idx, subtext in enumerate(splitted_texts, start=0):
+                # Find the next occurrence of subtext after last_pos
+                start_idx = doc.text.find(subtext, last_pos)
+                if start_idx == -1:
+                    # If subtext not found, use last_pos as fallback
+                    start_idx = last_pos
+                end_idx = start_idx + len(subtext)
+                last_pos = start_idx  # Update last_pos for next iteration
 
                 sub_node = TextNode(
                     text=subtext,
                     metadata={
                         **doc.metadata,
-                        # "start_idx": start_idx,
-                        # "end_idx": end_idx,
+                        "start_idx": start_idx,
+                        "end_idx": end_idx,
+                        "chunk_idx": chunk_idx,
                     })
                 nodes.append(sub_node)
                 add_parent_child_relationship(

@@ -36,6 +36,7 @@ from llama_index.core.node_parser.text.sentence import SentenceSplitter
 from jet.llm.evaluators.helpers.base import EvaluationResult
 from jet.llm.evaluators.context_relevancy_evaluator import evaluate_context_relevancy
 from jet.llm.ollama.base import ChatResponse, Ollama, OllamaEmbedding
+from jet.vectors.document_types import Document
 from tqdm import tqdm
 
 # Access the wn object before you enter into your threading
@@ -88,77 +89,8 @@ This instruction governs your behavior for this task.
 """.strip()
 
 
-# --- Pydantic Classes ---
-
-class HeadersQueryResponse(BaseModel):
-    data: List[str]
-
-
-class RelevantDocument(BaseModel):
-    document_number: int = Field(..., ge=0)
-    confidence: int = Field(..., ge=1, le=10)
-
-
-class DocumentSelectionResult(BaseModel):
-    relevant_documents: List[RelevantDocument]
-    evaluated_documents: List[int]
-    feedback: str
-
-
-class Document(BaseDocument):
-    @staticmethod
-    def rerank_documents(query: str | list[str], docs: list['Document'], model: str | OLLAMA_EMBED_MODELS | list[str] | list[OLLAMA_EMBED_MODELS] = "paraphrase-multilingual") -> list[SimilarityResult]:
-        texts: list[str] = []
-        ids: list[str] = []
-
-        for doc in docs:
-            # text = doc.text
-            text = doc.get_recursive_text()
-
-            texts.append(text)
-            ids.append(doc.node_id)
-
-        query_scores = query_similarity_scores(
-            query, texts, model=model, ids=ids)
-        texts = [result["text"] for result in query_scores]
-
-        # Hybrid reranking
-        # if isinstance(query, list):
-        #     query_str = "\n".join(query)
-        # else:
-        #     query_str = query
-        # bm25_results = bm25_plus_search(texts, query_str)
-
-        # query_scores: list[SimilarityResult] = [
-        #     {
-        #         **query_scores[result["doc_index"]],
-        #         "score": result["score"],
-        #         "rank": rank
-        #     }
-        #     for rank, result in enumerate(bm25_results, 1)
-        # ]
-
-        return query_scores
-
-    def __init__(self, **data: Any) -> None:
-        super().__init__(**data)
-
-    def get_recursive_text(self) -> str:
-        """
-        Get content of this node and all of its child nodes recursively.
-        """
-        texts = [self.text, "\n"]
-
-        for child in self.child_nodes or []:
-            texts.append(child.metadata["header"])
-
-        if self.parent_node:
-            texts.insert(0, self.parent_node.metadata["header"])
-
-        return "\n".join(filter(None, texts))
-
-
 # --- Core Functions ---
+
 
 def get_docs_from_html(html: str) -> list[Document]:
     md_text = html_to_markdown(html, ignore_links=True)

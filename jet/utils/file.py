@@ -1,3 +1,5 @@
+from pathlib import Path
+from typing import List, Union
 import os
 
 
@@ -41,3 +43,21 @@ def search_files(
             exc in file for exc in exclude_files)]
 
     return files
+
+
+def find_files_recursively(pattern: str, base_dir: Union[str, Path] = ".") -> List[str]:
+    """
+    Recursively find files matching the given pattern starting from base_dir.
+
+    Args:
+        pattern (str): Glob pattern (e.g., '*.py', '**/*.txt').
+        base_dir (str | Path): Directory to start from. Defaults to current directory '.'.
+
+    Returns:
+        List[str]: List of matched file paths as strings.
+    """
+    base_path = Path(base_dir)
+    if not base_path.is_dir():
+        raise ValueError(f"Base path '{base_path}' is not a valid directory.")
+
+    return [str(p) for p in base_path.rglob(pattern)]
