@@ -81,7 +81,6 @@ class HeaderDocument(Document):
 
     def __init__(self, **data: Any):
         super().__init__(**data)
-        self.text_template = "{metadata_str}\n\n{content}"
         self.metadata_separator = "\n"
         self.metadata.update({
             'doc_index': self.doc_index,
@@ -103,6 +102,9 @@ class HeaderDocument(Document):
 
 
 class HeaderTextNode(TextNode):
+    text_template: str = Field(
+        default="{parent_header}\n{header}\n\n{metadata_str}\n\n{content}")
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
@@ -114,28 +116,23 @@ class HeaderTextNode(TextNode):
             return self.text
 
         return self.text_template.format(
-            content=self.text, metadata_str=metadata_str
+            parent_header=self.metadata["parent_header"] or "", header=self.metadata["header"], content="\n".join(self.text.splitlines()[1:]), metadata_str=metadata_str
         ).strip()
 
     @override
     def get_metadata_str(self, mode: MetadataMode = MetadataMode.ALL):
         usable_metadata_keys = [
-            "parent_header",
-            "header",
             "doc_index",
             "chunk_index",
         ]
         if mode == MetadataMode.EMBED:
-            usable_metadata_keys = [
-                "parent_header",
-                "header",
-            ]
+            usable_metadata_keys = []
         metadata_str = self.metadata_separator.join(
             [
-                self.metadata_template.format(key=key, value=str(value))
-                for key, value in self.metadata.items()
-                if key in usable_metadata_keys
-                and value is not None
+                self.metadata_template.format(
+                    key=key, value=str(self.metadata[key]))
+                for key in usable_metadata_keys
+                if key in self.metadata and self.metadata[key] is not None
             ]
         )
         return metadata_str
