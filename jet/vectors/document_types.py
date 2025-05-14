@@ -1,5 +1,5 @@
-from llama_index.core.schema import Document as BaseDocument
-from typing import Any, List, Optional
+from llama_index.core.schema import Document as BaseDocument, MetadataMode
+from typing import Any, List, Optional, override
 from pydantic import BaseModel, Field
 
 # --- Pydantic Classes ---
@@ -81,6 +81,8 @@ class HeaderDocument(Document):
 
     def __init__(self, **data: Any):
         super().__init__(**data)
+        self.text_template = "{metadata_str}\n\n{content}"
+        self.metadata_separator = "\n"
         self.metadata.update({
             'doc_index': self.doc_index,
             'header_level': self.header_level,
@@ -94,12 +96,24 @@ class HeaderDocument(Document):
         """
         texts = [self.text, "\n"]
 
-        if self.parent_node:
-            parent_header = (
-                self.parent_node.header
-                if isinstance(self.parent_node, HeaderDocument)
-                else self.parent_node.metadata.get("header", "")
-            )
-            texts.insert(0, parent_header)
+        if self.parent_header:
+            texts.insert(0, self.parent_header)
 
         return "\n".join(filter(None, texts))
+
+    @override
+    def get_metadata_str(self, mode: MetadataMode = MetadataMode.ALL):
+        usable_metadata_keys = [
+            "doc_index",
+            "chunk_idx"
+            "parent_header",
+            "header",
+        ]
+        return self.metadata_separator.join(
+            [
+                self.metadata_template.format(key=key, value=str(value))
+                for key, value in self.metadata.items()
+                if key in usable_metadata_keys
+                and value is not None
+            ]
+        )

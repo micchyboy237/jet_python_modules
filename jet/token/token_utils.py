@@ -433,7 +433,8 @@ def split_docs(
     chunk_size: int = 128,
     chunk_overlap: int = 0,
     *,
-    tokenizer: Optional[Callable[[Union[str, list[str]]], Union[list[str], list[list[str]]]]],
+    tokenizer: Optional[Callable[[Union[str, list[str]]],
+                                 Union[list[str], list[list[str]]]]] = None,
     tokens: Optional[list[int] | list[list[int]]] = None,
     buffer: int = 0
 ) -> list[TextNode]:
