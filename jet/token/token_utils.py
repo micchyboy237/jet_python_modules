@@ -1,6 +1,7 @@
 from typing import Callable, Literal, Optional, TypedDict, Union
 from jet.logger import logger
 from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
+from jet.vectors.document_types import HeaderDocument, HeaderTextNode
 from jet.wordnet.words import get_words
 from llama_index.core.base.llms.types import ChatMessage
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
@@ -492,7 +493,7 @@ def split_docs(
                 **doc.metadata,
                 "start_idx": 0,
                 "end_idx": len(doc.text),
-                "chunk_idx": None,
+                "chunk_index": None,
             })
 
         if token_count > effective_max_tokens:
@@ -518,7 +519,116 @@ def split_docs(
                         **doc.metadata,
                         "start_idx": start_idx,
                         "end_idx": end_idx,
-                        "chunk_idx": chunk_idx,
+                        "chunk_index": chunk_idx,
+                    })
+                nodes.append(sub_node)
+                add_parent_child_relationship(
+                    parent_node=node,
+                    child_node=sub_node,
+                )
+
+                if prev_sibling:
+                    add_sibling_relationship(prev_sibling, sub_node)
+
+                prev_sibling = sub_node
+        else:
+            nodes.append(node)
+
+    return nodes
+
+
+def split_headers(
+    docs: HeaderDocument | list[HeaderDocument],
+    model: Optional[str | OLLAMA_MODEL_NAMES] = None,
+    chunk_size: int = 128,
+    chunk_overlap: int = 0,
+    *,
+    tokenizer: Optional[Callable[[Union[str, list[str]]],
+                                 Union[list[str], list[list[str]]]]] = None,
+    tokens: Optional[list[int] | list[list[int]]] = None,
+    buffer: int = 0
+) -> list[HeaderTextNode]:
+    if not isinstance(docs, list):
+        docs = [docs]
+    if tokens and not isinstance(tokens[0], list):
+        tokens = [tokens]
+
+    if tokens is not None:
+        if len(tokens) != len(docs):
+            raise ValueError(
+                f"Length of provided tokens ({len(tokens)}) does not match number of documents ({len(docs)})"
+            )
+        tokens_matrix = tokens
+        token_counts = [len(t) for t in tokens_matrix]
+    else:
+        if tokenizer:
+            tokenizer_fn = tokenizer
+        elif model:
+            def _tokenizer(input):
+                return tokenize(model, input)
+            tokenizer_fn = _tokenizer
+        else:
+            tokenizer_fn = get_words
+
+        doc_texts = [doc.text for doc in docs]
+        tokens_matrix: list[list] = tokenizer_fn(doc_texts)
+        token_counts: list[int] = [len(t) for t in tokens_matrix]
+
+    if not chunk_size:
+        if model:
+            chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+        else:
+            average_tokens = sum(token_counts) / \
+                len(token_counts) if token_counts else 0
+            chunk_size = average_tokens
+
+    if chunk_size <= chunk_overlap:
+        raise ValueError(
+            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})"
+        )
+
+    effective_max_tokens = max(chunk_size - buffer, 1)
+    if effective_max_tokens <= chunk_overlap:
+        raise ValueError(
+            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk_overlap ({chunk_overlap})"
+        )
+
+    nodes: list[HeaderTextNode] = []
+
+    for doc, token_count in zip(docs, token_counts):
+        node = HeaderTextNode(
+            text=doc.text,
+            metadata={
+                **doc.metadata,
+                "start_idx": 0,
+                "end_idx": len(doc.text),
+                "chunk_index": None,
+            })
+
+        if token_count > effective_max_tokens:
+            splitter = SentenceSplitter(
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            splitted_texts = splitter.split_text(doc.text)
+
+            prev_sibling: Optional[HeaderTextNode] = None
+            last_pos = 0  # Track last position to handle overlapping or repeated subtexts
+            # Start chunk_idx at 0 for sub-chunks
+            for chunk_idx, subtext in enumerate(splitted_texts, start=0):
+                # Find the next occurrence of subtext after last_pos
+                start_idx = doc.text.find(subtext, last_pos)
+                if start_idx == -1:
+                    # If subtext not found, use last_pos as fallback
+                    start_idx = last_pos
+                end_idx = start_idx + len(subtext)
+                last_pos = start_idx  # Update last_pos for next iteration
+
+                sub_node = HeaderTextNode(
+                    text=subtext,
+                    metadata={
+                        **doc.metadata,
+                        "start_idx": start_idx,
+                        "end_idx": end_idx,
+                        "chunk_index": chunk_idx,
                     })
                 nodes.append(sub_node)
                 add_parent_child_relationship(
