@@ -1,80 +1,87 @@
-from sentence_transformers import SentenceTransformer, CrossEncoder
-import faiss
+from typing import List, Tuple, TypedDict
 import numpy as np
 import torch
+import faiss
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 
-def load_models():
+class Models(TypedDict):
+    embedder: SentenceTransformer
+    cross_encoder: CrossEncoder
+
+
+class SearchResults(TypedDict):
+    reranked_indices: np.ndarray
+    reranked_scores: np.ndarray
+    candidate_indices: np.ndarray
+    candidate_distances: np.ndarray
+
+
+def load_models() -> Models:
     """Load sentence transformer and cross-encoder models."""
-    # Sentence Transformer for initial retrieval
     embedder = SentenceTransformer('all-MiniLM-L6-v2')
-    # Cross-Encoder for reranking
     cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
-    return embedder, cross_encoder
+    return {"embedder": embedder, "cross_encoder": cross_encoder}
 
 
-def create_index(embedder, documents):
+def create_index(embedder: SentenceTransformer, documents: List[str]) -> Tuple[faiss.IndexFlatL2, np.ndarray]:
     """Create FAISS index with document embeddings."""
-    # Encode documents
-    doc_embeddings = embedder.encode(documents, convert_to_tensor=False)
-    # Initialize FAISS index (L2 distance)
+    doc_embeddings: np.ndarray = embedder.encode(
+        documents, convert_to_tensor=False)
     index = faiss.IndexFlatL2(doc_embeddings.shape[1])
-    # Add embeddings to index
     index.add(doc_embeddings)
     return index, doc_embeddings
 
 
-def retrieve_candidates(embedder, index, query, k=10):
+def retrieve_candidates(embedder: SentenceTransformer, index: faiss.IndexFlatL2,
+                        query: str, k: int = 10) -> Tuple[np.ndarray, np.ndarray]:
     """Retrieve top-k candidates using sentence transformer embeddings."""
-    # Encode query
-    query_embedding = embedder.encode([query], convert_to_tensor=False)
-    # Search index
+    query_embedding: np.ndarray = embedder.encode(
+        [query], convert_to_tensor=False)
     distances, indices = index.search(query_embedding, k)
     return indices[0], distances[0]
 
 
-def rerank_candidates(cross_encoder, query, documents, candidate_indices):
+def rerank_candidates(cross_encoder: CrossEncoder, query: str, documents: List[str],
+                      candidate_indices: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Rerank candidates using cross-encoder."""
-    # Prepare query-document pairs
     pairs = [[query, documents[idx]] for idx in candidate_indices]
-    # Score pairs with cross-encoder
-    scores = cross_encoder.predict(pairs)
-    # Sort by score (descending)
+    scores: np.ndarray = cross_encoder.predict(pairs)
     sorted_indices = np.argsort(scores)[::-1]
     return candidate_indices[sorted_indices], scores[sorted_indices]
 
 
-def search_documents(query, documents, embed_model, rerank_model, k=10):
+def search_documents(query: str, documents: List[str], embed_model: SentenceTransformer,
+                     rerank_model: CrossEncoder, k: int = 10) -> SearchResults:
     """
     Perform document search with retrieval and reranking.
 
     Args:
-        query (str): Search query
-        documents (list): List of document strings
+        query: Search query
+        documents: List of document strings
         embed_model: Sentence transformer model for initial retrieval
         rerank_model: Cross-encoder model for reranking
-        k (int): Number of candidates to retrieve initially
+        k: Number of candidates to retrieve initially
 
     Returns:
-        tuple: (reranked_indices, reranked_scores, candidate_indices, candidate_distances)
+        SearchResults dictionary containing reranked and candidate indices and scores
     """
-    # Create FAISS index
     index, _ = create_index(embed_model, documents)
-
-    # Step 1: Retrieve candidates
     candidate_indices, candidate_distances = retrieve_candidates(
-        embed_model, index, query, k=k)
-
-    # Step 2: Rerank candidates
+        embed_model, index, query, k)
     reranked_indices, reranked_scores = rerank_candidates(
         rerank_model, query, documents, candidate_indices)
 
-    return reranked_indices, reranked_scores, candidate_indices, candidate_distances
+    return {
+        "reranked_indices": reranked_indices,
+        "reranked_scores": reranked_scores,
+        "candidate_indices": candidate_indices,
+        "candidate_distances": candidate_distances
+    }
 
 
-def main():
-    # Sample documents
-    documents = [
+def main() -> None:
+    documents: List[str] = [
         "The quick brown fox jumps over the lazy dog.",
         "A fox fled from danger in the forest.",
         "Dogs are loyal and friendly pets.",
@@ -82,27 +89,22 @@ def main():
         "Foxes are known for their cunning behavior."
     ]
 
-    # Sample query
-    query = "Tell me about foxes."
+    query: str = "Tell me about foxes."
 
-    # Load models
     print("Loading models...")
-    embedder, cross_encoder = load_models()
+    models: Models = load_models()
 
-    # Perform search
     print(f"\nPerforming search for query: '{query}'")
-    reranked_indices, reranked_scores, candidate_indices, candidate_distances = search_documents(
-        query, documents, embedder, cross_encoder, k=3
+    results: SearchResults = search_documents(
+        query, documents, models["embedder"], models["cross_encoder"], k=3
     )
 
-    # Print initial retrieval results
     print("\nInitial retrieval results:")
-    for idx, dist in zip(candidate_indices, candidate_distances):
+    for idx, dist in zip(results["candidate_indices"], results["candidate_distances"]):
         print(f"Doc {idx}: {documents[idx]} (Distance: {dist:.4f})")
 
-    # Print reranked results
     print("\nReranked results:")
-    for idx, score in zip(reranked_indices, reranked_scores):
+    for idx, score in zip(results["reranked_indices"], results["reranked_scores"]):
         print(f"Doc {idx}: {documents[idx]} (Score: {score:.4f})")
 
 
