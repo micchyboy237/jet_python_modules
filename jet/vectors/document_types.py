@@ -107,13 +107,29 @@ class HeaderTextNode(TextNode):
         super().__init__(*args, **kwargs)
 
     @override
+    def get_content(self, metadata_mode: MetadataMode = MetadataMode.NONE) -> str:
+        """Get object content."""
+        metadata_str = self.get_metadata_str(mode=metadata_mode).strip()
+        if not metadata_str:
+            return self.text
+
+        return self.text_template.format(
+            content=self.text, metadata_str=metadata_str
+        ).strip()
+
+    @override
     def get_metadata_str(self, mode: MetadataMode = MetadataMode.ALL):
         usable_metadata_keys = [
-            "doc_index",
-            "chunk_index",
             "parent_header",
             "header",
+            "doc_index",
+            "chunk_index",
         ]
+        if mode == MetadataMode.EMBED:
+            usable_metadata_keys = [
+                "parent_header",
+                "header",
+            ]
         metadata_str = self.metadata_separator.join(
             [
                 self.metadata_template.format(key=key, value=str(value))
