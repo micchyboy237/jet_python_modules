@@ -1,6 +1,7 @@
 import fnmatch
 import os
 import json
+from pathlib import Path
 import pickle
 import pandas as pd
 
@@ -120,11 +121,13 @@ def load_file(input_file: str) -> Optional[str | dict | list]:
         raise
 
 
-def save_file(data: str | list | Dict | BaseModel, output_file: str, verbose: bool = True):
+def save_file(data: str | list | Dict | BaseModel, output_file: str | Path, verbose: bool = True):
     import os
     import re
     import json
     from jet.transformers.object import make_serializable
+
+    output_file = str(output_file)
 
     # Allow only valid file path characters ('/', '.', '-', '_')
     output_file = re.sub(r"[^\w\-/\.]", "", output_file)

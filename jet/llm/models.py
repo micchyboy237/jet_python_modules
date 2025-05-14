@@ -12,6 +12,8 @@ DEFAULT_SF_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
 
 # Get the list of ollama models
 OLLAMA_MODEL_NAMES = Literal[
+    "llama3.2",
+    "qwen3:4b",
     "gemma3:1b-it-qat",
     "deepseek-r1:1.5b",
     "llama3.2:1b",
@@ -51,6 +53,8 @@ OLLAMA_EMBED_MODELS = Literal[
 
 # Map models to context window sizes
 OLLAMA_MODEL_CONTEXTS = {
+    "llama3.2": 131072,
+    "qwen3:4b": 40960,
     "gemma3:1b-it-qat": 32768,
     "deepseek-r1:1.5b": 131072,
     "llama3.2:1b": 131072,
@@ -69,6 +73,8 @@ OLLAMA_MODEL_CONTEXTS = {
 
 # Map models to embedding sizes
 OLLAMA_MODEL_EMBEDDING_TOKENS = {
+    "llama3.2": 3072,
+    "qwen3:4b": 2560,
     "gemma3:1b-it-qat": 1152,
     "deepseek-r1:1.5b": 1536,
     "llama3.2:1b": 2048,
