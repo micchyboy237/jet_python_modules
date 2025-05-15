@@ -168,10 +168,12 @@ class MLX:
         session_id: Optional[str] = None,
         with_history: bool = False,
         seed: Optional[int] = None,
+        log_dir: Optional[str] = None,
     ):
         """Initialize the MLX client with configuration and optional database."""
         self.model_path = resolve_model(model)
         self.with_history = with_history  # Store the with_history flag
+        self.log_dir = log_dir
         # Initialize MLXLMClient
         self.client = MLXLMClient(
             model=model,
@@ -281,6 +283,7 @@ class MLX:
                 self.history.add_message("assistant", assistant_content)
 
         # Log interaction
+        log_dir = log_dir or self.log_dir
         if log_dir:
             ChatLogger(log_dir, method="chat").log_interaction(
                 all_messages, response)
@@ -369,6 +372,7 @@ class MLX:
             self.history.add_message("assistant", assistant_content)
 
         # Log interaction
+        log_dir = log_dir or self.log_dir
         if log_dir:
             ChatLogger(log_dir, method="stream_chat").log_interaction(
                 all_messages, response)
@@ -411,6 +415,7 @@ class MLX:
         )
 
         # Log interaction
+        log_dir = log_dir or self.log_dir
         if log_dir:
             ChatLogger(log_dir, method="generate").log_interaction(
                 prompt, response)
@@ -455,6 +460,7 @@ class MLX:
             yield response
 
         # Log interaction
+        log_dir = log_dir or self.log_dir
         if log_dir:
             ChatLogger(log_dir, method="stream_generate").log_interaction(
                 prompt, response)

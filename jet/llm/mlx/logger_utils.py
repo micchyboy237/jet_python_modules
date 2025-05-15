@@ -1,12 +1,11 @@
 import os
-import json
 from datetime import datetime, UTC
-from typing import Literal, Union, List, Optional, Dict, Iterator
-from typing import Any
+from typing import Literal, Union, List
 from uuid import uuid4
 
 from jet.file.utils import save_file
 from jet.llm.mlx.mlx_types import CompletionResponse, Message
+from jet.transformers.formatters import format_json
 
 
 def short_sortable_filename() -> str:
@@ -52,7 +51,7 @@ class ChatLogger:
         else:
             log_data["messages"] = prompt_or_messages
 
-        log_data["response"] = json.dumps(response, indent=2)
+        log_data["response"] = format_json(response, indent=2)
         save_file(log_data, log_file)
 
         # Enforce file limit
