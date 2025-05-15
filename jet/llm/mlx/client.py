@@ -147,7 +147,7 @@ class MLXLMClient:
 
         # Generate prompt
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
-        object_type: str = "chat.completion.chunk"
+        object_type: str = "stream.chat.completion"
         if tokenizer.chat_template:
             process_message_content(messages)
             prompt: List[int] = tokenizer.apply_chat_template(
@@ -225,7 +225,7 @@ class MLXLMClient:
 
         # Generate prompt
         request_id: str = f"cmpl-{uuid.uuid4()}"
-        object_type: str = "text_completion"
+        object_type: str = "stream.text.completion"
         prompt_tokens: List[int] = tokenizer.encode(prompt)
 
         # Stream completion
@@ -299,7 +299,7 @@ class MLXLMClient:
 
         # Generate prompt
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
-        object_type: str = "chat.completion.chunk" if stream else "chat.completion"
+        object_type: str = "stream.chat.completion" if stream else "chat.completion"
         if tokenizer.chat_template:
             process_message_content(messages)
             prompt: List[int] = tokenizer.apply_chat_template(
@@ -378,7 +378,7 @@ class MLXLMClient:
 
         # Generate prompt
         request_id: str = f"cmpl-{uuid.uuid4()}"
-        object_type: str = "text_completion"
+        object_type: str = "text.completion"
         prompt_tokens: List[int] = tokenizer.encode(prompt)
 
         # Generate completion
@@ -493,6 +493,7 @@ class MLXLMClient:
         request_id: str,
         object_type: str,
         model: str,
+        segment: Optional[str] = None,
         prompt_token_count: Optional[int] = None,
         prompt_tps: Optional[float] = None,
         completion_token_count: Optional[int] = None,
@@ -545,38 +546,37 @@ class MLXLMClient:
         }
 
         choice = response["choices"][0]
-        if object_type.startswith("chat.completion"):
+        if "chat.completion" in object_type:
             # key_name = "delta" if stream else "message"
-            # choice[key_name] = {"role": "assistant", "content": text}
-            choice["message"] = {"role": "assistant", "content": text}
-        elif object_type == "text_completion":
-            choice["text"] = text
+            choice["message"] = {"role": "assistant",
+                                 "content": segment if segment != None else text}
+        elif "text.completion" in object_type:
+            choice["text"] = segment if segment != None else text
         else:
             raise ValueError(f"Unsupported response type: {object_type}")
 
         return response
 
-    def _completion_usage_response(
-        self,
-        request_id: str,
-        model: str,
-        prompt_token_count: int,
-        completion_token_count: int
-    ) -> CompletionResponse:
-        """Generate a usage-only response for streaming."""
-        return {
-            "id": request_id,
-            "system_fingerprint": self.system_fingerprint,
-            "object": "chat.completion",
-            "model": model,
-            "created": self.created,
-            "choices": [],
-            "usage": {
-                "prompt_tokens": prompt_token_count,
-                "completion_tokens": completion_token_count,
-                "total_tokens": prompt_token_count + completion_token_count,
-            },
-        }
+    # def _completion_usage_response(
+    #     self,
+    #     request_id: str,
+    #     model: str,
+    #     prompt_token_count: int,
+    #     completion_token_count: int
+    # ) -> CompletionResponse:
+    #     """Generate a usage-only response for streaming."""
+    #     return {
+    #         "id": request_id,
+    #         "system_fingerprint": self.system_fingerprint,
+    #         "model": model,
+    #         "created": self.created,
+    #         "choices": [],
+    #         "usage": {
+    #             "prompt_tokens": prompt_token_count,
+    #             "completion_tokens": completion_token_count,
+    #             "total_tokens": prompt_token_count + completion_token_count,
+    #         },
+    #     }
 
     def _get_prompt_cache(self, prompt: List[int]) -> List[int]:
         """Manage prompt caching."""
@@ -694,7 +694,8 @@ class MLXLMClient:
                     break
 
             yield self._generate_response(
-                text=segment,
+                text=text,
+                segment=segment,
                 finish_reason=finish_reason,
                 request_id=request_id,
                 object_type=object_type,
