@@ -3,6 +3,7 @@ import os
 import uuid
 import json
 import time
+import jet.llm.mlx.model_cache  # Activates cleanup listener
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
 from huggingface_hub import scan_cache_dir

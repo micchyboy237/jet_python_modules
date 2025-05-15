@@ -71,5 +71,11 @@ async def cleanup_idle_models():
         await asyncio.sleep(10)
 
 
+def cleanup_models():
+    mx.clear_cache()
+    gc.collect()
+    logger.info("Model unloaded and memory cleared.")
+
+
 # Register the function to run at exit
-atexit.register(unload_current_model)
+atexit.register(cleanup_models)
