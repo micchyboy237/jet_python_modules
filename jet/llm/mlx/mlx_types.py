@@ -60,6 +60,7 @@ class CompletionResponse(TypedDict):
     created: int
     choices: List[Choice]
     usage: Optional[Usage]
+    content: str
 
 
 class ModelInfo(TypedDict):

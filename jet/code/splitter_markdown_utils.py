@@ -15,6 +15,7 @@ class HeaderNode(TypedDict, total=False):
     header: str
     details: str
     content: str
+    text: str
     metadata: HeaderMetadata
     is_root: bool
     child_nodes: List["HeaderNode"]
@@ -28,10 +29,11 @@ class HeaderItem(TypedDict):
 
 class Header(TypedDict):
     header: str
-    parent_header: str
+    parent_header: Optional[str]
     header_level: int
     length: int
     content: str
+    text: str
 
 
 def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat_list: Optional[List[HeaderNode]] = None) -> List[HeaderNode]:
@@ -203,17 +205,19 @@ def get_md_header_contents(
     )
     md_header_splits = markdown_splitter.split_text(md_text)
 
-    md_header_contents: List[dict] = []
+    md_header_contents: List[Header] = []
     # Stack to track (level, header_text)
     parent_stack: List[tuple[int, str]] = []
 
     for split in md_header_splits:
-        content = split.page_content
-        content = clean_newlines(clean_text(
-            content), max_newlines=1, strip_lines=True)
-        header = get_header_text(content)
+        text = split.page_content
+        text = clean_newlines(clean_text(
+            text), max_newlines=1, strip_lines=True)
+        header = get_header_text(text)
+        # Remove the header to get content
+        content = text.splitlines()[0].strip()
 
-        if content[len(header):].strip():
+        if text[len(header):].strip():
             try:
                 header_level = get_header_level(header)
                 # Determine parent header
@@ -235,6 +239,7 @@ def get_md_header_contents(
                     "parent_header": parent_header,
                     "length": len(content.strip()),
                     "content": content.strip(),
+                    "text": text
                 })
             except ValueError:
                 continue

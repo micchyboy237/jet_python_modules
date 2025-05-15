@@ -340,7 +340,7 @@ class MLXLMClient:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
-        repetition_penalty: float = 1.0,
+        repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
@@ -528,7 +528,8 @@ class MLXLMClient:
                     "text": None
                 }
             ],
-            "usage": None
+            "usage": None,
+            "content": text
         }
 
         if not (isinstance(prompt_token_count, int) and isinstance(completion_token_count, int)):

@@ -4,6 +4,7 @@ import time
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
 from jet.llm.mlx.config import DEFAULT_MODEL
+from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.mlx_types import ModelKey, ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.utils import get_model_max_tokens
@@ -218,7 +219,8 @@ class MLX:
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        log_dir: Optional[str] = None
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion with history management."""
         # Prepare messages with history
@@ -278,6 +280,11 @@ class MLX:
             if assistant_content:
                 self.history.add_message("assistant", assistant_content)
 
+        # Log interaction
+        if log_dir:
+            ChatLogger(log_dir, method="chat").log_interaction(
+                all_messages, response)
+
         return response
 
     def stream_chat(
@@ -298,7 +305,8 @@ class MLX:
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        log_dir: Optional[str] = None
     ) -> Iterator[Union[CompletionResponse, List[CompletionResponse]]]:
         """Stream chat completions with history management."""
         # Prepare messages with history
@@ -360,6 +368,11 @@ class MLX:
         if self.with_history and assistant_content:
             self.history.add_message("assistant", assistant_content)
 
+        # Log interaction
+        if log_dir:
+            ChatLogger(log_dir, method="stream_chat").log_interaction(
+                all_messages, response)
+
     def generate(
         self,
         prompt: str,
@@ -375,10 +388,11 @@ class MLX:
         xtc_threshold: float = 0.0,
         logit_bias: Optional[Dict[int, float]] = None,
         logprobs: int = -1,
-        stop: Optional[Union[str, List[str]]] = None
+        stop: Optional[Union[str, List[str]]] = None,
+        log_dir: Optional[str] = None
     ) -> CompletionResponse:
         """Generate a text completion (no history)."""
-        return self.client.generate(
+        response = self.client.generate(
             prompt=prompt,
             model=model,
             draft_model=draft_model,
@@ -396,6 +410,13 @@ class MLX:
             stream=False
         )
 
+        # Log interaction
+        if log_dir:
+            ChatLogger(log_dir, method="generate").log_interaction(
+                prompt, response)
+
+        return response
+
     def stream_generate(
         self,
         prompt: str,
@@ -411,10 +432,11 @@ class MLX:
         xtc_threshold: float = 0.0,
         logit_bias: Optional[Dict[int, float]] = None,
         logprobs: int = -1,
-        stop: Optional[Union[str, List[str]]] = None
+        stop: Optional[Union[str, List[str]]] = None,
+        log_dir: Optional[str] = None
     ) -> Iterator[CompletionResponse]:
         """Stream text completions (no history)."""
-        return self.client.stream_generate(
+        for response in self.client.stream_generate(
             prompt=prompt,
             model=model,
             draft_model=draft_model,
@@ -429,7 +451,13 @@ class MLX:
             logit_bias=logit_bias,
             logprobs=logprobs,
             stop=stop
-        )
+        ):
+            yield response
+
+        # Log interaction
+        if log_dir:
+            ChatLogger(log_dir, method="stream_generate").log_interaction(
+                prompt, response)
 
     def clear_history(self):
         """Clear the chat history."""
