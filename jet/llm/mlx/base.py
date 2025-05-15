@@ -272,7 +272,8 @@ class MLX:
             stop=stop,
             stream=False,
             role_mapping=role_mapping,
-            tools=tools
+            tools=tools,
+            log_dir=log_dir,
         )
 
         # Add assistant response to history
@@ -281,12 +282,6 @@ class MLX:
                 "message", {}).get("content", "")
             if assistant_content:
                 self.history.add_message("assistant", assistant_content)
-
-        # Log interaction
-        log_dir = log_dir or self.log_dir
-        if log_dir:
-            ChatLogger(log_dir, method="chat").log_interaction(
-                all_messages, response)
 
         return response
 
@@ -359,7 +354,8 @@ class MLX:
             logprobs=logprobs,
             stop=stop,
             role_mapping=role_mapping,
-            tools=tools
+            tools=tools,
+            log_dir=log_dir,
         ):
             if response.get("choices"):
                 content = response["choices"][0].get(
@@ -370,12 +366,6 @@ class MLX:
         # Add assistant response to history
         if self.with_history and assistant_content:
             self.history.add_message("assistant", assistant_content)
-
-        # Log interaction
-        log_dir = log_dir or self.log_dir
-        if log_dir:
-            ChatLogger(log_dir, method="stream_chat").log_interaction(
-                all_messages, response)
 
     def generate(
         self,
@@ -411,14 +401,9 @@ class MLX:
             logit_bias=logit_bias,
             logprobs=logprobs,
             stop=stop,
-            stream=False
+            stream=False,
+            log_dir=log_dir,
         )
-
-        # Log interaction
-        log_dir = log_dir or self.log_dir
-        if log_dir:
-            ChatLogger(log_dir, method="generate").log_interaction(
-                prompt, response)
 
         return response
 
@@ -455,15 +440,10 @@ class MLX:
             xtc_threshold=xtc_threshold,
             logit_bias=logit_bias,
             logprobs=logprobs,
-            stop=stop
+            stop=stop,
+            log_dir=log_dir,
         ):
             yield response
-
-        # Log interaction
-        log_dir = log_dir or self.log_dir
-        if log_dir:
-            ChatLogger(log_dir, method="stream_generate").log_interaction(
-                prompt, response)
 
     def clear_history(self):
         """Clear the chat history."""

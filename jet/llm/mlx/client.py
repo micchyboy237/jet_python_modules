@@ -1,4 +1,5 @@
 import argparse
+import os
 import uuid
 import json
 import time
@@ -12,6 +13,7 @@ from mlx_lm.generate import stream_generate
 from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache, can_trim_prompt_cache
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import load
+from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.mlx_types import (
     Message,
     Tool,
@@ -24,6 +26,10 @@ from jet.llm.mlx.mlx_types import (
     ModelValue,
 )
 from jet.llm.mlx.models import AVAILABLE_MODELS
+from jet.utils.inspect_utils import get_entry_file_name
+
+DEFAULT_LOG_DIR = os.path.expanduser(
+    f"~/.cache/mlx-logs/{get_entry_file_name()}")
 
 
 class MLXLMClient:
@@ -64,6 +70,7 @@ class MLXLMClient:
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
         seed: Optional[int] = None,
+        log_dir: str = DEFAULT_LOG_DIR,
     ) -> None:
         """Initialize the client with configuration."""
         if seed:
@@ -98,6 +105,108 @@ class MLXLMClient:
         self.prompt_cache: PromptCache = PromptCache()
         self.system_fingerprint: str = get_system_fingerprint()
         self.created: int = int(time.time())
+        self.log_dir = log_dir
+
+    def chat(
+        self,
+        messages: List[Message],
+        model: ModelType = DEFAULT_MODEL,
+        draft_model: Optional[ModelType] = None,
+        adapter: Optional[str] = None,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        repetition_penalty: Optional[float] = None,
+        repetition_context_size: int = 20,
+        xtc_probability: float = 0.0,
+        xtc_threshold: float = 0.0,
+        logit_bias: Optional[Dict[int, float]] = None,
+        logprobs: int = -1,
+        stop: Optional[Union[str, List[str]]] = None,
+        stream: bool = False,
+        role_mapping: Optional[RoleMapping] = None,
+        tools: Optional[List[Tool]] = None,
+        log_dir: Optional[str] = None
+    ) -> Union[CompletionResponse, List[CompletionResponse]]:
+        """Generate a chat completion."""
+        # Convert model keys to values
+        model_value = self._get_model_value(model)
+        draft_model_value = self._get_model_value(
+            draft_model) if draft_model else None
+
+        # Validate parameters
+        self._validate_parameters(
+            stream, max_tokens, temperature, top_p, repetition_penalty,
+            repetition_context_size, xtc_probability, xtc_threshold,
+            logit_bias, logprobs, model_value, adapter
+        )
+
+        # Load model
+        model_obj, tokenizer = self.model_provider.load(
+            model_value, adapter, draft_model_value)
+
+        if tokenizer is None:
+            raise ValueError("Failed to load tokenizer")
+
+        # Prepare stop sequences
+        stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
+        stop_id_sequences: List[List[int]] = [
+            tokenizer.encode(stop_word, add_special_tokens=False)
+            for stop_word in stop_words
+        ]
+
+        # Generate prompt
+        request_id: str = f"chatcmpl-{uuid.uuid4()}"
+        object_type: str = "stream.chat.completion" if stream else "chat.completion"
+        if tokenizer.chat_template:
+            process_message_content(messages)
+            prompt: List[int] = tokenizer.apply_chat_template(
+                messages, tools, add_generation_prompt=True
+            )
+        else:
+            prompt_str: str = convert_chat(messages, role_mapping)
+            prompt = tokenizer.encode(prompt_str)
+
+        # Generate completion
+        response = self._generate_completion(
+            prompt=prompt,
+            model_obj=model_obj,
+            tokenizer=tokenizer,
+            stop_id_sequences=stop_id_sequences,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            repetition_penalty=repetition_penalty,
+            repetition_context_size=repetition_context_size,
+            xtc_probability=xtc_probability,
+            xtc_threshold=xtc_threshold,
+            logit_bias=logit_bias,
+            logprobs=logprobs,
+            stream=stream,
+            request_id=request_id,
+            object_type=object_type,
+            draft_model=self.model_provider.draft_model,
+            num_draft_tokens=3
+        )
+
+        # Log interaction
+        log_dir = log_dir or self.log_dir
+        if log_dir:
+            ChatLogger(log_dir, method="chat").log_interaction(
+                messages,
+                response,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                repetition_context_size=repetition_context_size,
+                xtc_probability=xtc_probability,
+                xtc_threshold=xtc_threshold,
+                logprobs=logprobs,
+                stream=stream
+            )
+        return response
 
     def stream_chat(
         self,
@@ -116,7 +225,8 @@ class MLXLMClient:
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
-        tools: Optional[List[Tool]] = None
+        tools: Optional[List[Tool]] = None,
+        log_dir: Optional[str] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions as they are generated."""
         # Convert model keys to values
@@ -179,6 +289,116 @@ class MLXLMClient:
         ):
             yield response
 
+        # Log interaction
+        log_dir = log_dir or self.log_dir
+        if log_dir:
+            ChatLogger(log_dir, method="stream_chat").log_interaction(
+                messages,
+                response,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                repetition_context_size=repetition_context_size,
+                xtc_probability=xtc_probability,
+                xtc_threshold=xtc_threshold,
+                logprobs=logprobs,
+                stream=True
+            )
+
+    def generate(
+        self,
+        prompt: str,
+        model: ModelType = DEFAULT_MODEL,
+        draft_model: Optional[ModelType] = None,
+        adapter: Optional[str] = None,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        repetition_penalty: Optional[float] = None,
+        repetition_context_size: int = 20,
+        xtc_probability: float = 0.0,
+        xtc_threshold: float = 0.0,
+        logit_bias: Optional[Dict[int, float]] = None,
+        logprobs: int = -1,
+        stop: Optional[Union[str, List[str]]] = None,
+        stream: bool = False,
+        log_dir: Optional[str] = None
+    ) -> Union[CompletionResponse, List[CompletionResponse]]:
+        """Generate a text completion."""
+        # Convert model keys to values
+        model_value = self._get_model_value(model)
+        draft_model_value = self._get_model_value(
+            draft_model) if draft_model else None
+
+        # Validate parameters
+        self._validate_parameters(
+            stream, max_tokens, temperature, top_p, repetition_penalty,
+            repetition_context_size, xtc_probability, xtc_threshold,
+            logit_bias, logprobs, model_value, adapter
+        )
+
+        # Load model
+        model_obj, tokenizer = self.model_provider.load(
+            model_value, adapter, draft_model_value)
+
+        if tokenizer is None:
+            raise ValueError("Failed to load tokenizer")
+
+        # Prepare stop sequences
+        stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
+        stop_id_sequences: List[List[int]] = [
+            tokenizer.encode(stop_word, add_special_tokens=False)
+            for stop_word in stop_words
+        ]
+
+        # Generate prompt
+        request_id: str = f"cmpl-{uuid.uuid4()}"
+        object_type: str = "text.completion"
+        prompt_tokens: List[int] = tokenizer.encode(prompt)
+
+        # Generate completion
+        response = self._generate_completion(
+            prompt=prompt_tokens,
+            model_obj=model_obj,
+            tokenizer=tokenizer,
+            stop_id_sequences=stop_id_sequences,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            repetition_penalty=repetition_penalty,
+            repetition_context_size=repetition_context_size,
+            xtc_probability=xtc_probability,
+            xtc_threshold=xtc_threshold,
+            logit_bias=logit_bias,
+            logprobs=logprobs,
+            stream=stream,
+            request_id=request_id,
+            object_type=object_type,
+            draft_model=self.model_provider.draft_model,
+            num_draft_tokens=3
+        )
+
+        # Log interaction
+        log_dir = log_dir or self.log_dir
+        if log_dir:
+            ChatLogger(log_dir, method="generate").log_interaction(
+                prompt,
+                response,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                repetition_context_size=repetition_context_size,
+                xtc_probability=xtc_probability,
+                xtc_threshold=xtc_threshold,
+                logprobs=logprobs,
+                stream=stream
+            )
+        return response
+
     def stream_generate(
         self,
         prompt: str,
@@ -194,7 +414,8 @@ class MLXLMClient:
         xtc_threshold: float = 0.0,
         logit_bias: Optional[Dict[int, float]] = None,
         logprobs: int = -1,
-        stop: Optional[Union[str, List[str]]] = None
+        stop: Optional[Union[str, List[str]]] = None,
+        log_dir: Optional[str] = None
     ) -> Iterator[CompletionResponse]:
         """Stream text completions as they are generated."""
         # Convert model keys to values
@@ -250,158 +471,23 @@ class MLXLMClient:
         ):
             yield response
 
-    def chat(
-        self,
-        messages: List[Message],
-        model: ModelType = DEFAULT_MODEL,
-        draft_model: Optional[ModelType] = None,
-        adapter: Optional[str] = None,
-        max_tokens: int = 512,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
-        logprobs: int = -1,
-        stop: Optional[Union[str, List[str]]] = None,
-        stream: bool = False,
-        role_mapping: Optional[RoleMapping] = None,
-        tools: Optional[List[Tool]] = None
-    ) -> Union[CompletionResponse, List[CompletionResponse]]:
-        """Generate a chat completion."""
-        # Convert model keys to values
-        model_value = self._get_model_value(model)
-        draft_model_value = self._get_model_value(
-            draft_model) if draft_model else None
-
-        # Validate parameters
-        self._validate_parameters(
-            stream, max_tokens, temperature, top_p, repetition_penalty,
-            repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model_value, adapter
-        )
-
-        # Load model
-        model_obj, tokenizer = self.model_provider.load(
-            model_value, adapter, draft_model_value)
-
-        if tokenizer is None:
-            raise ValueError("Failed to load tokenizer")
-
-        # Prepare stop sequences
-        stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
-        stop_id_sequences: List[List[int]] = [
-            tokenizer.encode(stop_word, add_special_tokens=False)
-            for stop_word in stop_words
-        ]
-
-        # Generate prompt
-        request_id: str = f"chatcmpl-{uuid.uuid4()}"
-        object_type: str = "stream.chat.completion" if stream else "chat.completion"
-        if tokenizer.chat_template:
-            process_message_content(messages)
-            prompt: List[int] = tokenizer.apply_chat_template(
-                messages, tools, add_generation_prompt=True
+        # Log interaction
+        log_dir = log_dir or self.log_dir
+        if log_dir:
+            ChatLogger(log_dir, method="stream_generate").log_interaction(
+                prompt,
+                response,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                repetition_context_size=repetition_context_size,
+                xtc_probability=xtc_probability,
+                xtc_threshold=xtc_threshold,
+                logprobs=logprobs,
+                stream=True
             )
-        else:
-            prompt_str: str = convert_chat(messages, role_mapping)
-            prompt = tokenizer.encode(prompt_str)
-
-        # Generate completion
-        return self._generate_completion(
-            prompt=prompt,
-            model_obj=model_obj,
-            tokenizer=tokenizer,
-            stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
-            stream=stream,
-            request_id=request_id,
-            object_type=object_type,
-            draft_model=self.model_provider.draft_model,
-            num_draft_tokens=3
-        )
-
-    def generate(
-        self,
-        prompt: str,
-        model: ModelType = DEFAULT_MODEL,
-        draft_model: Optional[ModelType] = None,
-        adapter: Optional[str] = None,
-        max_tokens: int = 512,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
-        logprobs: int = -1,
-        stop: Optional[Union[str, List[str]]] = None,
-        stream: bool = False
-    ) -> Union[CompletionResponse, List[CompletionResponse]]:
-        """Generate a text completion."""
-        # Convert model keys to values
-        model_value = self._get_model_value(model)
-        draft_model_value = self._get_model_value(
-            draft_model) if draft_model else None
-
-        # Validate parameters
-        self._validate_parameters(
-            stream, max_tokens, temperature, top_p, repetition_penalty,
-            repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model_value, adapter
-        )
-
-        # Load model
-        model_obj, tokenizer = self.model_provider.load(
-            model_value, adapter, draft_model_value)
-
-        if tokenizer is None:
-            raise ValueError("Failed to load tokenizer")
-
-        # Prepare stop sequences
-        stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
-        stop_id_sequences: List[List[int]] = [
-            tokenizer.encode(stop_word, add_special_tokens=False)
-            for stop_word in stop_words
-        ]
-
-        # Generate prompt
-        request_id: str = f"cmpl-{uuid.uuid4()}"
-        object_type: str = "text.completion"
-        prompt_tokens: List[int] = tokenizer.encode(prompt)
-
-        # Generate completion
-        return self._generate_completion(
-            prompt=prompt_tokens,
-            model_obj=model_obj,
-            tokenizer=tokenizer,
-            stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
-            stream=stream,
-            request_id=request_id,
-            object_type=object_type,
-            draft_model=self.model_provider.draft_model,
-            num_draft_tokens=3
-        )
 
     def get_models(self) -> ModelsResponse:
         """List available models."""

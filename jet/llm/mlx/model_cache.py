@@ -1,3 +1,4 @@
+import atexit
 import asyncio
 import time
 import gc
@@ -68,3 +69,7 @@ async def cleanup_idle_models():
                         f"Model {MODEL_CACHE['model_name']} idle for {idle_time:.2f} seconds, unloading.")
                     unload_current_model()
         await asyncio.sleep(10)
+
+
+# Register the function to run at exit
+atexit.register(unload_current_model)

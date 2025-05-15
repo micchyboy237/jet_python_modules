@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, UTC
-from typing import Literal, Union, List
+from typing import Any, Literal, Union, List
 from uuid import uuid4
 
 from jet.file.utils import save_file
@@ -32,9 +32,10 @@ class ChatLogger:
     def log_interaction(
         self,
         prompt_or_messages: Union[str, List[Message]],
-        response: Union[CompletionResponse, List[CompletionResponse]]
+        response: Union[CompletionResponse, List[CompletionResponse]],
+        **kwargs: Any
     ) -> None:
-        """Log prompt or messages and response to a timestamped file."""
+        """Log prompt or messages and response to a timestamped file with additional metadata."""
         filename = f"{short_sortable_filename()}_{self.method}.json"
         log_file = os.path.join(self.log_dir, filename)
 
@@ -52,6 +53,22 @@ class ChatLogger:
             log_data["messages"] = prompt_or_messages
 
         log_data["response"] = format_json(response, indent=2)
+
+        # Move usage to the end and format as readable strings
+        if "usage" in kwargs:
+            usage = kwargs.pop("usage")
+            formatted_usage = {
+                "prompt_tokens": str(usage.get("prompt_tokens", 0)),
+                "prompt_tps": f"{usage.get('prompt_tps', 0):.2f} tokens/sec",
+                "completion_tokens": str(usage.get("completion_tokens", 0)),
+                "completion_tps": f"{usage.get('completion_tps', 0):.2f} tokens/sec",
+                "peak_memory": f"{usage.get('peak_memory', 0):.2f} GB",
+                "total_tokens": str(usage.get("total_tokens", 0))
+            }
+            kwargs["usage"] = formatted_usage
+
+        log_data.update(kwargs)  # Add remaining kwargs, with usage last
+
         save_file(log_data, log_file)
 
         # Enforce file limit
