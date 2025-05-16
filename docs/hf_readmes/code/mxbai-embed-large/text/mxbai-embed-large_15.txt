@@ -1,0 +1,33 @@
+
+## Evaluation
+As of March 2024, our model archives SOTA performance for Bert-large sized models on the [MTEB](https://huggingface.co/spaces/mteb/leaderboard). It ourperforms commercial models like OpenAIs text-embedding-3-large and matches the performance of model 20x it's size like the [echo-mistral-7b](https://huggingface.co/jspringer/echo-mistral-7b-instruct-lasttoken). Our model was trained with no overlap of the MTEB data, which indicates that our model generalizes well across several domains, tasks and text length. We know there are some limitations with this model, which will be fixed in v2. 
+
+
+| Model                                                                                         | Avg (56 datasets) | Classification (12 datasets) | Clustering (11 datasets) | PairClassification (3 datasets) | Reranking (4 datasets) | Retrieval (15 datasets) | STS (10 datasets) | Summarization (1 dataset) |
+| --------------------------------------------------------------------------------------------- | ----------------- | ---------------------------- | ------------------------ | ------------------------------- | ---------------------- | ----------------------- | ----------------- | ------------------------- |
+| **mxbai-embed-large-v1**                                                                      | **64.68**         | 75.64                        | 46.71                    | 87.2                            | 60.11                  | 54.39                   | 85.00             | 32.71                     |
+| [bge-large-en-v1.5](https://huggingface.co/BAAI/bge-large-en-v1.5)                            | 64.23             | 75.97                        | 46.08                    | 87.12                           | 60.03                  | 54.29                   | 83.11             | 31.61                     |
+| [mxbai-embed-2d-large-v1](https://huggingface.co/mixedbread-ai/mxbai-embed-2d-large-v1)       | 63.25             | 74.14                        | 46.07                    | 85.89                           | 58.94                  | 51.42                   | 84.9              | 31.55                     |
+| [nomic-embed-text-v1](https://huggingface.co/nomic-ai/nomic-embed-text-v1)                    | 62.39             | 74.12                        | 43.91                    | 85.15                           | 55.69                  | 52.81                   | 82.06             | 30.08                     |
+| [jina-embeddings-v2-base-en](https://huggingface.co/jinaai/jina-embeddings-v2-base-en)        | 60.38             | 73.45                        | 41.73                    | 85.38                           | 56.98                  | 47.87                   | 80.7              | 31.6                      |
+| *Proprietary Models*                                                                          |                   |                              |                          |                                 |                        |                         |                   |                           |
+| [OpenAI text-embedding-3-large](https://openai.com/blog/new-embedding-models-and-api-updates) | 64.58             | 75.45                        | 49.01                    | 85.72                           | 59.16                  | 55.44                   | 81.73             | 29.92                     |
+| [Cohere embed-english-v3.0](https://txt.cohere.com/introducing-embed-v3/)                     | 64.47             | 76.49                        | 47.43                    | 85.84                           | 58.01                  | 55.00                   | 82.62             | 30.18                     |
+| [OpenAI text-embedding-ada-002](https://openai.com/blog/new-and-improved-embedding-model)     | 60.99             | 70.93                        | 45.90                    | 84.89                           | 56.32                  | 49.25                   | 80.97             | 30.80                     |
+
+
+Please find more information in our [blog post](https://mixedbread.ai/blog/mxbai-embed-large-v1). 
+
+## Matryoshka and Binary Quantization
+
+Embeddings in their commonly used form (float arrays) have a high memory footprint when used at scale. Two approaches to solve this problem are Matryoshka Representation Learning (MRL) and (Binary) Quantization. While MRL reduces the number of dimensions of an embedding, binary quantization transforms the value of each dimension from a float32 into a lower precision (int8 or even binary). <b> The model supports both approaches! </b>
+
+You can also take it one step further, and combine both MRL and quantization. This combination of binary quantization and MRL allows you to reduce the memory usage of your embeddings significantly. This leads to much lower costs when using a vector database in particular. You can read more about the technology and its advantages in our [blog post](https://www.mixedbread.ai/blog/binary-mrl).
+
+## Community
+Please join our [Discord Community](https://discord.gg/jDfMHzAVfU) and share your feedback and thoughts! We are here to help and also always happy to chat.
+
+## License
+Apache 2.0
+
+## Citation

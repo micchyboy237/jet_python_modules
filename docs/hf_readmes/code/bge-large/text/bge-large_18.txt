@@ -1,0 +1,9 @@
+
+### Usage for Reranker
+
+Different from embedding model, reranker uses question and document as input and directly output similarity instead of embedding. 
+You can get a relevance score by inputting query and passage to the reranker. 
+The reranker is optimized based cross-entropy loss, so the relevance score is not bounded to a specific range.
+
+
+#### Using FlagEmbedding

@@ -1,0 +1,2 @@
+
+Get relevance scores (higher scores indicate more relevance):

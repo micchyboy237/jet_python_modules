@@ -1,0 +1,6 @@
+
+### `clustering`
+
+#### Purpose: embed texts to group them into clusters
+
+This prefix is used for embedding texts in order to group them into clusters, discover common topics, or remove semantic duplicates.

@@ -1,0 +1,4 @@
+
+The API comes with native int8 and binary quantization support! Check out the [docs](https://mixedbread.ai/docs) for more information.
+
+### Infinity

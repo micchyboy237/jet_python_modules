@@ -1,0 +1,6 @@
+Query: what is snowflake?
+0.533809 The Data Cloud!
+0.49207097 Mexico City of Course!
+Query: Where can I get the best tacos?
+0.56592476 Mexico City of Course!
+0.48255116 The Data Cloud!

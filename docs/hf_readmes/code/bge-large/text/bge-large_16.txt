@@ -1,0 +1,2 @@
+
+Its also possible to deploy the onnx files with the [infinity_emb](https://github.com/michaelfeil/infinity) pip package.

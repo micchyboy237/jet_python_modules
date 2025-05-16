@@ -1,0 +1,5 @@
+
+
+#### Using HuggingFace Transformers
+
+With the transformers package, you can use the model like this: First, you pass your input through the transformer model, then you select the last hidden state of the first token (i.e., [CLS]) as the sentence embedding.

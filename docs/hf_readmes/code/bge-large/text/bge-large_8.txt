@@ -1,0 +1,3 @@
+For s2p(short query to long passage) retrieval task, 
+each short query should start with an instruction (instructions see [Model List](https://github.com/FlagOpen/FlagEmbedding/tree/master#model-list)). 
+But the instruction is not needed for passages.
