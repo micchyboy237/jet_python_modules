@@ -1,9 +1,12 @@
-from sentence_transformers import SentenceTransformer
-queries = ['query_1', 'query_2']
-passages = ["样例文档-1", "样例文档-2"]
-instruction = "为这个句子生成表示以用于检索相关文章："
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-model = SentenceTransformer('BAAI/bge-large-zh-v1.5')
-q_embeddings = model.encode([instruction+q for q in queries], normalize_embeddings=True)
-p_embeddings = model.encode(passages, normalize_embeddings=True)
-scores = q_embeddings @ p_embeddings.T
+tokenizer = AutoTokenizer.from_pretrained('BAAI/bge-reranker-large')
+model = AutoModelForSequenceClassification.from_pretrained('BAAI/bge-reranker-large')
+model.eval()
+
+pairs = [['what is panda?', 'hi'], ['what is panda?', 'The giant panda (Ailuropoda melanoleuca), sometimes called a panda bear or simply panda, is a bear species endemic to China.']]
+with torch.no_grad():
+    inputs = tokenizer(pairs, padding=True, truncation=True, return_tensors='pt', max_length=512)
+    scores = model(**inputs, return_dict=True).logits.view(-1, ).float()
+    print(scores)

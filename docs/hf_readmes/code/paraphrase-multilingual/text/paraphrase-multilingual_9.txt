@@ -1,6 +1,0 @@
-
-## Citing & Authors
-
-This model was trained by [sentence-transformers](https://www.sbert.net/). 
-        
-If you find this model helpful, feel free to cite our publication [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084):

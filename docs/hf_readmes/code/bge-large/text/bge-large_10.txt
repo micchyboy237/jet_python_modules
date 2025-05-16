@@ -1,4 +1,2 @@
 
-#### Using Langchain 
-
-You can use `bge` in langchain like this:
+Its also possible to deploy the onnx files with the [infinity_emb](https://github.com/michaelfeil/infinity) pip package.

@@ -1,7 +1,0 @@
-
-
-## Nomic API
-
-The easiest way to use Nomic Embed is through the Nomic Embedding API.
-
-Generating embeddings with the `nomic` Python client is as easy as

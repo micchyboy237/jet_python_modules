@@ -1,3 +1,5 @@
-For s2p(short query to long passage) retrieval task, 
-each short query should start with an instruction (instructions see [Model List](https://github.com/FlagOpen/FlagEmbedding/tree/master#model-list)). 
-But the instruction is not needed for passages.
+
+
+#### Using HuggingFace Transformers
+
+With the transformers package, you can use the model like this: First, you pass your input through the transformer model, then you select the last hidden state of the first token (i.e., [CLS]) as the sentence embedding.

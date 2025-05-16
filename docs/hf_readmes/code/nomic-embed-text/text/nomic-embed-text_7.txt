@@ -1,6 +1,2 @@
 
-### `classification`
-
-#### Purpose: embed texts to classify them
-
-This prefix is used for embedding texts into vectors that will be used as features for a classification model
+The model natively supports scaling of the sequence length past 2048 tokens. To do so,

@@ -1,0 +1,4 @@
+
+#### Using Langchain 
+
+You can use `bge` in langchain like this:

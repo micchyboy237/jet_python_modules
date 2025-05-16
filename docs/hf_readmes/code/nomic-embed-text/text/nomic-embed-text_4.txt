@@ -1,0 +1,6 @@
+
+### `classification`
+
+#### Purpose: embed texts to classify them
+
+This prefix is used for embedding texts into vectors that will be used as features for a classification model

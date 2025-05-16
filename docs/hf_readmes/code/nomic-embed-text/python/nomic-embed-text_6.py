@@ -1,6 +1,10 @@
-from sentence_transformers import SentenceTransformer
+from nomic import embed
 
-model = SentenceTransformer("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
-sentences = ['clustering: the quick brown fox']
-embeddings = model.encode(sentences)
-print(embeddings)
+output = embed.text(
+    texts=['Nomic Embedding API', '#keepAIOpen'],
+    model='nomic-embed-text-v1.5',
+    task_type='search_document',
+    dimensionality=256,
+)
+
+print(output)

@@ -1,6 +1,6 @@
 
-### `search_query`
+### `clustering`
 
-#### Purpose: embed texts as questions to answer
+#### Purpose: embed texts to group them into clusters
 
-This prefix is used for embedding texts as questions that documents from a dataset could resolve, for example as queries to be answered by a RAG application.
+This prefix is used for embedding texts in order to group them into clusters, discover common topics, or remove semantic duplicates.

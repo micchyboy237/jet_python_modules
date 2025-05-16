@@ -1,9 +1,1 @@
-For the value of the argument `query_instruction_for_retrieval`, see [Model List](https://github.com/FlagOpen/FlagEmbedding/tree/master#model-list). 
-
-By default, FlagModel will use all available GPUs when encoding. Please set `os.environ["CUDA_VISIBLE_DEVICES"]` to select specific GPUs.
-You also can set `os.environ["CUDA_VISIBLE_DEVICES"]=""` to make all GPUs unavailable.
-
-
-#### Using Sentence-Transformers
-
-You can also use the `bge` models with [sentence-transformers](https://www.SBERT.net):
+pip install -U sentence-transformers
