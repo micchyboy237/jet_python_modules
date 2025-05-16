@@ -1,6 +1,6 @@
 import pytest
 from jet.llm.mlx.mlx_types import ModelType
-from jet.llm.mlx.helpers.eval.evaluate_context_relevance import evaluate_context_relevance
+from jet.llm.mlx.tasks.eval.evaluate_context_relevance import evaluate_context_relevance
 
 MODEL_PATH: ModelType = "llama-3.2-3b-instruct-4bit"
 
