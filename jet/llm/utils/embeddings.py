@@ -139,10 +139,10 @@ def get_embedding_function(
         # Check in-memory cache
         with _cache_lock:
             if cache_key in _memory_cache:
-                logger.success(
-                    f"Memory cache hit for {'1 text' if single_input else f'{text_count} texts'} "
-                    f"(key: {cache_key}): {text_summary}"
-                )
+                # logger.success(
+                #     f"Memory cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                #     f"(key: {cache_key}): {text_summary}"
+                # )
                 return _memory_cache[cache_key]
 
         # Check file cache
@@ -150,10 +150,10 @@ def get_embedding_function(
             cache = load_cache()
             if cache_key in cache:
                 _memory_cache[cache_key] = cache[cache_key]
-                logger.success(
-                    f"File cache hit for {'1 text' if single_input else f'{text_count} texts'} "
-                    f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
-                )
+                # logger.success(
+                #     f"File cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                #     f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
+                # )
                 return cache[cache_key]
 
         logger.warning(
