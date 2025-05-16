@@ -8,7 +8,6 @@ from mlx_lm import load
 from mlx_lm.generate import generate_step
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import TokenizerWrapper
-
 mx.random.seed(42)
 
 
@@ -24,6 +23,11 @@ class InvalidMethodError(Exception):
 
 class InvalidOutputError(Exception):
     """Raised when the generated answer is not in the provided choices."""
+    pass
+
+
+class InvalidInputError(Exception):
+    """Raised when question or choices are empty or invalid."""
     pass
 
 
@@ -63,6 +67,14 @@ def validate_method(method: str) -> None:
     if method not in valid_methods:
         raise InvalidMethodError(
             f"Invalid method specified: {method}. Valid methods: {valid_methods}")
+
+
+def validate_inputs(question: str, choices: List[str]) -> None:
+    """Validates that question and choices are non-empty."""
+    if not question.strip():
+        raise InvalidInputError("Question cannot be empty.")
+    if not choices:
+        raise InvalidInputError("Choices cannot be empty.")
 
 
 def create_system_prompt(choices: List[str]) -> str:
@@ -198,23 +210,9 @@ def answer_multiple_choice(
     temperature: float = 0.0,
     top_p: float = 0.9
 ) -> AnswerResult:
-    """
-    Answers a multiple-choice question by generating a response and validating it with confidence scores.
-
-    Args:
-        question (str): The question to answer.
-        choices (List[str]): List of possible answer choices.
-        model_path (ModelType): Path to the model.
-        method (str): Generation method ("generate_step"). Defaults to "generate_step".
-        max_tokens (int): Maximum number of tokens to generate. Defaults to 10.
-        temperature (float): Sampling temperature. Defaults to 0.0.
-        top_p (float): Top-p sampling parameter. Defaults to 0.9.
-
-    Returns:
-        AnswerResult: Dictionary containing the answer, token ID, validity, method, and error (if any).
-    """
     try:
         validate_method(method)
+        validate_inputs(question, choices)
         model_components = load_model_components(model_path)
         system_prompt = create_system_prompt(choices)
         log_prompt_details(system_prompt, question, model_path)
@@ -226,14 +224,10 @@ def answer_multiple_choice(
         logits_processors, sampler, stop_tokens = setup_generation_parameters(
             model_components.tokenizer, choice_token_map, temperature, top_p
         )
-
-        # Generate answer using generate_step
         answer, token_id, _ = generate_answer_step(
             model_components, formatted_prompt, max_tokens,
             logits_processors, sampler, stop_tokens, choices
         )
-
-        # Compute confidence scores to validate
         input_ids = mx.array(
             model_components.tokenizer.encode(formatted_prompt))
         confidence_scores = compute_confidence_scores(
@@ -251,7 +245,6 @@ def answer_multiple_choice(
                     f"Generated answer '{answer}' differs from most confident choice '{most_confident_choice}'. Overriding.")
                 answer = most_confident_choice
                 token_id = choice_token_map[most_confident_choice][0] if choice_token_map[most_confident_choice] else -1
-
         validate_answer(answer, choices)
         return AnswerResult(
             answer=answer,

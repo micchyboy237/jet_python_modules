@@ -8,7 +8,6 @@ from mlx_lm import load
 from mlx_lm.generate import generate_step
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import TokenizerWrapper
-
 mx.random.seed(42)
 
 
@@ -29,6 +28,11 @@ class InvalidOutputError(Exception):
 
 class InvalidChoiceFormatError(Exception):
     """Raised when a choice does not match the expected format (e.g., 'A) Text')."""
+    pass
+
+
+class InvalidInputError(Exception):
+    """Raised when question or choices are empty or invalid."""
     pass
 
 
@@ -70,19 +74,15 @@ def validate_method(method: str) -> None:
             f"Invalid method specified: {method}. Valid methods: {valid_methods}")
 
 
+def validate_inputs(question: str, choices: List[str]) -> None:
+    """Validates that question and choices are non-empty."""
+    if not question.strip():
+        raise InvalidInputError("Question cannot be empty.")
+    if not choices:
+        raise InvalidInputError("Choices cannot be empty.")
+
+
 def parse_choices(choices: List[str]) -> tuple[Dict[str, str], List[str]]:
-    """
-    Parses choices in format 'A) Text' into a key-to-choice map and list of choice texts.
-
-    Args:
-        choices (List[str]): List of choices, e.g., ["A) Oxygen", "B) Carbon"].
-
-    Returns:
-        tuple[Dict[str, str], List[str]]: (key_to_choice map, list of choice texts).
-
-    Raises:
-        InvalidChoiceFormatError: If a choice doesn't match the expected format.
-    """
     key_to_choice = {}
     choice_texts = []
     for choice in choices:
@@ -167,8 +167,6 @@ def compute_confidence_scores(
         probs = mx.softmax(logits, axis=-1)
         logger.debug(
             f"Softmax probabilities (min, max): {float(probs.min()), float(probs.max())}")
-
-        # Compute raw confidence scores (average for multi-token choices)
         raw_confidence_scores = {}
         for choice, tokens in choice_token_map.items():
             if tokens:
@@ -177,8 +175,6 @@ def compute_confidence_scores(
                     token_probs) / len(token_probs) if token_probs else 0.0
                 logger.debug(
                     f"Choice: {choice}, Token IDs: {tokens}, Raw Prob: {raw_confidence_scores[choice]}")
-
-        # Normalize confidence scores
         total_prob = sum(raw_confidence_scores.values())
         if total_prob == 0:
             logger.warning("Total probability is zero, returning raw scores")
@@ -187,7 +183,6 @@ def compute_confidence_scores(
             choice: prob / total_prob for choice, prob in raw_confidence_scores.items()
         }
         return normalized_confidence_scores
-
     except Exception as e:
         logger.error(f"Error computing confidence scores: {str(e)}")
         return {}
@@ -243,52 +238,27 @@ def answer_multiple_choice_with_key(
     temperature: float = 0.0,
     top_p: float = 0.9
 ) -> AnswerResult:
-    """
-    Answers a multiple-choice question by generating a response and returning the key (e.g., 'A')
-    associated with the selected choice.
-
-    Args:
-        question (str): The question to answer.
-        choices (List[str]): List of choices in format "Key) Text", e.g., ["A) Oxygen", "B) Carbon"].
-        model_path (ModelType): Path to the model.
-        method (str): Generation method ("generate_step"). Defaults to "generate_step".
-        max_tokens (int): Maximum number of tokens to generate. Defaults to 10.
-        temperature (float): Sampling temperature. Defaults to 0.0.
-        top_p (float): Top-p sampling parameter. Defaults to 0.9.
-
-    Returns:
-        AnswerResult: Dictionary containing the answer key, token ID, validity, method, and error (if any).
-    """
     try:
         validate_method(method)
+        validate_inputs(question, choices)
         model_components = load_model_components(model_path)
-
-        # Parse choices into keys and texts
         key_to_choice, choice_texts = parse_choices(choices)
         logger.debug(f"Parsed choices: {key_to_choice}")
-
-        # Create system prompt with original choice format
         system_prompt = create_system_prompt(choices)
         log_prompt_details(system_prompt, question, model_path)
         messages = format_chat_messages(system_prompt, question)
         formatted_prompt = model_components.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-
-        # Encode choice texts (not keys) for generation
         choice_token_map = encode_choices(
             model_components.tokenizer, choice_texts)
         logits_processors, sampler, stop_tokens = setup_generation_parameters(
             model_components.tokenizer, choice_token_map, temperature, top_p
         )
-
-        # Generate answer using generate_step
         answer, token_id, _ = generate_answer_step(
             model_components, formatted_prompt, max_tokens,
             logits_processors, sampler, stop_tokens, choice_texts
         )
-
-        # Compute normalized confidence scores to validate
         input_ids = mx.array(
             model_components.tokenizer.encode(formatted_prompt))
         confidence_scores = compute_confidence_scores(
@@ -305,14 +275,10 @@ def answer_multiple_choice_with_key(
                     f"Generated answer '{answer}' differs from most confident choice '{most_confident_choice}'. Overriding.")
                 answer = most_confident_choice
                 token_id = choice_token_map[most_confident_choice][0] if choice_token_map[most_confident_choice] else -1
-
         validate_answer(answer, choice_texts)
-
-        # Map the answer (choice text) to its key
         answer_key = next(
             key for key, text in key_to_choice.items() if text == answer)
         logger.debug(f"Selected answer: {answer}, Key: {answer_key}")
-
         return AnswerResult(
             answer_key=answer_key,
             token_id=token_id,
