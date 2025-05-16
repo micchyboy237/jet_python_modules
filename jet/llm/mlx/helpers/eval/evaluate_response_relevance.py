@@ -14,7 +14,7 @@ class ModelLoadError(Exception):
 
 
 class InvalidInputError(Exception):
-    """Raised when query or response is empty or invalid."""
+    """Raised when query, context, or response is empty or invalid."""
     pass
 
 
@@ -53,51 +53,51 @@ def load_model_components(model_path: ModelType) -> ModelComponents:
 
 def create_system_prompt() -> str:
     """Creates a system prompt for evaluating response relevance."""
-    return """Evaluate if the provided response is relevant to the query. Choose one option based on how well the response addresses the query:
-0: very low (response is completely unrelated or off-topic)
-1: low (response has minimal relation to the query)
-2: medium (response partially addresses the query)
-3: high (response mostly addresses the query)
-4: very high (response fully and directly addresses the query)
+    return (
+        "You are an expert evaluator assessing the relevance of a response to a given query and context. "
+        "Based on the query, context, and response provided, assign a relevance score as follows: "
+        "0 (irrelevant: the response does not address the query or context), "
+        "1 (partially relevant: the response addresses some aspects of the query or context but is incomplete or tangential), "
+        "2 (highly relevant: the response directly and accurately addresses the query and context). "
+        "Output only the score (0, 1, or 2) and nothing else."
+    )
 
-Return only the number (0, 1, 2, 3, or 4) without additional text."""
 
-
-def format_chat_messages(query: str, response: str) -> List[ChatMessage]:
+def format_chat_messages(query: str, context: str, response: str) -> List[ChatMessage]:
     """Formats the system and user messages for the chat template."""
-    user_content = f"Query: {query}\nResponse: {response}"
+    user_content = f"Query: {query}\nContext: {context}\nResponse: {response}"
     return [
         {"role": "system", "content": create_system_prompt()},
         {"role": "user", "content": user_content}
     ]
 
 
-def validate_inputs(query: str, response: str) -> None:
-    """Validates that query and response are non-empty."""
+def validate_inputs(query: str, context: str, response: str) -> None:
+    """Validates that query, context, and response are non-empty."""
     if not query.strip():
         raise InvalidInputError("Query cannot be empty.")
+    if not context.strip():
+        raise InvalidInputError("Context cannot be empty.")
     if not response.strip():
         raise InvalidInputError("Response cannot be empty.")
 
 
 def evaluate_response_relevance(
     query: str,
+    context: str,
     response: str,
     model_path: ModelType,
     max_tokens: int = 1,
-    temperature: float = 0.0,
+    temperature: float = 0.1,
     top_p: float = 0.9
 ) -> RelevanceResult:
-    """Evaluates if the LLM response is relevant to the query."""
+    """Evaluates if the response is relevant to the query and context."""
     try:
-        validate_inputs(query, response)
+        validate_inputs(query, context, response)
         model_components = load_model_components(model_path)
-
-        # Define valid outputs
-        valid_outputs = ["0", "1", "2", "3", "4"]
+        valid_outputs = ["0", "1", "2"]
         choice_token_map = {choice: model_components.tokenizer.encode(
             choice, add_special_tokens=False) for choice in valid_outputs}
-        # Log token map
         for choice, tokens in choice_token_map.items():
             logger.log(f"Token for '{choice}':",
                        tokens, colors=["GRAY", "ORANGE"])
@@ -108,18 +108,14 @@ def evaluate_response_relevance(
         sampler = mx.random.categorical
         stop_tokens = model_components.tokenizer.encode(
             "\n") + list(model_components.tokenizer.eos_token_ids)
-
-        # Format prompt
-        messages = format_chat_messages(query, response)
+        messages = format_chat_messages(query, context, response)
         formatted_prompt = model_components.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-
-        # Generate answer
         input_ids = mx.array(model_components.tokenizer.encode(
             formatted_prompt, add_special_tokens=False))
         answer = ""
-        for token, _ in generate_step(
+        for token, logits in generate_step(
             model=model_components.model,
             prompt=input_ids,
             max_tokens=max_tokens,
@@ -130,14 +126,22 @@ def evaluate_response_relevance(
         ):
             if token in stop_tokens:
                 break
+            valid_token_ids = [choice_token_map[choice][0]
+                               for choice in valid_outputs]
+            valid_logits = logits[valid_token_ids]
+            probs = mx.softmax(valid_logits).tolist()
+            prob_dict = {choice: round(prob, 4)
+                         for choice, prob in zip(valid_outputs, probs)}
+            logger.log(
+                f"Probabilities for query '{query}', context '{context}', response '{response}':",
+                prob_dict,
+                colors=["GRAY", "CYAN"]
+            )
             answer = model_components.tokenizer.decode([token]).strip()
             break
-
-        # Validate answer
         if answer not in valid_outputs:
             raise InvalidOutputError(
-                f"Output '{answer}' is not a valid relevance score (0-4).")
-
+                f"Output '{answer}' is not a valid relevance score (0-2).")
         return RelevanceResult(
             relevance_score=int(answer),
             is_valid=True,

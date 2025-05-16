@@ -5,46 +5,61 @@ from jet.llm.mlx.helpers.eval.evaluate_response_relevance import evaluate_respon
 MODEL_PATH: ModelType = "llama-3.2-3b-instruct-4bit"
 
 
-def test_relevant_response():
+def test_low_relevance_response():
     query = "What is the capital of France?"
+    context = "The capital of France is Paris."
+    response = "The theory of relativity was developed by Albert Einstein."
+    result = evaluate_response_relevance(query, context, response, MODEL_PATH)
+    assert result["is_valid"]
+    assert result["relevance_score"] == 0
+    assert result["error"] is None
+
+
+def test_medium_relevance_response():
+    query = "What is the capital of France?"
+    context = "The capital of France is Paris."
+    response = "Paris is a major tourist destination."
+    result = evaluate_response_relevance(query, context, response, MODEL_PATH)
+    assert result["is_valid"]
+    assert result["relevance_score"] == 1
+    assert result["error"] is None
+
+
+def test_high_relevance_response():
+    query = "What is the capital of France?"
+    context = "The capital of France is Paris."
     response = "The capital of France is Paris."
-    result = evaluate_response_relevance(query, response, MODEL_PATH)
+    result = evaluate_response_relevance(query, context, response, MODEL_PATH)
     assert result["is_valid"]
-    assert result["relevance_score"] in [3, 4]  # Expect high or very high
-    assert result["error"] is None
-
-
-def test_irrelevant_response():
-    query = "What is the capital of France?"
-    response = "The sky is blue."
-    result = evaluate_response_relevance(query, response, MODEL_PATH)
-    assert result["is_valid"]
-    assert result["relevance_score"] in [0, 1]  # Expect very low or low
-    assert result["error"] is None
-
-
-def test_partially_relevant_response():
-    query = "What is the capital of France?"
-    response = "France is in Europe, and its capital is Paris."
-    result = evaluate_response_relevance(query, response, MODEL_PATH)
-    assert result["is_valid"]
-    assert result["relevance_score"] in [2, 3, 4]  # Expect medium to very high
+    assert result["relevance_score"] == 2
     assert result["error"] is None
 
 
 def test_empty_query():
     query = ""
+    context = "The capital of France is Paris."
     response = "The capital of France is Paris."
-    result = evaluate_response_relevance(query, response, MODEL_PATH)
+    result = evaluate_response_relevance(query, context, response, MODEL_PATH)
     assert not result["is_valid"]
     assert result["relevance_score"] == 0
     assert "Query cannot be empty." in result["error"]
 
 
+def test_empty_context():
+    query = "What is the capital of France?"
+    context = ""
+    response = "The capital of France is Paris."
+    result = evaluate_response_relevance(query, context, response, MODEL_PATH)
+    assert not result["is_valid"]
+    assert result["relevance_score"] == 0
+    assert "Context cannot be empty." in result["error"]
+
+
 def test_empty_response():
     query = "What is the capital of France?"
+    context = "The capital of France is Paris."
     response = ""
-    result = evaluate_response_relevance(query, response, MODEL_PATH)
+    result = evaluate_response_relevance(query, context, response, MODEL_PATH)
     assert not result["is_valid"]
     assert result["relevance_score"] == 0
     assert "Response cannot be empty." in result["error"]

@@ -219,6 +219,8 @@ def logger_examples(logger: CustomLogger):
     logger.orange("This is a bright orange message.", bright=True)
     logger.teal("This is a teal message.")
     logger.teal("This is a bright teal message.", bright=True)
+    logger.cyan("This is a cyan message.")
+    logger.cyan("This is a bright cyan message.", bright=True)
     logger.purple("This is a purple message.")
     logger.purple("This is a bright purple message.", bright=True)
     logger.lime("This is a lime message.")

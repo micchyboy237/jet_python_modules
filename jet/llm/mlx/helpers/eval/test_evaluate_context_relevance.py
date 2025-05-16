@@ -5,36 +5,36 @@ from jet.llm.mlx.helpers.eval.evaluate_context_relevance import evaluate_context
 MODEL_PATH: ModelType = "llama-3.2-3b-instruct-4bit"
 
 
-def test_relevant_context():
-    query = "What is the capital of France?"
-    context = "The capital city of France is Paris, located in the northern part of the country."
-    result = evaluate_context_relevance(query, context, MODEL_PATH)
-    assert result["is_valid"]
-    assert result["relevance_score"] in [3, 4]  # Expect high or very high
-    assert result["error"] is None
-
-
-def test_irrelevant_context():
+def test_low_relevance_context():
     query = "What is the capital of France?"
     context = "The theory of relativity was developed by Albert Einstein."
     result = evaluate_context_relevance(query, context, MODEL_PATH)
     assert result["is_valid"]
-    assert result["relevance_score"] in [0, 1]  # Expect very low or low
+    assert result["relevance_score"] == 0  # Expect low
     assert result["error"] is None
 
 
-def test_partially_relevant_context():
+def test_medium_relevance_context():
     query = "What is the capital of France?"
-    context = "France is a country in Europe with many cities, including Paris."
+    context = "Paris hosts many tourists in France."
     result = evaluate_context_relevance(query, context, MODEL_PATH)
     assert result["is_valid"]
-    assert result["relevance_score"] in [2, 3, 4]  # Expect medium to very high
+    assert result["relevance_score"] == 1  # Expect medium
+    assert result["error"] is None
+
+
+def test_high_relevance_context():
+    query = "What is the capital of France?"
+    context = "The capital of France is Paris."
+    result = evaluate_context_relevance(query, context, MODEL_PATH)
+    assert result["is_valid"]
+    assert result["relevance_score"] == 2  # Expect high
     assert result["error"] is None
 
 
 def test_empty_query():
     query = ""
-    context = "The capital city of France is Paris."
+    context = "The capital of France is Paris."
     result = evaluate_context_relevance(query, context, MODEL_PATH)
     assert not result["is_valid"]
     assert result["relevance_score"] == 0

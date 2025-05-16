@@ -54,13 +54,17 @@ def load_model_components(model_path: ModelType) -> ModelComponents:
 def create_system_prompt() -> str:
     """Creates a system prompt for evaluating context relevance."""
     return """Evaluate if the provided context is relevant to the query. Choose one option based on how well the context addresses the query:
-0: very low (context is completely unrelated or off-topic)
-1: low (context has minimal relation to the query)
-2: medium (context partially addresses the query)
-3: high (context mostly addresses the query)
-4: very high (context fully and directly addresses the query)
+0: Low relevance (context is unrelated or barely related to the query)
+1: Medium relevance (context partially addresses the query)
+2: High relevance (context directly and mostly addresses the query)
 
-Return only the number (0, 1, 2, 3, or 4) without additional text."""
+Examples:
+- Query: "What is the capital of France?"
+  - Context: "The theory of relativity was developed by Albert Einstein." -> 0 (completely unrelated)
+  - Context: "Paris hosts many tourists in France." -> 1 (mentions Paris but not as capital)
+  - Context: "The capital of France is Paris." -> 2 (direct and complete)
+
+Return only the number (0, 1, or 2) without additional text."""
 
 
 def format_chat_messages(query: str, context: str) -> List[ChatMessage]:
@@ -85,7 +89,7 @@ def evaluate_context_relevance(
     context: str,
     model_path: ModelType,
     max_tokens: int = 1,
-    temperature: float = 0.0,
+    temperature: float = 0.1,
     top_p: float = 0.9
 ) -> RelevanceResult:
     """Evaluates if the retrieved context is relevant to the query."""
@@ -94,7 +98,7 @@ def evaluate_context_relevance(
         model_components = load_model_components(model_path)
 
         # Define valid outputs
-        valid_outputs = ["0", "1", "2", "3", "4"]
+        valid_outputs = ["0", "1", "2"]
         choice_token_map = {choice: model_components.tokenizer.encode(
             choice, add_special_tokens=False) for choice in valid_outputs}
         # Log token map
@@ -115,11 +119,11 @@ def evaluate_context_relevance(
             messages, tokenize=False, add_generation_prompt=True
         )
 
-        # Generate answer
+        # Generate answer and capture logits
         input_ids = mx.array(model_components.tokenizer.encode(
             formatted_prompt, add_special_tokens=False))
         answer = ""
-        for token, _ in generate_step(
+        for token, logits in generate_step(
             model=model_components.model,
             prompt=input_ids,
             max_tokens=max_tokens,
@@ -130,13 +134,25 @@ def evaluate_context_relevance(
         ):
             if token in stop_tokens:
                 break
+            # Compute softmax probabilities for valid scores
+            valid_token_ids = [choice_token_map[choice][0]
+                               for choice in valid_outputs]
+            valid_logits = logits[valid_token_ids]
+            probs = mx.softmax(valid_logits).tolist()
+            prob_dict = {choice: round(prob, 4)
+                         for choice, prob in zip(valid_outputs, probs)}
+            logger.log(
+                f"Probabilities for query '{query}' and context '{context}':",
+                prob_dict,
+                colors=["GRAY", "CYAN"]
+            )
             answer = model_components.tokenizer.decode([token]).strip()
             break
 
         # Validate answer
         if answer not in valid_outputs:
             raise InvalidOutputError(
-                f"Output '{answer}' is not a valid relevance score (0-4).")
+                f"Output '{answer}' is not a valid relevance score (0-2).")
 
         return RelevanceResult(
             relevance_score=int(answer),
