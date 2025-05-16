@@ -5,9 +5,42 @@ from jet.llm.mlx.helpers.answer_multiple_choice_with_key import answer_multiple_
 MODEL_PATH: ModelType = "llama-3.2-3b-instruct-4bit"
 
 
-def test_valid_multiple_choice():
+def test_valid_multiple_choice_letter_key():
     question = "What is the capital of France?"
     choices = ["A) Paris", "B) London", "C) Berlin", "D) Madrid"]
+    result = answer_multiple_choice_with_key(question, choices, MODEL_PATH)
+    assert result["is_valid"]
+    assert result["answer_key"] == "A"
+    assert result["token_id"] != -1
+    assert result["method"] == "generate_step"
+    assert result["error"] is None
+
+
+def test_valid_multiple_choice_numeric_key():
+    question = "What is the capital of France?"
+    choices = ["1) Paris", "2) London", "3) Berlin", "4) Madrid"]
+    result = answer_multiple_choice_with_key(question, choices, MODEL_PATH)
+    assert result["is_valid"]
+    assert result["answer_key"] == "1"
+    assert result["token_id"] != -1
+    assert result["method"] == "generate_step"
+    assert result["error"] is None
+
+
+def test_valid_multiple_choice_dot_delimiter():
+    question = "What is the capital of France?"
+    choices = ["A. Paris", "B. London", "C. Berlin", "D. Madrid"]
+    result = answer_multiple_choice_with_key(question, choices, MODEL_PATH)
+    assert result["is_valid"]
+    assert result["answer_key"] == "A"
+    assert result["token_id"] != -1
+    assert result["method"] == "generate_step"
+    assert result["error"] is None
+
+
+def test_valid_multiple_choice_colon_delimiter():
+    question = "What is the capital of France?"
+    choices = ["A: Paris", "B: London", "C: Berlin", "D: Madrid"]
     result = answer_multiple_choice_with_key(question, choices, MODEL_PATH)
     assert result["is_valid"]
     assert result["answer_key"] == "A"
@@ -24,7 +57,7 @@ def test_invalid_choice_format():
     assert not result["is_valid"]
     assert result["answer_key"] == ""
     assert result["token_id"] == -1
-    assert "Choice 'A Paris' does not match format 'Key) Text'" in result["error"]
+    assert "Choice 'A Paris' does not match expected format" in result["error"]
 
 
 def test_empty_question():
@@ -45,6 +78,28 @@ def test_empty_choices():
     assert result["answer_key"] == ""
     assert result["token_id"] == -1
     assert "Choices cannot be empty." in result["error"]
+
+
+def test_duplicate_keys():
+    question = "What is the capital of France?"
+    choices = ["A) Paris", "A) London", "C) Berlin",
+               "D) Madrid"]  # Duplicate key 'A'
+    result = answer_multiple_choice_with_key(question, choices, MODEL_PATH)
+    assert not result["is_valid"]
+    assert result["answer_key"] == ""
+    assert result["token_id"] == -1
+    assert "Duplicate key 'A' found in choices" in result["error"]
+
+
+def test_empty_choice_text():
+    question = "What is the capital of France?"
+    choices = ["A) ", "B) London", "C) Berlin",
+               "D) Madrid"]  # Empty text after 'A)'
+    result = answer_multiple_choice_with_key(question, choices, MODEL_PATH)
+    assert not result["is_valid"]
+    assert result["answer_key"] == ""
+    assert result["token_id"] == -1
+    assert "Choice 'A) ' has empty key or text" in result["error"]
 
 
 def test_invalid_method():

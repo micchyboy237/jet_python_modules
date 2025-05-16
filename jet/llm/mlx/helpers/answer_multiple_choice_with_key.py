@@ -8,6 +8,8 @@ from mlx_lm import load
 from mlx_lm.generate import generate_step
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import TokenizerWrapper
+import re
+
 mx.random.seed(42)
 
 
@@ -27,7 +29,7 @@ class InvalidOutputError(Exception):
 
 
 class InvalidChoiceFormatError(Exception):
-    """Raised when a choice does not match the expected format (e.g., 'A) Text')."""
+    """Raised when a choice does not match the expected format."""
     pass
 
 
@@ -83,18 +85,37 @@ def validate_inputs(question: str, choices: List[str]) -> None:
 
 
 def parse_choices(choices: List[str]) -> tuple[Dict[str, str], List[str]]:
+    """
+    Parses choices into a dictionary mapping keys to choice texts and a list of choice texts.
+    Supports flexible key formats (e.g., 'A)', '1)', 'A.', 'A:') using regex.
+    """
     key_to_choice = {}
     choice_texts = []
+    # Regex to match keys (alphanumeric) followed by ')', '.', or ':'
+    pattern = re.compile(r'^\s*([a-zA-Z0-9]+)[\)\.\:]\s*(.+?)\s*$')
+
     for choice in choices:
-        if not choice or ") " not in choice:
+        if not choice.strip():
             raise InvalidChoiceFormatError(
-                f"Choice '{choice}' does not match format 'Key) Text'")
-        key, text = choice.split(") ", 1)
-        if not key or not text:
+                f"Choice '{choice}' is empty or invalid")
+
+        match = pattern.match(choice)
+        if not match:
+            raise InvalidChoiceFormatError(
+                f"Choice '{choice}' does not match expected format (e.g., 'A) Text', '1) Text', 'A. Text', 'A: Text')")
+
+        key, text = match.groups()
+        if not key or not text.strip():
             raise InvalidChoiceFormatError(
                 f"Choice '{choice}' has empty key or text")
+
+        if key in key_to_choice:
+            raise InvalidChoiceFormatError(
+                f"Duplicate key '{key}' found in choices")
+
         key_to_choice[key] = text.strip()
         choice_texts.append(text.strip())
+
     return key_to_choice, choice_texts
 
 
