@@ -1,4 +1,4 @@
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import AllModelTypes
 from jet.llm.mlx.models import AVAILABLE_MODELS, MODEL_CONTEXTS, MODEL_EMBEDDING_TOKENS
 from mlx_lm import stream_generate
 from mlx_lm.tokenizer_utils import TokenizerWrapper
@@ -7,7 +7,7 @@ from typing import Union, List, Dict, Optional, Literal
 import mlx.core as mx
 
 
-def get_model_max_tokens(model: ModelType, max_kv_size: Optional[int] = None) -> int:
+def get_model_max_tokens(model: AllModelTypes, max_kv_size: Optional[int] = None) -> int:
     """
     Retrieve the maximum token length of the model (input + output tokens).
 
@@ -39,7 +39,7 @@ def get_model_max_tokens(model: ModelType, max_kv_size: Optional[int] = None) ->
     return max_tokens
 
 
-def get_max_context_length(model: ModelType) -> int:
+def get_max_context_length(model: AllModelTypes) -> int:
     """
     Retrieve the maximum context length of the model (input + output tokens).
 
@@ -53,7 +53,7 @@ def get_max_context_length(model: ModelType) -> int:
     return MODEL_CONTEXTS[model]
 
 
-def get_hidden_size(model: ModelType) -> int:
+def get_hidden_size(model: AllModelTypes) -> int:
     """
     Retrieve the hidden size (embedding dimension) of the model.
 

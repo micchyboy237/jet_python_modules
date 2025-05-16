@@ -149,6 +149,19 @@ class EmbedModelTypeEnum(Enum):
 
 # Embed model key types
 EmbedModelKey = Literal[
+    # Ollama
+    "nomic-embed-text",
+    "mxbai-embed-large",
+    "granite-embedding",
+    "granite-embedding:278m",
+    "all-minilm:22m",
+    "all-minilm:33m",
+    "snowflake-arctic-embed:33m",
+    "snowflake-arctic-embed:137m",
+    "snowflake-arctic-embed",
+    "paraphrase-multilingual",
+    "bge-large",
+    # MLX
     "all-minilm-l6-v2-bf16",
     "all-minilm-l6-v2-8bit",
     "all-minilm-l6-v2-6bit",
@@ -157,6 +170,19 @@ EmbedModelKey = Literal[
 
 # Embed model value types
 EmbedModelValue = Literal[
+    # OLLAMA
+    "nomic-ai/nomic-embed-text-v1.5",
+    "mixedbread-ai/mxbai-embed-large-v1",
+    "ibm-granite/granite-embedding-30m-english",
+    "ibm-granite/granite-embedding-278m-multilingual",
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "sentence-transformers/all-MiniLM-L12-v2",
+    "Snowflake/snowflake-arctic-embed-s",
+    "Snowflake/snowflake-arctic-embed-m-long",
+    "Snowflake/snowflake-arctic-embed-l",
+    "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "BAAI/bge-large-en-v1.5",
+    # MLX
     "mlx-community/all-MiniLM-L6-v2-bf16",
     "mlx-community/all-MiniLM-L6-v2-8bit",
     "mlx-community/all-MiniLM-L6-v2-6bit",
@@ -165,3 +191,5 @@ EmbedModelValue = Literal[
 
 # Combined embed model type
 EmbedModelType = Union[EmbedModelKey, EmbedModelValue, EmbedModelTypeEnum]
+
+AllModelTypes = Union[ModelType, EmbedModelType]
