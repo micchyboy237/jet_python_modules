@@ -1,6 +1,5 @@
-from typing import Literal, Union
+from typing import Literal, Union, Dict, List, Optional, TypedDict, Any
 from enum import Enum
-from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 
 # Type definitions
 
@@ -76,8 +75,6 @@ class ModelsResponse(TypedDict):
 
 class ModelTypeEnum(Enum):
     DOLPHIN3_LLAMA3_8B_4BIT = "dolphin3.0-llama3.1-8b-4bit"
-    GEMMA_3_1B_IT_QAT_4BIT = "gemma-3-1b-it-qat-4bit"
-    GEMMA_3_4B_IT_QAT_4BIT = "gemma-3-4b-it-qat-4bit"
     LLAMA_3_1_8B_INSTRUCT_4BIT = "llama-3.1-8b-instruct-4bit"
     LLAMA_3_2_1B_INSTRUCT_4BIT = "llama-3.2-1b-instruct-4bit"
     LLAMA_3_2_3B_INSTRUCT_4BIT = "llama-3.2-3b-instruct-4bit"
@@ -86,9 +83,9 @@ class ModelTypeEnum(Enum):
     QWEN2_5_14B_INSTRUCT_4BIT = "qwen2.5-14b-instruct-4bit"
     QWEN2_5_CODER_14B_INSTRUCT_4BIT = "qwen2.5-coder-14b-instruct-4bit"
     QWEN3_0_6B_4BIT = "qwen3-0.6b-4bit"
-    QWEN3_1_7B_3BIT = "qwen3-1.7b-3bit"
-    QWEN3_4B_3BIT = "qwen3-4b-3bit"
-    QWEN3_8B_3BIT = "qwen3-8b-3bit"
+    QWEN3_1_7B_4BIT = "qwen3-1.7b-4bit"
+    QWEN3_4B_4BIT = "qwen3-4b-4bit"
+    QWEN3_8B_4BIT = "qwen3-8b-4bit"
 
     @property
     def key(self) -> str:
@@ -102,8 +99,6 @@ class ModelTypeEnum(Enum):
 # Model key types
 ModelKey = Literal[
     "dolphin3.0-llama3.1-8b-4bit",
-    "gemma-3-1b-it-qat-4bit",
-    "gemma-3-4b-it-qat-4bit",
     "llama-3.1-8b-instruct-4bit",
     "llama-3.2-1b-instruct-4bit",
     "llama-3.2-3b-instruct-4bit",
@@ -112,16 +107,14 @@ ModelKey = Literal[
     "qwen2.5-14b-instruct-4bit",
     "qwen2.5-coder-14b-instruct-4bit",
     "qwen3-0.6b-4bit",
-    "qwen3-1.7b-3bit",
-    "qwen3-4b-3bit",
-    "qwen3-8b-3bit"
+    "qwen3-1.7b-4bit",
+    "qwen3-4b-4bit",
+    "qwen3-8b-4bit"
 ]
 
 # Model value types
 ModelValue = Literal[
     "mlx-community/Dolphin3.0-Llama3.1-8B-4bit",
-    "mlx-community/gemma-3-1b-it-qat-4bit",
-    "mlx-community/gemma-3-4b-it-qat-4bit",
     "mlx-community/Llama-3.1-8B-Instruct-4bit",
     "mlx-community/Llama-3.2-1B-Instruct-4bit",
     "mlx-community/Llama-3.2-3B-Instruct-4bit",
@@ -129,10 +122,10 @@ ModelValue = Literal[
     "mlx-community/Qwen2.5-7B-Instruct-4bit",
     "mlx-community/Qwen2.5-14B-Instruct-4bit",
     "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
-    "mlx-community/Qwen3-0.6B-4bit",
-    "mlx-community/Qwen3-1.7B-3bit",
-    "mlx-community/Qwen3-4B-3bit",
-    "mlx-community/Qwen3-8B-3bit"
+    "mlx-community/Qwen3-0.6B-4bit-DWQ",
+    "mlx-community/Qwen3-1.7B-4bit-DWQ",
+    "mlx-community/Qwen3-4B-4bit-DWQ",
+    "mlx-community/Qwen3-8B-4bit-DWQ"
 ]
 
 # Combined model type

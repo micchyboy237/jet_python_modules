@@ -8,8 +8,6 @@ from .mlx_types import EmbedModelKey, EmbedModelType, EmbedModelValue, ModelKey,
 
 AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
     "dolphin3.0-llama3.1-8b-4bit": "mlx-community/Dolphin3.0-Llama3.1-8B-4bit",
-    "gemma-3-1b-it-qat-4bit": "mlx-community/gemma-3-1b-it-qat-4bit",
-    "gemma-3-4b-it-qat-4bit": "mlx-community/gemma-3-4b-it-qat-4bit",
     "llama-3.1-8b-instruct-4bit": "mlx-community/Llama-3.1-8B-Instruct-4bit",
     "llama-3.2-1b-instruct-4bit": "mlx-community/Llama-3.2-1B-Instruct-4bit",
     "llama-3.2-3b-instruct-4bit": "mlx-community/Llama-3.2-3B-Instruct-4bit",
@@ -17,10 +15,10 @@ AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
     "qwen2.5-7b-instruct-4bit": "mlx-community/Qwen2.5-7B-Instruct-4bit",
     "qwen2.5-14b-instruct-4bit": "mlx-community/Qwen2.5-14B-Instruct-4bit",
     "qwen2.5-coder-14b-instruct-4bit": "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
-    "qwen3-0.6b-4bit": "mlx-community/Qwen3-0.6B-4bit",
-    "qwen3-1.7b-3bit": "mlx-community/Qwen3-1.7B-3bit",
-    "qwen3-4b-3bit": "mlx-community/Qwen3-4B-3bit",
-    "qwen3-8b-3bit": "mlx-community/Qwen3-8B-3bit",
+    "qwen3-0.6b-4bit": "mlx-community/Qwen3-0.6B-4bit-DWQ",
+    "qwen3-1.7b-4bit": "mlx-community/Qwen3-1.7B-4bit-DWQ",
+    "qwen3-4b-4bit": "mlx-community/Qwen3-4B-4bit-DWQ",
+    "qwen3-8b-4bit": "mlx-community/Qwen3-8B-4bit-DWQ",
 }
 
 AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
@@ -37,8 +35,6 @@ ALL_MODELS: Dict[Union[ModelType, EmbedModelType], Union[ModelValue, EmbedModelV
 
 MODEL_CONTEXTS: Dict[Union[ModelKey, EmbedModelKey], int] = {
     "dolphin3.0-llama3.1-8b-4bit": 131072,
-    "gemma-3-1b-it-qat-4bit": 32768,
-    "gemma-3-4b-it-qat-4bit": 131072,
     "llama-3.1-8b-instruct-4bit": 131072,
     "llama-3.2-1b-instruct-4bit": 131072,
     "llama-3.2-3b-instruct-4bit": 131072,
@@ -47,19 +43,17 @@ MODEL_CONTEXTS: Dict[Union[ModelKey, EmbedModelKey], int] = {
     "qwen2.5-14b-instruct-4bit": 32768,
     "qwen2.5-coder-14b-instruct-4bit": 32768,
     "qwen3-0.6b-4bit": 40960,
-    "qwen3-1.7b-3bit": 40960,
-    "qwen3-4b-3bit": 40960,
-    "qwen3-8b-3bit": 40960,
+    "qwen3-1.7b-4bit": 40960,
+    "qwen3-4b-4bit": 40960,
+    "qwen3-8b-4bit": 40960,
     "all-minilm-l6-v2-bf16": 512,
     "all-minilm-l6-v2-8bit": 512,
     "all-minilm-l6-v2-6bit": 512,
-    "all-minilm-l6-v2-4bit": 512
+    "all-minilm-l6-v2-4bit": 512,
 }
 
 MODEL_EMBEDDING_TOKENS: Dict[Union[ModelKey, EmbedModelKey], int] = {
     "dolphin3.0-llama3.1-8b-4bit": 4096,
-    "gemma-3-1b-it-qat-4bit": 1152,
-    "gemma-3-4b-it-qat-4bit": 2560,
     "llama-3.1-8b-instruct-4bit": 4096,
     "llama-3.2-1b-instruct-4bit": 2048,
     "llama-3.2-3b-instruct-4bit": 3072,
@@ -68,13 +62,13 @@ MODEL_EMBEDDING_TOKENS: Dict[Union[ModelKey, EmbedModelKey], int] = {
     "qwen2.5-14b-instruct-4bit": 5120,
     "qwen2.5-coder-14b-instruct-4bit": 5120,
     "qwen3-0.6b-4bit": 1024,
-    "qwen3-1.7b-3bit": 2048,
-    "qwen3-4b-3bit": 2560,
-    "qwen3-8b-3bit": 4096,
+    "qwen3-1.7b-4bit": 2048,
+    "qwen3-4b-4bit": 2560,
+    "qwen3-8b-4bit": 4096,
     "all-minilm-l6-v2-bf16": 384,
     "all-minilm-l6-v2-8bit": 384,
     "all-minilm-l6-v2-6bit": 384,
-    "all-minilm-l6-v2-4bit": 384
+    "all-minilm-l6-v2-4bit": 384,
 }
 
 

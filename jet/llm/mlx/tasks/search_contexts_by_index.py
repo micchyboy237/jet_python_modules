@@ -60,6 +60,7 @@ def create_system_prompt(contexts: List[str]) -> str:
     """Creates a system prompt for selecting the most relevant context."""
     return (
         "Given a query and a list of contexts, evaluate the relevance of each context. "
+        "For queries about 'trending' or recent items, prioritize contexts with recent or popular content. "
         "Output the index (0-based) of the most relevant context without additional text.\n"
         f"Contexts:\n" +
         "\n".join(f"[{i}] {context}" for i, context in enumerate(contexts))
@@ -92,40 +93,39 @@ def validate_inputs(query: str, contexts: List[str], top_n: int) -> None:
             raise InvalidInputError(f"Context at index {i} cannot be empty.")
 
 
+def safe_softmax(logits):
+    """Computes softmax with numerical stability by clipping and shifting logits."""
+    logits = mx.clip(logits, -100, 100)
+    shifted_logits = logits - mx.max(logits)
+    exp_logits = mx.exp(shifted_logits)
+    sum_exp_logits = mx.sum(exp_logits)
+    if sum_exp_logits == 0:
+        return mx.ones_like(logits) / logits.shape[-1]
+    return exp_logits / sum_exp_logits
+
+
 def compute_confidence_scores(
-    model,
-    input_ids: mx.array,
-    choice_token_map: Dict[str, List[int]]
+    valid_logits: mx.array,
+    valid_outputs: List[str]
 ) -> Dict[str, float]:
-    """Computes normalized confidence scores from model logits for each choice."""
+    """Computes normalized confidence scores from valid logits."""
     try:
-        if len(input_ids.shape) == 1:
-            input_ids = input_ids[None, :]
-        logger.debug(f"Input IDs shape: {input_ids.shape}")
-        model_output = model(input_ids)
-        logger.debug(f"Model output shape: {model_output.shape}")
-        if len(model_output.shape) != 3:
-            raise ValueError(
-                f"Unexpected model output shape: {model_output.shape}")
-        logits = model_output[0, -1]
-        probs = mx.softmax(logits, axis=-1)
-        logger.debug(
-            f"Softmax probabilities (min, max): {float(probs.min()), float(probs.max())}")
-        raw_confidence_scores = {}
-        for choice, tokens in choice_token_map.items():
-            if tokens:
-                token_probs = [float(probs[token_id]) for token_id in tokens]
-                raw_confidence_scores[choice] = sum(
-                    token_probs) / len(token_probs) if token_probs else 0.0
-                logger.debug(
-                    f"Choice: {choice}, Token IDs: {tokens}, Raw Prob: {raw_confidence_scores[choice]}")
-        total_prob = sum(raw_confidence_scores.values())
+        probs = safe_softmax(valid_logits).tolist()
+        confidence_scores = {choice: max(prob, 1e-5)
+                             for choice, prob in zip(valid_outputs, probs)}
+        logger.debug(f"Confidence scores: {confidence_scores}")
+
+        total_prob = sum(confidence_scores.values())
         if total_prob == 0:
-            logger.warning("Total probability is zero, returning raw scores")
-            return raw_confidence_scores
+            logger.warning(
+                "Total probability is zero, assigning uniform scores")
+            return {choice: 1.0 / len(valid_outputs) for choice in valid_outputs}
+
         normalized_confidence_scores = {
-            choice: prob / total_prob for choice, prob in raw_confidence_scores.items()
+            choice: prob / total_prob for choice, prob in confidence_scores.items()
         }
+        logger.debug(
+            f"Normalized confidence scores: {normalized_confidence_scores}")
         return normalized_confidence_scores
     except Exception as e:
         logger.error(f"Error computing confidence scores: {str(e)}")
@@ -145,8 +145,6 @@ def search_contexts_by_index(
     try:
         validate_inputs(query, contexts, top_n)
         model_components = load_model_components(model_path)
-
-        # Create valid outputs as string indices
         valid_outputs = [str(i) for i in range(len(contexts))]
         choice_token_map = {
             choice: model_components.tokenizer.encode(
@@ -156,29 +154,24 @@ def search_contexts_by_index(
         for choice, tokens in choice_token_map.items():
             logger.log(f"Token for index '{choice}':",
                        tokens, colors=["GRAY", "ORANGE"])
-
-        # Setup generation parameters
         logit_bias = {
             tokens[0]: 0.0 for tokens in choice_token_map.values() if tokens}
         logits_processors = [
             lambda tokens, logits: logits + mx.array(
-                [logit_bias.get(i, -1e9) for i in range(logits.shape[-1])]
+                [logit_bias.get(i, -100) for i in range(logits.shape[-1])]
             )
         ]
         sampler = mx.random.categorical
         stop_tokens = model_components.tokenizer.encode(
             "\n") + list(model_components.tokenizer.eos_token_ids)
-
-        # Format and encode prompt
         messages = format_chat_messages(query, contexts)
         formatted_prompt = model_components.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
         input_ids = mx.array(model_components.tokenizer.encode(
             formatted_prompt, add_special_tokens=False))
-
-        # Generate answer
         answer = ""
+        confidence_scores = {}
         for token, logits in generate_step(
             model=model_components.model,
             prompt=input_ids,
@@ -193,7 +186,9 @@ def search_contexts_by_index(
             valid_token_ids = [choice_token_map[choice][0]
                                for choice in valid_outputs]
             valid_logits = logits[valid_token_ids]
-            probs = mx.softmax(valid_logits).tolist()
+            logger.debug(
+                f"Raw logits for valid tokens: {valid_logits.tolist()}")
+            probs = safe_softmax(valid_logits).tolist()
             prob_dict = {choice: round(prob, 4)
                          for choice, prob in zip(valid_outputs, probs)}
             logger.log(
@@ -201,29 +196,22 @@ def search_contexts_by_index(
                 prob_dict,
                 colors=["GRAY", "CYAN"]
             )
+            confidence_scores = compute_confidence_scores(
+                valid_logits, valid_outputs)
             answer = model_components.tokenizer.decode([token]).strip()
             break
-
-        # Validate output
         if answer not in valid_outputs:
             raise InvalidOutputError(
                 f"Output '{answer}' is not a valid context index (0-{len(contexts)-1})."
             )
-
-        # Compute confidence scores for ranking
-        confidence_scores = compute_confidence_scores(
-            model_components.model, input_ids, choice_token_map
-        )
         if not confidence_scores:
-            logger.warning(
-                "No confidence scores computed, returning generated answer only")
+            logger.error(
+                "No confidence scores computed, returning empty results")
             return SearchResult(
-                results=[{"doc_idx": int(answer), "score": 1.0}],
-                is_valid=True,
-                error=None
+                results=[],
+                is_valid=False,
+                error="Failed to compute confidence scores"
             )
-
-        # Sort contexts by confidence score
         results = [
             {"doc_idx": int(choice), "score": score}
             for choice, score in sorted(
@@ -232,16 +220,7 @@ def search_contexts_by_index(
                 reverse=True
             )[:top_n]
         ]
-
-        # Ensure generated answer is included in top_n if it's not already
-        answer_index = int(answer)
-        if not any(ctx["doc_idx"] == answer_index for ctx in results):
-            results = results[:top_n-1] + [
-                {"doc_idx": answer_index,
-                    "score": confidence_scores.get(answer, 0.0)}
-            ]
-
-        logger.debug(f"Results: {results}")
+        logger.debug(f"Computed results: {results}")
         return SearchResult(
             results=results,
             is_valid=True,
