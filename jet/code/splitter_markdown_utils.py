@@ -215,7 +215,7 @@ def get_md_header_contents(
             text), max_newlines=1, strip_lines=True)
         header = get_header_text(text)
         # Remove the header to get content
-        content = text.splitlines()[0].strip()
+        content = "\n".join(text.splitlines()[1:]).strip()
 
         if text[len(header):].strip():
             try:
@@ -237,8 +237,8 @@ def get_md_header_contents(
                     "header": header,
                     "header_level": header_level,
                     "parent_header": parent_header,
-                    "length": len(content.strip()),
-                    "content": content.strip(),
+                    "length": len(text),
+                    "content": content,
                     "text": text
                 })
             except ValueError:
