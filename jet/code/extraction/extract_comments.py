@@ -1,77 +1,42 @@
-import json
-import os
-import shutil
-import sys
-from pathlib import Path
-from jet.file.utils import save_file
-from jet.code.utils import remove_single_line_comments_preserving_triple_quotes
+import tokenize
+from io import StringIO
+from typing import List, Tuple
 
 
-def extract_text_from_ipynb(notebook_path, include_outputs=True, include_code=False, include_comments=False):
-    """Extract text content from a Jupyter notebook and return as markdown."""
+def extract_comments(code: str) -> List[Tuple[str, int]]:
+    """Extract comments from Python code, returning a list of (comment, line_number) tuples."""
+    comments = []
     try:
-        with open(notebook_path, 'r', encoding='utf-8') as f:
-            notebook = json.load(f)
-        markdown_content = []
-        for cell in notebook.get('cells', []):
-            if cell['cell_type'] == 'markdown':
-                markdown_content.extend(cell['source'])
-                markdown_content.append('')
-            elif cell['cell_type'] == 'code':
-                if include_code:
-                    code_content = ''.join(cell['source'])
-                    if not include_comments:
-                        code_content = remove_single_line_comments_preserving_triple_quotes(
-                            code_content)
-                    markdown_content.append('```python')
-                    markdown_content.append(code_content)
-                    markdown_content.append('```')
-                    markdown_content.append('')
-                if include_outputs:
-                    for output in cell.get('outputs', []):
-                        if 'text' in output:
-                            markdown_content.append('```output')
-                            markdown_content.extend(output['text'])
-                            markdown_content.append('```')
-                            markdown_content.append('')
-                        elif 'data' in output and 'text/plain' in output['data']:
-                            markdown_content.append('```output')
-                            markdown_content.extend(
-                                output['data']['text/plain'])
-                            markdown_content.append('```')
-                            markdown_content.append('')
-        return '\n'.join(line.rstrip() for line in markdown_content)
-    except Exception as e:
-        print(f"Error processing {notebook_path}: {str(e)}")
-        return None
+        code_io = StringIO(code)
+        tokens = tokenize.generate_tokens(code_io.readline)
+        for token in tokens:
+            if token.type == tokenize.COMMENT:
+                comment_text = token.string.strip()
+                if comment_text.startswith('#'):
+                    comment_text = comment_text[1:].strip()
+                comments.append((comment_text, token.start[0]))
+    except tokenize.TokenError:
+        # Return empty list for malformed code
+        return comments
+    return comments
 
 
-def extract_comments(input_path, output_dir=None, include_outputs=True, include_code=False, include_comments=False) -> str:
-    """Process a single notebook file or directory of notebooks and save as markdown."""
-    content = ""
-    if os.path.isdir(input_path):
-        for file in Path(input_path).glob('*.ipynb'):
-            result = extract_text_from_ipynb(
-                file,  # Use 'file' instead of 'input_path'
-                include_outputs=include_outputs,
-                include_code=include_code,
-                include_comments=include_comments
-            )
-            if result is not None:  # Check for None before concatenation
-                content += f"\n# {file.name}\n"
-                content += result
-                content += "\n\n"
-            else:
-                print(f"Skipping {file} due to processing error")
-    else:
-        result = extract_text_from_ipynb(
-            input_path,
-            include_outputs=include_outputs,
-            include_code=include_code,
-            include_comments=include_comments
-        )
-        if result is not None:  # Check for None before concatenation
-            content += result
-        else:
-            print(f"Skipping {input_path} due to processing error")
-    return content
+def remove_comments(code: str) -> str:
+    """Remove comments from Python code, preserving triple-quoted strings and whitespace."""
+    try:
+        code_io = StringIO(code)
+        tokens = list(tokenize.generate_tokens(code_io.readline))
+        # Filter out comment tokens and dedent tokens
+        filtered_tokens = []
+        for token in tokens:
+            if token.type != tokenize.COMMENT:
+                filtered_tokens.append(token)
+        # Use untokenize to reconstruct the code
+        result = tokenize.untokenize(filtered_tokens)
+        # Normalize whitespace: strip trailing spaces per line and normalize newlines
+        lines = [line.rstrip() for line in result.splitlines()]
+        # Remove empty lines that were solely comments
+        cleaned_lines = [line for line in lines if line.strip()]
+        return '\n'.join(cleaned_lines).rstrip()
+    except tokenize.TokenError:
+        return code  # Return original code if parsing fails

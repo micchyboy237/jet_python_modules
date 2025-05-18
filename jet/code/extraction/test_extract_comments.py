@@ -1,111 +1,115 @@
-import json
-import os
-import tempfile
 import unittest
-from pathlib import Path
-from jet.code.extraction.extract_comments import extract_text_from_ipynb, extract_comments
+from jet.code.extraction.extract_comments import extract_comments, remove_comments
 
 
 class TestExtractComments(unittest.TestCase):
-    def setUp(self):
-        """Set up temporary directory and files for testing."""
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.temp_path = Path(self.temp_dir.name)
+    def test_extract_single_line_comment(self):
+        code = """
+x = 1  # This is a comment
+y = 2
+"""
+        expected = [("This is a comment", 2)]
+        result = extract_comments(code)
+        self.assertEqual(result, expected)
 
-    def tearDown(self):
-        """Clean up temporary directory."""
-        self.temp_dir.cleanup()
-
-    def create_notebook(self, filename, cells):
-        """Helper to create a temporary notebook file."""
-        nb = {"cells": cells, "metadata": {},
-              "nbformat": 4, "nbformat_minor": 5}
-        file_path = self.temp_path / filename
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(nb, f)
-        return file_path
-
-    def test_extract_text_from_ipynb_markdown(self):
-        """Test extracting markdown content from a notebook."""
-        cells = [
-            {"cell_type": "markdown", "source": ["# Title\n", "Some text"]},
-            {"cell_type": "code", "source": ["print('hello')"], "outputs": []}
+    def test_extract_multiple_comments(self):
+        code = """
+# First comment
+x = 1
+# Second comment
+y = 2  # Inline comment
+"""
+        expected = [
+            ("First comment", 2),
+            ("Second comment", 4),
+            ("Inline comment", 5)
         ]
-        nb_path = self.create_notebook("test.ipynb", cells)
-        result = extract_text_from_ipynb(
-            nb_path, include_outputs=False, include_code=False, include_comments=False)
-        expected = "# Title\nSome text\n"
+        result = extract_comments(code)
         self.assertEqual(result, expected)
 
-    def test_extract_text_from_ipynb_code_with_comments(self):
-        """Test extracting code with comments when include_comments=True."""
-        cells = [
-            {"cell_type": "code", "source": [
-                "# Comment\n", "print('hello')\n", '"""Docstring"""']},
-            {"cell_type": "markdown", "source": ["Some markdown"]}
-        ]
-        nb_path = self.create_notebook("test.ipynb", cells)
-        result = extract_text_from_ipynb(
-            nb_path, include_outputs=False, include_code=True, include_comments=True)
-        expected = "```python\n# Comment\nprint('hello')\n\"\"\"Docstring\"\"\"\n```\n\nSome markdown\n"
+    def test_extract_comments_in_triple_quoted_string(self):
+        code = '''
+def func():
+    """This is a docstring with # hashtag"""
+    # Real comment
+    return True
+'''
+        expected = [("Real comment", 4)]
+        result = extract_comments(code)
         self.assertEqual(result, expected)
 
-    def test_extract_text_from_ipynb_outputs(self):
-        """Test extracting outputs when include_outputs=True."""
-        cells = [
-            {"cell_type": "code", "source": ["print('hello')"], "outputs": [
-                {"output_type": "stream", "text": ["hello\n"]}]}
-        ]
-        nb_path = self.create_notebook("test.ipynb", cells)
-        result = extract_text_from_ipynb(
-            nb_path, include_outputs=True, include_code=False, include_comments=False)
-        expected = "```output\nhello\n```\n"
+    def test_extract_no_comments(self):
+        code = """
+x = 1
+y = 2
+"""
+        expected = []
+        result = extract_comments(code)
         self.assertEqual(result, expected)
 
-    def test_extract_text_from_ipynb_invalid_file(self):
-        """Test handling of invalid notebook file."""
-        file_path = self.temp_path / "invalid.ipynb"
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write("not a json")
-        result = extract_text_from_ipynb(
-            file_path, include_outputs=False, include_code=False, include_comments=False)
-        self.assertIsNone(result)
-
-    def test_extract_comments_single_file(self):
-        """Test extract_comments with a single notebook file."""
-        cells = [{"cell_type": "markdown", "source": ["# Title\n", "Text"]}]
-        nb_path = self.create_notebook("test.ipynb", cells)
-        result = extract_comments(
-            nb_path, include_outputs=False, include_code=False, include_comments=False)
-        expected = "# Title\nText\n"
+    def test_extract_malformed_code(self):
+        code = """
+x = 1
+"unclosed string
+# Comment
+"""
+        expected = []
+        result = extract_comments(code)
         self.assertEqual(result, expected)
 
-    def test_extract_comments_directory(self):
-        """Test extract_comments with a directory of notebooks."""
-        cells1 = [{"cell_type": "markdown", "source": ["# Notebook 1"]}]
-        cells2 = [{"cell_type": "markdown", "source": ["# Notebook 2"]}]
-        self.create_notebook("nb1.ipynb", cells1)
-        self.create_notebook("nb2.ipynb", cells2)
-        result = extract_comments(
-            self.temp_path, include_outputs=False, include_code=False, include_comments=False)
-        expected = "\n# nb1.ipynb\n# Notebook 1\n\n\n\n# nb2.ipynb\n# Notebook 2\n\n\n"
+    def test_remove_single_line_comment(self):
+        code = """
+x = 1  # This is a comment
+y = 2
+"""
+        expected = """
+x = 1
+y = 2"""
+        result = remove_comments(code)
+        self.assertEqual(result.strip(), expected.strip())
+
+    def test_remove_comments_preserve_triple_quoted(self):
+        code = '''
+def func():
+    """This is a docstring with # hashtag"""
+    # Real comment
+    return True
+'''
+        expected = '''
+def func():
+    """This is a docstring with # hashtag"""
+    return True'''
+        result = remove_comments(code)
+        self.assertEqual(result.strip(), expected.strip())
+
+    def test_remove_comments_empty_code(self):
+        code = ""
+        expected = ""
+        result = remove_comments(code)
         self.assertEqual(result, expected)
 
-    def test_extract_comments_handles_none(self):
-        """Test extract_comments handles None return from extract_text_from_ipynb."""
-        file_path = self.temp_path / "invalid.ipynb"
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write("not a json")
-        result = extract_comments(
-            file_path, include_outputs=False, include_code=False, include_comments=False)
-        # Should return empty string, skipping invalid file
-        self.assertEqual(result, "")
+    def test_remove_comments_malformed_code(self):
+        code = """
+x = 1
+"unclosed string
+# Comment
+"""
+        result = remove_comments(code)
+        self.assertEqual(result, code)  # Should return original code
 
-    def test_extract_comments_empty_directory(self):
-        """Test extract_comments with an empty directory."""
-        result = extract_comments(
-            self.temp_path, include_outputs=False, include_code=False, include_comments=False)
-        self.assertEqual(result, "")
+    def test_remove_comments_preserve_newlines(self):
+        code = """
+x = 1
+# Comment
+y = 2
+
+z = 3
+"""
+        expected = """x = 1
+y = 2
+z = 3"""
+        result = remove_comments(code)
+        self.assertEqual(result, expected)
 
 
 if __name__ == '__main__':
