@@ -1,11 +1,12 @@
 import unittest
+from jet.llm.mlx.mlx_types import EmbedModelType
 import numpy as np
 from jet.llm.utils.transformer_embeddings import generate_embeddings, get_embedding_function, search_docs
 
 
 class TestEmbeddingGeneration(unittest.TestCase):
     def setUp(self):
-        self.model_key = "all-minilm:22m"
+        self.model_key: EmbedModelType = "all-minilm:22m"
         self.sample_text = "Hello world!"
         self.sample_texts = ["The sky is blue.", "The grass is green."]
 

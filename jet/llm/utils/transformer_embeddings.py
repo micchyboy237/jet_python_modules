@@ -1,3 +1,5 @@
+from jet.llm.mlx.mlx_types import EmbedModelType
+from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS
 import numpy as np
 from typing import List, Optional, Union, Literal, Callable, Tuple
 from functools import lru_cache
@@ -6,20 +8,6 @@ from tqdm import tqdm
 from jet.logger import logger
 import torch
 from transformers import AutoTokenizer, AutoModel
-
-EMBED_MODELS = {
-    "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
-    "mxbai-embed-large": "mixedbread-ai/mxbai-embed-large-v1",
-    "granite-embedding": "ibm-granite/granite-embedding-30m-english",
-    "granite-embedding:278m": "ibm-granite/granite-embedding-278m-multilingual",
-    "all-minilm:22m": "sentence-transformers/all-MiniLM-L6-v2",
-    "all-minilm:33m": "sentence-transformers/all-MiniLM-L12-v2",
-    "snowflake-arctic-embed:33m": "Snowflake/snowflake-arctic-embed-s",
-    "snowflake-arctic-embed:137m": "Snowflake/snowflake-arctic-embed-m-long",
-    "snowflake-arctic-embed": "Snowflake/snowflake-arctic-embed-l",
-    "paraphrase-multilingual": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-    "bge-large": "BAAI/bge-large-en-v1.5",
-}
 
 
 def _calculate_dynamic_batch_size(embedding_dim: int, device: str) -> int:
@@ -32,7 +20,7 @@ def _calculate_dynamic_batch_size(embedding_dim: int, device: str) -> int:
 
 
 def generate_embeddings(
-    model_key: Literal[*EMBED_MODELS.keys()],
+    model_key: EmbedModelType,
     texts: Union[str, List[str]],
     batch_size: Optional[int] = None,
     normalize: bool = True,
@@ -51,7 +39,7 @@ def generate_embeddings(
     )
 
     # Load model and tokenizer if not provided
-    model_id = EMBED_MODELS[model_key]
+    model_id = AVAILABLE_EMBED_MODELS[model_key]
     tokenizer = _tokenizer or AutoTokenizer.from_pretrained(model_id)
     model = _model or AutoModel.from_pretrained(model_id).to(device)
     model.eval()
@@ -89,11 +77,11 @@ def get_embedding_function(
 ) -> Callable[[Union[str, List[str]]], Union[List[float], List[List[float]]]]:
     """Load a Hugging Face model and tokenizer and return a callable that generates embeddings."""
     logger.info(f"Loading model: {model_name}")
-    if model_name not in EMBED_MODELS:
+    if model_name not in AVAILABLE_EMBED_MODELS:
         raise ValueError(
-            f"Model {model_name} not found in EMBED_MODELS. Available models: {list(EMBED_MODELS.keys())}")
+            f"Model {model_name} not found in AVAILABLE_EMBED_MODELS. Available models: {list(AVAILABLE_EMBED_MODELS.keys())}")
 
-    model_id = EMBED_MODELS[model_name]
+    model_id = AVAILABLE_EMBED_MODELS[model_name]
     device = (
         "mps" if torch.backends.mps.is_available()
         else "cuda" if torch.cuda.is_available()
@@ -124,7 +112,7 @@ def get_embedding_function(
 def search_docs(
     query: str,
     documents: List[str],
-    model_key: Literal[*EMBED_MODELS.keys()],
+    model_key: EmbedModelType,
     top_k: int = 5,
     batch_size: Optional[int] = None,
     normalize: bool = True
