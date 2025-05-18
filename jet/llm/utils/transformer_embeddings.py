@@ -53,7 +53,8 @@ def generate_embeddings(
     _model: Optional[AutoModel] = None,
     _tokenizer: Optional[AutoTokenizer] = None,
     use_tqdm: Optional[bool] = None,
-    max_tokens: int = 128
+    max_tokens: int = 128,
+    aggregate: bool = True
 ) -> Union[List[float], List[List[float]]]:
     """Generate embeddings with optimized memory usage for MPS and large models."""
     if not texts:
@@ -141,30 +142,28 @@ def generate_embeddings(
 
         all_embeddings = torch.cat(all_embeddings, dim=0)
 
-        # Aggregate embeddings by original document
-        if len(chunked_texts) > num_original_texts:
+        if aggregate:
             aggregated_embeddings = []
             for doc_idx in range(num_original_texts):
-                # Find all chunk embeddings for this document
                 chunk_mask = [i for i, idx in enumerate(
                     doc_indices) if idx == doc_idx]
                 if chunk_mask:
                     chunk_embeddings = all_embeddings[chunk_mask]
-                    # Average the embeddings for this document
                     doc_embedding = torch.mean(chunk_embeddings, dim=0)
                     aggregated_embeddings.append(doc_embedding)
                 else:
-                    # Fallback: zero embedding if no chunks (shouldn't happen)
+                    logger.warning(
+                        f"No chunks for document {doc_idx}, using zero embedding")
                     aggregated_embeddings.append(torch.zeros(embedding_dim))
             all_embeddings = torch.stack(aggregated_embeddings)
+            result = all_embeddings.tolist()
         else:
-            all_embeddings = all_embeddings
+            result = (all_embeddings.tolist(), doc_indices)
 
-        all_embeddings = all_embeddings.tolist()
         del chunked_texts, doc_indices
         gc.collect()
         torch.mps.empty_cache()
-        return all_embeddings[0] if is_single_text else all_embeddings
+        return result[0] if is_single_text and aggregate else result
 
     finally:
         try:

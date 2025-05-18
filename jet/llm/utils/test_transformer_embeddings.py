@@ -57,21 +57,33 @@ class TestDynamicBatchSize(BaseEmbeddingTest):
 class TestTextChunking(BaseEmbeddingTest):
     """Tests for chunk_texts function."""
 
-    def test_chunk_texts(self):
+    def test_chunk_texts_single_text(self):
         text = " ".join(["word"] * 200)
-        chunks = chunk_texts(text, max_tokens=128)
+        chunks, doc_indices = chunk_texts(text, max_tokens=128)
         self.assertEqual(len(chunks), 2)
+        self.assertEqual(len(doc_indices), 2)
         self.assertEqual(chunks[0], " ".join(["word"] * 128))
         self.assertEqual(chunks[1], " ".join(["word"] * 72))
+        # Both chunks belong to document 0
+        self.assertEqual(doc_indices, [0, 0])
+
+    def test_chunk_texts_multiple_texts(self):
         texts = [" ".join(["word"] * 200), "short text"]
-        chunks = chunk_texts(texts, max_tokens=128)
+        chunks, doc_indices = chunk_texts(texts, max_tokens=128)
         self.assertEqual(len(chunks), 3)
+        self.assertEqual(len(doc_indices), 3)
         self.assertEqual(chunks[0], " ".join(["word"] * 128))
         self.assertEqual(chunks[1], " ".join(["word"] * 72))
         self.assertEqual(chunks[2], "short text")
-        chunks = chunk_texts("short", max_tokens=128)
+        # First two chunks from doc 0, last from doc 1
+        self.assertEqual(doc_indices, [0, 0, 1])
+
+    def test_chunk_texts_short_text(self):
+        chunks, doc_indices = chunk_texts("short", max_tokens=128)
         self.assertEqual(len(chunks), 1)
+        self.assertEqual(len(doc_indices), 1)
         self.assertEqual(chunks[0], "short")
+        self.assertEqual(doc_indices, [0])  # Single chunk from document 0
 
 
 class TestEmbeddingGeneration(BaseEmbeddingTest):
@@ -113,10 +125,8 @@ class TestEmbeddingGeneration(BaseEmbeddingTest):
         result = generate_embeddings(
             self.small_model_key, self.long_text, max_tokens=128)
         self.assertIsInstance(result, list)
+        self.assertIsInstance(result[0], float)
         self.assertGreater(len(result), 0)
-        for vec in result:  # Check each chunk's embedding
-            self.assertIsInstance(vec, list)
-            self.assertIsInstance(vec[0], float)
 
     def test_mixed_precision(self):
         result = generate_embeddings(
@@ -128,6 +138,7 @@ class TestEmbeddingGeneration(BaseEmbeddingTest):
         result = generate_embeddings(
             self.small_model_key, self.long_text, max_tokens=128)
         self.assertIsInstance(result, list)
+        self.assertIsInstance(result[0], float)
         self.assertGreater(len(result), 0)
 
     def test_very_large_document_small_model(self):
@@ -141,16 +152,12 @@ class TestEmbeddingGeneration(BaseEmbeddingTest):
         mps_increase = final_mps - initial_mps
 
         self.assertIsInstance(result, list)
+        self.assertIsInstance(result[0], float)
         self.assertGreater(len(result), 0)
-        for vec in result:  # Check each chunk's embedding
-            self.assertIsInstance(vec, list)
-            self.assertIsInstance(vec[0], float)
         self.assertLess(memory_increase, 2.0,
                         f"RAM usage too high: {memory_increase} GB")
         self.assertLess(mps_increase, 10.0,
                         f"MPS memory usage too high: {mps_increase} GB")
-        expected_chunks = (50000 + 127) // 128
-        self.assertEqual(len(result), expected_chunks)
         torch.mps.empty_cache()
 
     def test_very_large_document_large_model(self):
@@ -164,18 +171,13 @@ class TestEmbeddingGeneration(BaseEmbeddingTest):
         mps_increase = final_mps - initial_mps
 
         self.assertIsInstance(result, list)
-        self.assertGreater(len(result), 0)
-        for vec in result:  # Check each chunk's embedding
-            self.assertIsInstance(vec, list)
-            self.assertIsInstance(vec[0], float)
-        self.assertEqual(len(result[0]), 1024,
+        self.assertIsInstance(result[0], float)
+        self.assertEqual(len(result), 1024,
                          "Expected 1024-dimensional embeddings")
         self.assertLess(memory_increase, 2.0,
                         f"RAM usage too high: {memory_increase} GB")
         self.assertLess(mps_increase, 16.0,
                         f"MPS memory usage too high: {mps_increase} GB")
-        expected_chunks = (50000 + 127) // 128
-        self.assertEqual(len(result), expected_chunks)
         torch.mps.empty_cache()
 
 
