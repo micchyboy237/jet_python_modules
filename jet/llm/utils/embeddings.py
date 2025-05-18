@@ -483,7 +483,7 @@ def generate_ollama_batch_embeddings(
             logger.error(
                 f"Attempt {attempt + 1} failed with error: {e}, Response text: {r.text if 'r' in locals() else 'No response'}")
             logger.error(f"\nModel: {model}")
-            logger.error(f"\nTexts:\n{format_json(texts)}")
+            logger.error(f"\nTexts:\n{len(texts)}")
             if attempt == max_retries - 1:
                 raise e
             time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s

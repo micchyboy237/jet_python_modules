@@ -52,6 +52,17 @@ class ChatLogger:
         else:
             log_data["messages"] = prompt_or_messages
 
+            # Add assistant role message with response text
+            if isinstance(response, list):
+                response_text = "\n".join([r["content"] for r in response])
+            else:
+                response_text = response["content"]
+
+            log_data["messages"].append({
+                "role": "assistant",
+                "content": response_text
+            })
+
         log_data["response"] = format_json(response, indent=2)
 
         # Move usage to the end and format as readable strings
