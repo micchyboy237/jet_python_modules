@@ -76,9 +76,10 @@ def generate_embeddings(
     if batch_size is not None and batch_size <= 0:
         raise ValueError("Batch size must be positive")
 
-    available_memory = 18.13 * 1024 * 1024 * 1024
-    batch_size = batch_size or calculate_dynamic_batch_size(
-        embedding_dim, device, available_memory, model_key)
+    # available_memory = 18.13 * 1024 * 1024 * 1024
+    # batch_size = batch_size or calculate_dynamic_batch_size(
+    #     embedding_dim, device, available_memory, model_key)
+    batch_size = 64  # TODO: Update to calculate dynamically
 
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pkl")
     temp_file_path = temp_file.name
