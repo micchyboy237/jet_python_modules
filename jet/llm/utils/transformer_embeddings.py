@@ -1,3 +1,4 @@
+import atexit
 from jet.llm.mlx.mlx_types import EmbedModelType
 from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS, resolve_model_key
 import numpy as np
@@ -220,3 +221,20 @@ def search_docs(
     torch.mps.empty_cache()
     gc.collect()
     return results
+
+
+def cleanup():
+    # Clear MPS memory
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+        logger.debug(
+            f"MPS memory cleared: {torch.mps.current_allocated_memory() / 1024**3:.2f} GB")
+
+    # Run garbage collection
+    gc.collect()
+
+    logger.info("Transformer embed models unloaded and memory cleared.")
+
+
+# Register cleanup function to run at exit
+atexit.register(cleanup)
