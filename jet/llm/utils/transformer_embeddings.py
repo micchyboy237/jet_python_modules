@@ -25,9 +25,9 @@ def generate_embeddings(
     batch_size: Optional[int] = None,
     normalize: bool = True,
     _model: Optional[AutoModel] = None,
-    _tokenizer: Optional[AutoTokenizer] = None
+    _tokenizer: Optional[AutoTokenizer] = None,
+    use_tqdm: Optional[bool] = None
 ) -> Union[List[float], List[List[float]]]:
-    """Generate embeddings for input texts using specified model."""
     if not texts:
         raise ValueError("Input texts cannot be empty")
 
@@ -55,11 +55,16 @@ def generate_embeddings(
         embedding_dim, device)
 
     all_embeddings = []
-    for i in tqdm(range(0, len(texts), batch_size), desc="Generating embeddings"):
+    # Determine whether to use tqdm: use_tqdm arg takes precedence, else disable for small inputs
+    if use_tqdm is None:
+        use_tqdm = len(texts) > 2
+    iterator = tqdm(range(0, len(texts), batch_size),
+                    desc="Generating embeddings") if use_tqdm else range(0, len(texts), batch_size)
+    for i in iterator:
         batch = texts[i:i + batch_size]
         inputs = tokenizer(batch, padding=True, truncation=True,
                            return_tensors="pt").to(device)
-        with torch.no_grad():  # Optimize inference
+        with torch.no_grad():
             outputs = model(**inputs)
         embeddings = outputs.last_hidden_state.mean(dim=1)
         if normalize:
