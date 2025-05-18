@@ -34,7 +34,9 @@ def extract_class_and_function_defs(target_dir: str) -> Dict[str, List[str]]:
                         elif isinstance(node, ast.ClassDef):
                             header = lines[node.lineno - 1].rstrip()
                             doc_lines = []
+                            class_vars = []
                             if node.body:
+                                # Look for docstring
                                 first_stmt = node.body[0]
                                 if (
                                     isinstance(first_stmt, ast.Expr)
@@ -43,32 +45,44 @@ def extract_class_and_function_defs(target_dir: str) -> Dict[str, List[str]]:
                                 ):
                                     doc_lines = lines[first_stmt.lineno -
                                                       1: first_stmt.end_lineno]
-                            extracted.append("\n".join([header] + doc_lines))
+                                # Look for class variables (assignments at class level)
+                                for stmt in node.body:
+                                    if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                                        # Handle annotated assignments (e.g., var: int = 42)
+                                        var_line = lines[stmt.lineno -
+                                                         1].rstrip()
+                                        class_vars.append(var_line)
+                                    elif isinstance(stmt, ast.Assign):
+                                        # Handle regular assignments (e.g., var = 42)
+                                        for target in stmt.targets:
+                                            if isinstance(target, ast.Name):
+                                                var_line = lines[stmt.lineno -
+                                                                 1].rstrip()
+                                                class_vars.append(var_line)
+                                                break
+                            # Combine class header, docstring, and class variables
+                            extracted.append(
+                                "\n".join([header] + doc_lines + class_vars))
+                            # Process nested nodes (methods)
                             for child in node.body:
                                 process_node(child)
 
                     for node in ast.iter_child_nodes(tree):
                         process_node(node)
-
                     if extracted:
                         def_nodes[full_path] = extracted
                 except (SyntaxError, UnicodeDecodeError) as e:
                     print(f"Error processing {full_path}: {e}")
 
-    # Helper function to sort with numeric prefix if any
     def sort_key(path: str) -> Tuple[int, str]:
         filename = os.path.basename(path)
-        # Extract leading number if any
         match = re.match(r"(\d+)(.*)", filename)
         if match:
             num_part = int(match.group(1))
             rest = match.group(2)
             return (num_part, rest)
-        # Files without leading number come after numbers
         return (float('inf'), filename)
 
-    # Create a new dict sorted by the key function
     sorted_def_nodes = dict(
         sorted(def_nodes.items(), key=lambda kv: sort_key(kv[0])))
-
     return sorted_def_nodes
