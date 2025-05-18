@@ -193,4 +193,4 @@ LLMModelType = Union[ModelKey, ModelValue, ModelTypeEnum]
 # Combined embed model type
 EmbedModelType = Union[EmbedModelKey, EmbedModelValue, EmbedModelTypeEnum]
 
-LLMModelType = Union[LLMModelType, EmbedModelType]
+ModelType = Union[LLMModelType, EmbedModelType]

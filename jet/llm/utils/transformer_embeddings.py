@@ -1,6 +1,6 @@
 import atexit
 from jet.llm.mlx.mlx_types import EmbedModelType
-from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS, resolve_model_key
+from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS, get_embedding_size, resolve_model_key
 import numpy as np
 from typing import List, Optional, Union, Callable, Tuple
 from functools import lru_cache
@@ -27,19 +27,22 @@ def calculate_dynamic_batch_size(embedding_dim: int, device: str, available_memo
     return max(1, min(16 if "mxbai-embed-large" in model_key else 64, batch_size))
 
 
-def chunk_texts(texts: Union[str, List[str]], max_tokens: int = 128) -> List[str]:
-    """Chunk large texts to minimize tokenization memory."""
+def chunk_texts(texts: Union[str, List[str]], max_tokens: int = 128) -> Tuple[List[str], List[int]]:
+    """Chunk large texts and track original document indices."""
     if isinstance(texts, str):
         texts = [texts]
     chunked_texts = []
-    for text in texts:
+    doc_indices = []  # Tracks which document each chunk belongs to
+    for doc_idx, text in enumerate(texts):
         words = text.split()
         if len(words) > max_tokens:
             for i in range(0, len(words), max_tokens):
                 chunked_texts.append(" ".join(words[i:i + max_tokens]))
+                doc_indices.append(doc_idx)
         else:
             chunked_texts.append(text)
-    return chunked_texts
+            doc_indices.append(doc_idx)
+    return chunked_texts, doc_indices
 
 
 def generate_embeddings(
@@ -68,17 +71,17 @@ def generate_embeddings(
     model.eval()
 
     embedding_dim = model.config.hidden_size
-    if isinstance(texts, str):
+    is_single_text = isinstance(texts, str)
+    if is_single_text:
         texts = [texts]
 
-    texts = chunk_texts(texts, max_tokens=max_tokens)
+    # Chunk texts and get document indices
+    chunked_texts, doc_indices = chunk_texts(texts, max_tokens=max_tokens)
+    num_original_texts = len(texts)
 
     if batch_size is not None and batch_size <= 0:
         raise ValueError("Batch size must be positive")
 
-    # available_memory = 18.13 * 1024 * 1024 * 1024
-    # batch_size = batch_size or calculate_dynamic_batch_size(
-    #     embedding_dim, device, available_memory, model_key)
     batch_size = 64  # TODO: Update to calculate dynamically
 
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pkl")
@@ -87,11 +90,10 @@ def generate_embeddings(
 
     try:
         if use_tqdm is None:
-            use_tqdm = len(texts) > 2
-        iterator = tqdm(range(0, len(texts), batch_size), desc="Generating embeddings",
-                        leave=True) if use_tqdm else range(0, len(texts), batch_size)
+            use_tqdm = len(chunked_texts) > 2
+        iterator = tqdm(range(0, len(chunked_texts), batch_size), desc="Generating embeddings",
+                        leave=True) if use_tqdm else range(0, len(chunked_texts), batch_size)
 
-        # Configure logger to write to file during batch processing
         log_file = os.path.join(tempfile.gettempdir(), "mps_memory.log")
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(logging.DEBUG)
@@ -99,7 +101,7 @@ def generate_embeddings(
 
         with torch.autocast(device_type=device, dtype=torch.float16):
             for i in iterator:
-                batch = texts[i:i + batch_size]
+                batch = chunked_texts[i:i + batch_size]
                 inputs = tokenizer(batch, padding=True, truncation=True,
                                    max_length=max_tokens, return_tensors="pt").to(device)
 
@@ -125,7 +127,6 @@ def generate_embeddings(
             logger.debug(
                 f"MPS memory allocated: {torch.mps.current_allocated_memory() / 1024**3:.2f} GB")
 
-        # Remove file handler after processing
         logger.removeHandler(file_handler)
         file_handler.close()
 
@@ -138,12 +139,32 @@ def generate_embeddings(
                 except EOFError:
                     break
 
-        all_embeddings = torch.cat(all_embeddings, dim=0).tolist()
-        text_length = len(texts)
-        del texts
+        all_embeddings = torch.cat(all_embeddings, dim=0)
+
+        # Aggregate embeddings by original document
+        if len(chunked_texts) > num_original_texts:
+            aggregated_embeddings = []
+            for doc_idx in range(num_original_texts):
+                # Find all chunk embeddings for this document
+                chunk_mask = [i for i, idx in enumerate(
+                    doc_indices) if idx == doc_idx]
+                if chunk_mask:
+                    chunk_embeddings = all_embeddings[chunk_mask]
+                    # Average the embeddings for this document
+                    doc_embedding = torch.mean(chunk_embeddings, dim=0)
+                    aggregated_embeddings.append(doc_embedding)
+                else:
+                    # Fallback: zero embedding if no chunks (shouldn't happen)
+                    aggregated_embeddings.append(torch.zeros(embedding_dim))
+            all_embeddings = torch.stack(aggregated_embeddings)
+        else:
+            all_embeddings = all_embeddings
+
+        all_embeddings = all_embeddings.tolist()
+        del chunked_texts, doc_indices
         gc.collect()
         torch.mps.empty_cache()
-        return all_embeddings[0] if text_length == 1 else all_embeddings
+        return all_embeddings[0] if is_single_text else all_embeddings
 
     finally:
         try:
@@ -191,32 +212,53 @@ def get_embedding_function(
 def search_docs(
     query: str,
     documents: List[str],
-    model_key: EmbedModelType,
-    top_k: int = 5,
+    model: EmbedModelType = "all-minilm:33m",
+    top_k: int = 10,
     batch_size: Optional[int] = None,
     normalize: bool = True,
-    max_tokens: int = 128
+    max_tokens: Optional[int] = None
 ) -> List[Tuple[str, float]]:
     """Search documents with memory-efficient embedding generation."""
     if not query or not documents:
         return []
 
+    if not max_tokens:
+        max_tokens = get_embedding_size(model)
+
     query_embedding = generate_embeddings(
-        model_key, query, batch_size, normalize, max_tokens=max_tokens)
+        model, query, batch_size, normalize, max_tokens=max_tokens)
     doc_embeddings = generate_embeddings(
-        model_key, documents, batch_size, normalize, max_tokens=max_tokens)
+        model, documents, batch_size, normalize, max_tokens=max_tokens)
 
     query_embedding = np.array(query_embedding)
     doc_embeddings = np.array(doc_embeddings)
+
+    if len(doc_embeddings) == 0 or len(documents) == 0:
+        return []
+    if len(doc_embeddings) != len(documents):
+        logger.error(
+            f"Mismatch between document embeddings ({len(doc_embeddings)}) and documents ({len(documents)})")
+        return []
 
     similarities = np.dot(doc_embeddings, query_embedding) / (
         np.linalg.norm(doc_embeddings, axis=1) *
         np.linalg.norm(query_embedding)
     )
 
-    top_indices = np.argsort(similarities)[::-1][:min(top_k, len(documents))]
+    similarities = np.nan_to_num(similarities, nan=-1.0)
+
+    top_k = min(top_k, len(documents))
+    if top_k <= 0:
+        return []
+
+    top_indices = np.argsort(similarities)[::-1][:top_k]
+
+    valid_indices = [idx for idx in top_indices if idx < len(documents)]
+    if not valid_indices:
+        return []
+
     results = [(documents[idx], float(similarities[idx]))
-               for idx in top_indices]
+               for idx in valid_indices]
 
     del query_embedding, doc_embeddings, similarities
     torch.mps.empty_cache()
