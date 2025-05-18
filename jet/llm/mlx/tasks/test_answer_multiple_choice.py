@@ -1,8 +1,8 @@
 import pytest
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.tasks.answer_multiple_choice import answer_multiple_choice, InvalidMethodError, InvalidOutputError, InvalidInputError
 
-MODEL_PATH: ModelType = "llama-3.2-3b-instruct-4bit"
+MODEL_PATH: LLMModelType = "llama-3.2-3b-instruct-4bit"
 
 
 def test_valid_multiple_choice():

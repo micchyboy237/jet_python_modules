@@ -1,5 +1,5 @@
 from typing import List, Dict, Optional, TypedDict
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.token_utils import tokenize_strings
 from jet.logger import logger
@@ -34,7 +34,7 @@ class ModelComponents:
         self.tokenizer = tokenizer
 
 
-def load_model_components(model_path: ModelType) -> ModelComponents:
+def load_model_components(model_path: LLMModelType) -> ModelComponents:
     """Loads model and tokenizer from the specified path."""
     try:
         model, tokenizer = load(resolve_model(model_path))
@@ -58,7 +58,7 @@ def create_rerank_prompt(query: str, doc: str) -> str:
     return f"Evaluate the relevance of the following document to the query.\nQuery: {query}\nDocument: {doc}\nScore the relevance from 0 (irrelevant) to 1 (highly relevant)."
 
 
-def log_rerank_details(query: str, corpus: List[str], model_path: ModelType) -> None:
+def log_rerank_details(query: str, corpus: List[str], model_path: LLMModelType) -> None:
     """Logs query, tokenized query, and corpus details for debugging."""
     logger.gray("Query:")
     logger.debug(query)
@@ -97,7 +97,7 @@ def compute_relevance_score(
 def rerank_query_corpus(
     query: str,
     corpus: List[str],
-    model_path: ModelType,
+    model_path: LLMModelType,
     max_tokens: int = 10,
     temperature: float = 0.0,
     top_p: float = 0.9

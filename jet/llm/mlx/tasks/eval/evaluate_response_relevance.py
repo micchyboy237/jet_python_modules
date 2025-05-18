@@ -1,5 +1,5 @@
 from typing import List, Dict, Optional, TypedDict
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.logger import logger
 import mlx.core as mx
@@ -42,7 +42,7 @@ class ModelComponents:
         self.tokenizer = tokenizer
 
 
-def load_model_components(model_path: ModelType) -> ModelComponents:
+def load_model_components(model_path: LLMModelType) -> ModelComponents:
     """Loads model and tokenizer from the specified path."""
     try:
         model, tokenizer = load(resolve_model(model_path))
@@ -86,7 +86,7 @@ def evaluate_response_relevance(
     query: str,
     context: str,
     response: str,
-    model_path: ModelType,
+    model_path: LLMModelType,
     max_tokens: int = 1,
     temperature: float = 0.1,
     top_p: float = 0.9

@@ -4,7 +4,7 @@ from typing import List, Optional, Union, Dict
 from jet.llm.mlx.base import MLX
 from jet.logger import logger
 from mpi4py import MPI
-from jet.llm.mlx.mlx_types import Message, ModelType, RoleMapping, Tool, CompletionResponse
+from jet.llm.mlx.mlx_types import Message, LLMModelType, RoleMapping, Tool, CompletionResponse
 from jet.llm.mlx.models import AVAILABLE_MODELS, get_model_limits, resolve_model
 
 comm = MPI.COMM_WORLD
@@ -12,7 +12,7 @@ rank = comm.Get_rank()
 
 
 def parallel_stream_generate(
-    model: ModelType,
+    model: LLMModelType,
     prompts: List[Dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.0,
@@ -147,7 +147,7 @@ def parallel_stream_generate(
 
 
 def parallel_chat_generate(
-    model: ModelType,
+    model: LLMModelType,
     messages: List[Dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.0,

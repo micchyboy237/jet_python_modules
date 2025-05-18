@@ -128,9 +128,6 @@ ModelValue = Literal[
     "mlx-community/Qwen3-8B-4bit-DWQ"
 ]
 
-# Combined model type
-ModelType = Union[ModelKey, ModelValue, ModelTypeEnum]
-
 
 class EmbedModelTypeEnum(Enum):
     EMBED_ALL_MINILM_L6_V2_BF16 = "all-minilm-l6-v2-bf16"
@@ -189,7 +186,11 @@ EmbedModelValue = Literal[
     "mlx-community/all-MiniLM-L6-v2-4bit"
 ]
 
+# Combined llm model type
+# LLMModelType = Union[ModelKey, ModelValue, ModelTypeEnum]
+LLMModelType = Union[ModelKey, ModelValue, ModelTypeEnum]
+
 # Combined embed model type
 EmbedModelType = Union[EmbedModelKey, EmbedModelValue, EmbedModelTypeEnum]
 
-AllModelTypes = Union[ModelType, EmbedModelType]
+LLMModelType = Union[LLMModelType, EmbedModelType]

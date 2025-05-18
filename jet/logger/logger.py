@@ -56,6 +56,24 @@ class CustomLogger:
 
         return logger
 
+    def addHandler(self, handler: logging.Handler) -> None:
+        """
+        Add a handler to the logger.
+
+        Args:
+            handler (logging.Handler): The handler to add.
+        """
+        self.logger.addHandler(handler)
+
+    def removeHandler(self, handler: logging.Handler) -> None:
+        """
+        Remove a handler from the logger.
+
+        Args:
+            handler (logging.Handler): The handler to remove.
+        """
+        self.logger.removeHandler(handler)
+
     def custom_logger_method(self, level: str) -> Callable[[str, Optional[bool]], None]:
         def wrapper(
             *messages: list[str],

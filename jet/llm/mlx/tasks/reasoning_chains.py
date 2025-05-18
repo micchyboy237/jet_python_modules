@@ -1,5 +1,5 @@
 from typing import List, Dict, Optional, TypedDict
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.token_utils import tokenize_strings
 from jet.logger import logger
@@ -11,21 +11,27 @@ from mlx_lm.utils import TokenizerWrapper
 
 mx.random.seed(42)
 
+
 class ModelLoadError(Exception):
     pass
+
 
 class InvalidMethodError(Exception):
     pass
 
+
 class PromptFormattingError(Exception):
     pass
+
 
 class GenerationError(Exception):
     pass
 
+
 class ChatMessage(TypedDict):
     role: str
     content: str
+
 
 class ReasoningChainResult(TypedDict):
     reasoning: str
@@ -34,19 +40,23 @@ class ReasoningChainResult(TypedDict):
     method: str
     error: Optional[str]
 
+
 class ModelComponents:
     """Encapsulates model and tokenizer for easier management."""
+
     def __init__(self, model, tokenizer: TokenizerWrapper):
         self.model = model
         self.tokenizer = tokenizer
 
-def load_model_components(model_path: ModelType) -> ModelComponents:
+
+def load_model_components(model_path: LLMModelType) -> ModelComponents:
     """Loads model and tokenizer from the specified path."""
     try:
         model, tokenizer = load(resolve_model(model_path))
         return ModelComponents(model, tokenizer)
     except Exception as e:
         raise ModelLoadError(f"Error loading model or tokenizer: {e}")
+
 
 def validate_method(method: str) -> None:
     """Validates the generation method."""
@@ -55,7 +65,8 @@ def validate_method(method: str) -> None:
         raise InvalidMethodError(
             f"Invalid method specified: {method}. Valid methods: {valid_methods}")
 
-def log_prompt_details(system_prompt: str, problem: str, model_path: ModelType) -> None:
+
+def log_prompt_details(system_prompt: str, problem: str, model_path: LLMModelType) -> None:
     """Logs system prompt, tokenized system prompt, and problem for debugging."""
     logger.gray("System:")
     logger.debug(system_prompt)
@@ -65,12 +76,14 @@ def log_prompt_details(system_prompt: str, problem: str, model_path: ModelType) 
     logger.debug(problem)
     logger.newline()
 
+
 def format_chat_messages(system_prompt: str, problem: str) -> List[ChatMessage]:
     """Formats the system and user messages for the chat template."""
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": problem}
     ]
+
 
 def setup_generation_parameters(
     tokenizer: TokenizerWrapper,
@@ -82,6 +95,7 @@ def setup_generation_parameters(
     sampler = make_sampler(temp=temperature, top_p=top_p)
     stop_tokens = tokenizer.encode("\n") + list(tokenizer.eos_token_ids)
     return logits_processors, sampler, stop_tokens
+
 
 def generate_reasoning_stream(
     model_components: ModelComponents,
@@ -107,6 +121,7 @@ def generate_reasoning_stream(
         token_ids.append(output.token)
         reasoning = model_components.tokenizer.decode(token_ids)
     return reasoning, token_ids
+
 
 def generate_reasoning_step(
     model_components: ModelComponents,
@@ -136,9 +151,10 @@ def generate_reasoning_step(
         reasoning = model_components.tokenizer.decode(token_ids)
     return reasoning, token_ids
 
+
 def reasoning_chains(
     problem: str,
-    model_path: ModelType = "llama-3.2-3b-instruct-4bit",
+    model_path: LLMModelType = "llama-3.2-3b-instruct-4bit",
     method: str = "stream_generate",
     max_tokens: int = 300,
     temperature: float = 0.7,

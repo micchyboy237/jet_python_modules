@@ -3,7 +3,7 @@ from jet.transformers.formatters import format_json
 from jet.utils.object import max_getattr
 from jet.logger import logger
 from transformers import AutoConfig
-from .mlx_types import AllModelTypes, EmbedModelKey, EmbedModelType, EmbedModelValue, ModelKey, ModelValue, ModelType
+from .mlx_types import LLMModelType, EmbedModelKey, EmbedModelType, EmbedModelValue, ModelKey, ModelValue, LLMModelType
 
 AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
     "dolphin3.0-llama3.1-8b-4bit": "mlx-community/Dolphin3.0-Llama3.1-8B-4bit",
@@ -40,12 +40,12 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "all-minilm-l6-v2-4bit": "mlx-community/all-MiniLM-L6-v2-4bit",
 }
 
-ALL_MODELS: Dict[Union[ModelType, EmbedModelType], Union[ModelValue, EmbedModelValue]] = {
+ALL_MODELS: Dict[Union[LLMModelType, EmbedModelType], Union[ModelValue, EmbedModelValue]] = {
     **AVAILABLE_MODELS,
     **AVAILABLE_EMBED_MODELS,
 }
 
-MODEL_CONTEXTS: Dict[AllModelTypes, int] = {
+MODEL_CONTEXTS: Dict[LLMModelType, int] = {
     "dolphin3.0-llama3.1-8b-4bit": 131072,
     "llama-3.1-8b-instruct-4bit": 131072,
     "llama-3.2-1b-instruct-4bit": 131072,
@@ -75,7 +75,7 @@ MODEL_CONTEXTS: Dict[AllModelTypes, int] = {
     "all-minilm-l6-v2-4bit": 512
 }
 
-MODEL_EMBEDDING_TOKENS: Dict[AllModelTypes, int] = {
+MODEL_EMBEDDING_TOKENS: Dict[LLMModelType, int] = {
     "dolphin3.0-llama3.1-8b-4bit": 4096,
     "llama-3.1-8b-instruct-4bit": 4096,
     "llama-3.2-1b-instruct-4bit": 2048,
@@ -106,7 +106,7 @@ MODEL_EMBEDDING_TOKENS: Dict[AllModelTypes, int] = {
 }
 
 
-def get_model_key(model: Union[ModelType, EmbedModelType]) -> Union[ModelType, EmbedModelType]:
+def resolve_model_key(model: Union[LLMModelType, EmbedModelType]) -> Union[ModelKey, EmbedModelKey]:
     """
     Retrieves the model key (short name) for a given model key or path.
 
@@ -130,7 +130,7 @@ def get_model_key(model: Union[ModelType, EmbedModelType]) -> Union[ModelType, E
     )
 
 
-def get_model_value(model: Union[ModelType, EmbedModelType]) -> Union[ModelValue, EmbedModelValue]:
+def resolve_model_value(model: Union[LLMModelType, EmbedModelType]) -> Union[ModelValue, EmbedModelValue]:
     """
     Retrieves the model value (full path) for a given model key or path.
 
@@ -153,7 +153,7 @@ def get_model_value(model: Union[ModelType, EmbedModelType]) -> Union[ModelValue
     )
 
 
-def get_model_limits(model_id: ModelType) -> Tuple[Optional[int], Optional[int]]:
+def get_model_limits(model_id: LLMModelType) -> Tuple[Optional[int], Optional[int]]:
     config = AutoConfig.from_pretrained(model_id)
 
     max_context = max_getattr(config, 'max_position_embeddings', None)
@@ -164,8 +164,8 @@ def get_model_limits(model_id: ModelType) -> Tuple[Optional[int], Optional[int]]
 
 
 class ModelInfoDict(TypedDict):
-    contexts: Dict[AllModelTypes, int]
-    embeddings: Dict[AllModelTypes, int]
+    contexts: Dict[LLMModelType, int]
+    embeddings: Dict[LLMModelType, int]
 
 
 def get_model_info() -> ModelInfoDict:
@@ -194,7 +194,7 @@ def get_model_info() -> ModelInfoDict:
     return model_info
 
 
-def resolve_model(model_name: Union[ModelType, EmbedModelType]) -> Union[ModelType, EmbedModelType]:
+def resolve_model(model_name: Union[LLMModelType, EmbedModelType]) -> Union[LLMModelType, EmbedModelType]:
     """
     Resolves a model name or path against available models.
 
@@ -218,7 +218,7 @@ def resolve_model(model_name: Union[ModelType, EmbedModelType]) -> Union[ModelTy
         )
 
 
-def get_embedding_size(model: Union[ModelType, EmbedModelType]) -> int:
+def get_embedding_size(model: Union[LLMModelType, EmbedModelType]) -> int:
     """
     Returns the embedding size (hidden dimension) for the given model key or full model path.
 
@@ -231,7 +231,7 @@ def get_embedding_size(model: Union[ModelType, EmbedModelType]) -> int:
     Raises:
         ValueError: If the model is not recognized or missing an embedding size.
     """
-    model_key = get_model_key(model)
+    model_key = resolve_model_key(model)
     if model_key not in MODEL_EMBEDDING_TOKENS:
         raise ValueError(f"Missing embedding size for model: {model_key}")
     return MODEL_EMBEDDING_TOKENS[model_key]

@@ -1,4 +1,4 @@
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 import mlx.core as mx
 from mlx_lm import load, generate
@@ -6,7 +6,7 @@ from mlx_lm.sample_utils import make_sampler
 import random
 
 
-def predict_next_word(sentence, top_n=5, model_name: ModelType = "llama-3.2-3b-instruct-4bit"):
+def predict_next_word(sentence, top_n=5, model_name: LLMModelType = "llama-3.2-3b-instruct-4bit"):
     """
     Predict the top N most likely next words for an unfinished sentence.
 
@@ -64,7 +64,7 @@ def predict_next_word(sentence, top_n=5, model_name: ModelType = "llama-3.2-3b-i
     return results
 
 
-def predict_finishing_words(sentence, top_n=5, model_name: ModelType = "llama-3.2-3b-instruct-4bit"):
+def predict_finishing_words(sentence, top_n=5, model_name: LLMModelType = "llama-3.2-3b-instruct-4bit"):
     """
     Predict the top N most likely finishing words for an unfinished sentence.
 
@@ -127,7 +127,7 @@ def predict_finishing_words(sentence, top_n=5, model_name: ModelType = "llama-3.
     return results
 
 
-def predict_top_completions(sentence, top_n=5, model_name: ModelType = "llama-3.2-3b-instruct-4bit"):
+def predict_top_completions(sentence, top_n=5, model_name: LLMModelType = "llama-3.2-3b-instruct-4bit"):
     """
     Predict the top N most likely sentence completions for an unfinished sentence.
 

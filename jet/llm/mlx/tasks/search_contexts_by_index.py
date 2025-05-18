@@ -1,5 +1,5 @@
 from typing import List, Dict, Optional, TypedDict
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.logger import logger
 import mlx.core as mx
@@ -47,7 +47,7 @@ class ModelComponents:
         self.tokenizer = tokenizer
 
 
-def load_model_components(model_path: ModelType) -> ModelComponents:
+def load_model_components(model_path: LLMModelType) -> ModelComponents:
     """Loads model and tokenizer from the specified path."""
     try:
         model, tokenizer = load(resolve_model(model_path))
@@ -135,7 +135,7 @@ def compute_confidence_scores(
 def search_contexts_by_index(
     query: str,
     contexts: List[str],
-    model_path: ModelType,
+    model_path: LLMModelType,
     top_n: int = 1,
     max_tokens: int = 1,
     temperature: float = 0.1,

@@ -1,7 +1,7 @@
 from jet.llm.mlx.utils import get_model_max_tokens
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from typing import Callable, List, Dict, Optional, TypedDict, Union
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.wordnet.sentence import split_sentences
 from mlx_lm import load
@@ -96,7 +96,7 @@ import transformers  # Assuming tokenizer is from transformers
 
 #     return len(tokens)
 
-def count_tokens(model: ModelType, messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
+def count_tokens(model: LLMModelType, messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
     # return count_tokens(self.tokenizer, messages)
     if not messages:
         return 0
@@ -278,7 +278,7 @@ def merge_texts(
     }
 
 
-def tokenize_strings(text: Union[str, List[str]], model: ModelType) -> Union[str, list[str]]:
+def tokenize_strings(text: Union[str, List[str]], model: LLMModelType) -> Union[str, list[str]]:
     tokenizer = get_tokenizer(model)
     if isinstance(text, str):
         token_ids = tokenizer.encode(
@@ -290,14 +290,14 @@ def tokenize_strings(text: Union[str, List[str]], model: ModelType) -> Union[str
         return [tokenizer.convert_ids_to_tokens(ids) for ids in token_ids_list]
 
 
-def get_tokenizer(model: ModelType) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
+def get_tokenizer(model: LLMModelType) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
     model_name = resolve_model(model)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return tokenizer
 
 
-def get_tokenizer_fn(model: ModelType) -> Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]]:
+def get_tokenizer_fn(model: LLMModelType) -> Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]]:
     tokenizer = get_tokenizer(model)
 
     def _tokenizer(text: Union[str, List[str]]) -> Union[List[str], List[List[str]]]:
@@ -312,7 +312,7 @@ def get_tokenizer_fn(model: ModelType) -> Callable[[Union[str, List[str]]], Unio
     return _tokenizer
 
 
-def chunk_text(text: Union[str, List[str]], n: Optional[int] = None, overlap: int = 0, model: Optional[ModelType] = None) -> List[str]:
+def chunk_text(text: Union[str, List[str]], n: Optional[int] = None, overlap: int = 0, model: Optional[LLMModelType] = None) -> List[str]:
     def chunk_tokens(tokens: List[str], tokenizer: Optional[PreTrainedTokenizer] = None) -> List[str]:
         chunks = []
         for i in range(0, len(tokens), chunk_size - overlap):

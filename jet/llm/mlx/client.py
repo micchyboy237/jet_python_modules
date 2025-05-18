@@ -22,11 +22,11 @@ from jet.llm.mlx.mlx_types import (
     CompletionResponse,
     ModelsResponse,
     ModelInfo,
-    ModelType,
+    LLMModelType,
     ModelKey,
     ModelValue,
 )
-from jet.llm.mlx.models import AVAILABLE_MODELS
+from jet.llm.mlx.models import AVAILABLE_MODELS, resolve_model_value
 from jet.utils.inspect_utils import get_entry_file_name
 
 DEFAULT_LOG_DIR = os.path.expanduser(
@@ -37,7 +37,7 @@ class MLXLMClient:
     """A client for interacting with MLX-LM models directly in Python."""
 
     @staticmethod
-    def _get_model_value(model: ModelType) -> ModelValue:
+    def _get_model_value(model: LLMModelType) -> ModelValue:
         """Convert a model key to its full value if it exists in AVAILABLE_MODELS."""
         if not isinstance(model, str):
             raise ValueError("Model must be a string (ModelKey or ModelValue)")
@@ -55,18 +55,18 @@ class MLXLMClient:
 
     @dataclass
     class Config:
-        model: Optional[ModelType] = None
+        model: Optional[LLMModelType] = None
         adapter_path: Optional[str] = None
-        draft_model: Optional[ModelType] = None
+        draft_model: Optional[LLMModelType] = None
         trust_remote_code: bool = False
         chat_template: Optional[str] = None
         use_default_chat_template: bool = True
 
     def __init__(
         self,
-        model: Optional[ModelType] = None,
+        model: Optional[LLMModelType] = None,
         adapter_path: Optional[str] = None,
-        draft_model: Optional[ModelType] = None,
+        draft_model: Optional[LLMModelType] = None,
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
@@ -78,8 +78,8 @@ class MLXLMClient:
             mx.random.seed(seed)
 
         # Convert model keys to values
-        model_value = self._get_model_value(model) if model else None
-        draft_model_value = self._get_model_value(
+        model_value = resolve_model_value(model) if model else None
+        draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
 
         config = self.Config(
@@ -111,8 +111,8 @@ class MLXLMClient:
     def chat(
         self,
         messages: List[Message],
-        model: ModelType = DEFAULT_MODEL,
-        draft_model: Optional[ModelType] = None,
+        model: LLMModelType = DEFAULT_MODEL,
+        draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -212,8 +212,8 @@ class MLXLMClient:
     def stream_chat(
         self,
         messages: List[Message],
-        model: ModelType = DEFAULT_MODEL,
-        draft_model: Optional[ModelType] = None,
+        model: LLMModelType = DEFAULT_MODEL,
+        draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -311,8 +311,8 @@ class MLXLMClient:
     def generate(
         self,
         prompt: str,
-        model: ModelType = DEFAULT_MODEL,
-        draft_model: Optional[ModelType] = None,
+        model: LLMModelType = DEFAULT_MODEL,
+        draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -403,8 +403,8 @@ class MLXLMClient:
     def stream_generate(
         self,
         prompt: str,
-        model: ModelType = DEFAULT_MODEL,
-        draft_model: Optional[ModelType] = None,
+        model: LLMModelType = DEFAULT_MODEL,
+        draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
@@ -533,7 +533,7 @@ class MLXLMClient:
         xtc_threshold: float,
         logit_bias: Optional[Dict[int, float]],
         logprobs: int,
-        model: ModelType,
+        model: LLMModelType,
         adapter: Optional[str]
     ) -> None:
         """Validate model parameters."""

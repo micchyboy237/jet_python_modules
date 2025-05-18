@@ -1,5 +1,5 @@
 from typing import List, Dict, Optional, TypedDict
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.token_utils import tokenize_strings
 from jet.logger import logger
@@ -11,18 +11,23 @@ from mlx_lm.utils import TokenizerWrapper
 
 mx.random.seed(42)
 
+
 class ModelLoadError(Exception):
     pass
+
 
 class InvalidMethodError(Exception):
     pass
 
+
 class InvalidOutputError(Exception):
     pass
+
 
 class ChatMessage(TypedDict):
     role: str
     content: str
+
 
 class EntailmentResult(TypedDict):
     label: str
@@ -31,19 +36,23 @@ class EntailmentResult(TypedDict):
     method: str
     error: Optional[str]
 
+
 class ModelComponents:
     """Encapsulates model and tokenizer for easier management."""
+
     def __init__(self, model, tokenizer: TokenizerWrapper):
         self.model = model
         self.tokenizer = tokenizer
 
-def load_model_components(model_path: ModelType) -> ModelComponents:
+
+def load_model_components(model_path: LLMModelType) -> ModelComponents:
     """Loads model and tokenizer from the specified path."""
     try:
         model, tokenizer = load(resolve_model(model_path))
         return ModelComponents(model, tokenizer)
     except Exception as e:
         raise ModelLoadError(f"Error loading model or tokenizer: {e}")
+
 
 def validate_method(method: str) -> None:
     """Validates the generation method."""
@@ -52,11 +61,13 @@ def validate_method(method: str) -> None:
         raise InvalidMethodError(
             f"Invalid method specified: {method}. Valid methods: {valid_methods}")
 
+
 def create_system_prompt(labels: List[str]) -> str:
     """Creates a formatted system prompt with the given entailment labels."""
     return f"Determine the relationship between the premise and hypothesis by choosing one of the options provided without any additional text.\nOptions:\n{'\n'.join(labels)}"
 
-def log_prompt_details(system_prompt: str, premise: str, hypothesis: str, model_path: ModelType) -> None:
+
+def log_prompt_details(system_prompt: str, premise: str, hypothesis: str, model_path: LLMModelType) -> None:
     """Logs system prompt, tokenized system prompt, premise, and hypothesis for debugging."""
     logger.gray("System:")
     logger.debug(system_prompt)
@@ -68,6 +79,7 @@ def log_prompt_details(system_prompt: str, premise: str, hypothesis: str, model_
     logger.debug(hypothesis)
     logger.newline()
 
+
 def format_chat_messages(system_prompt: str, premise: str, hypothesis: str) -> List[ChatMessage]:
     """Formats the system and user messages for the chat template."""
     user_content = f"Premise: {premise}\nHypothesis: {hypothesis}"
@@ -75,6 +87,7 @@ def format_chat_messages(system_prompt: str, premise: str, hypothesis: str) -> L
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content}
     ]
+
 
 def encode_labels(tokenizer: TokenizerWrapper, labels: List[str]) -> Dict[str, List[int]]:
     """Encodes each label into tokens and logs the results."""
@@ -85,6 +98,7 @@ def encode_labels(tokenizer: TokenizerWrapper, labels: List[str]) -> Dict[str, L
         logger.log(f"Tokens for '{label}':",
                    tokens, colors=["GRAY", "ORANGE"])
     return label_token_map
+
 
 def setup_generation_parameters(
     tokenizer: TokenizerWrapper,
@@ -99,6 +113,7 @@ def setup_generation_parameters(
     sampler = make_sampler(temp=temperature, top_p=top_p)
     stop_tokens = tokenizer.encode("\n") + list(tokenizer.eos_token_ids)
     return logits_processors, sampler, stop_tokens
+
 
 def generate_label_stream(
     model_components: ModelComponents,
@@ -129,6 +144,7 @@ def generate_label_stream(
         if label in labels:
             break
     return label, token_id, generated_tokens
+
 
 def generate_label_step(
     model_components: ModelComponents,
@@ -163,17 +179,19 @@ def generate_label_step(
             break
     return label, token_id, generated_tokens
 
+
 def validate_label(label: str, labels: List[str]) -> None:
     """Validates that the generated label is one of the provided options."""
     if label not in labels:
         raise InvalidOutputError(
             f"Output '{label}' is not one of the provided labels.")
 
+
 def text_entailment(
     premise: str,
     hypothesis: str,
     labels: List[str] = ["Entailment", "Contradiction", "Neutral"],
-    model_path: ModelType = "llama-3.2-3b-instruct-4bit",
+    model_path: LLMModelType = "llama-3.2-3b-instruct-4bit",
     method: str = "stream_generate",
     max_tokens: int = 10,
     temperature: float = 0.0,

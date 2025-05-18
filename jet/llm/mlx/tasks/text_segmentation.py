@@ -1,5 +1,5 @@
 from typing import List, Dict, Optional, TypedDict
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.logger import logger
 import mlx.core as mx
@@ -11,25 +11,34 @@ from mlx_lm.utils import TokenizerWrapper
 mx.random.seed(42)
 
 # Custom exceptions
+
+
 class ModelLoadError(Exception):
     pass
+
 
 class InvalidMethodError(Exception):
     pass
 
+
 class PromptFormattingError(Exception):
     pass
 
+
 class GenerationError(Exception):
     pass
+
 
 class InvalidOutputError(Exception):
     pass
 
 # Type definitions
+
+
 class ChatMessage(TypedDict):
     role: str
     content: str
+
 
 class SegmentationResult(TypedDict):
     segments: List[str]
@@ -37,19 +46,23 @@ class SegmentationResult(TypedDict):
     method: str
     error: Optional[str]
 
+
 class ModelComponents:
     """Encapsulates model and tokenizer for easier management."""
+
     def __init__(self, model, tokenizer: TokenizerWrapper):
         self.model = model
         self.tokenizer = tokenizer
 
-def load_model_components(model_path: ModelType) -> ModelComponents:
+
+def load_model_components(model_path: LLMModelType) -> ModelComponents:
     """Loads model and tokenizer from the specified path."""
     try:
         model, tokenizer = load(resolve_model(model_path))
         return ModelComponents(model, tokenizer)
     except Exception as e:
         raise ModelLoadError(f"Error loading model or tokenizer: {e}")
+
 
 def validate_method(method: str) -> None:
     """Validates the generation method."""
@@ -58,6 +71,7 @@ def validate_method(method: str) -> None:
         raise InvalidMethodError(
             f"Invalid method specified: {method}. Valid methods: {valid_methods}")
 
+
 def create_system_prompt() -> str:
     """Creates a formatted system prompt for text segmentation."""
     return (
@@ -65,7 +79,8 @@ def create_system_prompt() -> str:
         "Return the segments as a numbered list in the format:\n1. <segment>\n2. <segment>\n..."
     )
 
-def log_prompt_details(system_prompt: str, input_text: str, model_path: ModelType) -> None:
+
+def log_prompt_details(system_prompt: str, input_text: str, model_path: LLMModelType) -> None:
     """Logs system prompt and input text for debugging."""
     logger.gray("System:")
     logger.debug(system_prompt)
@@ -73,12 +88,14 @@ def log_prompt_details(system_prompt: str, input_text: str, model_path: ModelTyp
     logger.debug(input_text)
     logger.newline()
 
+
 def format_chat_messages(system_prompt: str, input_text: str) -> List[ChatMessage]:
     """Formats the system and user messages for the chat template."""
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": input_text}
     ]
+
 
 def generate_response_stream(
     model_components: ModelComponents,
@@ -102,6 +119,7 @@ def generate_response_stream(
             break
         response += output.text
     return response.strip()
+
 
 def generate_response_step(
     model_components: ModelComponents,
@@ -129,6 +147,7 @@ def generate_response_step(
         response += model_components.tokenizer.decode([token])
     return response.strip()
 
+
 def parse_response(response: str) -> List[str]:
     """Parses the response into a list of segments."""
     try:
@@ -141,14 +160,16 @@ def parse_response(response: str) -> List[str]:
                 if segment:
                     segments.append(segment)
         if not segments:
-            raise InvalidOutputError("No valid segments found in the response.")
+            raise InvalidOutputError(
+                "No valid segments found in the response.")
         return segments
     except Exception as e:
         raise InvalidOutputError(f"Error parsing segments: {e}")
 
+
 def text_segmentation(
     input_text: str,
-    model_path: ModelType,
+    model_path: LLMModelType,
     method: str = "stream_generate",
     max_tokens: int = 200,
     temperature: float = 0.7,
@@ -159,7 +180,7 @@ def text_segmentation(
 
     Args:
         input_text (str): The input text to segment.
-        model_path (ModelType): Path to the model or model identifier.
+        model_path (LLMModelType): Path to the model or model identifier.
         method (str): Generation method ("stream_generate" or "generate_step").
         max_tokens (int): Maximum number of tokens to generate.
         temperature (float): Sampling temperature.
@@ -186,7 +207,8 @@ def text_segmentation(
 
         logits_processors = make_logits_processors()
         sampler = make_sampler(temp=temperature, top_p=top_p)
-        stop_tokens = model_components.tokenizer.encode("\n\n") + list(model_components.tokenizer.eos_token_ids)
+        stop_tokens = model_components.tokenizer.encode(
+            "\n\n") + list(model_components.tokenizer.eos_token_ids)
 
         if method == "stream_generate":
             response = generate_response_stream(

@@ -1,5 +1,5 @@
 from typing import List, Dict, Union, Optional, TypedDict
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.logger import logger
 import mlx.core as mx
@@ -49,7 +49,7 @@ class AnswerResult(TypedDict):
 
 def answer_yes_no(
     question: str,
-    model_path: ModelType,
+    model_path: LLMModelType,
     method: str = "generate_step",
     max_tokens: int = 1,
     temperature: float = 0.1,

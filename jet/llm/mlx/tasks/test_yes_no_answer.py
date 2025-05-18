@@ -1,8 +1,8 @@
 import pytest
-from jet.llm.mlx.mlx_types import ModelType
+from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.tasks.yes_no_answer import answer_yes_no, PromptFormattingError, InvalidMethodError, InvalidOutputError
 
-MODEL_PATH: ModelType = "llama-3.2-3b-instruct-4bit"
+MODEL_PATH: LLMModelType = "llama-3.2-3b-instruct-4bit"
 
 
 def test_valid_yes_answer():
