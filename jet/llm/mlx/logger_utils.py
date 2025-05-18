@@ -41,12 +41,34 @@ class ChatLogger:
 
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
 
+        # Initialize log_data with core attributes
         log_data = {
             "timestamp": timestamp,
             "session_id": self.session_id,
             "method": self.method,
         }
 
+        # Handle usage formatting if present
+        formatted_usage = None
+        if "usage" in kwargs:
+            usage = kwargs.pop("usage")
+            formatted_usage = {
+                "prompt_tokens": str(usage.get("prompt_tokens", 0)),
+                "prompt_tps": f"{usage.get('prompt_tps', 0):.2f} tokens/sec",
+                "completion_tokens": str(usage.get("completion_tokens", 0)),
+                "completion_tps": f"{usage.get('completion_tps', 0):.2f} tokens/sec",
+                "peak_memory": f"{usage.get('peak_memory', 0):.2f} GB",
+                "total_tokens": str(usage.get("total_tokens", 0))
+            }
+
+        # Add remaining kwargs (excluding usage for now)
+        log_data.update(kwargs)
+
+        # Add usage after other kwargs if it exists
+        if formatted_usage is not None:
+            log_data["usage"] = formatted_usage
+
+        # Handle prompt or messages before response
         if isinstance(prompt_or_messages, str):
             log_data["prompt"] = prompt_or_messages
         else:
@@ -63,22 +85,8 @@ class ChatLogger:
                 "content": response_text
             })
 
+        # Add response last
         log_data["response"] = format_json(response, indent=2)
-
-        # Move usage to the end and format as readable strings
-        if "usage" in kwargs:
-            usage = kwargs.pop("usage")
-            formatted_usage = {
-                "prompt_tokens": str(usage.get("prompt_tokens", 0)),
-                "prompt_tps": f"{usage.get('prompt_tps', 0):.2f} tokens/sec",
-                "completion_tokens": str(usage.get("completion_tokens", 0)),
-                "completion_tps": f"{usage.get('completion_tps', 0):.2f} tokens/sec",
-                "peak_memory": f"{usage.get('peak_memory', 0):.2f} GB",
-                "total_tokens": str(usage.get("total_tokens", 0))
-            }
-            kwargs["usage"] = formatted_usage
-
-        log_data.update(kwargs)  # Add remaining kwargs, with usage last
 
         save_file(log_data, log_file)
 
