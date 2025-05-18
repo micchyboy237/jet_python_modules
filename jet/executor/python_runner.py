@@ -1,3 +1,4 @@
+from fnmatch import fnmatch
 import subprocess
 import os
 import re
@@ -19,6 +20,7 @@ def sort_key(path: str) -> Tuple[int, str]:
 def run_python_files_in_directory(
     target_dir: Union[str, Path],
     exclude_dirs: Optional[List[str]] = None,
+    excludes: Optional[List[str]] = None,
     python_interpreter: str = "python",
     recursive: bool = False
 ) -> None:
@@ -28,6 +30,7 @@ def run_python_files_in_directory(
     Args:
         target_dir (Path): The root directory to search for Python files.
         exclude_dirs (Optional[List[str]]): List of directory names to exclude.
+        excludes (Optional[List[str]]): List of filename patterns to exclude.
         python_interpreter (str): Python executable to use. Default is 'python'.
         recursive (bool): Whether to search subdirectories recursively.
     """
@@ -35,6 +38,7 @@ def run_python_files_in_directory(
         target_dir = Path(target_dir)
 
     exclude_dirs = set(exclude_dirs or [])
+    excludes = excludes or []
 
     if recursive:
         files = [
@@ -46,6 +50,11 @@ def run_python_files_in_directory(
             f for f in target_dir.glob("*.py")
             if not any(part in exclude_dirs for part in f.parts)
         ]
+
+    files = [
+        f for f in files
+        if not any(fnmatch(f.name, pattern) for pattern in excludes)
+    ]
 
     files.sort(key=lambda f: sort_key(str(f.name)))
 
@@ -64,7 +73,6 @@ def run_python_files_in_directory(
             bufsize=1,
         )
 
-        # Stream logs line by line
         if process.stdout:
             for line in process.stdout:
                 print(line, end="")
