@@ -24,10 +24,31 @@ class ScoreResults(TypedDict):
     normalized_scores: np.ndarray
 
 
-def load_models() -> Models:
+class FinalResult(TypedDict):
+    rank: int
+    doc_idx: int
+    distance: float
+    raw_score: float
+    normalized_score: float
+    content: str
+
+
+def load_embed_model() -> SentenceTransformer:
     """Load sentence transformer and cross-encoder models."""
     embedder = SentenceTransformer('all-MiniLM-L12-v2')
+    return embedder
+
+
+def load_rerank_model() -> CrossEncoder:
+    """Load sentence transformer and cross-encoder models."""
     cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
+    return cross_encoder
+
+
+def load_models() -> Models:
+    """Load sentence transformer and cross-encoder models."""
+    embedder = load_embed_model()
+    cross_encoder = load_rerank_model()
     return {"embedder": embedder, "cross_encoder": cross_encoder}
 
 
@@ -56,37 +77,6 @@ def rerank_candidates(cross_encoder: CrossEncoder, query: str, documents: List[s
     scores: np.ndarray = cross_encoder.predict(pairs)
     sorted_indices = np.argsort(scores)[::-1]
     return candidate_indices[sorted_indices], scores[sorted_indices]
-
-
-def search_documents(query: str, documents: List[str], embed_model: SentenceTransformer,
-                     rerank_model: CrossEncoder, k: Optional[int] = 10) -> SearchResults:
-    """
-    Perform document search with retrieval and reranking.
-
-    Args:
-        query: Search query
-        documents: List of document strings
-        embed_model: Sentence transformer model for initial retrieval
-        rerank_model: Cross-encoder model for reranking
-        k: Number of candidates to retrieve initially (set 'None' to return all)
-
-    Returns:
-        SearchResults dictionary containing reranked and candidate indices and scores
-    """
-    if k == None:
-        k = len(documents)
-    index, _ = create_index(embed_model, documents)
-    candidate_indices, candidate_distances = retrieve_candidates(
-        embed_model, index, query, k)
-    reranked_indices, reranked_scores = rerank_candidates(
-        rerank_model, query, documents, candidate_indices)
-
-    return {
-        "reranked_indices": reranked_indices,
-        "reranked_scores": reranked_scores,
-        "candidate_indices": candidate_indices,
-        "candidate_distances": candidate_distances
-    }
 
 
 def calculate_scores(query: str, documents: List[str], search_results: SearchResults) -> ScoreResults:
@@ -129,46 +119,54 @@ def calculate_scores(query: str, documents: List[str], search_results: SearchRes
     }
 
 
-def main() -> None:
-    documents: List[str] = [
-        "The quick brown fox jumps over the lazy dog.",
-        "A fox fled from danger in the forest.",
-        "Dogs are loyal and friendly pets.",
-        "The cat sleeps on the windowsill.",
-        "Foxes are known for their cunning behavior."
-    ]
+def search_documents(
+    query: str,
+    documents: List[str],
+    embed_model: Optional[SentenceTransformer] = None,
+    rerank_model: Optional[CrossEncoder] = None,
+    k: Optional[int] = 10
+) -> List[FinalResult]:
+    if not embed_model:
+        embed_model = load_embed_model()
+    if not rerank_model:
+        rerank_model = load_rerank_model()
+    if k is None:
+        k = len(documents)
 
-    query: str = "Tell me about foxes."
+    # Create index and retrieve candidates
+    index, _ = create_index(embed_model, documents)
+    candidate_indices, candidate_distances = retrieve_candidates(
+        embed_model, index, query, k)
 
-    print("Loading models...")
-    models: Models = load_models()
+    # Rerank candidates
+    reranked_indices, reranked_scores = rerank_candidates(
+        rerank_model, query, documents, candidate_indices)
 
-    print(f"\nPerforming search for query: '{query}'")
-    results: SearchResults = search_documents(
-        query, documents, models["embedder"], models["cross_encoder"], k=3
-    )
+    # Compute scores
+    search_results: SearchResults = {
+        "reranked_indices": reranked_indices,
+        "reranked_scores": reranked_scores,
+        "candidate_indices": candidate_indices,
+        "candidate_distances": candidate_distances
+    }
+    score_results: ScoreResults = calculate_scores(
+        query, documents, search_results)
 
-    print("\nInitial retrieval results:")
-    for idx, dist in zip(results["candidate_indices"], results["candidate_distances"]):
-        print(f"Doc {idx}: {documents[idx]} (Distance: {dist:.4f})")
-
-    print("\nReranked results:")
-    for idx, score in zip(results["reranked_indices"], results["reranked_scores"]):
-        print(f"Doc {idx}: {documents[idx]} (Score: {score:.4f})")
-
-    print("\nCombined scores (sorted by raw score descending):")
-    score_results: ScoreResults = calculate_scores(query, documents, results)
-    for idx, dist, raw_score, norm_score in zip(
+    # Build final results
+    final_results: List[FinalResult] = []
+    for rank_idx, (idx, dist, raw_score, norm_score) in enumerate(zip(
         score_results["indices"],
         score_results["distances"],
         score_results["raw_scores"],
         score_results["normalized_scores"]
-    ):
-        print(f"Doc {idx}: {documents[idx]}")
-        print(f"  Distance: {dist:.4f}")
-        print(f"  Raw Score: {raw_score:.4f}")
-        print(f"  Normalized Score: {norm_score:.4f}")
+    ), start=1):
+        final_results.append({
+            "rank": rank_idx,
+            "doc_idx": int(idx),  # Ensure integer type
+            "distance": float(dist),  # Ensure float type
+            "raw_score": float(raw_score),  # Ensure float type
+            "normalized_score": float(norm_score),  # Ensure float type
+            "content": documents[idx]
+        })
 
-
-if __name__ == "__main__":
-    main()
+    return final_results

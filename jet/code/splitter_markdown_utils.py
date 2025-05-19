@@ -263,6 +263,7 @@ def get_md_header_docs(
             parent_header=header["parent_header"],
             header=header["header"],
             content=header["content"],
+            text=header["text"],
         )
         for i, header in enumerate(headers)
     ]
