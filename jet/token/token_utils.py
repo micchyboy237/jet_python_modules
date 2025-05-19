@@ -1,3 +1,7 @@
+import logging
+from llama_index.core.schema import NodeRelationship
+from jet.vectors.document_types import HeaderTextNode
+from typing import Optional, Callable, Union
 from typing import Callable, Literal, Optional, TypedDict, Union
 from jet.llm.embeddings.sentence_embedding import get_tokenizer_fn
 from jet.llm.mlx.models import get_embedding_size
@@ -670,6 +674,202 @@ def get_model_by_max_predict(text: str, max_predict: int = 500, type: Literal["l
         f"No suitable model found. Required tokens: {text_token_count + max_predict}, "
         f"but highest model max is {OLLAMA_MODEL_EMBEDDING_TOKENS[sorted_models[-1]]}"
     )
+
+
+def merge_headers(
+    nodes: list[HeaderTextNode],
+    model_id: Optional[str] = None,
+    chunk_size: Optional[int] = None,
+    chunk_overlap: int = 0,
+    *,
+    tokenizer: Optional[Callable[[Union[str, list[str]]],
+                                 Union[list[int], list[list[int]]]]] = None,
+    buffer: int = 0
+) -> list[HeaderTextNode]:
+    """
+    Merges HeaderTextNode instances into chunks based on token counts, respecting chunk_size and chunk_overlap.
+    Uses SentenceTransformer(model_id).tokenizer for decoding overlap portions.
+
+    Args:
+        nodes (list[HeaderTextNode]): List of header text nodes to merge.
+        model_id (Optional[str]): Model ID for SentenceTransformer (e.g., 'all-MiniLM-L6-v2').
+        chunk_size (Optional[int]): Maximum tokens per merged chunk. Defaults to average token count.
+        chunk_overlap (int): Number of overlapping tokens between chunks. Default is 0.
+        tokenizer (Optional[Callable]): Custom tokenizer function. If None, defaults to SentenceTransformer tokenizer.
+        buffer (int): Extra space reserved to avoid exceeding chunk_size. Default is 0.
+
+    Returns:
+        list[HeaderTextNode]: List of merged HeaderTextNode instances.
+
+    Raises:
+        ValueError: If chunk_size is less than or equal to chunk_overlap, or effective max tokens is invalid.
+        ImportError: If sentence_transformers is not installed.
+        ValueError: If model_id is not provided when no custom tokenizer is specified.
+    """
+    if not nodes:
+        return []
+
+    # Determine chunk_size if not provided
+    if not chunk_size:
+        texts = [node.text for node in nodes]
+        token_counts = [len(text.split())
+                        for text in texts]  # Fallback to word-based
+        chunk_size = int(sum(token_counts) / len(token_counts)
+                         ) if token_counts else 128
+
+    if chunk_size <= chunk_overlap:
+        raise ValueError(
+            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})"
+        )
+
+    effective_max_tokens = max(chunk_size - buffer, 1)
+    if effective_max_tokens <= chunk_overlap:
+        raise ValueError(
+            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})"
+        )
+
+    # Set up tokenizer
+    if tokenizer:
+        tokenizer_fn = tokenizer
+    elif model_id:
+        try:
+            tokenizer_fn = get_tokenizer_fn(model_id)
+        except ImportError:
+            raise ImportError(
+                "Please install sentence_transformers: pip install sentence_transformers")
+    else:
+        raise ValueError("Either model_id or tokenizer must be provided")
+
+    # Ensure tokenizer has encode and decode methods
+    def encode_wrapper(texts: Union[str, list[str]]) -> Union[list[int], list[list[int]]]:
+        return tokenizer_fn.encode(texts, truncation=True, max_length=chunk_size)
+
+    def decode_wrapper(tokens: list[int], **kwargs) -> str:
+        return tokenizer_fn.decode(tokens)
+
+    # Compute token counts for all nodes
+    texts = [node.text for node in nodes]
+    tokens_matrix = encode_wrapper(texts)
+
+    # Handle both single string and list of strings
+    if isinstance(tokens_matrix[0], int):  # Single string case
+        tokens_matrix = [tokens_matrix]
+    token_counts = [len(tokens) for tokens in tokens_matrix]
+
+    merged_nodes: list[HeaderTextNode] = []
+    current_group: list[HeaderTextNode] = []
+    current_token_count = 0
+    current_text = ""
+    current_metadata = {}
+    start_idx = 0
+    chunk_idx = 0
+    last_pos = 0
+
+    for node, token_count in zip(nodes, token_counts):
+        if current_token_count + token_count <= effective_max_tokens:
+            # Add node to current group
+            current_group.append(node)
+            current_token_count += token_count
+            current_text += (node.text + " ") if current_text else node.text
+            # Merge metadata, prioritizing non-empty values
+            for key, value in node.metadata.items():
+                if key not in current_metadata or not current_metadata[key]:
+                    current_metadata[key] = value
+            continue
+
+        # Create a merged node for the current group
+        if current_group:
+            end_idx = start_idx + len(current_text.strip())
+            merged_node = HeaderTextNode(
+                text=current_text.strip(),
+                metadata={
+                    **current_metadata,
+                    "start_idx": start_idx,
+                    "end_idx": end_idx,
+                    "chunk_index": chunk_idx,
+                }
+            )
+            merged_nodes.append(merged_node)
+            chunk_idx += 1
+
+            # Establish relationships
+            for child_node in current_group:
+                add_parent_child_relationship(
+                    parent_node=merged_node,
+                    child_node=child_node,
+                )
+            # Add sibling relationships among children
+            for i in range(len(current_group) - 1):
+                add_sibling_relationship(
+                    current_group[i], current_group[i + 1])
+
+        # Handle overlap: find overlap tokens
+        if chunk_overlap > 0:
+            overlap_text = ""
+            overlap_tokens = 0
+            for prev_node in reversed(current_group):
+                prev_tokens = encode_wrapper(prev_node.text)
+                if isinstance(prev_tokens[0], int):  # Single string case
+                    prev_tokens = [prev_tokens]
+                prev_token_count = len(prev_tokens[0])
+                if overlap_tokens + prev_token_count <= chunk_overlap:
+                    overlap_text = (prev_node.text + " ") + overlap_text
+                    overlap_tokens += prev_token_count
+                else:
+                    # Take a portion of the text to meet overlap token count
+                    remaining = chunk_overlap - overlap_tokens
+                    if remaining > 0:
+                        overlap_portion = decode_wrapper(
+                            prev_tokens[0][:remaining], skip_special_tokens=True
+                        )
+                        overlap_text = (overlap_portion + " ") + overlap_text
+                    break
+            current_text = overlap_text.strip()
+            current_token_count = overlap_tokens
+            # Retain overlapping nodes
+            current_group = current_group[-len(overlap_text.split())
+                                          if overlap_text else 0:]
+        else:
+            current_text = ""
+            current_token_count = 0
+            current_group = []
+
+        # Add the current node to the new group
+        current_group.append(node)
+        current_token_count += token_count
+        current_text += (node.text + " ") if current_text else node.text
+        current_metadata = node.metadata.copy()
+        start_idx = last_pos
+        last_pos = start_idx + len(node.text)
+
+    # Handle the last group
+    if current_group:
+        end_idx = start_idx + len(current_text.strip())
+        merged_node = HeaderTextNode(
+            text=current_text.strip(),
+            metadata={
+                **current_metadata,
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+                "chunk_index": chunk_idx,
+            }
+        )
+        merged_nodes.append(merged_node)
+
+        # Establish relationships
+        for child_node in current_group:
+            add_parent_child_relationship(
+                parent_node=merged_node,
+                child_node=child_node,
+            )
+        for i in range(len(current_group) - 1):
+            add_sibling_relationship(current_group[i], current_group[i + 1])
+
+    logging.debug(
+        f"Merged {len(nodes)} HeaderTextNodes into {len(merged_nodes)} chunks "
+        f"(chunk_size={chunk_size}, overlap={chunk_overlap}, buffer={buffer})."
+    )
+    return merged_nodes
 
 
 if __name__ == "__main__":

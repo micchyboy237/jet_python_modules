@@ -1,7 +1,7 @@
 from jet.llm.mlx.utils import get_model_max_tokens
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from typing import Callable, List, Dict, Optional, TypedDict, Union
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.llm.mlx.mlx_types import LLMModelType, ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.wordnet.sentence import split_sentences
 from mlx_lm import load
@@ -96,7 +96,7 @@ import transformers  # Assuming tokenizer is from transformers
 
 #     return len(tokens)
 
-def count_tokens(model: LLMModelType, messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
+def count_tokens(model: ModelType, messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
     # return count_tokens(self.tokenizer, messages)
     if not messages:
         return 0

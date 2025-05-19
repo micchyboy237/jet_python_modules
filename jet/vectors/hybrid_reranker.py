@@ -30,6 +30,7 @@ class FinalResult(TypedDict):
     distance: float
     raw_score: float
     normalized_score: float
+    similarity_score: float  # Add similarity score
     content: str
 
 
@@ -80,17 +81,6 @@ def rerank_candidates(cross_encoder: CrossEncoder, query: str, documents: List[s
 
 
 def calculate_scores(query: str, documents: List[str], search_results: SearchResults) -> ScoreResults:
-    """
-    Calculate distance, raw score, and normalized score for each document, sorted by raw score descending.
-
-    Args:
-        query: Search query
-        documents: List of document strings
-        search_results: SearchResults dictionary from search_documents
-
-    Returns:
-        ScoreResults dictionary containing indices, distances, raw scores, and normalized scores
-    """
     candidate_indices = search_results["candidate_indices"]
     candidate_distances = search_results["candidate_distances"]
     reranked_indices = search_results["reranked_indices"]
@@ -101,8 +91,11 @@ def calculate_scores(query: str, documents: List[str], search_results: SearchRes
     for idx, score in zip(reranked_indices, reranked_scores):
         raw_scores[np.where(candidate_indices == idx)[0]] = score
 
-    # Normalize scores using sigmoid function
+    # Normalize cross-encoder scores using sigmoid
     normalized_scores = 1 / (1 + np.exp(-raw_scores))
+
+    # Convert L2 distances to similarity scores (e.g., using inverse distance)
+    similarity_scores = 1 / (1 + candidate_distances)
 
     # Sort by raw_scores in descending order
     sort_indices = np.argsort(raw_scores)[::-1]
@@ -110,12 +103,14 @@ def calculate_scores(query: str, documents: List[str], search_results: SearchRes
     sorted_distances = candidate_distances[sort_indices]
     sorted_raw_scores = raw_scores[sort_indices]
     sorted_normalized_scores = normalized_scores[sort_indices]
+    sorted_similarity_scores = similarity_scores[sort_indices]
 
     return {
         "indices": sorted_indices,
         "distances": sorted_distances,
         "raw_scores": sorted_raw_scores,
-        "normalized_scores": sorted_normalized_scores
+        "normalized_scores": sorted_normalized_scores,
+        "similarity_scores": sorted_similarity_scores  # Add similarity scores
     }
 
 
@@ -154,18 +149,20 @@ def search_documents(
 
     # Build final results
     final_results: List[FinalResult] = []
-    for rank_idx, (idx, dist, raw_score, norm_score) in enumerate(zip(
+    for rank_idx, (idx, dist, raw_score, norm_score, sim_score) in enumerate(zip(
         score_results["indices"],
         score_results["distances"],
         score_results["raw_scores"],
-        score_results["normalized_scores"]
+        score_results["normalized_scores"],
+        score_results["similarity_scores"]  # Add similarity scores
     ), start=1):
         final_results.append({
             "rank": rank_idx,
-            "doc_idx": int(idx),  # Ensure integer type
-            "distance": float(dist),  # Ensure float type
-            "raw_score": float(raw_score),  # Ensure float type
-            "normalized_score": float(norm_score),  # Ensure float type
+            "doc_idx": int(idx),
+            "distance": float(dist),
+            "raw_score": float(raw_score),
+            "normalized_score": float(norm_score),
+            "similarity_score": float(sim_score),  # Include similarity score
             "content": documents[idx]
         })
 

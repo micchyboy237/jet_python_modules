@@ -3,15 +3,22 @@ from jet.llm.mlx.mlx_types import ModelType
 from jet.llm.mlx.models import resolve_model_value
 import numpy as np
 from sentence_transformers import SentenceTransformer
+import torch
 from transformers import PreTrainedTokenizer, BatchEncoding
 from jet.logger import logger
 
 # Standalone reusable functions
 
+# Check for MPS availability (for M1 optimization)
+device = torch.device(
+    "mps") if torch.backends.mps.is_available() else torch.device("cpu")
+logger.info(f"Using device: {device}")
+
 
 def load_model(model_name: ModelType):
     model_id = resolve_model_value(model_name)
     model = SentenceTransformer(model_id)
+    model = model.to(device)  # Move model to MPS or CPU
     return model
 
 
@@ -101,16 +108,43 @@ def tokenize_strings(
     return [tokenizer.convert_ids_to_tokens(seq) for seq in ids]
 
 
-def get_tokenizer_fn(
-    model_name: ModelType
-) -> Callable[[Union[str, List[str]]], Union[List[int], List[List[int]]]]:
-    """Returns a pre-configured tokenizer function with special tokens added."""
-    _model = load_model(model_name)
-    tokenizer = _model.tokenizer
+class Tokenizer:
+    """A callable tokenizer class with encode, decode, and access to underlying tokenizer methods."""
 
-    def token_fn(text: Union[str, List[str]]) -> Union[List[int], List[List[int]]]:
-        return tokenizer(text, add_special_tokens=True)['input_ids']
-    return token_fn
+    def __init__(self, model_name: ModelType):
+        self._model = load_model(model_name)
+        self.tokenizer = self._model.tokenizer
+
+    def encode(self, text: Union[str, List[str]], *args, **kwargs) -> Union[List[int], List[List[int]]]:
+        """Encodes text into token IDs with special tokens, passing additional args to tokenizer."""
+        # Ensure return_tensors=None to get list[int] or list[list[int]] instead of tensors
+        kwargs.setdefault('return_tensors', None)
+        return self.tokenizer(text, add_special_tokens=True, *args, **kwargs)['input_ids']
+
+    def decode(self, token_ids: Union[List[int], List[List[int]]], *args, **kwargs) -> Union[str, List[str]]:
+        """Decodes token IDs back to text, passing additional args to tokenizer."""
+        if isinstance(token_ids[0], list):
+            return self.tokenizer.batch_decode(token_ids, skip_special_tokens=True, *args, **kwargs)
+        return self.tokenizer.decode(token_ids, skip_special_tokens=True, *args, **kwargs)
+
+    def __call__(self, text: Union[str, List[str]], *args, **kwargs) -> Union[List[int], List[List[int]]]:
+        """Makes the class callable, alias for encode, passing additional args."""
+        return self.encode(text, *args, **kwargs)
+
+    def __getattr__(self, name: str):
+        """Delegates unknown attribute/method access to the underlying tokenizer."""
+        return getattr(self.tokenizer, name)
+
+
+def get_tokenizer_fn(model_name: ModelType) -> Tokenizer:
+    """Returns a pre-configured tokenizer class with encode, decode, and access to tokenizer methods."""
+    return Tokenizer(model_name)
+
+
+def get_tokenizer(model_name: ModelType) -> PreTrainedTokenizer:
+    """Returns the tokenizer object for the specified model."""
+    _model = load_model(model_name)
+    return _model.tokenizer
 
 
 class SentenceEmbedding:
@@ -133,7 +167,7 @@ class SentenceEmbedding:
         return get_token_counts(self.model_name, texts)
 
     def get_token_counts_alt(self, texts: Union[str, List[str]]) -> Union[int, List[int]]:
-        """Returns token counts using tokenizer directly."""
+        """Returns token counts using tokenizer REPLACED directly."""
         return get_token_counts_alt(self.model_name, texts)
 
     def tokenize(self, text: Union[str, List[str]]) -> Union[List[int], List[List[int]]]:
@@ -148,6 +182,10 @@ class SentenceEmbedding:
         """Returns a pre-configured tokenizer function."""
         return get_tokenizer_fn(model_name or self.model_name)
 
+    def get_tokenizer(self, model_name: Optional[str] = None) -> PreTrainedTokenizer:
+        """Returns the tokenizer object for the specified or instance model."""
+        return get_tokenizer(model_name or self.model_name)
+
 
 if __name__ == '__main__':
     # Initialize instance
@@ -159,6 +197,10 @@ if __name__ == '__main__':
         "Another sentence to encode and count tokens.",
         "Short text."
     ]
+
+    # Test get_tokenizer
+    tokenizer = util.get_tokenizer()
+    print(f"Tokenizer type: {type(tokenizer).__name__}")
 
     emb_single = util.generate_embeddings(text)
     emb_list = util.generate_embeddings(texts)
