@@ -162,7 +162,11 @@ class MLXLMClient:
         if tokenizer.chat_template:
             process_message_content(messages)
             prompt: List[int] = tokenizer.apply_chat_template(
-                messages, tools, add_generation_prompt=True
+                messages,
+                tools,
+                add_generation_prompt=True,
+                # Switches between thinking and non-thinking modes. Default is True.
+                enable_thinking=False,
             )
         else:
             prompt_str: str = convert_chat(messages, role_mapping)
@@ -262,7 +266,11 @@ class MLXLMClient:
         if tokenizer.chat_template:
             process_message_content(messages)
             prompt: List[int] = tokenizer.apply_chat_template(
-                messages, tools, add_generation_prompt=True
+                messages,
+                tools,
+                add_generation_prompt=True,
+                # Switches between thinking and non-thinking modes. Default is True.
+                enable_thinking=False,
             )
         else:
             prompt_str: str = convert_chat(messages, role_mapping)

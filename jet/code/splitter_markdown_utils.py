@@ -2,6 +2,7 @@ import re
 from typing import Callable, Optional, List, Dict, TypedDict, Union
 
 from jet.scrapers.preprocessor import html_to_markdown, is_html, scrape_markdown
+from jet.vectors.document_types import HeaderDocument
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 
 
@@ -245,6 +246,27 @@ def get_md_header_contents(
                 continue
 
     return md_header_contents
+
+
+def get_md_header_docs(
+    md_text: str,
+    headers_to_split_on: List[tuple[str, str]] = [],
+    ignore_links: bool = True
+) -> List[HeaderDocument]:
+    headers = get_md_header_contents(
+        md_text, headers_to_split_on, ignore_links)
+    header_docs = [
+        HeaderDocument(
+            doc_index=i,
+            header_level=header["header_level"],
+            parent_header=header["parent_header"],
+            header=header["header"],
+            content=header["content"],
+        )
+        for i, header in enumerate(headers)
+    ]
+
+    return header_docs
 
 
 def merge_md_header_contents(

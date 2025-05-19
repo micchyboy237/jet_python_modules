@@ -3,7 +3,7 @@ from jet.transformers.formatters import format_json
 from jet.utils.object import max_getattr
 from jet.logger import logger
 from transformers import AutoConfig
-from .mlx_types import LLMModelType, EmbedModelKey, EmbedModelType, EmbedModelValue, ModelKey, ModelValue, LLMModelType
+from .mlx_types import LLMModelType, EmbedModelKey, EmbedModelType, EmbedModelValue, ModelKey, ModelType, ModelValue, LLMModelType
 
 AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
     "dolphin3.0-llama3.1-8b-4bit": "mlx-community/Dolphin3.0-Llama3.1-8B-4bit",
@@ -40,7 +40,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "all-minilm-l6-v2-4bit": "mlx-community/all-MiniLM-L6-v2-4bit",
 }
 
-ALL_MODELS: Dict[Union[LLMModelType, EmbedModelType], Union[ModelValue, EmbedModelValue]] = {
+ALL_MODELS: Dict[ModelType, Union[ModelValue, EmbedModelValue]] = {
     **AVAILABLE_MODELS,
     **AVAILABLE_EMBED_MODELS,
 }
@@ -106,7 +106,7 @@ MODEL_EMBEDDING_TOKENS: Dict[LLMModelType, int] = {
 }
 
 
-def resolve_model_key(model: Union[LLMModelType, EmbedModelType]) -> Union[ModelKey, EmbedModelKey]:
+def resolve_model_key(model: ModelType) -> Union[ModelKey, EmbedModelKey]:
     """
     Retrieves the model key (short name) for a given model key or path.
 
@@ -130,7 +130,7 @@ def resolve_model_key(model: Union[LLMModelType, EmbedModelType]) -> Union[Model
     )
 
 
-def resolve_model_value(model: Union[LLMModelType, EmbedModelType]) -> Union[ModelValue, EmbedModelValue]:
+def resolve_model_value(model: ModelType) -> Union[ModelValue, EmbedModelValue]:
     """
     Retrieves the model value (full path) for a given model key or path.
 
@@ -194,7 +194,7 @@ def get_model_info() -> ModelInfoDict:
     return model_info
 
 
-def resolve_model(model_name: Union[LLMModelType, EmbedModelType]) -> Union[LLMModelType, EmbedModelType]:
+def resolve_model(model_name: ModelType) -> ModelType:
     """
     Resolves a model name or path against available models.
 
@@ -218,7 +218,7 @@ def resolve_model(model_name: Union[LLMModelType, EmbedModelType]) -> Union[LLMM
         )
 
 
-def get_embedding_size(model: Union[LLMModelType, EmbedModelType]) -> int:
+def get_embedding_size(model: ModelType) -> int:
     """
     Returns the embedding size (hidden dimension) for the given model key or full model path.
 

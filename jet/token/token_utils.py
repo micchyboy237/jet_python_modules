@@ -1,4 +1,6 @@
 from typing import Callable, Literal, Optional, TypedDict, Union
+from jet.llm.embeddings.sentence_embedding import get_tokenizer_fn
+from jet.llm.mlx.models import get_embedding_size
 from jet.logger import logger
 from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
 from jet.vectors.document_types import HeaderDocument, HeaderTextNode
@@ -17,6 +19,7 @@ from jet.llm.models import (
     OLLAMA_MODEL_EMBEDDING_TOKENS,
     OLLAMA_MODEL_NAMES,
 )
+from jet.llm.mlx.mlx_types import ModelType
 
 
 def get_ollama_models():
@@ -539,8 +542,8 @@ def split_docs(
 
 def split_headers(
     docs: HeaderDocument | list[HeaderDocument],
-    model: Optional[str | OLLAMA_MODEL_NAMES] = None,
-    chunk_size: int = 128,
+    model: Optional[str | ModelType] = None,
+    chunk_size: Optional[int] = None,
     chunk_overlap: int = 0,
     *,
     tokenizer: Optional[Callable[[Union[str, list[str]]],
@@ -564,9 +567,7 @@ def split_headers(
         if tokenizer:
             tokenizer_fn = tokenizer
         elif model:
-            def _tokenizer(input):
-                return tokenize(model, input)
-            tokenizer_fn = _tokenizer
+            tokenizer_fn = get_tokenizer_fn(model)
         else:
             tokenizer_fn = get_words
 
@@ -576,7 +577,7 @@ def split_headers(
 
     if not chunk_size:
         if model:
-            chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+            chunk_size = get_embedding_size(model)
         else:
             average_tokens = sum(token_counts) / \
                 len(token_counts) if token_counts else 0

@@ -78,6 +78,7 @@ class HeaderDocument(Document):
     header_level: int = Field(default=0)
     header: str = Field(default="")
     parent_header: Optional[str] = Field(default=None)
+    content: str = Field(default="")
 
     def __init__(self, **data: Any):
         super().__init__(**data)
@@ -87,7 +88,14 @@ class HeaderDocument(Document):
             'header_level': self.header_level,
             'header': self.header,
             'parent_header': self.parent_header,
+            'content': self.content,
         })
+
+    def __getitem__(self, key: str) -> Any:
+        """Allow direct dictionary-like access to instance attributes or metadata."""
+        if hasattr(self, key):
+            return getattr(self, key)
+        return self.metadata[key]
 
     def get_recursive_text(self) -> str:
         """
@@ -108,7 +116,12 @@ class HeaderTextNode(TextNode):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-    @override
+    def __getitem__(self, key: str) -> Any:
+        """Allow direct dictionary-like access to instance attributes or metadata."""
+        if hasattr(self, key):
+            return getattr(self, key)
+        return self.metadata[key]
+
     def get_content(self, metadata_mode: MetadataMode = MetadataMode.NONE) -> str:
         """Get object content."""
         metadata_str = self.get_metadata_str(mode=metadata_mode).strip()
@@ -120,10 +133,12 @@ class HeaderTextNode(TextNode):
             content = "\n".join(self.text.splitlines()[1:])
 
         return self.text_template.format(
-            parent_header=self.metadata["parent_header"] or "", header=self.metadata["header"], content=content, metadata_str=metadata_str
+            parent_header=self.metadata["parent_header"] or "",
+            header=self.metadata["header"],
+            content=content,
+            metadata_str=metadata_str
         ).strip()
 
-    @override
     def get_metadata_str(self, mode: MetadataMode = MetadataMode.ALL):
         usable_metadata_keys = [
             "doc_index",
