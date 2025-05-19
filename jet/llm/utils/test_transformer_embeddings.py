@@ -7,6 +7,7 @@ from jet.llm.utils.transformer_embeddings import (
     search_docs,
     calculate_dynamic_batch_size,
     chunk_texts,
+    SimilarityResult,
 )
 import psutil
 import os
@@ -17,7 +18,7 @@ class BaseEmbeddingTest(unittest.TestCase):
     """Base class for shared test utilities and setup."""
 
     def setUp(self):
-        self.small_model_key: EmbedModelType = "all-minilm:22m"
+        self.small_model_key: EmbedModelType = "all-minilm:22m"  # Fixed syntax
         self.large_model_key: EmbedModelType = "mixedbread-ai/mxbai-embed-large-v1"
         self.sample_text = "Hello world!"
         self.sample_texts = ["The sky is blue.", "The grass is green."]
@@ -182,7 +183,7 @@ class TestEmbeddingGeneration(BaseEmbeddingTest):
 
 
 class TestEmbeddingFunction(BaseEmbeddingTest):
-    """Tests for get_embedding_function."""
+    """Tests for get embedding_function."""
 
     def test_embedding_function(self):
         embed_func = get_embedding_function(self.small_model_key)
@@ -206,12 +207,29 @@ class TestDocumentSearch(BaseEmbeddingTest):
         results = search_docs(query, documents, self.small_model_key, top_k=2)
         self.assertIsInstance(results, list)
         self.assertEqual(len(results), 2)
-        self.assertIsInstance(results[0], tuple)
-        self.assertEqual(len(results[0]), 2)
-        self.assertIsInstance(results[0][0], str)
-        self.assertIsInstance(results[0][1], float)
-        self.assertGreaterEqual(results[0][1], results[1][1])
-        self.assertIn("blue", results[0][0].lower())
+        self.assertIsInstance(results[0], dict)
+        # Check all required fields in SimilarityResult
+        expected_fields = {"id", "rank",
+                           "doc_index", "score", "text", "tokens"}
+        self.assertEqual(set(results[0].keys()), expected_fields)
+        self.assertIsInstance(results[0]["id"], str)
+        self.assertIsInstance(results[0]["rank"], int)
+        self.assertIsInstance(results[0]["doc_index"], int)
+        self.assertIsInstance(results[0]["score"], float)
+        self.assertIsInstance(results[0]["text"], str)
+        self.assertIsInstance(results[0]["tokens"], int)
+        # Check rank ordering and score
+        self.assertEqual(results[0]["rank"], 1)
+        self.assertEqual(results[1]["rank"], 2)
+        self.assertGreaterEqual(results[0]["score"], results[1]["score"])
+        # Check that the top result contains "blue"
+        self.assertIn("blue", results[0]["text"].lower())
+        # Check doc_index is valid
+        self.assertIn(results[0]["doc_index"], range(len(documents)))
+        # Check text matches original document
+        self.assertIn(results[0]["text"], documents)
+        # Check tokens is reasonable (non-zero)
+        self.assertGreater(results[0]["tokens"], 0)
 
     def test_search_docs_empty_input(self):
         self.assertEqual(search_docs("", [], self.small_model_key), [])
@@ -222,8 +240,14 @@ class TestDocumentSearch(BaseEmbeddingTest):
         documents = ["doc1", "doc2", "doc3"]
         results = search_docs("test", documents, self.small_model_key, top_k=2)
         self.assertEqual(len(results), 2)
+        self.assertIsInstance(results[0], dict)
+        self.assertEqual(set(results[0].keys()), {
+                         "id", "rank", "doc_index", "score", "text", "tokens"})
         results = search_docs("test", documents, self.small_model_key, top_k=5)
         self.assertEqual(len(results), 3)
+        self.assertIsInstance(results[0], dict)
+        self.assertEqual(set(results[0].keys()), {
+                         "id", "rank", "doc_index", "score", "text", "tokens"})
 
 
 if __name__ == "__main__":

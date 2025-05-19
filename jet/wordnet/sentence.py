@@ -273,6 +273,20 @@ def split_sentences(text: str, num_sentence: int = 1) -> list[str]:
     return combined_results
 
 
+def get_unique_sentences(text: str) -> list[str]:
+    """
+    Get unique sentences from text using split_sentences.
+
+    Args:
+        text (str): Input text to process
+
+    Returns:
+        list[str]: List of unique sentences
+    """
+    sentences = split_sentences(text)
+    return list(dict.fromkeys(sentences))
+
+
 def merge_sentences(sentences: list[str], max_tokens: int) -> list[str]:
     merged_sentences: list[str] = []
     current_group: list[str] = []

@@ -9,6 +9,8 @@ from jet.llm.mlx.mlx_types import ModelKey, LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.utils import get_model_max_tokens
 from jet.llm.mlx.token_utils import count_tokens, get_tokenizer_fn, merge_texts
+from jet.logger import logger
+from jet.transformers.formatters import format_json
 import psycopg
 from psycopg.rows import dict_row
 # Assuming MLXLMClient is in a separate module
@@ -304,7 +306,8 @@ class MLX:
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
         system_prompt: Optional[str] = None,
-        log_dir: Optional[str] = None
+        log_dir: Optional[str] = None,
+        verbose: bool = False
     ) -> Iterator[Union[CompletionResponse, List[CompletionResponse]]]:
         """Stream chat completions with history management."""
         # Prepare messages with history
@@ -336,6 +339,11 @@ class MLX:
             # Set remaining tokens as max tokens
             max_tokens = self.get_remaining_tokens(all_messages)
 
+        if verbose:
+            logger.newline()
+            logger.info("Messages:")
+            logger.debug(format_json(all_messages))
+
         # Stream responses
         assistant_content = ""
         for response in self.client.stream_chat(
@@ -357,6 +365,9 @@ class MLX:
             tools=tools,
             log_dir=log_dir,
         ):
+            if verbose:
+                content = response["choices"][0]["message"]["content"]
+                logger.success(content, flush=True)
             if response.get("choices"):
                 content = response["choices"][0].get(
                     "message", {}).get("content", "")
@@ -423,9 +434,14 @@ class MLX:
         logit_bias: Optional[Dict[int, float]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
-        log_dir: Optional[str] = None
+        log_dir: Optional[str] = None,
+        verbose: bool = False
     ) -> Iterator[CompletionResponse]:
         """Stream text completions (no history)."""
+        if verbose:
+            logger.newline()
+            logger.info("Prompt:")
+            logger.debug(prompt)
         for response in self.client.stream_generate(
             prompt=prompt,
             model=model,
@@ -443,6 +459,9 @@ class MLX:
             stop=stop,
             log_dir=log_dir,
         ):
+            if verbose:
+                content = response["choices"][0]["text"]
+                logger.success(content, flush=True)
             yield response
 
     def clear_history(self):

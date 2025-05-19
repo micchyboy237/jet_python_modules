@@ -2,7 +2,7 @@ import atexit
 from jet.llm.mlx.mlx_types import EmbedModelType
 from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS, get_embedding_size, resolve_model_key
 import numpy as np
-from typing import List, Optional, Union, Callable, Tuple
+from typing import List, Optional, TypedDict, Union, Callable, Tuple
 from functools import lru_cache
 import logging
 from tqdm import tqdm
@@ -14,6 +14,26 @@ import tempfile
 import pickle
 from transformers import AutoTokenizer, AutoModel
 import torch.utils.checkpoint as checkpoint
+
+
+class SimilarityResult(TypedDict):
+    """
+    Represents a single similarity result for a text.
+
+    Fields:
+        id: Identifier for the text.
+        rank: Rank based on score (1 for highest).
+        doc_index: Original index of the text in the input list.
+        score: Normalized similarity score.
+        text: The compared text (or chunk if long).
+        tokens: Number of encoded tokens from text.
+    """
+    id: str
+    rank: int
+    doc_index: int
+    score: float
+    text: str
+    tokens: int
 
 
 def calculate_dynamic_batch_size(embedding_dim: int, device: str, available_memory: float, model_key: str) -> int:
@@ -53,7 +73,7 @@ def generate_embeddings(
     _model: Optional[AutoModel] = None,
     _tokenizer: Optional[AutoTokenizer] = None,
     use_tqdm: Optional[bool] = None,
-    max_tokens: int = 128,
+    max_tokens: Optional[int] = None,
     aggregate: bool = True
 ) -> Union[List[float], List[List[float]]]:
     """Generate embeddings with optimized memory usage for MPS and large models."""
@@ -75,6 +95,9 @@ def generate_embeddings(
     is_single_text = isinstance(texts, str)
     if is_single_text:
         texts = [texts]
+
+    if not max_tokens:
+        max_tokens = get_embedding_size(embed_model)
 
     # Chunk texts and get document indices
     chunked_texts, doc_indices = chunk_texts(texts, max_tokens=max_tokens)
@@ -176,7 +199,7 @@ def get_embedding_function(
     model_name: str,
     batch_size: Optional[int] = None,
     normalize: bool = True,
-    max_tokens: int = 128
+    max_tokens: Optional[int] = None
 ) -> Callable[[Union[str, List[str]]], Union[List[float], List[List[float]]]]:
     """Load a Hugging Face model and tokenizer and return a callable that generates embeddings."""
     logger.info(f"Loading model: {model_name}")
@@ -216,13 +239,15 @@ def search_docs(
     batch_size: Optional[int] = None,
     normalize: bool = True,
     max_tokens: Optional[int] = None
-) -> List[Tuple[str, float]]:
-    """Search documents with memory-efficient embedding generation."""
+) -> List[SimilarityResult]:
+    """Search documents with memory-efficient embedding generation and return SimilarityResult."""
     if not query or not documents:
         return []
 
-    if not max_tokens:
-        max_tokens = get_embedding_size(model)
+    # Initialize tokenizer for token counting
+    embed_model = resolve_model_key(model)
+    model_id = AVAILABLE_EMBED_MODELS[embed_model]
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     query_embedding = generate_embeddings(
         model, query, batch_size, normalize, max_tokens=max_tokens)
@@ -252,12 +277,25 @@ def search_docs(
 
     top_indices = np.argsort(similarities)[::-1][:top_k]
 
-    valid_indices = [idx for idx in top_indices if idx < len(documents)]
+    # Convert indices to Python int to avoid NumPy integer types
+    valid_indices = [int(idx) for idx in top_indices if idx < len(documents)]
     if not valid_indices:
         return []
 
-    results = [(documents[idx], float(similarities[idx]))
-               for idx in valid_indices]
+    results = []
+    for rank, idx in enumerate(valid_indices, start=1):
+        doc_text = documents[idx]
+        # Count tokens for the document
+        tokens = len(tokenizer.encode(doc_text, add_special_tokens=True))
+        result = SimilarityResult(
+            id=f"doc_{idx}",
+            rank=rank,
+            doc_index=int(idx),  # Ensure Python int
+            score=float(similarities[idx]),
+            text=doc_text,
+            tokens=tokens
+        )
+        results.append(result)
 
     del query_embedding, doc_embeddings, similarities
     torch.mps.empty_cache()

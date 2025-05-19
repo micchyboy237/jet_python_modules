@@ -63,8 +63,8 @@ class TextStats(TypedDict):
     reading_time: float
     text_standard: float
     text_standard_description: str
-    mltd: float
-    mltd_category: ScoresCategoryType
+    mtld: float
+    mtld_category: ScoresCategoryType
     overall_difficulty: float
     overall_difficulty_category: OverallDifficultyCategoryType
 
@@ -85,8 +85,8 @@ class ReadabilityScores(TypedDict):
 class ReadabilityResult(TypedDict):
     scores: ReadabilityScores
     categories: Dict[str, str]
-    mltd: float
-    mltd_category: ScoresCategoryType
+    mtld: float
+    mtld_category: ScoresCategoryType
     overall_difficulty: float
     overall_difficulty_category: OverallDifficultyCategoryType
     overall_difficulty_description: str
@@ -312,13 +312,13 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
         'automated_readability_index': ts.automated_readability_index(text)
     }
 
-    # Compute mltd scores
-    mltd_scores: MLTDScores = {
+    # Compute mtld scores
+    mtld_scores: MLTDScores = {
         "text_without_punctuation": ts.remove_punctuation(text),
         "lexicon_count": ts.lexicon_count(text, removepunct=True),
     }
-    mltd = calculate_mtld(mltd_scores)
-    mltd_category = calculate_mtld_category(mltd)
+    mtld = calculate_mtld(mtld_scores)
+    mtld_category = calculate_mtld_category(mtld)
 
     overall_difficulty = calculate_overall_difficulty(scores, thresholds)
     overall_difficulty_category = calculate_overall_difficulty_category(
@@ -337,11 +337,11 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
 
         # Text Processing
         # Removes all punctuation from the text
-        "text_without_punctuation": mltd_scores["text_without_punctuation"],
+        "text_without_punctuation": mtld_scores["text_without_punctuation"],
 
         # Word and Sentence Counts
         # Counts total words, optionally removing punctuation
-        "lexicon_count": mltd_scores["lexicon_count"],
+        "lexicon_count": mtld_scores["lexicon_count"],
         # Counts words with 3 or fewer characters
         "miniword_count": ts.miniword_count(text, max_size=miniword_max_size),
         # Counts total sentences in the text
@@ -454,8 +454,8 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
         "text_standard_description": str(ts.text_standard(text, float_output=False)),
 
         # Diversity Metrics
-        "mltd": mltd,
-        "mltd_category": mltd_category,
+        "mtld": mtld,
+        "mtld_category": mtld_category,
 
         # Overall Difficulty
         # Now float
@@ -515,20 +515,20 @@ def analyze_readability(text: str) -> ReadabilityResult:
         weight = weights.get(metric, 0)
         weighted_scores[category_label] += weight
 
-    mltd_scores: MLTDScores = {
+    mtld_scores: MLTDScores = {
         "text_without_punctuation": ts.remove_punctuation(text),
         "lexicon_count": ts.lexicon_count(text, removepunct=True),
     }
-    mltd = calculate_mtld(mltd_scores)
-    mltd_category = calculate_mtld_category(mltd)
+    mtld = calculate_mtld(mtld_scores)
+    mtld_category = calculate_mtld_category(mtld)
 
     overall_difficulty = calculate_overall_difficulty(scores, thresholds)
     overall_difficulty_category = calculate_overall_difficulty_category(
         overall_difficulty)
 
     return {
-        "mltd": mltd,
-        "mltd_category": mltd_category,
+        "mtld": mtld,
+        "mtld_category": mtld_category,
         # Overall Difficulty
         'overall_difficulty': overall_difficulty,
         'overall_difficulty_category': overall_difficulty_category,
