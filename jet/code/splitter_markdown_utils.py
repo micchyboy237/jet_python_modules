@@ -188,7 +188,8 @@ def get_md_header_contents(
 
     # Check if input is HTML and convert to Markdown if necessary
     if is_html(md_text):
-        md_text = html_to_markdown(md_text, ignore_links=ignore_links)
+        md_text = html_to_markdown(md_text, ignore_links=ignore_links, remove_selectors=[
+                                   "style", "script", "nav", "footer"])
 
     # Default headers if none provided
     headers_to_split_on = headers_to_split_on or [

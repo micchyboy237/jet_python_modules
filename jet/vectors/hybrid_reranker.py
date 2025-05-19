@@ -26,7 +26,7 @@ class ScoreResults(TypedDict):
 
 def load_models() -> Models:
     """Load sentence transformer and cross-encoder models."""
-    embedder = SentenceTransformer('all-MiniLM-L6-v2')
+    embedder = SentenceTransformer('all-MiniLM-L12-v2')
     cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
     return {"embedder": embedder, "cross_encoder": cross_encoder}
 
