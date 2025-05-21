@@ -73,8 +73,7 @@ def get_device() -> str:
 
 def preprocess_texts(
     headers: List[Header],
-    exclude_keywords: List[str] = ["menu", "sign in",
-                                   "trending", "close", "cast", "see all"],
+    exclude_keywords: List[str] = [],
     min_header_words: int = 5,
     min_header_level: int = 2,
     parent_keyword: Optional[str] = None,
@@ -376,8 +375,7 @@ def search_diverse_context(
     lambda_param: float = 0.5,
     batch_size: int = 16,
     num_threads: int = 4,
-    exclude_keywords: List[str] = ["menu", "sign in",
-                                   "trending", "close", "cast", "see all"],
+    exclude_keywords: List[str] = [],
     min_header_words: int = 5,
     min_header_level: int = 2,
     parent_keyword: Optional[str] = None,
