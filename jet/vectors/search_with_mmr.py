@@ -429,6 +429,11 @@ def search_diverse_context(
         logger.info(f"Applying MMR diversity to select {num_results} results")
         diverse_results = mmr_diversity(
             reranked, num_results, lambda_param, parent_diversity_weight, header_diversity_weight, device)
+
+        # Sort results by score in descending order
+        diverse_results = sorted(
+            diverse_results, key=lambda x: x["score"], reverse=True)
+
         logger.info(
             f"Search completed in {time.time() - start_time:.2f} seconds, returning {len(diverse_results)} results")
         return diverse_results
