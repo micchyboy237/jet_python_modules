@@ -2,6 +2,7 @@ import nltk
 from typing import List, Set, TypedDict
 from nltk.tokenize import word_tokenize
 from nltk.corpus import wordnet
+from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 
 try:
@@ -16,6 +17,10 @@ try:
     nltk.data.find('corpora/wordnet')
 except LookupError:
     nltk.download('wordnet', quiet=True)
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords', quiet=True)
 
 ALLOWED_POS: Set[str] = {
     'NN', 'NNS', 'NNP', 'NNPS',
@@ -35,7 +40,7 @@ class PosTag(TypedDict):
 
 
 class SearchResult(TypedDict):
-    document_index: int
+    doc_index: int
     matching_words_count: int
     matching_words_with_pos_and_lemma: List[PosTag]
     text: str
@@ -56,6 +61,7 @@ def get_wordnet_pos(nltk_pos: str) -> str:
 
 def get_pos_tag(sentence: str) -> List[PosTag]:
     lemmatizer = WordNetLemmatizer()
+    stop_words = set(stopwords.words('english'))
     # Tokenize the sentence and keep track of character indices
     tokens: List[str] = word_tokenize(sentence.lower())
     pos_tags: List[tuple[str, str]] = nltk.pos_tag(tokens)
@@ -71,7 +77,7 @@ def get_pos_tag(sentence: str) -> List[PosTag]:
         if start_idx == -1:
             continue  # Skip if word not found (rare, but for robustness)
         end_idx = start_idx + len(word)
-        if pos in ALLOWED_POS:
+        if pos in ALLOWED_POS and word not in stop_words:
             tagged_words.append({
                 'word': word,
                 'pos': pos,
@@ -97,16 +103,16 @@ def search_by_pos(query: str, documents: List[str]) -> List[SearchResult]:
             pos_tag for pos_tag in doc_pos if pos_tag['lemma'] in matches
         ]
         results.append({
-            'document_index': idx,
+            'doc_index': idx,
             'matching_words_count': match_count,
             'matching_words_with_pos_and_lemma': matching_words_with_pos,
             'text': doc
         })
         print(f"Document {idx}: Matches = {matches}, Count = {match_count}")
     results.sort(
-        key=lambda x: (-x['matching_words_count'], -x['document_index'])
+        key=lambda x: (-x['matching_words_count'], -x['doc_index'])
     )
-    print("Sorted results:", [(r['document_index'],
+    print("Sorted results:", [(r['doc_index'],
           r['matching_words_count']) for r in results])
     return results
 
@@ -121,7 +127,7 @@ if __name__ == "__main__":
     query: str = "The quick foxes run dangerously"
     results: List[SearchResult] = search_by_pos(query, docs)
     for result in results:
-        print(f"Document {result['document_index']}:")
+        print(f"Document {result['doc_index']}:")
         print(f"  Text: {result['text']}")
         print(
             f"  Matching words (word, POS, lemma, start_idx, end_idx): "
