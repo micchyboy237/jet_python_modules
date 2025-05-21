@@ -30,13 +30,15 @@ class PosTag(TypedDict):
     word: str
     pos: str
     lemma: str
+    start_idx: int
+    end_idx: int
 
 
 class SearchResult(TypedDict):
     document_index: int
     matching_words_count: int
     matching_words_with_pos_and_lemma: List[PosTag]
-    text: str  # Added text attribute to store the original document text
+    text: str
 
 
 def get_wordnet_pos(nltk_pos: str) -> str:
@@ -54,13 +56,32 @@ def get_wordnet_pos(nltk_pos: str) -> str:
 
 def get_pos_tag(sentence: str) -> List[PosTag]:
     lemmatizer = WordNetLemmatizer()
+    # Tokenize the sentence and keep track of character indices
     tokens: List[str] = word_tokenize(sentence.lower())
     pos_tags: List[tuple[str, str]] = nltk.pos_tag(tokens)
-    return [
-        {'word': word, 'pos': pos, 'lemma': lemmatizer.lemmatize(
-            word, get_wordnet_pos(pos))}
-        for word, pos in pos_tags if pos in ALLOWED_POS
-    ]
+
+    # Calculate character indices
+    tagged_words: List[PosTag] = []
+    current_idx = 0
+    sentence_lower = sentence.lower()
+
+    for word, pos in pos_tags:
+        # Find the word in the original sentence starting from current_idx
+        start_idx = sentence_lower.find(word, current_idx)
+        if start_idx == -1:
+            continue  # Skip if word not found (rare, but for robustness)
+        end_idx = start_idx + len(word)
+        if pos in ALLOWED_POS:
+            tagged_words.append({
+                'word': word,
+                'pos': pos,
+                'lemma': lemmatizer.lemmatize(word, get_wordnet_pos(pos)),
+                'start_idx': start_idx,
+                'end_idx': end_idx
+            })
+        current_idx = end_idx
+
+    return tagged_words
 
 
 def search_by_pos(query: str, documents: List[str]) -> List[SearchResult]:
@@ -79,7 +100,7 @@ def search_by_pos(query: str, documents: List[str]) -> List[SearchResult]:
             'document_index': idx,
             'matching_words_count': match_count,
             'matching_words_with_pos_and_lemma': matching_words_with_pos,
-            'text': doc  # Store the original document text
+            'text': doc
         })
         print(f"Document {idx}: Matches = {matches}, Count = {match_count}")
     results.sort(
@@ -103,5 +124,7 @@ if __name__ == "__main__":
         print(f"Document {result['document_index']}:")
         print(f"  Text: {result['text']}")
         print(
-            f"  Matching words (word, POS, lemma): {[(pos_tag['word'], pos_tag['pos'], pos_tag['lemma']) for pos_tag in result['matching_words_with_pos_and_lemma']]}")
+            f"  Matching words (word, POS, lemma, start_idx, end_idx): "
+            f"{[(pos_tag['word'], pos_tag['pos'], pos_tag['lemma'], pos_tag['start_idx'], pos_tag['end_idx']) for pos_tag in result['matching_words_with_pos_and_lemma']]}"
+        )
         print(f"  Match count: {result['matching_words_count']}\n")
