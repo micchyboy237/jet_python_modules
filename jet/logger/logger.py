@@ -4,7 +4,7 @@ import traceback
 import unidecode
 from datetime import datetime
 
-from typing import List, Callable, Optional, Any
+from typing import List, Callable, Optional, Any, Union
 from jet.logger.config import COLORS, RESET, colorize_log
 from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
@@ -14,65 +14,64 @@ from jet.utils.class_utils import is_class_instance
 
 
 def clean_ansi(text: str) -> str:
-    """
-    Remove ANSI escape sequences from a string.
-
-    Args:
-        text (str): The string potentially containing ANSI codes.
-
-    Returns:
-        str: A clean string without ANSI codes.
-    """
     import re
     ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
     return ansi_escape.sub('', text)
 
 
 class CustomLogger:
-    def __init__(self, log_file: Optional[str] = None, name: str = "default", overwrite: bool = False):
+    def __init__(
+        self,
+        log_file: Optional[str] = None,
+        name: str = "default",
+        overwrite: bool = False,
+        console_level: str = "DEBUG",
+        file_level: str = "DEBUG",
+        formatter: Optional[logging.Formatter] = None,
+    ):
         self.log_file = log_file
         self.overwrite = overwrite
+        self.console_level = console_level
+        self.file_level = file_level
+        self.formatter = formatter or logging.Formatter("%(message)s")
         self.logger = self._initialize_logger(name)
-        self._last_message_flushed = False  # Track if the last message was flushed
+        self._last_message_flushed = False
 
     def _initialize_logger(self, name: str) -> logging.Logger:
         logger = logging.getLogger(name)
         logger.setLevel(logging.DEBUG)
+        logger.handlers.clear()
 
-        # Console handler
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG)
-        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        console_handler.setLevel(self.console_level)
+        console_handler.setFormatter(self.formatter)
         logger.addHandler(console_handler)
 
-        # File handler
         if self.log_file:
             if self.overwrite and os.path.exists(self.log_file):
                 os.remove(self.log_file)
             file_handler = logging.FileHandler(self.log_file)
-            file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(logging.Formatter("%(message)s"))
+            file_handler.setLevel(self.file_level)
+            file_handler.setFormatter(self.formatter)
             logger.addHandler(file_handler)
 
         return logger
 
     def addHandler(self, handler: logging.Handler) -> None:
-        """
-        Add a handler to the logger.
-
-        Args:
-            handler (logging.Handler): The handler to add.
-        """
         self.logger.addHandler(handler)
 
     def removeHandler(self, handler: logging.Handler) -> None:
-        """
-        Remove a handler from the logger.
-
-        Args:
-            handler (logging.Handler): The handler to remove.
-        """
         self.logger.removeHandler(handler)
+
+    def set_level(self, level: str) -> None:
+        for handler in self.logger.handlers:
+            handler.setLevel(level.upper())
+
+    def set_format(self, fmt: Union[str, logging.Formatter]) -> None:
+        formatter = fmt if isinstance(
+            fmt, logging.Formatter) else logging.Formatter(fmt)
+        for handler in self.logger.handlers:
+            handler.setFormatter(formatter)
 
     def custom_logger_method(self, level: str) -> Callable[[str, Optional[bool]], None]:
         def wrapper(
@@ -83,7 +82,7 @@ class CustomLogger:
             colors: list[str] = None,
             exc_info: bool = True,
         ) -> None:
-            messages = list(messages)  # Convert tuple to list
+            messages = list(messages)
 
             actual_level = f"BRIGHT_{level}" if bright else level
 
@@ -101,7 +100,6 @@ class CustomLogger:
                     if isinstance(parsed_message, (dict, list)):
                         messages[0] = format_json(parsed_message)
 
-            # Decode unicode characters if any
             messages = [
                 fix_and_unidecode(message)
                 if isinstance(message, str) else message
@@ -116,14 +114,11 @@ class CustomLogger:
             if level.lower() == "error" and exc_info:
                 print(colorize_log("Trace exception:", "gray"))
                 print(colorize_log(traceback.format_exc(), level))
-                # Log filtered stack trace
-                # log_filtered_stack_trace(exc)
 
             if not end:
                 end = "" if flush else "\n"
             print(output, end=end)
 
-            # File handler logic
             if self.log_file:
                 end = "" if flush else "\n\n"
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -131,68 +126,53 @@ class CustomLogger:
                 message = " ".join(str(m) for m in messages)
 
                 with open(self.log_file, "a") as file:
-                    # Write metadata only if:
-                    # - This is not a flush message, or
-                    # - The last message was not flushed
                     if not flush and self._last_message_flushed:
                         file.write("\n\n")
                     if not flush or (flush and not self._last_message_flushed):
                         file.write(metadata + "\n")
                     file.write(clean_ansi(message) + end)
 
-                # Update flush state
                 self._last_message_flushed = flush
 
         return wrapper
 
     def newline(self) -> None:
-        """Prints a newline character."""
         print("\n", end="")
         if self.log_file:
             with open(self.log_file, "a") as file:
                 file.write("\n")
-        self._last_message_flushed = False  # Reset flush state on newline
+        self._last_message_flushed = False
 
     def pretty(self, prompt, level=0):
-        MAX_STRING_LENGTH = 100  # Maximum allowed string length
+        MAX_STRING_LENGTH = 100
 
         def _inner(prompt, level):
-            """
-            Recursively builds a formatted log string from a nested dictionary or list with readable colors using ANSI escape codes.
-
-            :param prompt: Dictionary or list to process.
-            :param level: Indentation level for nested structures.
-            :return: Formatted string for the log.
-            """
             prompt_log = ""
-            indent = " " * level  # Indentation for nested structures
+            indent = " " * level
             marker_list = ["-", "+"]
             marker = marker_list[level % 2]
             line_prefix = indent if level == 0 else f"{indent}{marker} "
 
-            # ANSI color codes
             KEY_COLOR = COLORS["DEBUG"]
             VALUE_COLOR = COLORS["SUCCESS"]
             LIST_ITEM_COLOR = COLORS["SUCCESS"]
 
             def truncate_string(s):
-                """Truncates strings exceeding MAX_STRING_LENGTH."""
                 return s if len(s) <= MAX_STRING_LENGTH else s[:MAX_STRING_LENGTH] + "..."
 
-            if isinstance(prompt, dict):  # Use color for dictionary keys
+            if isinstance(prompt, dict):
                 for key, value in prompt.items():
                     prompt_log += f"{line_prefix}{KEY_COLOR}{key}{RESET}: "
                     if isinstance(value, (dict, list)):
                         prompt_log += f"\n{_inner(value, level + 1)}"
-                    else:  # Primitive value
-                        # Convert to str before truncating
+                    else:
                         truncated_value = truncate_string(str(value))
                         prompt_log += f"{VALUE_COLOR}{truncated_value}{RESET}\n"
-            elif isinstance(prompt, list):  # Use color for list items
+            elif isinstance(prompt, list):
                 for item in prompt:
-                    if isinstance(item, (dict, list)):  # If nested structure
+                    if isinstance(item, (dict, list)):
                         prompt_log += f"\n{_inner(item, level + 1)}"
-                    else:  # Primitive value
+                    else:
                         truncated_item = truncate_string(str(item))
                         prompt_log += f"{line_prefix}{LIST_ITEM_COLOR}{truncated_item}{RESET}\n"
 
@@ -208,7 +188,7 @@ class CustomLogger:
             with open(self.log_file, "a") as file:
                 file.write(metadata + "\n")
                 file.write(format_json(prompt) + "\n")
-        self._last_message_flushed = False  # Reset flush state after pretty
+        self._last_message_flushed = False
 
     def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
         if name.upper() in COLORS:
@@ -222,71 +202,22 @@ def logger_examples(logger: CustomLogger):
     logger.newline()
     logger.log("This is a default log message.")
     logger.info("This is an info message.")
-    logger.info("This is a bright info message.", bright=True)
-    logger.debug("This is a debug message.")
-    logger.debug("This is a bright debug message.", bright=True)
     logger.warning("This is a warning message.")
-    logger.warning("This is a bright warning message.", bright=True)
     logger.error("This is an error message.")
-    logger.error("This is a bright error message.", bright=True)
-    logger.critical("This is an critical message.")
-    logger.critical("This is a bright critical message.", bright=True)
     logger.success("This is a success message.")
-    logger.success("This is a bright success message.", bright=True)
-    logger.orange("This is a orange message.")
-    logger.orange("This is a bright orange message.", bright=True)
-    logger.teal("This is a teal message.")
-    logger.teal("This is a bright teal message.", bright=True)
-    logger.cyan("This is a cyan message.")
-    logger.cyan("This is a bright cyan message.", bright=True)
-    logger.purple("This is a purple message.")
-    logger.purple("This is a bright purple message.", bright=True)
-    logger.lime("This is a lime message.")
-    logger.lime("This is a bright lime message.", bright=True)
-    logger.log("Unicode message:", "Playwright Team \u2551 \u255a",
-               colors=["WHITE", "DEBUG"])
-    logger.newline()
-    logger.log("Flush word 1.", flush=True)
-    logger.log("Flush word 2.", flush=True)
-    logger.log("Word 1", flush=False)
-    logger.log("Word 2", flush=False)
-    logger.newline()
-    logger.log("multi-color default", "Message 2",
-               "Message 3", "Message 4", "Message 5")
-    logger.log("2 multi-color with colors",
-               "Message 2", colors=["DEBUG", "SUCCESS"])
-    logger.log("2 multi-color with bright", "Message 2",
-               colors=["GRAY", "BRIGHT_DEBUG"])
-    logger.log("3 multi-color", "Message 2", "Message 3",
-               colors=["WHITE", "BRIGHT_DEBUG", "BRIGHT_SUCCESS"])
-    logger.log("3 multi-color with repeat", "Message 2", "Message 3",
-               colors=["INFO", "DEBUG"])
-    logger.newline()
-    logger.info({
-        "user": "Alice",
-        "attributes": {
-            "age": 30,
-            "preferences": ["running", "cycling", {"nested": "value"}],
-            "contact": {
-                "email": "alice@example.com",
-                "phone": "123-456-7890"
-            }
-        },
-        "status": "active"
-    })
-    logger.newline()
+    logger.info({"key": "value", "nested": {"foo": "bar"}})
     logger.pretty({
         "user": "Alice",
         "attributes": {
             "age": 30,
             "preferences": ["running", "cycling", {"nested": "value"}],
-            "contact": {
-                "email": "alice@example.com",
-                "phone": "123-456-7890"
-            }
-        },
-        "status": "active"
+        }
     })
+    logger.set_level("WARNING")
+    logger.info("This will not be shown")
+    logger.warning("This will be shown")
+    logger.set_format("[%(asctime)s] [%(levelname)s] %(message)s")
+    logger.error("Formatted error log")
     logger.newline()
     logger.log("====== END LOGGER METHODS ======\n")
 

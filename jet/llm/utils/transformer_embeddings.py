@@ -10,10 +10,9 @@ from jet.logger import logger
 import torch
 import os
 import gc
-import tempfile
-import pickle
 from transformers import AutoTokenizer, AutoModel
 import torch.utils.checkpoint as checkpoint
+from torch.utils.data import DataLoader, Dataset
 
 
 class SimilarityResult(TypedDict):
@@ -34,17 +33,6 @@ class SimilarityResult(TypedDict):
     score: float
     text: str
     tokens: int
-
-
-def calculate_dynamic_batch_size(embedding_dim: int, device: str, available_memory: float, model_key: str) -> int:
-    """Calculate dynamic batch size based on embedding dimension, device, and model."""
-    target_memory = available_memory * \
-        0.6 if device in ["cuda", "mps"] else available_memory * 0.3
-    bytes_per_embedding = embedding_dim * 2  # FP16 uses 2 bytes per element
-    if "mxbai-embed-large" in model_key:
-        target_memory *= 0.5
-    batch_size = int(target_memory / (bytes_per_embedding * 1.5))
-    return max(1, min(16 if "mxbai-embed-large" in model_key else 64, batch_size))
 
 
 def chunk_texts(texts: Union[str, List[str]], max_tokens: int = 128) -> Tuple[List[str], List[int]]:
@@ -103,96 +91,73 @@ def generate_embeddings(
     chunked_texts, doc_indices = chunk_texts(texts, max_tokens=max_tokens)
     num_original_texts = len(texts)
 
-    if batch_size is not None and batch_size <= 0:
+    if batch_size is None:
+        batch_size = 64  # Default batch size, suitable for Mac M1 MPS
+    if batch_size <= 0:
         raise ValueError("Batch size must be positive")
 
-    batch_size = 64  # TODO: Update to calculate dynamically
+    # Use DataLoader for batching
+    class TextDataset(Dataset):
+        def __init__(self, texts):
+            self.texts = texts
 
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pkl")
-    temp_file_path = temp_file.name
-    temp_file.close()
+        def __len__(self):
+            return len(self.texts)
 
-    try:
-        if use_tqdm is None:
-            use_tqdm = len(chunked_texts) > 2
-        iterator = tqdm(range(0, len(chunked_texts), batch_size), desc="Generating embeddings",
-                        leave=True) if use_tqdm else range(0, len(chunked_texts), batch_size)
+        def __getitem__(self, idx):
+            return self.texts[idx]
 
-        log_file = os.path.join(tempfile.gettempdir(), "mps_memory.log")
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(logging.DEBUG)
-        logger.addHandler(file_handler)
+    dataset = TextDataset(chunked_texts)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
-        with torch.autocast(device_type=device, dtype=torch.float16):
-            for i in iterator:
-                batch = chunked_texts[i:i + batch_size]
-                inputs = tokenizer(batch, padding=True, truncation=True,
-                                   max_length=max_tokens, return_tensors="pt").to(device)
+    if use_tqdm is None:
+        use_tqdm = len(chunked_texts) > 2
 
-                with torch.no_grad():
-                    def forward_pass(inputs):
-                        return model(**inputs)
-                    outputs = checkpoint.checkpoint(
-                        forward_pass, inputs, use_reentrant=False)
+    all_embeddings = []
+    logger.debug(
+        f"Processing {len(chunked_texts)} texts with batch_size={batch_size} on {device}")
 
+    with torch.autocast(device_type=device, dtype=torch.float16):
+        for batch in tqdm(dataloader, desc="Generating embeddings", leave=True) if use_tqdm else dataloader:
+            inputs = tokenizer(batch, padding=True, truncation=True,
+                               max_length=max_tokens, return_tensors="pt").to(device)
+
+            with torch.no_grad():
+                outputs = model(**inputs)
                 embeddings = outputs.last_hidden_state.mean(dim=1)
                 if normalize:
                     embeddings = torch.nn.functional.normalize(
                         embeddings, p=2, dim=1)
 
-                embeddings = embeddings.detach().cpu()
+            all_embeddings.append(embeddings.cpu())
+            del inputs, outputs, embeddings
+            torch.mps.empty_cache()  # Clear MPS memory after each batch
+            gc.collect()
 
-                with open(temp_file_path, "ab") as f:
-                    pickle.dump(embeddings, f)
+    all_embeddings = torch.cat(all_embeddings, dim=0)
 
-                del inputs, outputs, embeddings
-                torch.mps.empty_cache()
-                gc.collect()
-            logger.debug(
-                f"MPS memory allocated: {torch.mps.current_allocated_memory() / 1024**3:.2f} GB")
+    if aggregate:
+        aggregated_embeddings = []
+        for doc_idx in range(num_original_texts):
+            chunk_mask = [i for i, idx in enumerate(
+                doc_indices) if idx == doc_idx]
+            if chunk_mask:
+                chunk_embeddings = all_embeddings[chunk_mask]
+                doc_embedding = torch.mean(chunk_embeddings, dim=0)
+                aggregated_embeddings.append(doc_embedding)
+            else:
+                logger.warning(
+                    f"No chunks for document {doc_idx}, using zero embedding")
+                aggregated_embeddings.append(torch.zeros(embedding_dim))
+        all_embeddings = torch.stack(aggregated_embeddings)
+        result = all_embeddings.tolist()
+    else:
+        result = (all_embeddings.tolist(), doc_indices)
 
-        logger.removeHandler(file_handler)
-        file_handler.close()
-
-        all_embeddings = []
-        with open(temp_file_path, "rb") as f:
-            while True:
-                try:
-                    embeddings = pickle.load(f)
-                    all_embeddings.append(embeddings)
-                except EOFError:
-                    break
-
-        all_embeddings = torch.cat(all_embeddings, dim=0)
-
-        if aggregate:
-            aggregated_embeddings = []
-            for doc_idx in range(num_original_texts):
-                chunk_mask = [i for i, idx in enumerate(
-                    doc_indices) if idx == doc_idx]
-                if chunk_mask:
-                    chunk_embeddings = all_embeddings[chunk_mask]
-                    doc_embedding = torch.mean(chunk_embeddings, dim=0)
-                    aggregated_embeddings.append(doc_embedding)
-                else:
-                    logger.warning(
-                        f"No chunks for document {doc_idx}, using zero embedding")
-                    aggregated_embeddings.append(torch.zeros(embedding_dim))
-            all_embeddings = torch.stack(aggregated_embeddings)
-            result = all_embeddings.tolist()
-        else:
-            result = (all_embeddings.tolist(), doc_indices)
-
-        del chunked_texts, doc_indices
-        gc.collect()
-        torch.mps.empty_cache()
-        return result[0] if is_single_text and aggregate else result
-
-    finally:
-        try:
-            os.unlink(temp_file_path)
-        except OSError:
-            pass
+    del chunked_texts, doc_indices
+    torch.mps.empty_cache()
+    gc.collect()
+    return result[0] if is_single_text and aggregate else result
 
 
 def get_embedding_function(
