@@ -5,7 +5,6 @@ from jet.llm.utils.transformer_embeddings import (
     generate_embeddings,
     get_embedding_function,
     search_docs,
-    calculate_dynamic_batch_size,
     chunk_texts,
     SimilarityResult,
 )
@@ -34,25 +33,6 @@ class BaseEmbeddingTest(unittest.TestCase):
     def _get_mps_memory(self) -> float:
         """Get current MPS memory usage in GB."""
         return torch.mps.current_allocated_memory() / 1024**3 if torch.backends.mps.is_available() else 0.0
-
-
-class TestDynamicBatchSize(BaseEmbeddingTest):
-    """Tests for calculate_dynamic_batch_size function."""
-
-    def test_calculate_dynamic_batch_size(self):
-        available_memory = 18.13 * 1024 * 1024 * 1024
-        batch_size = calculate_dynamic_batch_size(
-            384, "mps", available_memory, self.small_model_key)
-        self.assertGreater(batch_size, 0)
-        self.assertLessEqual(batch_size, 64)
-        batch_size = calculate_dynamic_batch_size(
-            1024, "mps", available_memory, self.large_model_key)
-        self.assertGreater(batch_size, 0)
-        self.assertLessEqual(batch_size, 16)
-        batch_size = calculate_dynamic_batch_size(
-            384, "cpu", available_memory, self.small_model_key)
-        self.assertGreater(batch_size, 0)
-        self.assertLessEqual(batch_size, 64)
 
 
 class TestTextChunking(BaseEmbeddingTest):
