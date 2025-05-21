@@ -75,14 +75,14 @@ def preprocess_texts(
     headers: List[Header],
     exclude_keywords: List[str] = ["menu", "sign in",
                                    "trending", "close", "cast", "see all"],
-    min_words: int = 5,  # Reduced from 10
+    min_header_words: int = 5,
     min_header_level: int = 2,
     parent_keyword: Optional[str] = None,
-    min_content_words: int = 3  # Reduced from 5
+    min_content_words: int = 5
 ) -> List[PreprocessedText]:
     start_time = time.time()
     logger.info(
-        f"Preprocessing {len(headers)} headers with min_words={min_words}, min_header_level={min_header_level}, min_content_words={min_content_words}, parent_keyword={parent_keyword}")
+        f"Preprocessing {len(headers)} headers with min_header_words={min_header_words}, min_header_level={min_header_level}, min_content_words={min_content_words}, parent_keyword={parent_keyword}")
     results = []
     keyword_excluded = 0
     short_header_excluded = 0
@@ -96,7 +96,7 @@ def preprocess_texts(
            any(keyword in header["content"].lower() for keyword in exclude_keywords):
             keyword_excluded += 1
             continue
-        if len(header["header"].split()) < min_words:
+        if len(header["header"].split()) < min_header_words:
             short_header_excluded += 1
             continue
         if len(content_words) < min_content_words:
@@ -378,12 +378,12 @@ def search_diverse_context(
     num_threads: int = 4,
     exclude_keywords: List[str] = ["menu", "sign in",
                                    "trending", "close", "cast", "see all"],
-    min_words: int = 5,
+    min_header_words: int = 5,
     min_header_level: int = 2,
     parent_keyword: Optional[str] = None,
     parent_diversity_weight: float = 0.4,
     header_diversity_weight: float = 0.3,
-    min_content_words: int = 3
+    min_content_words: int = 5
 ) -> List[SimilarityResult]:
     start_time = time.time()
     logger.info(
@@ -405,7 +405,7 @@ def search_diverse_context(
 
     try:
         logger.info("Preprocessing texts")
-        texts = preprocess_texts(headers, exclude_keywords, min_words,
+        texts = preprocess_texts(headers, exclude_keywords, min_header_words,
                                  min_header_level, parent_keyword, min_content_words)
         if not texts:
             logger.warning(

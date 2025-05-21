@@ -21,6 +21,8 @@ AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
 }
 
 AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
+    # HF
+    "all-mpnet-base-v2": "all-mpnet-base-v2",
     # Ollama
     "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
     "mxbai-embed-large": "mixedbread-ai/mxbai-embed-large-v1",

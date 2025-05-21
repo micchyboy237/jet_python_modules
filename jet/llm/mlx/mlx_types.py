@@ -146,6 +146,8 @@ class EmbedModelTypeEnum(Enum):
 
 # Embed model key types
 EmbedModelKey = Literal[
+    # HF
+    "all-mpnet-base-v2",
     # Ollama
     "nomic-embed-text",
     "mxbai-embed-large",
@@ -167,6 +169,8 @@ EmbedModelKey = Literal[
 
 # Embed model value types
 EmbedModelValue = Literal[
+    # HF
+    "all-mpnet-base-v2",
     # OLLAMA
     "nomic-ai/nomic-embed-text-v1.5",
     "mixedbread-ai/mxbai-embed-large-v1",
