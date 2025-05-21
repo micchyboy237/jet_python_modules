@@ -1,3 +1,4 @@
+from datetime import datetime
 from jet.wordnet.sentence import split_sentences
 from lxml.etree import Comment
 from typing import Callable, Optional, List, Dict, TypedDict, Union
@@ -83,6 +84,55 @@ class TitleMetadata(TypedDict):
     metadata: Dict[str, str]
 
 
+def scrape_title(html: str) -> Optional[str]:
+    """
+    Scrape the title from an HTML string.
+
+    Args:
+        html: The HTML content to scrape.
+
+    Returns:
+        The page title as a string, or None if not found.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    title_tag = soup.find('title')
+    return title_tag.get_text().strip() if title_tag else None
+
+
+def scrape_metadata(html: str) -> Dict[str, str]:
+    """
+    Scrape metadata from an HTML string.
+
+    Args:
+        html: The HTML content to scrape.
+
+    Returns:
+        A dictionary of metadata key-value pairs.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    metadata: Dict[str, str] = {}
+    meta_tags = soup.find_all('meta')
+
+    for meta in meta_tags:
+        # Handle name or property attributes
+        name = meta.get('name') or meta.get('property')
+        content = meta.get('content')
+        if name and content:
+            metadata[name] = content
+
+        # Handle http-equiv meta tags
+        http_equiv = meta.get('http-equiv')
+        if http_equiv and content:
+            metadata[f'http-equiv:{http_equiv}'] = content
+
+        # Handle charset meta tags
+        charset = meta.get('charset')
+        if charset:
+            metadata['charset'] = charset
+
+    return metadata
+
+
 def scrape_title_and_metadata(html: str) -> TitleMetadata:
     """
     Scrape the title and metadata from an HTML string.
@@ -93,40 +143,69 @@ def scrape_title_and_metadata(html: str) -> TitleMetadata:
     Returns:
         A TitleMetadata dictionary containing the page title and metadata key-value pairs.
     """
-    # Parse HTML with BeautifulSoup
-    soup = BeautifulSoup(html, 'html.parser')
-
-    # Initialize result
-    result: TitleMetadata = {
-        'title': None,
-        'metadata': {}
+    return {
+        'title': scrape_title(html),
+        'metadata': scrape_metadata(html)
     }
 
-    # Extract title
-    title_tag = soup.find('title')
-    if title_tag:
-        result['title'] = title_tag.get_text().strip()
 
-    # Extract metadata from meta tags
+def scrape_published_date(html: str) -> str:
+    """
+    Scrape the published date from an HTML string and attempt to return it in ISO 8601 format.
+
+    Args:
+        html: The HTML content to scrape.
+
+    Returns:
+        The published date in ISO 8601 format (e.g., '2023-10-15T00:00:00Z'), or an empty string if not found or unparsable.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
     meta_tags = soup.find_all('meta')
+
+    date_keys = [
+        'article:published_time',  # Open Graph
+        'og:published_time',      # Open Graph alternative
+        'dc.date',                # Dublin Core
+        'dc.date.issued',         # Dublin Core
+        'datePublished',          # Schema.org
+        'pubdate',                # HTML5
+        'publication_date',       # Generic
+        'date'                    # Generic
+    ]
+
+    # Common date formats to try
+    date_formats = [
+        '%Y-%m-%dT%H:%M:%S%z',  # 2023-10-15T12:00:00Z or 2023-10-15T12:00:00+0000
+        '%Y-%m-%d %H:%M:%S',   # 2023-10-15 12:00:00
+        '%Y-%m-%d',            # 2023-10-15
+        '%Y/%m/%d',            # 2023/10/15
+    ]
+
     for meta in meta_tags:
-        # Look for meta tags with name and content attributes
         name = meta.get('name') or meta.get('property')
         content = meta.get('content')
-        if name and content:
-            result['metadata'][name] = content
+        if name in date_keys and content:
+            content = content.strip()
+            for date_format in date_formats:
+                try:
+                    parsed_date = datetime.strptime(content, date_format)
+                    return parsed_date.isoformat() + 'Z'  # Ensure UTC 'Z' suffix
+                except ValueError:
+                    continue
 
-        # Handle Open Graph and other meta tags with http-equiv
-        http_equiv = meta.get('http-equiv')
-        if http_equiv and content:
-            result['metadata'][f'http-equiv:{http_equiv}'] = content
+    # Check <time> tags
+    time_tag = soup.find('time', pubdate=True) or soup.find(
+        'time', datetime=True)
+    if time_tag and time_tag.get('datetime'):
+        content = time_tag.get('datetime').strip()
+        for date_format in date_formats:
+            try:
+                parsed_date = datetime.strptime(content, date_format)
+                return parsed_date.isoformat() + 'Z'  # Ensure UTC 'Z' suffix
+            except ValueError:
+                continue
 
-        # Handle charset meta tags
-        charset = meta.get('charset')
-        if charset:
-            result['metadata']['charset'] = charset
-
-    return result
+    return ""
 
 
 def get_max_prompt_char_length(context_length: int, avg_chars_per_token: float = 4.0) -> int:

@@ -74,21 +74,15 @@ class Document(BaseDocument):
 
 
 class HeaderDocument(Document):
-    doc_index: int = Field(default=0)
-    header_level: int = Field(default=0)
-    header: str = Field(default="")
-    parent_header: Optional[str] = Field(default=None)
-    content: str = Field(default="")
-
     def __init__(self, **data: Any):
-        super().__init__(**data)
+        super().__init__(text=data["text"])
         self.metadata_separator = "\n"
         self.metadata.update({
-            'doc_index': self.doc_index,
-            'header_level': self.header_level,
-            'header': self.header,
-            'parent_header': self.parent_header,
-            'content': self.content,
+            'doc_index': data["doc_index"],
+            'header_level': data["header_level"],
+            'header': data["header"],
+            'parent_header': data["parent_header"],
+            'content': data["content"],
         })
 
     def __getitem__(self, key: str) -> Any:
@@ -103,8 +97,8 @@ class HeaderDocument(Document):
         """
         texts = [self.text, "\n"]
 
-        if self.parent_header:
-            texts.insert(0, self.parent_header)
+        if self.metadata["parent_header"]:
+            texts.insert(0, self.metadata["parent_header"])
 
         return "\n".join(filter(None, texts))
 

@@ -21,13 +21,13 @@ async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent) ->
     if cached_content:
         return cached_content['content']
 
-    logger.warning(f"Cache miss for {url}")
+    # logger.warning(f"Cache miss for {url}")
 
     try:
         headers = {'User-Agent': ua.random}
         async with session.get(url, headers=headers) as response:
             if response.status == 200:
-                logger.success(f"Scraped {url}")
+                # logger.success(f"Scraped {url}")
                 html_content = await response.text()
                 cache.set(cache_key, {'content': html_content}, ttl=3600)
                 return html_content
