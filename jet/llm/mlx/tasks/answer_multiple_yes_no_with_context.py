@@ -114,18 +114,68 @@ def format_chat_messages(system_prompt: str, question: str) -> List[ChatMessage]
     ]
 
 
+def compute_confidence_scores(
+    model,
+    input_ids: mx.array,
+    choice_token_map: Dict[str, List[int]]
+) -> Dict[str, float]:
+    """Computes normalized confidence scores from model logits for each choice."""
+    try:
+        if len(input_ids.shape) == 1:
+            input_ids = input_ids[None, :]
+        logger.debug(f"Input IDs shape: {input_ids.shape}")
+        model_output = model(input_ids)
+        logger.debug(f"Model output shape: {model_output.shape}")
+        if len(model_output.shape) != 3:
+            raise ValueError(
+                f"Unexpected model output shape: {model_output.shape}")
+        logits = model_output[0, -1]
+        # Log raw logits for Yes and No tokens
+        raw_logits = {}
+        for choice, tokens in choice_token_map.items():
+            if tokens:
+                token_logits = [float(logits[token_id]) for token_id in tokens]
+                raw_logits[choice] = sum(
+                    token_logits) / len(token_logits) if token_logits else 0.0
+                logger.debug(
+                    f"Choice: {choice}, Token IDs: {tokens}, Raw Logit: {raw_logits[choice]}")
+        probs = mx.softmax(logits, axis=-1)
+        logger.debug(
+            f"Softmax probabilities (min, max): {float(probs.min()), float(probs.max())}")
+        raw_confidence_scores = {}
+        for choice, tokens in choice_token_map.items():
+            if tokens:
+                token_probs = [float(probs[token_id]) for token_id in tokens]
+                raw_confidence_scores[choice] = sum(
+                    token_probs) / len(token_probs) if token_probs else 0.0
+                logger.debug(
+                    f"Choice: {choice}, Token IDs: {tokens}, Raw Prob: {raw_confidence_scores[choice]}")
+        total_prob = sum(raw_confidence_scores.values())
+        if total_prob == 0:
+            logger.warning("Total probability is zero, returning raw scores")
+            return raw_confidence_scores
+        normalized_confidence_scores = {
+            choice: prob / total_prob for choice, prob in raw_confidence_scores.items()
+        }
+        return normalized_confidence_scores
+    except Exception as e:
+        logger.error(f"Error computing confidence scores: {str(e)}")
+        return {}
+
+
 def setup_generation_parameters(
     tokenizer: TokenizerWrapper,
     temperature: float,
     top_p: float
 ) -> tuple:
-    """Sets up logit bias, logits processors, sampler, and stop tokens for generation."""
+    """Sets up logit bias, logits processors, sampler, stop tokens, and choice token map for generation."""
     yes_tokens = tokenizer.encode("Yes", add_special_tokens=False)
     no_tokens = tokenizer.encode("No", add_special_tokens=False)
     yes_token = yes_tokens[0] if yes_tokens else None
     no_token = no_tokens[0] if no_tokens else None
     if yes_token is None or no_token is None:
         raise TokenEncodingError("Failed to encode 'Yes' or 'No' tokens.")
+    choice_token_map = {"Yes": yes_tokens, "No": no_tokens}
     logger.log("Token for 'Yes':", yes_tokens[0], colors=["GRAY", "ORANGE"])
     logger.log("Token for 'No':", no_tokens[0], colors=["GRAY", "ORANGE"])
     logit_bias = {
@@ -136,7 +186,7 @@ def setup_generation_parameters(
     logits_processors = make_logits_processors(logit_bias=logit_bias)
     sampler = make_sampler(temp=temperature, top_p=top_p)
     stop_tokens = tokenizer.encode("\n") + list(tokenizer.eos_token_ids)
-    return logits_processors, sampler, stop_tokens, yes_token, no_token
+    return logits_processors, sampler, stop_tokens, yes_token, no_token, choice_token_map
 
 
 def generate_answer_step(
@@ -184,7 +234,6 @@ def answer_multiple_yes_no_with_context(
     top_p: float = 0.1
 ) -> AnswerResult:
     """Answers a yes/no question for multiple contexts, returning a list of answers."""
-    # Allow specific exceptions to propagate for test purposes
     validate_method(method)
     validate_inputs(question, contexts)
     if max_tokens == 0 or max_tokens < -1:
@@ -201,9 +250,21 @@ def answer_multiple_yes_no_with_context(
             formatted_prompt = model_components.tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True
             )
-            logits_processors, sampler, stop_tokens, _, _ = setup_generation_parameters(
+            logits_processors, sampler, stop_tokens, yes_token, no_token, choice_token_map = setup_generation_parameters(
                 model_components.tokenizer, temperature, top_p
             )
+            # Compute confidence scores
+            input_ids = mx.array(model_components.tokenizer.encode(
+                formatted_prompt, add_special_tokens=False))
+            confidence_scores = compute_confidence_scores(
+                model_components.model, input_ids, choice_token_map
+            )
+            if confidence_scores:
+                logger.log(
+                    f"Confidence scores for context '{context}':",
+                    {k: round(v, 4) for k, v in confidence_scores.items()},
+                    colors=["GRAY", "CYAN"]
+                )
             answer, token_id = generate_answer_step(
                 model_components, formatted_prompt, max_tokens,
                 logits_processors, sampler, stop_tokens
