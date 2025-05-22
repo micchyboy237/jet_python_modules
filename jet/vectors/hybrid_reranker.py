@@ -10,7 +10,7 @@ class Models(TypedDict):
     cross_encoder: CrossEncoder
 
 
-class SearchResults(TypedDict):
+class RawSearchResults(TypedDict):
     reranked_indices: np.ndarray
     reranked_scores: np.ndarray
     candidate_indices: np.ndarray
@@ -24,14 +24,14 @@ class ScoreResults(TypedDict):
     normalized_scores: np.ndarray
 
 
-class FinalResult(TypedDict):
+class SearchResult(TypedDict):
     rank: int
     doc_idx: int
     distance: float
     raw_score: float
     normalized_score: float
     similarity_score: float  # Add similarity score
-    content: str
+    text: str
 
 
 def load_embed_model() -> SentenceTransformer:
@@ -80,7 +80,7 @@ def rerank_candidates(cross_encoder: CrossEncoder, query: str, documents: List[s
     return candidate_indices[sorted_indices], scores[sorted_indices]
 
 
-def calculate_scores(query: str, documents: List[str], search_results: SearchResults) -> ScoreResults:
+def calculate_scores(query: str, documents: List[str], search_results: RawSearchResults) -> ScoreResults:
     candidate_indices = search_results["candidate_indices"]
     candidate_distances = search_results["candidate_distances"]
     reranked_indices = search_results["reranked_indices"]
@@ -120,7 +120,7 @@ def search_documents(
     embed_model: Optional[SentenceTransformer] = None,
     rerank_model: Optional[CrossEncoder] = None,
     k: Optional[int] = 10
-) -> List[FinalResult]:
+) -> List[SearchResult]:
     if not embed_model:
         embed_model = load_embed_model()
     if not rerank_model:
@@ -138,7 +138,7 @@ def search_documents(
         rerank_model, query, documents, candidate_indices)
 
     # Compute scores
-    search_results: SearchResults = {
+    search_results: RawSearchResults = {
         "reranked_indices": reranked_indices,
         "reranked_scores": reranked_scores,
         "candidate_indices": candidate_indices,
@@ -148,7 +148,7 @@ def search_documents(
         query, documents, search_results)
 
     # Build final results
-    final_results: List[FinalResult] = []
+    final_results: List[SearchResult] = []
     for rank_idx, (idx, dist, raw_score, norm_score, sim_score) in enumerate(zip(
         score_results["indices"],
         score_results["distances"],
@@ -163,7 +163,7 @@ def search_documents(
             "raw_score": float(raw_score),
             "normalized_score": float(norm_score),
             "similarity_score": float(sim_score),  # Include similarity score
-            "content": documents[idx]
+            "text": documents[idx]
         })
 
     return final_results

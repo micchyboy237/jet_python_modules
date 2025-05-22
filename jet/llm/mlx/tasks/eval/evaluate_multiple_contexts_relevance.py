@@ -30,11 +30,15 @@ class ChatMessage(TypedDict):
 
 
 class ContextRelevanceResult(TypedDict):
-    query: str
-    context: str
     relevance_score: int
     is_valid: bool
     error: Optional[str]
+    context: str
+
+
+class ContextRelevanceResults(TypedDict):
+    query: str
+    results: List[ContextRelevanceResult]
 
 
 class ModelComponents:
@@ -113,7 +117,7 @@ def evaluate_multiple_contexts_relevance(
     max_tokens: int = 1,
     temperature: float = 0.1,
     system_prompt: Optional[str] = None
-) -> List[ContextRelevanceResult]:
+) -> ContextRelevanceResults:
     """Evaluates the relevance of multiple contexts for a single query."""
     try:
         validate_inputs(query, contexts)
@@ -184,9 +188,9 @@ def evaluate_multiple_contexts_relevance(
                     f"\n{prob_dict}",
                     colors=["GRAY", "CYAN"]
                 )
+                logger.success(f"Result: {max(list(prob_dict.values()))}")
 
                 results.append(ContextRelevanceResult(
-                    query=query,
                     context=context,
                     relevance_score=int(answer),
                     is_valid=True,
@@ -196,13 +200,15 @@ def evaluate_multiple_contexts_relevance(
                 logger.error(
                     f"Error processing context '{context[:100]}': {str(e)}")
                 results.append(ContextRelevanceResult(
-                    query=query,
                     context=context,
                     relevance_score=0,
                     is_valid=False,
                     error=str(e)
                 ))
-        return results
+        return {
+            "query": query,
+            "results": results
+        }
     except (ModelLoadError, InvalidInputError) as e:
         raise
     except Exception as e:
