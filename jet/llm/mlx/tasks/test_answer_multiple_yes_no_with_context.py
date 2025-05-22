@@ -154,3 +154,23 @@ def test_planet_moons_question():
         question_contexts, MODEL_PATH)
     answers = [result["answer"] for result in results]
     assert answers == ["No", "Yes", "Yes", "Yes"]
+
+
+def test_custom_system_prompt():
+    custom_prompt = (
+        "Respond with Yes or No only based on facts.\n"
+        "Example:\n"
+        "Context: The moon orbits Earth.\n"
+        "Question: Does the moon orbit Earth?\n"
+        "Answer: Yes"
+    )
+    questions_contexts = [
+        QuestionContext(
+            question="Does the moon orbit Earth?",
+            context="The moon orbits Earth."
+        )
+    ]
+    results = answer_multiple_yes_no_with_context(
+        questions_contexts, MODEL_PATH, system_prompt=custom_prompt
+    )
+    assert results[0]["answer"] == "Yes"

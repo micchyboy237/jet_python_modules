@@ -128,11 +128,15 @@ def create_system_prompt() -> str:
     )
 
 
-def format_chat_messages(question: str, context: str) -> List[ChatMessage]:
+def format_chat_messages(
+    question: str,
+    context: str,
+    system_prompt: Optional[str] = None
+) -> List[ChatMessage]:
     """Formats the system and user messages for the chat template."""
     user_content = f"Context: {context}\nQuestion: {question}\nAnswer:"
     return [
-        {"role": "system", "content": create_system_prompt()},
+        {"role": "system", "content": system_prompt or create_system_prompt()},
         {"role": "user", "content": user_content}
     ]
 
@@ -180,7 +184,8 @@ def answer_multiple_yes_no_with_context(
     method: str = "generate_step",
     max_tokens: int = 1,
     temperature: float = 0.1,
-    top_p: float = 0.1
+    top_p: float = 0.1,
+    system_prompt: Optional[str] = None
 ) -> List[AnswerResult]:
     """Answers multiple yes/no questions with context using the specified model."""
     validate_method(method)
@@ -224,7 +229,8 @@ def answer_multiple_yes_no_with_context(
             context = qc["context"]
             try:
                 # Format prompt
-                messages = format_chat_messages(question, context)
+                messages = format_chat_messages(
+                    question, context, system_prompt)
                 formatted_prompt = model_components.tokenizer.apply_chat_template(
                     messages, tokenize=False, add_generation_prompt=True
                 )
