@@ -6,7 +6,7 @@ from jet.logger import logger
 
 
 def get_system_date_prompt():
-    return f"Today's date is {datetime.now().strftime('%Y-%m-%d')}"
+    return f"Today's date is {datetime.now().strftime('%B %d, %Y')}"
 
 
 def rewrite_query(original_query: str, model: LLMModelType = "qwen3-1.7b-4bit") -> str:

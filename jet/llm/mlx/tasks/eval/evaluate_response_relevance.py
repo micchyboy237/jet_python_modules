@@ -1,3 +1,4 @@
+import json
 from typing import List, Dict, Optional, TypedDict
 from jet.llm.mlx.mlx_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
@@ -132,8 +133,8 @@ def evaluate_response_relevance(
             prob_dict = {choice: round(prob, 4)
                          for choice, prob in zip(valid_outputs, probs)}
             logger.log(
-                f"Probabilities for query '{query}', context '{context}', response '{response}':",
-                prob_dict,
+                f"Probabilities for:\nQuery: '{json.dumps(query)[:100]}'\nContext: '{json.dumps(context)[:100]}'\nResponse: '{json.dumps(response)[:100]}'",
+                f"\n{prob_dict}",
                 colors=["GRAY", "CYAN"]
             )
             answer = model_components.tokenizer.decode([token]).strip()
