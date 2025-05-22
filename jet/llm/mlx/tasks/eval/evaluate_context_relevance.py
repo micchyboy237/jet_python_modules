@@ -90,7 +90,6 @@ def evaluate_context_relevance(
     model_path: LLMModelType,
     max_tokens: int = 1,
     temperature: float = 0.1,
-    top_p: float = 0.9
 ) -> RelevanceResult:
     """Evaluates if the retrieved context is relevant to the query."""
     try:

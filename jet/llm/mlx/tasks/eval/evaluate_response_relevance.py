@@ -89,7 +89,6 @@ def evaluate_response_relevance(
     model_path: LLMModelType,
     max_tokens: int = 1,
     temperature: float = 0.1,
-    top_p: float = 0.9
 ) -> RelevanceResult:
     """Evaluates if the response is relevant to the query and context."""
     try:
