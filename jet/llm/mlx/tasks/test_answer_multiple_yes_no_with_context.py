@@ -137,3 +137,20 @@ def test_confidence_score_override():
     assert results[0]["answer"] == "Yes"
     assert results[0]["token_id"] != -1
     assert results[0]["error"] is None
+
+
+def test_planet_moons_question():
+    question = "Which planet in our solar system has one or more moons?"
+    contexts = [
+        "Venus is the second planet from the Sun and has no natural moons.",
+        "Jupiter is the largest planet and has at least 79 known moons, including Ganymede.",
+        "Mars has two small moons named Phobos and Deimos.",
+        "Saturn is known for its rings and has 83 moons with confirmed orbits."
+    ]
+    question_contexts: list[QuestionContext] = [
+        {"question": question, "context": ctx} for ctx in contexts
+    ]
+    results = answer_multiple_yes_no_with_context(
+        question_contexts, MODEL_PATH)
+    answers = [result["answer"] for result in results]
+    assert answers == ["No", "Yes", "Yes", "Yes"]
