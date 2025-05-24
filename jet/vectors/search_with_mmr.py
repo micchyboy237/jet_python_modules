@@ -206,6 +206,7 @@ def embed_search(
             "id": filtered_texts[idx]["id"],
             "rank": rank,
             "doc_index": filtered_texts[idx]["doc_index"],
+            "chunk_index": filtered_texts[idx].get("chunk_index", None),
             "score": float(similarities[idx]),
             "text": text_strings[idx],
             "tokens": tokens,
@@ -215,7 +216,8 @@ def embed_search(
             "header_level": filtered_texts[idx]["header_level"],
             "parent_header": filtered_texts[idx]["parent_header"],
             "header": filtered_texts[idx]["header"],
-            "content": filtered_texts[idx]["content"]
+            "content": filtered_texts[idx]["content"],
+            "source_url": filtered_texts[idx]["source_url"],
         })
 
     logger.info(f"Embedding search returned {len(results)} results")
