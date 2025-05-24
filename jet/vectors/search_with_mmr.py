@@ -144,7 +144,6 @@ def embed_search(
     text_strings = [t["text"] for t in texts]
     query_embedding = model.encode(
         query, convert_to_tensor=True, device=device)
-
     chunk_size = 128
     similarities = []
     for i in range(0, len(text_strings), chunk_size):
@@ -157,14 +156,12 @@ def embed_search(
         similarities.append(chunk_similarities)
         del chunk_embeddings
     similarities = np.concatenate(similarities)
-
     top_k_indices = np.argsort(similarities)[
         ::-1][:min(top_k, len(similarities))]
     top_k_texts = [text_strings[idx] for idx in top_k_indices]
     top_k_embeddings = model.encode(
         top_k_texts, batch_size=32, show_progress_bar=False, convert_to_tensor=True, device=device
     ).cpu().numpy()
-
     results = []
     for rank, idx in enumerate(top_k_indices, 1):
         tokens = len(model.tokenize([text_strings[idx]])["input_ids"][0])
@@ -222,8 +219,8 @@ def mmr_diversity(
     candidates: List[SimilarityResult],
     num_results: int = 5,
     lambda_param: float = 0.5,
-    parent_diversity_weight: float = 0.4,  # Increased from 0.3
-    header_diversity_weight: float = 0.3,  # Increased from 0.2
+    parent_diversity_weight: float = 0.4,
+    header_diversity_weight: float = 0.3,
     device: str = get_device()
 ) -> List[SimilarityResult]:
     start_time = time.time()
@@ -262,7 +259,7 @@ def mmr_diversity(
                 for selected_header in selected_headers:
                     similarity_ratio = SequenceMatcher(
                         None, candidate["header"].lower(), selected_header.lower()).ratio()
-                    if similarity_ratio > 0.6:  # Lowered from 0.8
+                    if similarity_ratio > 0.6:
                         header_penalty = header_diversity_weight
                         break
                 mmr_score = lambda_param * relevance - \
@@ -336,15 +333,11 @@ def merge_duplicate_texts_agglomerative(
             logger.debug(
                 f"Single text in cluster {label}: {items[0]['original']['header'][:30]}...")
             continue
-        # Sort by doc_index to ensure consistent selection of the first header
         items.sort(key=lambda x: x["original"]["doc_index"])
-        # Use the first item as the base
         representative = items[0]["original"].copy()
-        # Merge content from all items in the cluster
-        merged_content = " ".join(
+        merged_content = "\n\n".join(
             item["original"]["content"] for item in items
         )
-        # Limit content length
         representative["content"] = merged_content[:500]
         deduplicated_texts.append(representative)
         logger.debug(
@@ -376,7 +369,6 @@ def search_diverse_context(
     start_time = time.time()
     logger.info(
         f"Starting search with query: {query[:50]}..., {len(headers)} headers, device={device}")
-
     if not query or not query.strip():
         raise ValueError("Query cannot be empty")
     if not headers:
@@ -390,7 +382,6 @@ def search_diverse_context(
         raise ValueError("parent_diversity_weight must be between 0 and 1")
     if not 0 <= header_diversity_weight <= 1:
         raise ValueError("header_diversity_weight must be between 0 and 1")
-
     try:
         logger.info("Preprocessing texts")
         texts = preprocess_texts(headers, exclude_keywords, min_header_words,
@@ -399,17 +390,14 @@ def search_diverse_context(
             logger.warning(
                 "No texts after preprocessing, returning empty results")
             return []
-
-        # Deduplicate texts using agglomerative clustering
         logger.info("Deduplicating texts using agglomerative clustering")
         texts = merge_duplicate_texts_agglomerative(
             texts,
             model_name=model_name,
             device=device,
-            similarity_threshold=0.7,  # Relaxed for better deduplication
+            similarity_threshold=0.7,
             batch_size=32
         )
-
         logger.info(f"Embedding search with {len(texts)} texts")
         candidates = embed_search(
             query, texts, model_name, device, top_k, num_threads)
@@ -419,11 +407,8 @@ def search_diverse_context(
         logger.info(f"Applying MMR diversity to select {num_results} results")
         diverse_results = mmr_diversity(
             reranked, num_results, lambda_param, parent_diversity_weight, header_diversity_weight, device)
-
-        # Sort results by score in descending order
         diverse_results = sorted(
             diverse_results, key=lambda x: x["score"], reverse=True)
-
         logger.info(
             f"Search completed in {time.time() - start_time:.2f} seconds, returning {len(diverse_results)} results")
         return diverse_results
