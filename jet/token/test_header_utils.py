@@ -1,220 +1,225 @@
-import unittest
-from typing import Callable, Union
-from unittest.mock import patch, MagicMock
-from jet.vectors.document_types import HeaderTextNode
+from jet.token.token_utils import split_headers
+import pytest
+from unittest.mock import Mock, patch
+from jet.vectors.document_types import HeaderDocument, HeaderTextNode
 from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.schema import NodeRelationship
-from jet.llm.embeddings.sentence_embedding import get_tokenizer_fn
-# Assuming merge_headers is in a module named token_utils.py
-from jet.token.token_utils import merge_headers
+from typing import List, Optional, Callable
+from uuid import uuid4
+
+# Mock SentenceSplitter class
 
 
-class TestMergeHeaders(unittest.TestCase):
-    def setUp(self):
-        # Mock tokenizer function for consistent token counts
-        self.mock_tokenizer = MagicMock()
-        self.model = "mistral"
-        self.default_chunk_size = 100
-        self.default_overlap = 20
+class MockSentenceSplitter:
+    def __init__(self, chunk_size: int, chunk_overlap: int):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.split_texts = []
 
-        # Sample nodes for testing
-        self.node1 = HeaderTextNode(
-            text="This is a test header",
-            metadata={"start_idx": 0, "end_idx": 20,
-                      "chunk_index": None, "header_level": 1}
-        )
-        self.node2 = HeaderTextNode(
-            text="Another header content",
-            metadata={"start_idx": 21, "end_idx": 42,
-                      "chunk_index": None, "header_level": 2}
-        )
-        self.node3 = HeaderTextNode(
-            text="Short text",
-            metadata={"start_idx": 43, "end_idx": 53,
-                      "chunk_index": None, "header_level": 1}
-        )
+    def split_text(self, text: str) -> List[str]:
+        return self.split_texts
 
-    def test_empty_input(self):
-        """Test merge_headers with empty node list."""
-        result = merge_headers(
-            [], model=self.model, chunk_size=self.default_chunk_size, chunk_overlap=self.default_overlap)
-        self.assertEqual(result, [], "Empty input should return empty list")
+# Test fixture for HeaderDocument
 
-    def test_single_node_no_split(self):
-        """Test merge_headers with a single node that doesn't need splitting."""
-        def mock_tokenizer(texts: Union[str, list[str]]) -> list[int]:
-            return [len(text.split()) for text in texts] if isinstance(texts, list) else len(texts.split())
 
-        with patch("jet.token.token_utils.get_tokenizer_fn", return_value=mock_tokenizer):
-            result = merge_headers(
-                [self.node1],
-                model=self.model,
-                chunk_size=50,
-                chunk_overlap=0
-            )
+@pytest.fixture
+def header_doc():
+    return HeaderDocument(
+        text="This is a test document.",
+        doc_index=1,
+        header_level=1,
+        header="Test Header",
+        parent_header="Parent Header",
+        content="This is a test document."
+    )
 
-        self.assertEqual(len(result), 1, "Should return one node")
-        self.assertEqual(
-            result[0].text, "This is a test header", "Node text should match input")
-        self.assertEqual(result[0].metadata["chunk_index"],
-                         0, "Chunk index should be set")
-        self.assertEqual(result[0].metadata["start_idx"],
-                         0, "Start index should match")
-        self.assertEqual(result[0].metadata["end_idx"],
-                         20, "End index should match")
+# Test cases
 
-    def test_merge_multiple_nodes(self):
-        """Test merging multiple nodes into one chunk."""
-        def mock_tokenizer(texts: Union[str, list[str]]) -> list[list[int]]:
-            return [[1] * len(text.split()) for text in texts] if isinstance(texts, list) else [1] * len(texts.split())
 
-        with patch("jet.token.token_utils.get_tokenizer_fn", return_value=mock_tokenizer):
-            result = merge_headers(
-                # "This is a test header" (5 tokens), "Short text" (2 tokens)
-                [self.node1, self.node3],
-                model=self.model,
-                chunk_size=10,
-                chunk_overlap=0
-            )
+def test_split_headers_single_doc_below_max_tokens(header_doc):
+    """Test that documents with token count <= effective_max_tokens are not split."""
+    tokens = [[1, 2, 3]]  # 3 tokens
+    chunk_size = 5
+    buffer = 1
+    effective_max_tokens = chunk_size - buffer
 
-        self.assertEqual(len(result), 1, "Should merge into one node")
-        self.assertEqual(
-            result[0].text, "This is a test header Short text", "Text should be concatenated")
-        self.assertEqual(result[0].metadata["chunk_index"],
-                         0, "Chunk index should be 0")
-        self.assertEqual(result[0].metadata["start_idx"],
-                         0, "Start index should be 0")
-        self.assertEqual(result[0].metadata["end_idx"],
-                         30, "End index should reflect total length")
-        # Check relationships
-        self.assertIn(NodeRelationship.CHILD,
-                      result[0].relationships, "Merged node should have children")
-        self.assertEqual(
-            len(result[0].relationships[NodeRelationship.CHILD]),
-            2,
-            "Should have two child nodes"
+    with patch('jet.llm.embeddings.sentence_embedding.get_tokenizer_fn') as mock_tokenizer, \
+            patch('jet.llm.mlx.models.get_embedding_size', return_value=chunk_size):
+        mock_tokenizer.return_value = lambda x: [[1, 2, 3]]
+
+        nodes = split_headers(
+            docs=header_doc,
+            tokens=tokens,
+            chunk_size=chunk_size,
+            chunk_overlap=0,
+            buffer=buffer
         )
 
-    def test_chunk_size_split(self):
-        """Test splitting nodes due to chunk size limit."""
-        def mock_tokenizer(texts: Union[str, list[str]]) -> list[list[int]]:
-            return [[1] * len(text.split()) for text in texts] if isinstance(texts, list) else [1] * len(texts.split())
+    assert len(nodes) == 1
+    assert nodes[0].text == header_doc.text
+    assert nodes[0].metadata["chunk_index"] is None
+    assert nodes[0].metadata["start_idx"] == 0
+    assert nodes[0].metadata["end_idx"] == len(header_doc.text)
+    assert nodes[0].metadata["content"] == header_doc.text
+    assert nodes[0].metadata["header"] == "Test Header"
+    assert nodes[0].metadata["parent_header"] == "Parent Header"
+    assert nodes[0].metadata["token_count"] == 3
 
-        with patch("jet.token.token_utils.get_tokenizer_fn", return_value=mock_tokenizer):
-            result = merge_headers(
-                [self.node1, self.node2],  # 5 tokens + 6 tokens
-                model=self.model,
-                chunk_size=6,
-                chunk_overlap=0
-            )
 
-        self.assertEqual(len(result), 2, "Should split into two chunks")
-        self.assertEqual(
-            result[0].text, "This is a test header", "First chunk should contain node1")
-        self.assertEqual(
-            result[1].text, "Another header content", "Second chunk should contain node2")
-        self.assertEqual(result[0].metadata["chunk_index"],
-                         0, "First chunk index should be 0")
-        self.assertEqual(result[1].metadata["chunk_index"],
-                         1, "Second chunk index should be 1")
+def test_split_headers_single_doc_exceeds_max_tokens(header_doc):
+    """Test that documents with token count > effective_max_tokens are split correctly."""
+    tokens = [[1, 2, 3, 4, 5, 6]]  # 6 tokens
+    chunk_size = 4
+    buffer = 1
+    chunk_overlap = 1
+    effective_max_tokens = chunk_size - buffer
 
-    def test_chunk_overlap(self):
-        """Test handling of chunk overlap."""
-        def mock_tokenizer(texts: Union[str, list[str]]) -> list[list[int]]:
-            return [[1] * len(text.split()) for text in texts] if isinstance(texts, list) else [1] * len(texts.split())
-        mock_tokenizer.decode = lambda tokens, **kwargs: " ".join(
-            ["word"] * len(tokens))
+    # Mock SentenceSplitter to return specific chunks
+    mock_splitter = MockSentenceSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    mock_splitter.split_texts = ["This is a test", "test document."]
 
-        with patch("jet.token.token_utils.get_tokenizer_fn", return_value=mock_tokenizer):
-            with patch("jet.token.token_utils.token_counter", side_effect=lambda text, model: len(text.split())):
-                result = merge_headers(
-                    [self.node1, self.node2],  # 5 tokens + 6 tokens
-                    model=self.model,
-                    chunk_size=6,
-                    chunk_overlap=2
-                )
+    with patch('llama_index.core.node_parser.SentenceSplitter', return_value=mock_splitter), \
+            patch('jet.utils.doc_utils.add_parent_child_relationship', side_effect=add_parent_child_relationship), \
+            patch('jet.utils.doc_utils.add_sibling_relationship', side_effect=add_sibling_relationship), \
+            patch('jet.llm.mlx.models.get_embedding_size', return_value=chunk_size), \
+            patch('jet.llm.embeddings.sentence_embedding.get_tokenizer_fn') as mock_tokenizer:
+        mock_tokenizer.return_value = lambda x: tokens
 
-        self.assertEqual(len(result), 2, "Should split into two chunks")
-        self.assertTrue(
-            "header" in result[1].text, "Second chunk should include overlap text")
-        self.assertEqual(result[0].metadata["chunk_index"],
-                         0, "First chunk index should be 0")
-        self.assertEqual(result[1].metadata["chunk_index"],
-                         1, "Second chunk index should be 1")
+        nodes = split_headers(
+            docs=header_doc,
+            tokens=tokens,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            buffer=buffer
+        )
 
-    def test_buffer_handling(self):
-        """Test handling of buffer parameter."""
-        def mock_tokenizer(texts: Union[str, list[str]]) -> list[list[int]]:
-            return [[1] * len(text.split()) for text in texts] if isinstance(texts, list) else [1] * len(texts.split())
+    assert len(nodes) == 2
+    assert nodes[0].text == "This is a test"
+    assert nodes[0].metadata["chunk_index"] == 0
+    assert nodes[0].metadata["start_idx"] == 0
+    assert nodes[0].metadata["end_idx"] == 14
+    assert nodes[0].metadata["content"] == "This is a test"
+    assert nodes[0].metadata["header"] == "Test Header"
+    assert nodes[0].metadata["parent_header"] == "Parent Header"
+    # "This is a test" -> 4 tokens
+    assert nodes[0].metadata["token_count"] == 4
 
-        with patch("jet.token.token_utils.get_tokenizer_fn", return_value=mock_tokenizer):
-            result = merge_headers(
-                [self.node1, self.node3],  # 5 tokens + 2 tokens
-                model=self.model,
-                chunk_size=8,
-                chunk_overlap=0,
-                buffer=2
-            )
+    assert nodes[1].text == "test document."
+    assert nodes[1].metadata["chunk_index"] == 1
+    assert nodes[1].metadata["start_idx"] == 10
+    assert nodes[1].metadata["end_idx"] == 24
+    assert nodes[1].metadata["content"] == "test document."
+    assert nodes[1].metadata["header"] == "Test Header"
+    assert nodes[1].metadata["parent_header"] == "Parent Header"
+    # "test document." -> 2 tokens
+    assert nodes[1].metadata["token_count"] == 2
 
-        self.assertEqual(
-            len(result), 2, "Should split due to effective chunk size (6)")
-        self.assertEqual(
-            result[0].text, "This is a test header", "First chunk should contain node1")
-        self.assertEqual(result[1].text, "Short text",
-                         "Second chunk should contain node3")
+    # Verify relationships
+    assert nodes[0].parent_node is not None
+    assert nodes[1].parent_node == nodes[0].parent_node
+    assert nodes[0].relationships[NodeRelationship.NEXT].node_id == nodes[1].id_
+    assert nodes[0].relationships[NodeRelationship.NEXT].metadata["content"] == "test document."
+    assert nodes[1].relationships[NodeRelationship.PREVIOUS].node_id == nodes[0].id_
+    assert nodes[1].relationships[NodeRelationship.PREVIOUS].metadata["content"] == "This is a test"
 
-    def test_invalid_chunk_size(self):
-        """Test error handling for invalid chunk_size."""
-        with self.assertRaises(ValueError, msg="Chunk size must be greater than chunk overlap"):
-            merge_headers(
-                [self.node1],
-                model=self.model,
-                chunk_size=10,
-                chunk_overlap=10
-            )
 
-    def test_invalid_effective_max_tokens(self):
-        """Test error handling for invalid effective max tokens."""
-        with self.assertRaises(ValueError, msg="Effective max tokens must be greater than chunk overlap"):
-            merge_headers(
-                [self.node1],
-                model=self.model,
-                chunk_size=20,
-                chunk_overlap=10,
-                buffer=15
-            )
+def test_split_headers_multiple_docs_mixed_tokens(header_doc):
+    """Test handling of multiple documents, some exceeding and some below effective_max_tokens."""
+    doc2 = HeaderDocument(
+        text="Short text.",
+        doc_index=2,
+        header_level=1,
+        header="Test Header 2",
+        parent_header="Parent Header 2",
+        content="Short text."
+    )
+    # First doc: 6 tokens, Second doc: 2 tokens
+    tokens = [[1, 2, 3, 4, 5, 6], [1, 2]]
+    chunk_size = 4
+    buffer = 1
+    chunk_overlap = 1
+    effective_max_tokens = chunk_size - buffer
 
-    def test_relationships(self):
-        """Test parent-child and sibling relationships."""
-        def mock_tokenizer(texts: Union[str, list[str]]) -> list[list[int]]:
-            return [[1] * len(text.split()) for text in texts] if isinstance(texts, list) else [1] * len(texts.split())
+    mock_splitter = MockSentenceSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    mock_splitter.split_texts = ["This is a test", "test document."]
 
-        with patch("jet.token.token_utils.get_tokenizer_fn", return_value=mock_tokenizer):
-            result = merge_headers(
-                [self.node1, self.node2, self.node3],
-                model=self.model,
-                chunk_size=20,
-                chunk_overlap=0
-            )
+    with patch('llama_index.core.node_parser.SentenceSplitter', return_value=mock_splitter), \
+            patch('jet.utils.doc_utils.add_parent_child_relationship', side_effect=add_parent_child_relationship), \
+            patch('jet.utils.doc_utils.add_sibling_relationship', side_effect=add_sibling_relationship), \
+            patch('jet.llm.mlx.models.get_embedding_size', return_value=chunk_size), \
+            patch('jet.llm.embeddings.sentence_embedding.get_tokenizer_fn') as mock_tokenizer:
+        mock_tokenizer.return_value = lambda x: tokens
 
-        self.assertEqual(len(result), 1, "Should merge into one chunk")
-        merged_node = result[0]
-        self.assertIn(NodeRelationship.CHILD, merged_node.relationships,
-                      "Merged node should have children")
-        children = merged_node.relationships[NodeRelationship.CHILD]
-        self.assertEqual(len(children), 3, "Should have three child nodes")
+        nodes = split_headers(
+            docs=[header_doc, doc2],
+            tokens=tokens,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            buffer=buffer
+        )
 
-        # Check sibling relationships
-        self.assertIn(NodeRelationship.NEXT, self.node1.relationships,
-                      "Node1 should have a next sibling")
-        self.assertIn(NodeRelationship.PREVIOUS, self.node2.relationships,
-                      "Node2 should have a previous sibling")
-        self.assertEqual(
-            self.node1.relationships[NodeRelationship.NEXT].node_id,
-            self.node2.id_,
-            "Node1's next sibling should be node2"
+    assert len(nodes) == 3
+    # First document (split into two chunks)
+    assert nodes[0].text == "This is a test"
+    assert nodes[0].metadata["doc_index"] == 1
+    assert nodes[0].metadata["chunk_index"] == 0
+    assert nodes[0].metadata["start_idx"] == 0
+    assert nodes[0].metadata["end_idx"] == 14
+    assert nodes[0].metadata["header"] == "Test Header"
+    assert nodes[0].metadata["parent_header"] == "Parent Header"
+    assert nodes[0].metadata["token_count"] == 4
+    assert nodes[1].text == "test document."
+    assert nodes[1].metadata["doc_index"] == 1
+    assert nodes[1].metadata["chunk_index"] == 1
+    assert nodes[1].metadata["start_idx"] == 10
+    assert nodes[1].metadata["end_idx"] == 24
+    assert nodes[1].metadata["header"] == "Test Header"
+    assert nodes[1].metadata["parent_header"] == "Parent Header"
+    assert nodes[1].metadata["token_count"] == 2
+    # Second document (not split)
+    assert nodes[2].text == "Short text."
+    assert nodes[2].metadata["doc_index"] == 2
+    assert nodes[2].metadata["chunk_index"] is None
+    assert nodes[2].metadata["header"] == "Test Header 2"
+    assert nodes[2].metadata["parent_header"] == "Parent Header 2"
+    assert nodes[2].metadata["token_count"] == 2
+    # Verify sibling relationships
+    assert nodes[0].relationships[NodeRelationship.NEXT].node_id == nodes[1].id_
+    assert nodes[0].relationships[NodeRelationship.NEXT].metadata["content"] == "test document."
+    assert nodes[1].relationships[NodeRelationship.PREVIOUS].node_id == nodes[0].id_
+    assert nodes[1].relationships[NodeRelationship.PREVIOUS].metadata["content"] == "This is a test"
+
+
+def test_split_headers_invalid_chunk_size(header_doc):
+    """Test that ValueError is raised when chunk_size <= chunk_overlap."""
+    with pytest.raises(ValueError, match="Chunk size.*must be greater than chunk overlap"):
+        split_headers(
+            docs=header_doc,
+            chunk_size=5,
+            chunk_overlap=5
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_split_headers_invalid_effective_max_tokens(header_doc):
+    """Test that ValueError is raised when effective_max_tokens <= chunk_overlap."""
+    with pytest.raises(ValueError, match="Effective max tokens.*must be greater than chunk_overlap"):
+        split_headers(
+            docs=header_doc,
+            chunk_size=5,
+            chunk_overlap=4,
+            buffer=2
+        )
+
+
+def test_split_headers_mismatched_tokens_length(header_doc):
+    """Test that ValueError is raised when tokens length doesn't match documents length."""
+    tokens = [[1, 2], [3, 4]]  # Two token lists, but only one document
+    with pytest.raises(ValueError, match="Length of provided tokens.*does not match number of documents"):
+        split_headers(
+            docs=header_doc,
+            tokens=tokens,
+            chunk_size=5
+        )

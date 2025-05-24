@@ -104,7 +104,8 @@ MODEL_EMBEDDING_TOKENS: Dict[LLMModelType, int] = {
     "all-minilm-l6-v2-bf16": 384,
     "all-minilm-l6-v2-8bit": 384,
     "all-minilm-l6-v2-6bit": 384,
-    "all-minilm-l6-v2-4bit": 384
+    "all-minilm-l6-v2-4bit": 384,
+    "all-mpnet-base-v2": 768,
 }
 
 

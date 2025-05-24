@@ -586,6 +586,14 @@ def split_headers(
         tokens = [tokens]
 
     # Set up tokenizer
+    if tokenizer:
+        tokenizer_fn = tokenizer
+    elif model:
+        tokenizer_fn = get_tokenizer_fn(model)
+    else:
+        tokenizer_fn = get_words  # Default tokenizer
+
+    # Process tokens or tokenize documents
     if tokens is not None:
         if len(tokens) != len(docs):
             raise ValueError(
@@ -594,13 +602,6 @@ def split_headers(
         tokens_matrix = tokens
         token_counts = [len(t) for t in tokens_matrix]
     else:
-        if tokenizer:
-            tokenizer_fn = tokenizer
-        elif model:
-            tokenizer_fn = get_tokenizer_fn(model)
-        else:
-            tokenizer_fn = get_words
-
         doc_texts = [doc.text for doc in docs]
         tokens_matrix: list[list] = tokenizer_fn(doc_texts)
         token_counts: list[int] = [len(t) for t in tokens_matrix]
@@ -627,16 +628,17 @@ def split_headers(
 
     nodes: list[HeaderTextNode] = []
 
-    for doc, token_count in zip(docs, token_counts):
+    for doc_idx, (doc, token_count) in enumerate(zip(docs, token_counts)):
         # Create base node with original text and metadata
         node = HeaderTextNode(
             text=doc.text,
             metadata={
                 **doc.metadata,
-                "content": doc.text,  # Ensure content matches text
+                "content": doc.text,
                 "start_idx": 0,
                 "end_idx": len(doc.text),
                 "chunk_index": None,
+                "token_count": token_count,  # Add token count for unsplit document
             }
         )
 
@@ -646,24 +648,30 @@ def split_headers(
             splitted_texts = splitter.split_text(doc.text)
 
             prev_sibling: Optional[HeaderTextNode] = None
-            last_pos = 0  # Track last position to handle overlapping or repeated subtexts
+            last_pos = 0
             for chunk_idx, subtext in enumerate(splitted_texts, start=0):
                 # Find the next occurrence of subtext after last_pos
                 start_idx = doc.text.find(subtext, last_pos)
                 if start_idx == -1:
-                    start_idx = last_pos  # Fallback
+                    start_idx = last_pos
                 end_idx = start_idx + len(subtext)
-                last_pos = start_idx  # Update for next iteration
+                last_pos = start_idx
+
+                # Calculate token count for the chunk
+                chunk_tokens = tokenizer_fn([subtext])[0]
+                chunk_token_count = len(chunk_tokens) if isinstance(
+                    chunk_tokens, list) else len(chunk_tokens[0])
 
                 # Create sub-node with updated content metadata
                 sub_node = HeaderTextNode(
                     text=subtext,
                     metadata={
                         **doc.metadata,
-                        "content": subtext,  # Set content to match text
+                        "content": subtext,
                         "start_idx": start_idx,
                         "end_idx": end_idx,
                         "chunk_index": chunk_idx,
+                        "token_count": chunk_token_count,  # Add token count for chunk
                     }
                 )
                 nodes.append(sub_node)
