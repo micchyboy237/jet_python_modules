@@ -7,7 +7,7 @@ from jet.vectors.search_with_mmr import (
     rerank_results,
     mmr_diversity,
     merge_duplicate_texts_agglomerative,
-    search_diverse_context,
+    search_documents,
     Header,
     PreprocessedText,
     SimilarityResult
@@ -496,7 +496,7 @@ class TestSearchDiverseContext:
         mock_cross_encoder.predict.side_effect = lambda pairs, **kwargs: np.array(
             []) if not pairs else np.array([-11.2, -11.3], dtype=np.float32)
         with patch("jet.vectors.search_with_mmr.util.cos_sim", return_value=torch.tensor([[0.9, 0.8, 0.7, 0.6, 0.5, 0.4]], dtype=torch.float32)):
-            result = search_diverse_context(
+            result = search_documents(
                 query="project architecture",
                 headers=sample_headers,
                 model_name="all-mpnet-base-v2",
@@ -517,11 +517,11 @@ class TestSearchDiverseContext:
 
     def test_invalid_inputs(self, sample_headers):
         with pytest.raises(ValueError, match="Query cannot be empty"):
-            search_diverse_context("", sample_headers)
+            search_documents("", sample_headers)
         with pytest.raises(ValueError, match="top_k and num_results must be positive"):
-            search_diverse_context("test query", sample_headers, top_k=0)
+            search_documents("test query", sample_headers, top_k=0)
         with pytest.raises(ValueError, match="lambda_param must be between 0 and 1"):
-            search_diverse_context(
+            search_documents(
                 "test query", sample_headers, lambda_param=1.5)
-        result = search_diverse_context("test query", [])
+        result = search_documents("test query", [])
         assert len(result) == 0

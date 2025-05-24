@@ -127,7 +127,7 @@ def cluster_texts_initial(
     ]
 
 
-def search_diverse_context(
+def search_documents(
     query: str,
     headers: List[dict],
     model_name: str = "all-MiniLM-L12-v2",

@@ -100,20 +100,7 @@ def preprocess_texts(
             short_content_excluded += 1
             continue
 
-        # Split content into sentences
-        sentences = sent_tokenize(header["content"])
-        word_count = 0
-        limited_content_sentences = []
-
-        for sentence in sentences:
-            sentence_words = sentence.split()
-            if word_count + len(sentence_words) > 100:
-                break
-            limited_content_sentences.append(sentence)
-            word_count += len(sentence_words)
-
-        limited_content = " ".join(limited_content_sentences)
-        combined_text = f"{header['header']}\n{limited_content}"
+        combined_text = f"{header['header']}\n{header['content']}"
 
         if any(keyword in header["header"].lower() for keyword in exclude_keywords) or \
            any(keyword in header["content"].lower() for keyword in exclude_keywords):
@@ -373,7 +360,7 @@ def merge_duplicate_texts_agglomerative(
     return deduplicated_texts
 
 
-def search_diverse_context(
+def search_documents(
     query: str,
     headers: List[Header],
     model_name: str = "all-mpnet-base-v2",
