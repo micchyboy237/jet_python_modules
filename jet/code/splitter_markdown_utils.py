@@ -2,8 +2,9 @@ import re
 from typing import Callable, Optional, List, Dict, TypedDict, Union
 
 from jet.scrapers.preprocessor import html_to_markdown, is_html, scrape_markdown
+from jet.scrapers.utils import clean_spaces
 from jet.vectors.document_types import HeaderDocument
-from langchain_text_splitters import MarkdownHeaderTextSplitter
+from .helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
 
 
 class HeaderMetadata(TypedDict):
@@ -199,6 +200,13 @@ def get_md_header_contents(
         ("####", "h4"),
         ("#####", "h5"),
         ("######", "h6"),
+
+        ("* #", "h1"),
+        ("* ##", "h2"),
+        ("* ###", "h3"),
+        ("* ####", "h4"),
+        ("* #####", "h5"),
+        ("* ######", "h6"),
     ]
 
     # Initialize Markdown splitter
@@ -216,6 +224,9 @@ def get_md_header_contents(
         text = clean_newlines(clean_text(
             text), max_newlines=1, strip_lines=True)
         header = get_header_text(text)
+        # Clean spaces
+        text = clean_spaces(text)
+        header = clean_spaces(header)
         # Remove the header to get content
         content = "\n".join(text.splitlines()[1:]).strip()
 

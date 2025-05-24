@@ -634,7 +634,7 @@ def split_headers(
             text=doc.text,
             metadata={
                 **doc.metadata,
-                "content": doc.text,
+                "content": doc.metadata["content"],
                 "start_idx": 0,
                 "end_idx": len(doc.text),
                 "chunk_index": None,
@@ -645,22 +645,21 @@ def split_headers(
         if token_count > effective_max_tokens:
             splitter = SentenceSplitter(
                 chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-            splitted_texts = splitter.split_text(doc.text)
+            splitted_texts = splitter.split_text(doc.metadata["content"])
 
             prev_sibling: Optional[HeaderTextNode] = None
             last_pos = 0
             for chunk_idx, subtext in enumerate(splitted_texts, start=0):
                 # Find the next occurrence of subtext after last_pos
-                start_idx = doc.text.find(subtext, last_pos)
+                start_idx = doc.metadata["content"].find(subtext, last_pos)
                 if start_idx == -1:
                     start_idx = last_pos
                 end_idx = start_idx + len(subtext)
                 last_pos = start_idx
 
                 # Calculate token count for the chunk
-                chunk_tokens = tokenizer_fn([subtext])[0]
-                chunk_token_count = len(chunk_tokens) if isinstance(
-                    chunk_tokens, list) else len(chunk_tokens[0])
+                chunk_tokens = tokenizer_fn(subtext)
+                chunk_token_count = len(chunk_tokens)
 
                 # Create sub-node with updated content metadata
                 sub_node = HeaderTextNode(

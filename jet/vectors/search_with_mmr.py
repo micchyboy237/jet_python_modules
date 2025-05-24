@@ -293,20 +293,13 @@ def merge_duplicate_texts_agglomerative(
     texts: List[PreprocessedText],
     model_name: str = "all-MiniLM-L12-v2",
     device: str = "mps",
-    similarity_threshold: float = 0.8,  # Relaxed threshold
+    similarity_threshold: float = 0.7,
     batch_size: int = 32
 ) -> List[PreprocessedText]:
-    """
-    Deduplicate texts by clustering based on headers only using agglomerative clustering.
-    """
     logger.info(
         f"Deduplicating {len(texts)} texts based on headers with agglomerative clustering")
     start_time = time.time()
-
-    # Extract headers for clustering
     headers = [t["header"] for t in texts]
-
-    # Encode headers
     model = get_sentence_transformer(model_name, device)
     embeddings = model.encode(
         headers,
@@ -315,12 +308,10 @@ def merge_duplicate_texts_agglomerative(
         convert_to_tensor=True,
         device=device
     ).cpu().numpy()
-
-    # Compute cosine similarity and convert to distance
     similarities = util.cos_sim(embeddings, embeddings).cpu().numpy()
     distances = 1 - similarities
-
-    # Apply agglomerative clustering
+    logger.debug(f"Similarity matrix:\n{similarities}")
+    logger.debug(f"Distance matrix:\n{distances}")
     clustering = AgglomerativeClustering(
         n_clusters=None,
         distance_threshold=1 - similarity_threshold,
@@ -328,8 +319,7 @@ def merge_duplicate_texts_agglomerative(
         linkage="average"
     )
     labels = clustering.fit_predict(distances)
-
-    # Group texts by cluster label
+    logger.debug(f"Cluster labels: {labels}")
     cluster_dict = {}
     for idx, (label, text) in enumerate(zip(labels, texts)):
         if label not in cluster_dict:
@@ -339,26 +329,26 @@ def merge_duplicate_texts_agglomerative(
             "embedding": embeddings[idx],
             "similarity_score": np.max(similarities[idx])
         })
-
-    # Merge or select representative texts
     deduplicated_texts = []
     for label, items in cluster_dict.items():
         if len(items) == 1:
             deduplicated_texts.append(items[0]["original"])
+            logger.debug(
+                f"Single text in cluster {label}: {items[0]['original']['header'][:30]}...")
             continue
-
-        # Select the text with the longest content as the representative
-        items.sort(key=lambda x: len(x["original"]["content"]), reverse=True)
-        representative = items[0]["original"]
-
-        # Merge content from all texts in the cluster
+        # Sort by doc_index to ensure consistent selection of the first header
+        items.sort(key=lambda x: x["original"]["doc_index"])
+        # Use the first item as the base
+        representative = items[0]["original"].copy()
+        # Merge content from all items in the cluster
         merged_content = " ".join(
-            [item["original"]["content"] for item in items])
-        representative["content"] = merged_content[:500]  # Limit to 500 chars
+            item["original"]["content"] for item in items
+        )
+        # Limit content length
+        representative["content"] = merged_content[:500]
         deduplicated_texts.append(representative)
         logger.debug(
             f"Merged {len(items)} texts for cluster {label}, header: {representative['header'][:30]}..., new content length: {len(merged_content.split())} words")
-
     logger.info(
         f"Reduced {len(texts)} texts to {len(deduplicated_texts)} after header-based clustering. Time: {time.time() - start_time:.2f}s")
     return deduplicated_texts

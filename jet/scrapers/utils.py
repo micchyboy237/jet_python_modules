@@ -4,7 +4,6 @@ from lxml.etree import Comment
 from typing import Callable, Optional, List, Dict, TypedDict, Union
 from bs4 import BeautifulSoup
 import uuid
-from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.search.formatters import decode_text_with_unidecode
 from jet.wordnet.words import count_words
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -1120,6 +1119,8 @@ def merge_texts_by_hierarchy(
     ],
     split_fn: Optional[Callable[[str], List[str]]] = None
 ) -> List[MergedTextsResult]:
+    from jet.code.splitter_markdown_utils import get_md_header_contents
+
     # Extract texts with hierarchy
     results = get_md_header_contents(
         source, headers_to_split_on=tags_to_split_on, ignore_links=ignore_links)

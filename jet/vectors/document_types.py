@@ -80,7 +80,8 @@ class HeaderMetadata(TypedDict, total=False):
     parent_header: str | None
     content: str
     chunk_index: int | None
-    token_count: int | None  # Added to support token_count in metadata
+    token_count: int | None
+    source_url: str | None
 
 
 class HeaderDocument(Document):
@@ -95,7 +96,8 @@ class HeaderDocument(Document):
             "parent_header": data.get("parent_header", None),
             "content": data.get("content", ""),
             "chunk_index": data.get("chunk_index", None),
-            "token_count": data.get("token_count", None),  # Default to None
+            "token_count": data.get("token_count", None),
+            "source_url": data.get("source_url", None),
         }
         self.metadata = default_metadata  # type: ignore
 
@@ -133,7 +135,8 @@ class HeaderTextNode(TextNode):
             "parent_header": None,
             "content": "",
             "chunk_index": None,
-            "token_count": None,  # Default to None
+            "token_count": None,
+            "source_url": None,
         }
         # Update with provided metadata, ensuring type compatibility
         provided_metadata = kwargs.get("metadata", {})
