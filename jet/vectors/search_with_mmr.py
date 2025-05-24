@@ -255,75 +255,75 @@ def rerank_results(
     return reranked
 
 
-def mmr_diversity(
-    candidates: List[SimilarityResult],
-    num_results: int = 5,
-    lambda_param: float = 0.5,
-    parent_diversity_weight: float = 0.4,
-    header_diversity_weight: float = 0.3,
-    device: str = get_device()
-) -> List[SimilarityResult]:
-    start_time = time.time()
-    logger.info(f"Applying MMR diversity to select {num_results} results")
-    selected = []
-    candidate_embeddings = torch.tensor(
-        np.array([c["embedding"] for c in candidates]), device=device)
-    while len(selected) < num_results and candidates:
-        if not selected:
-            best_candidate = candidates.pop(0)
-            best_candidate["diversity_score"] = best_candidate["rerank_score"]
-            selected.append(best_candidate)
-            logger.debug(
-                f"Selected first candidate: {best_candidate['header'][:30]}... (rerank_score: {best_candidate['rerank_score']:.4f})")
-        else:
-            mmr_scores = []
-            selected_embeddings = torch.tensor(
-                np.array([c["embedding"] for c in selected]), device=device)
-            selected_parents = [c["parent_header"] for c in selected]
-            selected_contents = [c["content"] for c in selected]
-            selected_headers = [c["header"] for c in selected]
-            for i, candidate in enumerate(candidates):
-                relevance = candidate["rerank_score"]
-                similarity = float(np.max(
-                    util.cos_sim(
-                        candidate_embeddings[i:i+1],
-                        selected_embeddings
-                    ).cpu().numpy()
-                ))
-                parent_penalty = parent_diversity_weight if candidate[
-                    "parent_header"] in selected_parents else 0.0
-                content_penalty = parent_diversity_weight if any(
-                    candidate["content"] == content for content in selected_contents
-                ) else 0.0
-                header_penalty = 0.0
-                for selected_header in selected_headers:
-                    similarity_ratio = SequenceMatcher(
-                        None, candidate["header"].lower(), selected_header.lower()).ratio()
-                    if similarity_ratio > 0.6:
-                        header_penalty = header_diversity_weight
-                        break
-                mmr_score = lambda_param * relevance - \
-                    (1 - lambda_param) * (similarity +
-                                          parent_penalty + content_penalty + header_penalty)
-                mmr_score = max(mmr_score, 0.0)
-                mmr_scores.append(mmr_score)
-                candidate["diversity_score"] = float(mmr_score)
-                logger.debug(
-                    f"Candidate {candidate['header'][:30]}...: mmr_score={mmr_score:.4f}, parent_penalty={parent_penalty:.2f}, header_penalty={header_penalty:.2f}, content_penalty={content_penalty:.2f}")
-            best_idx = np.argmax(mmr_scores)
-            best_candidate = candidates.pop(best_idx)
-            selected.append(best_candidate)
-            logger.debug(
-                f"Selected candidate {len(selected)}: {best_candidate['header'][:30]}... (diversity_score: {best_candidate['diversity_score']:.4f}, parent_penalty: {parent_penalty:.2f}, header_penalty: {header_penalty:.2f}, content_penalty: {content_penalty:.2f})")
-            del selected_embeddings
-    del candidate_embeddings
-    for rank, candidate in enumerate(selected, 1):
-        candidate["rank"] = rank
-    logger.info(
-        f"MMR diversity selected {len(selected)} results: {', '.join([f'{r['header'][:30]}... (diversity_score: {r['diversity_score']:.4f})' for r in selected])}")
-    logger.info(
-        f"MMR diversity completed in {time.time() - start_time:.2f} seconds")
-    return selected
+# def mmr_diversity(
+#     candidates: List[SimilarityResult],
+#     num_results: int = 5,
+#     lambda_param: float = 0.5,
+#     parent_diversity_weight: float = 0.4,
+#     header_diversity_weight: float = 0.3,
+#     device: str = get_device()
+# ) -> List[SimilarityResult]:
+#     start_time = time.time()
+#     logger.info(f"Applying MMR diversity to select {num_results} results")
+#     selected = []
+#     candidate_embeddings = torch.tensor(
+#         np.array([c["embedding"] for c in candidates]), device=device)
+#     while len(selected) < num_results and candidates:
+#         if not selected:
+#             best_candidate = candidates.pop(0)
+#             best_candidate["diversity_score"] = best_candidate["rerank_score"]
+#             selected.append(best_candidate)
+#             logger.debug(
+#                 f"Selected first candidate: {best_candidate['header'][:30]}... (rerank_score: {best_candidate['rerank_score']:.4f})")
+#         else:
+#             mmr_scores = []
+#             selected_embeddings = torch.tensor(
+#                 np.array([c["embedding"] for c in selected]), device=device)
+#             selected_parents = [c["parent_header"] for c in selected]
+#             selected_contents = [c["content"] for c in selected]
+#             selected_headers = [c["header"] for c in selected]
+#             for i, candidate in enumerate(candidates):
+#                 relevance = candidate["rerank_score"]
+#                 similarity = float(np.max(
+#                     util.cos_sim(
+#                         candidate_embeddings[i:i+1],
+#                         selected_embeddings
+#                     ).cpu().numpy()
+#                 ))
+#                 parent_penalty = parent_diversity_weight if candidate[
+#                     "parent_header"] in selected_parents else 0.0
+#                 content_penalty = parent_diversity_weight if any(
+#                     candidate["content"] == content for content in selected_contents
+#                 ) else 0.0
+#                 header_penalty = 0.0
+#                 for selected_header in selected_headers:
+#                     similarity_ratio = SequenceMatcher(
+#                         None, candidate["header"].lower(), selected_header.lower()).ratio()
+#                     if similarity_ratio > 0.6:
+#                         header_penalty = header_diversity_weight
+#                         break
+#                 mmr_score = lambda_param * relevance - \
+#                     (1 - lambda_param) * (similarity +
+#                                           parent_penalty + content_penalty + header_penalty)
+#                 mmr_score = max(mmr_score, 0.0)
+#                 mmr_scores.append(mmr_score)
+#                 candidate["diversity_score"] = float(mmr_score)
+#                 logger.debug(
+#                     f"Candidate {candidate['header'][:30]}...: mmr_score={mmr_score:.4f}, parent_penalty={parent_penalty:.2f}, header_penalty={header_penalty:.2f}, content_penalty={content_penalty:.2f}")
+#             best_idx = np.argmax(mmr_scores)
+#             best_candidate = candidates.pop(best_idx)
+#             selected.append(best_candidate)
+#             logger.debug(
+#                 f"Selected candidate {len(selected)}: {best_candidate['header'][:30]}... (diversity_score: {best_candidate['diversity_score']:.4f}, parent_penalty: {parent_penalty:.2f}, header_penalty: {header_penalty:.2f}, content_penalty: {content_penalty:.2f})")
+#             del selected_embeddings
+#     del candidate_embeddings
+#     for rank, candidate in enumerate(selected, 1):
+#         candidate["rank"] = rank
+#     logger.info(
+#         f"MMR diversity selected {len(selected)} results: {', '.join([f'{r['header'][:30]}... (diversity_score: {r['diversity_score']:.4f})' for r in selected])}")
+#     logger.info(
+#         f"MMR diversity completed in {time.time() - start_time:.2f} seconds")
+#     return selected
 
 
 def merge_duplicate_texts_agglomerative(
@@ -378,7 +378,7 @@ def merge_duplicate_texts_agglomerative(
         merged_content = "\n\n".join(
             item["original"]["content"] for item in items
         )
-        representative["content"] = merged_content[:500]
+        representative["content"] = merged_content
         deduplicated_texts.append(representative)
         logger.debug(
             f"Merged {len(items)} texts for cluster {label}, header: {representative['header'][:30]}..., new content length: {len(merged_content.split())} words")
@@ -445,14 +445,14 @@ def search_documents(
         logger.info(f"Reranking {len(candidates)} candidates")
         reranked = rerank_results(
             query, candidates, rerank_model, device, batch_size)
-        logger.info(f"Applying MMR diversity to select {num_results} results")
-        diverse_results = mmr_diversity(
-            reranked, num_results, lambda_param, parent_diversity_weight, header_diversity_weight, device)
-        diverse_results = sorted(
-            diverse_results, key=lambda x: x["score"], reverse=True)
+        # logger.info(f"Applying MMR diversity to select {num_results} results")
+        # diverse_results = mmr_diversity(
+        #     reranked, num_results, lambda_param, parent_diversity_weight, header_diversity_weight, device)
+        sorted_results = sorted(
+            reranked, key=lambda x: x["score"], reverse=True)
         logger.info(
-            f"Search completed in {time.time() - start_time:.2f} seconds, returning {len(diverse_results)} results")
-        return diverse_results
+            f"Search completed in {time.time() - start_time:.2f} seconds, returning {len(reranked)} results")
+        return sorted_results[:num_results]
     except Exception as e:
         logger.error(f"Search failed: {str(e)}")
         raise RuntimeError(f"Search failed: {str(e)}") from e
