@@ -225,21 +225,36 @@ def get_md_header_contents(
             content = "\n".join(line for line in content_lines if not any(
                 line.lstrip().startswith(prefix) for prefix, _ in headers_to_split_on)).strip()
 
-            if text[len(header):].strip() or not content_lines:
-                header_level = get_header_level(header)
-                while parent_stack and parent_stack[-1][0] >= header_level:
-                    parent_stack.pop()
-                parent_header = parent_stack[-1][1] if parent_stack else None
-                parent_stack.append((header_level, header))
+            header_text = header.lstrip("#").strip()
 
-                md_header_contents.append({
-                    "header": header,
-                    "header_level": header_level,
-                    "parent_header": parent_header,
-                    "length": len(text),
-                    "content": content,
-                    "text": text
-                })
+            # Handle empty header_text
+            if not header_text and parent_stack:
+                header_level, header = parent_stack[-1]
+                # Update the content and text of the last item in md_header_contents
+                if md_header_contents:
+                    md_header_contents[-1]["content"] = (
+                        md_header_contents[-1]["content"] + "\n\n" + content
+                    ).strip()
+                    md_header_contents[-1]["text"] = (
+                        md_header_contents[-1]["text"] + "\n\n" + content
+                    ).strip()
+                continue
+
+            header_level = get_header_level(header)
+
+            while parent_stack and parent_stack[-1][0] >= header_level:
+                parent_stack.pop()
+            parent_header = parent_stack[-1][1] if parent_stack else None
+            parent_stack.append((header_level, header))
+
+            md_header_contents.append({
+                "header": header,
+                "header_level": header_level,
+                "parent_header": parent_header,
+                "length": len(text),
+                "content": content,
+                "text": text
+            })
         except ValueError:
             continue
 
