@@ -20,10 +20,14 @@ from jet.logger import logger
 
 
 class Header(TypedDict):
-    header: str
-    content: str
+    doc_index: int
     header_level: int
-    parent_header: Optional[str]
+    header: str
+    parent_header: str | None
+    content: str
+    chunk_index: int | None
+    token_count: int | None
+    source_url: str | None
 
 
 class PreprocessedText(TypedDict):
@@ -121,9 +125,13 @@ def preprocess_texts(
             "doc_index": i,
             "id": f"doc_{i}",
             "header_level": header["header_level"],
+            "chunk_index": header["chunk_index"],
+            "token_count": header["token_count"],
+            "source_url": header["source_url"],
             "parent_header": header["parent_header"],
             "header": header["header"],
             "content": header["content"]
+
         })
 
     logger.info(
@@ -148,17 +156,31 @@ def embed_search(
     model_name: str = "all-mpnet-base-v2",
     device: str = get_device(),
     top_k: int = 20,
-    num_threads: int = 4
+    num_threads: int = 4,
+    max_header_level: int = 6
 ) -> List[SimilarityResult]:
     start_time = time.time()
     logger.info(
-        f"Starting embedding search for {len(texts)} texts, top_k={top_k}, device={device}")
+        f"Starting embedding search for {len(texts)} texts, top_k={top_k}, device={device}, max_header_level={max_header_level}")
+
+    # Filter texts based on max_header_level
+    filtered_texts = [
+        t for t in texts if t["header_level"] <= max_header_level]
+    logger.info(
+        f"Filtered {len(texts) - len(filtered_texts)} texts with header_level > {max_header_level}. Remaining: {len(filtered_texts)}")
+
+    if not filtered_texts:
+        logger.warning(
+            "No texts remain after max_header_level filtering, returning empty results")
+        return []
+
     model = get_sentence_transformer(model_name, device)
-    text_strings = [t["text"] for t in texts]
+    text_strings = [t["text"] for t in filtered_texts]
     query_embedding = model.encode(
         query, convert_to_tensor=True, device=device)
     chunk_size = 128
     similarities = []
+
     for i in range(0, len(text_strings), chunk_size):
         chunk = text_strings[i:i + chunk_size]
         chunk_embeddings = model.encode(
@@ -168,6 +190,7 @@ def embed_search(
             0].cpu().numpy()
         similarities.append(chunk_similarities)
         del chunk_embeddings
+
     similarities = np.concatenate(similarities)
     top_k_indices = np.argsort(similarities)[
         ::-1][:min(top_k, len(similarities))]
@@ -175,24 +198,26 @@ def embed_search(
     top_k_embeddings = model.encode(
         top_k_texts, batch_size=32, show_progress_bar=False, convert_to_tensor=True, device=device
     ).cpu().numpy()
+
     results = []
     for rank, idx in enumerate(top_k_indices, 1):
         tokens = len(model.tokenize([text_strings[idx]])["input_ids"][0])
         results.append({
-            "id": texts[idx]["id"],
+            "id": filtered_texts[idx]["id"],
             "rank": rank,
-            "doc_index": texts[idx]["doc_index"],
+            "doc_index": filtered_texts[idx]["doc_index"],
             "score": float(similarities[idx]),
             "text": text_strings[idx],
             "tokens": tokens,
             "rerank_score": 0.0,
             "diversity_score": 0.0,
             "embedding": top_k_embeddings[rank - 1],
-            "header_level": texts[idx]["header_level"],
-            "parent_header": texts[idx]["parent_header"],
-            "header": texts[idx]["header"],
-            "content": texts[idx]["content"]
+            "header_level": filtered_texts[idx]["header_level"],
+            "parent_header": filtered_texts[idx]["parent_header"],
+            "header": filtered_texts[idx]["header"],
+            "content": filtered_texts[idx]["content"]
         })
+
     logger.info(f"Embedding search returned {len(results)} results")
     if results:
         logger.debug(
@@ -374,6 +399,7 @@ def search_documents(
     exclude_keywords: List[str] = [],
     min_header_words: int = 5,
     min_header_level: int = 2,
+    max_header_level: int = 6,
     parent_keyword: Optional[str] = None,
     parent_diversity_weight: float = 0.4,
     header_diversity_weight: float = 0.3,
@@ -413,7 +439,7 @@ def search_documents(
         )
         logger.info(f"Embedding search with {len(texts)} texts")
         candidates = embed_search(
-            query, texts, model_name, device, top_k, num_threads)
+            query, texts, model_name, device, top_k, num_threads, max_header_level=max_header_level)
         logger.info(f"Reranking {len(candidates)} candidates")
         reranked = rerank_results(
             query, candidates, rerank_model, device, batch_size)
