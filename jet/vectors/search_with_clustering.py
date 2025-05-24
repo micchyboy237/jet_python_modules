@@ -1,11 +1,11 @@
 import nltk
 from nltk.tokenize import sent_tokenize
 from sentence_transformers import util
-from typing import List
+from typing import List, Optional, Dict
 from sklearn.cluster import AgglomerativeClustering
 import json
 import os
-from typing import List, TypedDict, Optional
+from typing import TypedDict
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer, util, CrossEncoder
@@ -15,8 +15,6 @@ from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 import time
 from jet.logger import logger
-
-# nltk.download('punkt')  # Download the Punkt tokenizer models
 
 
 class Header(TypedDict):
@@ -38,22 +36,32 @@ class PreprocessedText(TypedDict):
     parent_header: Optional[str]
     header: str
     content: str
+    chunk_index: Optional[int]
+    token_count: Optional[int]
+    source_url: Optional[str]
+
+
+class MergedPreprocessedText(PreprocessedText):
+    merged_count: Optional[int]
+    merged_doc_chunk_indices: Optional[Dict[int, Optional[List[int]]]]
+    merged_doc_texts: Optional[List[str]]
 
 
 class SimilarityResult(TypedDict):
     id: str
     rank: int
     doc_index: int
-    score: float
+    embed_score: float
     text: str
     tokens: int
     rerank_score: float
-    diversity_score: float
+    score: float
     embedding: Optional[np.ndarray]
     header_level: int
     parent_header: Optional[str]
     header: str
     content: str
+    merged_texts: Optional[List[str]]
 
 
 @lru_cache(maxsize=1)
@@ -97,15 +105,12 @@ def preprocess_texts(
     short_content_excluded = 0
     level_excluded = 0
     parent_excluded = 0
-
     for i, header in enumerate(headers):
         content_words = header["content"].split()
         if len(content_words) < min_content_words:
             short_content_excluded += 1
             continue
-
         combined_text = f"{header['header']}\n{header['content']}"
-
         if any(keyword in header["header"].lower() for keyword in exclude_keywords) or \
            any(keyword in header["content"].lower() for keyword in exclude_keywords):
             keyword_excluded += 1
@@ -119,7 +124,6 @@ def preprocess_texts(
         if parent_keyword and (not header["parent_header"] or parent_keyword.lower() not in header["parent_header"].lower()):
             parent_excluded += 1
             continue
-
         results.append({
             "text": combined_text,
             "doc_index": i,
@@ -131,9 +135,7 @@ def preprocess_texts(
             "parent_header": header["parent_header"],
             "header": header["header"],
             "content": header["content"]
-
         })
-
     logger.info(
         f"Preprocessed {len(results)} texts. Excluded: {keyword_excluded} (keywords), {short_header_excluded} (short headers), {short_content_excluded} (short content), {level_excluded} (header level), {parent_excluded} (parent keyword)"
     )
@@ -162,25 +164,20 @@ def embed_search(
     start_time = time.time()
     logger.info(
         f"Starting embedding search for {len(texts)} texts, top_k={top_k}, device={device}, max_header_level={max_header_level}")
-
-    # Filter texts based on max_header_level
     filtered_texts = [
         t for t in texts if t["header_level"] <= max_header_level]
     logger.info(
         f"Filtered {len(texts) - len(filtered_texts)} texts with header_level > {max_header_level}. Remaining: {len(filtered_texts)}")
-
     if not filtered_texts:
         logger.warning(
             "No texts remain after max_header_level filtering, returning empty results")
         return []
-
     model = get_sentence_transformer(model_name, device)
     text_strings = [t["text"] for t in filtered_texts]
     query_embedding = model.encode(
         query, convert_to_tensor=True, device=device)
     chunk_size = 128
     similarities = []
-
     for i in range(0, len(text_strings), chunk_size):
         chunk = text_strings[i:i + chunk_size]
         chunk_embeddings = model.encode(
@@ -190,7 +187,6 @@ def embed_search(
             0].cpu().numpy()
         similarities.append(chunk_similarities)
         del chunk_embeddings
-
     similarities = np.concatenate(similarities)
     top_k_indices = np.argsort(similarities)[
         ::-1][:min(top_k, len(similarities))]
@@ -198,19 +194,19 @@ def embed_search(
     top_k_embeddings = model.encode(
         top_k_texts, batch_size=32, show_progress_bar=False, convert_to_tensor=True, device=device
     ).cpu().numpy()
-
     results = []
     for rank, idx in enumerate(top_k_indices, 1):
         tokens = len(model.tokenize([text_strings[idx]])["input_ids"][0])
+        merged_texts = filtered_texts[idx].get("merged_doc_texts", None)
         results.append({
             "id": filtered_texts[idx]["id"],
             "rank": rank,
             "doc_index": filtered_texts[idx]["doc_index"],
             "chunk_index": filtered_texts[idx].get("chunk_index", None),
-            "score": float(similarities[idx]),
+            "embed_score": float(similarities[idx]),
             "tokens": tokens,
             "rerank_score": 0.0,
-            "diversity_score": 0.0,
+            "score": 0.0,
             "embedding": top_k_embeddings[rank - 1],
             "header_level": filtered_texts[idx]["header_level"],
             "parent_header": filtered_texts[idx]["parent_header"],
@@ -218,12 +214,12 @@ def embed_search(
             "content": filtered_texts[idx]["content"],
             "source_url": filtered_texts[idx]["source_url"],
             "text": filtered_texts[idx]["header"] + "\n" + filtered_texts[idx]["content"],
+            "merged_texts": merged_texts
         })
-
     logger.info(f"Embedding search returned {len(results)} results")
     if results:
         logger.debug(
-            f"Top 3 candidates: {', '.join([f'{r['header'][:30]}... (score: {r['score']:.4f})' for r in results[:3]])}")
+            f"Top 3 candidates: {', '.join([f'{r['header'][:30]}... (embed_score: {r['embed_score']:.4f})' for r in results[:3]])}")
     logger.info(
         f"Embedding search completed in {time.time() - start_time:.2f} seconds")
     return results
@@ -234,7 +230,8 @@ def rerank_results(
     candidates: List[SimilarityResult],
     model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2",
     device: str = get_device(),
-    batch_size: int = 16
+    batch_size: int = 16,
+    lambda_param: float = 0.5
 ) -> List[SimilarityResult]:
     start_time = time.time()
     logger.info(
@@ -244,12 +241,14 @@ def rerank_results(
     scores = model.predict(pairs, batch_size=batch_size)
     for candidate, score in zip(candidates, scores):
         candidate["rerank_score"] = float(score)
+        candidate["score"] = lambda_param * candidate["embed_score"] + \
+            (1 - lambda_param) * candidate["rerank_score"]
     reranked = sorted(
-        candidates, key=lambda x: x["rerank_score"], reverse=True)
+        candidates, key=lambda x: x["score"], reverse=True)
     for rank, candidate in enumerate(reranked, 1):
         candidate["rank"] = rank
     logger.info(
-        f"Reranking completed. Top 3 reranked: {', '.join([f'{r['header'][:30]}... (rerank_score: {r['rerank_score']:.4f}, embedding_score: {r['score']:.4f})' for r in reranked[:3]])}")
+        f"Reranking completed. Top 3 reranked: {', '.join([f'{r['header'][:30]}... (rerank_score: {r['rerank_score']:.4f}, embed_score: {r['embed_score']:.4f}, score: {r['score']:.4f})' for r in reranked[:3]])}")
     logger.info(
         f"Reranking completed in {time.time() - start_time:.2f} seconds")
     return reranked
@@ -261,7 +260,7 @@ def merge_duplicate_texts_agglomerative(
     device: str = "mps",
     similarity_threshold: float = 0.7,
     batch_size: int = 32
-) -> List[PreprocessedText]:
+) -> List[MergedPreprocessedText]:
     logger.info(
         f"Deduplicating {len(texts)} texts based on headers with agglomerative clustering")
     start_time = time.time()
@@ -295,22 +294,40 @@ def merge_duplicate_texts_agglomerative(
             "embedding": embeddings[idx],
             "similarity_score": np.max(similarities[idx])
         })
-    deduplicated_texts = []
+    deduplicated_texts: List[MergedPreprocessedText] = []
     for label, items in cluster_dict.items():
         if len(items) == 1:
-            deduplicated_texts.append(items[0]["original"])
+            original = items[0]["original"]
+            deduplicated_texts.append({
+                **original,
+                "merged_count": 1,
+                "merged_doc_chunk_indices": {original["doc_index"]: [original["chunk_index"]] if original["chunk_index"] is not None else None},
+                "merged_doc_texts": [original["text"]]
+            })
             logger.debug(
-                f"Single text in cluster {label}: {items[0]['original']['header'][:30]}...")
+                f"Single text in cluster {label}: {original['header'][:30]}... (doc_index: {original['doc_index']})")
             continue
         items.sort(key=lambda x: x["original"]["doc_index"])
         representative = items[0]["original"].copy()
         merged_content = "\n\n".join(
             item["original"]["content"] for item in items
         )
+        merged_doc_chunk_indices = {
+            item["original"]["doc_index"]: [item["original"]["chunk_index"]
+                                            ] if item["original"]["chunk_index"] is not None else None
+            for item in items
+        }
+        merged_doc_texts = [item["original"]["text"] for item in items]
         representative["content"] = merged_content
-        deduplicated_texts.append(representative)
+        deduplicated_texts.append({
+            **representative,
+            "merged_count": len(items),
+            "merged_doc_chunk_indices": merged_doc_chunk_indices,
+            "merged_doc_texts": merged_doc_texts
+        })
         logger.debug(
-            f"Merged {len(items)} texts for cluster {label}, header: {representative['header'][:30]}..., new content length: {len(merged_content.split())} words")
+            f"Merged {len(items)} texts for cluster {label}, header: {representative['header'][:30]}..., "
+            f"doc_indices: {list(merged_doc_chunk_indices.keys())}, new content length: {len(merged_content.split())} words")
     logger.info(
         f"Reduced {len(texts)} texts to {len(deduplicated_texts)} after header-based clustering. Time: {time.time() - start_time:.2f}s")
     return deduplicated_texts
@@ -373,10 +390,7 @@ def search_documents(
             query, texts, model_name, device, top_k, num_threads, max_header_level=max_header_level)
         logger.info(f"Reranking {len(candidates)} candidates")
         reranked = rerank_results(
-            query, candidates, rerank_model, device, batch_size)
-        # logger.info(f"Applying MMR diversity to select {num_results} results")
-        # diverse_results = mmr_diversity(
-        #     reranked, num_results, lambda_param, parent_diversity_weight, header_diversity_weight, device)
+            query, candidates, rerank_model, device, batch_size, lambda_param)
         sorted_results = sorted(
             reranked, key=lambda x: x["score"], reverse=True)
         logger.info(
