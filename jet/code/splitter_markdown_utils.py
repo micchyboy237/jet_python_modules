@@ -200,14 +200,11 @@ def get_md_header_contents(
         ("####", "h4"),
         ("#####", "h5"),
         ("######", "h6"),
-
-        ("* #", "h1"),
-        ("* ##", "h2"),
-        ("* ###", "h3"),
-        ("* ####", "h4"),
-        ("* #####", "h5"),
-        ("* ######", "h6"),
     ]
+
+    # Add "* " prepended versions of each header, without removing existing ones
+    headers_to_split_on += [(f"* {header}", tag)
+                            for header, tag in headers_to_split_on]
 
     # Initialize Markdown splitter
     markdown_splitter = MarkdownHeaderTextSplitter(

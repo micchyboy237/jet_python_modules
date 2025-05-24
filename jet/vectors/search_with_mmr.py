@@ -406,7 +406,7 @@ def search_diverse_context(
             texts,
             model_name=model_name,
             device=device,
-            similarity_threshold=0.8,  # Relaxed for better deduplication
+            similarity_threshold=0.7,  # Relaxed for better deduplication
             batch_size=32
         )
 
