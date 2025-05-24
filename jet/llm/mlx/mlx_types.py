@@ -148,6 +148,8 @@ class EmbedModelTypeEnum(Enum):
 EmbedModelKey = Literal[
     # HF
     "all-mpnet-base-v2",
+    "all-MiniLM-L12-v2",
+    "all-MiniLM-L6-v2",
     # Ollama
     "nomic-embed-text",
     "mxbai-embed-large",
@@ -170,14 +172,14 @@ EmbedModelKey = Literal[
 # Embed model value types
 EmbedModelValue = Literal[
     # HF
-    "all-mpnet-base-v2",
+    "sentence-transformers/all-mpnet-base-v2",
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "sentence-transformers/all-MiniLM-L12-v2",
     # OLLAMA
     "nomic-ai/nomic-embed-text-v1.5",
     "mixedbread-ai/mxbai-embed-large-v1",
     "ibm-granite/granite-embedding-30m-english",
     "ibm-granite/granite-embedding-278m-multilingual",
-    "sentence-transformers/all-MiniLM-L6-v2",
-    "sentence-transformers/all-MiniLM-L12-v2",
     "Snowflake/snowflake-arctic-embed-s",
     "Snowflake/snowflake-arctic-embed-m-long",
     "Snowflake/snowflake-arctic-embed-l",

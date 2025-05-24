@@ -22,7 +22,9 @@ AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
 
 AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     # HF
-    "all-mpnet-base-v2": "all-mpnet-base-v2",
+    "all-mpnet-base-v2": "sentence-transformers/all-mpnet-base-v2",
+    "all-MiniLM-L12-v2": "sentence-transformers/all-MiniLM-L12-v2",
+    "all-MiniLM-L6-v2": "sentence-transformers/all-MiniLM-L6-v2",
     # Ollama
     "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
     "mxbai-embed-large": "mixedbread-ai/mxbai-embed-large-v1",
@@ -106,6 +108,8 @@ MODEL_EMBEDDING_TOKENS: Dict[LLMModelType, int] = {
     "all-minilm-l6-v2-6bit": 384,
     "all-minilm-l6-v2-4bit": 384,
     "all-mpnet-base-v2": 768,
+    "all-MiniLM-L12-v2": 384,
+    "all-MiniLM-L6-v2": 384,
 }
 
 
