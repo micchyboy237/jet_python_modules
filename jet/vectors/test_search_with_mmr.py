@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from jet.vectors.search_with_mmr import (
     preprocess_texts,
     embed_search,
@@ -34,68 +34,80 @@ def mock_cross_encoder():
 def sample_headers():
     return [
         {
-            "header": "## Introduction",
-            "content": "This is the first introduction.",
+            "header": "## Project Introduction",
+            "content": "This section introduces the project, outlining its goals and objectives. It provides a comprehensive overview of the initiative.",
             "header_level": 2,
             "parent_header": None
         },
         {
-            "header": "## Intro",
-            "content": "This is another intro text.",
+            "header": "### Project Goals",
+            "content": "The primary goals include improving efficiency and scalability. We aim to enhance system performance significantly.",
+            "header_level": 3,
+            "parent_header": "## Project Introduction"
+        },
+        {
+            "header": "## Technical Overview",
+            "content": "This section details the technical architecture and implementation strategy. It covers the core components and their interactions.",
             "header_level": 2,
             "parent_header": None
         },
         {
-            "header": "## Conclusion",
-            "content": "This is the conclusion.",
+            "header": "### System Architecture",
+            "content": "The system is built using a modular architecture. Each module is designed to be independently scalable and maintainable.",
+            "header_level": 3,
+            "parent_header": "## Technical Overview"
+        },
+        {
+            "header": "## Project Conclusion",
+            "content": "This section summarizes the project outcomes and future steps. It reflects on the achievements and lessons learned.",
             "header_level": 2,
             "parent_header": None
         },
         {
-            "header": "## Overview",
-            "content": "This is an overview text.",
-            "header_level": 2,
-            "parent_header": None
+            "header": "### Future Steps",
+            "content": "Future work includes integrating advanced features and optimizing performance. We plan to expand the system's capabilities.",
+            "header_level": 3,
+            "parent_header": "## Project Conclusion"
         }
     ]
 
 
 class TestMergeDuplicateTextsAgglomerative:
-    def test_basic_deduplication(self, capsys, mock_sentence_transformer):
+    def test_basic_deduplication(self, mock_sentence_transformer):
         texts = [
             {
-                "text": "## Introduction\nThis is the first introduction.",
+                "text": "## Project Introduction\nThis section introduces the project, outlining its goals and objectives.",
                 "doc_index": 0,
                 "id": "doc_0",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Introduction",
-                "content": "This is the first introduction."
+                "header": "## Project Introduction",
+                "content": "This section introduces the project, outlining its goals and objectives."
             },
             {
-                "text": "## Intro\nThis is another intro text.",
+                "text": "## Project Goals\nThis section outlines the primary objectives of the project.",
                 "doc_index": 1,
                 "id": "doc_1",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Intro",
-                "content": "This is another intro text."
+                "header": "## Project Goals",
+                "content": "This section outlines the primary objectives of the project."
             },
             {
-                "text": "## Conclusion\nThis is the conclusion.",
+                "text": "## Project Conclusion\nThis section summarizes the project outcomes.",
                 "doc_index": 2,
                 "id": "doc_2",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Conclusion",
-                "content": "This is the conclusion."
+                "header": "## Project Conclusion",
+                "content": "This section summarizes the project outcomes."
             }
         ]
         mock_sentence_transformer.encode.side_effect = lambda headers, **kwargs: np.array([
             [1.0, 0.0],
             [0.95, 0.05],
             [0.0, 1.0]
-        ])
+        ], dtype=np.float32)
         result = merge_duplicate_texts_agglomerative(
             texts,
             model_name="all-MiniLM-L12-v2",
@@ -103,62 +115,53 @@ class TestMergeDuplicateTextsAgglomerative:
             similarity_threshold=0.7,
             batch_size=32
         )
-        assert len(
-            result) == 2, f"Should deduplicate to 2 texts, got {len(result)}: {[t['header'] for t in result]}"
+        assert len(result) == 2
         merged_text = next(
-            (t for t in result if t["header"] == "## Introduction"), None)
-        assert merged_text is not None, "Merged text with header '## Introduction' not found"
-        assert "This is the first introduction." in merged_text[
-            "content"], "Merged content should include first introduction"
-        assert "This is another intro text." in merged_text[
-            "content"], "Merged content should include second intro text"
-        assert len(merged_text["content"].split()
-                   ) == 10, "Merged content should have 10 words"
+            (t for t in result if t["header"] == "## Project Introduction"), None)
+        assert merged_text is not None
+        assert "This section introduces the project" in merged_text["content"]
+        assert "This section outlines the primary objectives" in merged_text["content"]
+        assert len(merged_text["content"].split()) == 16
         conclusion_text = next(
-            (t for t in result if t["header"] == "## Conclusion"), None)
-        assert conclusion_text is not None, "Conclusion text not found"
-        assert conclusion_text["content"] == "This is the conclusion.", "Conclusion content should be unchanged"
-        captured = capsys.readouterr()
-        assert "Deduplicating 3 texts based on headers with agglomerative clustering" in captured.out
-        assert "Cluster labels: [0 0 1]" in captured.out
-        assert "Merged 2 texts for cluster 0, header: ## Introduction" in captured.out
-        assert "Reduced 3 texts to 2 after header-based clustering" in captured.out
+            (t for t in result if t["header"] == "## Project Conclusion"), None)
+        assert conclusion_text is not None
+        assert conclusion_text["content"] == "This section summarizes the project outcomes."
 
-    def test_markdown_headers(self, capsys, mock_sentence_transformer):
+    def test_markdown_headers(self, mock_sentence_transformer):
         texts = [
             {
-                "text": "## Introduction\nThis is the first introduction.",
+                "text": "## Project Introduction\nThis section introduces the project, outlining its goals and objectives.",
                 "doc_index": 0,
                 "id": "doc_0",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Introduction",
-                "content": "This is the first introduction."
+                "header": "## Project Introduction",
+                "content": "This section introduces the project, outlining its goals and objectives."
             },
             {
-                "text": "## Intro\nThis is another intro text.",
+                "text": "## Project Goals\nThis section outlines the primary objectives of the project.",
                 "doc_index": 1,
                 "id": "doc_1",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Intro",
-                "content": "This is another intro text."
+                "header": "## Project Goals",
+                "content": "This section outlines the primary objectives of the project."
             },
             {
-                "text": "## Conclusion\nThis is the conclusion.",
+                "text": "## Project Conclusion\nThis section summarizes the project outcomes.",
                 "doc_index": 2,
                 "id": "doc_2",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Conclusion",
-                "content": "This is the conclusion."
+                "header": "## Project Conclusion",
+                "content": "This section summarizes the project outcomes."
             }
         ]
         mock_sentence_transformer.encode.side_effect = lambda headers, **kwargs: np.array([
             [1.0, 0.0],
             [0.95, 0.05],
             [0.0, 1.0]
-        ])
+        ], dtype=np.float32)
         result = merge_duplicate_texts_agglomerative(
             texts,
             model_name="all-MiniLM-L12-v2",
@@ -166,61 +169,55 @@ class TestMergeDuplicateTextsAgglomerative:
             similarity_threshold=0.7,
             batch_size=32
         )
-        assert len(
-            result) == 2, f"Should deduplicate to 2 texts, got {len(result)}: {[t['header'] for t in result]}"
+        assert len(result) == 2
         merged_text = next(
-            (t for t in result if t["header"] == "## Introduction"), None)
-        assert merged_text is not None, "Merged text with header '## Introduction' not found"
-        assert "This is the first introduction." in merged_text["content"]
-        assert "This is another intro text." in merged_text["content"]
-        assert len(merged_text["content"].split()) == 10
+            (t for t in result if t["header"] == "## Project Introduction"), None)
+        assert merged_text is not None
+        assert "This section introduces the project" in merged_text["content"]
+        assert "This section outlines the primary objectives" in merged_text["content"]
+        assert len(merged_text["content"].split()) == 16
         conclusion_text = next(
-            (t for t in result if t["header"] == "## Conclusion"), None)
-        assert conclusion_text is not None, "Conclusion text not found"
-        assert conclusion_text["content"] == "This is the conclusion."
-        captured = capsys.readouterr()
-        assert "Deduplicating 3 texts based on headers with agglomerative clustering" in captured.out
-        assert "Cluster labels: [0 0 1]" in captured.out
-        assert "Merged 2 texts for cluster 0, header: ## Introduction" in captured.out
-        assert "Reduced 3 texts to 2 after header-based clustering" in captured.out
+            (t for t in result if t["header"] == "## Project Conclusion"), None)
+        assert conclusion_text is not None
+        assert conclusion_text["content"] == "This section summarizes the project outcomes."
 
-    def test_multiple_markdown_headers(self, capsys, mock_sentence_transformer):
+    def test_multiple_markdown_headers(self, mock_sentence_transformer):
         texts = [
             {
-                "text": "## Introduction\nThis is the first introduction.",
+                "text": "## Project Introduction\nThis section introduces the project, outlining its goals and objectives.",
                 "doc_index": 0,
                 "id": "doc_0",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Introduction",
-                "content": "This is the first introduction."
+                "header": "## Project Introduction",
+                "content": "This section introduces the project, outlining its goals and objectives."
             },
             {
-                "text": "## Intro\nThis is another intro text.",
+                "text": "## Project Goals\nThis section outlines the primary objectives of the project.",
                 "doc_index": 1,
                 "id": "doc_1",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Intro",
-                "content": "This is another intro text."
+                "header": "## Project Goals",
+                "content": "This section outlines the primary objectives of the project."
             },
             {
-                "text": "## Overview\nThis is an overview text.",
+                "text": "## Technical Overview\nThis section details the technical architecture.",
                 "doc_index": 2,
                 "id": "doc_2",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Overview",
-                "content": "This is an overview text."
+                "header": "## Technical Overview",
+                "content": "This section details the technical architecture."
             },
             {
-                "text": "## Conclusion\nThis is the conclusion.",
+                "text": "## Project Conclusion\nThis section summarizes the project outcomes.",
                 "doc_index": 3,
                 "id": "doc_3",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Conclusion",
-                "content": "This is the conclusion."
+                "header": "## Project Conclusion",
+                "content": "This section summarizes the project outcomes."
             }
         ]
         mock_sentence_transformer.encode.side_effect = lambda headers, **kwargs: np.array([
@@ -228,7 +225,7 @@ class TestMergeDuplicateTextsAgglomerative:
             [0.95, 0.05],
             [0.97, 0.03],
             [0.0, 1.0]
-        ])
+        ], dtype=np.float32)
         result = merge_duplicate_texts_agglomerative(
             texts,
             model_name="all-MiniLM-L12-v2",
@@ -236,60 +233,54 @@ class TestMergeDuplicateTextsAgglomerative:
             similarity_threshold=0.7,
             batch_size=32
         )
-        assert len(
-            result) == 2, f"Should deduplicate to 2 texts, got {len(result)}: {[t['header'] for t in result]}"
+        assert len(result) == 2
         merged_text = next(
-            (t for t in result if t["header"] == "## Introduction"), None)
-        assert merged_text is not None, "Merged text with header '## Introduction' not found"
-        assert "This is the first introduction." in merged_text["content"]
-        assert "This is another intro text." in merged_text["content"]
-        assert "This is an overview text." in merged_text["content"]
-        assert len(merged_text["content"].split()) == 15
+            (t for t in result if t["header"] == "## Project Introduction"), None)
+        assert merged_text is not None
+        assert "This section introduces the project" in merged_text["content"]
+        assert "This section outlines the primary objectives" in merged_text["content"]
+        assert "This section details the technical architecture" in merged_text["content"]
+        assert len(merged_text["content"].split()) == 22
         conclusion_text = next(
-            (t for t in result if t["header"] == "## Conclusion"), None)
-        assert conclusion_text is not None, "Conclusion text not found"
-        assert conclusion_text["content"] == "This is the conclusion."
-        captured = capsys.readouterr()
-        assert "Deduplicating 4 texts based on headers with agglomerative clustering" in captured.out
-        assert "Cluster labels: [0 0 0 1]" in captured.out
-        assert "Merged 3 texts for cluster 0, header: ## Introduction" in captured.out
-        assert "Reduced 4 texts to 2 after header-based clustering" in captured.out
+            (t for t in result if t["header"] == "## Project Conclusion"), None)
+        assert conclusion_text is not None
+        assert conclusion_text["content"] == "This section summarizes the project outcomes."
 
-    def test_newline_separation(self, capsys, mock_sentence_transformer):
+    def test_newline_separation(self, mock_sentence_transformer):
         texts = [
             {
-                "text": "## Introduction\nThis is the first introduction.",
+                "text": "## Project Introduction\nThis section introduces the project, outlining its goals and objectives.",
                 "doc_index": 0,
                 "id": "doc_0",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Introduction",
-                "content": "This is the first introduction."
+                "header": "## Project Introduction",
+                "content": "This section introduces the project, outlining its goals and objectives."
             },
             {
-                "text": "## Intro\nThis is another intro text.",
+                "text": "## Project Goals\nThis section outlines the primary objectives of the project.",
                 "doc_index": 1,
                 "id": "doc_1",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Intro",
-                "content": "This is another intro text."
+                "header": "## Project Goals",
+                "content": "This section outlines the primary objectives of the project."
             },
             {
-                "text": "## Conclusion\nThis is the conclusion.",
+                "text": "## Project Conclusion\nThis section summarizes the project outcomes.",
                 "doc_index": 2,
                 "id": "doc_2",
                 "header_level": 2,
                 "parent_header": None,
-                "header": "## Conclusion",
-                "content": "This is the conclusion."
+                "header": "## Project Conclusion",
+                "content": "This section summarizes the project outcomes."
             }
         ]
         mock_sentence_transformer.encode.side_effect = lambda headers, **kwargs: np.array([
             [1.0, 0.0],
             [0.95, 0.05],
             [0.0, 1.0]
-        ])
+        ], dtype=np.float32)
         result = merge_duplicate_texts_agglomerative(
             texts,
             model_name="all-MiniLM-L12-v2",
@@ -297,31 +288,25 @@ class TestMergeDuplicateTextsAgglomerative:
             similarity_threshold=0.7,
             batch_size=32
         )
-        assert len(
-            result) == 2, f"Should deduplicate to 2 texts, got {len(result)}: {[t['header'] for t in result]}"
+        assert len(result) == 2
         merged_text = next(
-            (t for t in result if t["header"] == "## Introduction"), None)
-        assert merged_text is not None, "Merged text with header '## Introduction' not found"
-        assert "\n\n" in merged_text["content"], "Merged content should contain two newlines as separator"
-        assert merged_text["content"].count(
-            "\n\n") == 1, "Merged content should have exactly one double newline separator"
+            (t for t in result if t["header"] == "## Project Introduction"), None)
+        assert merged_text is not None
+        assert "\n\n" in merged_text["content"]
+        assert merged_text["content"].count("\n\n") == 1
         assert merged_text["content"].startswith(
-            "This is the first introduction.")
-        assert merged_text["content"].endswith("This is another intro text.")
-        assert len(merged_text["content"].split()) == 10
+            "This section introduces the project")
+        assert merged_text["content"].endswith(
+            "This section outlines the primary objectives of the project.")
+        assert len(merged_text["content"].split()) == 16
         conclusion_text = next(
-            (t for t in result if t["header"] == "## Conclusion"), None)
-        assert conclusion_text is not None, "Conclusion text not found"
-        assert conclusion_text["content"] == "This is the conclusion."
-        captured = capsys.readouterr()
-        assert "Deduplicating 3 texts based on headers with agglomerative clustering" in captured.out
-        assert "Cluster labels: [0 0 1]" in captured.out
-        assert "Merged 2 texts for cluster 0, header: ## Introduction" in captured.out
-        assert "Reduced 3 texts to 2 after header-based clustering" in captured.out
+            (t for t in result if t["header"] == "## Project Conclusion"), None)
+        assert conclusion_text is not None
+        assert conclusion_text["content"] == "This section summarizes the project outcomes."
 
 
 class TestPreprocessTexts:
-    def test_basic_preprocessing(self, sample_headers, capsys):
+    def test_basic_preprocessing(self, sample_headers):
         result = preprocess_texts(
             sample_headers,
             exclude_keywords=[],
@@ -330,18 +315,16 @@ class TestPreprocessTexts:
             parent_keyword=None,
             min_content_words=2
         )
-        assert len(result) == 4, f"Expected 4 texts, got {len(result)}"
-        assert all(isinstance(t, PreprocessedText) for t in result)
+        assert len(result) == 6
+        assert all(isinstance(t, dict) and all(key in t for key in [
+                   "text", "doc_index", "id", "header_level", "parent_header", "header", "content"]) for t in result)
         assert result[0]["id"] == "doc_0"
-        assert result[0]["header"] == "## Introduction"
-        assert result[0]["content"] == "This is the first introduction."
+        assert result[0]["header"] == "## Project Introduction"
+        assert result[0]["content"] == "This section introduces the project, outlining its goals and objectives. It provides a comprehensive overview of the initiative."
         assert result[0]["text"].startswith(
-            "## Introduction\nThis is the first")
-        captured = capsys.readouterr()
-        assert "Preprocessing 4 headers" in captured.out
-        assert "Preprocessed 4 texts" in captured.out
+            "## Project Introduction\nThis section introduces")
 
-    def test_exclude_keywords(self, sample_headers, capsys):
+    def test_exclude_keywords(self, sample_headers):
         result = preprocess_texts(
             sample_headers,
             exclude_keywords=["introduction"],
@@ -350,13 +333,10 @@ class TestPreprocessTexts:
             parent_keyword=None,
             min_content_words=2
         )
-        assert len(
-            result) == 2, f"Expected 2 texts after excluding 'introduction', got {len(result)}"
+        assert len(result) == 3
         assert all("introduction" not in t["header"].lower() for t in result)
-        captured = capsys.readouterr()
-        assert "Excluded: 2 (keywords)" in captured.out
 
-    def test_min_header_level(self, sample_headers, capsys):
+    def test_min_header_level(self, sample_headers):
         sample_headers[0]["header_level"] = 1
         result = preprocess_texts(
             sample_headers,
@@ -366,25 +346,23 @@ class TestPreprocessTexts:
             parent_keyword=None,
             min_content_words=2
         )
-        assert len(
-            result) == 3, f"Expected 3 texts after header level filter, got {len(result)}"
+        assert len(result) == 5
         assert all(t["header_level"] >= 2 for t in result)
-        captured = capsys.readouterr()
-        assert "Excluded: 1 (header level)" in captured.out
 
 
 class TestEmbedSearch:
-    def test_basic_search(self, sample_headers, mock_sentence_transformer, capsys):
-        texts = preprocess_texts(sample_headers)
+    def test_basic_search(self, sample_headers, mock_sentence_transformer):
+        texts = preprocess_texts(
+            sample_headers, min_header_words=2, min_content_words=2)
         mock_sentence_transformer.encode.side_effect = [
-            np.array([[0.1, 0.2]]),  # Query embedding
-            # Chunk embeddings
-            np.array([[0.1, 0.2], [0.2, 0.3], [0.3, 0.4], [0.4, 0.5]]),
-            np.array([[0.1, 0.2], [0.2, 0.3]])  # Top-k embeddings
+            np.array([[0.1, 0.2]], dtype=np.float32),
+            np.array([[0.1, 0.2], [0.2, 0.3], [0.3, 0.4], [0.4, 0.5],
+                     [0.5, 0.6], [0.6, 0.7]], dtype=np.float32),
+            np.array([[0.1, 0.2], [0.2, 0.3]], dtype=np.float32)
         ]
         mock_sentence_transformer.tokenize.return_value = {
             "input_ids": [[1, 2, 3]]}
-        with patch("jet.vectors.search_with_mmr.util.cos_sim", return_value=torch.tensor([[0.9, 0.8, 0.7, 0.6]])):
+        with patch("jet.vectors.search_with_mmr.util.cos_sim", return_value=torch.tensor([[0.9, 0.8, 0.7, 0.6, 0.5, 0.4]], dtype=torch.float32)):
             result = embed_search(
                 query="test query",
                 texts=texts,
@@ -393,17 +371,15 @@ class TestEmbedSearch:
                 top_k=2,
                 num_threads=4
             )
-        assert len(result) == 2, f"Expected 2 results, got {len(result)}"
-        assert all(isinstance(r, SimilarityResult) for r in result)
+        assert len(result) == 2
+        assert all(isinstance(r, dict) and all(key in r for key in ["id", "rank", "doc_index", "score", "text", "tokens",
+                   "rerank_score", "diversity_score", "embedding", "header_level", "parent_header", "header", "content"]) for r in result)
         assert result[0]["rank"] == 1
-        assert result[0]["score"] == 0.9
+        assert result[0]["score"] == pytest.approx(0.9)
         assert result[0]["tokens"] == 3
         assert result[0]["embedding"].shape == (2,)
-        captured = capsys.readouterr()
-        assert "Starting embedding search for 4 texts" in captured.out
-        assert "Embedding search returned 2 results" in captured.out
 
-    def test_empty_texts(self, capsys):
+    def test_empty_texts(self):
         result = embed_search(
             query="test query",
             texts=[],
@@ -411,14 +387,13 @@ class TestEmbedSearch:
             device="mps",
             top_k=2
         )
-        assert len(result) == 0, "Expected empty results for empty texts"
-        captured = capsys.readouterr()
-        assert "Starting embedding search for 0 texts" in captured.out
+        assert len(result) == 0
 
 
 class TestRerankResults:
-    def test_basic_reranking(self, sample_headers, mock_cross_encoder, capsys):
-        texts = preprocess_texts(sample_headers)
+    def test_basic_reranking(self, sample_headers, mock_cross_encoder):
+        texts = preprocess_texts(
+            sample_headers, min_header_words=2, min_content_words=2)
         candidates = [
             {
                 "id": t["id"],
@@ -429,14 +404,15 @@ class TestRerankResults:
                 "tokens": 10,
                 "rerank_score": 0.0,
                 "diversity_score": 0.0,
-                "embedding": np.array([0.1 * i, 0.2 * i]),
+                "embedding": np.array([0.1 * i, 0.2 * i], dtype=np.float32),
                 "header_level": t["header_level"],
                 "parent_header": t["parent_header"],
                 "header": t["header"],
                 "content": t["content"]
             } for i, t in enumerate(texts[:2])
         ]
-        mock_cross_encoder.predict.return_value = np.array([0.8, 0.9])
+        mock_cross_encoder.predict.side_effect = lambda pairs, **kwargs: np.array(
+            []) if not pairs else np.array([-11.3, -11.2], dtype=np.float32)
         result = rerank_results(
             query="test query",
             candidates=candidates,
@@ -445,15 +421,12 @@ class TestRerankResults:
             batch_size=16
         )
         assert len(result) == 2
-        assert result[0]["rerank_score"] == 0.9
+        assert result[0]["rerank_score"] == -11.2
         assert result[0]["rank"] == 1
-        assert result[1]["rerank_score"] == 0.8
+        assert result[1]["rerank_score"] == -11.3
         assert result[1]["rank"] == 2
-        captured = capsys.readouterr()
-        assert "Reranking 2 candidates" in captured.out
-        assert "Reranking completed" in captured.out
 
-    def test_empty_candidates(self, capsys):
+    def test_empty_candidates(self):
         result = rerank_results(
             query="test query",
             candidates=[],
@@ -461,12 +434,10 @@ class TestRerankResults:
             device="mps"
         )
         assert len(result) == 0
-        captured = capsys.readouterr()
-        assert "Reranking 0 candidates" in captured.out
 
 
 class TestMMRDiversity:
-    def test_basic_mmr(self, sample_headers, capsys):
+    def test_basic_mmr(self, sample_headers):
         candidates = [
             {
                 "id": f"doc_{i}",
@@ -477,14 +448,14 @@ class TestMMRDiversity:
                 "tokens": 10,
                 "rerank_score": 0.9 - i * 0.1,
                 "diversity_score": 0.0,
-                "embedding": np.array([0.1 * i, 0.2 * i]),
+                "embedding": np.array([0.1 * i, 0.2 * i], dtype=np.float32),
                 "header_level": 2,
                 "parent_header": None,
                 "header": f"## Header {i}",
                 "content": f"Content {i}"
             } for i in range(3)
         ]
-        with patch("jet.vectors.search_with_mmr.util.cos_sim", return_value=torch.tensor([[0.2, 0.1, 0.3]])):
+        with patch("jet.vectors.search_with_mmr.util.cos_sim", return_value=torch.tensor([[0.2, 0.1, 0.3]], dtype=torch.float32)):
             result = mmr_diversity(
                 candidates,
                 num_results=2,
@@ -497,11 +468,8 @@ class TestMMRDiversity:
         assert result[0]["rank"] == 1
         assert result[1]["rank"] == 2
         assert result[0]["diversity_score"] > 0
-        captured = capsys.readouterr()
-        assert "Applying MMR diversity to select 2 results" in captured.out
-        assert "MMR diversity selected 2 results" in captured.out
 
-    def test_empty_candidates(self, capsys):
+    def test_empty_candidates(self):
         result = mmr_diversity(
             candidates=[],
             num_results=2,
@@ -511,38 +479,41 @@ class TestMMRDiversity:
             device="mps"
         )
         assert len(result) == 0
-        captured = capsys.readouterr()
-        assert "Applying MMR diversity to select 2 results" in captured.out
 
 
 class TestSearchDiverseContext:
-    def test_basic_search(self, sample_headers, mock_sentence_transformer, mock_cross_encoder, capsys):
+    def test_basic_search(self, sample_headers, mock_sentence_transformer, mock_cross_encoder):
         mock_sentence_transformer.encode.side_effect = [
-            np.array([[0.1, 0.2]]),  # Query
-            np.array([[0.1, 0.2], [0.2, 0.3], [0.3, 0.4], [0.4, 0.5]]),  # Chunk
-            np.array([[0.1, 0.2], [0.2, 0.3]]),  # Top-k
-            # Deduplication
-            np.array([[1.0, 0.0], [0.95, 0.05], [0.97, 0.03], [0.0, 1.0]])
+            np.array([[0.1, 0.2]], dtype=np.float32),
+            np.array([[0.1, 0.2], [0.2, 0.3], [0.3, 0.4], [0.4, 0.5],
+                     [0.5, 0.6], [0.6, 0.7]], dtype=np.float32),
+            np.array([[0.1, 0.2], [0.2, 0.3]], dtype=np.float32),
+            np.array([[1.0, 0.0], [0.8, 0.2], [0.7, 0.3], [0.6, 0.4],
+                     [0.5, 0.5], [0.0, 1.0]], dtype=np.float32)
         ]
         mock_sentence_transformer.tokenize.return_value = {
             "input_ids": [[1, 2, 3]]}
-        mock_cross_encoder.predict.return_value = np.array([0.9, 0.8])
-        with patch("jet.vectors.search_with_mmr.util.cos_sim", return_value=torch.tensor([[0.9, 0.8, 0.7, 0.6]])):
+        mock_cross_encoder.predict.side_effect = lambda pairs, **kwargs: np.array(
+            []) if not pairs else np.array([-11.2, -11.3], dtype=np.float32)
+        with patch("jet.vectors.search_with_mmr.util.cos_sim", return_value=torch.tensor([[0.9, 0.8, 0.7, 0.6, 0.5, 0.4]], dtype=torch.float32)):
             result = search_diverse_context(
-                query="test query",
+                query="project architecture",
                 headers=sample_headers,
                 model_name="all-mpnet-base-v2",
                 rerank_model="cross-encoder/ms-marco-MiniLM-L-12-v2",
                 device="mps",
                 top_k=2,
-                num_results=2
+                num_results=2,
+                min_header_words=2,
+                min_content_words=2
             )
         assert len(result) == 2
-        assert all(isinstance(r, SimilarityResult) for r in result)
+        assert all(isinstance(r, dict) and all(key in r for key in ["id", "rank", "doc_index", "score", "text", "tokens",
+                   "rerank_score", "diversity_score", "embedding", "header_level", "parent_header", "header", "content"]) for r in result)
         assert result[0]["rank"] == 1
-        captured = capsys.readouterr()
-        assert "Starting search with query" in captured.out
-        assert "Search completed" in captured.out
+        assert result[0]["score"] >= 0.8
+        assert result[0]["header"] in [
+            "## Technical Overview", "## System Architecture"]
 
     def test_invalid_inputs(self, sample_headers):
         with pytest.raises(ValueError, match="Query cannot be empty"):

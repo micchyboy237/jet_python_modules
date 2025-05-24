@@ -58,7 +58,7 @@ def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat
 
 def get_header_text(header: str) -> str:
     """Extract the header text from a markdown or HTML header tag, including markdown hashes."""
-    header = header.splitlines()[0].strip()
+    header = header.strip().splitlines()[0].strip()
     if header.startswith("#"):
         # Keep the leading hashes (up to the first space)
         parts = header.split(" ", 1)
@@ -185,64 +185,53 @@ def get_md_header_contents(
     headers_to_split_on: List[tuple[str, str]] = [],
     ignore_links: bool = True
 ) -> List[Header]:
-    from jet.scrapers.utils import clean_newlines, clean_text
+    from jet.scrapers.utils import clean_newlines, clean_text, clean_spaces
+    from jet.scrapers.preprocessor import is_html, html_to_markdown
 
-    # Check if input is HTML and convert to Markdown if necessary
     if is_html(md_text):
         md_text = html_to_markdown(md_text, ignore_links=ignore_links, remove_selectors=[
                                    "style", "script", "nav", "footer"])
 
-    # Default headers if none provided
-    headers_to_split_on = headers_to_split_on or [
-        ("#", "h1"),
-        ("##", "h2"),
-        ("###", "h3"),
-        ("####", "h4"),
-        ("#####", "h5"),
-        ("######", "h6"),
-    ]
+    md_text = md_text.strip()
 
-    # Add "* " prepended versions of each header, without removing existing ones
+    headers_to_split_on = headers_to_split_on or [
+        ("#", "h1"), ("##", "h2"), ("###", "h3"),
+        ("####", "h4"), ("#####", "h5"), ("######", "h6"),
+    ]
     headers_to_split_on += [(f"* {header}", tag)
                             for header, tag in headers_to_split_on]
 
-    # Initialize Markdown splitter
     markdown_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on, strip_headers=False, return_each_line=False
     )
     md_header_splits = markdown_splitter.split_text(md_text)
 
     md_header_contents: List[Header] = []
-    # Stack to track (level, header_text)
     parent_stack: List[tuple[int, str]] = []
 
     for split in md_header_splits:
         text = split.page_content
         text = clean_newlines(clean_text(
             text), max_newlines=1, strip_lines=True)
-        header = get_header_text(text)
-        # Clean spaces
-        text = clean_spaces(text)
-        header = clean_spaces(header)
-        # Remove the header to get content
-        content = "\n".join(text.splitlines()[1:]).strip()
+        # Skip if the text doesn't start with a valid header
+        if not any(text.lstrip().startswith(prefix) for prefix, _ in headers_to_split_on):
+            continue
+        try:
+            header = get_header_text(text)
+            text = clean_spaces(text)
+            header = clean_spaces(header)
+            # Extract content, excluding subsequent headers
+            content_lines = text.splitlines()[1:]
+            content = "\n".join(line for line in content_lines if not any(
+                line.lstrip().startswith(prefix) for prefix, _ in headers_to_split_on)).strip()
 
-        if text[len(header):].strip():
-            try:
+            if text[len(header):].strip() or not content_lines:
                 header_level = get_header_level(header)
-                # Determine parent header
-                parent_header = None
-                # Pop headers from stack with equal or higher level (lower precedence)
                 while parent_stack and parent_stack[-1][0] >= header_level:
                     parent_stack.pop()
-                # If stack has a header, it's the parent
-                if parent_stack:
-                    parent_header = parent_stack[-1][1]
-
-                # Add current header to stack
+                parent_header = parent_stack[-1][1] if parent_stack else None
                 parent_stack.append((header_level, header))
 
-                # Append header info with parent
                 md_header_contents.append({
                     "header": header,
                     "header_level": header_level,
@@ -251,8 +240,8 @@ def get_md_header_contents(
                     "content": content,
                     "text": text
                 })
-            except ValueError:
-                continue
+        except ValueError:
+            continue
 
     return md_header_contents
 

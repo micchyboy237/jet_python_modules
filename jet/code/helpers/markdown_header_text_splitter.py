@@ -44,47 +44,68 @@ class MarkdownHeaderTextSplitter:
         # Strip headers split headers from the content of the chunk
         self.strip_headers = strip_headers
 
-    def aggregate_lines_to_chunks(self, lines: List[LineType]) -> List[Document]:
+    def aggregate_lines_to_chunks(self, lines: List[dict]) -> List[Document]:
         """Combine lines with common metadata into chunks
         Args:
             lines: Line of text / associated header metadata
         """
-        aggregated_chunks: List[LineType] = []
+        aggregated_chunks: List[dict] = []
 
         for line in lines:
+            # Determine the header level from metadata
+            metadata = line["metadata"]
+            header_level = max(
+                [k for k in metadata.keys() if k.startswith("h")], default=None)
+            header_prefix = "#" * int(header_level[1:]) if header_level else ""
+            expected_header = f"{header_prefix} {metadata[header_level]}" if header_level else ""
+
+            # Extract content after the relevant header
+            content_lines = line["content"].split("\n")
+            content_start = 0
+            for i, content_line in enumerate(content_lines):
+                if content_line.startswith(expected_header):
+                    content_start = i
+                    break
+            relevant_content = "\n".join(content_lines[content_start:]).strip()
+
+            # Skip if no content after header
+            if not relevant_content or relevant_content == expected_header:
+                continue
+
+            chunk = {"content": relevant_content, "metadata": metadata}
+
             if (
                 aggregated_chunks
                 and aggregated_chunks[-1]["metadata"] == line["metadata"]
             ):
-                # If the last line in the aggregated list
-                # has the same metadata as the current line,
-                # append the current content to the last lines's content
-                aggregated_chunks[-1]["content"] += "  \n" + line["content"]
+                # If the last chunk has the same metadata, append content
+                aggregated_chunks[-1]["content"] += "  \n" + relevant_content
             elif (
                 aggregated_chunks
                 and aggregated_chunks[-1]["metadata"] != line["metadata"]
-                # may be issues if other metadata is present
                 and len(aggregated_chunks[-1]["metadata"]) < len(line["metadata"])
-                and aggregated_chunks[-1]["content"].split("\n")[-1][0] == "#"
+                and aggregated_chunks[-1]["content"].split("\n")[-1].startswith("#")
                 and not self.strip_headers
             ):
-                # If the last line in the aggregated list
-                # has different metadata as the current line,
-                # and has shallower header level than the current line,
-                # and the last line is a header,
-                # and we are not stripping headers,
-                # append the current content to the last line's content
-                aggregated_chunks[-1]["content"] += "  \n" + line["content"]
-                # and update the last line's metadata
+                # If the last chunk has shallower metadata and ends with a header,
+                # append content and update metadata
+                aggregated_chunks[-1]["content"] += "  \n" + relevant_content
                 aggregated_chunks[-1]["metadata"] = line["metadata"]
             else:
-                # Otherwise, append the current line to the aggregated list
-                aggregated_chunks.append(line)
+                # Otherwise, append as a new chunk
+                aggregated_chunks.append(chunk)
 
-        return [
-            Document(page_content=chunk["content"], metadata=chunk["metadata"])
-            for chunk in aggregated_chunks
+        # Filter chunks to include only those with content after the header
+        filtered_chunks = [
+            chunk for chunk in aggregated_chunks
+            if len(chunk["content"].split("\n")) > 1 or not chunk["content"].startswith("#")
         ]
+
+        documents = [
+            Document(page_content=chunk["content"], metadata=chunk["metadata"])
+            for chunk in filtered_chunks
+        ]
+        return documents
 
     def split_text(self, text: str) -> List[Document]:
         """Split markdown file
