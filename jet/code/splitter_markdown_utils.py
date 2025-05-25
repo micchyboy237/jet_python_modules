@@ -35,6 +35,7 @@ class HeaderLink(TypedDict):
     caption: Optional[str]
     start_idx: int
     end_idx: int
+    line: str
 
 
 class Header(TypedDict):
@@ -211,12 +212,19 @@ def extract_markdown_links(text: str) -> Tuple[List[HeaderLink], str]:
         key = (label, url, caption)
         if key not in seen:
             seen.add(key)
+            # Find the full line containing the link
+            start_line_idx = text[:start].rfind('\n') + 1
+            end_line_idx = text.find('\n', end)
+            if end_line_idx == -1:
+                end_line_idx = len(text)
+            line = text[start_line_idx:end_line_idx].strip()
             links.append({
                 "text": label,
                 "url": url,
                 "caption": caption,
                 "start_idx": start_idx,
-                "end_idx": end_idx
+                "end_idx": end_idx,
+                "line": line
             })
 
         last_end = end
@@ -302,11 +310,12 @@ def get_md_header_contents(
             # Combine all links
             all_links = header_links + body_links
 
-            # Remove duplicates based on (text, url, caption)
+            # Remove duplicates based on (text, url, caption, line)
             seen = set()
             unique_links = []
             for link in all_links:
-                key = (link["text"], link["url"], link["caption"])
+                key = (link["text"], link["url"],
+                       link["caption"], link["line"])
                 if key not in seen:
                     seen.add(key)
                     unique_links.append(link)
