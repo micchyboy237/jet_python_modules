@@ -3,10 +3,11 @@ from typing import List, Optional, Dict, TypedDict
 from sklearn.cluster import AgglomerativeClustering
 import numpy as np
 import torch
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from sentence_transformers import SentenceTransformer
 from functools import lru_cache
 import time
 from jet.logger import logger
+import uuid
 
 
 class Header(TypedDict):
@@ -43,13 +44,11 @@ class MergeInfo(TypedDict):
 
 class MergedPreprocessedText(PreprocessedText):
     merged_count: Optional[int]
-    merged_doc_chunk_indices: Optional[int]
     merged_doc_contents: List[str]
     merged_doc_headers: List[str]
     merged_docs: List[Header]
     tokens: int
     embed_score: Optional[float]
-    rerank_score: Optional[float]
     merge_info: Optional[MergeInfo]
 
 
@@ -68,29 +67,11 @@ class EmbedResult(TypedDict):
     source_url: Optional[str]
 
 
-class RerankResult(TypedDict):
-    node_id: str
-    rank: int
-    doc_index: int
-    score: float
-    text: str
-    tokens: int
-    header_level: int
-    parent_header: Optional[str]
-    header: str
-    content: str
-    embed_score: float
-    rerank_score: float
-    chunk_index: Optional[int]
-    source_url: Optional[str]
-
-
 class SimilarityResult(TypedDict):
     node_id: str
     rank: int
     doc_index: int
     embed_score: float
-    rerank_score: float
     score: float
     text: str
     tokens: int
@@ -108,19 +89,12 @@ class SearchResults(TypedDict):
     results: List[SimilarityResult]
     merge_results: List[MergedPreprocessedText]
     embed_results: List[EmbedResult]
-    rerank_results: List[RerankResult]
 
 
 @lru_cache(maxsize=1)
 def get_sentence_transformer(model_name: str, device: str) -> SentenceTransformer:
     logger.info(f"Loading SentenceTransformer model: {model_name} on {device}")
     return SentenceTransformer(model_name, device=device)
-
-
-@lru_cache(maxsize=1)
-def get_cross_encoder(model_name: str, device: str) -> CrossEncoder:
-    logger.info(f"Loading CrossEncoder model: {model_name} on {device}")
-    return CrossEncoder(model_name, device=device)
 
 
 _device_cache = None
@@ -168,7 +142,7 @@ def embed_search(
         return []
     model = get_sentence_transformer(model_name, device)
     text_strings = [
-        f"{t["parent_header"]}\n{t["text"]}" for t in filtered_texts]
+        f"{t['parent_header']}\n{t['text']}" if t['parent_header'] else t['text'] for t in filtered_texts]
     query_embedding = model.encode(
         query, convert_to_tensor=True, device=device)
     chunk_size = 128
@@ -211,54 +185,6 @@ def embed_search(
     return results
 
 
-def rerank_search(
-    query: str,
-    candidates: List[Dict],
-    model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
-    device: str = get_device(),
-    batch_size: int = 16
-) -> List[RerankResult]:
-    start_time = time.time()
-    logger.info(
-        f"Reranking {len(candidates)} candidates with batch_size={batch_size}")
-    if not candidates:
-        logger.warning(
-            "No candidates provided for reranking, returning empty list")
-        return []
-    model = get_cross_encoder(model_name, device)
-    pairs = [[query, candidate["text"]] for candidate in candidates]
-    scores = model.predict(pairs, batch_size=batch_size)
-    reranked = []
-    for candidate, rerank_score in zip(candidates, scores):
-        embed_score = candidate.get("embed_score", candidate.get("score", 0.0))
-        reranked.append({
-            "node_id": candidate["node_id"],
-            "rank": 0,
-            "doc_index": candidate["doc_index"],
-            "score": float(rerank_score),
-            "text": candidate["text"],
-            "tokens": candidate["tokens"],
-            "header_level": candidate["header_level"],
-            "parent_header": candidate["parent_header"],
-            "header": candidate["header"],
-            "content": candidate["content"],
-            "embed_score": float(embed_score),
-            "rerank_score": float(rerank_score),
-            "chunk_index": candidate.get("chunk_index"),
-            "source_url": candidate.get("source_url"),
-        })
-        logger.debug(
-            f"Reranked candidate {candidate['node_id']}: embed_score={embed_score:.4f}, "
-            f"rerank_score={rerank_score:.4f}")
-    reranked = sorted(reranked, key=lambda x: x["score"], reverse=True)
-    for rank, item in enumerate(reranked, 1):
-        item["rank"] = rank
-    logger.info(
-        f"Reranking completed in {time.time() - start_time:.2f} seconds, "
-        f"returned {len(reranked)} results")
-    return reranked
-
-
 def merge_duplicate_texts_agglomerative(
     texts: List[EmbedResult],
     model_name: str = "all-MiniLM-L12-v2",
@@ -273,6 +199,12 @@ def merge_duplicate_texts_agglomerative(
         logger.warning(
             "No texts provided for deduplication, returning empty list")
         return []
+
+    # Validate input texts
+    for text in texts:
+        if "doc_index" not in text:
+            logger.error(f"Missing 'doc_index' in text: {text['node_id']}")
+            raise KeyError("All texts must have a 'doc_index' field")
 
     headers = [t["header"] for t in texts]
     model = get_sentence_transformer(model_name, device)
@@ -302,12 +234,12 @@ def merge_duplicate_texts_agglomerative(
 
     deduplicated_texts: List[MergedPreprocessedText] = []
     for label, items in cluster_dict.items():
-        sorted_items = sorted(items, key=lambda x: x["score"], reverse=True)
+        sorted_items = sorted(items, key=lambda x: x["original"]["doc_index"])
         best_doc = sorted_items[0]["original"]
 
         other_docs = [item["original"] for item in sorted_items[1:]]
 
-        token_count = best_doc.get("token_count", len(
+        token_count = best_doc.get("tokens", len(
             model.tokenize([best_doc["text"]])["input_ids"][0]))
         merge_info = {
             "min_tokens": min([token_count] + [d["tokens"] for d in other_docs]) if other_docs else token_count,
@@ -326,14 +258,12 @@ def merge_duplicate_texts_agglomerative(
             "chunk_index": best_doc["chunk_index"],
             "token_count": token_count,
             "source_url": best_doc["source_url"],
-            "merged_count": len(items),
-            "merged_doc_chunk_indices": best_doc["chunk_index"],
-            "merged_doc_contents": [doc["content"] for doc in other_docs],
-            "merged_doc_headers": [doc["header"] for doc in other_docs],
-            "merged_docs": other_docs,
-            "tokens": best_doc["tokens"],
             "embed_score": best_doc["score"],
-            "rerank_score": None,
+            "tokens": token_count,
+            "merged_count": len(items),
+            "merged_doc_headers": [doc["header"] for doc in other_docs],
+            "merged_doc_contents": [doc["content"] for doc in other_docs],
+            "merged_docs": other_docs,
             "merge_info": merge_info
         })
 
@@ -351,10 +281,8 @@ def search_documents(
     query: str,
     headers: List[Header],
     model_name: str = "all-MiniLM-L12-v2",
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     device: str = get_device(),
     top_k: int = 20,
-    lambda_param: float = 0.5,
     batch_size: int = 16,
     num_threads: int = 4,
     min_header_level: int = 2,
@@ -372,13 +300,10 @@ def search_documents(
         return {
             "results": [],
             "merge_results": [],
-            "embed_results": [],
-            "rerank_results": []
+            "embed_results": []
         }
     if top_k < 1:
         raise ValueError("top_k must be positive")
-    if not 0 <= lambda_param <= 1:
-        raise ValueError("lambda_param must be between 0 and 1")
     if not 0 <= parent_diversity_weight <= 1:
         raise ValueError("parent_diversity_weight must be between 0 and 1")
     if not 0 <= header_diversity_weight <= 1:
@@ -403,40 +328,38 @@ def search_documents(
             similarity_threshold=0.7,
             batch_size=32
         )
-        logger.info(f"Reranking {len(merged_texts)} candidates")
-        rerank_results_list = rerank_search(
-            query, merged_texts, rerank_model, device, batch_size)
         results = [
             {
                 "node_id": r["node_id"],
                 "rank": 0,
                 "doc_index": r["doc_index"],
                 "embed_score": r["embed_score"],
-                "rerank_score": r["rerank_score"],
-                "score": float(lambda_param * r["rerank_score"] + (1 - lambda_param) * r["embed_score"]),
+                "score": r["embed_score"],
                 "text": r["text"],
                 "tokens": r["tokens"],
                 "header_level": r["header_level"],
                 "parent_header": r["parent_header"],
                 "header": r["header"],
                 "content": r["content"],
+                "merged_docs": r.get("merged_docs", []),
+                "merge_info": r.get("merge_info"),
                 "chunk_index": r.get("chunk_index"),
                 "source_url": r.get("source_url"),
-            } for r in rerank_results_list[:top_k]
+            } for r in merged_texts[:top_k]
         ]
         results = sorted(results, key=lambda x: x["score"], reverse=True)
         for rank, item in enumerate(results, 1):
             item["rank"] = rank
+
         logger.info(
             f"Search completed in {time.time() - start_time:.2f} seconds, "
             f"returning {len(results)} results")
         logger.debug(
-            f"Top 3 results: {[(r['header'][:30] + '...', r['embed_score'], r['rerank_score'], r['score']) for r in results[:3]]}")
+            f"Top 3 results: {[(r['header'][:30] + '...', r['embed_score'], r['score']) for r in results[:3]]}")
         return {
             "results": results,
             "merge_results": merged_texts,
-            "embed_results": embed_results,
-            "rerank_results": rerank_results_list
+            "embed_results": embed_results
         }
     except Exception as e:
         logger.error(f"Search failed: {str(e)}")
