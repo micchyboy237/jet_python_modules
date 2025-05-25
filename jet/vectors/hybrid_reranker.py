@@ -42,7 +42,7 @@ def load_embed_model() -> SentenceTransformer:
 
 def load_rerank_model() -> CrossEncoder:
     """Load sentence transformer and cross-encoder models."""
-    cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
+    cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
     return cross_encoder
 
 

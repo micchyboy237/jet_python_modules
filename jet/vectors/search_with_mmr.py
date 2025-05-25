@@ -232,7 +232,7 @@ def embed_search(
 def rerank_results(
     query: str,
     candidates: List[SimilarityResult],
-    model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2",
+    model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     device: str = get_device(),
     batch_size: int = 16
 ) -> List[SimilarityResult]:
@@ -391,7 +391,7 @@ def search_documents(
     query: str,
     headers: List[Header],
     model_name: str = "all-mpnet-base-v2",
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-12-v2",
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     device: str = get_device(),
     top_k: int = 20,
     num_results: int = 5,
