@@ -145,12 +145,18 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
             cache_key = query_url
             cached_result = cache.get(cache_key)
 
-            if cached_result:
-                logger.log(f"search_searxng: Cache hit for",
-                           cache_key, colors=["SUCCESS", "BRIGHT_SUCCESS"])
-                # return cached_result["results"]
+            if cached_result and cached_result.get("results", []):
+                cached_count = len(cached_result["results"])
+                if count is None or cached_count >= count:
+                    logger.log(f"search_searxng: Cache hit for",
+                               cache_key, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                else:
+                    logger.warning(
+                        f"search_searxng: Cache hit but insufficient results ({cached_count} < {count}) for {cache_key}")
+                    cached_result = None
             else:
-                logger.warning(f"search_searxng: Cache miss for {cache_key}")
+                logger.warning(
+                    f"search_searxng: Cache miss or empty results for {cache_key}")
 
         # Fetch search results
         result = cached_result or fetch_search_results(

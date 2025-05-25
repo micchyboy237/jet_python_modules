@@ -45,7 +45,8 @@ class HeaderMetadata(TypedDict, total=False):
     chunk_index: int | None
     token_count: int | None
     source_url: str | None
-    texts: List[str] | None  # Added optional texts field
+    links: List[str] | None
+    texts: List[str] | None
 
 
 class HeaderDocument(Document):
@@ -61,7 +62,8 @@ class HeaderDocument(Document):
             "chunk_index": data.get("chunk_index", None),
             "token_count": data.get("token_count", None),
             "source_url": data.get("source_url", None),
-            "texts": data.get("texts", None),  # Initialize texts field
+            "links": data.get("links", None),
+            "texts": data.get("texts", None),
         }
         self.metadata = default_metadata  # type: ignore
 

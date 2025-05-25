@@ -297,16 +297,33 @@ def clean_punctuations(content: str) -> str:
     return re.sub(r'([.?!#-)]+)', lambda match: match.group()[-1], content)
 
 
+def protect_links(text: str) -> (str, List[str]):
+    # Find all markdown links and replace them with placeholders
+    links = re.findall(r'\[.*?\]\(.*?\)', text)
+    for i, link in enumerate(links):
+        text = text.replace(link, f"__LINK_{i}__")
+    return text, links
+
+
+def restore_links(text: str, links: List[str]) -> str:
+    for i, link in enumerate(links):
+        text = text.replace(f"__LINK_{i}__", link)
+    return text
+
+
 def clean_spaces(content: str) -> str:
-    # Remove spaces before .?!,;:\]\)}
+    content, links = protect_links(content)
+
+    # Remove spaces before .?!,;:])}
     content = re.sub(r'\s*([.?!,;:\]\)}])', r'\1', content)
 
-    # Ensure single spacing on the right of .?!,;:\]\)} only if the next character is alphanumeric
+    # Ensure single space *after* punctuation if followed by alphanum
     content = re.sub(r'([.?!,;:\]\)}])(\w)', r'\1 \2', content)
 
     # Remove consecutive spaces
     content = re.sub(r' +', ' ', content).strip()
 
+    content = restore_links(content, links)
     return content
 
 

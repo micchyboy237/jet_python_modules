@@ -45,8 +45,10 @@ class PreprocessedText(TypedDict):
 
 class MergedPreprocessedText(PreprocessedText):
     merged_count: Optional[int]
-    merged_doc_chunk_indices: Optional[Dict[int, Optional[List[int]]]]
-    merged_doc_texts: List[str]
+    merged_doc_chunk_indices: Optional[int]
+    merged_doc_contents: List[str]
+    merged_doc_headers: List[str]
+    merged_docs: List[Header]
     tokens: int
     embed_score: Optional[float]
     rerank_score: Optional[float]
@@ -150,8 +152,6 @@ def embed_search(
     logger.info(
         f"Starting embedding search for {len(texts)} texts, top_k={top_k}, device={device}, "
         f"min_header_level={min_header_level}, max_header_level={max_header_level}")
-
-    # Filter texts based on header_level range
     filtered_texts = [
         t for t in texts
         if min_header_level <= t["header_level"] <= max_header_level
@@ -159,17 +159,14 @@ def embed_search(
     logger.info(
         f"Filtered {len(texts) - len(filtered_texts)} texts outside header_level range "
         f"[{min_header_level}, {max_header_level}]. Remaining: {len(filtered_texts)}")
-
     if not filtered_texts:
         logger.warning(
             "No texts remain after header_level filtering, returning empty results")
         return []
-
     model = get_sentence_transformer(model_name, device)
     text_strings = [t["text"] for t in filtered_texts]
     query_embedding = model.encode(
         query, convert_to_tensor=True, device=device)
-
     chunk_size = 128
     similarities = []
     for i in range(0, len(text_strings), chunk_size):
@@ -181,11 +178,9 @@ def embed_search(
             0].cpu().numpy()
         similarities.append(chunk_similarities)
         del chunk_embeddings
-
     similarities = np.concatenate(similarities)
     top_k_indices = np.argsort(similarities)[
         ::-1][:min(top_k, len(similarities))]
-
     results = []
     for rank, idx in enumerate(top_k_indices, 1):
         tokens = len(model.tokenize([text_strings[idx]])["input_ids"][0])
@@ -197,15 +192,12 @@ def embed_search(
             "text": filtered_texts[idx]["header"] + "\n" + filtered_texts[idx]["content"],
             "tokens": tokens,
             "header_level": filtered_texts[idx]["header_level"],
-            # Now properly passed
             "parent_header": filtered_texts[idx]["parent_header"],
             "header": filtered_texts[idx]["header"],
             "content": filtered_texts[idx]["content"],
-            # Now properly passed
             "chunk_index": filtered_texts[idx]["chunk_index"],
             "source_url": filtered_texts[idx]["source_url"],
         })
-
     logger.info(f"Embedding search returned {len(results)} results")
     if results:
         logger.debug(
@@ -225,35 +217,33 @@ def rerank_search(
     start_time = time.time()
     logger.info(
         f"Reranking {len(candidates)} candidates with batch_size={batch_size}")
-
     model = get_cross_encoder(model_name, device)
     pairs = [[query, candidate["text"]] for candidate in candidates]
     scores = model.predict(pairs, batch_size=batch_size)
-
     reranked = []
-    for rank_idx, (candidate, rerank_score) in enumerate(zip(candidates, scores), start=1):
+    for candidate, rerank_score in zip(candidates, scores):
         merged_texts = candidate.get(
-            "merged_doc_texts", [candidate["content"]])
-        # Ensure parent_header is passed
+            "merged_doc_contents", [candidate["content"]])
         parent_header = candidate.get("parent_header")
-
         reranked.append({
             "node_id": candidate["node_id"],
-            "rank": rank_idx,
+            "rank": 0,  # Temporary rank, will be updated after sorting
             "doc_index": candidate["doc_index"],
             "score": float(rerank_score),
             "text": candidate["text"],
             "tokens": candidate["tokens"],
             "header_level": candidate["header_level"],
-            "parent_header": parent_header,  # Properly set
+            "parent_header": parent_header,
             "header": candidate["header"],
             "content": candidate["content"],
             "merged_texts": merged_texts,
             "embed_score": candidate.get("embed_score", 0.0),
             "rerank_score": float(rerank_score)
         })
-
+    # Sort by score in descending order and assign ranks
     reranked = sorted(reranked, key=lambda x: x["score"], reverse=True)
+    for rank, item in enumerate(reranked, 1):
+        item["rank"] = rank
     logger.info(
         f"Reranking completed in {time.time() - start_time:.2f} seconds")
     return reranked
@@ -269,7 +259,10 @@ def merge_duplicate_texts_agglomerative(
     logger.info(
         f"Deduplicating {len(texts)} texts based on headers with agglomerative clustering")
     start_time = time.time()
-
+    if not texts:
+        logger.warning(
+            "No texts provided for deduplication, returning empty list")
+        return []
     headers = [t["header"] for t in texts]
     model = get_sentence_transformer(model_name, device)
     embeddings = model.encode(
@@ -279,11 +272,9 @@ def merge_duplicate_texts_agglomerative(
         convert_to_tensor=True,
         device=device
     ).cpu().numpy()
-
     similarities = util.cos_sim(embeddings, embeddings).cpu().numpy()
     distances = 1 - similarities
     logger.debug(f"Similarity matrix shape: {similarities.shape}")
-
     clustering = AgglomerativeClustering(
         n_clusters=None,
         distance_threshold=1 - similarity_threshold,
@@ -292,7 +283,6 @@ def merge_duplicate_texts_agglomerative(
     )
     labels = clustering.fit_predict(distances)
     logger.debug(f"Cluster labels: {labels}")
-
     cluster_dict = {}
     for idx, (label, text) in enumerate(zip(labels, texts)):
         if label not in cluster_dict:
@@ -302,7 +292,6 @@ def merge_duplicate_texts_agglomerative(
             "embedding": embeddings[idx],
             "similarity_score": float(np.max(similarities[idx]))
         })
-
     deduplicated_texts: List[MergedPreprocessedText] = []
     for label, items in cluster_dict.items():
         if len(items) == 1:
@@ -319,11 +308,10 @@ def merge_duplicate_texts_agglomerative(
                 "token_count": original["tokens"],
                 "source_url": original["source_url"],
                 "merged_count": 1,
-                "merged_doc_chunk_indices": {
-                    original["doc_index"]: [original["chunk_index"]
-                                            ] if original["chunk_index"] is not None else None
-                },
-                "merged_doc_texts": [original["content"]],
+                "merged_doc_chunk_indices": original["chunk_index"],
+                "merged_doc_contents": [original["content"]],
+                "merged_doc_headers": [original["header"]],
+                "merged_docs": [original],
                 "tokens": original["tokens"],
                 "embed_score": original["score"],
                 "rerank_score": None
@@ -331,23 +319,22 @@ def merge_duplicate_texts_agglomerative(
             logger.debug(
                 f"Single text in cluster {label}: {original['header'][:30]}... (doc_index: {original['doc_index']})")
             continue
-
         items.sort(key=lambda x: x["similarity_score"], reverse=True)
         representative = items[0]["original"].copy()
         merged_content = "\n\n".join(
             item["original"]["content"] for item in items
         )
-        merged_doc_chunk_indices = {
-            item["original"]["doc_index"]: (
-                [item["original"]["chunk_index"]
-                 ] if item["original"]["chunk_index"] is not None else None
-            ) for item in items
-        }
-        merged_doc_texts = [item["original"]["content"] for item in items]
+        merged_doc_chunk_indices = representative["chunk_index"]
+        merged_doc_contents = [item["original"]["content"] for item in items]
+        merged_doc_headers = [item["original"]["header"] for item in items]
+        merged_docs = sorted(
+            [item["original"] for item in items],
+            key=lambda x: x["score"],
+            reverse=True
+        )
         total_tokens = sum(item["original"]["tokens"] for item in items)
         avg_embed_score = float(
             np.mean([item["original"]["score"] for item in items]))
-
         deduplicated_texts.append({
             "text": f"{representative['header']}\n{merged_content}",
             "doc_index": representative["doc_index"],
@@ -361,15 +348,16 @@ def merge_duplicate_texts_agglomerative(
             "source_url": representative["source_url"],
             "merged_count": len(items),
             "merged_doc_chunk_indices": merged_doc_chunk_indices,
-            "merged_doc_texts": merged_doc_texts,
+            "merged_doc_contents": merged_doc_contents,
+            "merged_doc_headers": merged_doc_headers,
+            "merged_docs": merged_docs,
             "tokens": total_tokens,
             "embed_score": avg_embed_score,
             "rerank_score": None
         })
         logger.debug(
             f"Merged {len(items)} texts for cluster {label}, header: {representative['header'][:30]}..., "
-            f"doc_indices: {list(merged_doc_chunk_indices.keys())}, new content length: {len(merged_content.split())} words")
-
+            f"doc_indices: {[item['original']['doc_index'] for item in items]}, new content length: {len(merged_content.split())} words")
     logger.info(
         f"Reduced {len(texts)} texts to {len(deduplicated_texts)} after header-based clustering. Time: {time.time() - start_time:.2f}s")
     return deduplicated_texts
@@ -397,7 +385,6 @@ def search_documents(
     start_time = time.time()
     logger.info(
         f"Starting search with query: {query[:50]}..., {len(headers)} headers, device={device}")
-
     if not query or not query.strip():
         raise ValueError("Query cannot be empty")
     if not headers:
@@ -416,7 +403,6 @@ def search_documents(
         raise ValueError("parent_diversity_weight must be between 0 and 1")
     if not 0 <= header_diversity_weight <= 1:
         raise ValueError("header_diversity_weight must be between 0 and 1")
-
     try:
         logger.info(f"Embedding search with {len(headers)} texts")
         embed_results = embed_search(
@@ -428,7 +414,6 @@ def search_documents(
             min_header_level=min_header_level,
             max_header_level=max_header_level,
         )
-
         logger.info(
             "Deduplicating embed results using agglomerative clustering")
         merged_texts = merge_duplicate_texts_agglomerative(
@@ -438,15 +423,14 @@ def search_documents(
             similarity_threshold=0.7,
             batch_size=32
         )
-
         logger.info(f"Reranking {len(merged_texts)} candidates")
         rerank_results_list = rerank_search(
             query, merged_texts, rerank_model, device, batch_size)
-
+        # Construct results with temporary rank
         results = [
             {
                 "node_id": r["node_id"],
-                "rank": r["rank"],
+                "rank": 0,  # Temporary rank, will be updated after sorting
                 "doc_index": r["doc_index"],
                 "embed_score": r["embed_score"],
                 "rerank_score": r["rerank_score"],
@@ -460,7 +444,10 @@ def search_documents(
                 "merged_texts": r["merged_texts"]
             } for r in rerank_results_list[:top_k]
         ]
-
+        # Sort by combined score in descending order and assign ranks
+        results = sorted(results, key=lambda x: x["score"], reverse=True)
+        for rank, item in enumerate(results, 1):
+            item["rank"] = rank
         logger.info(
             f"Search completed in {time.time() - start_time:.2f} seconds, returning {len(results)} results")
         return {

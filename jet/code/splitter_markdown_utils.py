@@ -1,5 +1,5 @@
 import re
-from typing import Callable, Optional, List, Dict, TypedDict, Union
+from typing import Callable, Optional, List, Dict, Tuple, TypedDict, Union
 
 from jet.scrapers.preprocessor import html_to_markdown, is_html, scrape_markdown
 from jet.scrapers.utils import clean_spaces
@@ -29,13 +29,21 @@ class HeaderItem(TypedDict):
     parents: list[str]
 
 
+class HeaderLink(TypedDict):
+    text: str
+    url: str
+    caption: Optional[str]
+    start_idx: int
+    end_idx: int
+
+
 class Header(TypedDict):
     header: str
     parent_header: Optional[str]
     header_level: int
-    length: int
     content: str
     text: str
+    links: List[HeaderLink]
 
 
 def get_flat_header_list(header_nodes: Union[HeaderNode, List[HeaderNode]], flat_list: Optional[List[HeaderNode]] = None) -> List[HeaderNode]:
@@ -180,9 +188,48 @@ def get_header_contents(md_text: str,
     return hierarchy
 
 
+def extract_markdown_links(text: str) -> Tuple[List[HeaderLink], str]:
+    pattern = re.compile(r'\[([^\]]*)\]\((\S+?)(?:\s+"([^"]+)")?\)')
+    links: List[HeaderLink] = []
+    output = ""
+    last_end = 0
+    seen = set()
+
+    for match in pattern.finditer(text):
+        start, end = match.span()
+        label, url, caption = match.group(1), match.group(2), match.group(3)
+
+        # Append text before this match
+        output += text[last_end:start]
+
+        start_idx = len(output)
+        replacement_text = label if label.strip() else ""
+        output += replacement_text
+        end_idx = len(output)
+
+        # Uniqueness key ignoring positions
+        key = (label, url, caption)
+        if key not in seen:
+            seen.add(key)
+            links.append({
+                "text": label,
+                "url": url,
+                "caption": caption,
+                "start_idx": start_idx,
+                "end_idx": end_idx
+            })
+
+        last_end = end
+
+    # Append remaining text after last match
+    output += text[last_end:]
+
+    return links, output
+
+
 def get_md_header_contents(
     md_text: str,
-    headers_to_split_on: List[tuple[str, str]] = [],
+    headers_to_split_on: List[Tuple[str, str]] = [],
     ignore_links: bool = True
 ) -> List[Header]:
     from jet.scrapers.utils import clean_newlines, clean_text, clean_spaces
@@ -190,7 +237,7 @@ def get_md_header_contents(
 
     if is_html(md_text):
         md_text = html_to_markdown(md_text, ignore_links=ignore_links, remove_selectors=[
-                                   "style", "script", "nav", "footer"])
+            "style", "script", "nav", "footer"])
 
     md_text = md_text.strip()
 
@@ -207,53 +254,84 @@ def get_md_header_contents(
     md_header_splits = markdown_splitter.split_text(md_text)
 
     md_header_contents: List[Header] = []
-    parent_stack: List[tuple[int, str]] = []
+    parent_stack: List[Tuple[int, str]] = []
 
     for split in md_header_splits:
-        text = split.page_content
-        text = clean_newlines(clean_text(
-            text), max_newlines=1, strip_lines=True)
-        # Skip if the text doesn't start with a valid header
-        if not any(text.lstrip().startswith(prefix) for prefix, _ in headers_to_split_on):
-            continue
+        raw_text = clean_spaces(clean_newlines(clean_text(
+            split.page_content), max_newlines=1, strip_lines=True))
+
+        last_key = list(split.metadata.keys())[-1]
+        last_value = split.metadata[last_key]
+        last_hashtag = next(
+            (prefix for prefix, header in headers_to_split_on if header == last_key), None)
+        last_header = f"{last_hashtag} {last_value}"
+
+        if not raw_text.startswith(last_header):
+            for key, value in split.metadata.items():
+                hashtag = next(
+                    (prefix for prefix, header in headers_to_split_on if header == key), None)
+                header = f"{hashtag} {value}"
+                if raw_text.startswith(header):
+                    raw_text = raw_text[len(header):].strip()
+            raw_text = f"{last_header}\n{raw_text}"
+
         try:
-            header = get_header_text(text)
-            text = clean_spaces(text)
-            header = clean_spaces(header)
-            # Extract content, excluding subsequent headers
-            content_lines = text.splitlines()[1:]
-            content = "\n".join(line for line in content_lines if not any(
-                line.lstrip().startswith(prefix) for prefix, _ in headers_to_split_on)).strip()
+            # Extract raw header line and clean it
+            header_line = get_header_text(raw_text)
+            header_line = clean_spaces(header_line)
 
-            header_text = header.lstrip("#").strip()
+            # Extract links from header line
+            header_links, clean_header = extract_markdown_links(header_line)
 
-            # Handle empty header_text
+            header_level = get_header_level(clean_header)
+
+            # Clean full text, extract links
+            cleaned_text = clean_spaces(raw_text)
+            body_links, cleaned_text = extract_markdown_links(cleaned_text)
+
+            # Combine all links
+            all_links = header_links + body_links
+
+            # Remove duplicates based on (text, url, caption)
+            seen = set()
+            unique_links = []
+            for link in all_links:
+                key = (link["text"], link["url"], link["caption"])
+                if key not in seen:
+                    seen.add(key)
+                    unique_links.append(link)
+
+            all_links = unique_links
+
+            # Extract content below the header
+            content_lines = cleaned_text.splitlines()[1:]
+            content = "\n".join(
+                line for line in content_lines
+                if not any(line.lstrip().startswith(prefix) for prefix, _ in headers_to_split_on)
+            ).strip()
+            clean_content = clean_spaces(content)
+
+            final_text = f"{clean_header}\n{clean_content}".strip()
+            header_text = clean_header.lstrip("#").strip()
+
             if not header_text and parent_stack:
-                header_level, header = parent_stack[-1]
-                # Update the content and text of the last item in md_header_contents
                 if md_header_contents:
-                    md_header_contents[-1]["content"] = (
-                        md_header_contents[-1]["content"] + "\n\n" + content
-                    ).strip()
-                    md_header_contents[-1]["text"] = (
-                        md_header_contents[-1]["text"] + "\n\n" + content
-                    ).strip()
+                    md_header_contents[-1]["content"] += "\n\n" + clean_content
+                    md_header_contents[-1]["text"] += "\n\n" + final_text
                 continue
-
-            header_level = get_header_level(header)
 
             while parent_stack and parent_stack[-1][0] >= header_level:
                 parent_stack.pop()
             parent_header = parent_stack[-1][1] if parent_stack else None
-            parent_stack.append((header_level, header))
+            parent_stack.append((header_level, clean_header))
 
             md_header_contents.append({
-                "header": header,
+                "header": clean_header,
                 "header_level": header_level,
                 "parent_header": parent_header,
-                "length": len(text),
-                "content": content,
-                "text": text
+                "content": clean_content,
+                "text": final_text,
+                "links": all_links,
             })
         except ValueError:
             continue
@@ -264,18 +342,14 @@ def get_md_header_contents(
 def get_md_header_docs(
     md_text: str,
     headers_to_split_on: List[tuple[str, str]] = [],
-    ignore_links: bool = True
+    ignore_links: bool = False
 ) -> List[HeaderDocument]:
     headers = get_md_header_contents(
         md_text, headers_to_split_on, ignore_links)
     header_docs = [
         HeaderDocument(
             doc_index=i,
-            header_level=header["header_level"],
-            parent_header=header["parent_header"],
-            header=header["header"],
-            content=header["content"],
-            text=header["text"],
+            **header,
         )
         for i, header in enumerate(headers)
     ]

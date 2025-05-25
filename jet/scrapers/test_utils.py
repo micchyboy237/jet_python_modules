@@ -40,6 +40,12 @@ class TestCleanSpaces(unittest.TestCase):
         result = clean_spaces(sample)
         self.assertEqual(result, expected)
 
+    def test_markdown_links_preserved(self):
+        sample = 'Check this [ Mohsin Lag ](https://bakabuzz.com/author/bakabuzz/ "Posts by Mohsin Lag")!'
+        expected = 'Check this [ Mohsin Lag ](https://bakabuzz.com/author/bakabuzz/ "Posts by Mohsin Lag")!'
+        result = clean_spaces(sample)
+        self.assertEqual(result, expected)
+
 
 class TestCleanPunctuations(unittest.TestCase):
     def test_multiple_exclamations(self):
