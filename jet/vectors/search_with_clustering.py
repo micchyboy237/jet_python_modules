@@ -129,67 +129,6 @@ def get_device() -> str:
     return _device_cache
 
 
-def preprocess_texts(
-    headers: List[Header],
-    exclude_keywords: List[str] = [],
-    min_header_words: int = 5,
-    min_header_level: int = 2,
-    parent_keyword: Optional[str] = None,
-    min_content_words: int = 5
-) -> List[PreprocessedText]:
-    start_time = time.time()
-    logger.info(
-        f"Preprocessing {len(headers)} headers with min_header_words={min_header_words}, min_header_level={min_header_level}, min_content_words={min_content_words}, parent_keyword={parent_keyword}"
-    )
-    results = []
-    keyword_excluded = 0
-    short_header_excluded = 0
-    short_content_excluded = 0
-    level_excluded = 0
-    parent_excluded = 0
-    for i, header in enumerate(headers):
-        content_words = header["content"].split()
-        if len(content_words) < min_content_words:
-            short_content_excluded += 1
-            continue
-        combined_text = f"{header['header']}\n{header['content']}"
-        if any(keyword in header["header"].lower() for keyword in exclude_keywords) or \
-           any(keyword in header["content"].lower() for keyword in exclude_keywords):
-            keyword_excluded += 1
-            continue
-        if len(header["header"].split()) < min_header_words:
-            short_header_excluded += 1
-            continue
-        if header["header_level"] < min_header_level:
-            level_excluded += 1
-            continue
-        if parent_keyword and (not header["parent_header"] or parent_keyword.lower() not in header["parent_header"].lower()):
-            parent_excluded += 1
-            continue
-        results.append({
-            "text": combined_text,
-            "doc_index": i,
-            "node_id": f"doc_{i}",
-            "header_level": header["header_level"],
-            "chunk_index": header["chunk_index"],
-            "token_count": header["token_count"],
-            "source_url": header["source_url"],
-            "parent_header": header["parent_header"],
-            "header": header["header"],
-            "content": header["content"]
-        })
-    logger.info(
-        f"Preprocessed {len(results)} texts. Excluded: {keyword_excluded} (keywords), {short_header_excluded} (short headers), {short_content_excluded} (short content), {level_excluded} (header level), {parent_excluded} (parent keyword)"
-    )
-    if results:
-        logger.debug(
-            f"Sample preprocessed header: {json.dumps(results[0]['header'][:50])}..., content: {json.dumps(results[0]['content'][:50])}..."
-        )
-    logger.info(
-        f"Preprocessing completed in {time.time() - start_time:.2f} seconds")
-    return results
-
-
 def encode_chunk(chunk: List[str], model: SentenceTransformer, device: str) -> np.ndarray:
     return model.encode(chunk, batch_size=32, show_progress_bar=False, convert_to_tensor=True, device=device).cpu().numpy()
 
@@ -444,14 +383,6 @@ def search_documents(
     if not 0 <= header_diversity_weight <= 1:
         raise ValueError("header_diversity_weight must be between 0 and 1")
     try:
-        # preprocessed = preprocess_texts(
-        #     headers,
-        #     exclude_keywords=exclude_keywords,
-        #     min_header_words=min_header_words,
-        #     min_header_level=min_header_level,
-        #     parent_keyword=parent_keyword,
-        #     min_content_words=min_content_words
-        # )
         logger.info(f"Embedding search with {len(headers)} texts")
         embed_results = embed_search(
             query,
