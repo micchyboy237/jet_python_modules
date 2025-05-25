@@ -236,8 +236,14 @@ def rerank_search(
         }])
         # Sort merged_docs by doc_index
         merged_docs = sorted(merged_docs, key=lambda x: x["doc_index"])
-        # Combine texts from merged_docs
-        combined_text = "\n\n".join(doc["text"] for doc in merged_docs)
+        # Combine texts from merged_docs, excluding header if same as previous
+        combined_text_parts = []
+        for i, doc in enumerate(merged_docs):
+            if i > 0 and doc["header"] == merged_docs[i-1]["header"]:
+                combined_text_parts.append(doc["content"])
+            else:
+                combined_text_parts.append(doc["text"])
+        combined_text = "\n\n".join(combined_text_parts)
         parent_header = candidate.get("parent_header")
         reranked.append({
             "node_id": candidate["node_id"],
@@ -340,7 +346,14 @@ def merge_duplicate_texts_agglomerative(
             [item["original"] for item in items],
             key=lambda x: x["doc_index"]
         )
-        combined_text = "\n\n".join(doc["text"] for doc in merged_docs)
+        # Combine texts from merged_docs, excluding header if same as previous
+        combined_text_parts = []
+        for i, doc in enumerate(merged_docs):
+            if i > 0 and doc["header"] == merged_docs[i-1]["header"]:
+                combined_text_parts.append(doc["content"])
+            else:
+                combined_text_parts.append(doc["text"])
+        combined_text = "\n\n".join(combined_text_parts)
         merged_content = "\n\n".join(
             item["original"]["content"] for item in items
         )
