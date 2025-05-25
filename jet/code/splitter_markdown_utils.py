@@ -36,6 +36,7 @@ class HeaderLink(TypedDict):
     start_idx: int
     end_idx: int
     line: str
+    line_idx: int
 
 
 class Header(TypedDict):
@@ -195,6 +196,7 @@ def extract_markdown_links(text: str) -> Tuple[List[HeaderLink], str]:
     output = ""
     last_end = 0
     seen = set()
+    all_lines = text.splitlines()
 
     for match in pattern.finditer(text):
         start, end = match.span()
@@ -208,23 +210,27 @@ def extract_markdown_links(text: str) -> Tuple[List[HeaderLink], str]:
         output += replacement_text
         end_idx = len(output)
 
+        # Find the full line containing the link and its line index
+        start_line_idx = text[:start].rfind('\n') + 1
+        end_line_idx = text.find('\n', end)
+        if end_line_idx == -1:
+            end_line_idx = len(text)
+        line = text[start_line_idx:end_line_idx].strip()
+        # Calculate line index (0-based)
+        line_idx = len(text[:start].splitlines()) - 1
+
         # Uniqueness key ignoring positions
-        key = (label, url, caption)
+        key = (label, url, caption, line)
         if key not in seen:
             seen.add(key)
-            # Find the full line containing the link
-            start_line_idx = text[:start].rfind('\n') + 1
-            end_line_idx = text.find('\n', end)
-            if end_line_idx == -1:
-                end_line_idx = len(text)
-            line = text[start_line_idx:end_line_idx].strip()
             links.append({
                 "text": label,
                 "url": url,
                 "caption": caption,
                 "start_idx": start_idx,
                 "end_idx": end_idx,
-                "line": line
+                "line": line,
+                "line_idx": line_idx
             })
 
         last_end = end
