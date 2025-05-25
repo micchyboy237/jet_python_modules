@@ -234,13 +234,17 @@ def rerank_search(
             "token_count": candidate["tokens"],
             "source_url": candidate["source_url"]
         }])
+        # Sort merged_docs by doc_index
+        merged_docs = sorted(merged_docs, key=lambda x: x["doc_index"])
+        # Combine texts from merged_docs
+        combined_text = "\n\n".join(doc["text"] for doc in merged_docs)
         parent_header = candidate.get("parent_header")
         reranked.append({
             "node_id": candidate["node_id"],
             "rank": 0,
             "doc_index": candidate["doc_index"],
             "score": float(rerank_score),
-            "text": candidate["text"],
+            "text": combined_text,
             "tokens": candidate["tokens"],
             "header_level": candidate["header_level"],
             "parent_header": parent_header,
@@ -305,8 +309,10 @@ def merge_duplicate_texts_agglomerative(
     for label, items in cluster_dict.items():
         if len(items) == 1:
             original = items[0]["original"]
+            merged_docs = [original]
+            combined_text = original["text"]
             deduplicated_texts.append({
-                "text": original["text"],
+                "text": combined_text,
                 "doc_index": original["doc_index"],
                 "node_id": original["node_id"],
                 "header_level": original["header_level"],
@@ -320,7 +326,7 @@ def merge_duplicate_texts_agglomerative(
                 "merged_doc_chunk_indices": original["chunk_index"],
                 "merged_doc_contents": [original["content"]],
                 "merged_doc_headers": [original["header"]],
-                "merged_docs": [original],
+                "merged_docs": merged_docs,
                 "tokens": original["tokens"],
                 "embed_score": original["score"],
                 "rerank_score": None
@@ -330,22 +336,22 @@ def merge_duplicate_texts_agglomerative(
             continue
         items.sort(key=lambda x: x["similarity_score"], reverse=True)
         representative = items[0]["original"].copy()
+        merged_docs = sorted(
+            [item["original"] for item in items],
+            key=lambda x: x["doc_index"]
+        )
+        combined_text = "\n\n".join(doc["text"] for doc in merged_docs)
         merged_content = "\n\n".join(
             item["original"]["content"] for item in items
         )
         merged_doc_chunk_indices = representative["chunk_index"]
         merged_doc_contents = [item["original"]["content"] for item in items]
         merged_doc_headers = [item["original"]["header"] for item in items]
-        merged_docs = sorted(
-            [item["original"] for item in items],
-            key=lambda x: x["score"],
-            reverse=True
-        )
         total_tokens = sum(item["original"]["tokens"] for item in items)
         avg_embed_score = float(
             np.mean([item["original"]["score"] for item in items]))
         deduplicated_texts.append({
-            "text": f"{representative['header']}\n{merged_content}",
+            "text": combined_text,
             "doc_index": representative["doc_index"],
             "node_id": representative["node_id"],
             "header_level": representative["header_level"],
