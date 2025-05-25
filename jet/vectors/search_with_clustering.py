@@ -67,7 +67,7 @@ class SimilarityResult(TypedDict):
     parent_header: Optional[str]
     header: str
     content: str
-    merged_texts: List[str]
+    merged_docs: List[Header]
 
 
 class EmbedResult(TypedDict):
@@ -96,7 +96,7 @@ class RerankResult(TypedDict):
     parent_header: Optional[str]
     header: str
     content: str
-    merged_texts: List[str]
+    merged_docs: List[Header]
     embed_score: float
     rerank_score: float
 
@@ -222,12 +222,22 @@ def rerank_search(
     scores = model.predict(pairs, batch_size=batch_size)
     reranked = []
     for candidate, rerank_score in zip(candidates, scores):
-        merged_texts = candidate.get(
-            "merged_doc_contents", [candidate["content"]])
+        merged_docs = candidate.get("merged_docs", [{
+            "node_id": candidate["node_id"],
+            "text": candidate["text"],
+            "doc_index": candidate["doc_index"],
+            "header_level": candidate["header_level"],
+            "header": candidate["header"],
+            "parent_header": candidate["parent_header"],
+            "content": candidate["content"],
+            "chunk_index": candidate["chunk_index"],
+            "token_count": candidate["tokens"],
+            "source_url": candidate["source_url"]
+        }])
         parent_header = candidate.get("parent_header")
         reranked.append({
             "node_id": candidate["node_id"],
-            "rank": 0,  # Temporary rank, will be updated after sorting
+            "rank": 0,
             "doc_index": candidate["doc_index"],
             "score": float(rerank_score),
             "text": candidate["text"],
@@ -236,11 +246,10 @@ def rerank_search(
             "parent_header": parent_header,
             "header": candidate["header"],
             "content": candidate["content"],
-            "merged_texts": merged_texts,
+            "merged_docs": merged_docs,
             "embed_score": candidate.get("embed_score", 0.0),
             "rerank_score": float(rerank_score)
         })
-    # Sort by score in descending order and assign ranks
     reranked = sorted(reranked, key=lambda x: x["score"], reverse=True)
     for rank, item in enumerate(reranked, 1):
         item["rank"] = rank
@@ -426,11 +435,10 @@ def search_documents(
         logger.info(f"Reranking {len(merged_texts)} candidates")
         rerank_results_list = rerank_search(
             query, merged_texts, rerank_model, device, batch_size)
-        # Construct results with temporary rank
         results = [
             {
                 "node_id": r["node_id"],
-                "rank": 0,  # Temporary rank, will be updated after sorting
+                "rank": 0,
                 "doc_index": r["doc_index"],
                 "embed_score": r["embed_score"],
                 "rerank_score": r["rerank_score"],
@@ -441,10 +449,9 @@ def search_documents(
                 "parent_header": r["parent_header"],
                 "header": r["header"],
                 "content": r["content"],
-                "merged_texts": r["merged_texts"]
+                "merged_docs": r["merged_docs"]
             } for r in rerank_results_list[:top_k]
         ]
-        # Sort by combined score in descending order and assign ranks
         results = sorted(results, key=lambda x: x["score"], reverse=True)
         for rank, item in enumerate(results, 1):
             item["rank"] = rank
