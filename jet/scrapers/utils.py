@@ -297,9 +297,17 @@ def clean_punctuations(content: str) -> str:
     return re.sub(r'([.?!#-)]+)', lambda match: match.group()[-1], content)
 
 
-def protect_links(text: str) -> (str, List[str]):
-    # Find all markdown links and replace them with placeholders
-    links = re.findall(r'\[.*?\]\(.*?\)', text)
+def protect_links(text: str) -> Tuple[str, List[str]]:
+    # Find all markdown links and plain URLs
+    links = []
+    # Match markdown links: [text](url)
+    markdown_links = re.findall(r'\[.*?\]\(.*?\)', text)
+    links.extend(markdown_links)
+    # Match plain URLs (http(s):// followed by non-whitespace characters)
+    plain_urls = re.findall(r'https?://[^\s]+', text)
+    links.extend(plain_urls)
+
+    # Replace links with placeholders
     for i, link in enumerate(links):
         text = text.replace(link, f"__LINK_{i}__")
     return text, links

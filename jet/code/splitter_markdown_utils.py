@@ -260,6 +260,16 @@ def get_md_header_contents(
         raw_text = clean_spaces(clean_newlines(clean_text(
             split.page_content), max_newlines=1, strip_lines=True))
 
+        # Check if metadata is empty
+        if not split.metadata:
+            # Skip splits with no metadata or handle as plain content
+            if raw_text.strip():
+                if md_header_contents and parent_stack:
+                    # Append to the last header's content if available
+                    md_header_contents[-1]["content"] += "\n\n" + raw_text
+                    md_header_contents[-1]["text"] += "\n\n" + raw_text
+                continue
+
         last_key = list(split.metadata.keys())[-1]
         last_value = split.metadata[last_key]
         last_hashtag = next(

@@ -40,6 +40,12 @@ class TestCleanSpaces(unittest.TestCase):
         result = clean_spaces(sample)
         self.assertEqual(result, expected)
 
+    def test_links_preserved(self):
+        sample = '1. Go to Tik Tok Seller PH Center -- https://seller-ph.tiktok.com -- this link is dedicated to the Philippine Market business registration.'
+        expected = sample
+        result = clean_spaces(sample)
+        self.assertEqual(result, expected)
+
     def test_markdown_links_preserved(self):
         sample = 'Check this [ Mohsin Lag ](https://bakabuzz.com/author/bakabuzz/ "Posts by Mohsin Lag")!'
         expected = 'Check this [ Mohsin Lag ](https://bakabuzz.com/author/bakabuzz/ "Posts by Mohsin Lag")!'
