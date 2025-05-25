@@ -629,16 +629,21 @@ def split_headers(
     nodes: list[HeaderTextNode] = []
 
     for doc_idx, (doc, token_count) in enumerate(zip(docs, token_counts)):
+        # Preserve original doc_index from the input document
+        original_doc_index = doc.metadata.get("doc_index", doc_idx)
+
         # Create base node with original text and metadata
         node = HeaderTextNode(
             text=doc.text,
             metadata={
                 **doc.metadata,
+                "doc_index": original_doc_index,  # Preserve doc_index
                 "content": doc.metadata["content"],
                 "start_idx": 0,
                 "end_idx": len(doc.text),
                 "chunk_index": None,
                 "token_count": token_count,  # Add token count for unsplit document
+                "texts": None,  # Initialize texts field
             }
         )
 
@@ -646,6 +651,9 @@ def split_headers(
             splitter = SentenceSplitter(
                 chunk_size=chunk_size, chunk_overlap=chunk_overlap)
             splitted_texts = splitter.split_text(doc.metadata["content"])
+
+            # Update parent node with split texts
+            node.metadata["texts"] = splitted_texts
 
             prev_sibling: Optional[HeaderTextNode] = None
             last_pos = 0
@@ -666,11 +674,13 @@ def split_headers(
                     text=subtext,
                     metadata={
                         **doc.metadata,
+                        "doc_index": original_doc_index,  # Preserve doc_index
                         "content": subtext,
                         "start_idx": start_idx,
                         "end_idx": end_idx,
                         "chunk_index": chunk_idx,
                         "token_count": chunk_token_count,  # Add token count for chunk
+                        "texts": None,  # Child nodes don't need texts field
                     }
                 )
                 nodes.append(sub_node)
