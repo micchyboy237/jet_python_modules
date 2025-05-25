@@ -196,7 +196,7 @@ def encode_chunk(chunk: List[str], model: SentenceTransformer, device: str) -> n
 
 def embed_search(
     query: str,
-    texts: List[PreprocessedText],
+    texts: List[Header],
     model_name: str = "all-MiniLM-L12-v2",
     *,
     device: str = get_device(),
@@ -410,7 +410,6 @@ def search_documents(
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-12-v2",
     device: str = get_device(),
     top_k: int = 20,
-    num_results: int = 5,
     lambda_param: float = 0.5,
     batch_size: int = 16,
     num_threads: int = 4,
@@ -436,8 +435,8 @@ def search_documents(
             "embed_results": [],
             "rerank_results": []
         }
-    if top_k < 1 or num_results < 1:
-        raise ValueError("top_k and num_results must be positive")
+    if top_k < 1:
+        raise ValueError("top_k must be positive")
     if not 0 <= lambda_param <= 1:
         raise ValueError("lambda_param must be between 0 and 1")
     if not 0 <= parent_diversity_weight <= 1:
@@ -445,18 +444,18 @@ def search_documents(
     if not 0 <= header_diversity_weight <= 1:
         raise ValueError("header_diversity_weight must be between 0 and 1")
     try:
-        preprocessed = preprocess_texts(
-            headers,
-            exclude_keywords=exclude_keywords,
-            min_header_words=min_header_words,
-            min_header_level=min_header_level,
-            parent_keyword=parent_keyword,
-            min_content_words=min_content_words
-        )
-        logger.info(f"Embedding search with {len(preprocessed)} texts")
+        # preprocessed = preprocess_texts(
+        #     headers,
+        #     exclude_keywords=exclude_keywords,
+        #     min_header_words=min_header_words,
+        #     min_header_level=min_header_level,
+        #     parent_keyword=parent_keyword,
+        #     min_content_words=min_content_words
+        # )
+        logger.info(f"Embedding search with {len(headers)} texts")
         embed_results = embed_search(
             query,
-            preprocessed,
+            headers,
             model_name,
             device=device,
             num_threads=num_threads,
@@ -489,7 +488,7 @@ def search_documents(
                 "header": r["header"],
                 "content": r["content"],
                 "merged_texts": r["merged_texts"]
-            } for r in rerank_results_list[:num_results]
+            } for r in rerank_results_list[:top_k]
         ]
         logger.info(
             f"Search completed in {time.time() - start_time:.2f} seconds, returning {len(results)} results")
