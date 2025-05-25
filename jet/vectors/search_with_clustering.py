@@ -46,7 +46,7 @@ class PreprocessedText(TypedDict):
 class MergedPreprocessedText(PreprocessedText):
     merged_count: Optional[int]
     merged_doc_chunk_indices: Optional[Dict[int, Optional[List[int]]]]
-    merged_doc_texts: Optional[List[str]]
+    merged_doc_texts: List[str]
     tokens: int
     embed_score: Optional[float]
     rerank_score: Optional[float]
@@ -57,16 +57,15 @@ class SimilarityResult(TypedDict):
     rank: int
     doc_index: int
     embed_score: float
-    text: str
-    tokens: int
     rerank_score: float
     score: float
+    text: str
+    tokens: int
     header_level: int
     parent_header: Optional[str]
     header: str
     content: str
-    chunk_index: Optional[int]
-    merged_texts: Optional[List[str]]
+    merged_texts: List[str]
 
 
 class EmbedResult(TypedDict):
@@ -81,7 +80,7 @@ class EmbedResult(TypedDict):
     header: str
     content: str
     chunk_index: Optional[int]
-    merged_texts: Optional[List[str]]
+    source_url: Optional[str]
 
 
 class RerankResult(TypedDict):
@@ -95,8 +94,9 @@ class RerankResult(TypedDict):
     parent_header: Optional[str]
     header: str
     content: str
-    chunk_index: Optional[int]
-    merged_texts: Optional[List[str]]
+    merged_texts: List[str]
+    embed_score: float
+    rerank_score: float
 
 
 class SearchResults(TypedDict):
@@ -238,7 +238,6 @@ def embed_search(
     results = []
     for rank, idx in enumerate(top_k_indices, 1):
         tokens = len(model.tokenize([text_strings[idx]])["input_ids"][0])
-        merged_texts = filtered_texts[idx].get("merged_doc_texts", None)
         results.append({
             "node_id": filtered_texts[idx]["node_id"],
             "rank": rank,
@@ -252,7 +251,6 @@ def embed_search(
             "chunk_index": filtered_texts[idx]["chunk_index"],
             "source_url": filtered_texts[idx]["source_url"],
             "text": filtered_texts[idx]["header"] + "\n" + filtered_texts[idx]["content"],
-            "merged_texts": merged_texts
         })
     logger.info(f"Embedding search returned {len(results)} results")
     if results:
@@ -278,6 +276,8 @@ def rerank_results(
     scores = model.predict(pairs, batch_size=batch_size)
     reranked = []
     for rank_idx, (candidate, rerank_score) in enumerate(zip(candidates, scores), start=1):
+        merged_texts = candidate.get(
+            "merged_doc_texts", [candidate["content"]])
         reranked.append({
             "node_id": candidate["node_id"],
             "rank": rank_idx,
@@ -289,8 +289,7 @@ def rerank_results(
             "parent_header": candidate["parent_header"],
             "header": candidate["header"],
             "content": candidate["content"],
-            "chunk_index": candidate["chunk_index"],
-            "merged_texts": candidate.get("merged_texts", None),
+            "merged_texts": merged_texts,
             "embed_score": candidate.get("embed_score", 0.0),
             "rerank_score": float(rerank_score)
         })
@@ -356,7 +355,7 @@ def merge_duplicate_texts_agglomerative(
                 "source_url": original["source_url"],
                 "merged_count": 1,
                 "merged_doc_chunk_indices": {original["doc_index"]: [original["chunk_index"]] if original["chunk_index"] is not None else None},
-                "merged_doc_texts": [original["text"]],
+                "merged_doc_texts": [original["content"]],
                 "tokens": original["tokens"],
                 "embed_score": original["score"],
                 "rerank_score": None
@@ -374,7 +373,7 @@ def merge_duplicate_texts_agglomerative(
                                             ] if item["original"]["chunk_index"] is not None else None
             for item in items
         }
-        merged_doc_texts = [item["original"]["text"] for item in items]
+        merged_doc_texts = [item["original"]["content"] for item in items]
         total_tokens = sum(item["original"]["tokens"] for item in items)
         avg_embed_score = float(
             np.mean([item["original"]["score"] for item in items]))
@@ -489,7 +488,6 @@ def search_documents(
                 "parent_header": r["parent_header"],
                 "header": r["header"],
                 "content": r["content"],
-                "chunk_index": r["chunk_index"],
                 "merged_texts": r["merged_texts"]
             } for r in rerank_results_list[:num_results]
         ]
