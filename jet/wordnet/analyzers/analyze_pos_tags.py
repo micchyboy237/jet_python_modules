@@ -412,7 +412,7 @@ def clean_dictionary(data: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned_dict
 
 
-def main(
+def analyze_pos_tags(
     texts: List[Dict[str, str]],
     n=1,
     top_n=10,
@@ -424,6 +424,7 @@ def main(
     includes_pos=[],
     excludes_pos=[],
     pos_text_count=None,
+    output_dir=None
 ):
     tagger = POSTagger()
     tagged_data = []
@@ -439,7 +440,7 @@ def main(
             'pos_text': tagged_text
         })
 
-    output_dir = os.path.join(
+    output_dir = output_dir or os.path.join(
         os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
     processor = LanguageDataProcessor(
         tagged_data, n=n, from_start=from_start, format_lambda=text_lambda)
@@ -475,20 +476,3 @@ def main(
             elif type == "language_results":
                 save_data(
                     f'{output_dir}/datasets/{lang}/{n_label}_language_results_{n_scope}.json', result, write=True)
-
-
-if __name__ == '__main__':
-    from jet.file.utils import load_file
-
-    docs_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/features/generated/run_search_and_rerank/docs.json"
-
-    headers: list[dict] = load_file(docs_file)
-    texts = [{'text': header["text"], 'lang': 'en'} for header in headers]
-
-    main(texts, n=2, from_start=True, words_only=True)
-    main(texts, n=3, from_start=True, words_only=True)
-    excludes_pos = ['[BOS]', '[EOS]']
-    main(texts, n=1, from_start=False, words_only=True)
-    main(texts, n=2, from_start=False, words_only=True)
-    main(texts, n=1, from_start=False, excludes_pos=excludes_pos)
-    main(texts, n=2, from_start=False, excludes_pos=excludes_pos)

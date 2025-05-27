@@ -108,6 +108,38 @@ def tokenize_strings(
     return [tokenizer.convert_ids_to_tokens(seq) for seq in ids]
 
 
+def get_tokenizer_fn(
+    model_name: ModelType
+) -> Callable[[Union[str, List[str]]], Union[List[int], List[List[int]]]]:
+    """Returns a pre-configured tokenizer function with special tokens added."""
+    _model = load_model(model_name)
+    tokenizer = _model.tokenizer
+
+    def token_fn(text: Union[str, List[str]]) -> Union[List[int], List[List[int]]]:
+        return tokenizer(text, add_special_tokens=True)['input_ids']
+    return token_fn
+
+
+def get_tokenizer(model_name: ModelType) -> PreTrainedTokenizer:
+    """Returns the tokenizer object for the specified model."""
+    _model = load_model(model_name)
+    return _model.tokenizer
+
+
+def decode(
+    model_name: ModelType,
+    token_ids: Union[List[int], List[List[int]]],
+    *args,
+    **kwargs
+) -> Union[str, List[str]]:
+    """Decodes token IDs back to text for a single sequence or list of sequences."""
+    _model = load_model(model_name)
+    tokenizer = _model.tokenizer
+    if isinstance(token_ids, list) and isinstance(token_ids[0], list):
+        return tokenizer.batch_decode(token_ids, skip_special_tokens=True, *args, **kwargs)
+    return tokenizer.decode(token_ids, skip_special_tokens=True, *args, **kwargs)
+
+
 class Tokenizer:
     """A callable tokenizer class with encode, decode, and access to underlying tokenizer methods."""
 
@@ -130,21 +162,6 @@ class Tokenizer:
     def __call__(self, text: Union[str, List[str]], *args, **kwargs) -> Union[List[int], List[List[int]]]:
         """Makes the class callable, alias for encode, passing additional args."""
         return self.encode(text, *args, **kwargs)
-
-    def __getattr__(self, name: str):
-        """Delegates unknown attribute/method access to the underlying tokenizer."""
-        return getattr(self.tokenizer, name)
-
-
-def get_tokenizer_fn(model_name: ModelType) -> Tokenizer:
-    """Returns a pre-configured tokenizer class with encode, decode, and access to tokenizer methods."""
-    return Tokenizer(model_name)
-
-
-def get_tokenizer(model_name: ModelType) -> PreTrainedTokenizer:
-    """Returns the tokenizer object for the specified model."""
-    _model = load_model(model_name)
-    return _model.tokenizer
 
 
 class SentenceEmbedding:

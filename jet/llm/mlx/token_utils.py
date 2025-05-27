@@ -226,6 +226,36 @@ def get_tokenizer_fn(model: LLMModelType) -> Callable[[Union[str, List[str]]], U
     return _tokenizer
 
 
+def truncate_texts(texts: str | list[str], model: ModelType, max_tokens: int) -> list[str]:
+    """
+    Truncates texts that exceed the max_tokens limit.
+
+    Args:
+        texts (str | list[str]): A list of texts to be truncated.
+        model (str): The model name for tokenization.
+        max_tokens (int): The maximum number of tokens allowed per text.
+
+    Returns:
+        list[str]: A list of truncated texts.
+    """
+    from jet.llm.embeddings.sentence_embedding import tokenize as _tokenize
+
+    if isinstance(texts, str):
+        texts = [texts]
+
+    input_ids = _tokenize(model, texts)
+    truncated_texts = []
+
+    for text, tokens in zip(texts, input_ids):
+        if len(tokens) > max_tokens:
+            truncated_text = tokenizer.decode(tokens[:max_tokens])
+            truncated_texts.append(truncated_text)
+        else:
+            truncated_texts.append(text)
+
+    return truncated_texts
+
+
 def chunk_text(text: Union[str, List[str]], n: Optional[int] = None, overlap: int = 0, model: Optional[LLMModelType] = None) -> List[str]:
     def chunk_tokens(tokens: List[str], tokenizer: Optional[PreTrainedTokenizer] = None) -> List[str]:
         chunks = []

@@ -1,4 +1,5 @@
 from typing import Union, List, Tuple
+from nltk.tokenize import sent_tokenize
 import re
 
 
@@ -81,3 +82,24 @@ def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int =
             chunked_texts.append(text)
             doc_indices.append(doc_idx)
     return chunked_texts, doc_indices
+
+
+def truncate_texts(
+    texts: Union[str, List[str]],
+    max_words: int
+) -> Union[str, List[str]]:
+    def truncate_single(text: str) -> str:
+        sentences = sent_tokenize(text)
+        truncated = []
+        word_count = 0
+        for sentence in sentences:
+            words = sentence.split()
+            if word_count + len(words) > max_words:
+                break
+            truncated.append(sentence)
+            word_count += len(words)
+        return " ".join(truncated)
+
+    if isinstance(texts, str):
+        return truncate_single(texts)
+    return [truncate_single(t) for t in texts]

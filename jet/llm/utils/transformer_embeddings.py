@@ -200,7 +200,7 @@ def search_docs(
     query: str,
     documents: List[str],
     model: EmbedModelType = "all-minilm:33m",
-    top_k: int = 10,
+    top_k: Optional[int] = 10,
     batch_size: Optional[int] = None,
     normalize: bool = True,
     chunk_size: Optional[int] = None,
@@ -208,7 +208,10 @@ def search_docs(
 ) -> List[SimilarityResult]:
     """Search documents with memory-efficient embedding generation and return SimilarityResult."""
     if not query or not documents:
-        return []
+        raise ValueError("Query string and documents list must not be empty.")
+
+    if not top_k:
+        top_k = len(documents)
 
     # Validate ids if provided
     if ids is not None:

@@ -1,96 +1,128 @@
 import pytest
-from jet.wordnet.text_chunker import chunk_sentences_with_indices, chunk_texts, chunk_sentences, chunk_texts_with_indices
+from jet.wordnet.text_chunker import chunk_sentences_with_indices, chunk_texts, chunk_sentences, chunk_texts_with_indices, truncate_texts
 
 
-def test_chunk_texts_no_overlap():
-    input_text = "This is a test text with several words to be chunked into smaller pieces"
-    expected = [
-        "This is a test text with several words",
-        "to be chunked into smaller pieces"
-    ]
-    result = chunk_texts(input_text, chunk_size=8, chunk_overlap=0)
-    assert result == expected
+class TestChunkTexts:
+    def test_no_overlap(self):
+        input_text = "This is a test text with several words to be chunked into smaller pieces"
+        expected = [
+            "This is a test text with several words",
+            "to be chunked into smaller pieces"
+        ]
+        result = chunk_texts(input_text, chunk_size=8, chunk_overlap=0)
+        assert result == expected
+
+    def test_with_overlap(self):
+        input_text = "This is a test text with several words to be chunked"
+        expected = [
+            "This is a test text with several words",
+            "with several words to be chunked"
+        ]
+        result = chunk_texts(input_text, chunk_size=8, chunk_overlap=3)
+        assert result == expected
 
 
-def test_chunk_texts_with_overlap():
-    input_text = "This is a test text with several words to be chunked"
-    expected = [
-        "This is a test text with several words",
-        "with several words to be chunked"
-    ]
-    result = chunk_texts(input_text, chunk_size=8, chunk_overlap=3)
-    assert result == expected
+class TestChunkSentences:
+    def test_no_overlap(self):
+        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
+        expected = [
+            "This is sentence one. This is sentence two.",
+            "This is sentence three. This is sentence four."
+        ]
+        result = chunk_sentences(input_text, chunk_size=2, sentence_overlap=0)
+        assert result == expected
+
+    def test_with_overlap(self):
+        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
+        expected = [
+            "This is sentence one. This is sentence two.",
+            "This is sentence two. This is sentence three.",
+            "This is sentence three. This is sentence four."
+        ]
+        result = chunk_sentences(input_text, chunk_size=2, sentence_overlap=1)
+        assert result == expected
 
 
-def test_chunk_sentences_no_overlap():
-    input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-    expected = [
-        "This is sentence one. This is sentence two.",
-        "This is sentence three. This is sentence four."
-    ]
-    result = chunk_sentences(input_text, chunk_size=2, sentence_overlap=0)
-    assert result == expected
+class TestChunkTextsWithIndices:
+    def test_no_overlap(self):
+        input_text = "This is a test text with several words to be chunked into smaller pieces"
+        expected = [
+            "This is a test text with several words",
+            "to be chunked into smaller pieces"
+        ]
+        expected_indices = [0, 0]
+        result, result_indices = chunk_texts_with_indices(
+            input_text, chunk_size=8, chunk_overlap=0)
+        assert result == expected
+        assert result_indices == expected_indices
+
+    def test_with_overlap(self):
+        input_text = "This is a test text with several words to be chunked"
+        expected = [
+            "This is a test text with several words",
+            "with several words to be chunked"
+        ]
+        expected_indices = [0, 0]
+        result, result_indices = chunk_texts_with_indices(
+            input_text, chunk_size=8, chunk_overlap=3)
+        assert result == expected
+        assert result_indices == expected_indices
 
 
-def test_chunk_sentences_with_overlap():
-    input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-    expected = [
-        "This is sentence one. This is sentence two.",
-        "This is sentence two. This is sentence three.",
-        "This is sentence three. This is sentence four."
-    ]
-    result = chunk_sentences(input_text, chunk_size=2, sentence_overlap=1)
-    assert result == expected
+class TestChunkSentencesWithIndices:
+    def test_no_overlap(self):
+        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
+        expected = [
+            "This is sentence one. This is sentence two.",
+            "This is sentence three. This is sentence four."
+        ]
+        expected_indices = [0, 0]
+        result, result_indices = chunk_sentences_with_indices(
+            input_text, chunk_size=2, sentence_overlap=0)
+        assert result == expected
+        assert result_indices == expected_indices
+
+    def test_with_overlap(self):
+        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
+        expected = [
+            "This is sentence one. This is sentence two.",
+            "This is sentence two. This is sentence three.",
+            "This is sentence three. This is sentence four."
+        ]
+        expected_indices = [0, 0, 0]
+        result, result_indices = chunk_sentences_with_indices(
+            input_text, chunk_size=2, sentence_overlap=1)
+        assert result == expected
+        assert result_indices == expected_indices
 
 
-def test_chunk_texts_no_overlap_with_indices():
-    input_text = "This is a test text with several words to be chunked into smaller pieces"
-    expected = [
-        "This is a test text with several words",
-        "to be chunked into smaller pieces"
-    ]
-    expected_indices = [0, 0]
-    result, result_indices = chunk_texts_with_indices(
-        input_text, chunk_size=8, chunk_overlap=0)
-    assert result == expected
-    assert result_indices == expected_indices
+class TestTruncateText:
+    def test_single_string(self):
+        sample = "This is the first sentence. Here is the second one. This is the third and final sentence."
+        expected = "This is the first sentence. Here is the second one."
+        result = truncate_texts(sample, max_words=12)
+        assert result == expected
 
+    def test_exact_word_limit(self):
+        sample = "One. Two three four five. Six seven eight nine ten."
+        expected = "One. Two three four five."
+        result = truncate_texts(sample, max_words=6)
+        assert result == expected
 
-def test_chunk_texts_with_overlap_with_indices():
-    input_text = "This is a test text with several words to be chunked"
-    expected = [
-        "This is a test text with several words",
-        "with several words to be chunked"
-    ]
-    expected_indices = [0, 0]
-    result, result_indices = chunk_texts_with_indices(
-        input_text, chunk_size=8, chunk_overlap=3)
-    assert result == expected
-    assert result_indices == expected_indices
+    def test_list_input(self):
+        sample = [
+            "First sentence. Second sentence. Third sentence.",
+            "Another paragraph. With more text."
+        ]
+        expected = [
+            "First sentence. Second sentence.",
+            "Another paragraph."
+        ]
+        result = truncate_texts(sample, max_words=6)
+        assert result == expected
 
-
-def test_chunk_sentences_no_overlap_with_indices():
-    input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-    expected = [
-        "This is sentence one. This is sentence two.",
-        "This is sentence three. This is sentence four."
-    ]
-    expected_indices = [0, 0]
-    result, result_indices = chunk_sentences_with_indices(
-        input_text, chunk_size=2, sentence_overlap=0)
-    assert result == expected
-    assert result_indices == expected_indices
-
-
-def test_chunk_sentences_with_overlap_with_indices():
-    input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-    expected = [
-        "This is sentence one. This is sentence two.",
-        "This is sentence two. This is sentence three.",
-        "This is sentence three. This is sentence four."
-    ]
-    expected_indices = [0, 0, 0]
-    result, result_indices = chunk_sentences_with_indices(
-        input_text, chunk_size=2, sentence_overlap=1)
-    assert result == expected
-    assert result_indices == expected_indices
+    def test_short_text(self):
+        sample = "Short text."
+        expected = "Short text."
+        result = truncate_texts(sample, max_words=100)
+        assert result == expected
