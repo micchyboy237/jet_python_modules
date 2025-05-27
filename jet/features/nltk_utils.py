@@ -5,7 +5,7 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 from nltk.tag import pos_tag
 from collections import Counter
-from typing import Union, List, Dict, Optional
+from typing import Literal, Union, List, Dict, Optional
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 from tqdm import tqdm
@@ -145,29 +145,88 @@ def process_single_text_simple(single_text: str) -> Dict[str, int]:
     return result
 
 
-def get_word_counts_lemmatized(text: str) -> Dict[str, int]:
+def get_word_counts_lemmatized(text: Union[str, List[str]], pos: Optional[List[Literal['noun', 'verb', 'adjective', 'adverb']]] = None, min_count: int = 1) -> Union[Dict[str, int], List[Dict[str, int]]]:
     """
-    Get word count mappings from a text string with lemmatization, excluding stop words,
-    sorted by count in descending order.
+    Get word count mappings from a text string or list of strings with lemmatization, excluding stop words,
+    sorted by count in descending order. Optionally filter by parts of speech and minimum count.
+    For a list of strings, min_count is applied to the total combined count across all strings.
 
     Args:
-        text (str): Input text string to analyze.
+        text (Union[str, List[str]]): Input text string or list of strings to analyze.
+        pos (Optional[List[Literal['noun', 'verb', 'adjective', 'adverb']]]): List of POS to include (e.g., ['noun', 'verb']). 
+            If None, includes all words. Defaults to None.
+        min_count (int): Minimum count threshold for words to be included. Defaults to 1.
 
     Returns:
-        Dict[str, int]: Dictionary with lemmatized words as keys and their counts as values, sorted by count descending.
+        Union[Dict[str, int], List[Dict[str, int]]]: Dictionary with lemmatized words as keys and their counts as values,
+            or list of such dictionaries if input is a list, sorted by count in descending order.
     """
     lemmatizer = WordNetLemmatizer()
     stop_words = set(stopwords.words('english'))
 
-    tokens = word_tokenize(text.lower())
+    # Map POS to Treebank tags
+    pos_mapping = {
+        'noun': 'N',
+        'verb': 'V',
+        'adjective': 'J',
+        'adverb': 'R'
+    }
 
-    words = [
-        token for token in tokens
-        if token.isalpha() and token not in stop_words
-    ]
+    def process_single_text(single_text: str) -> List[tuple[str, str]]:
+        # Tokenize and convert to lowercase
+        tokens = word_tokenize(single_text.lower())
 
-    lemmatized_words = [lemmatizer.lemmatize(word) for word in words]
-    counts = Counter(lemmatized_words)
+        # Filter alphabetic tokens and remove stop words
+        words = [token for token in tokens if token.isalpha()
+                 and token not in stop_words]
 
-    # Sort counts by descending frequency
-    return dict(sorted(counts.items(), key=lambda x: x[1], reverse=True))
+        # Get POS tags for words
+        tagged_words = pos_tag(words)
+
+        # Lemmatize and filter based on POS if provided
+        lemmatized_words = []
+        for word, tag in tagged_words:
+            wordnet_pos = get_wordnet_pos(tag)
+            lemmatized_word = lemmatizer.lemmatize(word, pos=wordnet_pos)
+
+            # If pos is provided, only include words matching the specified POS
+            if pos is None or any(tag.startswith(pos_mapping[p]) for p in pos):
+                lemmatized_words.append((lemmatized_word, tag))
+
+        return lemmatized_words
+
+    if isinstance(text, str):
+        lemmatized_words = [word for word, _ in process_single_text(text)]
+        counts = Counter(lemmatized_words)
+        filtered_counts = {word: count for word,
+                           count in counts.items() if count >= min_count}
+        return dict(sorted(filtered_counts.items(), key=lambda x: x[1], reverse=True))
+
+    elif isinstance(text, list):
+        # Process all texts and keep track of words and their tags
+        all_words_by_text = [process_single_text(
+            single_text) for single_text in text]
+
+        # Get total counts across all texts for min_count filtering
+        all_words = [
+            word for text_words in all_words_by_text for word, _ in text_words]
+        total_counts = Counter(all_words)
+
+        # Filter words based on min_count
+        valid_words = {word for word,
+                       count in total_counts.items() if count >= min_count}
+
+        # Create per-text counts, including only valid words
+        result = []
+        for text_words in all_words_by_text:
+            # Count only valid words for this text, respecting POS filter
+            text_counts = Counter(
+                word for word, tag in text_words if word in valid_words)
+            sorted_counts = dict(
+                sorted(text_counts.items(), key=lambda x: x[1], reverse=True))
+            result.append(sorted_counts)
+
+        return result
+
+    else:
+        raise TypeError("Input must be a string or a list of strings")
