@@ -145,12 +145,29 @@ def process_single_text_simple(single_text: str) -> Dict[str, int]:
     return result
 
 
-def get_word_counts_lemmatized(text: Union[str, List[str]]) -> Union[Dict[str, int], List[Dict[str, int]]]:
-    if isinstance(text, str):
-        result = process_single_text_simple(text)
-        return result if result else {}
-    elif isinstance(text, list):
-        results = [process_single_text_simple(t) for t in text]
-        return [r for r in results if r]
-    else:
-        raise ValueError("Input must be a string or a list of strings")
+def get_word_counts_lemmatized(text: str) -> Dict[str, int]:
+    """
+    Get word count mappings from a text string with lemmatization, excluding stop words,
+    sorted by count in descending order.
+
+    Args:
+        text (str): Input text string to analyze.
+
+    Returns:
+        Dict[str, int]: Dictionary with lemmatized words as keys and their counts as values, sorted by count descending.
+    """
+    lemmatizer = WordNetLemmatizer()
+    stop_words = set(stopwords.words('english'))
+
+    tokens = word_tokenize(text.lower())
+
+    words = [
+        token for token in tokens
+        if token.isalpha() and token not in stop_words
+    ]
+
+    lemmatized_words = [lemmatizer.lemmatize(word) for word in words]
+    counts = Counter(lemmatized_words)
+
+    # Sort counts by descending frequency
+    return dict(sorted(counts.items(), key=lambda x: x[1], reverse=True))
