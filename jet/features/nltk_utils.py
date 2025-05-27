@@ -99,31 +99,54 @@ def get_word_sentence_combination_counts(
     if isinstance(text, str):
         return process_single_text(text, n, min_count, in_sequence, max_n)
     elif isinstance(text, list):
-        if len(text) <= 10 or n == 1:
-            results = [
-                process_wrapper(t, n, min_count, in_sequence, max_n) for t in text
-            ]
-            return results  # Include empty dictionaries
+        # Process all texts to get combinations
+        all_combinations_by_text = []
         max_workers = max(1, multiprocessing.cpu_count() // 2)
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            try:
-                process_func = partial(
-                    process_wrapper,
-                    n=n,
-                    min_count=min_count,
-                    in_sequence=in_sequence,
-                    max_n=max_n
-                )
-                results = list(tqdm(
-                    executor.map(process_func, text),
-                    total=len(text),
-                    desc="Processing texts",
-                    disable=not show_progress
-                ))
-                return results  # Include empty dictionaries
-            except Exception as e:
-                print(f"Error in multiprocessing: {e}")
-                raise
+        process_func = partial(
+            process_wrapper,
+            n=n,
+            min_count=1,  # Set min_count=1 to collect all combinations initially
+            in_sequence=in_sequence,
+            max_n=max_n
+        )
+
+        if len(text) <= 10 or n == 1:
+            all_combinations_by_text = [
+                process_wrapper(t, n, 1, in_sequence, max_n) for t in text
+            ]
+        else:
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                try:
+                    all_combinations_by_text = list(tqdm(
+                        executor.map(process_func, text),
+                        total=len(text),
+                        desc="Processing texts",
+                        disable=not show_progress
+                    ))
+                except Exception as e:
+                    print(f"Error in multiprocessing: {e}")
+                    raise
+
+        # Aggregate all combinations to determine valid ones based on total counts
+        total_counts = Counter()
+        for text_counts in all_combinations_by_text:
+            total_counts.update(text_counts)
+
+        # Identify combinations that meet the min_count threshold globally
+        valid_combinations = {ngram for ngram,
+                              count in total_counts.items() if count >= min_count}
+
+        # Filter each text's counts to include only valid combinations
+        result = []
+        for text_counts in all_combinations_by_text:
+            filtered_counts = {
+                ngram: count for ngram, count in text_counts.items() if ngram in valid_combinations
+            }
+            sorted_counts = dict(
+                sorted(filtered_counts.items(), key=lambda x: x[1], reverse=True))
+            result.append(sorted_counts)
+
+        return result
     else:
         raise ValueError("Input must be a string or a list of strings")
 
