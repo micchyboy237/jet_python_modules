@@ -8,14 +8,18 @@ from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterato
 from dataclasses import dataclass
 from huggingface_hub import scan_cache_dir
 from jet.llm.mlx.config import DEFAULT_MODEL
+from jet.logger import logger
+from jet.transformers.formatters import format_json
 import mlx.core as mx
 from mlx_lm.server import ModelProvider, PromptCache, get_system_fingerprint, sequence_overlap, stopping_criteria, convert_chat, process_message_content
 from mlx_lm.generate import stream_generate
 from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache, can_trim_prompt_cache
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import load
+from jet.llm.mlx.utils.logit_bias import convert_logit_bias
 from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.mlx_types import (
+    MLXTokenizer,
     Message,
     Tool,
     RoleMapping,
@@ -121,13 +125,15 @@ class MLXLMClient:
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         stream: bool = False,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
-        log_dir: Optional[str] = None
+        log_dir: Optional[str] = None,
+        verbose: bool = False
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion."""
         # Convert model keys to values
@@ -191,7 +197,8 @@ class MLXLMClient:
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
-            num_draft_tokens=3
+            num_draft_tokens=3,
+            verbose=verbose
         )
 
         # Log interaction
@@ -226,12 +233,14 @@ class MLXLMClient:
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
-        log_dir: Optional[str] = None
+        log_dir: Optional[str] = None,
+        verbose: bool = False
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions as they are generated."""
         # Convert model keys to values
@@ -294,7 +303,8 @@ class MLXLMClient:
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
-            num_draft_tokens=3
+            num_draft_tokens=3,
+            verbose=verbose
         ):
             yield response
 
@@ -329,11 +339,13 @@ class MLXLMClient:
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         stream: bool = False,
-        log_dir: Optional[str] = None
+        log_dir: Optional[str] = None,
+        verbose: bool = False
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a text completion."""
         # Convert model keys to values
@@ -386,7 +398,8 @@ class MLXLMClient:
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
-            num_draft_tokens=3
+            num_draft_tokens=3,
+            verbose=verbose
         )
 
         # Log interaction
@@ -421,10 +434,12 @@ class MLXLMClient:
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
-        log_dir: Optional[str] = None
+        log_dir: Optional[str] = None,
+        verbose: bool = False
     ) -> Iterator[CompletionResponse]:
         """Stream text completions as they are generated."""
         # Convert model keys to values
@@ -476,7 +491,8 @@ class MLXLMClient:
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
-            num_draft_tokens=3
+            num_draft_tokens=3,
+            verbose=verbose
         ):
             yield response
 
@@ -574,12 +590,9 @@ class MLXLMClient:
         if adapter is not None and not isinstance(adapter, str):
             raise ValueError("adapter must be a string")
         if logit_bias is not None:
-            if not isinstance(logit_bias, dict):
-                raise ValueError("logit_bias must be a dict of int to float")
-            try:
-                logit_bias = {int(k): v for k, v in logit_bias.items()}
-            except ValueError:
-                raise ValueError("logit_bias must be a dict of int to float")
+            if not isinstance(logit_bias, (dict, str, list)):
+                raise ValueError(
+                    "logit_bias must be a dict of int to float, str or list[str]")
 
     def _generate_response(
         self,
@@ -713,7 +726,7 @@ class MLXLMClient:
         self,
         prompt: List[int],
         model_obj: Any,
-        tokenizer: Any,
+        tokenizer: MLXTokenizer,
         stop_id_sequences: List[List[int]],
         max_tokens: int,
         temperature: float,
@@ -727,9 +740,28 @@ class MLXLMClient:
         request_id: str,
         object_type: str,
         draft_model: Optional[Any],
-        num_draft_tokens: int
+        num_draft_tokens: int,
+        verbose: bool = False
     ) -> Iterator[CompletionResponse]:
         """Generate streaming completions."""
+
+        # Handle logit_bias conversion
+        logit_bias = convert_logit_bias(logit_bias, tokenizer)
+
+        if verbose:
+            if logit_bias:
+                logger.newline()
+                logger.info("logit_bias:")
+                logger.debug(format_json(logit_bias))
+                for token in logit_bias.keys():
+                    choice = tokenizer.decode(token)
+                    logger.log("Token for", f"'{choice}'", ":",
+                               token, colors=["GRAY", "DEBUG", "GRAY" "ORANGE"])
+
+            logger.newline()
+            logger.info("Prompt:")
+            logger.debug(tokenizer.decode(prompt))
+
         tokens: List[int] = []
         token_logprobs: List[float] = []
         top_tokens: List[Dict[int, float]] = []
@@ -767,6 +799,9 @@ class MLXLMClient:
             logprobs_data: mx.array = gen_response.logprobs
             tokens.append(token)
             finish_reason = gen_response.finish_reason
+
+            if verbose:
+                logger.success(segment, flush=True)
 
             if logprobs > 0:
                 sorted_indices: mx.array = mx.argpartition(
@@ -822,7 +857,7 @@ class MLXLMClient:
         self,
         prompt: List[int],
         model_obj: Any,
-        tokenizer: Any,
+        tokenizer: MLXTokenizer,
         stop_id_sequences: List[List[int]],
         max_tokens: int,
         temperature: float,
@@ -837,9 +872,28 @@ class MLXLMClient:
         request_id: str,
         object_type: str,
         draft_model: Optional[Any],
-        num_draft_tokens: int
+        num_draft_tokens: int,
+        verbose: bool = False
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Core method to generate non-streaming completions."""
+
+        # Handle logit_bias conversion
+        logit_bias = convert_logit_bias(logit_bias, tokenizer)
+
+        if verbose:
+            if logit_bias:
+                logger.newline()
+                logger.info("logit_bias:")
+                logger.debug(format_json(logit_bias))
+                for token in logit_bias.keys():
+                    choice = tokenizer.decode(token)
+                    logger.log("Token for", f"'{choice}'", ":",
+                               token, colors=["GRAY", "DEBUG", "GRAY" "ORANGE"])
+
+            logger.newline()
+            logger.info("Prompt:")
+            logger.debug(tokenizer.decode(prompt))
+
         tokens: List[int] = []
         token_logprobs: List[float] = []
         top_tokens: List[Dict[int, float]] = []
@@ -879,6 +933,9 @@ class MLXLMClient:
                 logprobs_data: mx.array = gen_response.logprobs
                 tokens.append(token)
                 finish_reason = gen_response.finish_reason
+
+                if verbose:
+                    logger.success(segment, flush=True)
 
                 if logprobs > 0:
                     sorted_indices: mx.array = mx.argpartition(
@@ -947,6 +1004,9 @@ class MLXLMClient:
                 logprobs_data: mx.array = gen_response.logprobs
                 tokens.append(token)
                 finish_reason = gen_response.finish_reason
+
+                if verbose:
+                    logger.success(segment, flush=True)
 
                 if logprobs > 0:
                     sorted_indices: mx.array = mx.argpartition(

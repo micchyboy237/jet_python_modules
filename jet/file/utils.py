@@ -102,6 +102,7 @@ def load_file(input_file: str, verbose: bool = True) -> Optional[str | dict | li
                     prefix = f"Loaded JSON data {len(data)} from:"
                 else:
                     prefix = "Loaded JSON data from:"
+                logger.newline()
                 logger.log(
                     prefix,
                     input_file,
@@ -112,6 +113,7 @@ def load_file(input_file: str, verbose: bool = True) -> Optional[str | dict | li
             with open(input_file, "r", encoding="utf-8") as f:
                 data = f.read()
             if verbose:
+                logger.newline()
                 logger.log(
                     "Loaded data from:",
                     input_file,
@@ -120,6 +122,7 @@ def load_file(input_file: str, verbose: bool = True) -> Optional[str | dict | li
             return data
     except Exception as e:
         if verbose:
+            logger.newline()
             logger.error(f"Failed to load file: {e}")
         raise
 
@@ -148,12 +151,13 @@ def save_file(data: str | list | Dict | BaseModel, output_file: str | Path, verb
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
-            if isinstance(data, list):
-                prefix = f"Save JSON data {len(data)} to:"
-            else:
-                prefix = "Save JSON data to:"
-
             if verbose:
+                if isinstance(data, list):
+                    prefix = f"Save JSON data {len(data)} to:"
+                else:
+                    prefix = "Save JSON data to:"
+
+                logger.newline()
                 logger.log(
                     prefix,
                     output_file,
@@ -163,13 +167,17 @@ def save_file(data: str | list | Dict | BaseModel, output_file: str | Path, verb
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(data)
             if verbose:
+                logger.newline()
                 logger.log(
                     "Save data to:",
                     output_file,
                     colors=["SUCCESS", "BRIGHT_SUCCESS"]
                 )
     except Exception as e:
-        logger.error(f"Failed to save file: {e}")
+        if verbose:
+            logger.newline()
+            logger.error(f"Failed to save file: {e}")
+        raise
 
 
 def main():

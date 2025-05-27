@@ -1,7 +1,11 @@
 from typing import Literal, Union, Dict, List, Optional, TypedDict, Any
 from enum import Enum
+from transformers import PreTrainedTokenizer
+from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 # Type definitions
+
+MLXTokenizer = Union[TokenizerWrapper, PreTrainedTokenizer]
 
 
 class Message(TypedDict):

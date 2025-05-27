@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterato
 from dataclasses import dataclass
 from jet.llm.mlx.config import DEFAULT_MODEL
 from jet.llm.mlx.logger_utils import ChatLogger
-from jet.llm.mlx.mlx_types import ModelKey, LLMModelType
+from jet.llm.mlx.mlx_types import MLXTokenizer, ModelKey, LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.utils import get_model_max_tokens
 from jet.llm.mlx.token_utils import count_tokens, get_tokenizer_fn, merge_texts
@@ -187,7 +187,11 @@ class MLX:
             seed=seed,
         )
         self.model = self.client.model_provider.model
-        self.tokenizer = self.client.model_provider.tokenizer
+        self.tokenizer: MLXTokenizer = self.client.model_provider.tokenizer
+
+        # Set padding token if not already defined
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         # Initialize chat history
         if with_history and dbname:
@@ -218,15 +222,18 @@ class MLX:
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
         system_prompt: Optional[str] = None,
-        log_dir: Optional[str] = None
+        log_dir: Optional[str] = None,
+        verbose: bool = False
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion with history management."""
+
         # Prepare messages with history
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
             if self.with_history:
@@ -276,6 +283,7 @@ class MLX:
             role_mapping=role_mapping,
             tools=tools,
             log_dir=log_dir,
+            verbose=verbose,
         )
 
         # Add assistant response to history
@@ -300,7 +308,8 @@ class MLX:
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
@@ -339,11 +348,6 @@ class MLX:
             # Set remaining tokens as max tokens
             max_tokens = self.get_remaining_tokens(all_messages)
 
-        if verbose:
-            logger.newline()
-            logger.info("Messages:")
-            logger.debug(format_json(all_messages))
-
         # Stream responses
         assistant_content = ""
         for response in self.client.stream_chat(
@@ -364,10 +368,8 @@ class MLX:
             role_mapping=role_mapping,
             tools=tools,
             log_dir=log_dir,
+            verbose=verbose,
         ):
-            if verbose:
-                content = response["choices"][0]["message"]["content"]
-                logger.success(content, flush=True)
             if response.get("choices"):
                 content = response["choices"][0].get(
                     "message", {}).get("content", "")
@@ -391,12 +393,15 @@ class MLX:
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
-        log_dir: Optional[str] = None
+        log_dir: Optional[str] = None,
+        verbose: bool = False
     ) -> CompletionResponse:
         """Generate a text completion (no history)."""
+
         response = self.client.generate(
             prompt=prompt,
             model=model,
@@ -414,6 +419,7 @@ class MLX:
             stop=stop,
             stream=False,
             log_dir=log_dir,
+            verbose=verbose,
         )
 
         return response
@@ -431,17 +437,14 @@ class MLX:
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
-        logit_bias: Optional[Dict[int, float]] = None,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
         verbose: bool = False
     ) -> Iterator[CompletionResponse]:
         """Stream text completions (no history)."""
-        if verbose:
-            logger.newline()
-            logger.info("Prompt:")
-            logger.debug(prompt)
         for response in self.client.stream_generate(
             prompt=prompt,
             model=model,
@@ -458,10 +461,8 @@ class MLX:
             logprobs=logprobs,
             stop=stop,
             log_dir=log_dir,
+            verbose=verbose,
         ):
-            if verbose:
-                content = response["choices"][0]["text"]
-                logger.success(content, flush=True)
             yield response
 
     def clear_history(self):

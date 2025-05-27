@@ -1,8 +1,18 @@
 from datetime import datetime
-from typing import List
+from typing import List, Tuple, Union
 from jet.llm.mlx.base import MLX
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.llm.mlx.mlx_types import LLMModelType, MLXTokenizer, ModelType
+from jet.llm.mlx.models import resolve_model
 from jet.logger import logger
+import mlx.nn as nn
+
+
+def load_model(model: ModelType) -> Tuple[nn.Module, MLXTokenizer]:
+    from mlx_lm import load
+
+    model_path = str(resolve_model(model))
+
+    return load(model_path)
 
 
 def get_system_date_prompt():
@@ -11,10 +21,10 @@ def get_system_date_prompt():
 
 def rewrite_query(original_query: str, model: LLMModelType = "qwen3-1.7b-4bit") -> str:
     """
-    Rewrites a query to make it more specific and detailed for better retrieval, while treating years, titles, or events as flexible inputs.
+    Rewrites a query to be more precise and detailed for improved search results, while allowing flexibility for uncertain years, titles, or events.
 
     Args:
-        original_query (str): The original user query
+        original_query (str): The user's original query
         model (str): The model to use for query rewriting
 
     Returns:
@@ -24,24 +34,20 @@ def rewrite_query(original_query: str, model: LLMModelType = "qwen3-1.7b-4bit") 
 
     system_date_prompt = get_system_date_prompt()
 
-    # Updated system prompt to enforce flexibility in years, titles, or events
-    system_prompt = f"""
-    {system_date_prompt}
-    You are an AI assistant specialized in improving search queries. Your task is to rewrite user queries to be more specific and detailed, while ensuring flexibility in years, titles, or events to handle ambiguity and incomplete data gracefully. For example:
-    - Instead of "in 2025," use phrases like "around 2025" or "from 2025 or close."
-    - Instead of exact titles, use broader terms like "similar to [title]" or "in the style of [title]."
-    - For events, use "recent" or "notable" to allow for approximate matches.
-    The rewritten query should retrieve relevant information even if exact details are uncertain.
-    """
+    system_prompt = f"""\
+{system_date_prompt}
+You are an AI assistant designed to enhance search queries. Your goal is to rewrite the user's query to be more specific and detailed, improving retrieval accuracy. To handle ambiguity, treat years, titles, or events flexibly:
+- For years, use phrases like "around [year]" or "near [year]" instead of exact years.
+- For titles, use broad terms like "works similar to [title]" or "in the style of [title]."
+- For events, use terms like "recent" or "notable" to allow approximate matches.
+The rewritten query should retrieve relevant results even if the user's input contains uncertain or incomplete details.
+Respond only with the rewritten query, without any additional text, labels, or explanations."""
 
-    # Define the user prompt with the original query to be rewritten
-    user_prompt = f"""
-    Rewrite the following query to make it more specific and detailed, while keeping years, titles, or events flexible to handle ambiguity.
-    
-    Original query: {original_query}
-    
-    Rewritten query:
-    """
+    user_prompt = f"""\
+Rewrite the following query to be more specific and detailed, while keeping years, titles, or events flexible to account for ambiguity. Respond only with the rewritten query.
+
+Original query: {original_query}
+Rewritten query:"""
 
     response = ""
     for chunk in mlx.stream_chat(
@@ -60,37 +66,33 @@ def rewrite_query(original_query: str, model: LLMModelType = "qwen3-1.7b-4bit") 
 
 def generate_step_back_query(original_query: str, model: LLMModelType = "qwen3-1.7b-4bit") -> str:
     """
-    Generates a more general 'step-back' query to retrieve broader context, with flexible handling of years, titles, or events.
+    Creates a broader, more general version of a query to provide useful context, with flexible handling of years, titles, or events.
 
     Args:
-        original_query (str): The original user query
-        model (str): The model to use for step-back query generation
+        original_query (str): The user's original query
+        model (str): The model to use for generating the step-back query
 
     Returns:
-        str: The step-back query
+        str: The broader step-back query
     """
     mlx = MLX(model)
 
     system_date_prompt = get_system_date_prompt()
 
-    # Updated system prompt to enforce flexibility in years, titles, or events
-    system_prompt = f"""
-    {system_date_prompt}
-    You are an AI assistant specialized in search strategies. Your task is to generate broader, more general versions of specific queries to retrieve relevant background information. Ensure that years, titles, or events are treated as flexible inputs to handle ambiguity and incomplete data gracefully. For example:
-    - Use "around [year]" or "recent" instead of specific years.
-    - Use general terms like "similar to [title]" or "in the genre of [title]" instead of exact titles.
-    - For events, use "notable" or "recent" to allow approximate matches.
-    The step-back query should provide useful context even if exact details are uncertain.
-    """
+    system_prompt = f"""\
+{system_date_prompt}
+You are an AI assistant skilled in search optimization. Your task is to create a broader, more general version of the user's query to gather relevant background information. To account for ambiguity, handle years, titles, or events flexibly:
+- Use terms like "around [year]" or "recent" instead of specific years.
+- Refer to titles with phrases like "works similar to [title]" or "in the genre of [title]."
+- For events, use "notable" or "recent" to allow for approximate matches.
+The step-back query should provide useful context even if the exact details in the original query are uncertain."""
 
-    # Define the user prompt with the original query to be generalized
-    user_prompt = f"""
-    Generate a broader, more general version of the following query that could help retrieve useful background information, keeping years, titles, or events flexible.
-    
-    Original query: {original_query}
-    
-    Step-back query:
-    """
+    user_prompt = f"""\
+Create a broader, more general version of the following query to retrieve useful background information, keeping years, titles, or events flexible.
+
+Original query: {original_query}
+
+Step-back query:"""
 
     response = ""
     for chunk in mlx.stream_chat(
@@ -109,10 +111,10 @@ def generate_step_back_query(original_query: str, model: LLMModelType = "qwen3-1
 
 def decompose_query(original_query: str, num_subqueries: int = 3, model: LLMModelType = "qwen3-1.7b-4bit") -> List[str]:
     """
-    Decomposes a complex query into simpler sub-queries, with flexible handling of years, titles, or events.
+    Breaks down a complex query into simpler sub-queries, with flexible handling of years, titles, or events.
 
     Args:
-        original_query (str): The original complex query
+        original_query (str): The user's complex query
         num_subqueries (int): Number of sub-queries to generate
         model (str): The model to use for query decomposition
 
@@ -123,27 +125,25 @@ def decompose_query(original_query: str, num_subqueries: int = 3, model: LLMMode
 
     system_date_prompt = get_system_date_prompt()
 
-    # Updated system prompt to enforce flexibility in years, titles, or events
-    system_prompt = f"""
-    {system_date_prompt}
-    You are an AI assistant specialized in breaking down complex questions. Your task is to decompose complex queries into simpler sub-questions that, when answered together, address the original query. Ensure that years, titles, or events in the sub-queries are treated as flexible inputs to handle ambiguity and incomplete data gracefully. For example:
-    - Use "around [year]" or "recent" instead of specific years.
-    - Use general terms like "similar to [title]" or "in the style of [title]" instead of exact titles.
-    - For events, use "notable" or "recent" to allow approximate matches.
-    Each sub-query should be clear and focus on a different aspect of the original question, while remaining flexible to uncertainty in details.
-    """
+    system_prompt = f"""\
+{system_date_prompt}
+You are an AI assistant skilled in simplifying complex questions. Your task is to break down a complex query into {num_subqueries} simpler sub-queries that together address the original question. To handle ambiguity, treat years, titles, or events flexibly:
+- Use terms like "around [year]" or "recent" instead of exact years.
+- Refer to titles with phrases like "works similar to [title]" or "in the style of [title]."
+- For events, use "notable" or "recent" to allow approximate matches.
+Each sub-query should be clear, focus on a distinct aspect of the original query, and remain flexible to uncertainty in details.
+"""
 
-    # Define the user prompt with the original query to be decomposed
-    user_prompt = f"""
-    Break down the following complex query into {num_subqueries} simpler sub-queries. Each sub-query should focus on a different aspect of the original question and treat years, titles, or events as flexible inputs.
-    
-    Original query: {original_query}
-    
-    Generate {num_subqueries} sub-queries, one per line, in this format:
-    1. [First sub-query].
-    2. [Second sub-query].
-    And so on...
-    """
+    user_prompt = f"""\
+Break down the following complex query into {num_subqueries} simpler sub-queries. Each sub-query should address a different aspect of the original question and treat years, titles, or events flexibly.
+
+Original query: {original_query}
+
+Generate {num_subqueries} sub-queries, one per line, in this format:
+1. [First sub-query].
+2. [Second sub-query].
+And so on...
+"""
 
     response = ""
     for chunk in mlx.stream_chat(
