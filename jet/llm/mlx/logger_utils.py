@@ -48,25 +48,8 @@ class ChatLogger:
             "method": self.method,
         }
 
-        # Handle usage formatting if present
-        formatted_usage = None
-        if "usage" in kwargs:
-            usage = kwargs.pop("usage")
-            formatted_usage = {
-                "prompt_tokens": str(usage.get("prompt_tokens", 0)),
-                "prompt_tps": f"{usage.get('prompt_tps', 0):.2f} tokens/sec",
-                "completion_tokens": str(usage.get("completion_tokens", 0)),
-                "completion_tps": f"{usage.get('completion_tps', 0):.2f} tokens/sec",
-                "peak_memory": f"{usage.get('peak_memory', 0):.2f} GB",
-                "total_tokens": str(usage.get("total_tokens", 0))
-            }
-
         # Add remaining kwargs (excluding usage for now)
         log_data.update(kwargs)
-
-        # Add usage after other kwargs if it exists
-        if formatted_usage is not None:
-            log_data["usage"] = formatted_usage
 
         # Handle prompt or messages before response
         if isinstance(prompt_or_messages, str):
@@ -85,11 +68,25 @@ class ChatLogger:
                 "content": response_text
             })
 
-        # Add response last
-        log_data["response"] = format_json(response, indent=2)
+        # Handle usage formatting if present
+        formatted_usage = None
+        if "usage" in response:
+            usage = response.pop("usage")
+            formatted_usage = {
+                "prompt_tokens": usage["prompt_tokens"],
+                "prompt_tps": f"{usage['prompt_tps']:.2f} tokens/sec",
+                "completion_tokens": usage["completion_tokens"],
+                "completion_tps": f"{usage['completion_tps']:.2f} tokens/sec",
+                "peak_memory": f"{usage['peak_memory']:.2f} GB",
+                "total_tokens": usage["total_tokens"]
+            }
+            response["usage"] = formatted_usage
 
         choices = response.pop("choices")
         response["choices"] = choices
+
+        # Add response last
+        log_data["response"] = format_json(response, indent=2)
 
         save_file(log_data, log_file)
 
