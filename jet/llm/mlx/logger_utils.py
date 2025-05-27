@@ -88,6 +88,9 @@ class ChatLogger:
         # Add response last
         log_data["response"] = format_json(response, indent=2)
 
+        choices = response.pop("choices")
+        response["choices"] = choices
+
         save_file(log_data, log_file)
 
         # Enforce file limit
