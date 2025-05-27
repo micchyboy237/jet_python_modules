@@ -285,6 +285,14 @@ def preserve_tagalog_chars(s: str) -> str:
     return s
 
 
+def is_valid_wiki_path(path):
+    # Check for the presence of a colon
+    if ":" in path:
+        return None
+
+    return True
+
+
 def get_content_from_url(url):
     """
     Get the content and formatted content string from request text html.

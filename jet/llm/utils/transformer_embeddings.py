@@ -35,7 +35,7 @@ class SimilarityResult(TypedDict):
     tokens: int
 
 
-def chunk_texts(texts: Union[str, List[str]], max_tokens: int = 128) -> Tuple[List[str], List[int]]:
+def chunk_texts(texts: Union[str, List[str]], chunk_size: int = 128) -> Tuple[List[str], List[int]]:
     """Chunk large texts and track original document indices."""
     if isinstance(texts, str):
         texts = [texts]
@@ -43,9 +43,9 @@ def chunk_texts(texts: Union[str, List[str]], max_tokens: int = 128) -> Tuple[Li
     doc_indices = []  # Tracks which document each chunk belongs to
     for doc_idx, text in enumerate(texts):
         words = text.split()
-        if len(words) > max_tokens:
-            for i in range(0, len(words), max_tokens):
-                chunked_texts.append(" ".join(words[i:i + max_tokens]))
+        if len(words) > chunk_size:
+            for i in range(0, len(words), chunk_size):
+                chunked_texts.append(" ".join(words[i:i + chunk_size]))
                 doc_indices.append(doc_idx)
         else:
             chunked_texts.append(text)
@@ -61,7 +61,7 @@ def generate_embeddings(
     _model: Optional[AutoModel] = None,
     _tokenizer: Optional[AutoTokenizer] = None,
     use_tqdm: Optional[bool] = None,
-    max_tokens: Optional[int] = None,
+    chunk_size: Optional[int] = None,
     aggregate: bool = True
 ) -> Union[List[float], List[List[float]]]:
     """Generate embeddings with optimized memory usage for MPS and large models."""
@@ -84,11 +84,11 @@ def generate_embeddings(
     if is_single_text:
         texts = [texts]
 
-    if not max_tokens:
-        max_tokens = get_embedding_size(embed_model)
+    if not chunk_size:
+        chunk_size = get_embedding_size(embed_model)
 
     # Chunk texts and get document indices
-    chunked_texts, doc_indices = chunk_texts(texts, max_tokens=max_tokens)
+    chunked_texts, doc_indices = chunk_texts(texts, chunk_size=chunk_size)
     num_original_texts = len(texts)
 
     if batch_size is None:
@@ -120,7 +120,7 @@ def generate_embeddings(
     with torch.autocast(device_type=device, dtype=torch.float16):
         for batch in tqdm(dataloader, desc="Generating embeddings", leave=True) if use_tqdm else dataloader:
             inputs = tokenizer(batch, padding=True, truncation=True,
-                               max_length=max_tokens, return_tensors="pt").to(device)
+                               max_length=chunk_size, return_tensors="pt").to(device)
 
             with torch.no_grad():
                 outputs = model(**inputs)
@@ -164,7 +164,7 @@ def get_embedding_function(
     model_name: str,
     batch_size: Optional[int] = None,
     normalize: bool = True,
-    max_tokens: Optional[int] = None
+    chunk_size: Optional[int] = None
 ) -> Callable[[Union[str, List[str]]], Union[List[float], List[List[float]]]]:
     """Load a Hugging Face model and tokenizer and return a callable that generates embeddings."""
     logger.info(f"Loading model: {model_name}")
@@ -191,7 +191,7 @@ def get_embedding_function(
             normalize=normalize,
             _model=model,
             _tokenizer=tokenizer,
-            max_tokens=max_tokens
+            chunk_size=chunk_size
         )
     return embedding_function
 
@@ -203,11 +203,20 @@ def search_docs(
     top_k: int = 10,
     batch_size: Optional[int] = None,
     normalize: bool = True,
-    max_tokens: Optional[int] = None
+    chunk_size: Optional[int] = None,
+    ids: Optional[List[str]] = None
 ) -> List[SimilarityResult]:
     """Search documents with memory-efficient embedding generation and return SimilarityResult."""
     if not query or not documents:
         return []
+
+    # Validate ids if provided
+    if ids is not None:
+        if len(ids) != len(documents):
+            raise ValueError(
+                f"Length of ids ({len(ids)}) must match length of documents ({len(documents)})")
+        if len(ids) != len(set(ids)):
+            raise ValueError("IDs must be unique")
 
     # Initialize tokenizer for token counting
     embed_model = resolve_model_key(model)
@@ -215,9 +224,9 @@ def search_docs(
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     query_embedding = generate_embeddings(
-        model, query, batch_size, normalize, max_tokens=max_tokens)
+        model, query, batch_size, normalize, chunk_size=chunk_size)
     doc_embeddings = generate_embeddings(
-        model, documents, batch_size, normalize, max_tokens=max_tokens)
+        model, documents, batch_size, normalize, chunk_size=chunk_size)
 
     query_embedding = np.array(query_embedding)
     doc_embeddings = np.array(doc_embeddings)
@@ -252,8 +261,10 @@ def search_docs(
         doc_text = documents[idx]
         # Count tokens for the document
         tokens = len(tokenizer.encode(doc_text, add_special_tokens=True))
+        # Use provided ID if available, otherwise default to f"doc_{idx}"
+        doc_id = ids[idx] if ids is not None else f"doc_{idx}"
         result = SimilarityResult(
-            id=f"doc_{idx}",
+            id=doc_id,
             rank=rank,
             doc_index=int(idx),  # Ensure Python int
             score=float(similarities[idx]),

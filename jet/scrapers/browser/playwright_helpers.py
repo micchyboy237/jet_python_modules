@@ -42,7 +42,7 @@ def setup_browser_page(page: Optional[SyncPage] = None):
     return browser_page
 
 
-def setup_sync_browser_session(*, headless: bool = False) -> SyncBrowser:
+def setup_sync_browser_session(*, headless: bool = True) -> SyncBrowser:
     """Sets up a synchronous Playwright browser session and returns the browser instance."""
     playwright = sync_playwright().start()
     browser = playwright.chromium.launch(
@@ -53,7 +53,7 @@ def setup_sync_browser_session(*, headless: bool = False) -> SyncBrowser:
     return browser
 
 
-async def setup_async_browser_session(*, headless: bool = False) -> AsyncBrowser:
+async def setup_async_browser_session(*, headless: bool = True) -> AsyncBrowser:
     """Sets up an asynchronous Playwright browser session and returns the browser instance."""
     playwright = await async_playwright().start()
     browser = await playwright.chromium.launch(

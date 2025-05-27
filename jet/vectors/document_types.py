@@ -74,6 +74,18 @@ class HeaderDocument(Document):
         metadata = cast(HeaderMetadata, self.metadata)
         return metadata[key]
 
+    def __iter__(self):
+        """Enable **obj unpacking by yielding key-value pairs for attributes and metadata."""
+        # Yield instance attributes
+        for attr in ["text", "metadata", "metadata_separator"]:
+            if hasattr(self, attr):
+                yield attr, getattr(self, attr)
+        # Yield metadata key-value pairs
+        metadata = cast(HeaderMetadata, self.metadata)
+        for key, value in metadata.items():
+            if value is not None:  # Only include non-None metadata
+                yield key, value
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get attribute or metadata value by key, returning default if not found."""
         if hasattr(self, key):
@@ -107,7 +119,7 @@ class HeaderTextNode(TextNode):
             "chunk_index": None,
             "token_count": None,
             "source_url": None,
-            "texts": None,  # Initialize texts field
+            "texts": None,
         }
         provided_metadata = kwargs.get("metadata", {})
         self.metadata = {**default_metadata, **
@@ -119,6 +131,18 @@ class HeaderTextNode(TextNode):
             return getattr(self, key)
         metadata = cast(HeaderMetadata, self.metadata)
         return metadata[key]
+
+    def __iter__(self):
+        """Enable **obj unpacking by yielding key-value pairs for attributes and metadata."""
+        # Yield instance attributes
+        for attr in ["text", "metadata", "metadata_template", "metadata_separator", "text_template"]:
+            if hasattr(self, attr):
+                yield attr, getattr(self, attr)
+        # Yield metadata key-value pairs
+        metadata = cast(HeaderMetadata, self.metadata)
+        for key, value in metadata.items():
+            if value is not None:  # Only include non-None metadata
+                yield key, value
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get attribute or metadata value by key, returning default if not found."""

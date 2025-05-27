@@ -1,11 +1,12 @@
 import os
 import json
 from typing import List, Optional, TypedDict
+from jet.llm.mlx.base import MLX
 from jet.llm.mlx.client import MLXLMClient
 from jet.llm.mlx.mlx_types import ModelKey
 from jet.logger import logger
 from jet.transformers.formatters import format_json
-MODEL_PATH: ModelKey = "llama-3.2-1b-instruct-4bit"
+MODEL_PATH: ModelKey = "llama-3.2-3b-instruct-4bit"
 FEW_SHOT_EXAMPLES = [
     {
         "role": "user",
@@ -70,7 +71,7 @@ def generate_labels(
     max_labels: Optional[int] = None
 ) -> List[str]:
     """Generates unique entity labels for NER from a list of texts."""
-    client = MLXLMClient(model_path)
+    client = MLX(model_path, seed=42)
     messages = [
         {"role": "system", "content": system_prompt},
         *few_shot_examples,
@@ -82,8 +83,10 @@ def generate_labels(
         messages=messages,
         model=model_path,
         max_tokens=max_tokens,
-        temperature=0.7,
-        stop=["\n\n"]
+        temperature=0.3,
+        top_p=1.0,
+        repetition_penalty=1.2,
+        stop=["\n\n"],
     ):
         if response["choices"]:
             content = response["choices"][0].get(
