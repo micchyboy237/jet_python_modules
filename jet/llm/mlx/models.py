@@ -25,6 +25,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "all-mpnet-base-v2": "sentence-transformers/all-mpnet-base-v2",
     "all-MiniLM-L12-v2": "sentence-transformers/all-MiniLM-L12-v2",
     "all-MiniLM-L6-v2": "sentence-transformers/all-MiniLM-L6-v2",
+    "paraphrase-MiniLM-L12-v2": "sentence-transformers/paraphrase-MiniLM-L12-v2",
     # Ollama
     "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
     "mxbai-embed-large": "mixedbread-ai/mxbai-embed-large-v1",
@@ -35,7 +36,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "snowflake-arctic-embed:33m": "Snowflake/snowflake-arctic-embed-s",
     "snowflake-arctic-embed:137m": "Snowflake/snowflake-arctic-embed-m-long",
     "snowflake-arctic-embed": "Snowflake/snowflake-arctic-embed-l",
-    "paraphrase-multilingual": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "paraphrase-multilingual": "sentence-transformers/paraphrase-MiniLM-L12-v2",
     "bge-large": "BAAI/bge-large-en-v1.5",
     # MLX
     "all-minilm-l6-v2-bf16": "mlx-community/all-MiniLM-L6-v2-bf16",
@@ -49,7 +50,7 @@ ALL_MODELS: Dict[ModelType, Union[ModelValue, EmbedModelValue]] = {
     **AVAILABLE_EMBED_MODELS,
 }
 
-MODEL_CONTEXTS: Dict[LLMModelType, int] = {
+MODEL_CONTEXTS: Dict[ModelType, int] = {
     "dolphin3.0-llama3.1-8b-4bit": 131072,
     "llama-3.1-8b-instruct-4bit": 131072,
     "llama-3.2-1b-instruct-4bit": 131072,
@@ -62,6 +63,10 @@ MODEL_CONTEXTS: Dict[LLMModelType, int] = {
     "qwen3-1.7b-4bit": 40960,
     "qwen3-4b-4bit": 40960,
     "qwen3-8b-4bit": 40960,
+    "all-mpnet-base-v2": 514,
+    "all-MiniLM-L12-v2": 512,
+    "all-MiniLM-L6-v2": 512,
+    "paraphrase-MiniLM-L12-v2": 512,
     "nomic-embed-text": 8192,
     "mxbai-embed-large": 512,
     "granite-embedding": 514,
@@ -79,7 +84,7 @@ MODEL_CONTEXTS: Dict[LLMModelType, int] = {
     "all-minilm-l6-v2-4bit": 512
 }
 
-MODEL_EMBEDDING_TOKENS: Dict[LLMModelType, int] = {
+MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "dolphin3.0-llama3.1-8b-4bit": 4096,
     "llama-3.1-8b-instruct-4bit": 4096,
     "llama-3.2-1b-instruct-4bit": 2048,
@@ -92,6 +97,10 @@ MODEL_EMBEDDING_TOKENS: Dict[LLMModelType, int] = {
     "qwen3-1.7b-4bit": 2048,
     "qwen3-4b-4bit": 2560,
     "qwen3-8b-4bit": 4096,
+    "all-mpnet-base-v2": 768,
+    "all-MiniLM-L12-v2": 384,
+    "all-MiniLM-L6-v2": 384,
+    "paraphrase-MiniLM-L12-v2": 384,
     "nomic-embed-text": 768,
     "mxbai-embed-large": 1024,
     "granite-embedding": 384,
@@ -106,10 +115,7 @@ MODEL_EMBEDDING_TOKENS: Dict[LLMModelType, int] = {
     "all-minilm-l6-v2-bf16": 384,
     "all-minilm-l6-v2-8bit": 384,
     "all-minilm-l6-v2-6bit": 384,
-    "all-minilm-l6-v2-4bit": 384,
-    "all-mpnet-base-v2": 768,
-    "all-MiniLM-L12-v2": 384,
-    "all-MiniLM-L6-v2": 384,
+    "all-minilm-l6-v2-4bit": 384
 }
 
 

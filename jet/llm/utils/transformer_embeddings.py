@@ -161,7 +161,7 @@ def generate_embeddings(
 
 
 def get_embedding_function(
-    model_name: str,
+    model_name: EmbedModelType,
     batch_size: Optional[int] = None,
     normalize: bool = True,
     chunk_size: Optional[int] = None

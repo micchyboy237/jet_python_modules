@@ -18,8 +18,6 @@ class SimilarityResult(TypedDict):
     score: float
     percent_difference: Optional[float]
     text: str
-    relevance: Optional[float]
-    word_count: Optional[int]
 
 
 class FilterResult(TypedDict):

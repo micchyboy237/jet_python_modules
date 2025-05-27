@@ -7,7 +7,7 @@ import shared.setup.builtin_modules
 import os
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
-os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+# os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
 # Trigger event initialize
 # setup_events()

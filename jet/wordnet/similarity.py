@@ -8,7 +8,6 @@ from typing import Callable, List
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import numpy as np
-from jet.llm.utils.embeddings import SFEmbeddingFunction, get_embedding_function
 from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Dict, Callable, Optional, TypedDict
 from sklearn.cluster import AgglomerativeClustering, KMeans
@@ -17,7 +16,13 @@ import json
 
 from typing import List, Optional, TypedDict, Union
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
-from jet.llm.utils.embeddings import get_ollama_embedding_function
+from jet.llm.utils.transformer_embeddings import (
+    generate_embeddings,
+    get_embedding_function,
+    search_docs,
+    chunk_texts,
+    # SimilarityResult,
+)
 from sentence_transformers import SentenceTransformer
 from scipy.spatial.distance import cosine
 from jet.wordnet.words import get_words
@@ -947,7 +952,7 @@ if __name__ == "__main__":
     ]
 
     # Generate embeddings (Replace with actual embedding function)
-    embedding_function = SFEmbeddingFunction("paraphrase-MiniLM-L12-v2")
+    embedding_function = get_embedding_function("paraphrase-MiniLM-L12-v2")
     embeddings = embedding_function(texts)
 
     # Plot the embeddings

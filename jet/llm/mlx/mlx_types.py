@@ -154,6 +154,7 @@ EmbedModelKey = Literal[
     "all-mpnet-base-v2",
     "all-MiniLM-L12-v2",
     "all-MiniLM-L6-v2",
+    "paraphrase-MiniLM-L12-v2",
     # Ollama
     "nomic-embed-text",
     "mxbai-embed-large",
@@ -179,6 +180,7 @@ EmbedModelValue = Literal[
     "sentence-transformers/all-mpnet-base-v2",
     "sentence-transformers/all-MiniLM-L6-v2",
     "sentence-transformers/all-MiniLM-L12-v2",
+    "sentence-transformers/paraphrase-MiniLM-L12-v2",
     # OLLAMA
     "nomic-ai/nomic-embed-text-v1.5",
     "mixedbread-ai/mxbai-embed-large-v1",

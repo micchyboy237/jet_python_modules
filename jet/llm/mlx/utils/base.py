@@ -28,7 +28,7 @@ def get_model_max_tokens(model: LLMModelType, max_kv_size: Optional[int] = None)
     if model_name is None:
         raise ValueError(f"Model {model} not found in AVAILABLE_MODELS")
 
-    max_tokens = get_hidden_size(model_name)
+    max_tokens = get_max_context_length(model_name)
 
     # If max_kv_size is specified and smaller, it limits the token length
     if max_kv_size is not None and max_kv_size < max_tokens:
