@@ -30,7 +30,9 @@ def parse_html(url, selector, first=True):
     :return: Parsed element(s) matching the CSS selector.
     """
     resp = hrequests.get(url)
-    elements = resp.html.find(selector, first=first)
+    elements = resp.html.find_all(selector)
+    if first:
+        return elements[0] if elements else None
     return elements
 
 # Sample usage for Concurrent & Lazy Requests
@@ -38,7 +40,7 @@ def parse_html(url, selector, first=True):
 
 def test_concurrent_lazy_requests():
     urls = ["https://www.python.org",
-            "https://www.github.com", "https://www.google.com"]
+            "https://github.com/", "https://www.google.com"]
     print("Testing Concurrent Requests...")
     responses = concurrent_lazy_requests(urls, nohup=False, size=3)
     for resp in responses:
@@ -57,7 +59,8 @@ def test_parse_html():
     print("Testing HTML Parsing...")
     about_section = parse_html(url, "#about", first=True)
     if about_section:
-        print(f"Element ID: {about_section.id}, Text: {about_section.text}")
+        print(
+            f"Element ID: {about_section.attrs.get('id', 'No ID')}, Text: {about_section.text[:100]}...")
     else:
         print("No element found.")
 

@@ -87,19 +87,7 @@ def format_min_date(min_date: datetime) -> datetime:
     return result
 
 
-def filter_unique_hosts(results: list[SearchResult]) -> list[SearchResult]:
-    """
-    Filter results to ensure unique hosts with the highest score.
-    """
-    host_map = {}
-    for result in results:
-        host = urlparse(result["url"]).netloc
-        if host not in host_map or result["score"] > host_map[host]["score"]:
-            host_map[host] = result
-    return list(host_map.values())
-
-
-def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.2, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, **kwargs) -> list[SearchResult]:
+def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.1, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, **kwargs) -> list[SearchResult]:
     query = decode_encoded_characters(query)
     try:
         # Add the include_sites filter if provided
@@ -139,10 +127,11 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
 
         cached_result = None
 
+        config = {"port": DEFAULT_REDIS_PORT, **config}
+        cache = RedisCache(config=config)
+        cache_key = query_url
+
         if use_cache:
-            config = {"port": DEFAULT_REDIS_PORT, **config}
-            cache = RedisCache(config=config)
-            cache_key = query_url
             cached_result = cache.get(cache_key)
 
             if cached_result and cached_result.get("results", []):
@@ -169,13 +158,11 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
         results = filter_relevant(results, threshold=min_score)
         results = deduplicate_results(results)
         results = sort_by_score(results)
-        results = filter_unique_hosts(results)
         results = results[:count] if count is not None else results
         result["results"] = results
 
-        # Cache the result if caching is enabled
-        if use_cache:
-            cache.set(cache_key, result)
+        # Cache the result
+        cache.set(cache_key, result)
         return results
 
     except (requests.exceptions.RequestException, KeyError, TypeError) as e:

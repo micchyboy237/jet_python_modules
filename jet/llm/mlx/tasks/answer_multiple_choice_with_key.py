@@ -33,7 +33,7 @@ class InvalidChoiceFormatError(Exception):
     pass
 
 
-class InvalidInputError(Exception):
+class InvalidEnvelopeError(Exception):
     """Raised when question or choices are empty or invalid."""
     pass
 
@@ -49,6 +49,8 @@ class AnswerResult(TypedDict):
     is_valid: bool
     method: str
     error: Optional[str]
+    text: str  # New field for the answer text
+    prob: float  # New field for the confidence score
 
 
 class ModelComponents:
@@ -285,9 +287,11 @@ def answer_multiple_choice_with_key(
         confidence_scores = compute_confidence_scores(
             model_components.model, input_ids, choice_token_map
         )
+        selected_prob = 0.0  # Default probability if confidence_scores is empty
         if confidence_scores:
             most_confident_choice = max(
                 confidence_scores, key=confidence_scores.get)
+            selected_prob = confidence_scores.get(most_confident_choice, 0.0)
             logger.debug(f"Normalized confidence scores: {confidence_scores}")
             logger.debug(
                 f"Most confident choice: {most_confident_choice} ({confidence_scores[most_confident_choice]})")
@@ -305,7 +309,9 @@ def answer_multiple_choice_with_key(
             token_id=token_id,
             is_valid=True,
             method=method,
-            error=None
+            error=None,
+            text=answer,  # Store the answer text
+            prob=selected_prob  # Store the confidence score
         )
     except Exception as e:
         logger.error(f"Error in answer_multiple_choice_with_key: {str(e)}")
@@ -314,5 +320,7 @@ def answer_multiple_choice_with_key(
             token_id=-1,
             is_valid=False,
             method=method,
-            error=str(e)
+            error=str(e),
+            text="",  # Default empty text on error
+            prob=0.0  # Default zero probability on error
         )

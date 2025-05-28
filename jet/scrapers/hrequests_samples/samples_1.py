@@ -43,8 +43,25 @@ def session_get_request(session, url):
 
 def update_session_headers(session, os_type):
     """Update the session headers based on the OS type."""
-    session.os = os_type
-    session.headers = session.generate_headers()  # Regenerate headers
+    session.os = os_type  # Set the OS type (e.g., 'mac', 'win', 'linux')
+    # Manually define headers based on os_type, leveraging hrequests' randomization
+    user_agents = {
+        "mac": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "win": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "linux": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+    session.headers = {
+        # Default to mac
+        "User-Agent": user_agents.get(os_type, user_agents["mac"]),
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "en-US;q=0.5,en;q=0.3",
+        "Cache-Control": "max-age=0",
+        "DNT": "1",
+        "Upgrade-Insecure-Requests": "1",
+        "Pragma": "no-cache",
+    }
     return session.headers
 
 # Function: Close session
@@ -80,7 +97,7 @@ if __name__ == "__main__":
 
     # Session Example
     print("\nSession Example:")
-    session = create_session(browser="firefox", os="win")
+    session = create_session(browser="firefox", os="mac")  # Set to mac for M1
     session_result = session_get_request(
         session, "https://jsonplaceholder.typicode.com/posts")
     print(session_result)

@@ -1,3 +1,4 @@
+import requests
 import aiohttp
 import asyncio
 from fake_useragent import UserAgent
@@ -12,6 +13,39 @@ REDIS_CONFIG = RedisConfigParams(
     port=3102
 )
 cache = RedisCache(config=REDIS_CONFIG)
+
+
+def sync_scrape_url(url: str) -> Optional[str]:
+    cache_key = f"html:{url}"
+    cached_content = cache.get(cache_key)
+
+    if cached_content:
+        return cached_content['content']
+
+    try:
+        ua = UserAgent()
+        headers = {'User-Agent': ua.random}
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            html_content = response.text
+            cache.set(cache_key, {'content': html_content}, ttl=3600)
+            return html_content
+        else:
+            logger.warning(
+                f"Failed: {url} - Status Code: {response.status_code}, Reason: {response.reason}")
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching {url}: {str(e)}")
+        return None
+
+
+def sync_scrape_urls(urls: List[str], num_parallel: int = 5) -> List[Optional[str]]:
+    ua = UserAgent()
+    results = []
+    for url in urls:
+        result = sync_scrape_url(url, ua)
+        results.append(result)
+    return results
 
 
 async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent) -> Optional[str]:
