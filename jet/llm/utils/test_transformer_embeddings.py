@@ -4,10 +4,10 @@ import numpy as np
 from jet.llm.utils.transformer_embeddings import (
     generate_embeddings,
     get_embedding_function,
-    search_docs,
     chunk_texts,
     SimilarityResult,
 )
+from jet.llm.utils.search_docs import search_docs
 import psutil
 import os
 import torch

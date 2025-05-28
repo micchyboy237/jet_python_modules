@@ -1,7 +1,180 @@
 from pprint import pprint
 import os
 import unittest
-from jet.scrapers.utils import TreeNode, extract_clickable_texts_from_rendered_page, extract_element_screenshots, extract_form_elements, extract_search_inputs, extract_title_and_metadata, extract_internal_links, extract_by_heading_hierarchy
+from jet.scrapers.utils import TitleMetadata, TreeNode, extract_clickable_texts_from_rendered_page, extract_element_screenshots, extract_form_elements, extract_search_inputs, extract_title_and_metadata, extract_internal_links, extract_by_heading_hierarchy, scrape_links, scrape_title_and_metadata
+
+
+class TestScrapeLinks:
+    def test_scrape_links_with_base_url(self):
+        html = '''
+        <a href="https://example.com/page1">Link 1</a>
+        <a href="/page2">Link 2</a>
+        <a href="#section">Anchor</a>
+        <a href="https://other.com/page3">Other domain</a>
+        <a href="/embed/video">Embed link</a>
+        <a href="/static/style.css">CSS file</a>
+        <a href="javascript:void(0)">JS link</a>
+        <form action="/submit">Form</form>
+        '''
+        base_url = "https://example.com"
+        result = scrape_links(html, base_url)
+        expected = [
+            "https://example.com/page1",
+            "https://example.com/page2",
+            "https://example.com/#section",
+            "https://example.com/submit"
+        ]
+        assert sorted(result) == sorted(expected)
+
+    def test_scrape_links_without_base_url(self):
+        html = '''
+        <a href="https://example.com/page1">Link 1</a>
+        <a href="/page2">Relative link</a>
+        <a href="#section">Anchor</a>
+        <a href="/images/photo.png">Image</a>
+        <a href="mailto:user@example.com">Email</a>
+        '''
+        result = scrape_links(html)
+        expected = ["https://example.com/page1"]
+        assert sorted(result) == sorted(expected)
+
+    def test_scrape_links_with_unwanted_extensions_and_paths(self):
+        html = '''
+        <a href="https://example.com/page1">Link 1</a>
+        <a href="https://example.com/style.css">CSS file</a>
+        <a href="https://example.com/script.js">JS file</a>
+        <a href="https://example.com/image.png">Image</a>
+        <a href="https://example.com/embed/video">Embed</a>
+        <a href="https://example.com/api/data">API</a>
+        '''
+        base_url = "https://example.com"
+        result = scrape_links(html, base_url)
+        expected = ["https://example.com/page1"]
+        assert sorted(result) == sorted(expected)
+
+    def test_scrape_links_empty_or_invalid(self):
+        html = '''
+        <a href="">Empty</a>
+        <a href="javascript:alert('test')">JS</a>
+        <a href="mailto:user@example.com">Email</a>
+        <a href="#">Empty anchor</a>
+        '''
+        result = scrape_links(html)
+        expected = []
+        assert result == expected
+
+
+class TestScrapeTitleAndMetadata(unittest.TestCase):
+    def test_basic_html_with_title_and_metadata(self):
+        html = """
+        <html>
+            <head>
+                <title>Test Page</title>
+                <meta name="description" content="This is a test page">
+                <meta name="keywords" content="test, page, example">
+                <meta charset="UTF-8">
+            </head>
+            <body></body>
+        </html>
+        """
+        expected: TitleMetadata = {
+            'title': 'Test Page',
+            'metadata': {
+                'description': 'This is a test page',
+                'keywords': 'test, page, example',
+                'charset': 'UTF-8'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_html_without_title(self):
+        html = """
+        <html>
+            <head>
+                <meta name="author" content="John Doe">
+                <meta charset="UTF-8">
+            </head>
+            <body></body>
+        </html>
+        """
+        expected: TitleMetadata = {
+            'title': None,
+            'metadata': {
+                'author': 'John Doe',
+                'charset': 'UTF-8'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_html_with_open_graph_metadata(self):
+        html = """
+        <html>
+            <head>
+                <title>OG Test</title>
+                <meta property="og:title" content="Open Graph Title">
+                <meta property="og:description" content="OG Description">
+            </head>
+            <body></body>
+        </html>
+        """
+        expected: TitleMetadata = {
+            'title': 'OG Test',
+            'metadata': {
+                'og:title': 'Open Graph Title',
+                'og:description': 'OG Description'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_html_with_http_equiv(self):
+        html = """
+        <html>
+            <head>
+                <title>HTTP Equiv Test</title>
+                <meta http-equiv="refresh" content="30">
+                <meta charset="ISO-8859-1">
+            </head>
+            <body></body>
+        </html>
+        """
+        expected: TitleMetadata = {
+            'title': 'HTTP Equiv Test',
+            'metadata': {
+                'http-equiv:refresh': '30',
+                'charset': 'ISO-8859-1'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_empty_html(self):
+        html = "<html><head></head><body></body></html>"
+        expected: TitleMetadata = {
+            'title': None,
+            'metadata': {}
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
+
+    def test_malformed_html(self):
+        html = """
+        <html>
+            <head>
+                <title>Unclosed Title
+                <meta name="description" content="Malformed HTML">
+            </head>
+        """
+        expected: TitleMetadata = {
+            'title': 'Unclosed Title',
+            'metadata': {
+                'description': 'Malformed HTML'
+            }
+        }
+        result = scrape_title_and_metadata(html)
+        self.assertEqual(result, expected)
 
 
 class TestExtractTitleAndMetadata(unittest.TestCase):

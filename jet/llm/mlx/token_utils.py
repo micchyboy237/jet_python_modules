@@ -1,4 +1,4 @@
-from jet.llm.mlx.utils import get_model_max_tokens
+from jet.llm.mlx.utils.base import get_model_max_tokens
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from typing import Callable, List, Dict, Optional, TypedDict, Union
 from jet.llm.mlx.mlx_types import LLMModelType, ModelType

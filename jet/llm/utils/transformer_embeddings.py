@@ -1,3 +1,4 @@
+from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 import atexit
 from jet.llm.mlx.mlx_types import EmbedModelType
 from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS, get_embedding_size, resolve_model_key
@@ -10,7 +11,6 @@ from jet.logger import logger
 import torch
 import os
 import gc
-from transformers import AutoTokenizer, AutoModel
 import torch.utils.checkpoint as checkpoint
 from torch.utils.data import DataLoader, Dataset
 
@@ -130,9 +130,6 @@ def generate_embeddings(
                         embeddings, p=2, dim=1)
 
             all_embeddings.append(embeddings.cpu())
-            del inputs, outputs, embeddings
-            torch.mps.empty_cache()  # Clear MPS memory after each batch
-            gc.collect()
 
     all_embeddings = torch.cat(all_embeddings, dim=0)
 
@@ -154,9 +151,6 @@ def generate_embeddings(
     else:
         result = (all_embeddings.tolist(), doc_indices)
 
-    del chunked_texts, doc_indices
-    torch.mps.empty_cache()
-    gc.collect()
     return result[0] if is_single_text and aggregate else result
 
 
@@ -194,92 +188,6 @@ def get_embedding_function(
             chunk_size=chunk_size
         )
     return embedding_function
-
-
-def search_docs(
-    query: str,
-    documents: List[str],
-    model: EmbedModelType = "all-minilm:33m",
-    top_k: Optional[int] = 10,
-    batch_size: Optional[int] = None,
-    normalize: bool = True,
-    chunk_size: Optional[int] = None,
-    ids: Optional[List[str]] = None
-) -> List[SimilarityResult]:
-    """Search documents with memory-efficient embedding generation and return SimilarityResult."""
-    if not query or not documents:
-        raise ValueError("Query string and documents list must not be empty.")
-
-    if not top_k:
-        top_k = len(documents)
-
-    # Validate ids if provided
-    if ids is not None:
-        if len(ids) != len(documents):
-            raise ValueError(
-                f"Length of ids ({len(ids)}) must match length of documents ({len(documents)})")
-        if len(ids) != len(set(ids)):
-            raise ValueError("IDs must be unique")
-
-    # Initialize tokenizer for token counting
-    embed_model = resolve_model_key(model)
-    model_id = AVAILABLE_EMBED_MODELS[embed_model]
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-    query_embedding = generate_embeddings(
-        model, query, batch_size, normalize, chunk_size=chunk_size)
-    doc_embeddings = generate_embeddings(
-        model, documents, batch_size, normalize, chunk_size=chunk_size)
-
-    query_embedding = np.array(query_embedding)
-    doc_embeddings = np.array(doc_embeddings)
-
-    if len(doc_embeddings) == 0 or len(documents) == 0:
-        return []
-    if len(doc_embeddings) != len(documents):
-        logger.error(
-            f"Mismatch between document embeddings ({len(doc_embeddings)}) and documents ({len(documents)})")
-        return []
-
-    similarities = np.dot(doc_embeddings, query_embedding) / (
-        np.linalg.norm(doc_embeddings, axis=1) *
-        np.linalg.norm(query_embedding)
-    )
-
-    similarities = np.nan_to_num(similarities, nan=-1.0)
-
-    top_k = min(top_k, len(documents))
-    if top_k <= 0:
-        return []
-
-    top_indices = np.argsort(similarities)[::-1][:top_k]
-
-    # Convert indices to Python int to avoid NumPy integer types
-    valid_indices = [int(idx) for idx in top_indices if idx < len(documents)]
-    if not valid_indices:
-        return []
-
-    results = []
-    for rank, idx in enumerate(valid_indices, start=1):
-        doc_text = documents[idx]
-        # Count tokens for the document
-        tokens = len(tokenizer.encode(doc_text, add_special_tokens=True))
-        # Use provided ID if available, otherwise default to f"doc_{idx}"
-        doc_id = ids[idx] if ids is not None else f"doc_{idx}"
-        result = SimilarityResult(
-            id=doc_id,
-            rank=rank,
-            doc_index=int(idx),  # Ensure Python int
-            score=float(similarities[idx]),
-            text=doc_text,
-            tokens=tokens
-        )
-        results.append(result)
-
-    del query_embedding, doc_embeddings, similarities
-    torch.mps.empty_cache()
-    gc.collect()
-    return results
 
 
 def cleanup():

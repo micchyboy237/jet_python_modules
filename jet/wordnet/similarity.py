@@ -2,6 +2,7 @@ from typing import List
 from collections import defaultdict
 from typing import Any, List, Optional, Literal
 from jet.data.utils import generate_key
+from jet.llm.mlx.mlx_types import EmbedModelType
 from sentence_transformers import util
 import torch
 from typing import Callable, List
@@ -19,10 +20,10 @@ from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.llm.utils.transformer_embeddings import (
     generate_embeddings,
     get_embedding_function,
-    search_docs,
     chunk_texts,
-    # SimilarityResult,
+    SimilarityResult,
 )
+from jet.llm.utils.search_docs import search_docs
 from sentence_transformers import SentenceTransformer
 from scipy.spatial.distance import cosine
 from jet.wordnet.words import get_words
@@ -50,7 +51,7 @@ def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, Lis
 def get_text_groups(
     texts: List[str],
     threshold: float = 0.75,
-    model_name: str = "all-MiniLM-L12-v2"
+    model_name: EmbedModelType = "all-MiniLM-L12-v2"
 ) -> List[List[str]]:
     """
     Groups similar texts into exclusive clusters based on cosine similarity.
@@ -106,7 +107,7 @@ def query_similarity_scores(
     query: Union[str, List[str]],
     texts: Union[str, List[str]],
     threshold: float = 0.0,
-    model: Union[str, List[str]] = "all-MiniLM-L6-v2",
+    model: Union[EmbedModelType, List[EmbedModelType]] = "all-MiniLM-L6-v2",
     fuse_method: Literal["average", "max", "min"] = "average",
     ids: Union[List[str], None] = None,
     metrics: Literal["cosine", "dot", "euclidean"] = "cosine"

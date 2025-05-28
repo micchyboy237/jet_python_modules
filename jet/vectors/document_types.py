@@ -54,6 +54,7 @@ class HeaderDocument(Document):
         super().__init__(text=data["text"])
         self.metadata_separator = "\n"
         default_metadata: HeaderMetadata = {
+            **data,
             "doc_index": data.get("doc_index", 0),
             "header_level": data.get("header_level", 0),
             "header": data.get("header", ""),
@@ -111,6 +112,7 @@ class HeaderTextNode(TextNode):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         default_metadata: HeaderMetadata = {
+            **kwargs,
             "doc_index": 0,
             "header_level": 0,
             "header": "",

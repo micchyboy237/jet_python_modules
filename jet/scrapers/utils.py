@@ -40,12 +40,29 @@ def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
 
     matches = re.findall(quote_pattern, html, flags=re.IGNORECASE)
 
+    # Define unwanted patterns
+    unwanted_extensions = (
+        r'\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|pdf|mp4|mp3|zip|rar|exe)$'
+    )
+    unwanted_paths = (
+        r'/(embed|api|static|assets|media|images|uploads)/'
+    )
+
     # Filter and process links
     filtered = []
     for match in matches:
         link = match[1].strip()
-        # Skip empty, javascript:, or invalid links
-        if not link or link.lower().startswith('javascript:'):
+
+        # Skip empty, javascript:, or mailto: links
+        if not link or link.lower().startswith(('javascript:', 'mailto:')):
+            continue
+
+        # Skip links with unwanted extensions
+        if re.search(unwanted_extensions, link, re.IGNORECASE):
+            continue
+
+        # Skip links with unwanted path patterns
+        if re.search(unwanted_paths, link, re.IGNORECASE):
             continue
 
         if base_url:

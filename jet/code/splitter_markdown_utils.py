@@ -37,6 +37,7 @@ class HeaderLink(TypedDict):
     end_idx: int
     line: str
     line_idx: int
+    is_heading: bool
 
 
 class Header(TypedDict):
@@ -230,7 +231,8 @@ def extract_markdown_links(text: str) -> Tuple[List[HeaderLink], str]:
                 "start_idx": start_idx,
                 "end_idx": end_idx,
                 "line": line,
-                "line_idx": line_idx
+                "line_idx": line_idx,
+                "is_heading": line_idx == 0
             })
 
         last_end = end
