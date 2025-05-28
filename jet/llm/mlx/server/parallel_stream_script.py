@@ -31,7 +31,7 @@ def parallel_stream_generate(
 ) -> None:
     if rank != 0:
         try:
-            model = resolve_model(model, AVAILABLE_MODELS)
+            model = resolve_model(model)
             if verbose:
                 logger.info(f"Rank {rank}: Validating model path {model}")
             max_context, max_embeddings = get_model_limits(model)
@@ -170,7 +170,7 @@ def parallel_chat_generate(
 ) -> None:
     if rank != 0:
         try:
-            model = resolve_model(model, AVAILABLE_MODELS)
+            model = resolve_model(model)
             if verbose:
                 logger.info(f"Rank {rank}: Validating model path {model}")
             max_context, max_embeddings = get_model_limits(model)
