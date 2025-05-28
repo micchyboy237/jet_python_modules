@@ -18,8 +18,7 @@ from jet.llm.retrievers.recursive import (
     query_nodes as query_nodes_recursive
 )
 from jet.actions.vector_semantic_search import VectorSemanticSearch
-from jet.token import filter_texts
-from jet.token.token_utils import get_model_max_tokens, get_ollama_tokenizer, group_texts
+from jet.token.token_utils import get_model_max_tokens, get_ollama_tokenizer, group_texts, filter_texts
 from jet.utils.object import extract_values_by_paths
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
 from jet.vectors.utils import get_source_node_attributes

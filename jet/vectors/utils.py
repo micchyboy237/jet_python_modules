@@ -1,6 +1,6 @@
 from llama_index.core.schema import BaseNode, TextNode, ImageNode, NodeWithScore
 from llama_index.core.base.response.schema import Response
-from jet.vectors import SourceNodeAttributes
+from jet.vectors.node_types import SourceNodeAttributes
 
 
 def get_source_node_attributes(

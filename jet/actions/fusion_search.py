@@ -10,7 +10,7 @@ from llama_index.core.schema import Document, NodeWithScore, BaseNode, TextNode,
 from llama_index.core.node_parser import TokenTextSplitter
 
 from jet.llm.utils import display_jet_source_nodes
-from jet.vectors import get_source_node_attributes
+from jet.vectors.utils import get_source_node_attributes
 from jet.logger import logger
 from jet.actions.generation import call_ollama_chat
 from jet.llm.llm_types import OllamaChatOptions
