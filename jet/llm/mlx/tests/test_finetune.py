@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as opt
-from mlx.utils.base import tree_flatten
+from mlx.utils import tree_flatten
 
 from mlx_lm import lora, tuner
 from mlx_lm.tuner.dora import DoRAEmbedding, DoRALinear
@@ -129,8 +129,7 @@ class TestLora(unittest.TestCase):
         )
         lora_emb = LoRAEmbedding.from_base(embedding, r=8, dropout=0, scale=10)
         new_embedding = lora_emb.fuse(de_quantize=True)
-        self.assertTrue(mx.array_equal(
-            dequantized_weight, new_embedding.weight))
+        self.assertTrue(mx.array_equal(dequantized_weight, new_embedding.weight))
         self.assertTrue(mx.array_equal(embedding(tokens), lora_emb(tokens)))
 
         # as_linear
@@ -144,8 +143,7 @@ class TestLora(unittest.TestCase):
         # change the value of lora_b and the embeddings will no longer be equal
         lora_emb.lora_b = mx.random.uniform(shape=lora_emb.lora_b.shape)
         new_embedding = lora_emb.fuse(de_quantize=True)
-        self.assertFalse(mx.array_equal(
-            dequantized_weight, new_embedding.weight))
+        self.assertFalse(mx.array_equal(dequantized_weight, new_embedding.weight))
         self.assertFalse(mx.array_equal(embedding(tokens), lora_emb(tokens)))
 
 
@@ -173,8 +171,7 @@ class TestDora(unittest.TestCase):
         # change the value of lora_b and the embeddings will no longer be equal
         dora_emb.lora_b = mx.random.uniform(shape=dora_emb.lora_b.shape)
         new_embedding = dora_emb.fuse()
-        self.assertFalse(mx.array_equal(
-            embedding.weight, new_embedding.weight))
+        self.assertFalse(mx.array_equal(embedding.weight, new_embedding.weight))
         self.assertFalse(mx.array_equal(embedding(tokens), dora_emb(tokens)))
 
     def test_llama(self):
@@ -200,16 +197,14 @@ class TestDora(unittest.TestCase):
                 n_keys = len(params["keys"])
             model = llama.Model(args)
             model.freeze()
-            tuner.utils.linear_to_lora_layers(
-                model, dora_layers, params, use_dora=True)
+            tuner.utils.linear_to_lora_layers(model, dora_layers, params, use_dora=True)
             trainable_params = sum(
                 v.size for _, v in tree_flatten(model.trainable_parameters())
             )
             self.assertEqual(
                 trainable_params,
                 dora_layers
-                * (params["rank"] * hidden_size *
-                   2 * n_keys + n_keys * hidden_size),
+                * (params["rank"] * hidden_size * 2 * n_keys + n_keys * hidden_size),
             )
 
         params = {"rank": 8, "alpha": 16, "dropout": 0.0, "scale": 10.0}
@@ -224,16 +219,14 @@ class TestDora(unittest.TestCase):
     def test_dora_m_parameter(self):
         dora_lin = DoRALinear(input_dims=100, output_dims=100)
         self.assertTrue(
-            mx.allclose(dora_lin.m, mx.linalg.norm(
-                dora_lin.linear.weight, axis=1))
+            mx.allclose(dora_lin.m, mx.linalg.norm(dora_lin.linear.weight, axis=1))
         )
 
         # Recomputes m when changing Linear
         inital_m = dora_lin.m
         lin = nn.Linear(10, 10)
         dora_lin.set_linear(lin)
-        self.assertTrue(mx.allclose(
-            dora_lin.m, mx.linalg.norm(lin.weight, axis=1)))
+        self.assertTrue(mx.allclose(dora_lin.m, mx.linalg.norm(lin.weight, axis=1)))
 
         # Works with quantized weights
         quantized_linear = nn.QuantizedLinear(512, 512)
@@ -256,8 +249,7 @@ class TestDora(unittest.TestCase):
 
         linear = nn.Linear(in_dims, out_dims)
         dora_lin = DoRALinear.from_base(linear, r)
-        self.assertTrue(mx.allclose(
-            dora_lin.m, mx.linalg.norm(linear.weight, axis=1)))
+        self.assertTrue(mx.allclose(dora_lin.m, mx.linalg.norm(linear.weight, axis=1)))
         self.assertEqual(dora_lin.lora_a.shape, (in_dims, r))
         self.assertEqual(dora_lin.lora_b.shape, (r, out_dims))
         self.assertEqual(dora_lin.m.shape, (out_dims,))
@@ -272,8 +264,7 @@ class TestDora(unittest.TestCase):
         )
         dora_quant_lin = DoRALinear.from_base(quantized_linear, r)
         self.assertTrue(
-            mx.allclose(dora_quant_lin.m, mx.linalg.norm(
-                dequantized_weight, axis=1))
+            mx.allclose(dora_quant_lin.m, mx.linalg.norm(dequantized_weight, axis=1))
         )
         self.assertEqual(dora_quant_lin.lora_a.shape, (in_dims, r))
         self.assertEqual(dora_quant_lin.lora_b.shape, (r, out_dims))
@@ -308,8 +299,7 @@ class TestDora(unittest.TestCase):
         )
         self.assertTrue(
             mx.allclose(
-                dequantize_weight(
-                    quantized_linear), to_linear_from_quantized.weight
+                dequantize_weight(quantized_linear), to_linear_from_quantized.weight
             )
         )
 
@@ -328,8 +318,7 @@ class TestDora(unittest.TestCase):
 
 class TestScheduleConfig(unittest.TestCase):
     def test_join(self):
-        config = {"name": "cosine_decay",
-                  "warmup": 100, "arguments": [1e-5, 100]}
+        config = {"name": "cosine_decay", "warmup": 100, "arguments": [1e-5, 100]}
         cos_with_warmup = build_schedule(config)
         self.assertIsNotNone(cos_with_warmup)
 
@@ -338,13 +327,11 @@ class TestScheduleConfig(unittest.TestCase):
         optimizer = opt.Adam(learning_rate=cos_with_warmup)
         for _ in range(100):
             optimizer.update({}, {})
-        self.assertAlmostEqual(
-            optimizer.learning_rate.item(), 1e-5, delta=1e-1)
+        self.assertAlmostEqual(optimizer.learning_rate.item(), 1e-5, delta=1e-1)
         for _ in range(100):
             optimizer.update({}, {})
         expected_lr = 1e-5 * 0.5 * (1.0 + math.cos(math.pi * 200 / 10))
-        self.assertAlmostEqual(
-            optimizer.learning_rate.item(), expected_lr, delta=1e-1)
+        self.assertAlmostEqual(optimizer.learning_rate.item(), expected_lr, delta=1e-1)
 
     def test_single_schedule(self):
 

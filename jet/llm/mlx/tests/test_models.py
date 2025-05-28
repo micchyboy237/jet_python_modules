@@ -3,7 +3,7 @@ import unittest
 
 import mlx.core as mx
 import mlx.nn as nn
-from mlx.utils.base import tree_map
+from mlx.utils import tree_map
 
 from mlx_lm.models import rope_utils
 from mlx_lm.models.base import create_causal_mask, scaled_dot_product_attention
@@ -61,8 +61,8 @@ class TestModels(unittest.TestCase):
             k = mx.random.uniform(shape=(b, h, 1, d))
             v = mx.random.uniform(shape=(b, h, 1, d))
             k_up, v_up = cache.update_and_fetch(k, v)
-            self.assertTrue(mx.array_equal(k_up[..., idx: idx + 1, :], k))
-            self.assertTrue(mx.array_equal(v_up[..., idx: idx + 1, :], v))
+            self.assertTrue(mx.array_equal(k_up[..., idx : idx + 1, :], k))
+            self.assertTrue(mx.array_equal(v_up[..., idx : idx + 1, :], v))
             idx += 1
             idx %= 8
 
@@ -83,8 +83,8 @@ class TestModels(unittest.TestCase):
             k = mx.random.uniform(shape=(b, h, 1, d))
             v = mx.random.uniform(shape=(b, h, 1, d))
             k_up, v_up = cache.update_and_fetch(k, v)
-            self.assertTrue(mx.array_equal(k_up[..., idx: idx + 1, :], k))
-            self.assertTrue(mx.array_equal(v_up[..., idx: idx + 1, :], v))
+            self.assertTrue(mx.array_equal(k_up[..., idx : idx + 1, :], k))
+            self.assertTrue(mx.array_equal(v_up[..., idx : idx + 1, :], v))
             self.assertEqual(cache.offset, 21 + i)
             idx += 1
             if idx >= 8:
@@ -139,13 +139,11 @@ class TestModels(unittest.TestCase):
         v = k
         mask = create_causal_mask(T_q, 0, lengths=lengths)
 
-        out1 = mx.fast.scaled_dot_product_attention(
-            q, k, v, scale=1.0, mask=mask)
+        out1 = mx.fast.scaled_dot_product_attention(q, k, v, scale=1.0, mask=mask)
         q[1, :, 2:] = mx.ones_like(q[1, :, 2:])
         k[1, :, 2:] = mx.ones_like(k[1, :, 2:])
         v[1, :, 2:] = mx.ones_like(v[1, :, 2:])
-        out2 = mx.fast.scaled_dot_product_attention(
-            q, k, v, scale=1.0, mask=mask)
+        out2 = mx.fast.scaled_dot_product_attention(q, k, v, scale=1.0, mask=mask)
         self.assertTrue(mx.allclose(out1[1, :, :2], out2[1, :, :2]))
 
     def test_rope(self):
@@ -228,8 +226,7 @@ class TestModels(unittest.TestCase):
                 self.assertEqual(outputs.shape, (1, 2, vocab_size))
                 self.assertEqual(outputs.dtype, t)
 
-            outputs = model(
-                mx.argmax(outputs[0, -1:, :], keepdims=True), cache=cache)
+            outputs = model(mx.argmax(outputs[0, -1:, :], keepdims=True), cache=cache)
             self.assertEqual(outputs.shape, (1, 1, vocab_size))
             self.assertEqual(outputs.dtype, t)
 
@@ -266,8 +263,7 @@ class TestModels(unittest.TestCase):
             "phixtral", num_vocab=1000, num_layers=4, model_dim=1024
         )
         model = phixtral.Model(args)
-        self.model_test_runner(model, args.model_type,
-                               args.num_vocab, args.num_layers)
+        self.model_test_runner(model, args.model_type, args.num_vocab, args.num_layers)
 
     def test_phi3(self):
         from mlx_lm.models import phi3
@@ -554,17 +550,14 @@ class TestModels(unittest.TestCase):
         args = dbrx.ModelArgs(
             model_type="dbrx",
             d_model=1024,
-            ffn_config={"ffn_hidden_size": 2048,
-                        "moe_num_experts": 4, "moe_top_k": 2},
-            attn_config={"kv_n_heads": 2,
-                         "clip_qkv": True, "rope_theta": 10000},
+            ffn_config={"ffn_hidden_size": 2048, "moe_num_experts": 4, "moe_top_k": 2},
+            attn_config={"kv_n_heads": 2, "clip_qkv": True, "rope_theta": 10000},
             n_layers=4,
             n_heads=4,
             vocab_size=10_000,
         )
         model = dbrx.Model(args)
-        self.model_test_runner(model, args.model_type,
-                               args.vocab_size, args.n_layers)
+        self.model_test_runner(model, args.model_type, args.vocab_size, args.n_layers)
 
     def test_minicpm(self):
         from mlx_lm.models import minicpm
@@ -621,8 +614,7 @@ class TestModels(unittest.TestCase):
             vocab_size=50256,
         )
         model = gpt2.Model(args)
-        self.model_test_runner(model, args.model_type,
-                               args.vocab_size, args.n_layer)
+        self.model_test_runner(model, args.model_type, args.vocab_size, args.n_layer)
 
     def test_gpt_neox(self):
         from mlx_lm.models import gpt_neox
@@ -885,8 +877,7 @@ class TestModels(unittest.TestCase):
             vocab_size=1024,
         )
         model = gpt_bigcode.Model(args)
-        self.model_test_runner(model, args.model_type,
-                               args.vocab_size, args.n_layer)
+        self.model_test_runner(model, args.model_type, args.vocab_size, args.n_layer)
 
     def test_nemotron(self):
         from mlx_lm.models import nemotron
@@ -1043,8 +1034,7 @@ class TestModels(unittest.TestCase):
             rope_theta=10000,
         )
         model = exaone.Model(args)
-        self.model_test_runner(model, args.model_type,
-                               args.vocab_size, args.num_layers)
+        self.model_test_runner(model, args.model_type, args.vocab_size, args.num_layers)
 
     def test_cohere2(self):
         from mlx_lm.models import cohere2

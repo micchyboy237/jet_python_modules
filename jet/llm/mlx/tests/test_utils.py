@@ -6,7 +6,7 @@ import unittest
 
 import mlx.core as mx
 import mlx.nn as nn
-from mlx.utils.base import tree_flatten
+from mlx.utils import tree_flatten
 
 from mlx_lm import convert, utils
 
@@ -79,10 +79,8 @@ class TestUtils(unittest.TestCase):
 
         convert(HF_MODEL_PATH, mlx_path=mlx_path, quantize=False)
         model, _ = utils.load(mlx_path)
-        self.assertTrue(isinstance(
-            model.layers[0].mlp.up_proj, nn.QuantizedLinear))
-        self.assertTrue(isinstance(
-            model.layers[-1].mlp.up_proj, nn.QuantizedLinear))
+        self.assertTrue(isinstance(model.layers[0].mlp.up_proj, nn.QuantizedLinear))
+        self.assertTrue(isinstance(model.layers[-1].mlp.up_proj, nn.QuantizedLinear))
 
         # Check model weights have right type
         mlx_path = os.path.join(self.test_dir, "mlx_model_bf16")
@@ -90,8 +88,7 @@ class TestUtils(unittest.TestCase):
         model, _ = utils.load(mlx_path)
 
         self.assertEqual(model.layers[0].mlp.up_proj.scales.dtype, mx.bfloat16)
-        self.assertEqual(
-            model.layers[-1].mlp.up_proj.scales.dtype, mx.bfloat16)
+        self.assertEqual(model.layers[-1].mlp.up_proj.scales.dtype, mx.bfloat16)
 
 
 if __name__ == "__main__":
