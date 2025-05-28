@@ -749,6 +749,10 @@ class MLXLMClient:
         logit_bias = convert_logit_bias(logit_bias, tokenizer)
 
         if verbose:
+            logger.newline()
+            logger.info("Prompt:")
+            logger.debug(tokenizer.decode(prompt))
+
             if logit_bias:
                 logger.newline()
                 logger.info("logit_bias:")
@@ -757,10 +761,6 @@ class MLXLMClient:
                     choice = tokenizer.decode(token)
                     logger.log("Token for", f"'{choice}'", ":",
                                token, colors=["GRAY", "DEBUG", "GRAY" "ORANGE"])
-
-            logger.newline()
-            logger.info("Prompt:")
-            logger.debug(tokenizer.decode(prompt))
 
         tokens: List[int] = []
         token_logprobs: List[float] = []
@@ -881,6 +881,10 @@ class MLXLMClient:
         logit_bias = convert_logit_bias(logit_bias, tokenizer)
 
         if verbose:
+            logger.newline()
+            logger.info("Prompt:")
+            logger.debug(tokenizer.decode(prompt))
+
             if logit_bias:
                 logger.newline()
                 logger.info("logit_bias:")
@@ -889,10 +893,6 @@ class MLXLMClient:
                     choice = tokenizer.decode(token)
                     logger.log("Token for", f"'{choice}'", ":",
                                token, colors=["GRAY", "DEBUG", "GRAY" "ORANGE"])
-
-            logger.newline()
-            logger.info("Prompt:")
-            logger.debug(tokenizer.decode(prompt))
 
         tokens: List[int] = []
         token_logprobs: List[float] = []
