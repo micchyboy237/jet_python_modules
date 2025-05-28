@@ -1,5 +1,7 @@
 import hrequests
 from hrequests.proxies import evomi
+import os
+import time
 
 # Function for Browser Automation
 
@@ -8,38 +10,54 @@ def browser_automation():
     """
     Demonstrates browser automation using hrequests.
     """
-    # Initialize a BrowserSession
-    browser = hrequests.BrowserSession(headless=False, mock_human=True)
+    print("Initializing BrowserSession...")
     try:
-        # Navigate to a website
-        browser.goto("https://example.com")
-        print("Page Title:", browser.html.title)
+        # Initialize a BrowserSession
+        browser = hrequests.BrowserSession(headless=False, mock_human=True)
+        print("BrowserSession initialized successfully.")
+        try:
+            # Navigate to a website
+            browser.goto("https://example.com")
+            # Wait for page to load
+            time.sleep(2)  # Simple delay to ensure page loads
+            print("Page Title:", browser.html.title or "No title found")
 
-        # Interact with the page
-        browser.type("input[name='q']", "Hello World!")
-        browser.click("input[type='submit']")
+            # Interact with the page (commented out as in original)
+            # browser.type("input[name='q']", "Hello World!")
+            # browser.click("input[type='submit']")
 
-        # Take a screenshot
-        browser.screenshot(path="example_screenshot.png")
-        print("Screenshot saved as 'example_screenshot.png'.")
+            # Take a screenshot of the full page
+            screenshot_path = "example_screenshot.png"
+            browser.screenshot(path=screenshot_path, full_page=True)
+            print(f"Screenshot saved as '{screenshot_path}'.")
 
-        # Extract cookies
-        cookies = browser.cookies
-        print("Cookies extracted:", cookies)
-    finally:
-        # Close the browser session
-        browser.close()
+            # Extract cookies
+            cookies = browser.cookies
+            print("Cookies extracted:", cookies)
+        finally:
+            # Close the browser session
+            browser.close()
+            print("BrowserSession closed.")
+    except Exception as e:
+        print(f"Error in browser automation: {e}")
 
 # Function for Evomi Proxies
 
 
-def evomi_proxies():
+def evomi_proxies(username=None, key=None):
     """
     Demonstrates proxy usage with Evomi and hrequests.
+    :param username: Evomi proxy username (optional).
+    :param key: Evomi proxy key (optional).
     """
+    if not username or not key:
+        print("Skipping Evomi proxies: No valid username or key provided.")
+        return
+
     # Initialize a residential proxy
     proxy = evomi.ResidentialProxy(
-        username="your_username", key="your_key", country="US", session_type="session")
+        username=username, key=key, country="US", session_type="session"
+    )
 
     # Create a session with the proxy
     session = hrequests.Session(proxy=proxy)
@@ -51,12 +69,17 @@ def evomi_proxies():
     finally:
         # Close the session
         session.close()
+        print("Proxy session closed.")
 
 
-# Sample Usage for Browser Automation
-print("Running Browser Automation Example...")
-browser_automation()
+# Sample Usage
+if __name__ == "__main__":
+    print("Running Browser Automation Example...")
+    browser_automation()
 
-# Sample Usage for Evomi Proxies
-print("\nRunning Evomi Proxies Example...")
-evomi_proxies()
+    print("\n" + "=" * 50 + "\n")
+    print("Running Evomi Proxies Example...")
+    # Load credentials from environment variables
+    evomi_username = os.getenv("EVOMI_USERNAME", None)
+    evomi_key = os.getenv("EVOMI_KEY", None)
+    evomi_proxies(username=evomi_username, key=evomi_key)
