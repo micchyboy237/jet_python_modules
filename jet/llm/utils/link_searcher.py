@@ -1,5 +1,7 @@
 from typing import List, TypedDict, Optional
 import urllib.parse
+from jet.llm.mlx.mlx_types import EmbedModelType
+from jet.llm.mlx.models import resolve_model
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer, util
 import torch
@@ -18,7 +20,7 @@ class LinkSearchResult(TypedDict):
     score: float
 
 
-def search_links(links: List[Link], query: str, top_k: int = 10, embedding_threshold: float = 0.3) -> List[LinkSearchResult]:
+def search_links(links: List[Link], query: str, model: EmbedModelType = "paraphrase-multilingual", top_k: int = 10, embedding_threshold: float = 0.3) -> List[LinkSearchResult]:
     """
     Search a list of links based on a query using a hybrid BM25 + embeddings approach.
     Links may include optional 'text' for additional context.
@@ -82,7 +84,7 @@ def search_links(links: List[Link], query: str, top_k: int = 10, embedding_thres
     #     return []
 
     # Re-rank with embeddings
-    model = SentenceTransformer('all-MiniLM-L12-v2', device=device)
+    model = SentenceTransformer(resolve_model(model), device=device)
     candidate_contents = [extract_content(link) for link in links]
     candidate_embeddings = model.encode(
         candidate_contents, convert_to_tensor=True)
