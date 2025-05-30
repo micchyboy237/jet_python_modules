@@ -97,13 +97,6 @@ class TestParseUrl:
         result = parse_url(url)
         assert result == expected, f"Expected {expected}, but got {result}"
 
-    def test_parse_url_non_ascii(self):
-        url = "https://example.com/über?key=värld#frägment"
-        expected = ["https", "example", "com",
-                    "über", "key", "värld", "frägment"]
-        result = parse_url(url)
-        assert result == expected, f"Expected {expected}, but got {result}"
-
     def test_parse_url_multiple_fragments(self):
         url = "https://example.com/path#fragment1#fragment2"
         expected = ["https", "example", "com", "path", "fragment1#fragment2"]
@@ -121,10 +114,17 @@ class TestParseUrl:
         result = parse_url(url)
         assert result == expected, f"Expected {expected}, but got {result}"
 
+    def test_parse_url_non_ascii(self):
+        url = "https://example.com/über?key=värld#frägment"
+        expected = ["https", "example", "com",
+                    "uber", "key", "varld", "fragment"]
+        result = parse_url(url)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
     def test_parse_url_encoded_text(self):
-        url = "https://example.com/%C3%BCber/path%20with%20spaces?key%3Dvärld#fr%C3%A4gment"
-        expected = ["https", "example", "com", "über",
-                    "path with spaces", "key", "värld", "frägment"]
+        url = "https://example.com/%C3%BCber/path%20with%20spaces?key%3D%C3%A4rld#fr%C3%A4gment"
+        expected = ["https", "example", "com", "uber",
+                    "path with spaces", "key", "arld", "fragment"]
         result = parse_url(url)
         assert result == expected, f"Expected {expected}, but got {result}"
 
@@ -171,14 +171,20 @@ class TestCleanUrl:
         result = clean_url(url)
         assert result == expected, f"Expected {expected}, but got {result}"
 
-    def test_clean_url_non_ascii(self):
-        url = "https://example.com/über?key=värld#frägment"
-        expected = "https://example.com/über?key=värld#frägment"
-        result = clean_url(url)
-        assert result == expected, f"Expected {expected}, but got {result}"
-
     def test_clean_url_trailing_hash(self):
         url = "https://example.com/path#"
         expected = "https://example.com/path"
+        result = clean_url(url)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_clean_url_non_ascii(self):
+        url = "https://example.com/über?key=värld#frägment"
+        expected = "https://example.com/uber?key=varld#fragment"
+        result = clean_url(url)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_clean_url_encoded_unicode(self):
+        url = "https://example.com/%C3%BCber?key=%C3%A4rld#fr%C3%A4gment"
+        expected = "https://example.com/uber?key=arld#fragment"
         result = clean_url(url)
         assert result == expected, f"Expected {expected}, but got {result}"

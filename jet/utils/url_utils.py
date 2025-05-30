@@ -1,3 +1,4 @@
+from unidecode import unidecode
 from typing import List
 from urllib.parse import urlparse
 from typing import List, Optional
@@ -76,7 +77,7 @@ def normalize_url(url: str, base_url: Optional[str] = None) -> str:
 
 
 def clean_url(url: str) -> str:
-    """Clean a URL by ensuring a scheme, removing trailing slashes, and normalizing format."""
+    """Clean a URL by ensuring a scheme, removing trailing slashes, normalizing format, and transliterating non-ASCII to ASCII."""
     if not url:
         return ""
 
@@ -90,11 +91,35 @@ def clean_url(url: str) -> str:
     # Parse URL to normalize components
     try:
         parsed = urlparse(url)
-        # Normalize path by replacing multiple slashes with a single slash
-        path = re.sub(r'/+', '/', parsed.path.rstrip('/'))
-        # Reconstruct URL with lowercase scheme and no trailing slashes
-        query = f'?{parsed.query}' if parsed.query else ''
-        fragment = f'#{parsed.fragment}' if parsed.fragment else ''
+        # Normalize path by replacing multiple slashes with a single slash and decoding
+        path = re.sub(r'/+', '/', unquote(parsed.path.rstrip('/')))
+        # Transliterate non-ASCII characters in path to ASCII
+        path = unidecode(path) if path else path
+
+        # Process query parameters individually
+        query = ''
+        if parsed.query:
+            query_parts = parsed.query.split('&')
+            processed_parts = []
+            for part in query_parts:
+                if part:
+                    if '=' in part:
+                        key, value = part.split('=', 1)
+                        # Decode and transliterate key and value
+                        processed_key = unidecode(unquote(key))
+                        processed_value = unidecode(
+                            unquote(value)) if value else ''
+                        processed_parts.append(
+                            f'{processed_key}={processed_value}' if value else processed_key)
+                    else:
+                        # Handle query parameters without values
+                        processed_parts.append(unidecode(unquote(part)))
+            query = f'?{"&".join(processed_parts)}' if processed_parts else ''
+
+        # Decode and transliterate fragment
+        fragment = f'#{unidecode(unquote(parsed.fragment))}' if parsed.fragment else ''
+
+        # Reconstruct URL with lowercase scheme
         cleaned_url = f'{parsed.scheme.lower()}://{parsed.netloc}{path}{query}{fragment}'
         return cleaned_url
     except ValueError as e:
@@ -103,7 +128,7 @@ def clean_url(url: str) -> str:
 
 def parse_url(url: str) -> List[str]:
     """Convert a URL into a list of tokens for n-gram processing."""
-    # Use clean_url to normalize input
+    # Use clean_url to normalize input (decodes and transliterates)
     cleaned_url = clean_url(url)
     if not cleaned_url:
         return []
@@ -125,19 +150,15 @@ def parse_url(url: str) -> List[str]:
 
     # Add path segments
     if parsed.path and parsed.path != '/':
-        # Decode URL-encoded characters in path
-        decoded_path = unquote(parsed.path)
-        path_segments = decoded_path.strip('/').split('/')
+        path_segments = parsed.path.strip('/').split('/')
         # Replace hyphens and underscores with spaces in path segments
         tokens.extend([segment.replace('-', ' ').replace('_', ' ')
                       for segment in path_segments if segment])
 
     # Add query parameters, preserving duplicates
     if parsed.query:
-        # Decode URL-encoded characters in query
-        decoded_query = unquote(parsed.query)
         # Split query string manually to preserve all values
-        query_parts = decoded_query.split('&')
+        query_parts = parsed.query.split('&')
         for part in query_parts:
             if part:  # Skip empty parts
                 if '=' in part:
@@ -155,10 +176,8 @@ def parse_url(url: str) -> List[str]:
 
     # Add fragment (hashtag)
     if parsed.fragment:
-        # Decode URL-encoded characters in fragment
-        decoded_fragment = unquote(parsed.fragment)
         # Replace hyphens and underscores with spaces in fragment
-        tokens.append(decoded_fragment.replace('-', ' ').replace('_', ' '))
+        tokens.append(parsed.fragment.replace('-', ' ').replace('_', ' '))
 
     return tokens
 
