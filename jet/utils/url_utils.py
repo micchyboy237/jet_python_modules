@@ -125,15 +125,19 @@ def parse_url(url: str) -> List[str]:
 
     # Add path segments
     if parsed.path and parsed.path != '/':
-        path_segments = parsed.path.strip('/').split('/')
+        # Decode URL-encoded characters in path
+        decoded_path = unquote(parsed.path)
+        path_segments = decoded_path.strip('/').split('/')
         # Replace hyphens and underscores with spaces in path segments
         tokens.extend([segment.replace('-', ' ').replace('_', ' ')
                       for segment in path_segments if segment])
 
     # Add query parameters, preserving duplicates
     if parsed.query:
+        # Decode URL-encoded characters in query
+        decoded_query = unquote(parsed.query)
         # Split query string manually to preserve all values
-        query_parts = parsed.query.split('&')
+        query_parts = decoded_query.split('&')
         for part in query_parts:
             if part:  # Skip empty parts
                 if '=' in part:
@@ -151,8 +155,10 @@ def parse_url(url: str) -> List[str]:
 
     # Add fragment (hashtag)
     if parsed.fragment:
+        # Decode URL-encoded characters in fragment
+        decoded_fragment = unquote(parsed.fragment)
         # Replace hyphens and underscores with spaces in fragment
-        tokens.append(parsed.fragment.replace('-', ' ').replace('_', ' '))
+        tokens.append(decoded_fragment.replace('-', ' ').replace('_', ' '))
 
     return tokens
 

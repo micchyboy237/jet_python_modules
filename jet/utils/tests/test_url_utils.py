@@ -121,6 +121,13 @@ class TestParseUrl:
         result = parse_url(url)
         assert result == expected, f"Expected {expected}, but got {result}"
 
+    def test_parse_url_encoded_text(self):
+        url = "https://example.com/%C3%BCber/path%20with%20spaces?key%3Dvärld#fr%C3%A4gment"
+        expected = ["https", "example", "com", "über",
+                    "path with spaces", "key", "värld", "frägment"]
+        result = parse_url(url)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
 
 class TestCleanUrl:
     def test_clean_url_no_scheme(self):
