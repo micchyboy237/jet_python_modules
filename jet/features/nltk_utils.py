@@ -37,7 +37,7 @@ def process_single_text(single_text: str, n: Optional[int] = None, min_count: in
     sentence_words = []
     for sentence in sentences:
         tokens = word_tokenize(sentence)
-        words = [token for token in tokens if token.isalpha()
+        words = [token for token in tokens if (token.isalpha() or token.isdigit())
                  and token not in STOP_WORDS]
         tagged_words = pos_tag(words)
         lemmatized_words = []
@@ -156,7 +156,7 @@ def process_single_text_simple(single_text: str) -> Dict[str, int]:
     if not single_text.strip():
         return {}
     tokens = word_tokenize(single_text.lower())
-    words = [token for token in tokens if token.isalpha()
+    words = [token for token in tokens if (token.isalpha() or token.isdigit())
              and token not in STOP_WORDS]
     if not words:
         return {}
@@ -211,7 +211,7 @@ def get_word_counts_lemmatized(
         tokens = word_tokenize(single_text.lower())
 
         # Filter alphabetic tokens and remove stop words
-        words = [token for token in tokens if token.isalpha()
+        words = [token for token in tokens if (token.isalpha() or token.isdigit())
                  and token not in stop_words]
 
         # Get POS tags for words
