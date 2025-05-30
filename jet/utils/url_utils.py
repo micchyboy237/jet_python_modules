@@ -1,3 +1,5 @@
+from typing import List
+from urllib.parse import urlparse
 from typing import List, Optional
 from urllib.parse import unquote, urlparse
 import requests
@@ -90,9 +92,12 @@ def preprocess_url(url: str) -> List[str]:
     if parsed.scheme:
         tokens.append(parsed.scheme)
 
-    # Add domain components
+    # Add domain components, excluding port
     if parsed.netloc:
-        domain_parts = parsed.netloc.split('.')
+        # Remove port if present (e.g., example.com:8080 -> example.com)
+        netloc = parsed.netloc.split(
+            ':')[0] if ':' in parsed.netloc else parsed.netloc
+        domain_parts = netloc.split('.')
         tokens.extend([part for part in domain_parts if part])
 
     # Add path segments
@@ -107,15 +112,19 @@ def preprocess_url(url: str) -> List[str]:
         # Split query string manually to preserve all values
         query_parts = parsed.query.split('&')
         for part in query_parts:
-            if '=' in part:
-                key, value = part.split('=', 1)
-                if key:
-                    # Replace hyphens and underscores with spaces in keys
-                    tokens.append(key.replace('-', ' ').replace('_', ' '))
-                    if value:
-                        # Replace hyphens and underscores with spaces in values
-                        tokens.append(value.replace(
-                            '-', ' ').replace('_', ' '))
+            if part:  # Skip empty parts
+                if '=' in part:
+                    key, value = part.split('=', 1)
+                    if key:
+                        # Replace hyphens and underscores with spaces in keys
+                        tokens.append(key.replace('-', ' ').replace('_', ' '))
+                        if value:
+                            # Replace hyphens and underscores with spaces in values
+                            tokens.append(value.replace(
+                                '-', ' ').replace('_', ' '))
+                else:
+                    # Handle query parameters without values (e.g., ?key2)
+                    tokens.append(part.replace('-', ' ').replace('_', ' '))
 
     # Add fragment (hashtag)
     if parsed.fragment:
