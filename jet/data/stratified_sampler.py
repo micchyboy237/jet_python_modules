@@ -263,7 +263,7 @@ class StratifiedSampler:
         return processed_data
 
     @time_it
-    def split_train_test_val(self, train_ratio: float = 0.6, test_ratio: float = 0.2) -> Tuple[List[ProcessedData], List[ProcessedData], List[ProcessedData]]:
+    def split_train_test_val(self, train_ratio: float = 0.6, test_ratio: float = 0.2) -> Tuple[List[ProcessedData | ProcessedDataString], List[ProcessedData | ProcessedDataString], List[ProcessedData | ProcessedDataString]]:
         """Split data into train, test, and validation sets with stratification."""
         if not isinstance(self.data[0], dict):
             raise ValueError(
@@ -272,11 +272,17 @@ class StratifiedSampler:
             raise ValueError(
                 "train_ratio and test_ratio must be in (0, 1) and sum to less than 1")
 
-        features_targets = [(item['source'], item['target'])
-                            for item in self.data]
         labels = [item['category_values'] for item in self.data]
-        score_map = {(item['source'], item['target']): item['score']
-                     for item in self.data}
+        has_target = 'target' in self.data[0] and 'score' in self.data[0]
+
+        if has_target:
+            # Handle ProcessedData with target and score
+            score_map = {(item['source'], item['target'])                         : item['score'] for item in self.data}
+            features_targets = [(item['source'], item['target'])
+                                for item in self.data]
+        else:
+            # Handle ProcessedDataString with only source
+            features_targets = [item['source'] for item in self.data]
 
         # First split: train + validation vs. test
         try:
@@ -301,21 +307,36 @@ class StratifiedSampler:
                 X_temp, y_temp, test_size=val_ratio
             )
 
-        # Convert to ProcessedData format
-        train_data = [
-            ProcessedData(source=ft[0], target=ft[1],
-                          score=score_map[ft], category_values=lbl)
-            for ft, lbl in zip(X_train, y_train)
-        ]
-        test_data = [
-            ProcessedData(source=ft[0], target=ft[1],
-                          score=score_map[ft], category_values=lbl)
-            for ft, lbl in zip(X_test, y_test)
-        ]
-        val_data = [
-            ProcessedData(source=ft[0], target=ft[1],
-                          score=score_map[ft], category_values=lbl)
-            for ft, lbl in zip(X_val, y_val)
-        ]
+        if has_target:
+            # Convert to ProcessedData format
+            train_data = [
+                ProcessedData(source=ft[0], target=ft[1],
+                              score=score_map[ft], category_values=lbl)
+                for ft, lbl in zip(X_train, y_train)
+            ]
+            test_data = [
+                ProcessedData(source=ft[0], target=ft[1],
+                              score=score_map[ft], category_values=lbl)
+                for ft, lbl in zip(X_test, y_test)
+            ]
+            val_data = [
+                ProcessedData(source=ft[0], target=ft[1],
+                              score=score_map[ft], category_values=lbl)
+                for ft, lbl in zip(X_val, y_val)
+            ]
+        else:
+            # Convert to ProcessedDataString format
+            train_data = [
+                ProcessedDataString(source=ft, category_values=lbl)
+                for ft, lbl in zip(X_train, y_train)
+            ]
+            test_data = [
+                ProcessedDataString(source=ft, category_values=lbl)
+                for ft, lbl in zip(X_test, y_test)
+            ]
+            val_data = [
+                ProcessedDataString(source=ft, category_values=lbl)
+                for ft, lbl in zip(X_val, y_val)
+            ]
 
         return train_data, test_data, val_data
