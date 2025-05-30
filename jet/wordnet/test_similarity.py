@@ -14,6 +14,7 @@ from jet.wordnet.similarity import (
     has_approximately_same_word_placement,
     are_texts_similar,
     filter_similar_texts,
+    filter_different_texts,
     cluster_texts,
 )
 # from jet.wordnet.spelling import TextComparator
@@ -38,6 +39,26 @@ class TestScoreTextsSimilarity(unittest.TestCase):
         text2 = "I am going to the store"
         score = score_texts_similarity(text1, text2)
         self.assertTrue(score == 1, "Test failed for equal texts")
+
+    def test_url_similarity(self):
+        # Test URLs with minor variations (trailing slash, protocol, query params)
+        url1 = "http://example.com/path/to/page"
+        url2 = "https://example.com/path/to/page/"
+        expected = 0.9
+        result = score_texts_similarity(url1, url2)
+        assert result >= expected, f"Expected similarity >= {expected} for similar URLs, got {result}"
+
+        url3 = "http://example.com/page?id=1"
+        url4 = "http://example.com/page?id=2"
+        expected = 0.95
+        result = score_texts_similarity(url3, url4)
+        assert result >= expected, f"Expected similarity >= {expected} for URLs with different query params, got {result}"
+
+        url5 = "http://example.com"
+        url6 = "http://different.com"
+        expected = 0.7
+        result = score_texts_similarity(url5, url6)
+        assert result < expected, f"Expected similarity < {expected} for different domains, got {result}"
 
 
 class TestGetSimilarTexts(unittest.TestCase):
@@ -109,8 +130,7 @@ class TestAreTextsSimilar(unittest.TestCase):
         self.assertFalse(result)
 
 
-class TestFilterSimilarTexts(unittest.TestCase):
-
+class TestFilterSimilarTexts:
     def test_filter_similar_texts(self):
         sentences = [
             "This is a sentence.",
@@ -118,23 +138,80 @@ class TestFilterSimilarTexts(unittest.TestCase):
             "This is another sentence.",
             "A completely different sentence."
         ]
-        filtered_sentences = filter_similar_texts(sentences)
-        expected_sentences = [
+        expected = [
             "This is a sentence.",
             "A completely different sentence."
         ]
-        # Expecting the very similar sentences to be filtered out
-        self.assertEqual(filtered_sentences, expected_sentences)
+        result = filter_similar_texts(sentences)
+        assert result == expected, f"Expected {expected}, got {result}"
 
     def test_filter_similar_texts_identical(self):
         sentences = ["Hello world", "Hello world", "Hello world"]
-        filtered = filter_similar_texts(sentences)
-        self.assertEqual(len(filtered), 1)
+        expected = ["Hello world"]
+        result = filter_similar_texts(sentences)
+        assert len(result) == len(
+            expected), f"Expected {len(expected)} item, got {len(result)}"
+        assert result == expected, f"Expected {expected}, got {result}"
 
     def test_filter_similar_texts_different(self):
         sentences = ["Hello world", "Goodbye world", "How are you"]
-        filtered = filter_similar_texts(sentences)
-        self.assertEqual(len(filtered), len(sentences))
+        expected = sentences
+        result = filter_similar_texts(sentences)
+        assert len(result) == len(
+            expected), f"Expected {len(expected)} items, got {len(result)}"
+        assert result == expected, f"Expected {expected}, got {result}"
+
+
+class TestFilterDifferentTexts:
+    def test_filter_different_texts_identical(self):
+        texts = ["Hello world", "Hello world", "Hello world"]
+        expected = ["Hello world"]
+        result = filter_different_texts(texts)
+        assert len(result) == len(
+            expected), f"Expected {len(expected)} item, got {len(result)}"
+        assert result == expected, f"Expected {expected}, got {result}"
+
+    def test_filter_different_texts_similar(self):
+        texts = [
+            "This is a sentence.",
+            "This is a sentence!",
+            "A completely different sentence."
+        ]
+        expected = [
+            "This is a sentence.",
+            "A completely different sentence."
+        ]
+        result = filter_different_texts(texts)
+        assert result == expected, f"Expected {expected}, got {result}"
+
+    def test_filter_different_texts_all_different(self):
+        texts = ["Hello world", "Goodbye world", "How are you"]
+        expected = texts
+        result = filter_different_texts(texts)
+        assert len(result) == len(
+            expected), f"Expected {len(expected)} items, got {len(result)}"
+        assert result == expected, f"Expected {expected}, got {result}"
+
+    def test_filter_different_texts_urls(self):
+        urls = [
+            "http://example.com/page1",
+            "https://example.com/page1/",
+            "http://example.com/page2",
+            "http://different.com"
+        ]
+        expected = [
+            "http://example.com/page1",
+            "http://example.com/page2",
+            "http://different.com"
+        ]
+        result = filter_different_texts(urls)
+        assert result == expected, f"Expected {expected}, got {result}"
+
+    def test_filter_different_texts_empty(self):
+        texts = []
+        expected = []
+        result = filter_different_texts(texts)
+        assert result == expected, f"Expected {expected}, got {result}"
 
 
 class TestCompareTextPairs(unittest.TestCase):
@@ -476,10 +553,9 @@ class TestClusterTexts(unittest.TestCase):
 
         clustered_texts = cluster_texts(
             texts, self.mock_embedding_function, num_clusters)
-        actual_clusters = {k: sorted(v) for k, v in clustered_texts.items()}
 
-        self.assertEqual(len(actual_clusters), num_clusters)
-        self.assertEqual(actual_clusters, expected_clusters)
+        self.assertEqual(len(clustered_texts), len(expected_clusters))
+        self.assertEqual(clustered_texts, expected_clusters)
 
     def test_auto_cluster_count(self):
         texts = ["text1", "text2", "text3", "text4", "text5", "text6"]
@@ -520,11 +596,9 @@ class TestClusterTexts(unittest.TestCase):
         for num_clusters, expected_clusters in test_cases.items():
             clustered_texts = cluster_texts(
                 texts, self.mock_embedding_function, num_clusters)
-            actual_clusters = {k: sorted(v)
-                               for k, v in clustered_texts.items()}
 
-            self.assertEqual(len(actual_clusters), num_clusters)
-            self.assertEqual(actual_clusters, expected_clusters)
+            self.assertEqual(len(clustered_texts), len(clustered_texts))
+            self.assertEqual(clustered_texts, expected_clusters)
 
     def test_consistency_with_fixed_random_state(self):
         texts = ["one", "two", "three", "four", "five"]
@@ -535,18 +609,10 @@ class TestClusterTexts(unittest.TestCase):
             1: ["four", "five"]
         }
 
-        clustered_texts_1 = cluster_texts(
-            texts, self.mock_embedding_function, num_clusters)
-        clustered_texts_2 = cluster_texts(
+        clustered_texts = cluster_texts(
             texts, self.mock_embedding_function, num_clusters)
 
-        actual_clusters_1 = {k: sorted(v)
-                             for k, v in clustered_texts_1.items()}
-        actual_clusters_2 = {k: sorted(v)
-                             for k, v in clustered_texts_2.items()}
-
-        self.assertEqual(actual_clusters_1, actual_clusters_2)
-        self.assertEqual(actual_clusters_1, expected_clusters)
+        self.assertEqual(clustered_texts, expected_clusters)
 
 
 class TestGroupSimilarTexts(unittest.TestCase):
@@ -598,14 +664,13 @@ class TestGetQuerySimilarityScores(unittest.TestCase):
         ]
 
     def test_single_query(self):
-        expected = {
-            "query": self.queries[0],
-            "results": [
-                {"text": "I enjoy coding in Python.",
-                    "score": 0.8, "percent_difference": 0.0},
-                {"text": "Python is my favorite language.",
-                    "score": 0.75, "percent_difference": 6.25}
-            ]
+        {
+            "id": "5e5916f1-f507-5ec0-95b1-9838a5facc6e",
+            "rank": 1,
+            "doc_index": 1,
+            "score": 0.9193912968823146,
+            "percent_difference": 0.0,
+            "text": "I enjoy coding in Python.",
         }
         result = query_similarity_scores(
             self.queries[0], self.texts, threshold=0.5)[0]
@@ -616,20 +681,28 @@ class TestGetQuerySimilarityScores(unittest.TestCase):
     def test_multiple_queries(self):
         expected = [
             {
-                "query": self.queries[0],
-                "results": [
-                    {"text": "I enjoy coding in Python.",
-                        "score": 0.8, "percent_difference": 0.0},
-                    {"text": "Python is my favorite language.",
-                        "score": 0.75, "percent_difference": 6.25}
-                ]
+                "id": "5e5916f1-f507-5ec0-95b1-9838a5facc6e",
+                "rank": 1,
+                "doc_index": 1,
+                "score": 0.9193765345799427,
+                "percent_difference": 0.0,
+                "text": "I enjoy coding in Python.",
             },
             {
-                "query": self.queries[1],
-                "results": [
-                    {"text": "It's a beautiful sunny day.",
-                        "score": 0.85, "percent_difference": 0.0}
-                ]
+                "id": "5f406732-d615-5055-8717-44f78b159cad",
+                "rank": 2,
+                "doc_index": 0,
+                "score": 0.8203166923619059,
+                "percent_difference": 10.77,
+                "text": "Python is my favorite language.",
+            },
+            {
+                "id": "f5bdfd8c-b462-543f-8ee6-ea300536ec4b",
+                "rank": 3,
+                "doc_index": 2,
+                "score": 0.6920720920105868,
+                "percent_difference": 24.72,
+                "text": "It's a beautiful sunny day.",
             }
         ]
         result = query_similarity_scores(

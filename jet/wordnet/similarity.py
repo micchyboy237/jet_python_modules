@@ -485,35 +485,34 @@ def score_texts_similarity(text1: str, text2: str, isjunk: Callable[[str], bool]
     matcher = SequenceMatcher(isjunk, text1.lower(),
                               text2.lower(), autojunk=False)
     score = matcher.ratio()
-    print(
-        f"Similarity between '{text1[:30]}...' and '{text2[:30]}...': {score:.4f}")
+    # print(
+    #     f"Similarity between '{text1[:30]}...' and '{text2[:30]}...': {score:.4f}")
     return score
 
 
-def are_texts_similar(text1: str, text2: str, threshold: float = 0.5) -> bool:
+def are_texts_similar(text1: str, text2: str, threshold: float = 0.7) -> bool:
     return score_texts_similarity(text1, text2) >= threshold
 
 
-def filter_similar_texts(texts: List[str], threshold: float = 0.7) -> List[str]:
+def filter_similar_texts(texts: List[str], threshold: float = 0.7, show_progress: bool = False) -> List[str]:
     filtered_texts = []
-    for text in texts:
-        # Add text to filtered_texts if it is similar to at least one text already in filtered_texts
+    iterator = tqdm(
+        texts, desc="Filtering similar texts") if show_progress else texts
+    for text in iterator:
         if any(are_texts_similar(text, existing_text, threshold) for existing_text in filtered_texts):
-            continue  # Skip adding the text if it's similar to any text in filtered_texts
+            continue
         filtered_texts.append(text)
+    print(f"Retained {len(filtered_texts)} similar texts")
     return filtered_texts
 
 
-def filter_different_texts(texts: List[str], threshold: float = 0.5) -> List[str]:
+def filter_different_texts(texts: List[str], threshold: float = 0.7, show_progress: bool = False) -> List[str]:
     filtered_texts = []
-    print(
-        f"Filtering {len(texts)} texts with similarity threshold {threshold}")
-    for text in texts:
+    iterator = tqdm(
+        texts, desc="Filtering different texts") if show_progress else texts
+    for text in iterator:
         if all(not are_texts_similar(text, existing_text, threshold) for existing_text in filtered_texts):
             filtered_texts.append(text)
-            print(f"Kept text: '{text[:30]}...'")
-        else:
-            print(f"Skipped similar text: '{text[:30]}...'")
     print(f"Retained {len(filtered_texts)} diverse texts")
     return filtered_texts
 
