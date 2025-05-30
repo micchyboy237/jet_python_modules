@@ -1,7 +1,7 @@
 import pytest
 from typing import List
 from unittest.mock import patch
-from jet.data.url_sampler import sample_diverse_urls
+from jet.data.sample_diverse_urls import sample_diverse_urls
 
 
 class TestSampleDiverseUrls:

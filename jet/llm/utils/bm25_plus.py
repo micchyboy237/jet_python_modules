@@ -5,18 +5,6 @@ from jet.wordnet.words import get_words
 from nltk.corpus import stopwords
 
 
-class Matched(TypedDict):
-    """
-    Represents a matched query term and its count in a document.
-
-    Fields:
-        keyword: The query term that matched.
-        count: Number of times the term appears in the document.
-    """
-    keyword: str
-    count: int
-
-
 class SimilarityResult(TypedDict):
     """
     Represents a single similarity result for a text.
@@ -28,7 +16,7 @@ class SimilarityResult(TypedDict):
         score: Normalized similarity score.
         text: The compared text (or chunk if long).
         tokens: Number of tokens from text.
-        matched: List of matched query terms with their counts.
+        matched: Dictionary mapping matched query terms to their counts.
     """
     id: str
     rank: int
@@ -36,7 +24,7 @@ class SimilarityResult(TypedDict):
     score: float
     text: str
     tokens: int
-    matched: List[Matched]
+    matched: Dict[str, int]
 
 
 class BM25PlusResult(TypedDict):
@@ -45,10 +33,10 @@ class BM25PlusResult(TypedDict):
 
     Fields:
         results: List of SimilarityResult dictionaries.
-        match_counts: Dictionary mapping query terms to their total counts across all documents.
+        matched: Dictionary mapping query terms to their total counts across all documents.
     """
     results: List[SimilarityResult]
-    match_counts: Dict[str, int]
+    matched: Dict[str, int]
 
 
 def bm25_plus(corpus: List[str], query: str, doc_ids: Optional[List[str]] = None,
@@ -73,16 +61,16 @@ def bm25_plus(corpus: List[str], query: str, doc_ids: Optional[List[str]] = None
             "results": [
                 {
                     "id": doc_ids[i] if doc_ids else f"doc_{i}",
-                    "rank": i + 1,
+                    "rank": 0,  # Will be calculated later
                     "doc_index": i,
                     "score": 0.0,
                     "text": doc,
                     "tokens": len(doc.lower().split()) if doc else 0,
-                    "matched": []
+                    "matched": {}
                 }
                 for i, doc in enumerate(corpus)
             ] if corpus else [],
-            "query_match_counts": {}
+            "matched": {}
         }
 
     # Load NLTK stopwords and add URL-specific stopwords
@@ -124,11 +112,11 @@ def bm25_plus(corpus: List[str], query: str, doc_ids: Optional[List[str]] = None
     matched_terms = []
     for doc_idx, doc in enumerate(docs):
         score = 0.0
-        doc_matched = []
+        doc_matched = {}
         for term in query_terms:
             tf = doc.count(term)
             if tf > 0:  # Only include terms that appear in the document
-                doc_matched.append({"keyword": term, "count": tf})
+                doc_matched[term] = tf
             # IDF with lower bound
             idf = math.log(
                 (doc_count - df[term] + 0.5) / (df[term] + 0.5) + 1.0)
@@ -165,10 +153,10 @@ def bm25_plus(corpus: List[str], query: str, doc_ids: Optional[List[str]] = None
     results.sort(key=lambda x: x["score"], reverse=True)
 
     # Assign unique ranks starting from 1
-    for i, result in enumerate(results):
-        result["rank"] = i + 1
+    for i, result in enumerate(results, 1):
+        result["rank"] = i
 
     return {
-        "match_counts": dict(query_match_counts),
+        "matched": dict(query_match_counts),
         "results": results,
     }
