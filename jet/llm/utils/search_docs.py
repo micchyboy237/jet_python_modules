@@ -26,7 +26,7 @@ class SimilarityResult(TypedDict):
         doc_index: Original index of the text in the input list.
         score: Normalized similarity score.
         text: The compared text (or chunk if long).
-        tokens: Number of encoded tokens from text.
+        tokens: Number of tokens from text.
     """
     id: str
     rank: int

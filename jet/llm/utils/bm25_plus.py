@@ -1,0 +1,174 @@
+from typing import List, TypedDict, Optional, Dict
+import math
+from collections import defaultdict
+from jet.wordnet.words import get_words
+from nltk.corpus import stopwords
+
+
+class Matched(TypedDict):
+    """
+    Represents a matched query term and its count in a document.
+
+    Fields:
+        keyword: The query term that matched.
+        count: Number of times the term appears in the document.
+    """
+    keyword: str
+    count: int
+
+
+class SimilarityResult(TypedDict):
+    """
+    Represents a single similarity result for a text.
+
+    Fields:
+        id: Identifier for the text.
+        rank: Rank based on score (1 for highest, no skips).
+        doc_index: Original index of the text in the input list.
+        score: Normalized similarity score.
+        text: The compared text (or chunk if long).
+        tokens: Number of tokens from text.
+        matched: List of matched query terms with their counts.
+    """
+    id: str
+    rank: int
+    doc_index: int
+    score: float
+    text: str
+    tokens: int
+    matched: List[Matched]
+
+
+class BM25PlusResult(TypedDict):
+    """
+    Represents the complete BM25+ result, including ranked documents and query match counts.
+
+    Fields:
+        results: List of SimilarityResult dictionaries.
+        match_counts: Dictionary mapping query terms to their total counts across all documents.
+    """
+    results: List[SimilarityResult]
+    match_counts: Dict[str, int]
+
+
+def bm25_plus(corpus: List[str], query: str, doc_ids: Optional[List[str]] = None,
+              k1: float = 1.5, b: float = 0.75, delta: float = 1.0) -> BM25PlusResult:
+    """
+    Compute BM25+ scores to rank documents based on their relevance to a query.
+
+    Args:
+        corpus: List of document texts to score.
+        query: Search query string.
+        doc_ids: Optional list of unique identifiers for documents; defaults to "doc_{index}".
+        k1: Controls term frequency impact on score (default: 1.5).
+        b: Controls document length impact on score (default: 0.75).
+        delta: Constant added to scores for non-negative values (default: 1.0).
+
+    Returns:
+        BM25PlusResult containing ranked SimilarityResult list and query term match counts.
+    """
+    # Handle edge cases
+    if not corpus or not query:
+        return {
+            "results": [
+                {
+                    "id": doc_ids[i] if doc_ids else f"doc_{i}",
+                    "rank": i + 1,
+                    "doc_index": i,
+                    "score": 0.0,
+                    "text": doc,
+                    "tokens": len(doc.lower().split()) if doc else 0,
+                    "matched": []
+                }
+                for i, doc in enumerate(corpus)
+            ] if corpus else [],
+            "query_match_counts": {}
+        }
+
+    # Load NLTK stopwords and add URL-specific stopwords
+    try:
+        nltk_stopwords = set(stopwords.words('english'))
+    except LookupError:
+        import nltk
+        nltk.download('stopwords')
+        nltk_stopwords = set(stopwords.words('english'))
+    url_stopwords = {'https', 'www', 'com'}
+    all_stopwords = nltk_stopwords | url_stopwords
+
+    # Tokenize documents and query, preserving numbers
+    def tokenize(text: str) -> List[str]:
+        tokens: list[str] = get_words(text.lower())
+        return [token for token in tokens if token not in all_stopwords]
+
+    docs = [tokenize(doc) for doc in corpus]
+    query_terms = tokenize(query)
+
+    # Compute document lengths and average (after stopword removal)
+    doc_count = len(docs)
+    doc_lengths = [len(doc) for doc in docs]
+    avg_doc_length = sum(doc_lengths) / doc_count if doc_count > 0 else 1.0
+
+    # Compute document frequency (DF) and total match counts for query terms
+    df = defaultdict(int)
+    query_match_counts = defaultdict(int)
+    for doc in docs:
+        unique_terms = set(doc)
+        for term in query_terms:
+            if term in unique_terms:
+                df[term] += 1
+            # Count total occurrences across all documents
+            query_match_counts[term] += doc.count(term)
+
+    # Compute raw BM25+ scores and track matched terms
+    scores = []
+    matched_terms = []
+    for doc_idx, doc in enumerate(docs):
+        score = 0.0
+        doc_matched = []
+        for term in query_terms:
+            tf = doc.count(term)
+            if tf > 0:  # Only include terms that appear in the document
+                doc_matched.append({"keyword": term, "count": tf})
+            # IDF with lower bound
+            idf = math.log(
+                (doc_count - df[term] + 0.5) / (df[term] + 0.5) + 1.0)
+            if idf < 0:
+                idf = 0.0
+            # BM25+ score component
+            numerator = tf * (k1 + 1)
+            denominator = tf + k1 * \
+                (1 - b + b * (doc_lengths[doc_idx] / avg_doc_length))
+            score += idf * (numerator / denominator + delta)
+        scores.append(score)
+        matched_terms.append(doc_matched)
+
+    # Normalize scores
+    max_score = max(scores, default=1.0)
+    normalized_scores = [score / max_score if max_score >
+                         0 else 0.0 for score in scores]
+
+    # Create results list with initial ranks
+    results = [
+        {
+            "id": doc_ids[i] if doc_ids else f"doc_{i}",
+            "rank": 0,  # Temporary rank
+            "doc_index": i,
+            "score": normalized_scores[i],
+            "text": corpus[i],
+            "tokens": doc_lengths[i],
+            "matched": matched_terms[i]
+        }
+        for i in range(len(corpus))
+    ]
+
+    # Sort by score in descending order
+    results.sort(key=lambda x: x["score"], reverse=True)
+
+    # Assign unique ranks starting from 1
+    for i, result in enumerate(results):
+        result["rank"] = i + 1
+
+    return {
+        "match_counts": dict(query_match_counts),
+        "results": results,
+    }
