@@ -756,11 +756,11 @@ class MLXLMClient:
             if logit_bias:
                 logger.newline()
                 logger.info("logit_bias:")
-                logger.debug(format_json(logit_bias))
+                logger.orange(format_json(logit_bias))
                 for token in logit_bias.keys():
                     choice = tokenizer.decode(token)
                     logger.log("Token for", f"'{choice}'", ":",
-                               token, colors=["GRAY", "DEBUG", "GRAY" "ORANGE"])
+                               token, colors=["GRAY", "ORANGE", "GRAY" "ORANGE"])
 
         tokens: List[int] = []
         token_logprobs: List[float] = []
@@ -888,11 +888,11 @@ class MLXLMClient:
             if logit_bias:
                 logger.newline()
                 logger.info("logit_bias:")
-                logger.debug(format_json(logit_bias))
+                logger.orange(format_json(logit_bias))
                 for token in logit_bias.keys():
                     choice = tokenizer.decode(token)
                     logger.log("Token for", f"'{choice}'", ":",
-                               token, colors=["GRAY", "DEBUG", "GRAY" "ORANGE"])
+                               token, colors=["GRAY", "ORANGE", "GRAY" "ORANGE"])
 
         tokens: List[int] = []
         token_logprobs: List[float] = []
