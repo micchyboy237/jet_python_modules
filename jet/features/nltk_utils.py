@@ -173,21 +173,21 @@ def get_word_counts_lemmatized(
     text: Union[str, List[str]],
     pos: Optional[List[Literal['noun', 'verb', 'adjective', 'adverb']]] = None,
     min_count: int = 1,
-    with_score: bool = False,
+    as_score: bool = False,
     percent_threshold: float = 0.0
 ) -> Union[Dict[str, Union[int, float]], List[Dict[str, Union[int, float]]]]:
     """
     Get word count mappings from a text string or list of strings with lemmatization, excluding stop words,
     sorted by count in descending order. Optionally filter by parts of speech, minimum count, and percentage threshold.
     For a list of strings, min_count and percent_threshold are applied to the total combined count across all strings.
-    If with_score is True, returns scores normalized to percentages based on the maximum score.
+    If as_score is True, returns scores normalized to percentages based on the maximum score.
 
     Args:
         text (Union[str, List[str]]): Input text string or list of strings to analyze.
         pos (Optional[List[Literal['noun', 'verb', 'adjective', 'adverb']]]): List of POS to include (e.g., ['noun', 'verb']). 
             If None, includes all words. Defaults to None.
         min_count (int): Minimum count threshold for words to be included. Defaults to 1.
-        with_score (bool): If True, return scores normalized to percentages based on count and word length. Defaults to False.
+        as_score (bool): If True, return scores normalized to percentages based on count and word length. Defaults to False.
         percent_threshold (float): Minimum percentage of total word count for words to be included (e.g., 5.0 for 5%). Defaults to 0.0.
 
     Returns:
@@ -254,7 +254,7 @@ def get_word_counts_lemmatized(
         filtered_counts = {word: count for word,
                            count in counts.items() if count >= min_count_threshold}
 
-        if with_score and total_words > 0:
+        if as_score and total_words > 0:
             result = calculate_scores(filtered_counts, total_words)
             return dict(sorted(result.items(), key=lambda x: x[1], reverse=True))
         return dict(sorted(filtered_counts.items(), key=lambda x: x[1], reverse=True))
@@ -284,7 +284,7 @@ def get_word_counts_lemmatized(
                 word for word, tag in text_words if word in valid_words)
             total_words_per_text = len([word for word, _ in text_words])
 
-            if with_score and total_words_per_text > 0:
+            if as_score and total_words_per_text > 0:
                 sorted_counts = calculate_scores(
                     text_counts, total_words_per_text)
             else:

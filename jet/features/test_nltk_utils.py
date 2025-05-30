@@ -73,7 +73,7 @@ class TestGetWordCountsLemmatized:
         result = get_word_counts_lemmatized(text, percent_threshold=33.33)
         assert result == expected, f"Expected {expected}, but got {result}"
 
-    def test_single_string_with_score(self):
+    def test_single_string_as_score(self):
         text = "The cats are running and jumping quickly cats."
         # Raw scores: cat (count=2, len=3): 2 * (1 + log(3)) ≈ 4.197
         #             run (count=1, len=3): 1 * (1 + log(3)) ≈ 2.099
@@ -90,11 +90,11 @@ class TestGetWordCountsLemmatized:
             'jump': (2.386 / 4.197) * 100,
             'run': (2.099 / 4.197) * 100
         }
-        result = get_word_counts_lemmatized(text, with_score=True)
+        result = get_word_counts_lemmatized(text, as_score=True)
         assert result == pytest.approx(
             expected, rel=1e-6), f"Expected {expected}, but got {result}"
 
-    def test_list_of_strings_with_score(self):
+    def test_list_of_strings_as_score(self):
         texts = [
             "The cats are running and jumping quickly cats.",
             "Dogs bark loudly and run fast."
@@ -125,7 +125,7 @@ class TestGetWordCountsLemmatized:
                 'run': (2.099 / 2.792) * 100
             }
         ]
-        result = get_word_counts_lemmatized(texts, with_score=True)
+        result = get_word_counts_lemmatized(texts, as_score=True)
         assert result == pytest.approx(
             expected, rel=1e-6), f"Expected {expected}, but got {result}"
 
