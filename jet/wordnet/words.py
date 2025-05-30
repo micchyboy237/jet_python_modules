@@ -88,6 +88,24 @@ def get_words(
         raise ValueError("Input must be a string or list of strings")
 
 
+def get_unique_words(data: List[str]) -> List[str]:
+    """
+    Get unique words from a list of strings using get_words.
+
+    Args:
+        data: List of strings to process
+
+    Returns:
+        List of unique words
+    """
+    all_words = []
+    for text in data:
+        words = get_words(text)
+        all_words.extend(words)
+
+    return list(set(all_words))
+
+
 def get_non_words(text):
     # Check if the input is a string
     if not isinstance(text, str):

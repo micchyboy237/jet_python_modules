@@ -44,9 +44,25 @@ def search_docs(
     batch_size: Optional[int] = None,
     normalize: bool = True,
     chunk_size: Optional[int] = None,
-    ids: Optional[List[str]] = None
+    ids: Optional[List[str]] = None,
+    threshold: Optional[float] = None
 ) -> List[SimilarityResult]:
-    """Search documents with memory-efficient embedding generation and return SimilarityResult."""
+    """Search documents with memory-efficient embedding generation and return SimilarityResult.
+
+    Args:
+        query: The query string to search for.
+        documents: List of documents to search through.
+        model: Embedding model to use (default: "all-minilm:33m").
+        top_k: Number of top results to return (default: 10).
+        batch_size: Batch size for embedding generation (default: None).
+        normalize: Whether to normalize embeddings (default: True).
+        chunk_size: Maximum token length for document chunks (default: None).
+        ids: Optional list of document IDs (default: None).
+        threshold: Minimum similarity score to include in results (default: None).
+
+    Returns:
+        List of SimilarityResult objects, sorted by similarity score.
+    """
     if not query or not documents:
         raise ValueError("Query string and documents list must not be empty.")
 
@@ -60,6 +76,11 @@ def search_docs(
                 f"Length of ids ({len(ids)}) must match length of documents ({len(documents)})")
         if len(ids) != len(set(ids)):
             raise ValueError("IDs must be unique")
+
+    # Validate threshold
+    if threshold is not None:
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("Threshold must be between 0.0 and 1.0")
 
     # Initialize tokenizer for token counting
     embed_model = resolve_model_key(model)
@@ -92,15 +113,18 @@ def search_docs(
     if top_k <= 0:
         return []
 
-    top_indices = np.argsort(similarities)[::-1][:top_k]
-
-    # Convert indices to Python int to avoid NumPy integer types
-    valid_indices = [int(idx) for idx in top_indices if idx < len(documents)]
-    if not valid_indices:
+    # Apply threshold filtering
+    valid_indices = np.where(similarities >= (
+        threshold if threshold is not None else -1.0))[0]
+    if len(valid_indices) == 0:
         return []
 
+    # Sort by similarity and take top_k
+    top_indices = valid_indices[np.argsort(
+        similarities[valid_indices])[::-1]][:top_k]
+
     results = []
-    for rank, idx in enumerate(valid_indices, start=1):
+    for rank, idx in enumerate(top_indices, start=1):
         doc_text = documents[idx]
         # Count tokens for the document
         tokens = len(tokenizer.encode(doc_text, add_special_tokens=True))
@@ -109,7 +133,7 @@ def search_docs(
         result = SimilarityResult(
             id=doc_id,
             rank=rank,
-            doc_index=int(idx),  # Ensure Python int
+            doc_index=int(idx),
             score=float(similarities[idx]),
             text=doc_text,
             tokens=tokens

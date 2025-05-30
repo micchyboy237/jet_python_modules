@@ -16,7 +16,6 @@ import re
 import json
 
 from typing import List, Optional, TypedDict, Union
-from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.llm.utils.transformer_embeddings import (
     generate_embeddings,
     get_embedding_function,
@@ -36,7 +35,7 @@ from jet.wordnet.wordnet_types import FilterResult, SimilarityResult
 DEFAULT_SENTENCE_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
 
 
-def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, List[str]], *, model_name: str | OLLAMA_EMBED_MODELS = DEFAULT_SENTENCE_EMBED_MODEL) -> List[float]:
+def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, List[str]], *, model_name: EmbedModelType = DEFAULT_SENTENCE_EMBED_MODEL) -> List[float]:
     # Convert a single string to a list
     if isinstance(sentences_to_compare, str):
         sentences_to_compare = [sentences_to_compare]
@@ -754,7 +753,7 @@ def plot_text_embeddings(texts: List[str], embeddings: List[List[float]], title:
     plt.show()
 
 
-def group_similar_texts(texts: List[str], threshold: float = 0.7, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL) -> List[List[str]]:
+def group_similar_texts(texts: List[str], threshold: float = 0.7, model_name: EmbedModelType = DEFAULT_SENTENCE_EMBED_MODEL) -> List[List[str]]:
     """
     Groups similar texts based on cosine similarity score.
 
@@ -780,7 +779,7 @@ def group_similar_texts(texts: List[str], threshold: float = 0.7, model_name: st
     # Perform clustering using Agglomerative Clustering
     clustering = AgglomerativeClustering(
         n_clusters=None,
-        affinity="precomputed",
+        metric="precomputed",
         linkage="average",
         distance_threshold=1 - threshold
     ).fit(1 - similarity_matrix)

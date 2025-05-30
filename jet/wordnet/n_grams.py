@@ -18,7 +18,7 @@ from jet.wordnet.stopwords import StopWords
 from jet.wordnet.similarity import filter_different_texts
 
 
-def get_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: Optional[int] = None):
+def get_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: Optional[int] = None) -> List[str]:
     ngrams_dict = count_ngrams(
         texts, min_words=min_words, min_count=min_count, max_words=max_words)
 

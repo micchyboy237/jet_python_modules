@@ -20,7 +20,7 @@ class LinkSearchResult(TypedDict):
     score: float
 
 
-def search_links(links: List[Link], query: str, model: EmbedModelType = "paraphrase-multilingual", top_k: int = 10, embedding_threshold: float = 0.3) -> List[LinkSearchResult]:
+def search_links(links: List[Link], query: str, model: EmbedModelType = "all-MiniLM-L12-v2", top_k: int = 10, embedding_threshold: float = 0.3) -> List[LinkSearchResult]:
     """
     Search a list of links based on a query using a hybrid BM25 + embeddings approach.
     Links may include optional 'text' for additional context.
@@ -87,7 +87,7 @@ def search_links(links: List[Link], query: str, model: EmbedModelType = "paraphr
     model = SentenceTransformer(resolve_model(model), device=device)
     candidate_contents = [extract_content(link) for link in links]
     candidate_embeddings = model.encode(
-        candidate_contents, convert_to_tensor=True)
+        candidate_contents, batch_size=32, convert_to_tensor=True, show_progress_bar=True)
     query_embedding = model.encode(query, convert_to_tensor=True)
     cos_scores = util.cos_sim(query_embedding, candidate_embeddings)[0]
 
