@@ -3,10 +3,12 @@ import os
 import json
 from pathlib import Path
 import pickle
+import re
 import pandas as pd
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 from jet.logger import logger
+from jet.transformers.object import make_serializable
 from pydantic.main import BaseModel
 
 
@@ -51,7 +53,6 @@ def save_json(results, file_path="generated/results.json"):
     """
     Save results to a JSON file, merging with existing results if the file exists.
     """
-    from jet.transformers.object import make_serializable
     try:
         # Serialize results
         results = make_serializable(results)
@@ -77,31 +78,43 @@ def save_json(results, file_path="generated/results.json"):
         raise e
 
 
-def load_file(input_file: str, verbose: bool = True) -> Optional[str | dict | list]:
-    import os
-    import json
-    from jet.logger import logger  # Ensure this is your logger module
-
+def load_file(input_file: str, verbose: bool = True) -> Optional[Union[str, dict, list]]:
     # Check if file exists
     if not os.path.exists(input_file):
         if verbose:
             logger.warning(f"File does not exist: {input_file}")
-        # raise FileNotFoundError(f"File not found: {input_file}")
         return None
 
     try:
-        if input_file.endswith(".json"):
-            with open(input_file, "r", encoding="utf-8") as f:
-                try:
-                    data = json.load(f)
-                except:
-                    data = None
+        if input_file.endswith((".json", ".jsonl")):
+            if input_file.endswith(".json"):
+                with open(input_file, "r", encoding="utf-8") as f:
+                    try:
+                        data = json.load(f)
+                    except json.JSONDecodeError as e:
+                        if verbose:
+                            logger.error(
+                                f"Invalid JSON format in {input_file}: {e}")
+                        return None
+            else:  # .jsonl
+                data = []
+                with open(input_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:  # Skip empty lines
+                            try:
+                                data.append(json.loads(line))
+                            except json.JSONDecodeError as e:
+                                if verbose:
+                                    logger.error(
+                                        f"Invalid JSONL line in {input_file}: {e}")
+                                return None
 
             if verbose:
                 if isinstance(data, list):
-                    prefix = f"Loaded JSON data {len(data)} from:"
+                    prefix = f"Loaded JSON{'L' if input_file.endswith('.jsonl') else ''} data {len(data)} from:"
                 else:
-                    prefix = "Loaded JSON data from:"
+                    prefix = f"Loaded JSON{'L' if input_file.endswith('.jsonl') else ''} data from:"
                 logger.newline()
                 logger.log(
                     prefix,
@@ -127,12 +140,7 @@ def load_file(input_file: str, verbose: bool = True) -> Optional[str | dict | li
         raise
 
 
-def save_file(data: str | list | Dict | BaseModel, output_file: str | Path, verbose: bool = True):
-    import os
-    import re
-    import json
-    from jet.transformers.object import make_serializable
-
+def save_file(data: Union[str, list, Dict, BaseModel], output_file: Union[str, Path], verbose: bool = True, append: bool = False):
     output_file = str(output_file)
 
     # Allow only valid file path characters ('/', '.', '-', '_')
@@ -143,20 +151,34 @@ def save_file(data: str | list | Dict | BaseModel, output_file: str | Path, verb
 
     # Write to file
     try:
-        if output_file.endswith(".json"):
+        if output_file.endswith((".json", ".jsonl")):
             if isinstance(data, str):
-                data = json.loads(data)
+                try:
+                    data = json.loads(data)
+                except json.JSONDecodeError as e:
+                    if verbose:
+                        logger.error(f"Invalid JSON string: {e}")
+                    raise
             else:
                 data = make_serializable(data)
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            if output_file.endswith(".json"):
+                with open(output_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+            else:  # .jsonl
+                mode = "a" if append and os.path.exists(output_file) else "w"
+                with open(output_file, mode, encoding="utf-8") as f:
+                    if isinstance(data, list):
+                        for item in data:
+                            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+                    else:
+                        f.write(json.dumps(data, ensure_ascii=False) + "\n")
 
             if verbose:
                 if isinstance(data, list):
-                    prefix = f"Save JSON data {len(data)} to:"
+                    prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} JSONL data {len(data)} to:"
                 else:
-                    prefix = "Save JSON data to:"
-
+                    prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} JSONL data to:"
                 logger.newline()
                 logger.log(
                     prefix,
@@ -164,12 +186,14 @@ def save_file(data: str | list | Dict | BaseModel, output_file: str | Path, verb
                     colors=["SUCCESS", "BRIGHT_SUCCESS"]
                 )
         else:
+            if not isinstance(data, str):
+                data = str(data)
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(data)
             if verbose:
                 logger.newline()
                 logger.log(
-                    "Save data to:",
+                    "Saved data to:",
                     output_file,
                     colors=["SUCCESS", "BRIGHT_SUCCESS"]
                 )
