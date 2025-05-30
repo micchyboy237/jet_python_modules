@@ -1,4 +1,4 @@
-from typing import List, Optional, TypedDict
+from typing import List, Optional, TypedDict, Tuple
 from collections import Counter, defaultdict
 from sklearn.model_selection import train_test_split
 from jet.logger import time_it
@@ -261,3 +261,61 @@ class StratifiedSampler:
         print("Starting N-Gram Distribution:",
               dict(starting_ngram_distribution))
         return processed_data
+
+    @time_it
+    def split_train_test_val(self, train_ratio: float = 0.6, test_ratio: float = 0.2) -> Tuple[List[ProcessedData], List[ProcessedData], List[ProcessedData]]:
+        """Split data into train, test, and validation sets with stratification."""
+        if not isinstance(self.data[0], dict):
+            raise ValueError(
+                "split_train_test_val requires ProcessedData or ProcessedDataString input")
+        if not (0 < train_ratio < 1 and 0 < test_ratio < 1 and train_ratio + test_ratio < 1):
+            raise ValueError(
+                "train_ratio and test_ratio must be in (0, 1) and sum to less than 1")
+
+        features_targets = [(item['source'], item['target'])
+                            for item in self.data]
+        labels = [item['category_values'] for item in self.data]
+        score_map = {(item['source'], item['target']): item['score']
+                     for item in self.data}
+
+        # First split: train + validation vs. test
+        try:
+            X_temp, X_test, y_temp, y_test = train_test_split(
+                features_targets, labels, test_size=test_ratio, stratify=labels
+            )
+        except ValueError:
+            # Fallback to non-stratified sampling
+            X_temp, X_test, y_temp, y_test = train_test_split(
+                features_targets, labels, test_size=test_ratio
+            )
+
+        # Second split: train vs. validation
+        val_ratio = (1 - train_ratio - test_ratio) / (1 - test_ratio)
+        try:
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_temp, y_temp, test_size=val_ratio, stratify=y_temp
+            )
+        except ValueError:
+            # Fallback to non-stratified sampling
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_temp, y_temp, test_size=val_ratio
+            )
+
+        # Convert to ProcessedData format
+        train_data = [
+            ProcessedData(source=ft[0], target=ft[1],
+                          score=score_map[ft], category_values=lbl)
+            for ft, lbl in zip(X_train, y_train)
+        ]
+        test_data = [
+            ProcessedData(source=ft[0], target=ft[1],
+                          score=score_map[ft], category_values=lbl)
+            for ft, lbl in zip(X_test, y_test)
+        ]
+        val_data = [
+            ProcessedData(source=ft[0], target=ft[1],
+                          score=score_map[ft], category_values=lbl)
+            for ft, lbl in zip(X_val, y_val)
+        ]
+
+        return train_data, test_data, val_data
