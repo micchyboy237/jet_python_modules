@@ -75,17 +75,40 @@ def normalize_url(url: str, base_url: Optional[str] = None) -> str:
     return unquote(normalized_url.rstrip('/'))
 
 
-def preprocess_url(url: str) -> List[str]:
-    """Convert a URL into a list of tokens for n-gram processing."""
-    # Handle empty URL
+def clean_url(url: str) -> str:
+    """Clean a URL by ensuring a scheme, removing trailing slashes, and normalizing format."""
     if not url:
-        return []
+        return ""
 
-    # Ensure URL has a scheme if none provided
-    if not url.startswith(('http://', 'https://')):
+    # Remove leading/trailing whitespace
+    url = url.strip()
+
+    # Ensure scheme (default to https)
+    if not re.match(r'^[a-zA-Z]+://', url):
         url = f'https://{url}'
 
-    parsed = urlparse(url)
+    # Parse URL to normalize components
+    try:
+        parsed = urlparse(url)
+        # Normalize path by replacing multiple slashes with a single slash
+        path = re.sub(r'/+', '/', parsed.path.rstrip('/'))
+        # Reconstruct URL with lowercase scheme and no trailing slashes
+        query = f'?{parsed.query}' if parsed.query else ''
+        fragment = f'#{parsed.fragment}' if parsed.fragment else ''
+        cleaned_url = f'{parsed.scheme.lower()}://{parsed.netloc}{path}{query}{fragment}'
+        return cleaned_url
+    except ValueError as e:
+        raise ValueError(f"Invalid URL: {url}") from e
+
+
+def parse_url(url: str) -> List[str]:
+    """Convert a URL into a list of tokens for n-gram processing."""
+    # Use clean_url to normalize input
+    cleaned_url = clean_url(url)
+    if not cleaned_url:
+        return []
+
+    parsed = urlparse(cleaned_url)
     tokens = []
 
     # Add scheme (e.g., http, https)
