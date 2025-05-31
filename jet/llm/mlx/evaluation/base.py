@@ -165,20 +165,3 @@ token_results = compute_token_k_index_and_probability(
 print(f"\nContinuation tokens' k index and probability:")
 for token, k_index, prob in token_results:
     print(f"Token: {token}, k-index: {k_index}, Probability: {prob:.3f}")
-
-# Compute k-index and probability for each token in each top sequence
-print(f"\nToken k-index and probability for each top sequence:")
-for start_word, seq, conf in top_sequences:
-    # Extract the continuation (remove context and start_word)
-    continuation = seq[len(context) + len(start_word) +
-                       2:].strip()  # +2 for spaces
-    if continuation:
-        print(f"\nSequence: {seq} (Start word: {start_word})")
-        token_results = compute_token_k_index_and_probability(
-            model, context, " " + start_word + " " + continuation, k=10)
-        for token, k_index, prob in token_results:
-            print(
-                f"Token: {token}, k-index: {k_index}, Probability: {prob:.3f}")
-    else:
-        print(
-            f"\nSequence: {seq} (Start word: {start_word}) - No continuation tokens")
