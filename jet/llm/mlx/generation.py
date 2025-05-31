@@ -1,238 +1,248 @@
-# jet_python_modules/jet/llm/mlx/generation.py
-import json
-import time
-import uuid
-from jet.llm.mlx.mlx_types import ModelKey
+from typing import Union, List, Optional, Dict, Iterator
+from jet.llm.mlx.mlx_types import LLMModelType, RoleMapping, Tool
 from jet.llm.mlx.models import resolve_model
-from jet.transformers.formatters import format_json
-import requests
-from typing import List, Dict, Optional, Union, Literal, Generator
-from pydantic import BaseModel, Field, ValidationError
-from fastapi import HTTPException
-from jet.logger import logger
-from jet.llm.mlx.model_cache import MODEL_CACHE, MODEL_LIST_CACHE_LOCK
-from jet.llm.mlx.mlx_class_types import (
-    ChatCompletionRequest,
-    Message,
-    TextCompletionRequest,
-    Usage,
-    UnifiedCompletionResponse,
-    ModelsResponse,
-    ParallelCompletionResponse,
-)
-
-BASE_URL = "http://localhost:8003"
+from .client import MLXLMClient, CompletionResponse, Message
+from .base import ChatHistory
 
 
-def _handle_response(response: requests.Response, is_stream: bool) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
-    logger.info(f"Response status code: {response.status_code}")
-    logger.info(f"Response headers: {response.headers}")
-    content_type = response.headers.get("Content-Type", "")
-    expected_content_type = "application/json"
-    if expected_content_type not in content_type:
-        logger.error(
-            f"Unexpected Content-Type: {content_type}, expected {expected_content_type}")
-        raise HTTPException(
-            status_code=500, detail=f"Server returned unexpected Content-Type: {content_type}")
-    response.raise_for_status()
+def prepare_messages(
+    messages: Union[str, List[Message]],
+    history: ChatHistory,
+    system_prompt: Optional[str] = None,
+    with_history: bool = False
+) -> List[Message]:
+    """Prepare messages with history and system prompt."""
+    if system_prompt and not any(msg["role"] == "system" for msg in history.get_messages()):
+        if with_history:
+            history.add_message("system", system_prompt)
 
-    def estimate_tokens(text: Optional[str]) -> int:
-        """Estimate token count by counting words (approximation)."""
-        if not text:
-            return 0
-        return len(text.split())
+    # Handle messages input: str or List[Message]
+    if isinstance(messages, str):
+        if with_history:
+            history.add_message("user", messages)
+        all_messages = history.get_messages() if with_history else [
+            {"role": "user", "content": messages}]
+    elif isinstance(messages, list):
+        for msg in messages:
+            if "role" not in msg or "content" not in msg:
+                raise ValueError(
+                    "Each message in the list must have 'role' and 'content' keys")
+            if with_history:
+                history.add_message(msg["role"], msg["content"])
+        all_messages = history.get_messages() if with_history else messages
+    else:
+        raise TypeError(
+            "messages must be a string or a list of Message dictionaries")
 
-    def transform_to_unified(server_response: dict, accumulated_content: str = "", prompt: Optional[str] = None) -> UnifiedCompletionResponse:
-        response_type = server_response.get("type")
-        content = server_response.get("content", "")
-        finish_reason = None
-        usage = None
-        if response_type == "result":
-            finish_reason = "length" if server_response.get(
-                "truncated", False) else "stop"
-            prompt_tokens = estimate_tokens(prompt)
-            completion_tokens = estimate_tokens(accumulated_content)
-            usage = Usage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=prompt_tokens + completion_tokens
-            )
-        elif response_type == "error":
-            logger.error(
-                f"Server error: {server_response.get('message', 'Unknown error')}")
-            raise HTTPException(status_code=500, detail=server_response.get(
-                "message", "Server error"))
-        return UnifiedCompletionResponse(
-            id=server_response.get("prompt_id", str(uuid.uuid4())),
-            created=int(time.time()),
-            content=content,
-            finish_reason=finish_reason,
-            usage=usage,
-            prompt_id=server_response.get("prompt_id"),
-            task_id=server_response.get("task_id")
+    if system_prompt and not with_history:
+        all_messages = [
+            {"role": "system", "content": system_prompt}] + all_messages
+
+    return all_messages
+
+
+def chat(
+    messages: List[Message],
+    model: LLMModelType,
+    draft_model: Optional[LLMModelType] = None,
+    adapter: Optional[str] = None,
+    max_tokens: int = 512,
+    temperature: float = 0.0,
+    top_p: float = 1.0,
+    repetition_penalty: Optional[float] = None,
+    repetition_context_size: int = 20,
+    xtc_probability: float = 0.0,
+    xtc_threshold: float = 0.0,
+    logit_bias: Optional[Union[Dict[int, float],
+                               Dict[str, float], str, List[str]]] = None,
+    logprobs: int = -1,
+    stop: Optional[Union[str, List[str]]] = None,
+    role_mapping: Optional[RoleMapping] = None,
+    tools: Optional[List[Tool]] = None,
+    log_dir: Optional[str] = None,
+    verbose: bool = False,
+    client: Optional[MLXLMClient] = None
+) -> CompletionResponse:
+    """Generate a chat completion."""
+    if client is None:
+        client = MLXLMClient(
+            model=model,
+            adapter_path=adapter,
+            draft_model=draft_model,
         )
-    if is_stream:
-        def stream_chunks():
-            accumulated_content = ""
-            prompt = None
-            for line in response.iter_lines(decode_unicode=True):
-                if not line.strip():
-                    continue
-                try:
-                    chunk = json.loads(line)
-                    server_response = ParallelCompletionResponse(**chunk)
-                    if prompt is None:
-                        prompt = server_response.prompt
-                    if server_response.content:
-                        accumulated_content += server_response.content
-                    unified_response = transform_to_unified(
-                        server_response.dict(),
-                        accumulated_content=accumulated_content,
-                        prompt=prompt
-                    )
-                    logger.debug(
-                        f"Streaming chunk: {unified_response.content}")
-                    yield unified_response
-                    if server_response.type == "result":
-                        logger.info("Result chunk received, stopping stream")
-                        return
-                except json.JSONDecodeError as e:
-                    logger.error(
-                        f"Failed to parse chunk JSON: {e}, chunk: {line}")
-                    raise HTTPException(
-                        status_code=500, detail=f"Invalid JSON in streaming chunk: {str(e)}")
-                except ValidationError as e:
-                    logger.error(
-                        f"Validation error for chunk: {e}, chunk: {line}")
-                    raise HTTPException(
-                        status_code=500, detail=f"Invalid response format: {str(e)}")
-        return stream_chunks()
-    response_text = response.text
-    if not response_text.strip():
-        logger.error("Empty response received from the server")
-        raise HTTPException(
-            status_code=500, detail="Empty response from MLX LM server")
-    try:
-        response_json = response.json()
-        server_response = ParallelCompletionResponse(**response_json)
-        unified_response = transform_to_unified(
-            server_response.dict(),
-            accumulated_content=server_response.content or "",
-            prompt=server_response.prompt
+    return client.chat(
+        messages=messages,
+        model=model,
+        draft_model=draft_model,
+        adapter=adapter,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        repetition_context_size=repetition_context_size,
+        xtc_probability=xtc_probability,
+        xtc_threshold=xtc_threshold,
+        logit_bias=logit_bias,
+        logprobs=logprobs,
+        stop=stop,
+        stream=False,
+        role_mapping=role_mapping,
+        tools=tools,
+        log_dir=log_dir,
+        verbose=verbose,
+    )
+
+
+def stream_chat(
+    messages: List[Message],
+    model: LLMModelType,
+    draft_model: Optional[LLMModelType] = None,
+    adapter: Optional[str] = None,
+    max_tokens: int = 512,
+    temperature: float = 0.0,
+    top_p: float = 1.0,
+    repetition_penalty: Optional[float] = None,
+    repetition_context_size: int = 20,
+    xtc_probability: float = 0.0,
+    xtc_threshold: float = 0.0,
+    logit_bias: Optional[Union[Dict[int, float],
+                               Dict[str, float], str, List[str]]] = None,
+    logprobs: int = -1,
+    stop: Optional[Union[str, List[str]]] = None,
+    role_mapping: Optional[RoleMapping] = None,
+    tools: Optional[List[Tool]] = None,
+    log_dir: Optional[str] = None,
+    verbose: bool = False,
+    client: Optional[MLXLMClient] = None
+) -> Iterator[CompletionResponse]:
+    """Stream chat completions."""
+    if client is None:
+        client = MLXLMClient(
+            model=model,
+            adapter_path=adapter,
+            draft_model=draft_model,
         )
-        logger.success(unified_response.content)
-        return unified_response
-    except json.JSONDecodeError as e:
-        logger.error(
-            f"JSON decode error: {e}, Response content: {response_text}")
-        raise HTTPException(
-            status_code=500, detail=f"Invalid JSON response from server: {str(e)}")
-    except ValidationError as e:
-        logger.error(
-            f"Validation error for response: {e}, Response content: {response_text}")
-        raise HTTPException(
-            status_code=500, detail=f"Invalid response format: {str(e)}")
+    return client.stream_chat(
+        messages=messages,
+        model=model,
+        draft_model=draft_model,
+        adapter=adapter,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        repetition_context_size=repetition_context_size,
+        xtc_probability=xtc_probability,
+        xtc_threshold=xtc_threshold,
+        logit_bias=logit_bias,
+        logprobs=logprobs,
+        stop=stop,
+        role_mapping=role_mapping,
+        tools=tools,
+        log_dir=log_dir,
+        verbose=verbose,
+    )
 
 
-def chat(request: ChatCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
-    try:
-        if isinstance(request.messages, str):
-            request.messages = [Message(role="user", content=request.messages)]
-        request_payload = request.dict(exclude_none=True)
-        endpoint = "/chat" if request.stream else "/chat_non_stream"
-        logger.info(f"Sending request to {BASE_URL}{endpoint}...")
-        logger.gray("Request payload:")
-        logger.debug(format_json(request_payload))
-        response = requests.post(
-            f"{BASE_URL}{endpoint}",
-            json=request_payload,
-            headers={"Content-Type": "application/json"},
-            stream=request.stream
+def generate(
+    prompt: str,
+    model: LLMModelType,
+    draft_model: Optional[LLMModelType] = None,
+    adapter: Optional[str] = None,
+    max_tokens: int = 512,
+    temperature: float = 0.0,
+    top_p: float = 1.0,
+    repetition_penalty: Optional[float] = None,
+    repetition_context_size: int = 20,
+    xtc_probability: float = 0.0,
+    xtc_threshold: float = 0.0,
+    logit_bias: Optional[Union[Dict[int, float],
+                               Dict[str, float], str, List[str]]] = None,
+    logprobs: int = -1,
+    stop: Optional[Union[str, List[str]]] = None,
+    log_dir: Optional[str] = None,
+    verbose: bool = False,
+    client: Optional[MLXLMClient] = None
+) -> CompletionResponse:
+    """Generate a text completion."""
+    if client is None:
+        client = MLXLMClient(
+            model=model,
+            adapter_path=adapter,
+            draft_model=draft_model,
         )
-        return _handle_response(response, is_stream=request.stream)
-    except requests.exceptions.HTTPError as e:
-        error_detail = e.response.text if e.response else str(e)
-        logger.error(
-            f"HTTP error: {str(e)}, Response content: {error_detail}")
-        raise HTTPException(
-            status_code=e.response.status_code if e.response else 500,
-            detail=f"MLX LM server error: {error_detail}")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Request failed: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Request to MLX LM server failed: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"Internal error: {str(e)}")
+    return client.generate(
+        prompt=prompt,
+        model=model,
+        draft_model=draft_model,
+        adapter=adapter,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        repetition_context_size=repetition_context_size,
+        xtc_probability=xtc_probability,
+        xtc_threshold=xtc_threshold,
+        logit_bias=logit_bias,
+        logprobs=logprobs,
+        stop=stop,
+        stream=False,
+        log_dir=log_dir,
+        verbose=verbose,
+    )
 
 
-def generate(request: TextCompletionRequest) -> Union[UnifiedCompletionResponse, Generator[UnifiedCompletionResponse, None, None]]:
-    try:
-        if isinstance(request.prompt, str):
-            request.prompt = [request.prompt]
-        request_payload = request.dict(exclude_none=True)
-        endpoint = "/generate" if request.stream else "/generate_non_stream"
-        logger.info(f"Sending request to {BASE_URL}{endpoint}...")
-        logger.gray("Request payload:")
-        logger.debug(format_json(request_payload))
-        response = requests.post(
-            f"{BASE_URL}{endpoint}",
-            json=request_payload,
-            headers={"Content-Type": "application/json"},
-            stream=request.stream
+def stream_generate(
+    prompt: str,
+    model: LLMModelType,
+    draft_model: Optional[LLMModelType] = None,
+    adapter: Optional[str] = None,
+    max_tokens: int = 512,
+    temperature: float = 0.0,
+    top_p: float = 1.0,
+    repetition_penalty: Optional[float] = None,
+    repetition_context_size: int = 20,
+    xtc_probability: float = 0.0,
+    xtc_threshold: float = 0.0,
+    logit_bias: Optional[Union[Dict[int, float],
+                               Dict[str, float], str, List[str]]] = None,
+    logprobs: int = -1,
+    stop: Optional[Union[str, List[str]]] = None,
+    log_dir: Optional[str] = None,
+    verbose: bool = False,
+    client: Optional[MLXLMClient] = None
+) -> Iterator[CompletionResponse]:
+    """Stream text completions."""
+    if client is None:
+        client = MLXLMClient(
+            model=model,
+            adapter_path=adapter,
+            draft_model=draft_model,
         )
-        return _handle_response(response, is_stream=request.stream)
-    except requests.exceptions.HTTPError as e:
-        error_detail = e.response.text if e.response else str(e)
-        logger.error(
-            f"HTTP error: {str(e)}, Response content: {error_detail}")
-        raise HTTPException(
-            status_code=e.response.status_code if e.response else 500,
-            detail=f"MLX LM server error: {error_detail}")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Request failed: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Request to MLX LM server failed: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"Internal error: {str(e)}")
+    return client.stream_generate(
+        prompt=prompt,
+        model=model,
+        draft_model=draft_model,
+        adapter=adapter,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        repetition_context_size=repetition_context_size,
+        xtc_probability=xtc_probability,
+        xtc_threshold=xtc_threshold,
+        logit_bias=logit_bias,
+        logprobs=logprobs,
+        stop=stop,
+        log_dir=log_dir,
+        verbose=verbose,
+    )
 
 
-def list_models() -> ModelsResponse:
-    try:
-        with MODEL_LIST_CACHE_LOCK:
-            if MODEL_CACHE.get("models") is not None:  # Updated condition
-                logger.info("Returning cached model list")
-                return ModelsResponse(**MODEL_CACHE["models"])
-        response = requests.get(
-            f"{BASE_URL}/models",
-            headers={"Content-Type": "application/json"}
-        )
-        logger.info(f"Response status code: {response.status_code}")
-        content_type = response.headers.get("Content-Type", "")
-        if "application/json" not in content_type:
-            logger.error(f"Unexpected Content-Type: {content_type}")
-            raise HTTPException(
-                status_code=500, detail=f"Server returned non-JSON response: Content-Type {content_type}")
-        response.raise_for_status()
-        structured_response = ModelsResponse(**response.json())
-        with MODEL_LIST_CACHE_LOCK:
-            MODEL_CACHE["models"] = structured_response.dict()
-        logger.success(format_json(structured_response.dict()))
-        return structured_response
-    except requests.exceptions.HTTPError as e:
-        error_detail = e.response.text if e.response else str(e)
-        logger.error(
-            f"HTTP error: {str(e)}, Response content: {error_detail}")
-        raise HTTPException(
-            status_code=500, detail=f"MLX LM server error: {error_detail}")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Request failed: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Request to MLX LM server failed: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"Internal error: {str(e)}")
+__all__ = [
+    "prepare_messages",
+    "chat",
+    "stream_chat",
+    "generate",
+    "stream_generate",
+]
