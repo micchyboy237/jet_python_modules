@@ -59,7 +59,7 @@ def compute_confidence(model: MLXLM, context: str, continuation: str) -> Tuple[L
     return confidences, is_greedy
 
 
-def compute_top_confident_words(model: MLXLM, context: str) -> List[Tuple[str, float]]:
+def compute_top_confident_words(model: MLXLM, context: str) -> List[Tuple[int, str, float]]:
     # Tokenize context
     prefix = model._tokenize([context])[0]
 
@@ -71,18 +71,18 @@ def compute_top_confident_words(model: MLXLM, context: str) -> List[Tuple[str, f
     top_indices = mx.argsort(-probs, axis=-1)[:5]
     top_probs = probs[top_indices].tolist()
 
-    # Convert token indices to words
+    # Convert token indices to words with k-index
     tokenizer = model.tokenizer
     top_words = []
-    for idx, prob in zip(top_indices.tolist(), top_probs):
+    for k, (idx, prob) in enumerate(zip(top_indices.tolist(), top_probs)):
         token = tokenizer.decode([idx])
         if token.strip() and not token.startswith("##"):  # Skip subword markers
-            top_words.append((token.strip(), prob))
+            top_words.append((k, token.strip(), prob))
 
     return top_words[:5]
 
 
-def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_sequences: int = 5) -> List[Tuple[str, float]]:
+def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_sequences: int = 5) -> List[Tuple[str, str, float]]:
     # Tokenize context
     prefix = model._tokenize([context])[0]
 
@@ -91,8 +91,8 @@ def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_
 
     # Generate sequences starting with each top word
     sequences = []
-    for word, _ in top_words:
-        current_context = context + " " + word
+    for _, start_word, _ in top_words:
+        current_context = context + " " + start_word
         request = Instance(
             request_type="generate_until",
             doc={"context": current_context},
@@ -118,9 +118,9 @@ def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_
 
         avg_confidence = sum(confidences) / \
             len(confidences) if confidences else 0.0
-        sequences.append((word + generated, avg_confidence))
+        sequences.append((start_word, start_word + generated, avg_confidence))
 
-    return sorted(sequences, key=lambda x: x[1], reverse=True)[:num_sequences]
+    return sorted(sequences, key=lambda x: x[2], reverse=True)[:num_sequences]
 
 
 def compute_token_k_index_and_probability(model: MLXLM, context: str, continuation: str, k: int = 5) -> List[Tuple[str, int, float]]:
@@ -191,7 +191,7 @@ def compute_token_k_index_and_probability(model: MLXLM, context: str, continuati
             logger.info(
                 f"Token: {token_str}, k_index: {k_index}, prob: {token_prob}")
 
-            # ✅ FIXED: Use tuple concatenation
+            # Use tuple concatenation
             current_prefix = current_prefix + (token_id,)
 
         except Exception as e:
@@ -229,12 +229,12 @@ print(f"Is greedy: {is_greedy}")
 # Compute top 5 words and sequences
 top_words = compute_top_confident_words(model, context)
 print(f"\nTop 5 next words and their confidences:")
-for word, prob in top_words:
-    print(f"Word: {word}, Confidence: {prob:.3f}")
+for k, word, prob in top_words:
+    print(f"Top-K: {k}, Word: {word}, Confidence: {prob:.3f}")
 
 top_sequences = compute_top_sequences(model, context)
 print(f"\nTop 5 sequences and their average confidences:")
-for seq, conf in top_sequences:
+for start_word, seq, conf in top_sequences:
     print(f"Sequence: {seq}, Average Confidence: {conf:.3f}")
 
 # Compute k index and probability for each token in continuation
