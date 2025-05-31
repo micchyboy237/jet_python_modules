@@ -119,44 +119,33 @@ def compute_top_confident_words_and_sequences(model: MLXLM, context: str, max_to
 
 def compute_token_k_index_and_probability(model: MLXLM, context: str, continuation: str, k: int = 5) -> List[Tuple[str, int, float]]:
     # Tokenize context and continuation
-    prefix = model._tokenize([context])[0]
-    full_sequence = model._tokenize([context + continuation])[0]
+    prefix = tuple(model._tokenize([context])[0])
+    full_sequence = tuple(model._tokenize([context + continuation])[0])
     continuation_tokens = full_sequence[len(prefix):]
 
-    # Handle empty continuation or prefix
     if not continuation_tokens or not prefix:
         logger.warning(
             "Empty prefix or continuation tokens. Returning empty result.")
         return []
 
-    # Initialize result list
     results = []
+    logprobs, cache = model._process_prompt(prefix)
+    logger.info(f"Initial logprobs shape: {logprobs.shape}")
 
-    # Process prompt to get initial logprobs and cache
-    try:
-        logprobs, cache = model._process_prompt(prefix)
-        logger.info(f"Initial logprobs shape: {logprobs.shape}")
-        if logprobs.ndim != 2 or logprobs.shape[1] == 0:
-            logger.error(
-                f"Invalid logprobs shape from _process_prompt: {logprobs.shape}")
-            return []
-    except Exception as e:
-        logger.error(f"Error in _process_prompt: {e}")
-        return []
-
-    # Compute probabilities for all continuation tokens
     try:
         if len(continuation_tokens) > 0:
             inputs = mx.array(continuation_tokens)[
                 None, :]  # Shape: [1, seq_len]
             scores, _, _ = model._score_fn(inputs, cache=cache)
             logger.info(f"Scores shape from _score_fn: {scores.shape}")
-            if scores.ndim != 3:
+            if scores.ndim == 3 and scores.shape[1] == len(continuation_tokens):
+                # Shape: [1, seq_len, vocab_size]
+                all_probs = mx.softmax(scores, axis=-1)
+            else:
                 logger.warning(
-                    f"Expected scores shape [1, seq_len, vocab_size], got {scores.shape}. Falling back to logprobs.")
-                scores = logprobs[:, None, :]  # Reshape to [1, 1, vocab_size]
-            # Shape: [1, seq_len, vocab_size]
-            all_probs = mx.softmax(scores, axis=-1)
+                    f"Invalid scores shape {scores.shape}. Falling back to initial logprobs.")
+                # Shape: [1, 1, vocab_size]
+                all_probs = mx.softmax(logprobs, axis=-1)[:, None, :]
         else:
             # Shape: [1, 1, vocab_size]
             all_probs = mx.softmax(logprobs, axis=-1)[:, None, :]
@@ -164,53 +153,45 @@ def compute_token_k_index_and_probability(model: MLXLM, context: str, continuati
     except Exception as e:
         logger.warning(
             f"Error in _score_fn: {e}. Falling back to initial logprobs.")
-        # Shape: [1, 1, vocab_size]
         all_probs = mx.softmax(logprobs, axis=-1)[:, None, :]
         logger.info(f"Fallback all_probs shape: {all_probs.shape}")
 
-    # Process each continuation token
+    current_prefix = prefix
     for i, token_id in enumerate(continuation_tokens):
-        # Get probabilities for current token
         try:
-            # Ensure we don't exceed the sequence length
-            seq_idx = min(i, all_probs.shape[1] - 1)
-            probs = all_probs[0, seq_idx]  # Shape: [vocab_size]
+            if i >= all_probs.shape[1]:
+                # Extend probabilities by reprocessing
+                current_context = model.tokenizer.decode(current_prefix)
+                logprobs, cache = model._process_prompt(current_prefix)
+                probs = mx.softmax(logprobs, axis=-1)[0]  # Shape: [vocab_size]
+                all_probs = mx.concatenate(
+                    [all_probs, probs[None, None, :]], axis=1
+                )
+                logger.info(f"Extended all_probs shape: {all_probs.shape}")
+            else:
+                probs = all_probs[0, i]
+
             logger.info(f"Probs shape at position {i}: {probs.shape}")
-            if probs.ndim != 1 or probs.shape[0] == 0:
-                logger.warning(
-                    f"Invalid probs shape at position {i}: {probs.shape}. Skipping token.")
-                continue
-        except Exception as e:
-            logger.warning(
-                f"Error accessing probs at position {i}: {e}. Skipping token.")
-            continue
-
-        # Get top-k indices and probabilities
-        try:
             top_k_indices = mx.argsort(-probs, axis=-1)[:k]
-            top_k_probs = probs[top_k_indices].tolist()
-        except Exception as e:
-            logger.warning(
-                f"Error in argsort at position {i}: {e}. Skipping token.")
-            continue
-
-        # Find k-index and probability of current token
-        k_index = -1
-        token_prob = float(
-            probs[token_id]) if token_id < probs.shape[0] else 0.0
-        for rank, idx in enumerate(top_k_indices.tolist()):
-            if idx == token_id:
-                k_index = rank
-                break
-
-        # Decode token
-        token_str = model.tokenizer.decode([token_id]).strip()
-
-        # Append result if token is valid
-        if token_str and k_index >= 0:
+            token_prob = float(
+                probs[token_id]) if token_id < probs.shape[0] else 0.0
+            k_index = -1
+            for rank, idx in enumerate(top_k_indices.tolist()):
+                if idx == token_id:
+                    k_index = rank
+                    break
+            token_str = model.tokenizer.decode([token_id]).strip()
             results.append((token_str, k_index, token_prob))
             logger.info(
                 f"Token: {token_str}, k_index: {k_index}, prob: {token_prob}")
+
+            # ✅ FIXED: Use tuple concatenation
+            current_prefix = current_prefix + (token_id,)
+
+        except Exception as e:
+            logger.warning(
+                f"Error processing token at position {i}: {e}. Skipping.")
+            continue
 
     return results
 
