@@ -175,10 +175,12 @@ def save_file(data: Union[str, list, Dict, BaseModel], output_file: Union[str, P
                         f.write(json.dumps(data, ensure_ascii=False) + "\n")
 
             if verbose:
+                upper_cased_ext = "JSONL" if output_file.endswith(
+                    ".jsonl") else "JSON"
                 if isinstance(data, list):
-                    prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} JSONL data {len(data)} to:"
+                    prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} {upper_cased_ext} data {len(data)} to:"
                 else:
-                    prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} JSONL data to:"
+                    prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} {upper_cased_ext} data to:"
                 logger.newline()
                 logger.log(
                     prefix,
