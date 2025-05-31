@@ -55,17 +55,6 @@ class Usage(TypedDict):
     peak_memory: float
 
 
-class CompletionResponse(TypedDict):
-    id: str
-    system_fingerprint: str
-    object: str
-    model: str
-    created: int
-    choices: List[Choice]
-    usage: Optional[Usage]
-    content: str
-
-
 class ModelInfo(TypedDict):
     id: str
     object: str
@@ -208,3 +197,14 @@ LLMModelType = Union[ModelKey, ModelValue, ModelTypeEnum]
 EmbedModelType = Union[EmbedModelKey, EmbedModelValue, EmbedModelTypeEnum]
 
 ModelType = Union[LLMModelType, EmbedModelType]
+
+
+class CompletionResponse(TypedDict):
+    id: str
+    system_fingerprint: str
+    object: str
+    model: LLMModelType
+    created: int
+    choices: List[Choice]
+    usage: Optional[Usage]
+    content: str
