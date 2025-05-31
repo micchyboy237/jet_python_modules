@@ -51,8 +51,12 @@ class MLX:
             use_default_chat_template=use_default_chat_template,
             seed=seed,
         )
-        self.model = self.client.model_provider.model
-        self.tokenizer: MLXTokenizer = self.client.model_provider.tokenizer
+        self.prompt_cache = self.client.prompt_cache
+        self.system_fingerprint = self.client.system_fingerprint
+        self.created = self.client.created
+        self.log_dir = self.client.log_dir
+        self.model = self.client.model
+        self.tokenizer: MLXTokenizer = self.client.tokenizer
 
         # Set padding token if not already defined
         if self.tokenizer.pad_token is None:
@@ -83,6 +87,9 @@ class MLX:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
+        min_p: float = 0.0,
+        min_tokens_to_keep: int = 1,
+        top_k: int = 0,
         repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
@@ -138,6 +145,9 @@ class MLX:
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            min_p=min_p,
+            min_tokens_to_keep=min_tokens_to_keep,
+            top_k=top_k,
             repetition_penalty=repetition_penalty,
             repetition_context_size=repetition_context_size,
             xtc_probability=xtc_probability,
@@ -170,6 +180,9 @@ class MLX:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
+        min_p: float = 0.0,
+        min_tokens_to_keep: int = 1,
+        top_k: int = 0,
         repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
@@ -224,6 +237,9 @@ class MLX:
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            min_p=min_p,
+            min_tokens_to_keep=min_tokens_to_keep,
+            top_k=top_k,
             repetition_penalty=repetition_penalty,
             repetition_context_size=repetition_context_size,
             xtc_probability=xtc_probability,
@@ -255,6 +271,9 @@ class MLX:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
+        min_p: float = 0.0,
+        min_tokens_to_keep: int = 1,
+        top_k: int = 0,
         repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
@@ -277,6 +296,9 @@ class MLX:
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            min_p=min_p,
+            min_tokens_to_keep=min_tokens_to_keep,
+            top_k=top_k,
             repetition_penalty=repetition_penalty,
             repetition_context_size=repetition_context_size,
             xtc_probability=xtc_probability,
@@ -300,6 +322,9 @@ class MLX:
         max_tokens: int = 512,
         temperature: float = 0.0,
         top_p: float = 1.0,
+        min_p: float = 0.0,
+        min_tokens_to_keep: int = 1,
+        top_k: int = 0,
         repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
@@ -320,6 +345,9 @@ class MLX:
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            min_p=min_p,
+            min_tokens_to_keep=min_tokens_to_keep,
+            top_k=top_k,
             repetition_penalty=repetition_penalty,
             repetition_context_size=repetition_context_size,
             xtc_probability=xtc_probability,

@@ -1,8 +1,8 @@
 from typing import Union, List, Optional, Dict, Iterator
 from jet.llm.mlx.mlx_types import LLMModelType, RoleMapping, Tool
 from jet.llm.mlx.models import resolve_model
-from .client import MLXLMClient, CompletionResponse, Message
-from .base import ChatHistory
+from .client import CompletionResponse, Message
+from .base import ChatHistory, MLX
 
 
 def prepare_messages(
@@ -61,11 +61,11 @@ def chat(
     tools: Optional[List[Tool]] = None,
     log_dir: Optional[str] = None,
     verbose: bool = False,
-    client: Optional[MLXLMClient] = None
+    client: Optional[MLX] = None
 ) -> CompletionResponse:
     """Generate a chat completion."""
     if client is None:
-        client = MLXLMClient(
+        client = MLX(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
@@ -113,11 +113,11 @@ def stream_chat(
     tools: Optional[List[Tool]] = None,
     log_dir: Optional[str] = None,
     verbose: bool = False,
-    client: Optional[MLXLMClient] = None
+    client: Optional[MLX] = None
 ) -> Iterator[CompletionResponse]:
     """Stream chat completions."""
     if client is None:
-        client = MLXLMClient(
+        client = MLX(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
@@ -162,11 +162,11 @@ def generate(
     stop: Optional[Union[str, List[str]]] = None,
     log_dir: Optional[str] = None,
     verbose: bool = False,
-    client: Optional[MLXLMClient] = None
+    client: Optional[MLX] = None
 ) -> CompletionResponse:
     """Generate a text completion."""
     if client is None:
-        client = MLXLMClient(
+        client = MLX(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
@@ -210,11 +210,11 @@ def stream_generate(
     stop: Optional[Union[str, List[str]]] = None,
     log_dir: Optional[str] = None,
     verbose: bool = False,
-    client: Optional[MLXLMClient] = None
+    client: Optional[MLX] = None
 ) -> Iterator[CompletionResponse]:
     """Stream text completions."""
     if client is None:
-        client = MLXLMClient(
+        client = MLX(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
