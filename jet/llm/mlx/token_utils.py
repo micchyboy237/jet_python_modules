@@ -204,14 +204,14 @@ def tokenize_strings(text: Union[str, List[str]], model: LLMModelType) -> Union[
         return [tokenizer.convert_ids_to_tokens(ids) for ids in token_ids_list]
 
 
-def get_tokenizer(model: LLMModelType) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
+def get_tokenizer(model: ModelType) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
     model_name = resolve_model(model)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return tokenizer
 
 
-def get_tokenizer_fn(model: LLMModelType) -> Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]]:
+def get_tokenizer_fn(model: ModelType) -> Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]]:
     tokenizer = get_tokenizer(model)
 
     def _tokenizer(text: Union[str, List[str]]) -> Union[List[str], List[List[str]]]:
