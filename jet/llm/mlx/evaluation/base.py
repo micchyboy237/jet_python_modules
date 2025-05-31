@@ -43,11 +43,11 @@ def compute_confidence(model: MLXLM, context: str, continuation: str) -> Tuple[L
     return confidences, is_greedy
 
 
-def compute_top_confident_words(model: MLXLM, context: str) -> List[Tuple[int, str, float]]:
+def compute_top_confident_words(model: MLXLM, context: str, top_k=10) -> List[Tuple[int, str, float]]:
     prefix = model._tokenize([context])[0]
     logprobs, _ = model._process_prompt(prefix)
     probs = mx.softmax(logprobs[0], axis=-1)
-    top_indices = mx.argsort(-probs, axis=-1)[:5]
+    top_indices = mx.argsort(-probs, axis=-1)[:top_k]
     top_probs = probs[top_indices].tolist()
     tokenizer = model.tokenizer
     top_words = []
@@ -55,10 +55,10 @@ def compute_top_confident_words(model: MLXLM, context: str) -> List[Tuple[int, s
         token = tokenizer.decode([idx])
         if token.strip() and not token.startswith("##"):
             top_words.append((k, token.strip(), prob))
-    return top_words[:5]
+    return top_words  # [:top_k]
 
 
-def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_sequences: int = 5) -> List[Tuple[str, str, float]]:
+def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_sequences: int = 10) -> List[Tuple[str, str, float]]:
     prefix = model._tokenize([context])[0]
     top_words = compute_top_confident_words(model, context)
     sequences = []
@@ -91,7 +91,7 @@ def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_
     return sorted(sequences, key=lambda x: x[2], reverse=True)[:num_sequences]
 
 
-def compute_token_k_index_and_probability(model: MLXLM, context: str, continuation: str, k: int = 5) -> List[Tuple[str, int, float]]:
+def compute_token_k_index_and_probability(model: MLXLM, context: str, continuation: str, k: int = 10) -> List[Tuple[str, int, float]]:
     prefix = tuple(model._tokenize([context])[0])
     full_sequence = tuple(model._tokenize([context + continuation])[0])
     continuation_tokens = full_sequence[len(prefix):]
@@ -147,20 +147,21 @@ print(f"Continuation: {continuation}")
 print(f"Token confidences: {[f'{c:.3f}' for c in confidences]}")
 print(f"Is greedy: {is_greedy}")
 
-# Compute top 5 words and sequences
-top_words = compute_top_confident_words(model, context)
-print(f"\nTop 5 next words and their confidences:")
+# Compute top 10 words and sequences
+top_k = 10
+top_words = compute_top_confident_words(model, context, top_k=top_k)
+print(f"\nTop 10 next words and their confidences:")
 for k, word, prob in top_words:
-    print(f"Top-K: {k}, Word: {word}, Confidence: {prob:.3f}")
+    print(f"k-index: {k}, Word: {word}, Confidence: {prob:.3f}")
 
 top_sequences = compute_top_sequences(model, context)
-print(f"\nTop 5 sequences and their average confidences:")
+print(f"\nTop 10 sequences and their average confidences:")
 for start_word, seq, conf in top_sequences:
     print(f"Sequence: {seq}, Average Confidence: {conf:.3f}")
 
 # Compute k index and probability for each token in continuation
 token_results = compute_token_k_index_and_probability(
-    model, context, continuation, k=5)
+    model, context, continuation, k=10)
 print(f"\nContinuation tokens' k index and probability:")
 for token, k_index, prob in token_results:
     print(f"Token: {token}, k-index: {k_index}, Probability: {prob:.3f}")
@@ -174,17 +175,10 @@ for start_word, seq, conf in top_sequences:
     if continuation:
         print(f"\nSequence: {seq} (Start word: {start_word})")
         token_results = compute_token_k_index_and_probability(
-            model, context, " " + start_word + " " + continuation, k=5)
+            model, context, " " + start_word + " " + continuation, k=10)
         for token, k_index, prob in token_results:
             print(
                 f"Token: {token}, k-index: {k_index}, Probability: {prob:.3f}")
     else:
         print(
             f"\nSequence: {seq} (Start word: {start_word}) - No continuation tokens")
-
-# Compute k index and probability for each token in original continuation
-token_results = compute_token_k_index_and_probability(
-    model, context, continuation, k=5)
-print(f"\nContinuation tokens' k index and probability:")
-for token, k_index, prob in token_results:
-    print(f"Token: {token}, k-index: {k_index}, Probability: {prob:.3f}")
