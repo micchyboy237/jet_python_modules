@@ -5,7 +5,6 @@ from jet.logger import logger
 import mlx.core as mx
 from mlx_lm.evaluate import MLXLM
 from lm_eval.api.instance import Instance
-from tqdm import tqdm
 
 
 def compute_perplexity(model: MLXLM, texts: List[str]) -> List[float]:
@@ -62,32 +61,40 @@ def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_
     prefix = model._tokenize([context])[0]
     top_words = compute_top_confident_words(model, context)
     sequences = []
-    for _, start_word, _ in top_words:
+
+    for k, start_word, _ in top_words:
         current_context = context + " " + start_word
-        request = Instance(
-            request_type="generate_until",
-            doc={"context": current_context},
-            arguments=(current_context, {
-                       "until": ["\n\n"], "max_gen_tokens": max_tokens}),
-            idx=0
-        )
-        generated = model.generate_until([request])[0]
-        if not generated:
-            continue
-        full_sequence = model._tokenize([current_context + generated])[0]
-        continuation_tokens = full_sequence[len(prefix):]
-        if not continuation_tokens:
-            continue
-        logprobs, cache = model._process_prompt(prefix)
-        confidences = [float(mx.exp(logprobs[0, continuation_tokens[0]]))]
-        if len(continuation_tokens) > 1:
-            inputs = mx.array(continuation_tokens[1:])[None, :]
-            scores, _, _ = model._score_fn(inputs, cache=cache)
-            confidences.extend([float(mx.exp(score)) for score in scores[0]])
-        avg_confidence = sum(confidences) / \
-            len(confidences) if confidences else 0.0
-        sequences.append((start_word, start_word + " " +
-                         generated.strip(), avg_confidence))
+        # Generate one sequence for most words, two for k-index: 1
+        num_attempts = 2 if k == 1 else 1
+        for i in range(num_attempts):
+            # Use different temperature for second attempt for k-index: 1
+            temperature = 0.7 if k == 1 and i == 1 else 1.0
+            request = Instance(
+                request_type="generate_until",
+                doc={"context": current_context},
+                arguments=(current_context, {
+                           "until": ["\n\n"], "max_gen_tokens": max_tokens, "temperature": temperature}),
+                idx=0
+            )
+            generated = model.generate_until([request])[0]
+            if not generated:
+                continue
+            full_sequence = model._tokenize([current_context + generated])[0]
+            continuation_tokens = full_sequence[len(prefix):]
+            if not continuation_tokens:
+                continue
+            logprobs, cache = model._process_prompt(prefix)
+            confidences = [float(mx.exp(logprobs[0, continuation_tokens[0]]))]
+            if len(continuation_tokens) > 1:
+                inputs = mx.array(continuation_tokens[1:])[None, :]
+                scores, _, _ = model._score_fn(inputs, cache=cache)
+                confidences.extend([float(mx.exp(score))
+                                   for score in scores[0]])
+            avg_confidence = sum(confidences) / \
+                len(confidences) if confidences else 0.0
+            sequences.append((start_word, start_word + " " +
+                             generated.strip(), avg_confidence))
+
     return sorted(sequences, key=lambda x: x[2], reverse=True)[:num_sequences]
 
 
@@ -115,8 +122,6 @@ def compute_token_k_index_and_probability(model: MLXLM, context: str, continuati
                     break
             token_str = model.tokenizer.decode([token_id]).strip()
             results.append((token_str, k_index, token_prob))
-            logger.info(
-                f"Token: {token_str}, k_index: {k_index}, prob: {token_prob}")
             current_prefix = current_prefix + (token_id,)
         except Exception as e:
             logger.warning(
