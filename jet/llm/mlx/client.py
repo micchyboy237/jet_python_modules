@@ -665,27 +665,6 @@ class MLXLMClient:
 
         return response
 
-    # def _completion_usage_response(
-    #     self,
-    #     request_id: str,
-    #     model: str,
-    #     prompt_token_count: int,
-    #     completion_token_count: int
-    # ) -> CompletionResponse:
-    #     """Generate a usage-only response for streaming."""
-    #     return {
-    #         "id": request_id,
-    #         "system_fingerprint": self.system_fingerprint,
-    #         "model": model,
-    #         "created": self.created,
-    #         "choices": [],
-    #         "usage": {
-    #             "prompt_tokens": prompt_token_count,
-    #             "completion_tokens": completion_token_count,
-    #             "total_tokens": prompt_token_count + completion_token_count,
-    #         },
-    #     }
-
     def _get_prompt_cache(self, prompt: List[int]) -> List[int]:
         """Manage prompt caching."""
         cache_len: int = len(self.prompt_cache.tokens)
@@ -845,13 +824,6 @@ class MLXLMClient:
                 break
 
         self.prompt_cache.tokens.extend(tokens)
-        # if {"include_usage": True} in [self.cli_args.__dict__.get("stream_options", {})]:
-        #     yield self._completion_usage_response(
-        #         request_id=request_id,
-        #         model=self.model_provider.model_key[0],
-        #         prompt_token_count=len(prompt),
-        #         completion_token_count=len(tokens)
-        #     )
 
     def _generate_completion(
         self,
@@ -977,13 +949,6 @@ class MLXLMClient:
                     break
 
             self.prompt_cache.tokens.extend(tokens)
-            # if {"include_usage": True} in [self.cli_args.__dict__.get("stream_options", {})]:
-            #     responses.append(self._completion_usage_response(
-            #         request_id=request_id,
-            #         model=self.model_provider.model_key[0],
-            #         prompt_token_count=len(prompt),
-            #         completion_token_count=len(tokens)
-            #     ))
             return responses
         else:
             stop_texts = tokenizer.batch_decode(stop_id_sequences)
