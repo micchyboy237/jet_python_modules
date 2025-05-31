@@ -1,8 +1,9 @@
 from typing import Union, List, Optional, Dict, Iterator
 from jet.llm.mlx.mlx_types import LLMModelType, RoleMapping, Tool
 from jet.llm.mlx.models import resolve_model
-from .client import CompletionResponse, Message
-from .base import ChatHistory, MLX
+from jet.llm.mlx.client import CompletionResponse, Message
+from jet.llm.mlx.chat_history import ChatHistory
+from jet.llm.mlx.base import MLX
 
 
 def prepare_messages(

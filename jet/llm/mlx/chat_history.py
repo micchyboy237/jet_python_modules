@@ -4,7 +4,7 @@ from typing import List, Optional
 import psycopg
 from psycopg.rows import dict_row
 
-from .client import Message
+from jet.llm.mlx.client import Message
 
 
 class PostgresChatMessageHistory:
