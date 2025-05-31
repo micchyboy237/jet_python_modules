@@ -9,87 +9,58 @@ from tqdm import tqdm
 
 
 def compute_perplexity(model: MLXLM, texts: List[str]) -> List[float]:
-    # Prepare requests as Instance objects
     requests = [Instance(
         request_type="loglikelihood_rolling",
         doc={"text": text},
         arguments=(text,),
         idx=i
     ) for i, text in enumerate(texts)]
-
-    # Compute log-likelihoods
     log_likelihoods = model.loglikelihood_rolling(requests)
-
-    # Convert to perplexity
     perplexities = [float(mx.exp(-mx.array(ll) / len(model._tokenize([text])[0])))
                     for ll, text in zip(log_likelihoods, texts)]
     return perplexities
 
 
 def compute_confidence(model: MLXLM, context: str, continuation: str) -> Tuple[List[float], bool]:
-    # Prepare request as Instance object
     request = Instance(
         request_type="loglikelihood",
         doc={"context": context, "continuation": continuation},
         arguments=(context, continuation),
         idx=0
     )
-
-    # Compute log-likelihood and greedy flag
     (logprob, is_greedy), = model.loglikelihood([request])
-
-    # Tokenize context and continuation
     prefix = model._tokenize([context])[0]
     full_sequence = model._tokenize([context + continuation])[0]
     continuation_tokens = full_sequence[len(prefix):]
-
-    # Process prompt to get initial logprobs
     logprobs, cache = model._process_prompt(prefix)
-
-    # Compute per-token probabilities for continuation
     confidences = []
-    if continuation_tokens:  # Handle non-empty continuation
+    if continuation_tokens:
         confidences.append(float(mx.exp(logprobs[0, continuation_tokens[0]])))
         if len(continuation_tokens) > 1:
-            # Score remaining tokens
             inputs = mx.array(continuation_tokens[1:])[None, :]
             scores, _, _ = model._score_fn(inputs, cache=cache)
             confidences.extend([float(mx.exp(score)) for score in scores[0]])
-
     return confidences, is_greedy
 
 
 def compute_top_confident_words(model: MLXLM, context: str) -> List[Tuple[int, str, float]]:
-    # Tokenize context
     prefix = model._tokenize([context])[0]
-
-    # Compute log-probabilities for the next token
     logprobs, _ = model._process_prompt(prefix)
     probs = mx.softmax(logprobs[0], axis=-1)
-
-    # Get top 5 token indices and probabilities
     top_indices = mx.argsort(-probs, axis=-1)[:5]
     top_probs = probs[top_indices].tolist()
-
-    # Convert token indices to words with k-index
     tokenizer = model.tokenizer
     top_words = []
     for k, (idx, prob) in enumerate(zip(top_indices.tolist(), top_probs)):
         token = tokenizer.decode([idx])
-        if token.strip() and not token.startswith("##"):  # Skip subword markers
+        if token.strip() and not token.startswith("##"):
             top_words.append((k, token.strip(), prob))
-
     return top_words[:5]
 
 
 def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_sequences: int = 5) -> List[Tuple[str, str, float]]:
-    # Tokenize context
     prefix = model._tokenize([context])[0]
-
-    # Get top 5 words to start each sequence
     top_words = compute_top_confident_words(model, context)
-
-    # Generate sequences starting with each top word
     sequences = []
     for _, start_word, _ in top_words:
         current_context = context + " " + start_word
@@ -103,81 +74,37 @@ def compute_top_sequences(model: MLXLM, context: str, max_tokens: int = 10, num_
         generated = model.generate_until([request])[0]
         if not generated:
             continue
-
         full_sequence = model._tokenize([current_context + generated])[0]
         continuation_tokens = full_sequence[len(prefix):]
         if not continuation_tokens:
             continue
-
         logprobs, cache = model._process_prompt(prefix)
         confidences = [float(mx.exp(logprobs[0, continuation_tokens[0]]))]
         if len(continuation_tokens) > 1:
             inputs = mx.array(continuation_tokens[1:])[None, :]
             scores, _, _ = model._score_fn(inputs, cache=cache)
             confidences.extend([float(mx.exp(score)) for score in scores[0]])
-
         avg_confidence = sum(confidences) / \
             len(confidences) if confidences else 0.0
-        sequences.append((start_word, start_word + generated, avg_confidence))
-
+        sequences.append((start_word, start_word + " " +
+                         generated.strip(), avg_confidence))
     return sorted(sequences, key=lambda x: x[2], reverse=True)[:num_sequences]
 
 
 def compute_token_k_index_and_probability(model: MLXLM, context: str, continuation: str, k: int = 5) -> List[Tuple[str, int, float]]:
-    # Tokenize context and continuation
     prefix = tuple(model._tokenize([context])[0])
     full_sequence = tuple(model._tokenize([context + continuation])[0])
     continuation_tokens = full_sequence[len(prefix):]
-
     if not continuation_tokens or not prefix:
         logger.warning(
             "Empty prefix or continuation tokens. Returning empty result.")
         return []
-
     results = []
-    logprobs, cache = model._process_prompt(prefix)
-    logger.info(f"Initial logprobs shape: {logprobs.shape}")
-
-    try:
-        if len(continuation_tokens) > 0:
-            inputs = mx.array(continuation_tokens)[
-                None, :]  # Shape: [1, seq_len]
-            scores, _, _ = model._score_fn(inputs, cache=cache)
-            logger.info(f"Scores shape from _score_fn: {scores.shape}")
-            if scores.ndim == 3 and scores.shape[1] == len(continuation_tokens):
-                # Shape: [1, seq_len, vocab_size]
-                all_probs = mx.softmax(scores, axis=-1)
-            else:
-                logger.warning(
-                    f"Invalid scores shape {scores.shape}. Falling back to initial logprobs.")
-                # Shape: [1, 1, vocab_size]
-                all_probs = mx.softmax(logprobs, axis=-1)[:, None, :]
-        else:
-            # Shape: [1, 1, vocab_size]
-            all_probs = mx.softmax(logprobs, axis=-1)[:, None, :]
-        logger.info(f"all_probs shape: {all_probs.shape}")
-    except Exception as e:
-        logger.warning(
-            f"Error in _score_fn: {e}. Falling back to initial logprobs.")
-        all_probs = mx.softmax(logprobs, axis=-1)[:, None, :]
-        logger.info(f"Fallback all_probs shape: {all_probs.shape}")
-
     current_prefix = prefix
     for i, token_id in enumerate(continuation_tokens):
         try:
-            if i >= all_probs.shape[1]:
-                # Extend probabilities by reprocessing
-                current_context = model.tokenizer.decode(current_prefix)
-                logprobs, cache = model._process_prompt(current_prefix)
-                probs = mx.softmax(logprobs, axis=-1)[0]  # Shape: [vocab_size]
-                all_probs = mx.concatenate(
-                    [all_probs, probs[None, None, :]], axis=1
-                )
-                logger.info(f"Extended all_probs shape: {all_probs.shape}")
-            else:
-                probs = all_probs[0, i]
-
-            logger.info(f"Probs shape at position {i}: {probs.shape}")
+            logprobs, cache = model._process_prompt(current_prefix)
+            probs = mx.softmax(logprobs[0], axis=-1)
             top_k_indices = mx.argsort(-probs, axis=-1)[:k]
             token_prob = float(
                 probs[token_id]) if token_id < probs.shape[0] else 0.0
@@ -190,15 +117,11 @@ def compute_token_k_index_and_probability(model: MLXLM, context: str, continuati
             results.append((token_str, k_index, token_prob))
             logger.info(
                 f"Token: {token_str}, k_index: {k_index}, prob: {token_prob}")
-
-            # Use tuple concatenation
             current_prefix = current_prefix + (token_id,)
-
         except Exception as e:
             logger.warning(
                 f"Error processing token at position {i}: {e}. Skipping.")
             continue
-
     return results
 
 
