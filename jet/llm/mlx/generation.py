@@ -62,7 +62,8 @@ def chat(
     tools: Optional[List[Tool]] = None,
     log_dir: Optional[str] = None,
     verbose: bool = False,
-    client: Optional[MLX] = None
+    client: Optional[MLX] = None,
+    seed: Optional[int] = None,
 ) -> CompletionResponse:
     """Generate a chat completion."""
     if client is None:
@@ -70,6 +71,7 @@ def chat(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
+            seed=seed,
         )
     return client.chat(
         messages=messages,
@@ -114,7 +116,8 @@ def stream_chat(
     tools: Optional[List[Tool]] = None,
     log_dir: Optional[str] = None,
     verbose: bool = False,
-    client: Optional[MLX] = None
+    client: Optional[MLX] = None,
+    seed: Optional[int] = None,
 ) -> Iterator[CompletionResponse]:
     """Stream chat completions."""
     if client is None:
@@ -122,6 +125,7 @@ def stream_chat(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
+            seed=seed,
         )
     return client.stream_chat(
         messages=messages,
@@ -163,7 +167,8 @@ def generate(
     stop: Optional[Union[str, List[str]]] = None,
     log_dir: Optional[str] = None,
     verbose: bool = False,
-    client: Optional[MLX] = None
+    client: Optional[MLX] = None,
+    seed: Optional[int] = None,
 ) -> CompletionResponse:
     """Generate a text completion."""
     if client is None:
@@ -171,6 +176,7 @@ def generate(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
+            seed=seed,
         )
     return client.generate(
         prompt=prompt,
@@ -211,7 +217,8 @@ def stream_generate(
     stop: Optional[Union[str, List[str]]] = None,
     log_dir: Optional[str] = None,
     verbose: bool = False,
-    client: Optional[MLX] = None
+    client: Optional[MLX] = None,
+    seed: Optional[int] = None,
 ) -> Iterator[CompletionResponse]:
     """Stream text completions."""
     if client is None:
@@ -219,6 +226,7 @@ def stream_generate(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
+            seed=seed,
         )
     return client.stream_generate(
         prompt=prompt,
