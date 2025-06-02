@@ -54,7 +54,7 @@ def generate_n_sequences(
 
             repetitions = find_repeated_consecutive_ngrams(
                 current_sequence,
-                min_repeat=3,
+                min_repeat=2,
             )
             # Check for repetitions
             if repetitions:
