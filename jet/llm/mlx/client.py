@@ -3,7 +3,7 @@ import os
 import uuid
 import json
 import time
-from jet.llm.mlx.helpers.detect_repetition import find_repeated_consecutive_ngrams
+from jet.llm.mlx.helpers.detect_repetition import NgramRepeat, find_repeated_consecutive_ngrams
 import jet.llm.mlx.model_cache  # Activates cleanup listener
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
@@ -628,6 +628,7 @@ class MLXLMClient:
         token_logprobs: Optional[List[float]] = None,
         top_tokens: Optional[List[Dict[int, float]]] = None,
         tokens: Optional[List[int]] = None,
+        repetitions: Optional[List[NgramRepeat]] = None,
     ) -> CompletionResponse:
         """Generate a response packet in OpenAI-compatible format."""
         token_logprobs = token_logprobs or []
@@ -640,6 +641,9 @@ class MLXLMClient:
             "object": object_type,
             "model": model,
             "created": self.created,
+            "usage": None,
+            "content": text,
+            "repetitions": repetitions,
             "choices": [
                 {
                     "index": 0,
@@ -654,8 +658,6 @@ class MLXLMClient:
                     "text": None
                 }
             ],
-            "usage": None,
-            "content": text
         }
 
         if not (isinstance(prompt_token_count, int) and isinstance(completion_token_count, int)):
@@ -783,6 +785,7 @@ class MLXLMClient:
         )
 
         stop_texts = tokenizer.batch_decode(stop_id_sequences)
+        all_repetitions = []
         for gen_response in stream_generate(
             model=model_obj,
             tokenizer=tokenizer,
@@ -833,6 +836,7 @@ class MLXLMClient:
                     logger.warning(
                         f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
                     finish_reason = "repeat"
+                    all_repetitions.extend(repetitions)
                     break
 
             yield self._generate_response(
@@ -850,6 +854,7 @@ class MLXLMClient:
                 token_logprobs=token_logprobs,
                 top_tokens=top_tokens,
                 tokens=tokens,
+                repetitions=all_repetitions,
             )
 
             if finish_reason:
@@ -923,6 +928,7 @@ class MLXLMClient:
         )
 
         stop_texts = tokenizer.batch_decode(stop_id_sequences)
+        all_repetitions = []
         for gen_response in stream_generate(
             model=model_obj,
             tokenizer=tokenizer,
@@ -958,6 +964,7 @@ class MLXLMClient:
             # Check for stop texts in the generated text
             for stop_text in stop_texts:
                 if stop_text in text:
+                    finish_reason = "stop"
                     # Trim text up to stop_text
                     text = text[:text.index(stop_text)]
                     segment = segment[:segment.index(stop_text)]
@@ -972,6 +979,7 @@ class MLXLMClient:
                     logger.warning(
                         f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
                     finish_reason = "repeat"
+                    all_repetitions.extend(repetitions)
                     break
 
             if finish_reason:
@@ -992,4 +1000,5 @@ class MLXLMClient:
             token_logprobs=token_logprobs,
             top_tokens=top_tokens,
             tokens=tokens,
+            repetitions=all_repetitions,
         )

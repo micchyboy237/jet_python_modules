@@ -1,5 +1,6 @@
 from typing import Literal, Union, Dict, List, Optional, TypedDict, Any
 from enum import Enum
+from jet.llm.mlx.helpers.detect_repetition import NgramRepeat
 from transformers import PreTrainedTokenizer
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
@@ -205,6 +206,7 @@ class CompletionResponse(TypedDict):
     object: str
     model: LLMModelType
     created: int
-    choices: List[Choice]
     usage: Optional[Usage]
     content: str
+    repetitions: Optional[List[NgramRepeat]]
+    choices: List[Choice]
