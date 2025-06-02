@@ -1,5 +1,5 @@
 from typing import List, Optional
-
+from jet.utils.url_utils import clean_url, parse_url
 from .stratified_sampler import StratifiedSampler, ProcessedDataString
 
 
@@ -22,8 +22,6 @@ def sample_diverse_urls(
     Returns:
         List of sampled URLs.
     """
-    from jet.utils.url_utils import clean_url, parse_url
-
     if not urls:
         return []
 

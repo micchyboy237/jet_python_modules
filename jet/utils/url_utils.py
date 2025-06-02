@@ -1,4 +1,4 @@
-from jet.data.sample_diverse_urls import sample_diverse_urls
+from jet.logger import logger
 from tqdm import tqdm
 from jet.llm.utils.bm25_plus import bm25_plus
 from unidecode import unidecode
@@ -252,7 +252,11 @@ def rerank_bm25_plus(urls: List[str], query: str, top_k: int) -> List[str]:
     Returns:
         List of reranked URLs limited to top_k
     """
+    from jet.data.sample_diverse_urls import sample_diverse_urls
+
     preprocessed_urls, unique_index_to_original_url = preprocess_urls(urls)
+
+    logger.info(f"Reranking urls ({len(preprocessed_urls)})...")
     bm25_plus_results = bm25_plus(preprocessed_urls, query, k1=1.5)
 
     # Map doc_index to original URLs and debug
@@ -267,6 +271,7 @@ def rerank_bm25_plus(urls: List[str], query: str, top_k: int) -> List[str]:
     # Unique results and limit to top_k
     reranked_urls = list(dict.fromkeys(reranked_urls))
     # Get diverse urls
+    logger.info(f"Sampling diverse urls ({len(reranked_urls)})...")
     reranked_urls: List[str] = sample_diverse_urls(reranked_urls)
     reranked_urls = reranked_urls[:top_k]
     return reranked_urls
