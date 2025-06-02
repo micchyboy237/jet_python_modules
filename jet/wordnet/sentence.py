@@ -318,15 +318,15 @@ def group_sentences(text: str, max_tokens: int):
 
 
 def count_sentences(text):
-    sentences = adaptive_split(text)
+    sentences = split_sentences(text)
 
     return len(sentences)
 
 
 def get_sentences(text: str, n: int) -> list[str]:
-    sentences = adaptive_split(text)
+    sentences = split_sentences(text, n)
 
-    return sentences[:n]
+    return sentences
 
 
 def split_by_punctuations(text: str, punctuations: list[str]) -> list[str]:

@@ -590,8 +590,9 @@ class MLXLMClient:
         """Validate model parameters."""
         if not isinstance(stream, bool):
             raise ValueError("stream must be a boolean")
-        if not isinstance(max_tokens, int) or max_tokens < 0:
-            raise ValueError("max_tokens must be a non-negative integer")
+        if not isinstance(max_tokens, int) or max_tokens < -1:
+            raise ValueError(
+                "max_tokens must be '-1' (context length) or a positive integer")
         if not isinstance(temperature, (float, int)) or temperature < 0:
             raise ValueError("temperature must be a non-negative float")
         if not isinstance(top_p, (float, int)) or top_p < 0 or top_p > 1:

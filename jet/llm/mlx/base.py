@@ -287,6 +287,10 @@ class MLX:
     ) -> CompletionResponse:
         """Generate a text completion (no history)."""
 
+        if max_tokens == -1:
+            # Set remaining tokens as max tokens
+            max_tokens = self.get_remaining_tokens(prompt)
+
         response = self.client.generate(
             prompt=prompt,
             model=model,
@@ -336,6 +340,11 @@ class MLX:
         verbose: bool = False
     ) -> Iterator[CompletionResponse]:
         """Stream text completions (no history)."""
+
+        if max_tokens == -1:
+            # Set remaining tokens as max tokens
+            max_tokens = self.get_remaining_tokens(prompt)
+
         for response in self.client.stream_generate(
             prompt=prompt,
             model=model,
