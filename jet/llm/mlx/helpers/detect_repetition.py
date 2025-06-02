@@ -1,12 +1,12 @@
-import string
+import re
 from typing import List, Optional, TypedDict
 
 
 class NgramRepeat(TypedDict):
     ngram: str
-    start_index: int  # char index of first character of first ngram occurrence
-    end_index: int    # char index of last character of first ngram occurrence
-    full_end_index: int  # char index of last character of last repeated ngram occurrence
+    start_index: int
+    end_index: int
+    full_end_index: int
     num_of_repeats: int
 
 
@@ -17,19 +17,20 @@ def find_repeated_consecutive_ngrams(
     min_repeat: int = 2,
     case_sensitive: bool = False,
 ) -> List[NgramRepeat]:
+    # Split text into words, preserving contractions and punctuation
     words_with_pos = []
-    index = 0
-    for word in text.split():
-        start = text.index(word, index)
-        end = start + len(word)
+    pattern = r"\b(?:\w+['’]\w+|\w+[.,!?;]?)\b"
+    matches = list(re.finditer(pattern, text))
+    for match in matches:
+        word = match.group(0)
+        start = match.start()
+        end = match.end()
         words_with_pos.append((word, start, end))
-        index = end
 
     def clean_word(w: str) -> str:
-        return w if case_sensitive else w.lower().strip(string.punctuation)
+        return w if case_sensitive else w.lower()
 
     words_to_compare = [clean_word(w[0]) for w in words_with_pos]
-
     max_words = max_words or len(words_to_compare)
     results = []
 
@@ -42,12 +43,10 @@ def find_repeated_consecutive_ngrams(
                 and words_to_compare[i: i + n] == words_to_compare[i + count * n: i + (count + 1) * n]
             ):
                 count += 1
-
             if count >= min_repeat:
                 start_char = words_with_pos[i][1]
-                end_char = words_with_pos[i + n - 1][2] - 1
-                full_end_char = words_with_pos[i + count * n - 1][2] - 1
-
+                end_char = words_with_pos[i + n - 1][2]
+                full_end_char = words_with_pos[i + count * n - 1][2]
                 results.append(
                     NgramRepeat(
                         ngram=" ".join(w[0] for w in words_with_pos[i: i + n]),
@@ -60,5 +59,4 @@ def find_repeated_consecutive_ngrams(
                 i += count * n
             else:
                 i += 1
-
     return results
