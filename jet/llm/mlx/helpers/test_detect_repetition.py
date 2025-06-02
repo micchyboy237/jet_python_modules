@@ -1,6 +1,8 @@
+from typing import Dict, List
+from jet.llm.helpers.char_tokenizer import CharTokenizer
 import pytest
 from .detect_repetition import find_repeated_consecutive_ngrams, NgramRepeat
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, PreTrainedTokenizer
 
 
 class TestFindRepeatedConsecutiveNgrams:
@@ -103,10 +105,10 @@ class TestFindRepeatedConsecutiveNgrams:
                 2,
                 [
                     NgramRepeat(
-                        ngram="word,",
+                        ngram="word",
                         start_index=0,
-                        end_index=5,
-                        full_end_index=11,
+                        end_index=4,
+                        full_end_index=10,
                         num_of_repeats=2,
                     )
                 ],
@@ -196,10 +198,10 @@ class TestFindRepeatedWithTokenizer:
                 2,
                 [
                     NgramRepeat(
-                        ngram="word ,",
+                        ngram="word,",
                         start_index=0,
-                        end_index=6,
-                        full_end_index=12,
+                        end_index=5,
+                        full_end_index=11,
                         num_of_repeats=2,
                     )
                 ],
@@ -207,6 +209,51 @@ class TestFindRepeatedWithTokenizer:
         ],
     )
     def test_find_repeated_with_tokenizer(self, sample, min_words, min_repeat, expected, tokenizer):
+        result = find_repeated_consecutive_ngrams(
+            sample, min_words=min_words, min_repeat=min_repeat, tokenizer=tokenizer
+        )
+        assert result == expected
+
+
+class TestFindRepeatedConcatenatedTokens:
+    @pytest.fixture
+    def tokenizer(self):
+        return CharTokenizer()
+
+    @pytest.mark.parametrize(
+        "sample,min_words,min_repeat,expected",
+        [
+            (
+                "1000000",
+                1,
+                2,
+                [
+                    NgramRepeat(
+                        ngram="0",
+                        start_index=1,
+                        end_index=2,
+                        full_end_index=7,
+                        num_of_repeats=6
+                    ),
+                    NgramRepeat(
+                        ngram="00",
+                        start_index=1,
+                        end_index=3,
+                        full_end_index=7,
+                        num_of_repeats=3
+                    ),
+                    NgramRepeat(
+                        ngram="000",
+                        start_index=1,
+                        end_index=4,
+                        full_end_index=7,
+                        num_of_repeats=2
+                    )
+                ],
+            ),
+        ],
+    )
+    def test_find_repeated_concatenated_tokens(self, sample, min_words, min_repeat, expected, tokenizer):
         result = find_repeated_consecutive_ngrams(
             sample, min_words=min_words, min_repeat=min_repeat, tokenizer=tokenizer
         )

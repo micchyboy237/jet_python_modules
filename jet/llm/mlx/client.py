@@ -833,29 +833,6 @@ class MLXLMClient:
                     logger.warning(
                         f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
                     finish_reason = "repeat"
-                    yield from self._stream_generate_completion(
-                        prompt=prompt,
-                        model_obj=model_obj,
-                        tokenizer=tokenizer,
-                        stop_id_sequences=stop_id_sequences,
-                        max_tokens=max_tokens,
-                        temperature=1.0,
-                        top_p=top_p,
-                        min_p=min_p,
-                        min_tokens_to_keep=0,
-                        top_k=50,
-                        repetition_penalty=repetition_penalty,
-                        repetition_context_size=repetition_context_size,
-                        xtc_probability=xtc_probability,
-                        xtc_threshold=xtc_threshold,
-                        logit_bias=logit_bias,
-                        logprobs=logprobs,
-                        request_id=request_id,
-                        object_type=object_type,
-                        draft_model=draft_model,
-                        num_draft_tokens=num_draft_tokens,
-                        verbose=verbose
-                    )
                     break
 
             yield self._generate_response(
@@ -995,29 +972,7 @@ class MLXLMClient:
                     logger.warning(
                         f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
                     finish_reason = "repeat"
-                    return self._generate_completion(
-                        prompt=prompt,
-                        model_obj=model_obj,
-                        tokenizer=tokenizer,
-                        stop_id_sequences=stop_id_sequences,
-                        max_tokens=max_tokens,
-                        temperature=1.0,
-                        top_p=top_p,
-                        min_p=min_p,
-                        min_tokens_to_keep=0,
-                        top_k=50,
-                        repetition_penalty=repetition_penalty,
-                        repetition_context_size=repetition_context_size,
-                        xtc_probability=xtc_probability,
-                        xtc_threshold=xtc_threshold,
-                        logit_bias=logit_bias,
-                        logprobs=logprobs,
-                        request_id=request_id,
-                        object_type=object_type,
-                        draft_model=draft_model,
-                        num_draft_tokens=num_draft_tokens,
-                        verbose=verbose
-                    )
+                    break
 
             if finish_reason:
                 break

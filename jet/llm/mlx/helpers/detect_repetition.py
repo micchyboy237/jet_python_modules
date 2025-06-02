@@ -24,7 +24,6 @@ def find_repeated_consecutive_ngrams(
     if tokenizer:
         # Use tokenizer for word separation
         tokens = tokenizer.tokenize(text)
-        # Convert tokens back to text for n-gram construction
         words_with_pos = []
         current_pos = 0
         for token in tokens:
@@ -66,9 +65,12 @@ def find_repeated_consecutive_ngrams(
                 start_char = words_with_pos[i][1]
                 end_char = words_with_pos[i + n - 1][2]
                 full_end_char = words_with_pos[i + count * n - 1][2]
+                # Use original text substring to avoid adding spaces
+                ngram_text = text[start_char:end_char] if tokenizer else " ".join(
+                    w[0] for w in words_with_pos[i: i + n])
                 results.append(
                     NgramRepeat(
-                        ngram=" ".join(w[0] for w in words_with_pos[i: i + n]),
+                        ngram=ngram_text,
                         start_index=start_char,
                         end_index=end_char,
                         full_end_index=full_end_char,
