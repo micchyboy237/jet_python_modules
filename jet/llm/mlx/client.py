@@ -840,7 +840,7 @@ class MLXLMClient:
             if not finish_reason:
                 repetitions = find_repeated_consecutive_ngrams(
                     text,
-                    min_repeat=2,
+                    min_repeat=3,
                 )
                 if repetitions:
                     logger.warning(
@@ -984,7 +984,7 @@ class MLXLMClient:
                 if not finish_reason:
                     repetitions = find_repeated_consecutive_ngrams(
                         text,
-                        min_repeat=2,
+                        min_repeat=3,
                     )
                     if repetitions:
                         logger.warning(
@@ -1059,7 +1059,7 @@ class MLXLMClient:
                 if not finish_reason:
                     repetitions = find_repeated_consecutive_ngrams(
                         text,
-                        min_repeat=2,
+                        min_repeat=3,
                     )
                     if repetitions:
                         logger.warning(
