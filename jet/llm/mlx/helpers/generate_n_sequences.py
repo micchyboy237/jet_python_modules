@@ -12,9 +12,6 @@ def generate_n_sequences(
     model: str,
     n: int = 5,
     seed: int = 42,
-    context_size: int = 50,
-    repetition_threshold: float = 0.8,
-    min_repetition_length: int = 10
 ):
     """
     Generates n sequences with repetition detection.
