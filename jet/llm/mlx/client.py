@@ -831,6 +831,7 @@ class MLXLMClient:
                 repetitions = find_repeated_consecutive_ngrams(
                     text,
                     min_repeat=3,
+                    tokenizer=self.tokenizer
                 )
                 if repetitions:
                     logger.warning(
@@ -974,6 +975,7 @@ class MLXLMClient:
                 repetitions = find_repeated_consecutive_ngrams(
                     text,
                     min_repeat=3,
+                    tokenizer=self.tokenizer
                 )
                 if repetitions:
                     logger.warning(
