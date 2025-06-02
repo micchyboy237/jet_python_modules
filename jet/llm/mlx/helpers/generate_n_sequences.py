@@ -1,8 +1,10 @@
 from typing import List, Union, Dict
-from jet.llm.mlx.helpers.detect_repetition import detect_repetition
+from jet.llm.mlx.helpers.detect_repetition import find_repeated_consecutive_ngrams
 from jet.llm.mlx.mlx_types import CompletionResponse
 from jet.logger import logger
 import re
+
+from jet.transformers.formatters import format_json
 
 
 def generate_n_sequences(
@@ -50,16 +52,14 @@ def generate_n_sequences(
         for chunk in stream_response:
             response = chunk["choices"][0]["text"]
 
-            # Check for repetition
-            if detect_repetition(
+            repetitions = find_repeated_consecutive_ngrams(
                 current_sequence,
-                response,
-                context_size,
-                repetition_threshold,
-                min_repetition_length
-            ):
+                min_repeat=3,
+            )
+            # Check for repetitions
+            if repetitions:
                 logger.warning(
-                    f"Stopping generation due to detected repetition")
+                    f"Stopping generation due to detected repetitions:\n{format_json(repetitions)}")
                 full_sequence = split_sentences(current_sequence)[0]
                 break
 

@@ -1,64 +1,70 @@
-from typing import List, Union, Dict
-from jet.llm.mlx.mlx_types import CompletionResponse
-from jet.logger import logger
-import re
+from typing import List, Optional, TypedDict
 
 
-def detect_repetition(
-    current_sequence: str,
-    new_chunk: str,
-    context_size: int = 50,
-    repetition_threshold: float = 0.8,
-    min_repetition_length: int = 10
-) -> bool:
+class NgramRepeat(TypedDict):
+    ngram: str
+    start_index: int
+    end_index: int
+    num_of_repeats: int
+
+
+def find_repeated_consecutive_ngrams(
+    text: str,
+    min_words: int = 1,
+    max_words: Optional[int] = None,
+    min_repeat: int = 2,
+) -> List[NgramRepeat]:
     """
-    Detects if the new chunk causes repetition in the current sequence.
+    Detects repeated consecutive n-grams in a single string.
+    Returns a list of dicts with keys: ngram, start_index, end_index, num_of_repeats.
 
     Args:
-        current_sequence: The accumulated sequence so far
-        new_chunk: The new chunk to append
-        context_size: Number of characters to consider for repetition check
-        repetition_threshold: Similarity ratio to consider as repetition
-        min_repetition_length: Minimum length of repeated pattern
+        text: The input text string.
+        min_words: Minimum size of n-gram (number of words).
+        max_words: Maximum size of n-gram (number of words).
+        min_repeat: Minimum number of consecutive repeats to detect.
 
     Returns:
-        bool: True if repetition is detected, False otherwise
+        List of NgramRepeat dicts with keys:
+        - 'ngram': repeated n-gram string
+        - 'start_index': starting word index
+        - 'end_index': ending word index (inclusive)
+        - 'num_of_repeats': how many times the n-gram repeats consecutively
     """
-    if not new_chunk or len(new_chunk) < min_repetition_length:
-        return False
+    words = text.split()
+    results: List[NgramRepeat] = []
+    max_words = max_words or len(words)
 
-    # Combine current sequence with new chunk
-    full_text = current_sequence + new_chunk
+    i = 0
+    while i < len(words):
+        longest_match: NgramRepeat | None = None
 
-    # Consider only the last context_size characters
-    if len(full_text) > context_size:
-        check_text = full_text[-context_size:]
-    else:
-        check_text = full_text
+        for n in range(max_words, min_words - 1, -1):
+            if i + n * min_repeat > len(words):
+                continue
 
-    # Split into words for pattern matching
-    words = check_text.split()
-    if len(words) < 2:
-        return False
+            count = 1
+            while (
+                i + (count + 1) * n <= len(words)
+                and words[i:i + n] == words[i + count * n:i + (count + 1) * n]
+            ):
+                count += 1
 
-    # Check for repeated patterns
-    for length in range(min_repetition_length, len(check_text) // 2 + 1):
-        pattern = check_text[-length:]
-        pattern_escaped = re.escape(pattern)
+            if count >= min_repeat:
+                candidate = NgramRepeat(
+                    ngram=" ".join(words[i:i + n]),
+                    start_index=i,
+                    end_index=i + count * n - 1,
+                    num_of_repeats=count,
+                )
+                if longest_match is None or (candidate["end_index"] - candidate["start_index"] >
+                                             longest_match["end_index"] - longest_match["start_index"]):
+                    longest_match = candidate
 
-        # Find all occurrences of the pattern
-        matches = [m.start() for m in re.finditer(pattern_escaped, check_text)]
+        if longest_match:
+            results.append(longest_match)
+            i = longest_match["end_index"] + 1
+        else:
+            i += 1
 
-        # If pattern appears more than once in the context
-        if len(matches) > 1:
-            # Calculate similarity score based on pattern frequency
-            pattern_length = len(pattern)
-            total_length = len(check_text)
-            similarity = (len(matches) * pattern_length) / total_length
-
-            if similarity >= repetition_threshold:
-                logger.warning(
-                    f"Repetition detected: pattern '{pattern}' appears {len(matches)} times")
-                return True
-
-    return False
+    return results
