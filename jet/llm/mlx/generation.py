@@ -43,7 +43,7 @@ def prepare_messages(
 
 
 def chat(
-    messages: List[Message],
+    messages: Union[str, List[Message]],
     model: LLMModelType,
     draft_model: Optional[LLMModelType] = None,
     adapter: Optional[str] = None,
@@ -97,7 +97,7 @@ def chat(
 
 
 def stream_chat(
-    messages: List[Message],
+    messages: Union[str, List[Message]],
     model: LLMModelType,
     draft_model: Optional[LLMModelType] = None,
     adapter: Optional[str] = None,
