@@ -3,6 +3,7 @@ import os
 import uuid
 import json
 import time
+from jet.llm.mlx.helpers.detect_repetition import find_repeated_consecutive_ngrams
 import jet.llm.mlx.model_cache  # Activates cleanup listener
 from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
@@ -836,6 +837,17 @@ class MLXLMClient:
                     segment = segment[:segment.index(stop_text)]
                     break
 
+            if not finish_reason:
+                repetitions = find_repeated_consecutive_ngrams(
+                    text,
+                    min_repeat=2,
+                )
+                if repetitions:
+                    logger.warning(
+                        f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
+                    finish_reason = "repeat"
+                    break
+
             yield self._generate_response(
                 text=text,
                 segment=segment,
@@ -963,9 +975,21 @@ class MLXLMClient:
                 # Check for stop texts in the generated text
                 for stop_text in stop_texts:
                     if stop_text in text:
+                        finish_reason = "stop"
                         # Trim text up to stop_text
                         text = text[:text.index(stop_text)]
                         segment = segment[:segment.index(stop_text)]
+                        break
+
+                if not finish_reason:
+                    repetitions = find_repeated_consecutive_ngrams(
+                        text,
+                        min_repeat=2,
+                    )
+                    if repetitions:
+                        logger.warning(
+                            f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
+                        finish_reason = "repeat"
                         break
 
                 responses.append(self._generate_response(
@@ -1030,6 +1054,17 @@ class MLXLMClient:
                         # Trim text up to stop_text
                         text = text[:text.index(stop_text)]
                         segment = segment[:segment.index(stop_text)]
+                        break
+
+                if not finish_reason:
+                    repetitions = find_repeated_consecutive_ngrams(
+                        text,
+                        min_repeat=2,
+                    )
+                    if repetitions:
+                        logger.warning(
+                            f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
+                        finish_reason = "repeat"
                         break
 
                 if finish_reason:
