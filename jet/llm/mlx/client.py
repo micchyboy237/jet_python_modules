@@ -838,7 +838,6 @@ class MLXLMClient:
                         f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
                     finish_reason = "repeat"
                     all_repetitions.extend(repetitions)
-                    break
 
             yield self._generate_response(
                 text=text,
@@ -982,7 +981,6 @@ class MLXLMClient:
                         f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
                     finish_reason = "repeat"
                     all_repetitions.extend(repetitions)
-                    break
 
             if finish_reason:
                 break

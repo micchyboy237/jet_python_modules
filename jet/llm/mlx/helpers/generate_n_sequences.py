@@ -1,7 +1,4 @@
-from typing import List, Union, Dict
-from jet.llm.mlx.mlx_types import CompletionResponse
 from jet.logger import logger
-import re
 
 from jet.transformers.formatters import format_json
 
@@ -16,7 +13,6 @@ def generate_n_sequences(
     Generates n sequences with repetition detection.
     """
     from jet.llm.mlx.base import MLX
-    from jet.wordnet.sentence import count_sentences, split_sentences
     import math
 
     logger.info(f"\nInitializing MLX...")
@@ -37,7 +33,7 @@ def generate_n_sequences(
         token_string = mlx.tokenizer.decode(token)
         sequence = prompt + token_string
         stream_response = mlx.stream_generate(
-            sequence, model, max_tokens=-1, verbose=True)
+            sequence, model, max_tokens=20, verbose=True)
 
         logger.log(f"\nToken {num}:", f"'{token_string}'",
                    colors=["GRAY", "ORANGE"])
@@ -48,17 +44,10 @@ def generate_n_sequences(
         for chunk in stream_response:
             response = chunk["choices"][0]["text"]
 
-            # Break if more than 1 sentence
-            sentence_count = count_sentences(current_sequence + response)
-            if sentence_count > 1:
-                full_sequence = split_sentences(current_sequence)[0]
-                break
-
             current_sequence += response
 
             if chunk["choices"][0]["finish_reason"]:
                 full_sequence = current_sequence
-                break
 
         sequences.append({
             "text": token_string,
