@@ -118,7 +118,7 @@ class TestTruncateText:
             "First sentence. Second sentence.",
             "Another paragraph."
         ]
-        result = truncate_texts(sample, max_words=6)
+        result = truncate_texts(sample, max_words=4)
         assert result == expected
 
     def test_short_text(self):
