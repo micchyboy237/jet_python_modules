@@ -1,5 +1,6 @@
 import re
 from typing import List, Optional, TypedDict
+from transformers import PreTrainedTokenizer
 
 
 class NgramRepeat(TypedDict):
@@ -16,16 +17,34 @@ def find_repeated_consecutive_ngrams(
     max_words: Optional[int] = None,
     min_repeat: int = 2,
     case_sensitive: bool = False,
+    tokenizer: Optional[PreTrainedTokenizer] = None,
 ) -> List[NgramRepeat]:
-    # Split text into words, preserving contractions and punctuation
     words_with_pos = []
-    pattern = r"\b(?:\w+['’]\w+|\w+[.,!?;]?)\b"
-    matches = list(re.finditer(pattern, text))
-    for match in matches:
-        word = match.group(0)
-        start = match.start()
-        end = match.end()
-        words_with_pos.append((word, start, end))
+
+    if tokenizer:
+        # Use tokenizer for word separation
+        tokens = tokenizer.tokenize(text)
+        # Convert tokens back to text for n-gram construction
+        words_with_pos = []
+        current_pos = 0
+        for token in tokens:
+            # Find the token in the original text to get accurate positions
+            token_text = tokenizer.convert_tokens_to_string([token])
+            match = re.search(re.escape(token_text), text[current_pos:])
+            if match:
+                start = current_pos + match.start()
+                end = current_pos + match.end()
+                words_with_pos.append((token_text, start, end))
+                current_pos = end
+    else:
+        # Original word-based splitting logic
+        pattern = r"\b(?:\w+['’]\w+|\w+[.,!?;]?)\b"
+        matches = list(re.finditer(pattern, text))
+        for match in matches:
+            word = match.group(0)
+            start = match.start()
+            end = match.end()
+            words_with_pos.append((word, start, end))
 
     def clean_word(w: str) -> str:
         return w if case_sensitive else w.lower()
@@ -59,4 +78,5 @@ def find_repeated_consecutive_ngrams(
                 i += count * n
             else:
                 i += 1
+
     return results

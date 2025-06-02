@@ -1,5 +1,6 @@
 import pytest
 from .detect_repetition import find_repeated_consecutive_ngrams, NgramRepeat
+from transformers import AutoTokenizer
 
 
 class TestFindRepeatedConsecutiveNgrams:
@@ -164,4 +165,49 @@ class TestFindRepeatedCaseSensitive:
     def test_find_repeated_case_sensitive(self, sample, case_sensitive, expected):
         result = find_repeated_consecutive_ngrams(
             sample, case_sensitive=case_sensitive)
+        assert result == expected
+
+
+class TestFindRepeatedWithTokenizer:
+    @pytest.fixture
+    def tokenizer(self):
+        return AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+
+    @pytest.mark.parametrize(
+        "sample,min_words,min_repeat,expected",
+        [
+            (
+                "this is this is a repeated phrase.",
+                1,
+                2,
+                [
+                    NgramRepeat(
+                        ngram="this is",
+                        start_index=0,
+                        end_index=7,
+                        full_end_index=15,
+                        num_of_repeats=2,
+                    )
+                ],
+            ),
+            (
+                "word, word, another test.",
+                1,
+                2,
+                [
+                    NgramRepeat(
+                        ngram="word ,",
+                        start_index=0,
+                        end_index=6,
+                        full_end_index=12,
+                        num_of_repeats=2,
+                    )
+                ],
+            ),
+        ],
+    )
+    def test_find_repeated_with_tokenizer(self, sample, min_words, min_repeat, expected, tokenizer):
+        result = find_repeated_consecutive_ngrams(
+            sample, min_words=min_words, min_repeat=min_repeat, tokenizer=tokenizer
+        )
         assert result == expected
