@@ -126,7 +126,7 @@ class MLXLMClient:
         temperature: float = 0.0,
         top_p: float = 1.0,
         min_p: float = 0.0,
-        min_tokens_to_keep: int = 1,
+        min_tokens_to_keep: int = 0,
         top_k: int = 0,
         repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
@@ -136,7 +136,6 @@ class MLXLMClient:
                                    Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
-        stream: bool = False,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
         log_dir: Optional[str] = None,
@@ -150,7 +149,7 @@ class MLXLMClient:
 
         # Validate parameters
         self._validate_parameters(
-            stream, max_tokens, temperature, top_p, repetition_penalty,
+            max_tokens, temperature, top_p, repetition_penalty,
             repetition_context_size, xtc_probability, xtc_threshold,
             logit_bias, logprobs, model_value, adapter
         )
@@ -171,7 +170,7 @@ class MLXLMClient:
 
         # Generate prompt
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
-        object_type: str = "stream.chat.completion" if stream else "chat.completion"
+        object_type: str = "chat.completion"
         if tokenizer.chat_template:
             process_message_content(messages)
             prompt: List[int] = tokenizer.apply_chat_template(
@@ -203,7 +202,6 @@ class MLXLMClient:
             xtc_threshold=xtc_threshold,
             logit_bias=logit_bias,
             logprobs=logprobs,
-            stream=stream,
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
@@ -226,7 +224,6 @@ class MLXLMClient:
                 xtc_probability=xtc_probability,
                 xtc_threshold=xtc_threshold,
                 logprobs=logprobs,
-                stream=stream
             )
         return response
 
@@ -240,7 +237,7 @@ class MLXLMClient:
         temperature: float = 0.0,
         top_p: float = 1.0,
         min_p: float = 0.0,
-        min_tokens_to_keep: int = 1,
+        min_tokens_to_keep: int = 0,
         top_k: int = 0,
         repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
@@ -263,7 +260,7 @@ class MLXLMClient:
 
         # Validate parameters
         self._validate_parameters(
-            True, max_tokens, temperature, top_p, repetition_penalty,
+            max_tokens, temperature, top_p, repetition_penalty,
             repetition_context_size, xtc_probability, xtc_threshold,
             logit_bias, logprobs, model_value, adapter
         )
@@ -284,7 +281,7 @@ class MLXLMClient:
 
         # Generate prompt
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
-        object_type: str = "stream.chat.completion"
+        object_type: str = "chat.completion"
         if tokenizer.chat_template:
             process_message_content(messages)
             prompt: List[int] = tokenizer.apply_chat_template(
@@ -339,7 +336,6 @@ class MLXLMClient:
                 xtc_probability=xtc_probability,
                 xtc_threshold=xtc_threshold,
                 logprobs=logprobs,
-                stream=True
             )
 
     def generate(
@@ -352,7 +348,7 @@ class MLXLMClient:
         temperature: float = 0.0,
         top_p: float = 1.0,
         min_p: float = 0.0,
-        min_tokens_to_keep: int = 1,
+        min_tokens_to_keep: int = 0,
         top_k: int = 0,
         repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
@@ -362,7 +358,6 @@ class MLXLMClient:
                                    Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
-        stream: bool = False,
         log_dir: Optional[str] = None,
         verbose: bool = False
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
@@ -374,7 +369,7 @@ class MLXLMClient:
 
         # Validate parameters
         self._validate_parameters(
-            stream, max_tokens, temperature, top_p, repetition_penalty,
+            max_tokens, temperature, top_p, repetition_penalty,
             repetition_context_size, xtc_probability, xtc_threshold,
             logit_bias, logprobs, model_value, adapter
         )
@@ -416,7 +411,6 @@ class MLXLMClient:
             xtc_threshold=xtc_threshold,
             logit_bias=logit_bias,
             logprobs=logprobs,
-            stream=stream,
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
@@ -439,7 +433,6 @@ class MLXLMClient:
                 xtc_probability=xtc_probability,
                 xtc_threshold=xtc_threshold,
                 logprobs=logprobs,
-                stream=stream
             )
         return response
 
@@ -453,7 +446,7 @@ class MLXLMClient:
         temperature: float = 0.0,
         top_p: float = 1.0,
         min_p: float = 0.0,
-        min_tokens_to_keep: int = 1,
+        min_tokens_to_keep: int = 0,
         top_k: int = 0,
         repetition_penalty: Optional[float] = None,
         repetition_context_size: int = 20,
@@ -474,7 +467,7 @@ class MLXLMClient:
 
         # Validate parameters
         self._validate_parameters(
-            True, max_tokens, temperature, top_p, repetition_penalty,
+            max_tokens, temperature, top_p, repetition_penalty,
             repetition_context_size, xtc_probability, xtc_threshold,
             logit_bias, logprobs, model_value, adapter
         )
@@ -495,7 +488,7 @@ class MLXLMClient:
 
         # Generate prompt
         request_id: str = f"cmpl-{uuid.uuid4()}"
-        object_type: str = "stream.text.completion"
+        object_type: str = "text.completion"
         prompt_tokens: List[int] = tokenizer.encode(prompt)
 
         # Stream completion
@@ -539,7 +532,6 @@ class MLXLMClient:
                 xtc_probability=xtc_probability,
                 xtc_threshold=xtc_threshold,
                 logprobs=logprobs,
-                stream=True
             )
 
     def get_models(self) -> ModelsResponse:
@@ -575,7 +567,6 @@ class MLXLMClient:
 
     def _validate_parameters(
         self,
-        stream: bool,
         max_tokens: int,
         temperature: float,
         top_p: float,
@@ -589,8 +580,6 @@ class MLXLMClient:
         adapter: Optional[str]
     ) -> None:
         """Validate model parameters."""
-        if not isinstance(stream, bool):
-            raise ValueError("stream must be a boolean")
         if not isinstance(max_tokens, int) or max_tokens < -1:
             raise ValueError(
                 "max_tokens must be '-1' (context length) or a positive integer")
@@ -639,7 +628,6 @@ class MLXLMClient:
         token_logprobs: Optional[List[float]] = None,
         top_tokens: Optional[List[Dict[int, float]]] = None,
         tokens: Optional[List[int]] = None,
-        stream: bool = False
     ) -> CompletionResponse:
         """Generate a response packet in OpenAI-compatible format."""
         token_logprobs = token_logprobs or []
@@ -684,7 +672,6 @@ class MLXLMClient:
 
         choice = response["choices"][0]
         if "chat.completion" in object_type:
-            # key_name = "delta" if stream else "message"
             choice["message"] = {"role": "assistant",
                                  "content": segment if segment != None else text}
         elif "text.completion" in object_type:
@@ -779,7 +766,7 @@ class MLXLMClient:
         text: str = ""
         finish_reason: Optional[Literal["length", "stop"]] = None
 
-        prompt = self._get_prompt_cache(prompt)
+        cached_prompt = self._get_prompt_cache(prompt)
         sampler = make_sampler(
             temperature,
             top_p=top_p,
@@ -799,7 +786,7 @@ class MLXLMClient:
         for gen_response in stream_generate(
             model=model_obj,
             tokenizer=tokenizer,
-            prompt=prompt,
+            prompt=cached_prompt,
             max_tokens=max_tokens,
             sampler=sampler,
             logits_processors=logits_processors,
@@ -846,6 +833,29 @@ class MLXLMClient:
                     logger.warning(
                         f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
                     finish_reason = "repeat"
+                    yield from self._stream_generate_completion(
+                        prompt=prompt,
+                        model_obj=model_obj,
+                        tokenizer=tokenizer,
+                        stop_id_sequences=stop_id_sequences,
+                        max_tokens=max_tokens,
+                        temperature=1.0,
+                        top_p=top_p,
+                        min_p=min_p,
+                        min_tokens_to_keep=0,
+                        top_k=50,
+                        repetition_penalty=repetition_penalty,
+                        repetition_context_size=repetition_context_size,
+                        xtc_probability=xtc_probability,
+                        xtc_threshold=xtc_threshold,
+                        logit_bias=logit_bias,
+                        logprobs=logprobs,
+                        request_id=request_id,
+                        object_type=object_type,
+                        draft_model=draft_model,
+                        num_draft_tokens=num_draft_tokens,
+                        verbose=verbose
+                    )
                     break
 
             yield self._generate_response(
@@ -855,7 +865,6 @@ class MLXLMClient:
                 request_id=request_id,
                 object_type=object_type,
                 model=self.model_provider.model_key[0],
-                stream=True,
                 prompt_token_count=gen_response.prompt_tokens,
                 prompt_tps=gen_response.prompt_tps,
                 completion_token_count=len(tokens),
@@ -889,7 +898,6 @@ class MLXLMClient:
         xtc_threshold: float,
         logit_bias: Optional[Dict[int, float]],
         logprobs: int,
-        stream: bool,
         request_id: str,
         object_type: str,
         draft_model: Optional[Any],
@@ -921,7 +929,7 @@ class MLXLMClient:
         text: str = ""
         finish_reason: Literal["length", "stop"] = "length"
 
-        prompt = self._get_prompt_cache(prompt)
+        cached_prompt = self._get_prompt_cache(prompt)
         sampler = make_sampler(
             temperature,
             top_p=top_p,
@@ -937,153 +945,96 @@ class MLXLMClient:
             logit_bias, repetition_penalty, repetition_context_size
         )
 
-        if stream:
-            responses: List[CompletionResponse] = []
-            stop_texts = tokenizer.batch_decode(stop_id_sequences)
-            for gen_response in stream_generate(
-                model=model_obj,
-                tokenizer=tokenizer,
-                prompt=prompt,
-                max_tokens=max_tokens,
-                sampler=sampler,
-                logits_processors=logits_processors,
-                prompt_cache=self.prompt_cache.cache,
-                draft_model=draft_model,
-                num_draft_tokens=num_draft_tokens,
-            ):
-                segment: str = gen_response.text
-                text += segment
-                token: int = gen_response.token
-                logprobs_data: mx.array = gen_response.logprobs
-                tokens.append(token)
-                finish_reason = gen_response.finish_reason
+        stop_texts = tokenizer.batch_decode(stop_id_sequences)
+        for gen_response in stream_generate(
+            model=model_obj,
+            tokenizer=tokenizer,
+            prompt=cached_prompt,
+            max_tokens=max_tokens,
+            sampler=sampler,
+            logits_processors=logits_processors,
+            prompt_cache=self.prompt_cache.cache,
+            draft_model=draft_model,
+            num_draft_tokens=num_draft_tokens,
+        ):
+            segment: str = gen_response.text
+            text += segment
+            token: int = gen_response.token
+            logprobs_data: mx.array = gen_response.logprobs
+            tokens.append(token)
+            finish_reason = gen_response.finish_reason
 
-                if verbose:
-                    logger.success(segment, flush=True)
+            if verbose:
+                logger.success(segment, flush=True)
 
-                if logprobs > 0:
-                    sorted_indices: mx.array = mx.argpartition(
-                        -logprobs_data, kth=logprobs - 1)
-                    top_indices: mx.array = sorted_indices[:logprobs]
-                    top_logprobs: mx.array = logprobs_data[top_indices]
-                    top_token_info = zip(
-                        top_indices.tolist(), top_logprobs.tolist())
-                    top_tokens.append(dict(top_token_info))
+            if logprobs > 0:
+                sorted_indices: mx.array = mx.argpartition(
+                    -logprobs_data, kth=logprobs - 1)
+                top_indices: mx.array = sorted_indices[:logprobs]
+                top_logprobs: mx.array = logprobs_data[top_indices]
+                top_token_info = zip(
+                    top_indices.tolist(), top_logprobs.tolist())
+                top_tokens.append(dict(top_token_info))
 
-                token_logprobs.append(logprobs_data[token].item())
+            token_logprobs.append(logprobs_data[token].item())
 
-                # Check for stop texts in the generated text
-                for stop_text in stop_texts:
-                    if stop_text in text:
-                        finish_reason = "stop"
-                        # Trim text up to stop_text
-                        text = text[:text.index(stop_text)]
-                        segment = segment[:segment.index(stop_text)]
-                        break
-
-                if not finish_reason:
-                    repetitions = find_repeated_consecutive_ngrams(
-                        text,
-                        min_repeat=3,
-                    )
-                    if repetitions:
-                        logger.warning(
-                            f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
-                        finish_reason = "repeat"
-                        break
-
-                responses.append(self._generate_response(
-                    text="",
-                    finish_reason=finish_reason,
-                    request_id=request_id,
-                    object_type=object_type,
-                    model=self.model_provider.model_key[0],
-                    stream=True,
-                    prompt_token_count=gen_response.prompt_tokens,
-                    prompt_tps=gen_response.prompt_tps,
-                    completion_token_count=len(tokens),
-                    completion_tps=gen_response.generation_tps,
-                    peak_memory=gen_response.peak_memory,
-                    token_logprobs=token_logprobs,
-                    top_tokens=top_tokens,
-                    tokens=tokens,
-                ))
-
-                if finish_reason:
+            # Check for stop texts in the generated text
+            for stop_text in stop_texts:
+                if stop_text in text:
+                    # Trim text up to stop_text
+                    text = text[:text.index(stop_text)]
+                    segment = segment[:segment.index(stop_text)]
                     break
 
-            self.prompt_cache.tokens.extend(tokens)
-            return responses
-        else:
-            stop_texts = tokenizer.batch_decode(stop_id_sequences)
-            for gen_response in stream_generate(
-                model=model_obj,
-                tokenizer=tokenizer,
-                prompt=prompt,
-                max_tokens=max_tokens,
-                sampler=sampler,
-                logits_processors=logits_processors,
-                prompt_cache=self.prompt_cache.cache,
-                draft_model=draft_model,
-                num_draft_tokens=num_draft_tokens,
-            ):
-                segment: str = gen_response.text
-                text += segment
-                token: int = gen_response.token
-                logprobs_data: mx.array = gen_response.logprobs
-                tokens.append(token)
-                finish_reason = gen_response.finish_reason
-
-                if verbose:
-                    logger.success(segment, flush=True)
-
-                if logprobs > 0:
-                    sorted_indices: mx.array = mx.argpartition(
-                        -logprobs_data, kth=logprobs - 1)
-                    top_indices: mx.array = sorted_indices[:logprobs]
-                    top_logprobs: mx.array = logprobs_data[top_indices]
-                    top_token_info = zip(
-                        top_indices.tolist(), top_logprobs.tolist())
-                    top_tokens.append(dict(top_token_info))
-
-                token_logprobs.append(logprobs_data[token].item())
-
-                # Check for stop texts in the generated text
-                for stop_text in stop_texts:
-                    if stop_text in text:
-                        # Trim text up to stop_text
-                        text = text[:text.index(stop_text)]
-                        segment = segment[:segment.index(stop_text)]
-                        break
-
-                if not finish_reason:
-                    repetitions = find_repeated_consecutive_ngrams(
-                        text,
-                        min_repeat=3,
+            if not finish_reason:
+                repetitions = find_repeated_consecutive_ngrams(
+                    text,
+                    min_repeat=3,
+                )
+                if repetitions:
+                    logger.warning(
+                        f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
+                    finish_reason = "repeat"
+                    return self._generate_completion(
+                        prompt=prompt,
+                        model_obj=model_obj,
+                        tokenizer=tokenizer,
+                        stop_id_sequences=stop_id_sequences,
+                        max_tokens=max_tokens,
+                        temperature=1.0,
+                        top_p=top_p,
+                        min_p=min_p,
+                        min_tokens_to_keep=0,
+                        top_k=50,
+                        repetition_penalty=repetition_penalty,
+                        repetition_context_size=repetition_context_size,
+                        xtc_probability=xtc_probability,
+                        xtc_threshold=xtc_threshold,
+                        logit_bias=logit_bias,
+                        logprobs=logprobs,
+                        request_id=request_id,
+                        object_type=object_type,
+                        draft_model=draft_model,
+                        num_draft_tokens=num_draft_tokens,
+                        verbose=verbose
                     )
-                    if repetitions:
-                        logger.warning(
-                            f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
-                        finish_reason = "repeat"
-                        break
 
-                if finish_reason:
-                    break
+            if finish_reason:
+                break
 
-            self.prompt_cache.tokens.extend(tokens)
-            return self._generate_response(
-                text=text,
-                finish_reason=finish_reason,
-                request_id=request_id,
-                object_type=object_type,
-                model=self.model_provider.model_key[0],
-                stream=True,
-                prompt_token_count=gen_response.prompt_tokens,
-                prompt_tps=gen_response.prompt_tps,
-                completion_token_count=len(tokens),
-                completion_tps=gen_response.generation_tps,
-                peak_memory=gen_response.peak_memory,
-                token_logprobs=token_logprobs,
-                top_tokens=top_tokens,
-                tokens=tokens,
-            )
+        self.prompt_cache.tokens.extend(tokens)
+        return self._generate_response(
+            text=text,
+            finish_reason=finish_reason,
+            request_id=request_id,
+            object_type=object_type,
+            model=self.model_provider.model_key[0],
+            prompt_token_count=gen_response.prompt_tokens,
+            prompt_tps=gen_response.prompt_tps,
+            completion_token_count=len(tokens),
+            completion_tps=gen_response.generation_tps,
+            peak_memory=gen_response.peak_memory,
+            token_logprobs=token_logprobs,
+            top_tokens=top_tokens,
+            tokens=tokens,
+        )

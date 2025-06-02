@@ -170,7 +170,7 @@ def predict_top_completions(sentence, top_n=5, model_name: LLMModelType = "llama
             temp=temp,
             top_p=0.95,  # Increased for more diversity
             min_p=0.0,
-            min_tokens_to_keep=1,
+            min_tokens_to_keep=0,
             top_k=top_k,
             xtc_probability=0.0,
             xtc_threshold=0.1,
