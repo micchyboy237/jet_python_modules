@@ -192,6 +192,30 @@ def merge_texts(
     }
 
 
+def tokenize(
+    model: ModelType,
+    text: Union[str, List[str]]
+) -> Union[List[int], List[List[int]]]:
+    """Tokenizes a single string or list of strings, returns token IDs."""
+    tokenizer = get_tokenizer(model)
+
+    if isinstance(text, str):
+        # Handle single string
+        input_ids = tokenizer.encode(text, add_special_tokens=True)
+    else:
+        # Handle list of strings
+        encoded = tokenizer.batch_encode_plus(
+            text,
+            add_special_tokens=True,
+            padding=False,  # No padding for token IDs
+            truncation=True,  # Truncate to max_length if needed
+            return_tensors=None  # Return lists, not tensors
+        )
+        input_ids = encoded['input_ids']
+
+    return input_ids
+
+
 def tokenize_strings(text: Union[str, List[str]], model: LLMModelType) -> Union[str, list[str]]:
     tokenizer = get_tokenizer(model)
     if isinstance(text, str):
@@ -204,6 +228,19 @@ def tokenize_strings(text: Union[str, List[str]], model: LLMModelType) -> Union[
         return [tokenizer.convert_ids_to_tokens(ids) for ids in token_ids_list]
 
 
+def decode(
+    model: ModelType,
+    token_ids: Union[List[int], List[List[int]]],
+    *args,
+    **kwargs
+) -> Union[str, List[str]]:
+    """Decodes token IDs back to text for a single sequence or list of sequences."""
+    tokenizer = get_tokenizer(model)
+    if isinstance(token_ids, list) and isinstance(token_ids[0], list):
+        return tokenizer.batch_decode(token_ids, skip_special_tokens=True, *args, **kwargs)
+    return tokenizer.decode(token_ids, skip_special_tokens=True, *args, **kwargs)
+
+
 def get_tokenizer(model: ModelType) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
     model_name = resolve_model(model)
 
@@ -211,18 +248,22 @@ def get_tokenizer(model: ModelType) -> PreTrainedTokenizer | PreTrainedTokenizer
     return tokenizer
 
 
-def get_tokenizer_fn(model: ModelType) -> Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]]:
+def get_tokenizer_fn(model: ModelType) -> Callable[[Union[str, List[str]]], Union[List[int], List[List[int]]]]:
     tokenizer = get_tokenizer(model)
 
-    def _tokenizer(text: Union[str, List[str]]) -> Union[List[str], List[List[str]]]:
+    def _tokenizer(text: Union[str, List[str]]) -> Union[List[int], List[List[int]]]:
         if isinstance(text, str):
-            token_ids = tokenizer.encode(
-                text, add_special_tokens=False)
-            return tokenizer.convert_ids_to_tokens(token_ids)
+            return tokenizer.encode(text, add_special_tokens=True)
         else:
-            token_ids_list = tokenizer.batch_encode_plus(
-                text, add_special_tokens=False)["input_ids"]
-            return [tokenizer.convert_ids_to_tokens(ids) for ids in token_ids_list]
+            encoded = tokenizer.batch_encode_plus(
+                text,
+                add_special_tokens=True,
+                padding=False,
+                truncation=True,
+                return_tensors=None
+            )
+            return encoded['input_ids']
+
     return _tokenizer
 
 

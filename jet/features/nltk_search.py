@@ -23,11 +23,12 @@ except LookupError:
     nltk.download('stopwords', quiet=True)
 
 ALLOWED_POS: Set[str] = {
-    'NN', 'NNS', 'NNP', 'NNPS',
-    'PRP', 'PRP$',
-    'JJ', 'JJR', 'JJS',
-    'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ',
-    'RB', 'RBR', 'RBS'
+    'NN', 'NNS', 'NNP', 'NNPS',  # Nouns
+    'PRP', 'PRP$',               # Pronouns
+    'JJ', 'JJR', 'JJS',          # Adjectives
+    'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ',  # Verbs
+    'RB', 'RBR', 'RBS',          # Adverbs
+    'CD'                         # Cardinal numbers
 }
 
 

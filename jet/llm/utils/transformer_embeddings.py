@@ -1,7 +1,7 @@
 from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 import atexit
 from jet.llm.mlx.mlx_types import EmbedModelType
-from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS, get_embedding_size, resolve_model_key
+from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS, get_context_size, resolve_model_key
 import numpy as np
 from typing import List, Optional, TypedDict, Union, Callable, Tuple
 from functools import lru_cache
@@ -85,7 +85,7 @@ def generate_embeddings(
         texts = [texts]
 
     if not chunk_size:
-        chunk_size = get_embedding_size(embed_model)
+        chunk_size = get_context_size(embed_model)
 
     # Chunk texts and get document indices
     chunked_texts, doc_indices = chunk_texts(texts, chunk_size=chunk_size)

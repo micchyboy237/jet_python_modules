@@ -251,3 +251,22 @@ def get_embedding_size(model: ModelType) -> int:
     if model_key not in MODEL_EMBEDDING_TOKENS:
         raise ValueError(f"Missing embedding size for model: {model_key}")
     return MODEL_EMBEDDING_TOKENS[model_key]
+
+
+def get_context_size(model: ModelType) -> int:
+    """
+    Returns the context size (hidden dimension) for the given model key or full model path.
+
+    Args:
+        model: A model key or model path.
+
+    Returns:
+        The maximum context size.
+
+    Raises:
+        ValueError: If the model is not recognized or missing an context size.
+    """
+    model_key = resolve_model_key(model)
+    if model_key not in MODEL_CONTEXTS:
+        raise ValueError(f"Missing context size for model: {model_key}")
+    return MODEL_CONTEXTS[model_key]

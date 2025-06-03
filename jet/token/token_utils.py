@@ -1,9 +1,10 @@
 import logging
+from jet.llm.mlx.utils.base import get_model_max_tokens
 from llama_index.core.schema import NodeRelationship
 from jet.vectors.document_types import HeaderTextNode
 from typing import Optional, Callable, Union
 from typing import Callable, Literal, Optional, TypedDict, Union
-from jet.llm.embeddings.sentence_embedding import get_tokenizer_fn
+from jet.llm.mlx.token_utils import get_tokenizer, get_tokenizer_fn, tokenize
 from jet.llm.mlx.models import get_embedding_size
 from jet.logger import logger
 from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
@@ -44,41 +45,9 @@ def get_ollama_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_
     raise ValueError(f"Model \"{model_name}\" not found")
 
 
-def get_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
-    if model_name in OLLAMA_MODEL_NAMES.__args__:
-        model_name = OLLAMA_HF_MODELS[model_name]
-
-    if model_name in OLLAMA_HF_MODEL_NAMES.__args__:
-        return get_ollama_tokenizer(model_name)
-
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        return tokenizer
-    except Exception:
-        encoding = tiktoken.get_encoding("cl100k_base")
-        return encoding
-
-
-def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | list[str] | list[dict]) -> list[int] | list[list[int]]:
-    tokenizer = get_tokenizer(model_name)
-
-    if isinstance(text, list):
-        texts = [str(t) for t in text]
-
-        if isinstance(tokenizer, tiktoken.Encoding):
-            tokenized = tokenizer.encode_batch(texts)
-        else:
-            tokenized = tokenizer.batch_encode_plus(texts, return_tensors=None)
-            tokenized = tokenized["input_ids"]
-        return tokenized
-    else:
-        tokens = tokenizer.encode(str(text))
-        return tokens
-
-
 def token_counter(
     text: str | list[str] | list[ChatMessage] | list[Message],
-    model: Optional[str | OLLAMA_MODEL_NAMES] = "mistral",
+    model: ModelType = "qwen3-1.7b-4bit",
     prevent_total: bool = False
 ) -> int | list[int]:
     if not text:
@@ -145,29 +114,15 @@ def get_token_counts_info(texts: list[str], model: OLLAMA_MODEL_NAMES) -> TokenC
     }
 
 
-def get_model_max_tokens(
-    model: Optional[str | OLLAMA_MODEL_NAMES] = "mistral",
-) -> int:
-    if model in OLLAMA_MODEL_EMBEDDING_TOKENS:
-        return OLLAMA_MODEL_EMBEDDING_TOKENS[model]
-
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        return tokenizer.model_max_length
-    except Exception:
-        encoding = tiktoken.get_encoding("cl100k_base")
-        return encoding.max_token_value
-
-
 def filter_texts(
     text: str | list[str] | list[ChatMessage] | list[Message],
-    model: str | OLLAMA_MODEL_NAMES = "mistral",
+    model: str | ModelType = "qwen3-1.7b-4bit",
     max_tokens: Optional[int | float] = None,
 ) -> str | list[str] | list[dict] | list[ChatMessage]:
     if not max_tokens:
         max_tokens = 0.5
 
-    tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
+    tokenizer = get_tokenizer(model)
     if isinstance(max_tokens, float) and max_tokens < 1:
         max_tokens = int(
             get_model_max_tokens(model) * max_tokens)
@@ -180,7 +135,7 @@ def filter_texts(
             return [text]
 
         # Split into manageable chunks
-        tokens = tokenize(OLLAMA_HF_MODELS[model], text)
+        tokens = tokenize(model, text)
         return tokenizer.decode(tokens[0:max_tokens], skip_special_tokens=False)
     else:
         if isinstance(text[0], str):
@@ -216,20 +171,20 @@ def filter_texts(
 
 def group_texts(
     text: str | list[str] | list[ChatMessage] | list[Message],
-    model: str | OLLAMA_MODEL_NAMES = "mistral",
+    model: str | ModelType = "qwen3-1.7b-4bit",
     max_tokens: Optional[int | float] = None,
 ) -> list[list[str]]:
     if not max_tokens:
         max_tokens = 0.5
 
-    tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
+    tokenizer = get_tokenizer(model)
     if isinstance(max_tokens, float) and max_tokens < 1:
         max_tokens = int(get_model_max_tokens(model) * max_tokens)
     else:
         max_tokens = max_tokens or get_model_max_tokens(model)
 
     if isinstance(text, str):
-        tokens = tokenize(OLLAMA_HF_MODELS[model], text)
+        tokens = tokenize(model, text)
         grouped_texts = []
 
         for i in range(0, len(tokens), max_tokens):
@@ -266,7 +221,7 @@ def group_texts(
 
 def group_nodes(
     nodes: list[TextNode] | list[NodeWithScore],
-    model: str | OLLAMA_MODEL_NAMES = "mistral",
+    model: str | OLLAMA_MODEL_NAMES = "qwen3-1.7b-4bit",
     # New argument to enforce minimum token count per group
     min_tokens: Optional[int | float] = None,
     max_tokens: Optional[int | float] = None,

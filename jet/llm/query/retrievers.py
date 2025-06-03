@@ -3,13 +3,18 @@ import json
 import os
 from typing import Any, Callable, Literal, Optional
 
+from jet.llm.mlx.generation import chat
+from jet.llm.mlx.mlx_types import EmbedModelType, LLMModelType
+from jet.llm.mlx.models import get_embedding_size
+from jet.llm.mlx.token_utils import get_tokenizer
 from tqdm import tqdm
 from jet.transformers.object import make_serializable
 from pydantic.main import BaseModel
 from jet.file.utils import load_file
 from jet.llm.ollama.base import Ollama, OllamaEmbedding, VectorStoreIndex
 from jet.llm.ollama.constants import OLLAMA_SMALL_EMBED_MODEL, OLLAMA_SMALL_LLM_MODEL
-from jet.llm.utils.embeddings import get_ollama_embedding_function
+# from jet.llm.utils.embeddings import get_ollama_embedding_function
+from jet.llm.utils.transformer_embeddings import get_embedding_function
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_HF_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.llm.query.cleaners import group_and_merge_texts_by_file_name
 from jet.llm.query.splitters import split_heirarchical_nodes, split_markdown_header_nodes, split_sub_nodes
@@ -18,7 +23,8 @@ from jet.llm.retrievers.recursive import (
     query_nodes as query_nodes_recursive
 )
 from jet.actions.vector_semantic_search import VectorSemanticSearch
-from jet.token.token_utils import get_model_max_tokens, get_ollama_tokenizer, group_texts, filter_texts
+from jet.llm.mlx.base import get_model_max_tokens
+from jet.token.token_utils import group_texts
 from jet.utils.object import extract_values_by_paths
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
 from jet.vectors.utils import get_source_node_attributes
@@ -244,8 +250,8 @@ def setup_index(
     chunk_overlap: int = 40,
     sub_chunk_sizes: Optional[list[int]] = None,
     with_hierarchy: Optional[bool] = None,
-    embed_model: Optional[OLLAMA_EMBED_MODELS] = OLLAMA_SMALL_EMBED_MODEL,
-    llm_model: OLLAMA_MODEL_NAMES = OLLAMA_SMALL_LLM_MODEL,
+    embed_model: Optional[EmbedModelType] = "mxbai-embed-large",
+    llm_model: LLMModelType = "qwen3-1.7b-4bit",
     mode: Optional[Literal["annoy", "fusion", "bm25",
                            "hierarchy", "deeplake"]] = "fusion",
     split_mode: Optional[list[Literal["markdown", "hierarchy"]]] = [],
@@ -285,7 +291,7 @@ def setup_index(
         raise ValueError("'data_dir' must be of type str | list[Document]")
 
     final_chunk_size: int = chunk_size if isinstance(
-        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
+        chunk_size, int) else get_embedding_size(embed_model)
 
     if disable_chunking:
         all_nodes = [TextNode(text=doc.text, metadata=doc.metadata)
@@ -294,7 +300,7 @@ def setup_index(
         if "markdown" in split_mode:
             all_nodes = split_markdown_header_nodes(documents)
     else:
-        tokenizer = get_ollama_tokenizer(embed_model)
+        tokenizer = get_tokenizer(embed_model)
         set_global_tokenizer(tokenizer)
 
         splitter = SentenceSplitter(
@@ -366,7 +372,7 @@ def setup_index(
 
     elif mode == "deeplake":
         store_path = kwargs["store_path"]
-        embedding_function = get_ollama_embedding_function(embed_model)
+        embedding_function = get_embedding_function(embed_model)
         vector_store = load_or_create_deeplake_vector_store(
             store_path=store_path,
             texts=[node.text for node in all_nodes],
@@ -578,12 +584,12 @@ def setup_semantic_search(
         raise ValueError(f"'data_dir' must be of type str | list[Document]")
 
     final_chunk_size: int = chunk_size if isinstance(
-        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
+        chunk_size, int) else get_embedding_size(embed_model)
 
     splitter = SentenceSplitter(
         chunk_size=final_chunk_size,
         chunk_overlap=chunk_overlap,
-        tokenizer=get_ollama_tokenizer(embed_model).encode
+        tokenizer=get_tokenizer(embed_model).encode
     )
     all_nodes = splitter.get_nodes_from_documents(
         documents, show_progress=True)
@@ -668,7 +674,7 @@ def clean_texts(nodes: list[NodeWithScore]) -> list[str]:
 def query_llm(
     query: str,
     contexts: list[str],
-    model: OLLAMA_MODEL_NAMES = OLLAMA_SMALL_LLM_MODEL,
+    model: LLMModelType = "qwen3-1.7b-4bit",
     options: OllamaChatOptions = {},
     system: Optional[str] = None,
     template: PromptTemplate = PROMPT_TEMPLATE,
@@ -697,14 +703,18 @@ def query_llm(
         )
         options = {**options, **DEFAULT_CHAT_OPTIONS}
 
-        yield f"\n\n## Answer {idx + 1}\n\n"
+        logger.info(f"\n\n## Answer {idx + 1}\n\n")
 
-        yield from call_ollama_chat(
-            prompt,
-            stream=True,
+        return chat(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}
+            ],
             model=model,
-            system=system,
-            options=options,
+            seed=44,
+            temperature=0.3,
+            verbose=True,
+            # options=options,
             # track={
             #     "repo": "~/aim-logs",
             #     "experiment": "RAG Retriever Test",
@@ -713,7 +723,7 @@ def query_llm(
             #         "type": "rag_retriever",
             #     }
             # }
-            **kwargs,
+            # **kwargs,
         )
 
 
@@ -837,7 +847,7 @@ def setup_deeplake_query(
     **kwargs,
 ):
     final_chunk_size: int = chunk_size if isinstance(
-        chunk_size, int) else OLLAMA_MODEL_EMBEDDING_TOKENS[embed_model]
+        chunk_size, int) else get_embedding_size(embed_model)
     # Define file and vector store paths
     documents: list[Document]
     if type(data_dir) == str:
@@ -849,7 +859,7 @@ def setup_deeplake_query(
     splitter = SentenceSplitter(
         chunk_size=final_chunk_size,
         chunk_overlap=chunk_overlap,
-        tokenizer=get_ollama_tokenizer(embed_model).encode
+        tokenizer=get_tokenizer(embed_model).encode
     )
     all_nodes = splitter.get_nodes_from_documents(
         documents, show_progress=True)
@@ -857,7 +867,7 @@ def setup_deeplake_query(
     texts = [node.text for node in all_nodes]
     metadata = [node.metadata for node in all_nodes]
 
-    embedding_function = get_ollama_embedding_function(embed_model)
+    embedding_function = get_embedding_function(embed_model)
 
     # Create a VectorStore instance
     vector_store = load_or_create_deeplake_vector_store(

@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from jet.features.nltk_utils import get_word_counts_lemmatized
+from jet.features.nlp_utils import get_word_counts_lemmatized
 from .stratified_sampler import StratifiedSampler, ProcessedDataString
 
 

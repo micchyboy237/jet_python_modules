@@ -102,7 +102,7 @@ class MLX:
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
         verbose: bool = False
-    ) -> Union[CompletionResponse, List[CompletionResponse]]:
+    ) -> CompletionResponse:
         """Generate a chat completion with history management."""
 
         # Prepare messages with history
@@ -193,7 +193,7 @@ class MLX:
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
         verbose: bool = False
-    ) -> Iterator[Union[CompletionResponse, List[CompletionResponse]]]:
+    ) -> Iterator[CompletionResponse]:
         """Stream chat completions with history management."""
         # Prepare messages with history
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
