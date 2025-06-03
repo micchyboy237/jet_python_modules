@@ -19,6 +19,26 @@ def get_word_counts_lemmatized(
     as_score: bool = False,
     percent_threshold: float = 0.0
 ) -> Union[Dict[str, Union[int, float]], List[Dict[str, Union[int, float]]]]:
+    """
+    Get word count mappings from a text string or list of strings with lemmatization, excluding stop words,
+    sorted by count in descending order. Optionally filter by parts of speech, minimum count, and percentage threshold.
+    For a list of strings, min_count and percent_threshold are applied to the total combined count across all strings.
+    If as_score is True, returns scores normalized to percentages based on the maximum score.
+
+    Args:
+        text (Union[str, List[str]]): Input text string or list of strings to analyze.
+        pos (Optional[List[Literal['noun', 'verb', 'adjective', 'adverb']]]): List of POS to include (e.g., ['noun', 'verb']). 
+            If None, includes all words. Defaults to None.
+        min_count (int): Minimum count threshold for words to be included. Defaults to 1.
+        as_score (bool): If True, return scores normalized to percentages based on count and word length. Defaults to False.
+        percent_threshold (float): Minimum percentage of total word count for words to be included (e.g., 5.0 for 5%). Defaults to 0.0.
+
+    Returns:
+        Union[Dict[str, Union[int, float]], List[Dict[str, Union[int, float]]]]: Dictionary with lemmatized words as keys 
+            and their counts or percentage-normalized scores as values, or list of such dictionaries if input is a list, 
+            sorted by count/score in descending order.
+    """
+
     pos_mapping = {"noun": "N", "verb": "V", "adjective": "J", "adverb": "R"}
 
     def process_single_text(single_text: str) -> List[tuple[str, str]]:

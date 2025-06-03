@@ -144,7 +144,7 @@ def bm25_plus(corpus: List[str], query: str, doc_ids: Optional[List[str]] = None
             "score": normalized_scores[i],
             "text": corpus[i],
             "tokens": doc_lengths[i],
-            "matched": matched_terms[i]
+            "matched": dict(sorted(matched_terms[i].items(), key=lambda x: x[1], reverse=True))
         }
         for i in range(len(corpus))
     ]
@@ -157,6 +157,6 @@ def bm25_plus(corpus: List[str], query: str, doc_ids: Optional[List[str]] = None
         result["rank"] = i
 
     return {
-        "matched": dict(query_match_counts),
+        "matched": dict(sorted(query_match_counts.items(), key=lambda x: x[1], reverse=True)),
         "results": results,
     }

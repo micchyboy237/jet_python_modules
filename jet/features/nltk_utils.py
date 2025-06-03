@@ -6,7 +6,7 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 from nltk.tag import pos_tag
 from collections import Counter
-from typing import Literal, Union, List, Dict, Optional
+from typing import Literal, Tuple, Union, List, Dict, Optional
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 from tqdm import tqdm
@@ -29,37 +29,27 @@ def get_wordnet_pos(treebank_tag: str) -> str:
 
 
 def process_single_text(single_text: str, n: Optional[int] = None, min_count: int = 1,
-                        in_sequence: bool = False, max_n: int = 10) -> Dict[str, int]:
-    if not single_text.strip():
-        return {}
+                        in_sequence: bool = False, max_n: int = 10) -> Dict[Tuple[str, ...], int]:
     counts = Counter()
     sentences = sent_tokenize(single_text.lower())
     sentence_words = []
+
+    if n and n > 1:
+        in_sequence = True
+
     for sentence in sentences:
         tokens = word_tokenize(sentence)
-        words = [token for token in tokens if (token.isalpha() or token.isdigit())
+        words = [token for token in tokens if token.isalpha()
                  and token not in STOP_WORDS]
         tagged_words = pos_tag(words)
-        lemmatized_words = []
-        for word, tag in tagged_words:
-            pos = get_wordnet_pos(tag)
-            # Force verb lemmatization for third-person singular forms
-            if pos == 'v' and tag in ('VBZ', 'VBP'):
-                lemmatized = LEMMATIZER.lemmatize(word, pos)
-                # Additional check for common verb endings
-                if word.endswith('s') and lemmatized == word:
-                    lemmatized = LEMMATIZER.lemmatize(word[:-1], pos)
-                elif word.endswith('es') and lemmatized == word:
-                    lemmatized = LEMMATIZER.lemmatize(word[:-2], pos)
-            else:
-                lemmatized = LEMMATIZER.lemmatize(word, pos)
-            lemmatized_words.append(lemmatized)
+        lemmatized_words = [
+            LEMMATIZER.lemmatize(word, get_wordnet_pos(tag)) for word, tag in tagged_words
+        ]
         if lemmatized_words:
             sentence_words.append(lemmatized_words)
-    if not sentence_words:
-        return {}
     if n is None:
-        max_n_local = min(max(len(words) for words in sentence_words), max_n)
+        max_n_local = min(
+            max(len(words) for words in sentence_words) if sentence_words else 1, max_n)
         combination_sizes = range(1, max_n_local + 1)
     else:
         combination_sizes = [min(n, max_n)]
@@ -69,23 +59,22 @@ def process_single_text(single_text: str, n: Optional[int] = None, min_count: in
                 continue
             if in_sequence:
                 combinations = [
-                    ','.join(lemmatized_words[i:i + current_n])
+                    tuple(lemmatized_words[i:i + current_n])
                     for i in range(len(lemmatized_words) - current_n + 1)
                 ]
             else:
-                combinations = [','.join(c) for c in itertools.combinations(
-                    lemmatized_words, current_n)]
+                combinations = list(itertools.combinations(
+                    lemmatized_words, current_n))
             counts.update(combinations)
-    result = dict(sorted(
+    return dict(sorted(
         {ngram: count for ngram, count in counts.items() if count >=
          min_count}.items(),
         key=lambda x: x[1], reverse=True
     ))
-    return result
 
 
 def process_wrapper(text_item: str, n: Optional[int] = None, min_count: int = 1,
-                    in_sequence: bool = False, max_n: int = 10) -> Dict[str, int]:
+                    in_sequence: bool = False, max_n: int = 10) -> Dict[Tuple[str, ...], int]:
     return process_single_text(text_item, n, min_count, in_sequence, max_n)
 
 
@@ -96,78 +85,27 @@ def get_word_sentence_combination_counts(
     in_sequence: bool = False,
     max_n: int = 10,
     show_progress: bool = True
-) -> Union[Dict[str, int], List[Dict[str, int]]]:
+) -> Union[Dict[Tuple[str, ...], int], List[Dict[Tuple[str, ...], int]]]:
     if isinstance(text, str):
         return process_single_text(text, n, min_count, in_sequence, max_n)
     elif isinstance(text, list):
-        # Process all texts to get combinations
-        all_combinations_by_text = []
-        # max_workers = max(1, multiprocessing.cpu_count() // 2)
-        max_workers = 2
-        process_func = partial(
-            process_wrapper,
-            n=n,
-            min_count=1,  # Set min_count=1 to collect all combinations initially
-            in_sequence=in_sequence,
-            max_n=max_n
-        )
-
-        if len(text) <= 10 or n == 1:
-            all_combinations_by_text = [
-                process_wrapper(t, n, 1, in_sequence, max_n) for t in text
-            ]
-        else:
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                try:
-                    all_combinations_by_text = list(tqdm(
-                        executor.map(process_func, text),
-                        total=len(text),
-                        desc="Processing texts",
-                        disable=not show_progress
-                    ))
-                except Exception as e:
-                    print(f"Error in multiprocessing: {e}")
-                    raise
-
-        # Aggregate all combinations to determine valid ones based on total counts
-        total_counts = Counter()
-        for text_counts in all_combinations_by_text:
-            total_counts.update(text_counts)
-
-        # Identify combinations that meet the min_count threshold globally
-        valid_combinations = {ngram for ngram,
-                              count in total_counts.items() if count >= min_count}
-
-        # Filter each text's counts to include only valid combinations
-        result = []
-        for text_counts in all_combinations_by_text:
-            filtered_counts = {
-                ngram: count for ngram, count in text_counts.items() if ngram in valid_combinations
-            }
-            sorted_counts = dict(
-                sorted(filtered_counts.items(), key=lambda x: x[1], reverse=True))
-            result.append(sorted_counts)
-
-        return result
+        max_workers = max(1, multiprocessing.cpu_count() // 2)
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            try:
+                process_func = partial(
+                    process_wrapper, n=n, min_count=min_count, in_sequence=in_sequence, max_n=max_n)
+                results = list(tqdm(
+                    executor.map(process_func, text),
+                    total=len(text),
+                    desc="Processing texts",
+                    disable=not show_progress
+                ))
+                return results
+            except Exception as e:
+                print(f"Error in multiprocessing: {e}")
+                raise
     else:
         raise ValueError("Input must be a string or a list of strings")
-
-
-def process_single_text_simple(single_text: str) -> Dict[str, int]:
-    if not single_text.strip():
-        return {}
-    tokens = word_tokenize(single_text.lower())
-    words = [token for token in tokens if (token.isalpha() or token.isdigit())
-             and token not in STOP_WORDS]
-    if not words:
-        return {}
-    tagged_words = pos_tag(words)
-    lemmatized_words = [
-        LEMMATIZER.lemmatize(word, get_wordnet_pos(pos)) for word, pos in tagged_words
-    ]
-    counts = Counter(lemmatized_words)
-    result = dict(sorted(counts.items(), key=lambda x: x[1], reverse=True))
-    return result
 
 
 def get_word_counts_lemmatized(
