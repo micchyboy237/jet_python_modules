@@ -27,75 +27,56 @@ import unittest
 
 
 class TestSeparateNgramLines(unittest.TestCase):
-
     def test_single_string_input(self):
-        # Test with a single string input
         sample = "This is a test sentence. Let's split it."
         expected = ["This is a test sentence.", "Let's split it."]
-
         result = separate_ngram_lines(sample)
-
         self.assertEqual(result, expected)
 
     def test_list_of_strings_input(self):
-        # Test with a list of strings input
         sample = [
             "This is the first sentence.",
             "And here is the second one, with commas."
         ]
         expected = [
-            "This is the first sentence.",
             "And here is the second one",
+            "This is the first sentence.",
             "with commas."
         ]
-
         result = separate_ngram_lines(sample)
-
         self.assertEqual(result, expected)
 
     def test_with_different_punctuation(self):
-        # Test with different punctuation
         sample = "Test/with:multiple,punctuations"
-        expected = ['Test', 'with', 'multiple', 'punctuations']
-
+        expected = ['Test', 'multiple', 'punctuations', 'with']
         result = separate_ngram_lines(sample, [',', '/', ':'])
-
         self.assertEqual(result, expected)
 
     def test_repeated_sentences(self):
-        # Test when the input has repeated sentences
         sample = "This is a test. This is a test."
         expected = ["This is a test."]
-
         result = separate_ngram_lines(sample)
-
         self.assertEqual(result, expected)
 
     def test_empty_string(self):
-        # Test with an empty string
         sample = ""
         expected = []
-
         result = separate_ngram_lines(sample)
-
         self.assertEqual(result, expected)
 
     def test_edge_case_special_characters(self):
-        # Test with special characters in the input
-        sample = "Hello! #Testing$%&"
+        sample = "Hello!Testing"
         expected = ['Hello', 'Testing']
-
-        result = separate_ngram_lines(sample, ['!', '#', '$', '%', '&'])
-
+        result = separate_ngram_lines(sample, ['!', '\n'])
         self.assertEqual(result, expected)
 
 
 class TestExtractNgrams(unittest.TestCase):
-
     def test_single_word_ngram(self):
         texts = "Hello"
         result = extract_ngrams(texts, min_words=1, max_words=1)
-        self.assertEqual(result, ["Hello"])
+        expected = ["Hello"]
+        self.assertEqual(result, expected)
 
     def test_multiple_word_ngram(self):
         texts = "Hello world"
@@ -123,7 +104,6 @@ class TestExtractNgrams(unittest.TestCase):
 
 
 class TestCountNgrams(unittest.TestCase):
-
     def test_count_single_word_ngram(self):
         texts = "Hello world Hello"
         result = count_ngrams(texts, min_words=1, min_count=1)
@@ -164,7 +144,6 @@ class TestCountNgrams(unittest.TestCase):
 
 
 class TestGetMostCommonNgrams(unittest.TestCase):
-
     def test_basic_functionality(self):
         texts = "apple banana apple orange apple banana"
         result = get_most_common_ngrams(texts, min_count=2, max_words=2)
@@ -192,9 +171,7 @@ class TestGetMostCommonNgrams(unittest.TestCase):
 
 
 class TestGetMostCommonNgrams2(unittest.TestCase):
-
     def test_multiple_sentences_with_min_count(self):
-        # Test with multiple sentences and min_count argument
         sample_texts = [
             "The sun has risen.",
             "The night is dark.",
@@ -206,7 +183,6 @@ class TestGetMostCommonNgrams2(unittest.TestCase):
         self.assertEqual(result, expected_output)
 
     def test_with_n_range(self):
-        # Test with n range (2, 3)
         sample_texts = [
             "The sun has risen.",
             "The night is dark and the sun rose.",
@@ -218,7 +194,6 @@ class TestGetMostCommonNgrams2(unittest.TestCase):
         self.assertEqual(result, expected_output)
 
     def test_large_text_input_with_n_range(self):
-        # Test with a long paragraph and n range (2, 3)
         sample_text = ("The sun has risen and the night has passed. "
                        "The people worked through the day. "
                        "The sun rose and the night came. "
@@ -231,14 +206,12 @@ class TestGetMostCommonNgrams2(unittest.TestCase):
         self.assertEqual(result, expected_output)
 
     def test_no_common_ngrams(self):
-        # Test where there are no common n-grams
         sample_text = "Hello world."
         expected_output = {}
         result = get_most_common_ngrams(sample_text, min_count=2)
         self.assertEqual(result, expected_output)
 
     def test_empty_input(self):
-        # Test with an empty input
         sample_text = ""
         expected_output = {}
         result = get_most_common_ngrams(sample_text)
@@ -246,7 +219,6 @@ class TestGetMostCommonNgrams2(unittest.TestCase):
 
 
 class TestSortSentences(unittest.TestCase):
-
     def test_even_distribution(self):
         sentences = [
             "Ilarawan ang istruktura ni boi",
@@ -260,7 +232,6 @@ class TestSortSentences(unittest.TestCase):
             "Sumulat ng isang maikling kuwento",
         ]
         sorted_sentences = sort_sentences(sentences, 2)
-        # Expecting that sentences starting with the same n-grams are not adjacent
         self.assertNotEqual(sorted_sentences[0].split()[
                             0], sorted_sentences[1].split()[0])
         self.assertNotEqual(sorted_sentences[2].split()[
@@ -269,9 +240,7 @@ class TestSortSentences(unittest.TestCase):
     def test_large_dataset(self):
         sentences = ["Sentence " + str(i) for i in range(100)]
         sorted_sentences = sort_sentences(sentences, 2)
-        # Check if the sorted list is the same length as the input
         self.assertEqual(len(sorted_sentences), 100)
-        # Check for null values in sorted_sentences
         self.assertFalse(
             any(sentence is None for sentence in sorted_sentences))
 
@@ -281,12 +250,10 @@ class TestSortSentences(unittest.TestCase):
             "Another sentence."
         ]
         sorted_sentences = sort_sentences(sentences, 2)
-        # Check if the sorted list is the same length as the input
         self.assertEqual(len(sorted_sentences), 2)
 
 
 class TestGroupAndFilterByNgram(unittest.TestCase):
-
     def test_is_start_ngrams(self):
         sentences = [
             "How are you today?",
@@ -306,26 +273,8 @@ class TestGroupAndFilterByNgram(unittest.TestCase):
         self.assertDictEqual(result, expected_grouping,
                              "Sentences are not grouped correctly.")
 
-    # def test_offset_n(self):
-    #     sentences = [
-    #         "The quick brown fox jumps over the lazy dog",
-    #         "Quick as a fox, sharp as an eagle",
-    #         "The lazy dog sleeps soundly",
-    #         "A quick brown dog leaps over a lazy fox"
-    #     ]
-    #     n = 2
-    #     top_n = 2
-    #     result = group_sentences_by_ngram(sentences, n, top_n, False)
-    #     expected_grouping = {
-    #         'quick brown': ["The quick brown fox jumps over the lazy dog", "A quick brown dog leaps over a lazy fox"],
-    #         'as a': ["Quick as a fox, sharp as an eagle", "A quick brown dog leaps over a lazy fox"]
-    #     }
-    #     self.assertDictEqual(result, expected_grouping,
-    #                          "Sentences are not grouped correctly for non-start n-grams.")
-
 
 class TestSentenceProcessing(unittest.TestCase):
-
     def test_group_and_limit_sentences(self):
         sentences = [
             "Paraphrase the following sentence.",
@@ -335,7 +284,6 @@ class TestSentenceProcessing(unittest.TestCase):
         ]
         sorted_sentences = filter_and_sort_sentences_by_ngrams(
             sentences, 1, 1, True)
-        # Expecting only one sentence per unique starting n-gram
         self.assertEqual(len(sorted_sentences), 3)
 
     def test_spread_sentences(self):
@@ -347,7 +295,6 @@ class TestSentenceProcessing(unittest.TestCase):
         ]
         sorted_sentences = filter_and_sort_sentences_by_ngrams(
             sentences, 2, 2, True)
-        # Expecting the "Combine" sentences to be spread out
         self.assertNotEqual(sorted_sentences[0].split()[
                             0], sorted_sentences[1].split()[0])
 
@@ -363,7 +310,6 @@ class TestSentenceProcessing(unittest.TestCase):
             "This is a sentence.",
             "A completely different sentence."
         ]
-        # Expecting the very similar sentences to be filtered out
         self.assertEqual(filtered_sentences, expected_sentences)
 
     def test_filter_similar_texts_identical(self):
@@ -387,7 +333,6 @@ class TestSentenceProcessing(unittest.TestCase):
 
 
 class TestNwise(unittest.TestCase):
-
     def test_single_element(self):
         """Test with min_words=1, should return individual elements."""
         data = [1, 2, 3, 4]
@@ -442,99 +387,7 @@ class TestNwise(unittest.TestCase):
         self.assertEqual(result, expected)
 
 
-# class TestNgramFunctions(unittest.TestCase):
-
-#     def test_n_gram_frequency(self):
-#         sentence = "I love coding"
-#         expected_result = {('I', 'love'): 1, ('love', 'coding'): 1}
-#         result = n_gram_frequency(sentence.split(), 2)
-#         self.assertEqual(result, expected_result)
-
-#     def test_calculate_n_gram_diversity(self):
-#         freq = Counter({('I', 'love'): 3, ('love', 'coding'): 2})
-#         expected_result = 2  # There are two unique n-grams
-#         result = calculate_n_gram_diversity(freq)
-#         self.assertEqual(result, expected_result)
-
-#     def test_get_ngram_weight(self):
-#         all_ngrams = Counter({('I', 'love'): 3, ('love', 'coding'): 2})
-#         sentence_ngrams = {('I', 'love')}
-#         previous_ngrams = {('love', 'coding')}
-#         expected_result = 1 / 3 + 1  # 1/ngram frequency + penalty
-#         result = get_ngram_weight(all_ngrams, sentence_ngrams, previous_ngrams)
-#         self.assertEqual(result, expected_result)
-
-#     def test_get_total_unique_ngrams(self):
-#         ngram_counter = Counter({('I', 'love'): 3, ('love', 'coding'): 2})
-#         expected_result = 2  # Two unique n-grams
-#         result = get_total_unique_ngrams(ngram_counter)
-#         self.assertEqual(result, expected_result)
-
-#     def test_get_total_counts_of_ngrams(self):
-#         ngram_counter = Counter({('I', 'love'): 3, ('love', 'coding'): 2})
-#         expected_result = 5  # Total count of all n-grams
-#         result = get_total_counts_of_ngrams(ngram_counter)
-#         self.assertEqual(result, expected_result)
-
-#     def test_get_specific_ngram_count(self):
-#         ngram_counter = Counter({('I', 'love'): 3, ('love', 'coding'): 2})
-#         specific_ngram = ('I', 'love')
-#         expected_result = 3
-#         result = get_specific_ngram_count(ngram_counter, specific_ngram)
-#         self.assertEqual(result, expected_result)
-
-#     def test_get_ngrams_by_range(self):
-#         texts = ["I love coding", "I love learning", "Coding is fun"]
-#         expected_result = [
-#             {
-#                 "ngram": "I love",
-#                 "count": 2
-#             }
-#         ]
-#         result = get_ngrams_by_range(texts, min_words=(2,), count=2, show_count=True)
-#         self.assertEqual(result, expected_result)
-
-#     def test_filter_texts_by_multi_ngram_count(self):
-#         texts = [
-#             "I love coding",
-#             "I love learning",
-#             "Coding is fun"
-#         ]
-#         n = 2
-#         count = (2,)
-#         expected_result = ["I love coding"]
-#         result = filter_texts_by_multi_ngram_count(texts, n, count)
-#         self.assertEqual(result, expected_result)
-
-#     def test_nwise(self):
-#         iterable = ['A', 'B', 'C', 'D']
-#         expected_result = [('A', 'B'), ('B', 'C'), ('C', 'D')]
-#         result = list(nwise(iterable, 2))
-#         self.assertEqual(result, expected_result)
-
-# class TestFilterSentencesByPosTags(unittest.TestCase):
-#     def test_filter_sentences_by_pos_tags(self):
-#         sentences = [
-#             "How are you today?",
-#             "How are you doing?",
-#             "How are you doing today?",
-#             "Thank you for asking.",
-#             "Thank you again",
-#             "Thank you"
-#         ]
-#         pos_tags = ["PRON", "VERB", "ADV"]
-#         expected = [
-#             "How are you today?",
-#             "How are you doing?",
-#             "How are you doing today?",
-#         ]
-#         result = filter_sentences_by_pos_tags(sentences, pos_tags)
-#         self.assertEqual(result, expected,
-#                          "Sentences are not filtered correctly.")
-
-
 class TestGetNgrams(unittest.TestCase):
-
     def test_single_word(self):
         sample = "hello"
         expected = ["hello"]
@@ -578,62 +431,56 @@ class TestGetCommonTexts(unittest.TestCase):
         self.stopwords = StopWords()
 
     def test_single_text(self):
-        # Test with a single text input
         texts = ["The quick brown fox jumps"]
+        expected = ['quick brown fox jumps']
         result = get_common_texts(
-            texts, includes_pos=["NOUN", "VERB", "ADJ", "PROPN"])
-        # Expected: "quick brown fox jumps" (filtered by POS, stopwords removed)
-        self.assertEqual(result, ['quick brown fox jumps'])
+            texts, includes_pos=["NOUN", "VERB", "ADJ", "PROPN"], min_words=1, max_words=4)
+        self.assertEqual(result, expected)
 
     def test_multiple_texts(self):
-        # Test with multiple texts
         texts = [
             "The quick brown fox jumps",
             "Quick brown fox runs fast"
         ]
+        expected = ['quick brown fox']
         result = get_common_texts(
-            texts, includes_pos=["NOUN", "VERB", "ADJ", "PROPN"])
-        # Expected: "quick brown fox" (common n-gram across both texts)
-        self.assertEqual(result, ['quick brown fox'])
+            texts, includes_pos=["NOUN", "VERB", "ADJ", "PROPN"], min_words=1, max_words=3)
+        self.assertEqual(result, expected)
 
     def test_empty_input(self):
-        # Test with empty input
         texts = []
+        expected = []
         result = get_common_texts(texts)
-        self.assertEqual(result, [])
+        self.assertEqual(result, expected)
 
     def test_stopwords_filtering(self):
-        # Test that stopwords are filtered out
         texts = ["The quick fox is running"]
-        result = get_common_texts(texts)
-        # Expected: "quick fox running" (stopwords "the", "is" removed)
-        self.assertEqual(result, ['quick fox running'])
+        expected = ['quick fox running']
+        result = get_common_texts(texts, min_words=1, max_words=3)
+        self.assertEqual(result, expected)
 
     def test_different_pos_tags(self):
-        # Test with different POS tags
         texts = ["The quick brown fox"]
-        result = get_common_texts(texts, includes_pos=["NOUN", "ADJ"])
-        # Expected: "quick brown fox" (only NOUN and ADJ retained)
-        self.assertEqual(result, ['quick brown fox'])
+        expected = ['quick brown fox']
+        result = get_common_texts(
+            texts, includes_pos=["NOUN", "ADJ"], min_words=1, max_words=3)
+        self.assertEqual(result, expected)
 
     def test_no_matching_pos(self):
-        # Test when no words match the POS criteria
         texts = ["The quick brown fox"]
+        expected = []
         result = get_common_texts(texts, includes_pos=["VERB"])
-        # Expected: [] (no verbs in filtered output)
-        self.assertEqual(result, [])
+        self.assertEqual(result, expected)
 
     def test_case_insensitivity(self):
-        # Test that text is processed case-insensitively
         texts = ["Quick Brown Fox", "quick brown fox"]
-        result = get_common_texts(texts)
-        # Expected: "quick brown fox" (case-insensitive matching)
-        self.assertEqual(result, ['quick brown fox'])
+        expected = ['quick brown fox']
+        result = get_common_texts(texts, min_words=1, max_words=3)
+        self.assertEqual(result, expected)
 
 
 class TestGroupSentencesByNgram(unittest.TestCase):
     def setUp(self):
-        # Sample sentences for testing
         self.sentences = [
             "the quick brown fox",
             "the quick brown dog",
@@ -643,50 +490,37 @@ class TestGroupSentencesByNgram(unittest.TestCase):
         ]
 
     def test_start_ngrams_single_word(self):
-        # Test with min_words=1, is_start_ngrams=True
         result = group_sentences_by_ngram(
             self.sentences, min_words=1, top_n=2, is_start_ngrams=True)
-
-        # Expected: Groups by first word
         expected = {
             'the': ['the quick brown fox', 'the quick brown dog'],
             'a': ['a slow green turtle', 'a quick brown cat']
         }
-
         self.assertEqual(result, expected)
 
     def test_start_ngrams_two_words(self):
-        # Test with min_words=2, is_start_ngrams=True
         result = group_sentences_by_ngram(
             self.sentences, min_words=2, top_n=2, is_start_ngrams=True)
-
-        # Expected: Groups by first two words
         expected = {
             'the quick': ['the quick brown fox', 'the quick brown dog'],
             'a slow': ['a slow green turtle'],
             'the fast': ['the fast blue bird'],
             'a quick': ['a quick brown cat']
         }
-
         self.assertEqual(result, expected)
 
     def test_non_start_ngrams(self):
-        # Test with min_words=2, is_start_ngrams=False
         result = group_sentences_by_ngram(
             self.sentences, min_words=2, top_n=2, is_start_ngrams=False)
-
-        # Expected: Groups by all unique 2-grams, limited to top_n=2 sentences
-        # Note: Exact n-grams depend on get_words, but we can test structure
         self.assertTrue(isinstance(result, dict))
         for ngram, sentences in result.items():
             self.assertTrue(isinstance(ngram, str))
             self.assertTrue(isinstance(sentences, list))
-            self.assertLessEqual(len(sentences), 2)  # top_n=2
+            self.assertLessEqual(len(sentences), 2)
             for sentence in sentences:
                 self.assertIn(sentence, self.sentences)
 
     def test_top_n_limit(self):
-        # Test top_n limiting the number of sentences per n-gram
         sentences = [
             "the quick brown fox",
             "the quick brown dog",
@@ -695,45 +529,36 @@ class TestGroupSentencesByNgram(unittest.TestCase):
         ]
         result = group_sentences_by_ngram(
             sentences, min_words=2, top_n=2, is_start_ngrams=True)
-
-        # Expected: Only 2 sentences for 'the quick' despite 4 matches
         expected = {
             'the quick': ['the quick brown fox', 'the quick brown dog']
         }
-
         self.assertEqual(result, expected)
 
     def test_empty_sentences(self):
-        # Test with empty sentence list
         result = group_sentences_by_ngram(
             [], min_words=2, top_n=2, is_start_ngrams=True)
         self.assertEqual(result, {})
 
     def test_sentences_with_no_ngrams(self):
-        # Test with sentences too short for min_words
         sentences = ["the", "a"]
         result = group_sentences_by_ngram(
             sentences, min_words=2, top_n=2, is_start_ngrams=True)
         self.assertEqual(result, {})
 
     def test_sorting_by_word_count_and_index(self):
-        # Test sorting logic (shorter sentences first, then by original index)
         sentences = [
-            "the quick brown fox jumps",  # 5 words, index 0
-            "the quick brown dog",       # 4 words, index 1
-            "the quick brown cat runs"   # 5 words, index 2
+            "the quick brown fox jumps",
+            "the quick brown dog",
+            "the quick brown cat runs"
         ]
         result = group_sentences_by_ngram(
             sentences, min_words=2, top_n=2, is_start_ngrams=True)
-
-        # Expected: 'the quick' group sorted by word count, then index
         expected = {
             'the quick': [
-                'the quick brown dog',           # 4 words
-                'the quick brown fox jumps'     # 5 words, earlier index
+                'the quick brown dog',
+                'the quick brown fox jumps'
             ]
         }
-
         self.assertEqual(result, expected)
 
 

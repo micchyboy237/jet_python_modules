@@ -102,7 +102,8 @@ def get_word_sentence_combination_counts(
     elif isinstance(text, list):
         # Process all texts to get combinations
         all_combinations_by_text = []
-        max_workers = max(1, multiprocessing.cpu_count() // 2)
+        # max_workers = max(1, multiprocessing.cpu_count() // 2)
+        max_workers = 2
         process_func = partial(
             process_wrapper,
             n=n,

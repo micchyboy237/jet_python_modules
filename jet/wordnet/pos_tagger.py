@@ -4,7 +4,7 @@ import json
 from collections import defaultdict
 from jet.wordnet.sentence import adaptive_split
 from jet.file.utils import load_data
-from typing import Literal, Optional, Set, TypedDict
+from typing import Literal, Optional, Set, TypedDict, Union
 
 
 POSTag = Literal[
@@ -28,9 +28,32 @@ POSTag = Literal[
 ]
 
 
+class POSTagEnum(Enum):
+    PROPN = "PROPN"  # Proper noun
+    NOUN = "NOUN"    # Noun
+    VERB = "VERB"    # Verb
+    ADJ = "ADJ"      # Adjective
+    ADV = "ADV"      # Adverb
+    PRON = "PRON"    # Pronoun
+    DET = "DET"      # Determiner
+    ADP = "ADP"      # Adposition
+    AUX = "AUX"      # Auxiliary verb
+    SCONJ = "SCONJ"  # Subordinating conjunction
+    CCONJ = "CCONJ"  # Coordinating conjunction
+    NUM = "NUM"      # Numeral
+    PART = "PART"    # Particle
+    INTJ = "INTJ"    # Interjection
+    PUNCT = "PUNCT"  # Punctuation
+    SYM = "SYM"      # Symbol
+    X = "X"          # Other
+
+
+POSTagType = Union[POSTag, POSTagEnum, str]
+
+
 class POSItem(TypedDict):
     word: str
-    pos: list[POSTag]  # Using Enum for controlled POS tags
+    pos: list[POSTagType]  # Using Enum for controlled POS tags
 
 
 class POSTagger:

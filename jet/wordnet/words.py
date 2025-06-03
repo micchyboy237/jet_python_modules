@@ -8,6 +8,7 @@ import spacy
 from nltk import word_tokenize, pos_tag
 from typing import Callable, List, Optional, TypedDict
 
+# nltk.download('wordnet')
 # nltk.download('punkt')
 # nltk.download('averaged_perceptron_tagger')
 # nltk.download('maxent_ne_chunker')

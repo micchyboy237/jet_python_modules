@@ -1,6 +1,7 @@
 import os
 import shutil
 from typing import List, Dict, Tuple
+from jet.logger import logger
 from jet.transformers.formatters import format_json
 from tqdm import tqdm
 import numpy as np
