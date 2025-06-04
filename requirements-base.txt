@@ -1,0 +1,15 @@
+pipdeptree
+transformers
+scipy
+scikit-learn
+datasets
+torch
+sentence-transformers
+pandas
+pyarrow
+nltk
+spacy
+evaluate
+optimum
+tokenizers
+tqdm

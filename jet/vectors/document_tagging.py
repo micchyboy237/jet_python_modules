@@ -4,26 +4,28 @@ from jet.token.token_utils import split_headers
 from jet.vectors.document_types import HeaderDocument
 from tqdm import tqdm
 import string
+import nltk
 from nltk.corpus import stopwords
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.feature_extraction.text import TfidfVectorizer
-import nltk
+from keybert import KeyBERT
+
 nltk.download('punkt')
 nltk.download('stopwords')
 
 # Load model
-model = SentenceTransformer('intfloat/e5-base-v2')
+model_name = 'intfloat/e5-base-v2'
+model = SentenceTransformer(model_name)
+kw_model = KeyBERT(model_name)
 
 
 def preprocess_texts(scraped_data):
-    """Convert scraped data into passages with 'passage:' prefix."""
     return [f"passage: {item['text']}" for item in scraped_data]
 
 
 def extract_keywords(texts, top_n=3):
-    """Extract top keywords from a list of texts using TF-IDF."""
     stop_words = list(set(stopwords.words('english')
                           ).union(set(string.punctuation)))
     vectorizer = TfidfVectorizer(stop_words=stop_words, max_features=100)
@@ -38,25 +40,20 @@ def extract_keywords(texts, top_n=3):
     return keywords
 
 
-def tag_documents(query, scraped_data, threshold=0.8):
-    """Tag documents with 'relevant' or 'irrelevant' based on query similarity."""
+def tag_documents(query, scraped_data, threshold="auto"):
     query_text = f"query: {query}"
     passages = preprocess_texts(scraped_data)
 
-    # Generate embeddings with progress bar
     query_embedding = model.encode(
         [query_text], normalize_embeddings=True, show_progress_bar=False)[0]
     passage_embeddings = model.encode(
-        passages,
-        normalize_embeddings=True,
-        batch_size=32,
-        show_progress_bar=True
-    )
+        passages, normalize_embeddings=True, batch_size=32, show_progress_bar=True)
 
-    # Compute cosine similarities
     similarities = np.dot(passage_embeddings, query_embedding)
 
-    # Tag based on threshold
+    if threshold == "auto":
+        threshold = float(np.mean(similarities) + 0.5 * np.std(similarities))
+
     tags = []
     for i, sim in enumerate(tqdm(similarities, desc="Assigning relevance tags")):
         tag = "relevant" if sim >= threshold else "irrelevant"
@@ -66,45 +63,35 @@ def tag_documents(query, scraped_data, threshold=0.8):
             "relevance_tag": tag,
             "relevance_similarity": float(sim)
         })
-
     return tags
 
 
 def dynamic_label_tagging(scraped_data, num_clusters=2, threshold=0.8):
-    """Dynamically extract labels and tag documents using clustering."""
     passages = preprocess_texts(scraped_data)
-
-    # Generate embeddings with progress bar
     embeddings = model.encode(
-        passages,
-        normalize_embeddings=True,
-        batch_size=32,
-        show_progress_bar=True
-    )
+        passages, normalize_embeddings=True, batch_size=32, show_progress_bar=True)
 
-    # Cluster embeddings
     print("Clustering embeddings...")
     kmeans = KMeans(n_clusters=num_clusters, random_state=42)
     with tqdm(total=1, desc="Performing K-means clustering") as pbar:
         cluster_labels = kmeans.fit_predict(embeddings)
         pbar.update(1)
 
-    # Group texts by cluster
     clusters = {i: [] for i in range(num_clusters)}
     for i, label in enumerate(cluster_labels):
         clusters[label].append(scraped_data[i]["text"])
 
-    # Generate labels for each cluster
     cluster_label_names = {}
     for cluster_id, texts in tqdm(clusters.items(), desc="Generating cluster labels"):
         if texts:
-            keywords = extract_keywords(texts, top_n=2)
+            joined = " ".join(texts)
+            keywords = kw_model.extract_keywords(
+                joined, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=2)
             cluster_label_names[cluster_id] = " ".join(
-                set(sum(keywords, [])))[:30]
+                [kw[0] for kw in keywords])[:30]
         else:
             cluster_label_names[cluster_id] = f"cluster_{cluster_id}"
 
-    # Assign labels to documents
     tagged_results = []
     for i, (data, cluster_id) in enumerate(tqdm(zip(scraped_data, cluster_labels), total=len(scraped_data), desc="Assigning topic labels")):
         sim_to_centroid = np.dot(
@@ -129,16 +116,11 @@ def dynamic_label_tagging(scraped_data, num_clusters=2, threshold=0.8):
     return tagged_results
 
 
-def integrated_document_tagging(query, scraped_data, relevance_threshold=0.8, topic_threshold=0.8, num_clusters=2):
-    """Integrate query-based and dynamic topic tagging with progress tracking."""
-    # Get relevance tags
+def integrated_document_tagging(query, scraped_data, relevance_threshold="auto", topic_threshold=0.8, num_clusters=2):
     relevance_results = tag_documents(query, scraped_data, relevance_threshold)
-
-    # Get dynamic topic labels
     topic_results = dynamic_label_tagging(
         scraped_data, num_clusters, topic_threshold)
 
-    # Combine results
     integrated_results = []
     for rel, top in tqdm(zip(relevance_results, topic_results), total=len(scraped_data), desc="Combining tagging results"):
         assert rel["header"] == top["header"] and rel["text"] == top["text"], "Mismatch in results"
