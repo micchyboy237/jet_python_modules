@@ -568,7 +568,7 @@ def split_headers(
         else:
             average_tokens = sum(token_counts) / \
                 len(token_counts) if token_counts else 0
-            chunk_size = average_tokens
+            chunk_size = int(average_tokens)
 
     if chunk_size <= chunk_overlap:
         raise ValueError(

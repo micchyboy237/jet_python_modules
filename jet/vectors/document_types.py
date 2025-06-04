@@ -53,6 +53,8 @@ class HeaderDocument(Document):
     def __init__(self, **data: Any):
         super().__init__(text=data["text"])
         self.metadata_separator = "\n"
+        data = data.copy()
+        metadata = data.pop("metadata")
         default_metadata: HeaderMetadata = {
             **data,
             "doc_index": data.get("doc_index", 0),
@@ -65,6 +67,7 @@ class HeaderDocument(Document):
             "source_url": data.get("source_url", None),
             "links": data.get("links", None),
             "texts": data.get("texts", None),
+            **metadata
         }
         self.metadata = default_metadata  # type: ignore
 
