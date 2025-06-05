@@ -17,8 +17,6 @@ import json
 
 from typing import List, Optional, TypedDict, Union
 from jet.llm.utils.transformer_embeddings import (
-    generate_embeddings,
-    get_embedding_function,
     chunk_texts,
     SimilarityResult,
 )
@@ -31,6 +29,7 @@ from difflib import SequenceMatcher, ndiff, get_close_matches, unified_diff
 from tqdm import tqdm
 # from instruction_generator.wordnet.SpellingCorrectorNorvig import SpellingCorrectorNorvig
 from jet.wordnet.wordnet_types import FilterResult, SimilarityResult
+from jet.models.embeddings.base import get_embedding_function
 
 DEFAULT_SENTENCE_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
 
