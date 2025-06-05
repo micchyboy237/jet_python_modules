@@ -1,0 +1,5 @@
+
+**Usage with Huggingface Transformers:** 
+This is a simple example of how to use the Granite-Embedding-30m-English model with the Transformers library and PyTorch.
+
+First, install the required libraries

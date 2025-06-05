@@ -1,6 +1,0 @@
-- tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-+ tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased', model_max_length=8192)
-
-
-- model = AutoModel.from_pretrained('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True)
-+ model = AutoModel.from_pretrained('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True, rotary_scaling_factor=2)

@@ -1,6 +1,1 @@
-Query: what is snowflake?
-0.46484852 The Data Cloud!
-0.3758855 Mexico City of Course!
-Query: Where can I get the best tacos?
-0.42407742 Mexico City of Course!
-0.36740506 The Data Cloud!
+Produces:

@@ -1,22 +1,7 @@
-from sentence_transformers import SentenceTransformer, util
+from faster_whisper import WhisperModel
 
-model_path = "ibm-granite/granite-embedding-30m-english"
-# Load the Sentence Transformer model
-model = SentenceTransformer(model_path)
+model = WhisperModel("small")
 
-input_queries = [
-    ' Who made the song My achy breaky heart? ',
-    'summit define'
-    ]
-
-input_passages = [
-    "Achy Breaky Heart is a country song written by Don Von Tress. Originally titled Don't Tell My Heart and performed by The Marcy Brothers in 1991. ",
-    "Definition of summit for English Language Learners. : 1 the highest point of a mountain : the top of a mountain. : 2 the highest level. : 3 a meeting or series of meetings between the leaders of two or more governments."
-    ]
-
-# encode queries and passages
-query_embeddings = model.encode(input_queries)
-passage_embeddings = model.encode(input_passages)
-
-# calculate cosine similarity
-print(util.cos_sim(query_embeddings, passage_embeddings))
+segments, info = model.transcribe("audio.mp3")
+for segment in segments:
+    print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))

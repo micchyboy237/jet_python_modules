@@ -1,3 +1,4 @@
 
-## Usage (HuggingFace Transformers)
-Without [sentence-transformers](https://www.SBERT.net), you can use the model like this: First, you pass your input through the transformer model, then you have to apply the right pooling-operation on-top of the contextualized word embeddings.
+### Chat
+
+After installing `mistral_inference`, a `mistral-chat` CLI command should be available in your environment. You can chat with the model using

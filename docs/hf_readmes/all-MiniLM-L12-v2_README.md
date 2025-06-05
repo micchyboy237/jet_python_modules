@@ -1,173 +1,194 @@
 ---
-language: en
 license: apache-2.0
-library_name: sentence-transformers
-tags:
-- sentence-transformers
-- feature-extraction
-- sentence-similarity
-- transformers
-datasets:
-- s2orc
-- flax-sentence-embeddings/stackexchange_xml
-- ms_marco
-- gooaq
-- yahoo_answers_topics
-- code_search_net
-- search_qa
-- eli5
-- snli
-- multi_nli
-- wikihow
-- natural_questions
-- trivia_qa
-- embedding-data/sentence-compression
-- embedding-data/flickr30k-captions
-- embedding-data/altlex
-- embedding-data/simple-wiki
-- embedding-data/QQP
-- embedding-data/SPECTER
-- embedding-data/PAQ_pairs
-- embedding-data/WikiAnswers
-pipeline_tag: sentence-similarity
+base_model: mistralai/Mistral-7B-v0.3
+extra_gated_description: If you want to learn more about how we process your personal data, please read our <a href="https://mistral.ai/terms/">Privacy Policy</a>.
 ---
 
+# Model Card for Mistral-7B-Instruct-v0.3
 
-# all-MiniLM-L12-v2
-This is a [sentence-transformers](https://www.SBERT.net) model: It maps sentences & paragraphs to a 384 dimensional dense vector space and can be used for tasks like clustering or semantic search.
+The Mistral-7B-Instruct-v0.3 Large Language Model (LLM) is an instruct fine-tuned version of the Mistral-7B-v0.3.
 
-## Usage (Sentence-Transformers)
-Using this model becomes easy when you have [sentence-transformers](https://www.SBERT.net) installed:
+Mistral-7B-v0.3 has the following changes compared to [Mistral-7B-v0.2](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.2/edit/main/README.md)
+- Extended vocabulary to 32768
+- Supports v3 Tokenizer
+- Supports function calling
+
+## Installation
+
+It is recommended to use `mistralai/Mistral-7B-Instruct-v0.3` with [mistral-inference](https://github.com/mistralai/mistral-inference). For HF transformers code snippets, please keep scrolling.
 
 ```
-pip install -U sentence-transformers
+pip install mistral_inference
 ```
 
-Then you can use the model like this:
+## Download
+
+```py
+from huggingface_hub import snapshot_download
+from pathlib import Path
+
+mistral_models_path = Path.home().joinpath('mistral_models', '7B-Instruct-v0.3')
+mistral_models_path.mkdir(parents=True, exist_ok=True)
+
+snapshot_download(repo_id="mistralai/Mistral-7B-Instruct-v0.3", allow_patterns=["params.json", "consolidated.safetensors", "tokenizer.model.v3"], local_dir=mistral_models_path)
+```
+
+### Chat
+
+After installing `mistral_inference`, a `mistral-chat` CLI command should be available in your environment. You can chat with the model using
+
+```
+mistral-chat $HOME/mistral_models/7B-Instruct-v0.3 --instruct --max_tokens 256
+```
+
+### Instruct following
+
+```py
+from mistral_inference.transformer import Transformer
+from mistral_inference.generate import generate
+
+from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
+from mistral_common.protocol.instruct.messages import UserMessage
+from mistral_common.protocol.instruct.request import ChatCompletionRequest
+
+
+tokenizer = MistralTokenizer.from_file(f"{mistral_models_path}/tokenizer.model.v3")
+model = Transformer.from_folder(mistral_models_path)
+
+completion_request = ChatCompletionRequest(messages=[UserMessage(content="Explain Machine Learning to me in a nutshell.")])
+
+tokens = tokenizer.encode_chat_completion(completion_request).tokens
+
+out_tokens, _ = generate([tokens], model, max_tokens=64, temperature=0.0, eos_id=tokenizer.instruct_tokenizer.tokenizer.eos_id)
+result = tokenizer.instruct_tokenizer.tokenizer.decode(out_tokens[0])
+
+print(result)
+```
+
+### Function calling
+
+```py
+from mistral_common.protocol.instruct.tool_calls import Function, Tool
+from mistral_inference.transformer import Transformer
+from mistral_inference.generate import generate
+
+from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
+from mistral_common.protocol.instruct.messages import UserMessage
+from mistral_common.protocol.instruct.request import ChatCompletionRequest
+
+
+tokenizer = MistralTokenizer.from_file(f"{mistral_models_path}/tokenizer.model.v3")
+model = Transformer.from_folder(mistral_models_path)
+
+completion_request = ChatCompletionRequest(
+    tools=[
+        Tool(
+            function=Function(
+                name="get_current_weather",
+                description="Get the current weather",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "type": "string",
+                            "description": "The city and state, e.g. San Francisco, CA",
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["celsius", "fahrenheit"],
+                            "description": "The temperature unit to use. Infer this from the users location.",
+                        },
+                    },
+                    "required": ["location", "format"],
+                },
+            )
+        )
+    ],
+    messages=[
+        UserMessage(content="What's the weather like today in Paris?"),
+        ],
+)
+
+tokens = tokenizer.encode_chat_completion(completion_request).tokens
+
+out_tokens, _ = generate([tokens], model, max_tokens=64, temperature=0.0, eos_id=tokenizer.instruct_tokenizer.tokenizer.eos_id)
+result = tokenizer.instruct_tokenizer.tokenizer.decode(out_tokens[0])
+
+print(result)
+```
+
+## Generate with `transformers`
+
+If you want to use Hugging Face `transformers` to generate text, you can do something like this.
+
+```py
+from transformers import pipeline
+
+messages = [
+    {"role": "system", "content": "You are a pirate chatbot who always responds in pirate speak!"},
+    {"role": "user", "content": "Who are you?"},
+]
+chatbot = pipeline("text-generation", model="mistralai/Mistral-7B-Instruct-v0.3")
+chatbot(messages)
+```
+
+
+## Function calling with `transformers`
+
+To use this example, you'll need `transformers` version 4.42.0 or higher. Please see the 
+[function calling guide](https://huggingface.co/docs/transformers/main/chat_templating#advanced-tool-use--function-calling)
+in the `transformers` docs for more information.
+
 ```python
-from sentence_transformers import SentenceTransformer
-sentences = ["This is an example sentence", "Each sentence is converted"]
-
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L12-v2')
-embeddings = model.encode(sentences)
-print(embeddings)
-```
-
-## Usage (HuggingFace Transformers)
-Without [sentence-transformers](https://www.SBERT.net), you can use the model like this: First, you pass your input through the transformer model, then you have to apply the right pooling-operation on-top of the contextualized word embeddings.
-
-```python
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
-import torch.nn.functional as F
 
-#Mean Pooling - Take attention mask into account for correct averaging
-def mean_pooling(model_output, attention_mask):
-    token_embeddings = model_output[0] #First element of model_output contains all token embeddings
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+model_id = "mistralai/Mistral-7B-Instruct-v0.3"
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+def get_current_weather(location: str, format: str):
+    """
+    Get the current weather
+
+    Args:
+        location: The city and state, e.g. San Francisco, CA
+        format: The temperature unit to use. Infer this from the users location. (choices: ["celsius", "fahrenheit"])
+    """
+    pass
+
+conversation = [{"role": "user", "content": "What's the weather like in Paris?"}]
+tools = [get_current_weather]
 
 
-# Sentences we want sentence embeddings for
-sentences = ['This is an example sentence', 'Each sentence is converted']
+# format and tokenize the tool use prompt 
+inputs = tokenizer.apply_chat_template(
+            conversation,
+            tools=tools,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt",
+)
 
-# Load model from HuggingFace Hub
-tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L12-v2')
-model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L12-v2')
+model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, device_map="auto")
 
-# Tokenize sentences
-encoded_input = tokenizer(sentences, padding=True, truncation=True, return_tensors='pt')
-
-# Compute token embeddings
-with torch.no_grad():
-    model_output = model(**encoded_input)
-
-# Perform pooling
-sentence_embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
-
-# Normalize embeddings
-sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
-
-print("Sentence embeddings:")
-print(sentence_embeddings)
+inputs.to(model.device)
+outputs = model.generate(**inputs, max_new_tokens=1000)
+print(tokenizer.decode(outputs[0], skip_special_tokens=True))
 ```
 
-------
-
-## Background
-
-The project aims to train sentence embedding models on very large sentence level datasets using a self-supervised 
-contrastive learning objective. We used the pretrained [`microsoft/MiniLM-L12-H384-uncased`](https://huggingface.co/microsoft/MiniLM-L12-H384-uncased) model and fine-tuned in on a 
-1B sentence pairs dataset. We use a contrastive learning objective: given a sentence from the pair, the model should predict which out of a set of randomly sampled other sentences, was actually paired with it in our dataset.
-
-We developped this model during the 
-[Community week using JAX/Flax for NLP & CV](https://discuss.huggingface.co/t/open-to-the-community-community-week-using-jax-flax-for-nlp-cv/7104), 
-organized by Hugging Face. We developped this model as part of the project:
-[Train the Best Sentence Embedding Model Ever with 1B Training Pairs](https://discuss.huggingface.co/t/train-the-best-sentence-embedding-model-ever-with-1b-training-pairs/7354). We benefited from efficient hardware infrastructure to run the project: 7 TPUs v3-8, as well as intervention from Googles Flax, JAX, and Cloud team member about efficient deep learning frameworks.
-
-## Intended uses
-
-Our model is intented to be used as a sentence and short paragraph encoder. Given an input text, it ouptuts a vector which captures 
-the semantic information. The sentence vector may be used for information retrieval, clustering or sentence similarity tasks.
-
-By default, input text longer than 256 word pieces is truncated.
+Note that, for reasons of space, this example does not show a complete cycle of calling a tool and adding the tool call and tool
+results to the chat history so that the model can use them in its next generation. For a full tool calling example, please
+see the [function calling guide](https://huggingface.co/docs/transformers/main/chat_templating#advanced-tool-use--function-calling), 
+and note that Mistral **does** use tool call IDs, so these must be included in your tool calls and tool results. They should be
+exactly 9 alphanumeric characters.
 
 
-## Training procedure
+## Limitations
 
-### Pre-training 
+The Mistral 7B Instruct model is a quick demonstration that the base model can be easily fine-tuned to achieve compelling performance. 
+It does not have any moderation mechanisms. We're looking forward to engaging with the community on ways to
+make the model finely respect guardrails, allowing for deployment in environments requiring moderated outputs.
 
-We use the pretrained [`microsoft/MiniLM-L12-H384-uncased`](https://huggingface.co/microsoft/MiniLM-L12-H384-uncased) model. Please refer to the model card for more detailed information about the pre-training procedure.
+## The Mistral AI Team
 
-### Fine-tuning 
-
-We fine-tune the model using a contrastive objective. Formally, we compute the cosine similarity from each possible sentence pairs from the batch.
-We then apply the cross entropy loss by comparing with true pairs.
-
-#### Hyper parameters
-
-We trained ou model on a TPU v3-8. We train the model during 100k steps using a batch size of 1024 (128 per TPU core).
-We use a learning rate warm up of 500. The sequence length was limited to 128 tokens. We used the AdamW optimizer with
-a 2e-5 learning rate. The full training script is accessible in this current repository: `train_script.py`.
-
-#### Training data
-
-We use the concatenation from multiple datasets to fine-tune our model. The total number of sentence pairs is above 1 billion sentences.
-We sampled each dataset given a weighted probability which configuration is detailed in the `data_config.json` file.
-
-
-| Dataset                                                  | Paper                                    | Number of training tuples  |
-|--------------------------------------------------------|:----------------------------------------:|:--------------------------:|
-| [Reddit comments (2015-2018)](https://github.com/PolyAI-LDN/conversational-datasets/tree/master/reddit) | [paper](https://arxiv.org/abs/1904.06472) | 726,484,430 |
-| [S2ORC](https://github.com/allenai/s2orc) Citation pairs (Abstracts) | [paper](https://aclanthology.org/2020.acl-main.447/) | 116,288,806 |
-| [WikiAnswers](https://github.com/afader/oqa#wikianswers-corpus) Duplicate question pairs | [paper](https://doi.org/10.1145/2623330.2623677) | 77,427,422 |
-| [PAQ](https://github.com/facebookresearch/PAQ) (Question, Answer) pairs | [paper](https://arxiv.org/abs/2102.07033) | 64,371,441 |
-| [S2ORC](https://github.com/allenai/s2orc) Citation pairs (Titles) | [paper](https://aclanthology.org/2020.acl-main.447/) | 52,603,982 |
-| [S2ORC](https://github.com/allenai/s2orc) (Title, Abstract) | [paper](https://aclanthology.org/2020.acl-main.447/) | 41,769,185 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) (Title, Body) pairs  | - | 25,316,456 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) (Title+Body, Answer) pairs  | - | 21,396,559 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) (Title, Answer) pairs  | - | 21,396,559 |
-| [MS MARCO](https://microsoft.github.io/msmarco/) triplets | [paper](https://doi.org/10.1145/3404835.3462804) | 9,144,553 |
-| [GOOAQ: Open Question Answering with Diverse Answer Types](https://github.com/allenai/gooaq) | [paper](https://arxiv.org/pdf/2104.08727.pdf) | 3,012,496 |
-| [Yahoo Answers](https://www.kaggle.com/soumikrakshit/yahoo-answers-dataset) (Title, Answer) | [paper](https://proceedings.neurips.cc/paper/2015/hash/250cf8b51c773f3f8dc8b4be867a9a02-Abstract.html) | 1,198,260 |
-| [Code Search](https://huggingface.co/datasets/code_search_net) | - | 1,151,414 |
-| [COCO](https://cocodataset.org/#home) Image captions | [paper](https://link.springer.com/chapter/10.1007%2F978-3-319-10602-1_48) | 828,395|
-| [SPECTER](https://github.com/allenai/specter) citation triplets | [paper](https://doi.org/10.18653/v1/2020.acl-main.207) | 684,100 |
-| [Yahoo Answers](https://www.kaggle.com/soumikrakshit/yahoo-answers-dataset) (Question, Answer) | [paper](https://proceedings.neurips.cc/paper/2015/hash/250cf8b51c773f3f8dc8b4be867a9a02-Abstract.html) | 681,164 |
-| [Yahoo Answers](https://www.kaggle.com/soumikrakshit/yahoo-answers-dataset) (Title, Question) | [paper](https://proceedings.neurips.cc/paper/2015/hash/250cf8b51c773f3f8dc8b4be867a9a02-Abstract.html) | 659,896 |
-| [SearchQA](https://huggingface.co/datasets/search_qa) | [paper](https://arxiv.org/abs/1704.05179) | 582,261 |
-| [Eli5](https://huggingface.co/datasets/eli5) | [paper](https://doi.org/10.18653/v1/p19-1346) | 325,475 |
-| [Flickr 30k](https://shannon.cs.illinois.edu/DenotationGraph/) | [paper](https://transacl.org/ojs/index.php/tacl/article/view/229/33) | 317,695 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) Duplicate questions (titles) | | 304,525 |
-| AllNLI ([SNLI](https://nlp.stanford.edu/projects/snli/) and [MultiNLI](https://cims.nyu.edu/~sbowman/multinli/) | [paper SNLI](https://doi.org/10.18653/v1/d15-1075), [paper MultiNLI](https://doi.org/10.18653/v1/n18-1101) | 277,230 | 
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) Duplicate questions (bodies) | | 250,519 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) Duplicate questions (titles+bodies) | | 250,460 |
-| [Sentence Compression](https://github.com/google-research-datasets/sentence-compression) | [paper](https://www.aclweb.org/anthology/D13-1155/) | 180,000 |
-| [Wikihow](https://github.com/pvl/wikihow_pairs_dataset) | [paper](https://arxiv.org/abs/1810.09305) | 128,542 |
-| [Altlex](https://github.com/chridey/altlex/) | [paper](https://aclanthology.org/P16-1135.pdf) | 112,696 |
-| [Quora Question Triplets](https://quoradata.quora.com/First-Quora-Dataset-Release-Question-Pairs) | - | 103,663 |
-| [Simple Wikipedia](https://cs.pomona.edu/~dkauchak/simplification/) | [paper](https://www.aclweb.org/anthology/P11-2117/) | 102,225 |
-| [Natural Questions (NQ)](https://ai.google.com/research/NaturalQuestions) | [paper](https://transacl.org/ojs/index.php/tacl/article/view/1455) | 100,231 |
-| [SQuAD2.0](https://rajpurkar.github.io/SQuAD-explorer/) | [paper](https://aclanthology.org/P18-2124.pdf) | 87,599 |
-| [TriviaQA](https://huggingface.co/datasets/trivia_qa) | - | 73,346 |
-| **Total** | | **1,170,060,424** |
+Albert Jiang, Alexandre Sablayrolles, Alexis Tacnet, Antoine Roux, Arthur Mensch, Audrey Herblin-Stoop, Baptiste Bout, Baudouin de Monicault, Blanche Savary, Bam4d, Caroline Feldman, Devendra Singh Chaplot, Diego de las Casas, Eleonore Arcelin, Emma Bou Hanna, Etienne Metzger, Gianna Lengyel, Guillaume Bour, Guillaume Lample, Harizo Rajaona, Jean-Malo Delignon, Jia Li, Justus Murke, Louis Martin, Louis Ternon, Lucile Saulnier, Lélio Renard Lavaud, Margaret Jennings, Marie Pellat, Marie Torelli, Marie-Anne Lachaux, Nicolas Schuhl, Patrick von Platen, Pierre Stock, Sandeep Subramanian, Sophia Yang, Szymon Antoniak, Teven Le Scao, Thibaut Lavril, Timothée Lacroix, Théophile Gervet, Thomas Wang, Valera Nemychnikova, William El Sayed, William Marshall

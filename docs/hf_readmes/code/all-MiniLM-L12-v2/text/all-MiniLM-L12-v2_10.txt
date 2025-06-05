@@ -1,0 +1,17 @@
+
+Note that, for reasons of space, this example does not show a complete cycle of calling a tool and adding the tool call and tool
+results to the chat history so that the model can use them in its next generation. For a full tool calling example, please
+see the [function calling guide](https://huggingface.co/docs/transformers/main/chat_templating#advanced-tool-use--function-calling), 
+and note that Mistral **does** use tool call IDs, so these must be included in your tool calls and tool results. They should be
+exactly 9 alphanumeric characters.
+
+
+## Limitations
+
+The Mistral 7B Instruct model is a quick demonstration that the base model can be easily fine-tuned to achieve compelling performance. 
+It does not have any moderation mechanisms. We're looking forward to engaging with the community on ways to
+make the model finely respect guardrails, allowing for deployment in environments requiring moderated outputs.
+
+## The Mistral AI Team
+
+Albert Jiang, Alexandre Sablayrolles, Alexis Tacnet, Antoine Roux, Arthur Mensch, Audrey Herblin-Stoop, Baptiste Bout, Baudouin de Monicault, Blanche Savary, Bam4d, Caroline Feldman, Devendra Singh Chaplot, Diego de las Casas, Eleonore Arcelin, Emma Bou Hanna, Etienne Metzger, Gianna Lengyel, Guillaume Bour, Guillaume Lample, Harizo Rajaona, Jean-Malo Delignon, Jia Li, Justus Murke, Louis Martin, Louis Ternon, Lucile Saulnier, Lélio Renard Lavaud, Margaret Jennings, Marie Pellat, Marie Torelli, Marie-Anne Lachaux, Nicolas Schuhl, Patrick von Platen, Pierre Stock, Sandeep Subramanian, Sophia Yang, Szymon Antoniak, Teven Le Scao, Thibaut Lavril, Timothée Lacroix, Théophile Gervet, Thomas Wang, Valera Nemychnikova, William El Sayed, William Marshall

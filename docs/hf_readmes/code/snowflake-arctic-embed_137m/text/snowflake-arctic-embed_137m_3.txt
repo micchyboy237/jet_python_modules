@@ -1,5 +1,6 @@
-
-### Using Huggingface transformers
-
-
-You can use the transformers package to use an snowflake-arctic-embed model, as shown below. For optimal retrieval quality, use the CLS token to embed each text portion and use the query prefix below (just on the query).
+Query: what is snowflake?
+0.2747492 The Data Cloud!
+0.19998045 Mexico City of Course!
+Query: Where can I get the best tacos?
+0.29974818 Mexico City of Course!
+0.2344071 The Data Cloud!

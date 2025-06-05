@@ -1,0 +1,15 @@
+
+## Training data
+
+The BERT model was pretrained on the 104 languages with the largest Wikipedias. You can find the complete list
+[here](https://github.com/google-research/bert/blob/master/multilingual.md#list-of-languages).
+
+## Training procedure
+
+### Preprocessing
+
+The texts are lowercased and tokenized using WordPiece and a shared vocabulary size of 110,000. The languages with a
+larger Wikipedia are under-sampled and the ones with lower resources are oversampled. For languages like Chinese,
+Japanese Kanji and Korean Hanja that don't have space, a CJK Unicode block is added around every character. 
+
+The inputs of the model are then of the form:

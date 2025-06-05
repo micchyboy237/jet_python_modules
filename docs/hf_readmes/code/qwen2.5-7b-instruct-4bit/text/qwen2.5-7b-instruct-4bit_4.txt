@@ -1,0 +1,6 @@
+
+### Limitations and bias
+
+Even if the training data used for this model could be characterized as fairly neutral, this model can have biased
+predictions. It also inherits some of
+[the bias of its teacher model](https://huggingface.co/bert-base-uncased#limitations-and-bias).

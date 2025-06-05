@@ -1,30 +1,53 @@
 ---
-license: llama3.1
-datasets:
-- OpenCoder-LLM/opc-sft-stage1
-- OpenCoder-LLM/opc-sft-stage2
-- microsoft/orca-agentinstruct-1M-v1
-- microsoft/orca-math-word-problems-200k
-- NousResearch/hermes-function-calling-v1
-- AI-MO/NuminaMath-CoT
-- AI-MO/NuminaMath-TIR
-- allenai/tulu-3-sft-mixture
-- cognitivecomputations/dolphin-coder
-- HuggingFaceTB/smoltalk
-- cognitivecomputations/samantha-data
-- m-a-p/CodeFeedback-Filtered-Instruction
-- m-a-p/Code-Feedback
-language:
-- en
-base_model: cognitivecomputations/Dolphin3.0-Llama3.1-8B
+language: en
 tags:
-- mlx
+- exbert
+license: apache-2.0
+datasets:
+- bookcorpus
+- wikipedia
 ---
 
-# mlx-community/Dolphin3.0-Llama3.1-8B-4bit
+# BERT base model (cased)
 
-The Model [mlx-community/Dolphin3.0-Llama3.1-8B-4bit](https://huggingface.co/mlx-community/Dolphin3.0-Llama3.1-8B-4bit) was
-converted to MLX format from [cognitivecomputations/Dolphin3.0-Llama3.1-8B](https://huggingface.co/cognitivecomputations/Dolphin3.0-Llama3.1-8B)
-using mlx-lm version **0.20.5**.
+Pretrained model on English language using a masked language modeling (MLM) objective. It was introduced in
+[this paper](https://arxiv.org/abs/1810.04805) and first released in
+[this repository](https://github.com/google-research/bert). This model is case-sensitive: it makes a difference between
+english and English.
 
-## Use with mlx
+Disclaimer: The team releasing BERT did not write a model card for this model so this model card has been written by
+the Hugging Face team.
+
+## Model description
+
+BERT is a transformers model pretrained on a large corpus of English data in a self-supervised fashion. This means it
+was pretrained on the raw texts only, with no humans labelling them in any way (which is why it can use lots of
+publicly available data) with an automatic process to generate inputs and labels from those texts. More precisely, it
+was pretrained with two objectives:
+
+- Masked language modeling (MLM): taking a sentence, the model randomly masks 15% of the words in the input then run
+  the entire masked sentence through the model and has to predict the masked words. This is different from traditional
+  recurrent neural networks (RNNs) that usually see the words one after the other, or from autoregressive models like
+  GPT which internally mask the future tokens. It allows the model to learn a bidirectional representation of the
+  sentence.
+- Next sentence prediction (NSP): the models concatenates two masked sentences as inputs during pretraining. Sometimes
+  they correspond to sentences that were next to each other in the original text, sometimes not. The model then has to
+  predict if the two sentences were following each other or not.
+
+This way, the model learns an inner representation of the English language that can then be used to extract features
+useful for downstream tasks: if you have a dataset of labeled sentences for instance, you can train a standard
+classifier using the features produced by the BERT model as inputs.
+
+## Intended uses & limitations
+
+You can use the raw model for either masked language modeling or next sentence prediction, but it's mostly intended to
+be fine-tuned on a downstream task. See the [model hub](https://huggingface.co/models?filter=bert) to look for
+fine-tuned versions on a task that interests you.
+
+Note that this model is primarily aimed at being fine-tuned on tasks that use the whole sentence (potentially masked)
+to make decisions, such as sequence classification, token classification or question answering. For tasks such as text
+generation you should look at model like GPT2.
+
+### How to use
+
+You can use this model directly with a pipeline for masked language modeling:

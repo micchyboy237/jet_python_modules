@@ -1,2 +1,6 @@
 
-The model can then be used to encode pairs of text
+Note that the model weights are saved in FP16. This type can be changed when the model is loaded using the [`compute_type` option in CTranslate2](https://opennmt.net/CTranslate2/quantization.html).
+
+## More information
+
+**For more information about the original model, see its [model card](https://huggingface.co/openai/whisper-small).**

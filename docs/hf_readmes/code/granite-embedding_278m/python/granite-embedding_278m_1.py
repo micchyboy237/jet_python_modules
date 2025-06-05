@@ -1,22 +1,18 @@
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 
-model_path = "ibm-granite/granite-embedding-278m-multilingual"
-# Load the Sentence Transformer model
-model = SentenceTransformer(model_path)
+model = SentenceTransformer("Snowflake/snowflake-arctic-embed-s")
 
-input_queries = [
-    ' Who made the song My achy breaky heart? ',
-    'summit define'
-    ]
+queries = ['what is snowflake?', 'Where can I get the best tacos?']
+documents = ['The Data Cloud!', 'Mexico City of Course!']
 
-input_passages = [
-    "Achy Breaky Heart is a country song written by Don Von Tress. Originally titled Don't Tell My Heart and performed by The Marcy Brothers in 1991. ",
-    "Definition of summit for English Language Learners. : 1 the highest point of a mountain : the top of a mountain. : 2 the highest level. : 3 a meeting or series of meetings between the leaders of two or more governments."
-    ]
+query_embeddings = model.encode(queries, prompt_name="query")
+document_embeddings = model.encode(documents)
 
-# encode queries and passages
-query_embeddings = model.encode(input_queries)
-passage_embeddings = model.encode(input_passages)
-
-# calculate cosine similarity
-print(util.cos_sim(query_embeddings, passage_embeddings))
+scores = query_embeddings @ document_embeddings.T
+for query, query_scores in zip(queries, scores):
+    doc_score_pairs = list(zip(documents, query_scores))
+    doc_score_pairs = sorted(doc_score_pairs, key=lambda x: x[1], reverse=True)
+    # Output passages & scores
+    print("Query:", query)
+    for document, score in doc_score_pairs:
+        print(score, document)

@@ -1,8 +1,8 @@
 import torch
 from transformers import AutoModel, AutoTokenizer
 
-tokenizer = AutoTokenizer.from_pretrained('Snowflake/snowflake-arctic-embed-m-long')
-model = AutoModel.from_pretrained('Snowflake/snowflake-arctic-embed-m-long', trust_remote_code=True, add_pooling_layer=False, safe_serialization=True)
+tokenizer = AutoTokenizer.from_pretrained('Snowflake/snowflake-arctic-embed-m')
+model = AutoModel.from_pretrained('Snowflake/snowflake-arctic-embed-m', add_pooling_layer=False)
 model.eval()
 
 query_prefix = 'Represent this sentence for searching relevant passages: '

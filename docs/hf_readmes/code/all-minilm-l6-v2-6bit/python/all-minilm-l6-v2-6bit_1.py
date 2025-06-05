@@ -1,14 +1,10 @@
-from mlx_embeddings import load, generate
-import mlx.core as mx
+import transformers
+import torch
 
-model, tokenizer = load("mlx-community/all-MiniLM-L6-v2-6bit")
+model_id = "meta-llama/Llama-3.1-8B"
 
-# For text embeddings
-output = generate(model, processor, texts=["I like grapes", "I like fruits"])
-embeddings = output.text_embeds  # Normalized embeddings
+pipeline = transformers.pipeline(
+    "text-generation", model=model_id, model_kwargs={"torch_dtype": torch.bfloat16}, device_map="auto"
+)
 
-# Compute dot product between normalized embeddings
-similarity_matrix = mx.matmul(embeddings, embeddings.T)
-
-print("Similarity matrix between texts:")
-print(similarity_matrix)
+pipeline("Hey how are you doing today?")

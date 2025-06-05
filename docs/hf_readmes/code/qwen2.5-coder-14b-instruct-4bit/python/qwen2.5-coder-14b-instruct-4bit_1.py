@@ -1,13 +1,19 @@
-from mlx_lm import load, generate
+from transformers import pipeline
+import torch
 
-model, tokenizer = load("mlx-community/Qwen2.5-Coder-14B-Instruct-4bit")
+pipe = pipeline("text-generation", model="google/gemma-3-1b-it", device="cuda", torch_dtype=torch.bfloat16)
 
-prompt="hello"
+messages = [
+    [
+        {
+            "role": "system",
+            "content": [{"type": "text", "text": "You are a helpful assistant."},]
+        },
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "Write a poem on Hugging Face, the company"},]
+        },
+    ],
+]
 
-if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
-    messages = [{"role": "user", "content": prompt}]
-    prompt = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
-
-response = generate(model, tokenizer, prompt=prompt, verbose=True)
+output = pipe(messages, max_new_tokens=50)

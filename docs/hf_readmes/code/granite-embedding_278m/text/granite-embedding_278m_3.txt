@@ -1,5 +1,5 @@
 
-**Usage with Huggingface Transformers:** 
-This is a simple example of how to use the Granite-Embedding-278m-Multilingual model with the Transformers library and PyTorch.
+### Using Huggingface transformers
 
-First, install the required libraries
+
+You can use the transformers package to use an snowflake-arctic-embed model, as shown below. For optimal retrieval quality, use the CLS token to embed each text portion and use the query prefix below (just on the query).

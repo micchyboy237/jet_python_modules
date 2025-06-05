@@ -1,0 +1,4 @@
+
+## Limitations
+
+This model only works for English texts. Long texts will be truncated to at most 512 tokens.

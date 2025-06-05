@@ -1,13 +1,22 @@
-from mlx_lm import load, generate
+from sentence_transformers import SentenceTransformer, util
 
-model, tokenizer = load("mlx-community/Qwen3-4B-4bit-DWQ")
+model_path = "ibm-granite/granite-embedding-278m-multilingual"
+# Load the Sentence Transformer model
+model = SentenceTransformer(model_path)
 
-prompt = "hello"
+input_queries = [
+    ' Who made the song My achy breaky heart? ',
+    'summit define'
+    ]
 
-if tokenizer.chat_template is not None:
-    messages = [{"role": "user", "content": prompt}]
-    prompt = tokenizer.apply_chat_template(
-        messages, add_generation_prompt=True
-    )
+input_passages = [
+    "Achy Breaky Heart is a country song written by Don Von Tress. Originally titled Don't Tell My Heart and performed by The Marcy Brothers in 1991. ",
+    "Definition of summit for English Language Learners. : 1 the highest point of a mountain : the top of a mountain. : 2 the highest level. : 3 a meeting or series of meetings between the leaders of two or more governments."
+    ]
 
-response = generate(model, tokenizer, prompt=prompt, verbose=True)
+# encode queries and passages
+query_embeddings = model.encode(input_queries)
+passage_embeddings = model.encode(input_passages)
+
+# calculate cosine similarity
+print(util.cos_sim(query_embeddings, passage_embeddings))

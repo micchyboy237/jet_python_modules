@@ -1,0 +1,35 @@
+
+Package requirements
+
+`pip install sentence_transformers~=2.2.2`
+
+Contributors: [michaelfeil](https://huggingface.co/michaelfeil)
+
+## FAQ
+
+**1. Do I need to add the prefix "query: " and "passage: " to input texts?**
+
+Yes, this is how the model is trained, otherwise you will see a performance degradation.
+
+Here are some rules of thumb:
+- Use "query: " and "passage: " correspondingly for asymmetric tasks such as passage retrieval in open QA, ad-hoc information retrieval.
+
+- Use "query: " prefix for symmetric tasks such as semantic similarity, paraphrase retrieval.
+
+- Use "query: " prefix if you want to use embeddings as features, such as linear probing classification, clustering.
+
+**2. Why are my reproduced results slightly different from reported in the model card?**
+
+Different versions of `transformers` and `pytorch` could cause negligible but non-zero performance differences.
+
+**3. Why does the cosine similarity scores distribute around 0.7 to 1.0?**
+
+This is a known and expected behavior as we use a low temperature 0.01 for InfoNCE contrastive loss. 
+
+For text embedding tasks like text retrieval or semantic similarity, 
+what matters is the relative order of the scores instead of the absolute values, 
+so this should not be an issue.
+
+## Citation
+
+If you find our paper or models helpful, please consider cite as follows:

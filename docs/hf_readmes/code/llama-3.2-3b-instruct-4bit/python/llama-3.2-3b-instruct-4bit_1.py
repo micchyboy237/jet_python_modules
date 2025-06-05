@@ -1,13 +1,9 @@
-from mlx_lm import load, generate
+from sentence_transformers import CrossEncoder
 
-model, tokenizer = load("mlx-community/Llama-3.2-3B-Instruct-4bit")
-
-prompt = "hello"
-
-if tokenizer.chat_template is not None:
-    messages = [{"role": "user", "content": prompt}]
-    prompt = tokenizer.apply_chat_template(
-        messages, add_generation_prompt=True
-    )
-
-response = generate(model, tokenizer, prompt=prompt, verbose=True)
+model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L6-v2')
+scores = model.predict([
+    ("How many people live in Berlin?", "Berlin had a population of 3,520,031 registered inhabitants in an area of 891.82 square kilometers."),
+    ("How many people live in Berlin?", "Berlin is well known for its museums."),
+])
+print(scores)
+# [ 8.607138 -4.320078]

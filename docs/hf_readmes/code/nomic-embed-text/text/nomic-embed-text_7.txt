@@ -1,2 +1,0 @@
-
-The model natively supports scaling of the sequence length past 2048 tokens. To do so,

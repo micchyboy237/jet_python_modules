@@ -1,40 +1,18 @@
 ---
-language: en
 license: apache-2.0
-library_name: sentence-transformers
-tags:
-- sentence-transformers
-- feature-extraction
-- sentence-similarity
-- transformers
-datasets:
-- s2orc
-- flax-sentence-embeddings/stackexchange_xml
-- ms_marco
-- gooaq
-- yahoo_answers_topics
-- code_search_net
-- search_qa
-- eli5
-- snli
-- multi_nli
-- wikihow
-- natural_questions
-- trivia_qa
-- embedding-data/sentence-compression
-- embedding-data/flickr30k-captions
-- embedding-data/altlex
-- embedding-data/simple-wiki
-- embedding-data/QQP
-- embedding-data/SPECTER
-- embedding-data/PAQ_pairs
-- embedding-data/WikiAnswers
-pipeline_tag: sentence-similarity
+base_model: mistralai/Mistral-7B-v0.3
+extra_gated_description: If you want to learn more about how we process your personal data, please read our <a href="https://mistral.ai/terms/">Privacy Policy</a>.
 ---
 
+# Model Card for Mistral-7B-Instruct-v0.3
 
-# all-MiniLM-L12-v2
-This is a [sentence-transformers](https://www.SBERT.net) model: It maps sentences & paragraphs to a 384 dimensional dense vector space and can be used for tasks like clustering or semantic search.
+The Mistral-7B-Instruct-v0.3 Large Language Model (LLM) is an instruct fine-tuned version of the Mistral-7B-v0.3.
 
-## Usage (Sentence-Transformers)
-Using this model becomes easy when you have [sentence-transformers](https://www.SBERT.net) installed:
+Mistral-7B-v0.3 has the following changes compared to [Mistral-7B-v0.2](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.2/edit/main/README.md)
+- Extended vocabulary to 32768
+- Supports v3 Tokenizer
+- Supports function calling
+
+## Installation
+
+It is recommended to use `mistralai/Mistral-7B-Instruct-v0.3` with [mistral-inference](https://github.com/mistralai/mistral-inference). For HF transformers code snippets, please keep scrolling.

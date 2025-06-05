@@ -1,6 +1,4 @@
 
-### `search_query`
+### Citation
 
-#### Purpose: embed texts as questions to answer
-
-This prefix is used for embedding texts as questions that documents from a dataset could resolve, for example as queries to be answered by a RAG application.
+If you find DeBERTa useful for your work, please cite the following papers:

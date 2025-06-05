@@ -1,0 +1,13 @@
+
+## Training Details
+
+Please refer to our paper at [https://arxiv.org/pdf/2212.03533.pdf](https://arxiv.org/pdf/2212.03533.pdf).
+
+## Benchmark Evaluation
+
+Check out [unilm/e5](https://github.com/microsoft/unilm/tree/master/e5) to reproduce evaluation results 
+on the [BEIR](https://arxiv.org/abs/2104.08663) and [MTEB benchmark](https://arxiv.org/abs/2210.07316).
+
+## Support for Sentence Transformers
+
+Below is an example for usage with sentence_transformers.
