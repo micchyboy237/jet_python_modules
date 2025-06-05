@@ -171,17 +171,35 @@ class TestEmbeddingGenerator:
             "offset_mapping": [(0, 4), (4, 8), (8, 12), (12, 16), (16, 20)]
         }
         mock_tokenizer.return_value.decode.return_value = "chunked text"
+
         generator = EmbeddingGenerator("bert-base-uncased", model_type="auto")
         text = "This is a long text to chunk"
-        expected_chunks = [{
-            "text": "chunked text",
-            "input_ids": [101, 102, 103, 104, 105],
-            "offset_mapping": [(0, 4), (4, 8), (8, 12), (12, 16), (16, 20)],
-            "char_start": 0,
-            "char_end": 20
-        }]
 
-        result_chunks = generator.chunk_text(text, max_length=5, stride=2)
+        expected_chunks = [
+            {
+                "text": "chunked text",
+                "input_ids": [101, 102, 103, 104, 105],
+                "offset_mapping": [(0, 4), (4, 8), (8, 12), (12, 16), (16, 20)],
+                "char_start": 0,
+                "char_end": 20
+            },
+            {
+                "text": "chunked text",
+                "input_ids": [103, 104, 105],
+                "offset_mapping": [(8, 12), (12, 16), (16, 20)],
+                "char_start": 8,
+                "char_end": 20
+            },
+            {
+                "text": "chunked text",
+                "input_ids": [105],
+                "offset_mapping": [(16, 20)],
+                "char_start": 16,
+                "char_end": 20
+            }
+        ]
+
+        result_chunks = generator.chunk_text(text, max_length=5, stride=3)
 
         assert result_chunks == expected_chunks
 
