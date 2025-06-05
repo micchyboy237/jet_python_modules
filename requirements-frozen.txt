@@ -1,13 +1,17 @@
 # .venv/bin/python
 aiohttp==3.12.9
+bs4==0.0.2
+en_core_web_md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl#sha256=5e6329fe3fecedb1d1a02c3ea2172ee0fede6cea6e4aefb6a02d832dba78a310
 en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
 -e git+ssh://git@github.com/ml-explore/mlx-lm.git@3be51537a38e6f5a3284c83b5e568e7f2328e845#egg=mlx_lm
 nltk==3.9.1
 optimum==1.25.3
 pipdeptree==2.26.1
+pytest==8.4.0
 sentence-transformers==4.1.0
 sentencepiece==0.2.0
 spacy==3.8.7
 spacy-lookups-data==1.0.5
 span_marker==1.7.0
 thinc_apple_ops==1.0.0
+Unidecode==1.4.0
