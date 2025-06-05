@@ -40,10 +40,7 @@ def get_embedding_function(
     batch_size: Union[int, None] = None,
     show_progress: bool = False,
 ) -> Callable[[Union[str, List[str]]], Union[List[float], List[List[float]]]]:
-    try:
-        tokenizer = Tokenizer.from_pretrained(model_name)
-    except Exception:
-        tokenizer = Tokenizer.from_pretrained("gpt2")
+    tokenizer = Tokenizer.from_pretrained(model_name)
 
     def tokenize_wrapper(texts: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
         optimal_batch_size = calculate_batch_size(texts, batch_size)
