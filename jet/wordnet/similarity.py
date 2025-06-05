@@ -31,7 +31,7 @@ from tqdm import tqdm
 from jet.wordnet.wordnet_types import FilterResult, SimilarityResult
 from jet.models.embeddings.base import get_embedding_function
 
-DEFAULT_SENTENCE_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
+DEFAULT_SENTENCE_EMBED_MODEL: EmbedModelType = "all-MiniLM-L12-v2"
 
 
 def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, List[str]], *, model_name: EmbedModelType = DEFAULT_SENTENCE_EMBED_MODEL) -> List[float]:
