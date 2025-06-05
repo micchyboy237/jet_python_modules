@@ -1,0 +1,4 @@
+
+## Using Infinity
+
+OpenAI compatible API deployment with [Infinity](https://github.com/michaelfeil/infinity) and Docker.

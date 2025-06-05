@@ -2,7 +2,7 @@ from typing import Dict, List, Optional, Union, Iterator
 from jet.logger import logger
 
 from jet.llm.mlx.config import DEFAULT_MODEL
-from jet.llm.mlx.mlx_types import MLXTokenizer, ModelKey, LLMModelType
+from jet.llm.mlx.mlx_types import MLXTokenizer, LLMModelKey, LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.utils.base import get_model_max_tokens
 from jet.llm.mlx.token_utils import count_tokens, get_tokenizer_fn, merge_texts

@@ -4,12 +4,12 @@ from typing import List, Optional, TypedDict
 
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.client import MLXLMClient
-from jet.llm.mlx.mlx_types import ModelKey
+from jet.llm.mlx.mlx_types import LLMModelKey
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 
 
-MODEL_PATH: ModelKey = "llama-3.2-1b-instruct-4bit"
+MODEL_PATH: LLMModelKey = "llama-3.2-1b-instruct-4bit"
 FEW_SHOT_EXAMPLES = [
     {
         "role": "user",
@@ -33,7 +33,7 @@ You are an AI assistant that follows instructions. You read and understand both 
 """
 MAX_TOKENS = 150
 
-MODEL: ModelKey = "llama-3.2-1b-instruct-4bit"
+MODEL: LLMModelKey = "llama-3.2-1b-instruct-4bit"
 
 mlx = MLX(MODEL)
 
@@ -69,7 +69,7 @@ def parse_response(response: str) -> TagExtractionResult:
 
 def generate_tags(
     texts: List[str],
-    model_path: ModelKey = MODEL_PATH,
+    model_path: LLMModelKey = MODEL_PATH,
     system_prompt: str = SYSTEM_PROMPT,
     few_shot_examples: List[dict] = FEW_SHOT_EXAMPLES,
     max_tokens: int = MAX_TOKENS

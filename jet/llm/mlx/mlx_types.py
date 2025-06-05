@@ -1,4 +1,4 @@
-from typing import Literal, Union, Dict, List, Optional, TypedDict, Any
+from typing import Literal, Union, Dict, List, Optional, TypedDict, Any, get_args
 from enum import Enum
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat
 from transformers import PreTrainedTokenizer
@@ -91,7 +91,7 @@ class ModelTypeEnum(Enum):
 
 
 # Model key types
-ModelKey = Literal[
+LLMModelKey = Literal[
     "dolphin3.0-llama3.1-8b-4bit",
     "llama-3.1-8b-instruct-4bit",
     "llama-3.2-1b-instruct-4bit",
@@ -107,7 +107,7 @@ ModelKey = Literal[
 ]
 
 # Model value types
-ModelValue = Literal[
+LLMModelValue = Literal[
     "mlx-community/Dolphin3.0-Llama3.1-8B-4bit",
     "mlx-community/Llama-3.1-8B-Instruct-4bit",
     "mlx-community/Llama-3.2-1B-Instruct-4bit",
@@ -191,13 +191,39 @@ EmbedModelValue = Literal[
 ]
 
 # Combined llm model type
-# LLMModelType = Union[ModelKey, ModelValue, ModelTypeEnum]
-LLMModelType = Union[ModelKey, ModelValue, ModelTypeEnum]
+# LLMModelType = Union[LLMModelKey, LLMModelValue, ModelTypeEnum]
+LLMModelType = Union[LLMModelKey, LLMModelValue, ModelTypeEnum]
 
 # Combined embed model type
 EmbedModelType = Union[EmbedModelKey, EmbedModelValue, EmbedModelTypeEnum]
 
-ModelType = Union[LLMModelType, EmbedModelType]
+ModelKey = Union[LLMModelKey, EmbedModelKey]
+ModelValue = Union[LLMModelValue, EmbedModelValue]
+ModelType = Union[ModelKey, ModelValue]
+
+
+# Extract Enum classes from the union
+enum_types_in_model_type = [t for t in get_args(
+    ModelType) if isinstance(t, type) and issubclass(t, Enum)]
+
+# All model keys from LLMModelKey + EmbedModelKey inside ModelKey union
+model_keys_list: List[str] = [
+    arg for arg in get_args(ModelKey) if isinstance(arg, str)
+]
+
+
+# All model values from LLMModelValue + EmbedModelValue inside ModelValue union
+model_values_list: List[str] = [
+    arg for arg in get_args(ModelValue) if isinstance(arg, str)
+]
+
+
+# All model types: keys + values + Enum values from ModelTypeEnum and EmbedModelTypeEnum
+model_types_list: List[str] = (
+    [arg for arg in get_args(ModelType) if isinstance(arg, str)] +
+    [e.value for e in ModelTypeEnum] +
+    [e.value for e in EmbedModelTypeEnum]
+)
 
 
 class CompletionResponse(TypedDict):

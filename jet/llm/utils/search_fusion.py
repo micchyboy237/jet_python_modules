@@ -5,7 +5,7 @@ from jet.data.utils import generate_key
 from jet.features.rag_llm_generation import get_embedding_function
 from jet.file.utils import load_file, save_file
 from jet.llm.mlx.base import MLX
-from jet.llm.mlx.mlx_types import EmbedModelType, ModelKey, LLMModelType
+from jet.llm.mlx.mlx_types import EmbedModelType, LLMModelKey, LLMModelType
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 from jet.utils.markdown import extract_block_content

@@ -3,7 +3,7 @@ from typing import Any, Callable, Union, List, Dict, Optional, Literal, TypedDic
 from jet.code.utils import ProcessedResult, process_markdown_file
 from jet.file.utils import load_file, save_file
 from jet.llm.mlx.base import MLX
-from jet.llm.mlx.mlx_types import ModelKey, LLMModelType
+from jet.llm.mlx.mlx_types import LLMModelKey, LLMModelType
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 from jet.utils.markdown import extract_block_content
@@ -22,7 +22,7 @@ import re
 from rank_bm25 import BM25Okapi
 from nltk.tokenize import sent_tokenize, word_tokenize
 
-MODEL: ModelKey = "qwen3-0.6b-4bit"
+MODEL: LLMModelKey = "qwen3-0.6b-4bit"
 mlx = MLX(MODEL)
 
 

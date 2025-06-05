@@ -28,8 +28,8 @@ from jet.llm.mlx.mlx_types import (
     ModelsResponse,
     ModelInfo,
     LLMModelType,
-    ModelKey,
-    ModelValue,
+    LLMModelKey,
+    LLMModelValue,
 )
 from jet.llm.mlx.models import AVAILABLE_MODELS, resolve_model_value
 from jet.utils.inspect_utils import get_entry_file_name
@@ -42,20 +42,21 @@ class MLXLMClient:
     """A client for interacting with MLX-LM models directly in Python."""
 
     @staticmethod
-    def _get_model_value(model: LLMModelType) -> ModelValue:
+    def _get_model_value(model: LLMModelType) -> LLMModelValue:
         """Convert a model key to its full value if it exists in AVAILABLE_MODELS."""
         if not isinstance(model, str):
-            raise ValueError("Model must be a string (ModelKey or ModelValue)")
+            raise ValueError(
+                "Model must be a string (LLMModelKey or LLMModelValue)")
 
-        # Check if the model is a valid ModelValue (full path)
+        # Check if the model is a valid LLMModelValue (full path)
         if model in AVAILABLE_MODELS.values():
             return model  # type: ignore
 
-        # Check if the model is a valid ModelKey (short name)
+        # Check if the model is a valid LLMModelKey (short name)
         if model in AVAILABLE_MODELS:
             return AVAILABLE_MODELS[model]
 
-        # If not found, return the input as is (assuming it's a valid ModelValue)
+        # If not found, return the input as is (assuming it's a valid LLMModelValue)
         return model  # type: ignore
 
     @dataclass
@@ -603,7 +604,7 @@ class MLXLMClient:
         if not isinstance(xtc_threshold, float) or not 0.0 <= xtc_threshold <= 0.5:
             raise ValueError(
                 "xtc_threshold must be a float between 0.0 and 0.5")
-        if not isinstance(model, (str, ModelKey, ModelValue)):
+        if not isinstance(model, (str, LLMModelKey, LLMModelValue)):
             raise ValueError("model must be a string or valid model type")
         if adapter is not None and not isinstance(adapter, str):
             raise ValueError("adapter must be a string")

@@ -6,7 +6,7 @@ import pickle
 import re
 import pandas as pd
 
-from typing import Dict, Optional, Union
+from typing import Any, Dict, Optional, Union
 from jet.logger import logger
 from jet.transformers.object import make_serializable
 from pydantic.main import BaseModel
@@ -78,8 +78,7 @@ def save_json(results, file_path="generated/results.json"):
         raise e
 
 
-def load_file(input_file: str, verbose: bool = True) -> Optional[Union[str, dict, list]]:
-    # Check if file exists
+def load_file(input_file: str, verbose: bool = True) -> Any:
     if not os.path.exists(input_file):
         if verbose:
             logger.warning(f"File does not exist: {input_file}")
@@ -101,7 +100,7 @@ def load_file(input_file: str, verbose: bool = True) -> Optional[Union[str, dict
                 with open(input_file, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
-                        if line:  # Skip empty lines
+                        if line:
                             try:
                                 data.append(json.loads(line))
                             except json.JSONDecodeError as e:
@@ -111,27 +110,17 @@ def load_file(input_file: str, verbose: bool = True) -> Optional[Union[str, dict
                                 return None
 
             if verbose:
-                if isinstance(data, list):
-                    prefix = f"Loaded JSON{'L' if input_file.endswith('.jsonl') else ''} data {len(data)} from:"
-                else:
-                    prefix = f"Loaded JSON{'L' if input_file.endswith('.jsonl') else ''} data from:"
+                prefix = f"Loaded JSON{'L' if input_file.endswith('.jsonl') else ''} data {len(data) if isinstance(data, list) else ''} from:"
                 logger.newline()
-                logger.log(
-                    prefix,
-                    input_file,
-                    colors=["INFO", "BRIGHT_INFO"]
-                )
+                logger.log(prefix, input_file, colors=["INFO", "BRIGHT_INFO"])
             return data
         else:
             with open(input_file, "r", encoding="utf-8") as f:
                 data = f.read()
             if verbose:
                 logger.newline()
-                logger.log(
-                    "Loaded data from:",
-                    input_file,
-                    colors=["INFO", "BRIGHT_INFO"]
-                )
+                logger.log("Loaded data from:", input_file,
+                           colors=["INFO", "BRIGHT_INFO"])
             return data
     except Exception as e:
         if verbose:
@@ -140,16 +129,16 @@ def load_file(input_file: str, verbose: bool = True) -> Optional[Union[str, dict
         raise
 
 
-def save_file(data: Union[str, list, Dict, BaseModel], output_file: Union[str, Path], verbose: bool = True, append: bool = False):
+def save_file(
+    data: Union[str, list, Dict, BaseModel],
+    output_file: Union[str, Path],
+    verbose: bool = True,
+    append: bool = False
+) -> str:
     output_file = str(output_file)
-
-    # Allow only valid file path characters ('/', '.', '-', '_')
     output_file = re.sub(r"[^\w\-/\.]", "", output_file)
-
-    # Ensure directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-    # Write to file
     try:
         if output_file.endswith((".json", ".jsonl")):
             if isinstance(data, str):
@@ -165,7 +154,7 @@ def save_file(data: Union[str, list, Dict, BaseModel], output_file: Union[str, P
             if output_file.endswith(".json"):
                 with open(output_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
-            else:  # .jsonl
+            else:
                 mode = "a" if append and os.path.exists(output_file) else "w"
                 with open(output_file, mode, encoding="utf-8") as f:
                     if isinstance(data, list):
@@ -177,16 +166,13 @@ def save_file(data: Union[str, list, Dict, BaseModel], output_file: Union[str, P
             if verbose:
                 upper_cased_ext = "JSONL" if output_file.endswith(
                     ".jsonl") else "JSON"
+                prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} {upper_cased_ext} data"
                 if isinstance(data, list):
-                    prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} {upper_cased_ext} data {len(data)} to:"
-                else:
-                    prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} {upper_cased_ext} data to:"
+                    prefix += f" {len(data)}"
+                prefix += " to:"
                 logger.newline()
-                logger.log(
-                    prefix,
-                    output_file,
-                    colors=["SUCCESS", "BRIGHT_SUCCESS"]
-                )
+                logger.log(prefix, output_file, colors=[
+                           "SUCCESS", "BRIGHT_SUCCESS"])
         else:
             if not isinstance(data, str):
                 data = str(data)
@@ -194,11 +180,10 @@ def save_file(data: Union[str, list, Dict, BaseModel], output_file: Union[str, P
                 f.write(data)
             if verbose:
                 logger.newline()
-                logger.log(
-                    "Saved data to:",
-                    output_file,
-                    colors=["SUCCESS", "BRIGHT_SUCCESS"]
-                )
+                logger.log("Saved data to:", output_file,
+                           colors=["SUCCESS", "BRIGHT_SUCCESS"])
+
+        return output_file
     except Exception as e:
         if verbose:
             logger.newline()
