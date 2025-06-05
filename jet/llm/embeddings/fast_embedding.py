@@ -159,7 +159,7 @@ class EmbeddingGenerator:
         results = []
         n_batches = math.ceil(len(texts) / batch_size)
         progress_bar = tqdm(self._batch_iterator(
-            texts, batch_size), total=n_batches, desc="Processing span marker model")
+            texts, batch_size), total=n_batches, desc="Encoding span marker model")
 
         for batch in progress_bar:
             try:
@@ -252,11 +252,11 @@ class EmbeddingGenerator:
 
         try:
             if self.model_type == 'sentence_transformer':
-                n_batches = math.ceil(len(documents) / batch_size)
                 embeddings = []
+                batches = list(self._batch_iterator(documents, batch_size))
                 progress_bar = tqdm(
-                    self._batch_iterator(documents, batch_size),
-                    total=n_batches,
+                    batches,
+                    total=len(batches),
                     desc="Encoding sentence transformer"
                 )
                 for batch in progress_bar:
