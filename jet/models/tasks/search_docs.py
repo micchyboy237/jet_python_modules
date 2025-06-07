@@ -138,6 +138,14 @@ if __name__ == "__main__":
         "Gravity is a force that attracts two bodies towards each other.",
         "Beijing is in northern China."
     ]
+
+    # Example single query
+    results_fused = search_docs(
+        queries[0], documents, task, fuse_method="average")
+    print("Single Query Results:")
+    for result in results_fused:
+        print(result)
+
     # Example with fusion
     results_fused = search_docs(
         queries, documents, task, fuse_method="average")

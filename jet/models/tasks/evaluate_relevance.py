@@ -44,7 +44,7 @@ def evaluate_relevance(
     documents,
     task_description,
     model_name="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
-    max_length=8192
+    max_length=1092
 ):
     """
     Evaluates the relevance of documents to queries using embedding similarity.
