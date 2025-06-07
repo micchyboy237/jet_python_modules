@@ -1,6 +1,7 @@
 import uuid
 from typing import List, Union, Literal
 from typing_extensions import TypedDict
+from jet.models.tokenizer.base import get_tokenizer
 import mlx.core as mx
 import numpy as np
 from transformers import AutoTokenizer
@@ -56,7 +57,7 @@ def search_docs(
     if isinstance(queries, str):
         queries = [queries]
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
+    tokenizer = get_tokenizer(model_name)
 
     # Get similarity scores for all queries
     scores = evaluate_relevance(

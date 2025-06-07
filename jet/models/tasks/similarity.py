@@ -1,20 +1,11 @@
 import mlx.core as mx
 import numpy as np
-from transformers import AutoTokenizer
+from jet.models.embeddings.base import get_embedding_function, calculate_batch_size
 from mlx_lm import load
+from typing import Union, List
 
 
 def last_token_pool(last_hidden_states: mx.array, attention_mask: mx.array) -> mx.array:
-    """
-    Pool the last token's hidden state, accounting for padding.
-
-    Args:
-        last_hidden_states: Shape [batch_size, seq_len, hidden_size]
-        attention_mask: Shape [batch_size, seq_len]
-
-    Returns:
-        mx.array: Pooled embeddings, shape [batch_size, hidden_size]
-    """
     left_padding = mx.sum(attention_mask[:, -1]) == attention_mask.shape[0]
     if left_padding:
         return last_hidden_states[:, -1]
@@ -26,66 +17,10 @@ def last_token_pool(last_hidden_states: mx.array, attention_mask: mx.array) -> m
 
 
 def get_detailed_instruct(task_description: str, query: str) -> str:
-    """
-    Format a query with a task description, matching the non-MLX version.
-
-    Args:
-        task_description: Task instruction string
-        query: Query string
-
-    Returns:
-        str: Formatted query string
-    """
     return f"Instruct: {task_description}\nQuery:{query}"
 
 
-def encode_texts(texts, tokenizer, model, max_length=8192, batch_size=32):
-    """
-    Encode a list of texts into embeddings using the MLX model.
-
-    Args:
-        texts: List of text strings to encode
-        tokenizer: Hugging Face tokenizer
-        model: MLX model
-        max_length: Maximum sequence length
-        batch_size: Batch size for encoding
-
-    Returns:
-        mx.array: Embeddings, shape [num_texts, hidden_size]
-    """
-    if not texts:
-        return mx.array([], dtype=mx.float32)
-
-    embeddings = []
-    for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i:i + batch_size]
-        batch_dict = tokenizer(
-            batch_texts,
-            padding=True,
-            truncation=True,
-            max_length=max_length,
-            return_tensors="np"
-        )
-        input_ids = mx.array(batch_dict['input_ids'], dtype=mx.int32)
-        attention_mask = mx.array(batch_dict['attention_mask'], dtype=mx.int32)
-        outputs = model(input_ids)
-        batch_embeddings = last_token_pool(outputs, attention_mask)
-        embeddings.append(batch_embeddings)
-    return mx.concatenate(embeddings, axis=0)
-
-
 def compute_similarity(query_embeddings: mx.array, doc_embeddings: mx.array, normalize: bool = True) -> list:
-    """
-    Compute similarity between query and document embeddings.
-
-    Args:
-        query_embeddings: Shape [num_queries, hidden_size]
-        doc_embeddings: Shape [num_docs, hidden_size]
-        normalize: If True, normalize embeddings for cosine similarity; if False, use raw dot product
-
-    Returns:
-        list: Similarity matrix, shape [num_queries, num_docs]
-    """
     if normalize:
         query_embeddings = query_embeddings / \
             mx.sqrt(mx.sum(query_embeddings * query_embeddings,
@@ -97,59 +32,103 @@ def compute_similarity(query_embeddings: mx.array, doc_embeddings: mx.array, nor
 
 
 def evaluate_similarity(
-    queries,
-    documents,
-    task_description,
-    model_name="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
-    max_length=8192,
-    batch_size=32,
-    normalize=True
-):
-    """
-    Evaluates similarity between queries and documents using the MLX-quantized model.
+    queries: Union[str, List[str]],
+    documents: List[str],
+    task_description: str,
+    model_name: str = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+    max_length: int = 512,
+    batch_size: Union[int, None] = None,
+    show_progress: bool = False,
+    normalize: bool = True
+) -> List[List[float]]:
+    """Evaluate similarity between queries and documents using batched embeddings.
 
     Args:
-        queries (list): List of query strings
-        documents (list): List of document strings
-        task_description (str): Task instruction for query formatting
-        model_name (str): Name of the MLX-quantized model
-        max_length (int): Maximum sequence length for tokenization
-        batch_size (int): Batch size for encoding
-        normalize (bool): If True, normalize embeddings for cosine similarity
+        queries: Single query or list of queries.
+        documents: List of documents to evaluate.
+        task_description: Description of the task for query formatting.
+        model_name: Name of the pre-trained model.
+        max_length: Maximum sequence length for tokenization.
+        batch_size: Batch size for tokenization and inference. If None, calculated dynamically.
+        show_progress: Whether to show a progress bar.
+        normalize: Whether to normalize embeddings before computing similarity.
 
     Returns:
-        list: Similarity matrix [num_queries, num_docs]
+        List of similarity scores for each query-document pair.
     """
-    # Input validation
     if not queries or not documents:
         return [[]]
 
-    # Load tokenizer and model
-    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
+    queries = [queries] if isinstance(queries, str) else queries
     model, _ = load(model_name)
+    embed_func = get_embedding_function(model_name, batch_size, show_progress)
 
-    # Format queries with task description
+    # Format queries and combine with documents
     formatted_queries = [get_detailed_instruct(
         task_description, q) for q in queries]
     input_texts = formatted_queries + documents
 
-    # Encode all texts
-    embeddings = encode_texts(input_texts, tokenizer,
-                              model, max_length, batch_size)
+    # Get token IDs for all texts using embed_func
+    input_ids_list = embed_func(input_texts)
 
-    # Split embeddings into queries and documents
+    # Ensure input_ids_list contains lists
+    if isinstance(input_ids_list, float) or (isinstance(input_ids_list, list) and isinstance(input_ids_list[0], float)):
+        input_ids_list = [input_ids_list] if isinstance(
+            input_ids_list, float) else input_ids_list
+
+    # Calculate batch size for inference
+    optimal_batch_size = calculate_batch_size(input_texts, batch_size)
+
+    # Process texts in batches for model inference
+    embeddings = []
+    for i in range(0, len(input_texts), optimal_batch_size):
+        batch_ids = input_ids_list[i:i + optimal_batch_size]
+
+        # Pad and create attention masks
+        padded_inputs = []
+        attention_masks = []
+        for ids in batch_ids:
+            if not isinstance(ids, list):
+                ids = [ids]  # Handle single float case
+            if len(ids) > max_length:
+                ids = ids[:max_length]
+            padded = ids + [0] * (max_length - len(ids))
+            mask = [1] * len(ids) + [0] * (max_length - len(ids))
+            padded_inputs.append(padded)
+            attention_masks.append(mask)
+
+        # Converting to mx.array
+        input_ids = mx.array(
+            np.array(padded_inputs, dtype=np.int32), dtype=mx.int32)
+        attention_mask = mx.array(
+            np.array(attention_masks, dtype=np.int32), dtype=mx.int32)
+
+        # Model inference
+        outputs = model(input_ids)
+        batch_embeddings = last_token_pool(outputs, attention_mask)
+        embeddings.append(batch_embeddings)
+
+    embeddings = mx.concatenate(embeddings, axis=0)
+    embeddings = embeddings / \
+        mx.sqrt(mx.sum(embeddings * embeddings, axis=1, keepdims=True) + 1e-8)
+
+    # Split embeddings
     query_embeddings = embeddings[:len(queries)]
     doc_embeddings = embeddings[len(queries):]
 
-    # Compute similarity
-    similarity = compute_similarity(
-        query_embeddings, doc_embeddings, normalize=normalize)
-    return similarity
+    # Compute similarity scores in batches
+    scores = []
+    for i in range(0, len(queries), optimal_batch_size):
+        batch_query_embeddings = query_embeddings[i:i + optimal_batch_size]
+        batch_scores = compute_similarity(
+            batch_query_embeddings, doc_embeddings, normalize=normalize)
+        scores.extend(batch_scores)
+
+    return scores
 
 
-# Example usage
 if __name__ == "__main__":
-    model_name = "mlx-community/Qwen3-Embedding-4B-4bit-DWQ"
+    model_name = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
     task = "Given a web search query, retrieve relevant passages that answer the query"
     queries = [
         "What is the capital of China?",
@@ -159,12 +138,9 @@ if __name__ == "__main__":
         "The capital of China is Beijing.",
         "Gravity is a force that attracts two bodies towards each other. It gives weight to physical objects and is responsible for the movement of planets around the sun.",
     ]
-    # With normalization (matches PyTorch behavior)
     similarity_normalized = evaluate_similarity(
-        queries, documents, task, model_name)
+        queries, documents, task, model_name, show_progress=True)
     print("Normalized similarity scores:", similarity_normalized)
-
-    # Without normalization (for comparison)
     similarity_raw = evaluate_similarity(
-        queries, documents, task, normalize=False)
+        queries, documents, task, model_name, normalize=False, show_progress=True)
     print("Raw similarity scores:", similarity_raw)

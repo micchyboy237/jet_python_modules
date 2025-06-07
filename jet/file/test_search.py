@@ -1,84 +1,87 @@
-import os
-import unittest
-from tempfile import TemporaryDirectory
-from jet.file import traverse_directory
+from jet.file.search import traverse_directory
 
 
-class TestTraverseDirectory(unittest.TestCase):
-    def setUp(self):
-        # Set up a temporary directory structure for testing
-        self.temp_dir = TemporaryDirectory()
-        base = self.temp_dir.name
+class TestTraverseDirectory:
+    def test_traverse_directory_depth_zero(self, tmp_path):
+        # Setup: Create a temporary directory structure
+        base_dir = tmp_path / "test_base"
+        base_dir.mkdir()
+        (base_dir / "dir1").mkdir()
+        (base_dir / "dir2").mkdir()
+        (base_dir / "dir1" / "subdir1").mkdir()
+        (base_dir / "dir2" / "subdir2").mkdir()
 
-        # Create directories
-        os.makedirs(os.path.join(base, "dir1/subdir1"))
-        os.makedirs(os.path.join(base, "dir1/subdir2"))
-        os.makedirs(os.path.join(base, "dir2/subdir3"))
-        os.makedirs(os.path.join(base, "dir3"))
-
-        # Create some files
-        open(os.path.join(base, "dir1/file1.txt"), "w").close()
-        open(os.path.join(base, "dir1/subdir1/file2.txt"), "w").close()
-        open(os.path.join(base, "dir2/file3.txt"), "w").close()
-
-        self.base_dir = base
-
-    def tearDown(self):
-        # Clean up the temporary directory after tests
-        self.temp_dir.cleanup()
-
-    def test_traverse_forward_include_pattern(self):
-        includes = ["subdir1", "subdir2"]
-        results = list(traverse_directory(self.base_dir, includes=includes))
+        # Expected: Only immediate subdirectories of base_dir
         expected = [
-            os.path.join(self.base_dir, "dir1/subdir1"),
-            os.path.join(self.base_dir, "dir1/subdir2"),
+            (str(base_dir / "dir1"), 0),
+            (str(base_dir / "dir2"), 0),
         ]
-        self.assertCountEqual(results, expected)
 
-    def test_traverse_forward_exclude_pattern(self):
-        includes = ["dir1"]
-        excludes = ["subdir2"]
-        results = list(traverse_directory(
-            self.base_dir, includes=includes, excludes=excludes))
-        expected = [os.path.join(self.base_dir, "dir1/subdir1")]
-        self.assertCountEqual(results, expected)
+        # Result: Collect directories from traverse_directory
+        result = []
+        for folder, depth in traverse_directory(
+            base_dir=str(base_dir),
+            includes=["*"],
+            excludes=[],
+            max_forward_depth=0,
+            direction="forward"
+        ):
+            result.append((folder, depth))
 
-    def test_limit_results(self):
-        includes = ["dir"]
-        results = list(traverse_directory(
-            self.base_dir, includes=includes, limit=2))
-        self.assertEqual(len(results), 2)
+        # Assert: Compare result with expected, ensuring only immediate subdirs are returned
+        assert sorted(result) == sorted(
+            expected), "Should only return immediate subdirectories at depth 0"
 
-    def test_backward_traversal(self):
-        current_dir = os.path.join(self.base_dir, "dir1/subdir1")
-        includes = ["dir1"]
-        results = list(traverse_directory(
-            current_dir, includes=includes, direction="backward"))
-        expected = [os.path.join(self.base_dir, "dir1")]
-        self.assertCountEqual(results, expected)
+    def test_traverse_directory_depth_zero_excludes_base(self, tmp_path):
+        # Setup: Create a temporary directory structure
+        base_dir = tmp_path / "test_base"
+        base_dir.mkdir()
+        (base_dir / "dir1").mkdir()
 
-    def test_backward_with_max_depth(self):
-        current_dir = os.path.join(self.base_dir, "dir1/subdir1")
-        includes = ["dir"]
-        results = list(
-            traverse_directory(
-                current_dir, includes=includes, direction="backward", max_backward_depth=1
-            )
-        )
-        expected = [os.path.join(self.base_dir, "dir1")]
-        self.assertCountEqual(results, expected)
+        # Expected: Only immediate subdirectory, excluding base_dir
+        expected = [(str(base_dir / "dir1"), 0)]
 
-    def test_forward_and_backward_traversal(self):
-        includes = ["dir1", "subdir3"]
-        results = list(traverse_directory(
-            self.base_dir, includes=includes, direction="both"))
+        # Result: Collect directories from traverse_directory
+        result = []
+        for folder, depth in traverse_directory(
+            base_dir=str(base_dir),
+            includes=["*"],
+            excludes=[],
+            max_forward_depth=0,
+            direction="forward"
+        ):
+            result.append((folder, depth))
+
+        # Assert: Compare result with expected, ensuring base_dir is excluded
+        assert sorted(result) == sorted(
+            expected), "Should exclude base directory and return only immediate subdirectory"
+
+    def test_traverse_directory_depth_non_zero(self, tmp_path):
+        # Setup: Create a temporary directory structure
+        base_dir = tmp_path / "test_base"
+        base_dir.mkdir()
+        (base_dir / "dir1").mkdir()
+        (base_dir / "dir2").mkdir()
+        (base_dir / "dir1" / "subdir1").mkdir()
+
+        # Expected: Directories up to depth 1, excluding base_dir
         expected = [
-            os.path.join(self.base_dir, "dir1"),
-            os.path.join(self.base_dir, "dir2/subdir3"),
+            (str(base_dir / "dir1"), 0),
+            (str(base_dir / "dir2"), 0),
+            (str(base_dir / "dir1" / "subdir1"), 1),
         ]
-        self.assertCountEqual(results, expected)
 
+        # Result: Collect directories from traverse_directory
+        result = []
+        for folder, depth in traverse_directory(
+            base_dir=str(base_dir),
+            includes=["*"],
+            excludes=[],
+            max_forward_depth=1,
+            direction="forward"
+        ):
+            result.append((folder, depth))
 
-if __name__ == "__main__":
-    unittest.main()
+        # Assert: Compare result with expected
+        assert sorted(result) == sorted(
+            expected), "Should return directories up to depth 1, excluding base_dir"

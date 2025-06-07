@@ -1,49 +1,52 @@
 import mlx.core as mx
 import numpy as np
+from jet.models.embeddings.base import get_embedding_function
 from transformers import AutoTokenizer
 from mlx_lm import load
+from typing import Union, List
 
 
 def evaluate_relevance(
-    queries,
-    documents,
-    instruction=None,
-    model_name="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
-    max_length=1024,
-    prefix_str="<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n",
-    suffix_str="<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-):
-    """
-    Evaluates the relevance of documents to queries using a pre-trained model.
+    queries: Union[str, List[str]],
+    documents: List[str],
+    instruction: Union[str, None] = None,
+    model_name: str = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+    max_length: int = 512,
+    prefix_str: str = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n",
+    suffix_str: str = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+    batch_size: Union[int, None] = None,
+    show_progress: bool = False
+) -> List[float]:
+    """Evaluate yes/no relevance of documents to queries using batched embeddings.
 
     Args:
-        queries (list): List of query strings.
-        documents (list): List of document strings.
-        instruction (str, optional): Custom instruction for relevance judgment.
-        model_name (str): Name of the pre-trained model.
-        max_length (int): Maximum sequence length for tokenization.
-        prefix_str (str): Prefix string for input formatting.
-        suffix_str (str): Suffix string for input formatting.
+        queries: Single query or list of queries.
+        documents: List of documents to evaluate.
+        instruction: Optional task instruction. Defaults to web search query relevance.
+        model_name: Name of the pre-trained model.
+        max_length: Maximum sequence length for tokenization.
+        prefix_str: Prefix string for input formatting.
+        suffix_str: Suffix string for input formatting.
+        batch_size: Batch size for tokenization. If None, calculated dynamically.
+        show_progress: Whether to show a progress bar.
 
     Returns:
-        list: List of relevance scores (probabilities of "yes").
+        List of relevance scores (probability of "yes") for each query-document pair.
     """
-    # Load tokenizer and model
+    queries = [queries] if isinstance(queries, str) else queries
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
+    embed_func = get_embedding_function(model_name, batch_size, show_progress)
     model, _ = load(model_name)
 
-    # Get token IDs for "yes" and "no"
+    # Get token IDs for prefix and suffix using AutoTokenizer
+    prefix_ids = tokenizer.encode(prefix_str, add_special_tokens=False)
+    suffix_ids = tokenizer.encode(suffix_str, add_special_tokens=False)
+    num_reserved = len(prefix_ids) + len(suffix_ids)
+
+    # Get token IDs for "yes" and "no" using AutoTokenizer
     token_false_id = tokenizer.convert_tokens_to_ids("no")
     token_true_id = tokenizer.convert_tokens_to_ids("yes")
 
-    # Encode prefix and suffix
-    prefix_tokens = list(tokenizer.encode(
-        prefix_str, padding=True, add_special_tokens=False))
-    suffix_tokens = list(tokenizer.encode(
-        suffix_str, padding=True, add_special_tokens=False))
-    num_reserved = len(prefix_tokens) + len(suffix_tokens)
-
-    # Format input pairs
     default_instruction = 'Given a web search query, retrieve relevant passages that answer the query'
     pairs = [
         "<Instruct>: {instruction}\n<Query>: {query}\n<Document>: {doc}".format(
@@ -54,40 +57,30 @@ def evaluate_relevance(
         for query, doc in zip(queries, documents)
     ]
 
-    # Process inputs
-    inputs = tokenizer(
-        pairs,
-        padding=False,
-        truncation=True,
-        max_length=max_length - num_reserved,
-        return_tensors="np"
-    )
-    input_ids_list = inputs['input_ids'].tolist()
+    # Tokenize pairs using get_embedding_function
+    input_ids_list = embed_func(pairs)
 
+    # Combine with prefix/suffix and pad
     input_ids = []
+    attention_masks = []
     for single_input in input_ids_list:
-        combined = prefix_tokens + list(single_input) + suffix_tokens
+        combined = prefix_ids + single_input + suffix_ids
         if len(combined) > max_length:
-            max_input_len = max_length - \
-                len(prefix_tokens) - len(suffix_tokens)
-            truncated_input = single_input[:max_input_len]
-            combined = prefix_tokens + truncated_input + suffix_tokens
-        input_ids.append(combined)
+            max_input_len = max_length - len(prefix_ids) - len(suffix_ids)
+            combined = prefix_ids + single_input[:max_input_len] + suffix_ids
+        padded = combined + [0] * (max_length - len(combined))
+        mask = [1] * len(combined) + [0] * (max_length - len(combined))
+        input_ids.append(padded)
+        attention_masks.append(mask)
 
-    padded_inputs = tokenizer.pad(
-        {'input_ids': input_ids},
-        padding='max_length',
-        max_length=max_length,
-        return_tensors="np"
-    )
+    # Convert to mx.array
+    input_ids = mx.array(np.array(input_ids, dtype=np.int32), dtype=mx.int32)
+    attention_mask = mx.array(
+        np.array(attention_masks, dtype=np.int32), dtype=mx.int32)
 
-    input_ids = mx.array(padded_inputs['input_ids'], dtype=mx.int32)
-    attention_mask = mx.array(padded_inputs['attention_mask'], dtype=mx.int32)
-    inputs = {'input_ids': input_ids, 'attention_mask': attention_mask}
-
-    # Compute logits
-    logits = model(inputs['input_ids'])
-    batch_scores = logits[:, -1, :]  # Shape: [batch_size, vocab_size]
+    # Model inference
+    logits = model(input_ids)
+    batch_scores = logits[:, -1, :]
     true_vector = batch_scores[:, token_true_id]
     false_vector = batch_scores[:, token_false_id]
     stacked = mx.stack([false_vector, true_vector], axis=1)
@@ -97,7 +90,6 @@ def evaluate_relevance(
     return scores
 
 
-# Example usage
 if __name__ == "__main__":
     task = 'Given a web search query, retrieve relevant passages that answer the query'
     queries = [
@@ -108,5 +100,6 @@ if __name__ == "__main__":
         "The capital of China is Beijing.",
         "Gravity is a force that attracts two bodies towards each other. It gives weight to physical objects and is responsible for the movement of planets around the sun.",
     ]
-    scores = evaluate_relevance(queries, documents, instruction=task)
+    scores = evaluate_relevance(
+        queries, documents, instruction=task, batch_size=32)
     print("Scores:", scores)
