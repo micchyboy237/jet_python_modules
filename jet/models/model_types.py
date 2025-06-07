@@ -101,6 +101,7 @@ LLMModelKey = Literal[
     "qwen2.5-14b-instruct-4bit",
     "qwen2.5-coder-14b-instruct-4bit",
     "qwen3-0.6b-4bit",
+    "qwen3-embedding-0.6b-4bit",
     "qwen3-1.7b-4bit",
     "qwen3-4b-4bit",
     "qwen3-8b-4bit"
@@ -117,6 +118,7 @@ LLMModelValue = Literal[
     "mlx-community/Qwen2.5-14B-Instruct-4bit",
     "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
     "mlx-community/Qwen3-0.6B-4bit-DWQ",
+    "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
     "mlx-community/Qwen3-1.7B-4bit-DWQ",
     "mlx-community/Qwen3-4B-4bit-DWQ",
     "mlx-community/Qwen3-8B-4bit-DWQ"
