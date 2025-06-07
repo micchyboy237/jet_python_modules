@@ -18,7 +18,7 @@ def calculate_batch_size(texts: Union[str, List[str]], batch_size: Union[int, No
     return min(max_sequences, 128)
 
 
-def tokenize_texts(texts: Union[str, List[str]], tokenizer: Tokenizer, batch_size: int, show_progress: bool = False) -> Union[List[float], List[List[float]]]:
+def generate_embeddings(texts: Union[str, List[str]], tokenizer: Tokenizer, batch_size: int, show_progress: bool = False) -> Union[List[float], List[List[float]]]:
     is_single = isinstance(texts, str)
     texts_list = [texts] if is_single else texts
     all_ids = []
@@ -44,6 +44,6 @@ def get_embedding_function(
 
     def tokenize_wrapper(texts: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
         optimal_batch_size = calculate_batch_size(texts, batch_size)
-        return tokenize_texts(texts, tokenizer, optimal_batch_size, show_progress)
+        return generate_embeddings(texts, tokenizer, optimal_batch_size, show_progress)
 
     return tokenize_wrapper

@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from typing import List, Union
-from jet.models.embeddings.base import get_embedding_function, calculate_batch_size, tokenize_texts
+from jet.models.embeddings.base import get_embedding_function, calculate_batch_size, generate_embeddings
 from tokenizers import Tokenizer
 from io import StringIO
 import sys
@@ -33,16 +33,16 @@ class TestCalculateBatchSize:
 
 
 class TestTokenizeTexts:
-    def test_tokenize_texts_bert_single(self):
+    def test_generate_embeddings_bert_single(self):
         model_name = "bert-base-cased"
         input_text = "I can feel the magic, can you?"
         expected = [101, 146, 1169, 1631, 1103,
                     3974, 117, 1169, 1128, 136, 102]
         tokenizer = Tokenizer.from_pretrained(model_name)
-        result = tokenize_texts(input_text, tokenizer, batch_size=1)
+        result = generate_embeddings(input_text, tokenizer, batch_size=1)
         assert result == expected, f"Expected {expected}, got {result}"
 
-    def test_tokenize_texts_sentence_transformer_batch(self):
+    def test_generate_embeddings_sentence_transformer_batch(self):
         model_name = "sentence-transformers/all-MiniLM-L6-v2"
         input_texts = ["This is a test.", "Another sentence."]
         expected = [
@@ -50,24 +50,24 @@ class TestTokenizeTexts:
             [101.0, 2178.0, 6251.0, 1012.0, 102.0] + [0.0] * 123
         ]
         tokenizer = Tokenizer.from_pretrained(model_name)
-        result = tokenize_texts(input_texts, tokenizer, batch_size=2)
+        result = generate_embeddings(input_texts, tokenizer, batch_size=2)
         assert result == expected, f"Expected {expected}, got {result}"
 
-    def test_tokenize_texts_gpt2_single(self):
+    def test_generate_embeddings_gpt2_single(self):
         model_name = "gpt2"
         input_text = "The quick brown fox jumps."
         expected = [464.0, 2068.0, 7586.0, 21831.0, 18045.0, 13.0]
         tokenizer = Tokenizer.from_pretrained(model_name)
-        result = tokenize_texts(input_text, tokenizer, batch_size=1)
+        result = generate_embeddings(input_text, tokenizer, batch_size=1)
         assert result == expected, f"Expected {expected}, got {result}"
 
-    def test_tokenize_texts_progress_tracking(self, capsys):
+    def test_generate_embeddings_progress_tracking(self, capsys):
         model_name = "bert-base-cased"
         input_texts = ["Test sentence."] * 100
         expected_first = [101.0, 5960.0, 5650.0, 119.0, 102.0]
         tokenizer = Tokenizer.from_pretrained(model_name)
         with capsys.disabled():
-            result = tokenize_texts(
+            result = generate_embeddings(
                 input_texts, tokenizer, batch_size=10, show_progress=True)
         assert result[0] == expected_first, f"Expected {expected_first}, got {result[0]}"
 
