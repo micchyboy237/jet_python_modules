@@ -32,7 +32,7 @@ class TestCalculateBatchSize:
         assert result == expected, f"Expected {expected}, got {result}"
 
 
-class TestTokenizeTexts:
+class TestGenerateEmbeddings:
     def test_generate_embeddings_bert_single(self):
         model_name = "bert-base-cased"
         input_text = "I can feel the magic, can you?"
