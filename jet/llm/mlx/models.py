@@ -79,7 +79,6 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "all-minilm-l6-v2-8bit": "mlx-community/all-MiniLM-L6-v2-8bit",
     "all-minilm-l6-v2-6bit": "mlx-community/all-MiniLM-L6-v2-6bit",
     "all-minilm-l6-v2-4bit": "mlx-community/all-MiniLM-L6-v2-4bit",
-    "qwen3-embedding-0.6b-4bit": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
 }
 
 AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
