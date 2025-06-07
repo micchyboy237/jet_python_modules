@@ -21,7 +21,7 @@ class SimilarityResult(TypedDict):
     Represents a single similarity result for a text.
 
     Fields:
-        id: Identifier for the text.
+        id: Identifier for the text. (Use uuid if ids are not provided)
         rank: Rank based on score (1 for highest).
         doc_index: Original index of the text in the input list.
         score: Normalized similarity score.

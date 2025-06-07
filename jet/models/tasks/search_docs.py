@@ -1,113 +1,160 @@
+import uuid
+from typing import List, Union, Literal
+from typing_extensions import TypedDict
 import mlx.core as mx
 import numpy as np
 from transformers import AutoTokenizer
 from mlx_lm import load
+from jet.models.tasks.evaluate_relevance import evaluate_relevance
 
 
-def last_token_pool(last_hidden_states: mx.array, attention_mask: mx.array) -> mx.array:
+class SimilarityResult(TypedDict):
     """
-    Pool the last token's hidden state, accounting for padding.
+    Represents a single similarity result for a text.
+
+    Fields:
+        id: Identifier for the text. (Use uuid if ids are not provided)
+        rank: Rank based on score (1 for highest).
+        doc_index: Original index of the text in the input list.
+        score: Normalized similarity score.
+        text: The compared text (or chunk if long).
+        tokens: Number of tokens from text.
+    """
+    id: str
+    rank: int
+    doc_index: int
+    score: float
+    text: str
+    tokens: int
+
+
+def search_docs(
+    queries: Union[str, List[str]],
+    documents: List[str],
+    task_description: str,
+    model_name: str = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+    max_length: int = 8192,
+    fuse_method: Literal["average", "max", "none"] = "average"
+) -> Union[List[SimilarityResult], List[List[SimilarityResult]]]:
+    """
+    Searches documents for relevance to one or more queries and returns ranked results.
 
     Args:
-        last_hidden_states: Shape [batch_size, seq_len, hidden_size]
-        attention_mask: Shape [batch_size, seq_len]
+        queries: Single query string or list of query strings.
+        documents: List of document strings.
+        task_description: Task instruction for formatting queries.
+        model_name: Name of the pre-trained model.
+        max_length: Maximum sequence length for tokenization.
+        fuse_method: Method to fuse scores across multiple queries ("average", "max", or "none").
+                     If "none", returns a list of lists, with results per query.
 
     Returns:
-        mx.array: Pooled embeddings, shape [batch_size, hidden_size]
+        List of SimilarityResult dictionaries if fuse_method is "average" or "max",
+        or List of Lists of SimilarityResult dictionaries if fuse_method is "none".
     """
-    left_padding = mx.sum(attention_mask[:, -1]) == attention_mask.shape[0]
-    if left_padding:
-        return last_hidden_states[:, -1]
-    else:
-        sequence_lengths = mx.sum(attention_mask, axis=1) - 1
-        batch_size = last_hidden_states.shape[0]
-        indices = mx.stack([mx.arange(batch_size), sequence_lengths], axis=1)
-        return last_hidden_states[indices[:, 0], indices[:, 1]]
+    # Convert single query to list for consistent processing
+    if isinstance(queries, str):
+        queries = [queries]
 
-
-def get_detailed_instruct(task_description: str, query: str) -> str:
-    """
-    Format instruction and query.
-
-    Args:
-        task_description: Task instruction string
-        query: Query string
-
-    Returns:
-        str: Formatted instruction-query string
-    """
-    return f'Instruct: {task_description}\nQuery:{query}'
-
-
-def evaluate_relevance(
-    queries,
-    documents,
-    task_description,
-    model_name="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
-    max_length=8192
-):
-    """
-    Evaluates the relevance of documents to queries using embedding similarity.
-
-    Args:
-        queries (list): List of query strings.
-        documents (list): List of document strings.
-        task_description (str): Task instruction for formatting queries.
-        model_name (str): Name of the pre-trained model.
-        max_length (int): Maximum sequence length for tokenization.
-
-    Returns:
-        list: List of lists containing similarity scores between queries and documents.
-    """
-    # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
-    model, _ = load(model_name)
 
-    # Format queries with task description
-    formatted_queries = [get_detailed_instruct(
-        task_description, q) for q in queries]
-    input_texts = formatted_queries + documents
+    # Get similarity scores for all queries
+    scores = evaluate_relevance(
+        queries, documents, task_description, model_name, max_length)
 
-    # Tokenize inputs
-    batch_dict = tokenizer(
-        input_texts,
-        padding=True,
-        truncation=True,
-        max_length=max_length,
-        return_tensors="np"
-    )
+    # Count tokens for each document
+    tokenized_docs = [
+        tokenizer(doc, truncation=True, max_length=max_length) for doc in documents]
+    token_counts = [len(encoding['input_ids']) for encoding in tokenized_docs]
 
-    # Convert to MLX arrays
-    input_ids = mx.array(batch_dict['input_ids'], dtype=mx.int32)
-    attention_mask = mx.array(batch_dict['attention_mask'], dtype=mx.int32)
+    if fuse_method == "none":
+        # Return separate results for each query
+        all_results = []
+        for query_scores in scores:
+            # Create list of tuples with (index, score, text, tokens) for this query
+            results = [
+                (i, score, documents[i], token_counts[i])
+                for i, score in enumerate(query_scores)
+            ]
+            # Sort by score in descending order to assign ranks
+            results.sort(key=lambda x: x[1], reverse=True)
+            # Create SimilarityResult list for this query
+            query_results = [
+                {
+                    'id': str(uuid.uuid4()),
+                    'rank': rank + 1,
+                    'doc_index': doc_index,
+                    'score': float(score),  # Convert to Python float
+                    'text': text,
+                    'tokens': tokens
+                }
+                for rank, (doc_index, score, text, tokens) in enumerate(results)
+            ]
+            all_results.append(query_results)
+        return all_results
 
-    # Compute embeddings
-    outputs = model(input_ids)
-    embeddings = last_token_pool(outputs, attention_mask)
+    # Fuse scores based on fuse_method
+    if fuse_method == "average":
+        fused_scores = np.mean(scores, axis=0).tolist()
+    elif fuse_method == "max":
+        fused_scores = np.max(scores, axis=0).tolist()
+    else:
+        raise ValueError("fuse_method must be 'average', 'max', or 'none'")
 
-    # Normalize embeddings
-    embeddings = embeddings / \
-        mx.sqrt(mx.sum(embeddings * embeddings, axis=1, keepdims=True))
+    # Create list of tuples with (index, score, text, tokens)
+    results = [
+        (i, score, documents[i], token_counts[i])
+        for i, score in enumerate(fused_scores)
+    ]
 
-    # Compute similarity scores
-    query_embeddings = embeddings[:len(queries)]
-    doc_embeddings = embeddings[len(queries):]
-    scores = mx.matmul(query_embeddings, doc_embeddings.T)
+    # Sort by score in descending order to assign ranks
+    results.sort(key=lambda x: x[1], reverse=True)
 
-    return scores.tolist()
+    # Create SimilarityResult list
+    similarity_results: List[SimilarityResult] = [
+        {
+            'id': str(uuid.uuid4()),
+            'rank': rank + 1,
+            'doc_index': doc_index,
+            'score': float(score),  # Convert to Python float
+            'text': text,
+            'tokens': tokens
+        }
+        for rank, (doc_index, score, text, tokens) in enumerate(results)
+    ]
+
+    return similarity_results
 
 
 # Example usage
 if __name__ == "__main__":
-    model_name = "mlx-community/Qwen3-Embedding-4B-4bit-DWQ"
     task = 'Given a web search query, retrieve relevant passages that answer the query'
     queries = [
         "What is the capital of China?",
-        "Explain gravity",
+        "Where is Beijing located?"
     ]
     documents = [
         "The capital of China is Beijing.",
-        "Gravity is a force that attracts two bodies towards each other. It gives weight to physical objects and is responsible for the movement of planets around the sun.",
+        "Gravity is a force that attracts two bodies towards each other.",
+        "Beijing is in northern China."
     ]
-    scores = evaluate_relevance(queries, documents, task, model_name)
-    print("Scores:", scores)
+    # Example with fusion
+    results_fused = search_docs(
+        queries, documents, task, fuse_method="average")
+    print("Fused Results (average):")
+    for result in results_fused:
+        print(result)
+
+    results_fused = search_docs(queries, documents, task, fuse_method="max")
+    print("Fused Results (max):")
+    for result in results_fused:
+        print(result)
+
+    # Example without fusion
+    results_non_fused = search_docs(
+        queries, documents, task, fuse_method="none")
+    print("\nNon-Fused Results:")
+    for i, query_results in enumerate(results_non_fused):
+        print(f"\nQuery {i+1}: {queries[i]}")
+        for result in query_results:
+            print(result)
