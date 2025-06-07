@@ -1,30 +1,48 @@
-# Custom
+# Custom editable installs from Old
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/starlette
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core
 # -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres
 # -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/text-splitters
 
-# .venv/bin/python
+# Editable VCS installs
+# -e git+ssh://git@github.com/ml-explore/mlx-lm.git@e673a97c80a5e1108aff93113ff2ee8df49918e0#egg=mlx_lm
+mlx-lm @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-lm
+-e git+ssh://git@github.com/langchain-ai/langchain-postgres.git@4c86319607d8181d7c2891961c680ed5a0f8d588#egg=langchain_postgres
+-e git+ssh://git@github.com/EleutherAI/lm-evaluation-harness.git@fc5019ead53c45119c522c62e8eea2daa837c56e#egg=lm_eval
+
+# Direct links to spacy models
+en_core_web_md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl#sha256=5e6329fe3fecedb1d1a02c3ea2172ee0fede6cea6e4aefb6a02d832dba78a310
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
+
+# Packages (new takes precedence)
+aiohttp==3.12.9
 airportsdata==20241001
 annoy==1.17.3
 APScheduler==3.11.0
+blake3==1.0.5
 bm25s==0.2.5
+bs4==0.0.2
+cachetools==6.0.0
 camoufox==0.3.10
 chonkie==0.5.0
 colbert-ai==0.2.21
+compressed-tensors==0.9.4
 deepeval==2.9.1
 deeplake==3.9.37
+depyf==0.18.0
 docutils==0.21.2
+einops==0.8.1
 elasticsearch==8.16.0
 email_validator==2.2.0
-en_core_web_md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl#sha256=5e6329fe3fecedb1d1a02c3ea2172ee0fede6cea6e4aefb6a02d832dba78a310
-en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
 eval_type_backport==0.2.2
 evidently==0.7.5
-faiss-cpu==1.9.0.post1
+faiss-cpu==1.11.0
 fake-useragent==1.5.1
-fastapi-sso==0.10.0
+fastapi
+fastapi-cli
+fastapi-sso
 faster-whisper==1.1.1
 feedparser==6.0.11
 FlagEmbedding==1.3.4
@@ -32,10 +50,10 @@ flair==0.15.1
 fqdn==1.5.1
 future==1.0.0
 geoip2==4.8.1
+gguf==0.17.0
 gliner-spacy==0.0.11
 gradio==5.29.0
 grequests==0.7.0
-gTTS==2.5.4
 guidance==0.1.16
 gunicorn==22.0.0
 gymnasium==1.0.0
@@ -50,35 +68,43 @@ jupyter==1.1.1
 keybert==0.9.0
 langchain-chroma==0.2.2
 langchain-huggingface==0.1.2
--e git+ssh://git@github.com/langchain-ai/langchain-postgres.git@4c86319607d8181d7c2891961c680ed5a0f8d588#egg=langchain_postgres
 langchain-text-splitters==0.3.2
 langfuse==2.60.5
 language_tool_python==2.9.3
 lark==1.2.2
-llama_cpp_python==0.3.8
+llama_cpp_python==0.3.9
+llguidance==0.7.29
 llama-parse==0.6.1
--e git+ssh://git@github.com/EleutherAI/lm-evaluation-harness.git@fc5019ead53c45119c522c62e8eea2daa837c56e#egg=lm_eval
+lm-format-enforcer==0.10.11
 logfire-api==3.14.0
 lxml_html_clean==0.4.1
 macmouse==0.7.4
 Markdown==3.7
+matplotlib==3.10.3
 mdit-py-plugins==0.4.2
 mem0ai==0.1.36
+mistral_common==1.5.6
 mitmproxy==11.0.2
-mlx-lm @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-lm
 MouseInfo==0.1.3
 mpi4py==4.0.3
 mypy-boto3-bedrock-runtime==1.38.4
 neo4j==5.27.0
-# opencv-python==4.10.0.84
+openai==1.84.0
 openpyxl==3.1.5
+opentelemetry-exporter-otlp==1.34.0
+opentelemetry-semantic-conventions-ai==0.4.9
+optimum==1.25.3
+opencv-python-headless==4.11.0.86
 opik==1.7.21
-outlines_core==0.1.20
+outlines
+outlines_core
+partial-json-parser==0.2.1.1.post5
 patchright
 pdfminer.six==20240706
 peewee-migrate==1.13.0
 pip-autoremove==0.10.0
 pipdeptree==2.26.1
+prometheus-fastapi-instrumentator==7.1.0
 psycopg2-binary==2.9.10
 pycountry==24.6.1
 pygame==2.6.1
@@ -92,7 +118,11 @@ PyQt6==6.8.1
 pyquery==2.0.1
 PyScreeze==1.0.1
 PyStemmer==2.2.0.3
+pytest-benchmark==5.1.0
 pytest-playwright==0.7.0
+python-dotenv==1.1.0
+python-json-logger==3.3.0
+python-multipart==0.0.20
 pytrec_eval==0.5
 pyttsx3==2.98
 pytweening==1.2.0
@@ -102,22 +132,27 @@ rank-bm25==0.2.2
 rq==2.3.2
 rumps==0.4.0
 scrapy-selenium4==1.0.0
+sentence-transformers==4.1.0
+spacy==3.8.7
 spacy-curated-transformers==0.3.0
+spacy-lookups-data==1.0.5
 span_marker==1.7.0
 sqlite-utils==3.38
 streamlit==1.41.1
 textstat==0.7.5
 thefuzz==0.22.1
+thinc_apple_ops==1.0.0
 tinycss2==1.4.0
-torchaudio==2.5.1
-torchvision==0.20.1
+torchaudio==2.7.0
+torchvision==0.22.0
 trafilatura==2.0.0
 trustcall==0.0.39
-Unidecode==1.3.8
+Unidecode==1.4.0
 uri-template==1.3.0
 uvloop==0.21.0
-watchfiles==1.0.0
+watchfiles==1.0.5
 webcolors==24.11.1
 webdriver-manager==4.0.2
+websockets==15.0.1
 wikipedia==1.4.0
 yt-dlp==2025.3.31
