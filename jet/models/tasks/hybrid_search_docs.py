@@ -99,7 +99,7 @@ def get_original_document(doc_id, documents):
 
 
 def search_docs(
-    documents,
+    file_path,
     query,
     embedder_model="all-MiniLM-L12-v2",
     cross_encoder_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
@@ -109,6 +109,9 @@ def search_docs(
     rerank_top_k=5,
     batch_size=8
 ):
+    # Load documents
+    documents = load_documents(file_path)
+
     # Split documents into chunks
     logger.info("Splitting %d documents into chunks", len(documents))
     chunks = []
@@ -191,3 +194,16 @@ def search_docs(
             seen_doc_ids.add(doc_id)
 
     return results
+
+
+if __name__ == "__main__":
+    docs_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/features/generated/run_search_and_rerank/docs.json"
+    query = "List all ongoing and upcoming isekai anime 2025."
+    results = search_docs(docs_file, query)
+    for result in results:
+        print(f"Rank {result['rank']} (Document ID {result['doc_id']}):")
+        print(f"Embedding Score: {result['embedding_score']:.4f}")
+        print(f"Rerank Score: {result['rerank_score']:.4f}")
+        print(f"Chunk Preview: {result['chunk_preview']}")
+        print(f"Headers: {result['headers']}")
+        print(f"Original Document:\n{result['original_document']}\n")
