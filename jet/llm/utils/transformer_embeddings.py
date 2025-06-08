@@ -58,8 +58,8 @@ def generate_embeddings(
     texts: Union[str, List[str]],
     batch_size: Optional[int] = None,
     normalize: bool = True,
-    _model: Optional[AutoModel] = None,
-    _tokenizer: Optional[AutoTokenizer] = None,
+    model: Optional[AutoModel] = None,
+    tokenizer: Optional[AutoTokenizer] = None,
     use_tqdm: Optional[bool] = None,
     chunk_size: Optional[int] = None,
     aggregate: bool = True
@@ -74,8 +74,8 @@ def generate_embeddings(
     ) else "cuda" if torch.cuda.is_available() else "cpu"
     embed_model = resolve_model_key(model_key)
     model_id = AVAILABLE_EMBED_MODELS[embed_model]
-    tokenizer = _tokenizer or AutoTokenizer.from_pretrained(model_id)
-    model = _model or AutoModel.from_pretrained(
+    tokenizer = tokenizer or AutoTokenizer.from_pretrained(model_id)
+    model = model or AutoModel.from_pretrained(
         model_id, torch_dtype=torch.float16).to(device)
     model.eval()
 
@@ -183,8 +183,8 @@ def get_embedding_function(
             texts=texts,
             batch_size=batch_size,
             normalize=normalize,
-            _model=model,
-            _tokenizer=tokenizer,
+            model=model,
+            tokenizer=tokenizer,
             chunk_size=chunk_size
         )
     return embedding_function

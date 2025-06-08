@@ -55,8 +55,8 @@ class HeaderMetadata(TypedDict, total=False):
 
 
 class HeaderDocument(Document):
-    id: Optional[str] = Field(
-        default=None, description="Unique identifier for the document")
+    id: Optional[str] = Field(None,
+                              description="Unique identifier for the document")
 
     def __init__(self, **data: Any):
         # Make a defensive copy to avoid modifying input
@@ -134,8 +134,8 @@ class HeaderDocument(Document):
 
 
 class HeaderTextNode(TextNode):
-    id: Optional[str] = Field(
-        default=None, description="Unique identifier for the text node")
+    id: Optional[str] = Field(None,
+                              description="Unique identifier for the text node")
     text_template: str = Field(
         default="{parent_header}\n{header}\n\n{metadata_str}\n\n{content}")
 

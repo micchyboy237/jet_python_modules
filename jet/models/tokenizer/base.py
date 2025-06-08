@@ -1,6 +1,8 @@
 from tokenizers import Tokenizer
-from typing import Callable, Union, List
+from typing import Callable, Dict, Union, List
 import numpy as np
+
+from jet.models.model_types import ModelType
 
 
 def get_tokenizer(model_name: str) -> Tokenizer:
@@ -57,3 +59,19 @@ def detokenize(
     if isinstance(token_ids[0], int):
         return tokenizer.decode(token_ids)
     return [tokenizer.decode(ids) for ids in token_ids]
+
+
+def count_tokens(model_name_or_tokenizer: Union[str, Tokenizer], messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
+    if not messages:
+        return 0
+
+    if isinstance(messages, list):
+        messages = [str(t) for t in messages]
+
+    tokenize = get_tokenizer_fn(model_name_or_tokenizer)
+    tokenized = tokenize(messages)
+    if isinstance(messages, str):
+        return len(tokenized)
+    else:
+        token_counts = [len(item) for item in tokenized]
+        return sum(token_counts) if not prevent_total else token_counts

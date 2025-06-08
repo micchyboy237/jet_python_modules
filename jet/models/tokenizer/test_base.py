@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from tokenizers import Tokenizer
-from jet.models.tokenizer.base import get_tokenizer, get_tokenizer_fn, tokenize
+from jet.models.tokenizer.base import count_tokens, get_tokenizer, get_tokenizer_fn, tokenize
 
 
 class TestGetTokenizer:
@@ -64,4 +64,78 @@ class TestTokenize:
             get_tokenizer(model_name).encode(text, add_special_tokens=True).ids
             for text in input_texts
         ]
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+
+class TestCountTokens:
+    @pytest.fixture
+    def tokenizer_name(self):
+        return "bert-base-uncased"
+
+    def test_count_tokens_empty_input(self, tokenizer_name):
+        """Test count_tokens with empty input."""
+        messages = []
+        result = count_tokens(tokenizer_name, messages)
+        expected = 0
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_count_tokens_single_string(self, tokenizer_name):
+        """Test count_tokens with a single string input."""
+        messages = "Hello world"
+        tokenizer = get_tokenizer(tokenizer_name)
+        expected = len(tokenizer.encode(messages, add_special_tokens=True).ids)
+        result = count_tokens(tokenizer_name, messages)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_count_tokens_list_of_strings(self, tokenizer_name):
+        """Test count_tokens with a list of strings, summing token counts."""
+        messages = ["Hello world", "Test sentence"]
+        tokenizer = get_tokenizer(tokenizer_name)
+        expected = sum(
+            len(tokenizer.encode(text, add_special_tokens=True).ids)
+            for text in messages
+        )
+        result = count_tokens(tokenizer_name, messages)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_count_tokens_list_of_strings_prevent_total(self, tokenizer_name):
+        """Test count_tokens with a list of strings and prevent_total=True."""
+        messages = ["Hello world", "Test sentence"]
+        tokenizer = get_tokenizer(tokenizer_name)
+        expected = [
+            len(tokenizer.encode(text, add_special_tokens=True).ids)
+            for text in messages
+        ]
+        result = count_tokens(tokenizer_name, messages, prevent_total=True)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_count_tokens_list_of_dicts(self, tokenizer_name):
+        """Test count_tokens with a list of dictionaries, summing token counts."""
+        messages = [{"text": "Hello world"}, {"text": "Test sentence"}]
+        tokenizer = get_tokenizer(tokenizer_name)
+        expected = sum(
+            len(tokenizer.encode(str(text), add_special_tokens=True).ids)
+            for text in messages
+        )
+        result = count_tokens(tokenizer_name, messages)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_count_tokens_list_of_dicts_prevent_total(self, tokenizer_name):
+        """Test count_tokens with a list of dictionaries and prevent_total=True."""
+        messages = [{"text": "Hello world"}, {"text": "Test sentence"}]
+        tokenizer = get_tokenizer(tokenizer_name)
+        expected = [
+            len(tokenizer.encode(str(text), add_special_tokens=True).ids)
+            for text in messages
+        ]
+        result = count_tokens(tokenizer_name, messages, prevent_total=True)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_count_tokens_with_tokenizer_instance(self, tokenizer_name):
+        """Test count_tokens with a Tokenizer instance."""
+        messages = "Hello world"
+        tokenizer_instance = get_tokenizer(tokenizer_name)
+        expected = len(tokenizer_instance.encode(
+            messages, add_special_tokens=True).ids)
+        result = count_tokens(tokenizer_instance, messages)
         assert result == expected, f"Expected {expected}, but got {result}"

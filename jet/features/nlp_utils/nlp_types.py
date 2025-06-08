@@ -23,3 +23,6 @@ class Matched(TypedDict):
     sentence_idx: int
     sentence: str
     ngrams: List[NgramOccurrence]
+
+
+MatchedKeywords = Dict[str, List[WordOccurrence]]

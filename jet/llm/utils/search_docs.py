@@ -2,7 +2,8 @@ from jet.llm.utils.transformer_embeddings import generate_embeddings
 from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 import atexit
 from jet.llm.mlx.mlx_types import EmbedModelType
-from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS, get_embedding_size, resolve_model_key
+from jet.models.constants import AVAILABLE_EMBED_MODELS
+from jet.models.utils import resolve_model_key
 import numpy as np
 from typing import List, Optional, TypedDict, Union, Callable, Tuple
 from functools import lru_cache
@@ -39,7 +40,7 @@ class SimilarityResult(TypedDict):
 def search_docs(
     query: str,
     documents: List[str],
-    model: EmbedModelType = "all-minilm:33m",
+    model: EmbedModelType = "all-MiniLM-L12-v2",
     top_k: Optional[int] = 10,
     batch_size: Optional[int] = None,
     normalize: bool = True,
@@ -52,7 +53,7 @@ def search_docs(
     Args:
         query: The query string to search for.
         documents: List of documents to search through.
-        model: Embedding model to use (default: "all-minilm:33m").
+        model: Embedding model to use (default: "all-MiniLM-L12-v2").
         top_k: Number of top results to return (default: 10).
         batch_size: Batch size for embedding generation (default: None).
         normalize: Whether to normalize embeddings (default: True).
@@ -85,12 +86,18 @@ def search_docs(
     # Initialize tokenizer for token counting
     embed_model = resolve_model_key(model)
     model_id = AVAILABLE_EMBED_MODELS[embed_model]
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    device = "mps" if torch.backends.mps.is_available(
+    ) else "cuda" if torch.cuda.is_available() else "cpu"
+
+    _model = AutoModel.from_pretrained(
+        model_id, torch_dtype=torch.float16).to(device)
+    _tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     query_embedding = generate_embeddings(
-        model, query, batch_size, normalize, chunk_size=chunk_size)
+        model, query, batch_size, normalize, chunk_size=chunk_size, model=_model, tokenizer=_tokenizer)
     doc_embeddings = generate_embeddings(
-        model, documents, batch_size, normalize, chunk_size=chunk_size)
+        model, documents, batch_size, normalize, chunk_size=chunk_size, model=_model, tokenizer=_tokenizer)
 
     query_embedding = np.array(query_embedding)
     doc_embeddings = np.array(doc_embeddings)
@@ -127,7 +134,7 @@ def search_docs(
     for rank, idx in enumerate(top_indices, start=1):
         doc_text = documents[idx]
         # Count tokens for the document
-        tokens = len(tokenizer.encode(doc_text, add_special_tokens=True))
+        tokens = len(_tokenizer.encode(doc_text, add_special_tokens=True))
         # Use provided ID if available, otherwise default to f"doc_{idx}"
         doc_id = ids[idx] if ids is not None else f"doc_{idx}"
         result = SimilarityResult(

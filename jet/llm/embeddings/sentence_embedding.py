@@ -1,5 +1,4 @@
 from typing import List, Union, Callable, Optional
-from jet.llm.mlx.helpers.base import load_model
 from jet.llm.mlx.mlx_types import ModelType
 from jet.llm.mlx.models import resolve_model_value
 import numpy as np
@@ -7,6 +6,138 @@ from sentence_transformers import SentenceTransformer
 import torch
 from transformers import PreTrainedTokenizer, BatchEncoding
 from jet.logger import logger
+
+# Standalone reusable functions
+
+# Check for MPS availability (for M1 optimization)
+device = torch.device(
+    "mps") if torch.backends.mps.is_available() else torch.device("cpu")
+logger.info(f"Using device: {device}")
+
+
+def load_model(model_name: ModelType):
+    model_id = resolve_model_value(model_name)
+    model = SentenceTransformer(model_id)
+    model = model.to(device)  # Move model to MPS or CPU
+    return model
+
+
+def generate_embeddings(
+    model_name: ModelType,
+    text: Union[str, List[str]]
+) -> Union[List[float], List[List[float]]]:
+    """Get embeddings for a single string or list of strings using the provided model."""
+    _model = load_model(model_name)
+
+    encoded: np.ndarray = _model.encode(
+        [text] if isinstance(text, str) else text, batch_size=8
+    )
+    return encoded[0].tolist() if isinstance(text, str) else [vec.tolist() for vec in encoded]
+
+
+def get_embedding_function(
+    model_name: ModelType
+) -> Callable[[Union[str, List[str]]], Union[List[float], List[List[float]]]]:
+    """Returns an embedding function for the specified model name."""
+    _model = load_model(model_name)
+
+    def embed(text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
+        encoded: np.ndarray = _model.encode(
+            [text] if isinstance(text, str) else text, batch_size=8
+        )
+        return encoded[0].tolist() if isinstance(text, str) else [vec.tolist() for vec in encoded]
+
+    return embed
+
+
+def get_token_counts(
+    model_name: ModelType,
+    texts: Union[str, List[str]]
+) -> Union[int, List[int]]:
+    """Returns token counts using batch_encode_plus."""
+    _model = load_model(model_name)
+    tokenizer = _model.tokenizer
+    single = isinstance(texts, str)
+    texts = [texts] if single else texts
+
+    encoded: BatchEncoding = tokenizer.batch_encode_plus(
+        texts, add_special_tokens=True
+    )
+    counts = [len(input_ids) for input_ids in encoded['input_ids']]
+    return counts[0] if single else counts
+
+
+def get_token_counts_alt(
+    model_name: ModelType,
+    texts: Union[str, List[str]]
+) -> Union[int, List[int]]:
+    """Returns token counts using tokenizer directly."""
+    _model = load_model(model_name)
+    tokenizer = _model.tokenizer
+    single = isinstance(texts, str)
+    texts = [texts] if single else texts
+
+    encoded_ids: List[List[int]] = tokenizer(
+        texts, add_special_tokens=True
+    )['input_ids']
+    counts = [len(input_ids) for input_ids in encoded_ids]
+    return counts[0] if single else counts
+
+
+def tokenize(
+    model_name: ModelType,
+    text: Union[str, List[str]]
+) -> Union[List[int], List[List[int]]]:
+    """Tokenizes a single string or list of strings, returns token IDs."""
+    _model = load_model(model_name)
+    tokenizer = _model.tokenizer
+    encoded = tokenizer(text, add_special_tokens=True)
+    return encoded['input_ids']
+
+
+def tokenize_strings(
+    model_name: ModelType,
+    text: Union[str, List[str]]
+) -> Union[List[str], List[List[str]]]:
+    """Returns tokens as readable strings using convert_ids_to_tokens."""
+    _model = load_model(model_name)
+    tokenizer = _model.tokenizer
+    ids = tokenize(model_name, text)
+    if isinstance(text, str):
+        return tokenizer.convert_ids_to_tokens(ids)
+    return [tokenizer.convert_ids_to_tokens(seq) for seq in ids]
+
+
+def get_tokenizer_fn(
+    model_name: ModelType
+) -> Callable[[Union[str, List[str]]], Union[List[int], List[List[int]]]]:
+    """Returns a pre-configured tokenizer function with special tokens added."""
+    _model = load_model(model_name)
+    tokenizer = _model.tokenizer
+
+    def token_fn(text: Union[str, List[str]]) -> Union[List[int], List[List[int]]]:
+        return tokenizer(text, add_special_tokens=True)['input_ids']
+    return token_fn
+
+
+def get_tokenizer(model_name: ModelType) -> PreTrainedTokenizer:
+    """Returns the tokenizer object for the specified model."""
+    _model = load_model(model_name)
+    return _model.tokenizer
+
+
+def decode(
+    model_name: ModelType,
+    token_ids: Union[List[int], List[List[int]]],
+    *args,
+    **kwargs
+) -> Union[str, List[str]]:
+    """Decodes token IDs back to text for a single sequence or list of sequences."""
+    _model = load_model(model_name)
+    tokenizer = _model.tokenizer
+    if isinstance(token_ids, list) and isinstance(token_ids[0], list):
+        return tokenizer.batch_decode(token_ids, skip_special_tokens=True, *args, **kwargs)
+    return tokenizer.decode(token_ids, skip_special_tokens=True, *args, **kwargs)
 
 
 class Tokenizer:

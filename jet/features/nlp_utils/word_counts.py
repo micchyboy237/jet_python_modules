@@ -6,7 +6,7 @@ from nltk import word_tokenize, pos_tag
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 
-from jet.features.nlp_utils.nlp_types import WordOccurrence
+from jet.features.nlp_utils.nlp_types import WordOccurrence, MatchedKeywords
 from jet.wordnet.sentence import split_sentences
 
 
@@ -17,7 +17,7 @@ def get_word_counts_lemmatized(
     min_count: int = 1,
     as_score: bool = False,
     percent_threshold: float = 0.0
-) -> Union[Dict[str, List[WordOccurrence]], List[Dict[str, List[WordOccurrence]]]]:
+) -> Union[MatchedKeywords, List[MatchedKeywords]]:
     lemmatizer = WordNetLemmatizer()
     stop_words = set(stopwords.words('english'))
     pos_mapping = {
