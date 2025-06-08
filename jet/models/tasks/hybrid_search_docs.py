@@ -188,7 +188,7 @@ def search_docs(
                 "rerank_score": rerank_score,
                 "text": chunk["text"],
                 "headers": chunk["headers"],
-                "original_document": original_doc if original_doc else "Not found"
+                "text": original_doc if original_doc else "Not found"
             }
             results.append(result)
             seen_doc_ids.add(doc_id)
@@ -205,5 +205,4 @@ if __name__ == "__main__":
         print(f"Embedding Score: {result['embedding_score']:.4f}")
         print(f"Rerank Score: {result['rerank_score']:.4f}")
         print(f"Headers: {result['headers']}")
-        print(f"Original Document:\n{result['original_document']}\n")
         print(f"Text: {result['text']}")
