@@ -8,7 +8,7 @@ from jet.models.tasks.task_types import SimilarityResult, RerankResult
 
 
 def initialize_model(model_path: Optional[str] = None) -> Llama:
-    model_path = model_path or "/Users/jethroestrada/Downloads/Qwen3-Embedding-0.6B-f16.gguf"
+    model_path = model_path or "/Users/jethroestrada/.cache/huggingface/hub/models--Qwen--Qwen3-Embedding-0.6B-GGUF/snapshots/8aa0010e73a1075e99dfc213a475a60fd971bbe7/Qwen3-Embedding-0.6B-f16.gguf"
     return Llama(
         model_path=model_path,
         embedding=True,
