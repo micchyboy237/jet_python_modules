@@ -48,7 +48,7 @@ AVAILABLE_LLM_MODELS: Dict[LLMModelKey, LLMModelValue] = {
     "llama-3.1-8b": "meta-llama/Llama-3.1-8B",
     "llama-3.2-1b": "meta-llama/Llama-3.2-1B",
     "llama-3.2-3b": "meta-llama/Llama-3.2-3B",
-    "qwen3-0.6b": "mlx-community/Qwen3-0.6B-4bit",
+    "qwen3-0.6b-4bit": "mlx-community/Qwen3-0.6B-4bit",
     "qwen3-1.7b": "mlx-community/Qwen3-1.7B-3bit",
     "qwen3-4b": "mlx-community/Qwen3-4B-3bit",
     "qwen1.5-0.5b-chat-4bit": "mlx-community/Qwen1.5-0.5B-Chat-4bit",

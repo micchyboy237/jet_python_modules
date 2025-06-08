@@ -83,4 +83,4 @@ def calculate_n_ctx(model_name: ModelType, messages: str | List[str] | List[Dict
     model_embedding_size = get_embedding_size(model_name)
 
     n_ctx = min(largest_size + 32, model_embedding_size)
-    return n_ctx
+    return max(n_ctx, 128)

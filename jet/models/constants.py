@@ -52,7 +52,7 @@ AVAILABLE_LLM_MODELS: Dict[LLMModelKey, LLMModelValue] = {
     "llama-3.1-8b": "meta-llama/Llama-3.1-8B",
     "llama-3.2-1b": "meta-llama/Llama-3.2-1B",
     "llama-3.2-3b": "meta-llama/Llama-3.2-3B",
-    "qwen3-0.6b": "mlx-community/Qwen3-0.6B-4bit",
+    "qwen3-0.6b-4bit": "mlx-community/Qwen3-0.6B-4bit",
     "qwen3-1.7b": "mlx-community/Qwen3-1.7B-3bit",
     "qwen3-4b": "mlx-community/Qwen3-4B-3bit",
     "qwen1.5-0.5b-chat-4bit": "mlx-community/Qwen1.5-0.5B-Chat-4bit",
@@ -120,6 +120,8 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "qwen2.5-14b-instruct-4bit": 32768,
     "qwen2.5-7b-instruct-4bit": 32768,
     "qwen2.5-coder-14b-instruct-4bit": 32768,
+    "qwen3-0.6b-4bit": 40960,
+    "qwen3-1.7b-4bit": 40960,
     "qwen3-4b-4bit": 40960,
     "qwen3-8b-4bit": 40960,
     "qwen3-embedding-0.6b-4bit": 32768,
@@ -131,6 +133,7 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "all-MiniLM-L12-v2": 512,
     "all-MiniLM-L6-v2": 512,
     "all-mpnet-base-v2": 514,
+    "paraphrase-MiniLM-L12-v2": 512,
     "paraphrase-multilingual": 512
 }
 
@@ -152,6 +155,8 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "qwen2.5-14b-instruct-4bit": 5120,
     "qwen2.5-7b-instruct-4bit": 3584,
     "qwen2.5-coder-14b-instruct-4bit": 5120,
+    "qwen3-0.6b-4bit": 1024,
+    "qwen3-1.7b-4bit": 2048,
     "qwen3-4b-4bit": 2560,
     "qwen3-8b-4bit": 4096,
     "qwen3-embedding-0.6b-4bit": 1024,
@@ -163,5 +168,6 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "all-MiniLM-L12-v2": 384,
     "all-MiniLM-L6-v2": 384,
     "all-mpnet-base-v2": 768,
+    "paraphrase-MiniLM-L12-v2": 384,
     "paraphrase-multilingual": 384
 }
