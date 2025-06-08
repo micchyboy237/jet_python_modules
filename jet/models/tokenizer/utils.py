@@ -75,7 +75,7 @@ def calculate_max_length(texts: Union[str, List[str]], model_name_or_tokenizer: 
 
 def calculate_n_ctx(model_name: ModelType, messages: str | List[str] | List[Dict]):
     tokenizer = get_tokenizer(model_name)
-    if isinstance(messages, str):
+    if not isinstance(messages, list):
         messages = [messages]
     token_counts: list[int] = count_tokens(
         tokenizer, messages, prevent_total=True)
