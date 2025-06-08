@@ -186,7 +186,6 @@ def search_docs(
                 "doc_id": doc_id,
                 "embedding_score": embed_score,
                 "rerank_score": rerank_score,
-                "text": chunk["text"],
                 "headers": chunk["headers"],
                 "text": original_doc if original_doc else "Not found"
             }
