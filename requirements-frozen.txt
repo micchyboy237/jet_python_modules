@@ -36,6 +36,7 @@ peewee-migrate==1.13.0
 pip-autoremove==0.10.0
 pipdeptree==2.26.1
 prometheus-fastapi-instrumentator==7.1.0
+psycopg==3.2.9
 psycopg2-binary==2.9.10
 pygame==2.6.1
 PyGetWindow==0.0.9

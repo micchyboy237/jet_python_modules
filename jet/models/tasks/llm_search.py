@@ -13,7 +13,8 @@ def search_docs(
     queries: List[str],
     documents: List[str],
     task_description: str,
-    max_length: int = 512
+    max_length: int = 512,
+    ids: List[str] = []
 ) -> List[List[SimilarityResult]]:
     """
     Search documents for relevance to queries using embeddings and return ranked results.
@@ -24,16 +25,19 @@ def search_docs(
         documents: List of document strings to search.
         task_description: Description of the task for query formatting.
         max_length: Maximum token length for encoding.
+        ids: Optional list of IDs for documents. Must match length of documents if provided.
 
     Returns:
         List of lists of SimilarityResult, one list per query, sorted by score (descending).
 
     Raises:
-        ValueError: If queries or documents are empty, or embeddings have inconsistent shapes.
+        ValueError: If queries or documents are empty, or if ids length does not match documents.
         RuntimeError: If embedding or similarity computation fails.
     """
     if not queries or not documents:
         raise ValueError("Queries and documents must not be empty")
+    if ids and len(ids) != len(documents):
+        raise ValueError("Length of ids must match length of documents")
 
     try:
         # Format queries with task description
@@ -67,7 +71,7 @@ def search_docs(
                 tokens = len(model.tokenize(
                     documents[doc_idx].encode('utf-8'), add_bos=True))
                 result: SimilarityResult = {
-                    'id': str(uuid.uuid4()),
+                    'id': ids[doc_idx] if ids else str(uuid.uuid4()),
                     'rank': rank,
                     'doc_index': int(doc_idx),
                     'score': float(query_scores[doc_idx]),
@@ -80,38 +84,3 @@ def search_docs(
 
     except Exception as e:
         raise RuntimeError(f"Error during search: {str(e)}")
-
-
-# Example usage and test
-if __name__ == "__main__":
-    model_path = "/Users/jethroestrada/Downloads/Qwen3-Embedding-0.6B-f16.gguf"
-    model = Llama(
-        model_path=model_path,
-        embedding=True,
-        n_ctx=2048,
-        n_threads=4,
-        n_gpu_layers=0,
-        verbose=False
-    )
-    task = 'Given a web search query, retrieve relevant passages that answer the query'
-    queries = [
-        'What is the capital of China?',
-        # 'Explain gravity'
-    ]
-    documents = [
-        "The capital of China is Beijing.",
-        "China is a country in East Asia with a rich history.",
-        "Gravity is a force that attracts two bodies towards each other."
-    ]
-
-    try:
-        results = search_docs(model, queries, documents, task)
-        for query_idx, query_results in enumerate(results):
-            print(f"\nQuery: {queries[query_idx]}")
-            for res in query_results:
-                print(
-                    f"Rank: {res['rank']}, Score: {res['score']:.4f}, Text: {res['text']}")
-    except Exception as e:
-        print(f"Error: {str(e)}")
-    finally:
-        model.close()

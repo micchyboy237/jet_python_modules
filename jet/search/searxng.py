@@ -10,12 +10,13 @@ from jet.logger import logger
 from .filters import filter_relevant, filter_by_date, deduplicate_results, sort_by_score
 from .formatters import decode_encoded_characters
 from jet.cache.redis import RedisConfigParams
-
+from jet.data.utils import generate_key
 
 DEFAULT_REDIS_PORT = 3101
 
 
 class SearchResult(TypedDict):
+    id: str
     url: str
     title: str
     content: str
@@ -77,7 +78,13 @@ def fetch_search_results(query_url: str, headers: dict, params: dict) -> QueryRe
     logger.info(json.dumps(params, indent=2))
     response = requests.get(query_url, headers=headers, params=params)
     response.raise_for_status()
-    return response.json()
+    results = response.json()
+
+    # Add id to each result using generate_key based on URL
+    for result in results.get("results", []):
+        result["id"] = generate_key(result["url"])
+
+    return results
 
 
 def format_min_date(min_date: datetime) -> datetime:

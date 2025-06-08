@@ -1,10 +1,24 @@
 import uuid
-from typing import List, TypedDict
+from typing import List, Optional, TypedDict
 import numpy as np
 from llama_cpp import Llama
 from sklearn.preprocessing import normalize
 from tqdm import tqdm
 from jet.models.tasks.task_types import SimilarityResult, RerankResult
+
+
+def initialize_model(model_path: Optional[str] = None) -> Llama:
+    model_path = model_path or "/Users/jethroestrada/Downloads/Qwen3-Embedding-0.6B-f16.gguf"
+    return Llama(
+        model_path=model_path,
+        embedding=True,
+        n_ctx=512,
+        n_threads=8,
+        n_gpu_layers=-1,
+        n_threads_batch=8,
+        no_perf=True,      # Disable performance timings
+        verbose=True
+    )
 
 
 def last_token_pool(embeddings: np.ndarray) -> np.ndarray:

@@ -1,3 +1,7 @@
+import uuid
+from llama_index.core.schema import Document, TextNode, MetadataMode
+from pydantic import Field
+from typing import Any, List, TypedDict, cast
 from llama_index.core.schema import Document as BaseDocument, MetadataMode, TextNode
 from typing import Any, List, Optional, TypedDict, cast
 from pydantic import BaseModel, Field
@@ -37,10 +41,11 @@ class Document(BaseDocument):
 
 
 class HeaderMetadata(TypedDict, total=False):
+    id: str | None
     doc_index: int
     header_level: int
     header: str
-    parent_header: str | None
+    parent_header: str
     content: str
     chunk_index: int | None
     token_count: int | None
@@ -50,26 +55,48 @@ class HeaderMetadata(TypedDict, total=False):
 
 
 class HeaderDocument(Document):
+    id: Optional[str] = Field(
+        default=None, description="Unique identifier for the document")
+
     def __init__(self, **data: Any):
-        super().__init__(text=data["text"])
-        self.metadata_separator = "\n"
+        # Make a defensive copy to avoid modifying input
         data = data.copy()
-        metadata = data.pop("metadata")
-        default_metadata: HeaderMetadata = {
-            **data,
-            "doc_index": data.get("doc_index", 0),
-            "header_level": data.get("header_level", 0),
-            "header": data.get("header", ""),
-            "parent_header": data.get("parent_header", None),
-            "content": data.get("content", ""),
-            "chunk_index": data.get("chunk_index", None),
-            "token_count": data.get("token_count", None),
-            "source_url": data.get("source_url", None),
-            "links": data.get("links", None),
-            "texts": data.get("texts", None),
-            **metadata
+        # Pop for parent initialization
+        text = data.pop("text", "")
+        # Pass all remaining data to parent, including id
+        super().__init__(text=text, **data)
+
+        # Pop metadata after parent initialization
+        metadata = data.pop("metadata", None)
+
+        # Define default metadata values
+        default_values = {
+            "doc_index": 0,
+            "header_level": 0,
+            "header": "",
+            "parent_header": "",
+            "content": "",
+            "chunk_index": None,
+            "token_count": None,
+            "source_url": None,
+            "links": None,
+            "texts": None,
         }
-        self.metadata = default_metadata  # type: ignore
+
+        # Merge metadata (if valid) with defaults, prioritizing metadata
+        metadata_dict = metadata if isinstance(metadata, dict) else {}
+        default_metadata = {
+            **default_values,
+            **data,  # Include any extra keys from data
+            **metadata_dict,  # Metadata overrides defaults and data
+        }
+
+        # Ensure metadata["id"] matches id
+        id = data.pop("id", self.id_)
+        default_metadata["id"] = id
+        self.id = id  # Explicit for clarity
+        self.node_id = id
+        self.metadata = HeaderMetadata(**default_metadata)
 
     def __getitem__(self, key: str) -> Any:
         """Allow direct dictionary-like access to instance attributes or metadata."""
@@ -80,11 +107,9 @@ class HeaderDocument(Document):
 
     def __iter__(self):
         """Enable **obj unpacking by yielding key-value pairs for attributes and metadata."""
-        # Yield instance attributes
         for attr in ["text", "metadata", "metadata_separator"]:
             if hasattr(self, attr):
                 yield attr, getattr(self, attr)
-        # Yield metadata key-value pairs
         metadata = cast(HeaderMetadata, self.metadata)
         for key, value in metadata.items():
             if value is not None:  # Only include non-None metadata
@@ -109,17 +134,21 @@ class HeaderDocument(Document):
 
 
 class HeaderTextNode(TextNode):
+    id: Optional[str] = Field(
+        default=None, description="Unique identifier for the text node")
     text_template: str = Field(
         default="{parent_header}\n{header}\n\n{metadata_str}\n\n{content}")
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # Defensive copy of kwargs
+        kwargs = kwargs.copy()
+        # Pass all args and kwargs to parent, including id
         super().__init__(*args, **kwargs)
         default_metadata: HeaderMetadata = {
-            **kwargs,
             "doc_index": 0,
             "header_level": 0,
             "header": "",
-            "parent_header": None,
+            "parent_header": "",
             "content": "",
             "chunk_index": None,
             "token_count": None,
@@ -127,8 +156,13 @@ class HeaderTextNode(TextNode):
             "texts": None,
         }
         provided_metadata = kwargs.get("metadata", {})
+        # Ensure metadata["id"] matches self.id_
+        id = kwargs.pop("id", self.id_)
+        default_metadata["id"] = id
+        self.id = id  # Explicit for clarity
+        self.node_id = id
         self.metadata = {**default_metadata, **
-                         provided_metadata}  # type: ignore
+                         provided_metadata, "id": id}
 
     def __getitem__(self, key: str) -> Any:
         """Allow direct dictionary-like access to instance attributes or metadata."""
@@ -139,11 +173,9 @@ class HeaderTextNode(TextNode):
 
     def __iter__(self):
         """Enable **obj unpacking by yielding key-value pairs for attributes and metadata."""
-        # Yield instance attributes
         for attr in ["text", "metadata", "metadata_template", "metadata_separator", "text_template"]:
             if hasattr(self, attr):
                 yield attr, getattr(self, attr)
-        # Yield metadata key-value pairs
         metadata = cast(HeaderMetadata, self.metadata)
         for key, value in metadata.items():
             if value is not None:  # Only include non-None metadata
@@ -166,7 +198,7 @@ class HeaderTextNode(TextNode):
         if self.text.startswith(metadata["header"]):
             content = "\n".join(self.text.splitlines()[1:])
         return self.text_template.format(
-            parent_header=metadata["parent_header"] or "",
+            parent_header=metadata["parent_header"],
             header=metadata["header"],
             content=content,
             metadata_str=metadata_str
@@ -174,9 +206,9 @@ class HeaderTextNode(TextNode):
 
     def get_metadata_str(self, mode: MetadataMode = MetadataMode.ALL) -> str:
         metadata = cast(HeaderMetadata, self.metadata)
-        usable_metadata_keys = ["doc_index", "chunk_index"]
+        usable_metadata_keys = ["id", "doc_index", "chunk_index"]
         if mode == MetadataMode.EMBED:
-            usable_metadata_keys = []
+            usable_metadata_keys = ["parent_header", "header"]
         metadata_str = self.metadata_separator.join(
             [
                 self.metadata_template.format(
