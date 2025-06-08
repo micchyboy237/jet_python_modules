@@ -14,7 +14,8 @@ def search_docs(
     documents: List[str],
     task_description: str,
     max_length: int = 512,
-    ids: List[str] = []
+    ids: List[str] = [],
+    threshold: float = 0.0
 ) -> List[List[SimilarityResult]]:
     """
     Search documents for relevance to queries using embeddings and return ranked results.
@@ -26,9 +27,11 @@ def search_docs(
         task_description: Description of the task for query formatting.
         max_length: Maximum token length for encoding.
         ids: Optional list of IDs for documents. Must match length of documents if provided.
+        threshold: Minimum similarity score to include a document in results (default: 0.0).
 
     Returns:
-        List of lists of SimilarityResult, one list per query, sorted by score (descending).
+        List of lists of SimilarityResult, one list per query, sorted by score (descending),
+        including only documents with scores above the threshold.
 
     Raises:
         ValueError: If queries or documents are empty, or if ids length does not match documents.
@@ -67,18 +70,23 @@ def search_docs(
             # Sort documents by score (descending)
             sorted_indices = np.argsort(query_scores)[::-1]
             query_results: List[SimilarityResult] = []
-            for rank, doc_idx in enumerate(sorted_indices, 1):
+            rank = 1
+            for doc_idx in sorted_indices:
+                score = float(query_scores[doc_idx])
+                if score < threshold:
+                    continue
                 tokens = len(model.tokenize(
                     documents[doc_idx].encode('utf-8'), add_bos=True))
                 result: SimilarityResult = {
                     'id': ids[doc_idx] if ids else str(uuid.uuid4()),
                     'rank': rank,
                     'doc_index': int(doc_idx),
-                    'score': float(query_scores[doc_idx]),
+                    'score': score,
                     'text': documents[doc_idx],
                     'tokens': tokens
                 }
                 query_results.append(result)
+                rank += 1
             results.append(query_results)
         return results
 
