@@ -5,20 +5,29 @@ from llama_cpp import Llama
 from sklearn.preprocessing import normalize
 from tqdm import tqdm
 from jet.models.tasks.task_types import SimilarityResult, RerankResult
+from jet.models.tokenizer.base import get_tokenizer, count_tokens
+from jet.models.tokenizer.utils import calculate_n_ctx
+from jet.models.utils import get_embedding_size
 
 
-def initialize_model(model_path: Optional[str] = None) -> Llama:
+def initialize_model(model_path: Optional[str] = None, documents: List[str] = []) -> Llama:
     model_path = model_path or "/Users/jethroestrada/.cache/huggingface/hub/models--Qwen--Qwen3-Embedding-0.6B-GGUF/snapshots/8aa0010e73a1075e99dfc213a475a60fd971bbe7/Qwen3-Embedding-0.6B-f16.gguf"
-    return Llama(
-        model_path=model_path,
-        embedding=True,
-        n_ctx=512,
-        n_threads=8,
-        n_gpu_layers=-1,
-        n_threads_batch=8,
-        no_perf=True,      # Disable performance timings
-        verbose=True
-    )
+    model_name = "mlx-community/Qwen3-0.6B-4bit"
+
+    n_ctx = calculate_n_ctx(model_name, documents)
+
+    settings = {
+        "model_path": model_path,
+        "embedding": True,
+        "n_ctx": n_ctx,
+        "n_threads": 4,
+        "n_gpu_layers": -1,
+        "n_threads_batch": 64,
+        "no_perf": True,      # Disable performance timings
+        "verbose": True,
+        "flash_attn": True,
+    }
+    return Llama(**settings)
 
 
 def last_token_pool(embeddings: np.ndarray) -> np.ndarray:

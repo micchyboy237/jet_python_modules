@@ -1,6 +1,7 @@
 # Custom editable installs from Old
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/starlette
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama-cpp-python
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core
 # -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres

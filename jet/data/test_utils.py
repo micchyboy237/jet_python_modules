@@ -1,54 +1,68 @@
-import unittest
-import re
-from utils import generate_key
+import json
+import pytest
+import hashlib
+import time
+from jet.data.utils import generate_key, generate_unique_hash, hash_text
 
 
-class TestGenerateKey(unittest.TestCase):
-    def setUp(self):
-        self.uuid_pattern = re.compile(
-            r'^[a-f0-9]{8}-[a-f0-9]{4}-[5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$', re.IGNORECASE
-        )
+class TestGenerateKey:
+    def test_generate_key_with_args(self):
+        """Test generate_key with positional arguments."""
+        expected = 36  # Length of UUID string
+        result = len(generate_key("test", 123))
+        assert result == expected, f"Expected key length {expected}, got {result}"
 
-    def test_uuid_format(self):
-        """Ensure generate_key produces a valid UUID format."""
-        key = generate_key("test", 123)
-        self.assertTrue(self.uuid_pattern.match(
-            key), f"Invalid UUID format: {key}")
+        # Verify sorting behavior
+        key1 = generate_key("test", 123)
+        time.sleep(0.01)  # Ensure timestamp difference
+        key2 = generate_key("test", 123)
+        expected_order = [key1, key2]
+        result_order = sorted([key2, key1])
+        assert result_order == expected_order, f"Expected {expected_order}, got {result_order}"
 
-    def test_deterministic_output(self):
-        """Ensure the same input always produces the same UUID."""
-        key1 = generate_key("user", 12345)
-        key2 = generate_key("user", 12345)
-        self.assertEqual(
-            key1, key2, "UUID should be deterministic for the same inputs")
+    def test_generate_key_with_kwargs(self):
+        """Test generate_key with keyword arguments."""
+        expected = 36  # Length of UUID string
+        result = len(generate_key(name="test", value=456))
+        assert result == expected, f"Expected key length {expected}, got {result}"
 
-    def test_different_inputs_produce_different_keys(self):
-        """Ensure different inputs produce different UUIDs."""
-        key1 = generate_key("user", 12345)
-        key2 = generate_key("admin", 67890)
-        self.assertNotEqual(
-            key1, key2, "Different inputs should produce different UUIDs")
+        # Verify sorting behavior
+        key1 = generate_key(name="test", value=456)
+        time.sleep(0.01)
+        key2 = generate_key(name="test", value=456)
+        expected_order = [key1, key2]
+        result_order = sorted([key2, key1])
+        assert result_order == expected_order, f"Expected {expected_order}, got {result_order}"
 
-    def test_edge_case_empty_input(self):
-        """Ensure function handles empty input correctly."""
-        key = generate_key()
-        self.assertTrue(self.uuid_pattern.match(
-            key), f"Invalid UUID format for empty input: {key}")
-
-    def test_uuid_length(self):
-        """Ensure the generated UUID has the correct length of 36 characters."""
-        key = generate_key("test", 456)
-        self.assertEqual(len(key), 36, f"UUID length mismatch: {key}")
-
-    def test_uuid_character_counts(self):
-        """Ensure the correct number of characters appear between hyphens."""
-        key = generate_key("test", 789)
-        parts = key.split("-")
-        expected_lengths = [8, 4, 4, 4, 12]
-        actual_lengths = [len(part) for part in parts]
-        self.assertEqual(actual_lengths, expected_lengths,
-                         f"UUID parts length mismatch: {key}")
+    def test_generate_key_invalid_input(self):
+        """Test generate_key with non-serializable input."""
+        with pytest.raises(ValueError) as exc_info:
+            generate_key(lambda x: x)  # Non-serializable input
+        expected = "Invalid argument provided"
+        result = str(exc_info.value)
+        assert expected in result, f"Expected error message containing {expected}, got {result}"
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestGenerateUniqueHash:
+    def test_generate_unique_hash(self):
+        """Test generate_unique_hash produces a valid UUID."""
+        expected = 36  # Length of UUID v4 string
+        result = len(generate_unique_hash())
+        assert result == expected, f"Expected hash length {expected}, got {result}"
+
+
+class TestHashText:
+    def test_hash_text_string(self):
+        """Test hash_text with a single string."""
+        input_text = "hello"
+        expected = hashlib.sha256(json.dumps(input_text).encode()).hexdigest()
+        result = hash_text(input_text)
+        assert result == expected, f"Expected hash {expected}, got {result}"
+
+    def test_hash_text_list(self):
+        """Test hash_text with a list of strings."""
+        input_text = ["hello", "world"]
+        expected = hashlib.sha256(json.dumps(
+            input_text, sort_keys=True).encode()).hexdigest()
+        result = hash_text(input_text)
+        assert result == expected, f"Expected hash {expected}, got {result}"

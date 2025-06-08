@@ -1,8 +1,10 @@
 import numpy as np
 import psutil
 from tokenizers import Tokenizer
-from typing import Optional, Union, List
-from jet.models.tokenizer.base import get_tokenizer
+from typing import Dict, Optional, Union, List
+from jet.llm.mlx.mlx_types import ModelType
+from jet.models.tokenizer.base import count_tokens, get_tokenizer
+from jet.models.utils import get_embedding_size
 
 
 def calculate_batch_size(texts: Union[str, List[str]], batch_size: Optional[int] = None) -> int:
@@ -69,3 +71,16 @@ def calculate_max_length(texts: Union[str, List[str]], model_name_or_tokenizer: 
                         ) if token_lengths else 512
     optimal_length = min(max(percentile_95, 128), max_tokens_by_memory, 2048)
     return max(128, min(optimal_length, 2048))
+
+
+def calculate_n_ctx(model_name: ModelType, messages: str | List[str] | List[Dict]):
+    tokenizer = get_tokenizer(model_name)
+    if isinstance(messages, str):
+        messages = [messages]
+    token_counts: list[int] = count_tokens(
+        tokenizer, messages, prevent_total=True)
+    largest_size = max(token_counts)
+    model_embedding_size = get_embedding_size(model_name)
+
+    n_ctx = min(largest_size + 32, model_embedding_size)
+    return n_ctx

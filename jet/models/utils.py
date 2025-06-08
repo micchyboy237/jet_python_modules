@@ -1,11 +1,11 @@
-from typing import Dict, Tuple, Optional, TypedDict, Union
+from typing import Dict, List, Tuple, Optional, TypedDict, Union
 from jet.models.base import scan_local_hf_models
 from jet.transformers.formatters import format_json
 from jet.utils.object import max_getattr
 from jet.logger import logger
 from transformers import AutoConfig
 from jet.models.model_types import ModelKey, ModelType, ModelValue
-from jet.models.constants import ALL_MODELS, MODEL_CONTEXTS, MODEL_EMBEDDING_TOKENS, MODEL_VALUES_LIST
+from jet.models.constants import ALL_MODEL_VALUES, ALL_MODELS, ALL_MODELS_REVERSED, MODEL_CONTEXTS, MODEL_EMBEDDING_TOKENS, MODEL_VALUES_LIST
 
 
 def resolve_model_key(model: ModelType) -> ModelKey:
@@ -23,6 +23,8 @@ def resolve_model_key(model: ModelType) -> ModelKey:
     """
     if model in ALL_MODELS:
         return model
+    elif model in ALL_MODEL_VALUES:
+        return ALL_MODELS_REVERSED[model]
     for key, value in ALL_MODELS.items():
         if value == model:
             return key
@@ -69,18 +71,21 @@ class ModelInfoDict(TypedDict):
     models: Dict[ModelKey, ModelValue]
     contexts: Dict[ModelKey, int]
     embeddings: Dict[ModelKey, int]
+    missing: List[str]
 
 
 def get_model_info() -> ModelInfoDict:
     model_info: ModelInfoDict = {
         "models": {},
         "contexts": {},
-        "embeddings": {}
+        "embeddings": {},
+        "missing": []
     }
     model_paths = scan_local_hf_models()
     for model_path in model_paths:
         if model_path not in MODEL_VALUES_LIST:
             logger.warning(f"Skipping unavailable model: {model_path}")
+            model_info["missing"].append(model_path)
             continue
 
         try:
@@ -102,7 +107,8 @@ def get_model_info() -> ModelInfoDict:
 
         except Exception as e:
             logger.error(
-                f"Failed to get config for {short_name}: {e}", exc_info=True)
+                f"Failed to get config for {short_name}: {str(e)[:100]}", exc_info=True)
+            model_info["missing"].append(model_path)
             continue
 
     return model_info

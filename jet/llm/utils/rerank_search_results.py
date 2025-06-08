@@ -8,7 +8,7 @@ from jet.logger import logger
 from jet.llm.utils.transformer_embeddings import SimilarityResult
 
 
-def rerank_docs(
+def rerank_search_results(
     query: str,
     results: List[SimilarityResult],
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",

@@ -24,6 +24,7 @@ MODEL_TYPES_LIST: List[str] = model_types_list
 
 
 AVAILABLE_LLM_MODELS: Dict[LLMModelKey, LLMModelValue] = {
+    # HF
     "dolphin3.0-llama3.1-8b-4bit": "mlx-community/Dolphin3.0-Llama3.1-8B-4bit",
     "llama-3.1-8b-instruct-4bit": "mlx-community/Llama-3.1-8B-Instruct-4bit",
     "llama-3.2-1b-instruct-4bit": "mlx-community/Llama-3.2-1B-Instruct-4bit",
@@ -37,6 +38,9 @@ AVAILABLE_LLM_MODELS: Dict[LLMModelKey, LLMModelValue] = {
     "qwen3-1.7b-4bit": "mlx-community/Qwen3-1.7B-4bit-DWQ",
     "qwen3-4b-4bit": "mlx-community/Qwen3-4B-4bit-DWQ",
     "qwen3-8b-4bit": "mlx-community/Qwen3-8B-4bit-DWQ",
+    "qwen3-embedding-0.6b": "Qwen/Qwen3-Embedding-0.6B",
+    "qwen3-embedding-0.6b-gguf": "Qwen/Qwen3-Embedding-0.6B-GGUF",
+    "qwen3-reranker-0.6b": "Qwen/Qwen3-Reranker-0.6B",
     # Additional completions
     "deepseek-r1": "deepseek-ai/DeepSeek-R1",
     "deepseek-r1-distill": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
@@ -70,6 +74,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "specter": "allenai/specter",
     "e5-base-v2": "intfloat/e5-base-v2",
     "nomic-bert-2048": "nomic-ai/nomic-bert-2048",
+    "qwen3-embedding-0.6b-gguf": "Qwen/Qwen3-Embedding-0.6B-GGUF",
     # Snowflake
     "snowflake-arctic-embed-s": "Snowflake/snowflake-arctic-embed-s",
     "snowflake-arctic-embed-m": "Snowflake/snowflake-arctic-embed-m",
@@ -81,6 +86,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "all-minilm-l6-v2-4bit": "mlx-community/all-MiniLM-L6-v2-4bit",
 }
 
+
 AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
     **AVAILABLE_LLM_MODELS,
     **AVAILABLE_EMBED_MODELS,
@@ -91,9 +97,15 @@ ALL_MODELS: Dict[ModelKey, ModelValue] = {
     **AVAILABLE_LLM_MODELS,
     **AVAILABLE_EMBED_MODELS,
 }
+ALL_MODELS_REVERSED: Dict[ModelValue, ModelKey] = {
+    v: k for k, v in ALL_MODELS.items()}
+ALL_MODEL_KEYS: List[ModelKey] = list(ALL_MODELS.keys())
+ALL_MODEL_VALUES: List[ModelValue] = list(ALL_MODELS.values())
 
 MODEL_CONTEXTS: Dict[ModelType, int] = {
     "bge-large": 512,
+    "qwen3-embedding-0.6b": 32768,
+    "qwen3-reranker-0.6b": 40960,
     "snowflake-arctic-embed-m": 512,
     "snowflake-arctic-embed:137m": 8192,
     "snowflake-arctic-embed-s": 512,
@@ -108,8 +120,6 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "qwen2.5-14b-instruct-4bit": 32768,
     "qwen2.5-7b-instruct-4bit": 32768,
     "qwen2.5-coder-14b-instruct-4bit": 32768,
-    "qwen3-0.6b-4bit": 40960,
-    "qwen3-1.7b-4bit": 40960,
     "qwen3-4b-4bit": 40960,
     "qwen3-8b-4bit": 40960,
     "qwen3-embedding-0.6b-4bit": 32768,
@@ -121,11 +131,13 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "all-MiniLM-L12-v2": 512,
     "all-MiniLM-L6-v2": 512,
     "all-mpnet-base-v2": 514,
-    "paraphrase-MiniLM-L12-v2": 512
+    "paraphrase-multilingual": 512
 }
 
 MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "bge-large": 1024,
+    "qwen3-embedding-0.6b": 1024,
+    "qwen3-reranker-0.6b": 1024,
     "snowflake-arctic-embed-m": 768,
     "snowflake-arctic-embed:137m": 768,
     "snowflake-arctic-embed-s": 384,
@@ -140,8 +152,6 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "qwen2.5-14b-instruct-4bit": 5120,
     "qwen2.5-7b-instruct-4bit": 3584,
     "qwen2.5-coder-14b-instruct-4bit": 5120,
-    "qwen3-0.6b-4bit": 1024,
-    "qwen3-1.7b-4bit": 2048,
     "qwen3-4b-4bit": 2560,
     "qwen3-8b-4bit": 4096,
     "qwen3-embedding-0.6b-4bit": 1024,
@@ -153,5 +163,5 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "all-MiniLM-L12-v2": 384,
     "all-MiniLM-L6-v2": 384,
     "all-mpnet-base-v2": 768,
-    "paraphrase-MiniLM-L12-v2": 384
+    "paraphrase-multilingual": 384
 }

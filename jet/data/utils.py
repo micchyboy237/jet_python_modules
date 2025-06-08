@@ -11,25 +11,24 @@ def generate_unique_hash() -> str:
 
 def generate_key(*args: Any, **kwargs: Any) -> str:
     """
-    Generate a UUID v5 key based on the concatenation of input arguments and keyword arguments.
+    Generate a UUID v1 key that sorts as the latest, validating input arguments.
 
     Args:
         *args: Variable length argument list.
         **kwargs: Variable length keyword arguments.
 
     Returns:
-        A UUID string in the standard 36-character format.
+        A UUID string in the standard 36-character format that sorts as the latest.
 
     Raises:
         ValueError: If any provided argument cannot be serialized to JSON.
     """
     try:
-        # Combine args and kwargs into a deterministic JSON string
+        # Validate that inputs can be serialized to JSON
         input_data = {"args": args, "kwargs": kwargs}
-        concatenated = json.dumps(
-            input_data, sort_keys=True, separators=(',', ':'))
-        # Generate a UUID v5 based on a fixed namespace and the input data
-        key = uuid.uuid5(uuid.NAMESPACE_DNS, concatenated)
+        json.dumps(input_data, sort_keys=True, separators=(',', ':'))
+        # Generate a UUID v1 based on the host ID, sequence number, and current time
+        key = uuid.uuid1()
         return str(key)
     except TypeError as e:
         raise ValueError(f"Invalid argument provided: {e}")

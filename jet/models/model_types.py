@@ -104,7 +104,11 @@ LLMModelKey = Literal[
     "qwen3-embedding-0.6b-4bit",
     "qwen3-1.7b-4bit",
     "qwen3-4b-4bit",
-    "qwen3-8b-4bit"
+    "qwen3-8b-4bit",
+    "qwen3-embedding-0.6b",
+    "qwen3-embedding-0.6b-gguf",
+    "qwen3-reranker-0.6b",
+
 ]
 
 # Model value types
@@ -121,7 +125,10 @@ LLMModelValue = Literal[
     "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
     "mlx-community/Qwen3-1.7B-4bit-DWQ",
     "mlx-community/Qwen3-4B-4bit-DWQ",
-    "mlx-community/Qwen3-8B-4bit-DWQ"
+    "mlx-community/Qwen3-8B-4bit-DWQ",
+    "Qwen/Qwen3-Embedding-0.6B",
+    "Qwen/Qwen3-Embedding-0.6B-GGUF",
+    "Qwen/Qwen3-Reranker-0.6B",
 ]
 
 
@@ -166,6 +173,7 @@ EmbedModelKey = Literal[
     "all-minilm-l6-v2-6bit",
     "all-minilm-l6-v2-4bit"
 ]
+EmbedModelKey = Union[EmbedModelKey, LLMModelKey]
 
 # Embed model value types
 EmbedModelValue = Literal[
@@ -191,6 +199,7 @@ EmbedModelValue = Literal[
     "mlx-community/all-MiniLM-L6-v2-6bit",
     "mlx-community/all-MiniLM-L6-v2-4bit"
 ]
+EmbedModelValue = Union[EmbedModelValue, LLMModelValue]
 
 # Combined llm model type
 # LLMModelType = Union[LLMModelKey, LLMModelValue, ModelTypeEnum]
