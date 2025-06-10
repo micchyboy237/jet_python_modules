@@ -268,9 +268,9 @@ def search_docs(
             original_doc = get_original_document(doc_id, documents)
             result = {
                 "rank": i + 1,
-                "doc_id": doc_id,
+                "doc_index": doc_id,
+                "score": rerank_score,
                 "combined_score": combined_score,
-                "rerank_score": rerank_score,
                 "embedding_score": embedding_score,
                 "headers": chunk["headers"],
                 "text": original_doc if original_doc else "Not found"
