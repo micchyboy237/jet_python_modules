@@ -5,8 +5,6 @@ from llama_index.core.schema import Document as BaseDocument, MetadataMode, Text
 from typing import Any, List, Optional, TypedDict, cast
 from pydantic import BaseModel, Field
 
-# --- Pydantic Classes ---
-
 
 class HeadersQueryResponse(BaseModel):
     data: List[str]
