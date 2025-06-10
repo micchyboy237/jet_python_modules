@@ -1,10 +1,11 @@
 import os
+import sys
 import logging
 import traceback
 import unidecode
+import argparse
 from datetime import datetime
-
-from typing import List, Callable, Optional, Any, Union
+from typing import List, Callable, Optional, Any, Union, Literal
 from jet.logger.config import COLORS, RESET, colorize_log
 from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
@@ -25,17 +26,22 @@ class CustomLogger:
         log_file: Optional[str] = None,
         name: str = "default",
         overwrite: bool = False,
-        console_level: str = "DEBUG",
-        file_level: str = "DEBUG",
+        console_level: Literal["DEBUG", "INFO",
+                               "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
+        file_level: Literal["DEBUG", "INFO",
+                            "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
         formatter: Optional[logging.Formatter] = None,
     ):
         self.log_file = log_file
         self.overwrite = overwrite
-        self.console_level = console_level
-        self.file_level = file_level
+        self.console_level = console_level.upper()
+        self.file_level = file_level.upper()
         self.formatter = formatter or logging.Formatter("%(message)s")
         self.logger = self._initialize_logger(name)
         self._last_message_flushed = False
+        # Debug log to inspect initialization
+        print(
+            f"DEBUG: Initialized logger with console_level={self.console_level}, log_file={self.log_file}")
 
     def _initialize_logger(self, name: str) -> logging.Logger:
         logger = logging.getLogger(name)
@@ -63,9 +69,11 @@ class CustomLogger:
     def removeHandler(self, handler: logging.Handler) -> None:
         self.logger.removeHandler(handler)
 
-    def set_level(self, level: str) -> None:
+    def set_level(self, level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]) -> None:
+        level = level.upper()
         for handler in self.logger.handlers:
-            handler.setLevel(level.upper())
+            handler.setLevel(level)
+        print(f"DEBUG: Set logger level to {level}")
 
     def set_format(self, fmt: Union[str, logging.Formatter]) -> None:
         formatter = fmt if isinstance(
@@ -83,6 +91,17 @@ class CustomLogger:
             colors: list[str] = None,
             exc_info: bool = True,
         ) -> None:
+            # Map string levels to numeric values for comparison
+            level_map = {
+                "DEBUG": 10,
+                "INFO": 20,
+                "WARNING": 30,
+                "ERROR": 40,
+                "CRITICAL": 50
+            }
+            if level_map.get(level.upper(), 10) < level_map.get(self.console_level, 10):
+                return  # Skip logging if level is below console_level
+
             if args:
                 try:
                     message = message % args
@@ -106,12 +125,22 @@ class CustomLogger:
             message = fix_and_unidecode(message) if isinstance(
                 message, str) else message
 
-            colored_output = f"{COLORS.get(colors[0], COLORS['LOG'])}{message}{RESET}"
+            # Apply colors only if stdout is a terminal
+            if os.isatty(sys.stdout.fileno()):
+                colored_output = f"{COLORS.get(colors[0], COLORS['LOG'])}{message}{RESET}"
+            else:
+                colored_output = message
             final_output = colored_output
 
             if level.lower() == "error" and exc_info:
-                print(colorize_log("Trace exception:", "gray"))
-                print(colorize_log(traceback.format_exc(), level))
+                error_msg = colorize_log("Trace exception:", "gray")
+                if not os.isatty(sys.stdout.fileno()):
+                    error_msg = clean_ansi(error_msg)
+                print(error_msg)
+                error_trace = colorize_log(traceback.format_exc(), level)
+                if not os.isatty(sys.stdout.fileno()):
+                    error_trace = clean_ansi(error_trace)
+                print(error_trace)
 
             if not end:
                 end = "" if flush else "\n"
@@ -177,7 +206,11 @@ class CustomLogger:
             return prompt_log
 
         prompt_log = _inner(prompt, level)
-        print(prompt_log)
+        # Apply colors only if stdout is a terminal
+        if os.isatty(sys.stdout.fileno()):
+            print(prompt_log)
+        else:
+            print(clean_ansi(prompt_log))
 
         if self.log_file:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -206,7 +239,7 @@ def logger_examples(logger: CustomLogger):
     logger.warning("This is a bright warning message.", bright=True)
     logger.error("This is an error message.")
     logger.error("This is a bright error message.", bright=True)
-    logger.critical("This is an critical message.")
+    logger.critical("This is a critical message.")
     logger.critical("This is a bright critical message.", bright=True)
     logger.success("This is a success message.")
     logger.success("This is a bright success message.", bright=True)
@@ -270,6 +303,20 @@ def logger_examples(logger: CustomLogger):
     logger.log("====== END LOGGER METHODS ======\n")
 
 
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Custom Logger Script")
+    parser.add_argument(
+        "--log-cli-level",
+        type=str,
+        default="DEBUG",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set the console logging level (options: DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+    )
+    args = parser.parse_args()
+    print(f"DEBUG: Parsed arguments: log-cli-level={args.log_cli_level}")
+    return args
+
+
 logger = CustomLogger()
 
 __all__ = [
@@ -278,9 +325,15 @@ __all__ = [
 ]
 
 if __name__ == "__main__":
+    args = parse_arguments()
+    logger = CustomLogger(console_level=args.log_cli_level)
     logger_examples(logger)
 
     file_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(file_dir, "log.txt")
-    logger_with_file = CustomLogger(log_file=file_path, overwrite=True)
+    logger_with_file = CustomLogger(
+        log_file=file_path,
+        overwrite=True,
+        console_level=args.log_cli_level
+    )
     logger_examples(logger_with_file)

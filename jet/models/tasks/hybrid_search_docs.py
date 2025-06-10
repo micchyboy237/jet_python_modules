@@ -1,4 +1,5 @@
 import os
+import time
 import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import faiss
@@ -113,6 +114,7 @@ def split_document(doc_text: str, doc_id: int, chunk_size: int = 800, overlap: i
 
 def filter_by_headers(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
     """Filter chunks based on header relevance."""
+    start_time = time.time()
     logger.info("Filtering chunks by headers for query: %s", query)
     query_terms = set(query.lower().split())
     filtered = []
@@ -120,6 +122,9 @@ def filter_by_headers(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str
         headers = [h.lower() for h in chunk["headers"]]
         if any(any(term in h for term in query_terms) for h in headers) or not headers:
             filtered.append(chunk)
+    duration = time.time() - start_time
+    logger.info("Filtering completed in %.3f seconds, reduced %d to %d chunks",
+                duration, len(chunks), len(filtered))
     return filtered if filtered else chunks
 
 
@@ -130,7 +135,9 @@ def embed_chunk(chunk: str, embedder: SentenceTransformer) -> np.ndarray:
 
 def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer) -> np.ndarray:
     """Embed chunks in batches to optimize performance."""
+    start_time = time.time()
     logger.info("Embedding %d chunks in batches", len(chunk_texts))
+    logger.debug("Embedding device: %s", embedder.device)
     batch_size = 32  # Adjustable based on memory
     embeddings = []
     for i in tqdm(range(0, len(chunk_texts), batch_size), desc="Embedding chunks"):
@@ -144,6 +151,8 @@ def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer)
             for _ in batch:
                 embeddings.append(
                     np.zeros(embedder.get_sentence_embedding_dimension()))
+    duration = time.time() - start_time
+    logger.info("Embedding completed in %.3f seconds", duration)
     return np.vstack(embeddings)
 
 
@@ -177,32 +186,48 @@ def search_docs(
     bm25_weight: float = 0.5
 ) -> List[Dict[str, Any]]:
     """Search documents using hybrid retrieval with BM25 and embeddings."""
+    total_start_time = time.time()
     documents = load_documents(file_path)
+
+    # Splitting documents
+    start_time = time.time()
     chunks = []
     for doc in tqdm(documents, desc="Splitting documents"):
         chunks.extend(split_document(
             doc["text"], doc["id"], chunk_size, overlap))
+    split_duration = time.time() - start_time
+    logger.info("Document splitting completed in %.3f seconds, created %d chunks",
+                split_duration, len(chunks))
 
+    # Filtering chunks
     filtered_chunks = filter_by_headers(chunks, query)
     chunk_texts = [chunk["text"] for chunk in filtered_chunks]
-    logger.info("Filtered to %d chunks", len(chunk_texts))
 
-    # Use CPU to avoid MPS issues
+    # Embedding chunks
     embedder = SentenceTransformer(
-        embedder_model, device="cpu", backend="onnx")
+        embedder_model, device="cpu", backend="onnx")  # Use ONNX on CPU
     cross_encoder = CrossEncoder(cross_encoder_model)
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
 
+    # FAISS search
+    start_time = time.time()
     dim = chunk_embeddings.shape[1]
-    index = faiss.IndexFlatL2(dim)
+    index = faiss.IndexFlatIP(dim)  # Use inner product for cosine similarity
+    faiss.normalize_L2(chunk_embeddings)  # Normalize for cosine similarity
     index.add(chunk_embeddings)
-
     top_k = min(top_k, len(chunk_texts))
     logger.info("Performing FAISS search with top-k=%d", top_k)
     query_embedding = embedder.encode([query], convert_to_numpy=True)
+    faiss.normalize_L2(query_embedding)  # Normalize query
+    logger.debug("Query embedding norm: %.4f", np.linalg.norm(query_embedding))
     distances, indices = index.search(query_embedding, top_k)
-    embed_scores = [1 / (1 + d) for d in distances[0]]
+    embed_scores = distances[0].tolist()  # Cosine similarity [0, 1]
+    logger.debug("FAISS distances: %s", distances[0].tolist())
+    logger.debug("Embed scores: %s", embed_scores)
+    faiss_duration = time.time() - start_time
+    logger.info("FAISS search completed in %.3f seconds", faiss_duration)
 
+    # Combine scores
     bm25_scores = get_bm25_scores(chunk_texts, query)
     combined_scores = [
         bm25_weight * bm25_scores[i] + (1 - bm25_weight) * embed_scores[j]
@@ -213,6 +238,8 @@ def search_docs(
         for j, i in enumerate(indices[0])
     ]
 
+    # Reranking
+    start_time = time.time()
     logger.info("Reranking %d documents with cross-encoder", len(initial_docs))
     pairs = [[query, doc["text"]] for doc, _, _ in initial_docs]
     scores = []
@@ -222,14 +249,17 @@ def search_docs(
             batch_scores = cross_encoder.predict(batch)
             scores.extend(batch_scores)
     except Exception as e:
-        logger.error("Error in reranking: %s]", e)
+        logger.error("Error in reranking: %s", e)
         scores = [0] * len(pairs)
     reranked_indices = np.argsort(scores)[::-1][:rerank_top_k]
     reranked_docs = [
         (initial_docs[i][0], initial_docs[i][1], scores[i], initial_docs[i][2])
         for i in reranked_indices
     ]
+    rerank_duration = time.time() - start_time
+    logger.info("Reranking completed in %.3f seconds", rerank_duration)
 
+    # Build results
     results = []
     seen_doc_ids = set()
     for i, (chunk, combined_score, rerank_score, embedding_score) in enumerate(reranked_docs):
@@ -248,4 +278,6 @@ def search_docs(
             results.append(result)
             seen_doc_ids.add(doc_id)
 
+    total_duration = time.time() - total_start_time
+    logger.info("Total search completed in %.3f seconds", total_duration)
     return results
