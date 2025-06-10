@@ -6,9 +6,10 @@ import faiss
 from rank_bm25 import BM25Okapi
 from jet.file.utils import load_file
 from jet.logger import logger
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import re
 from tqdm import tqdm
+import uuid
 
 # Set environment variables before importing numpy/pytorch
 os.environ["OMP_NUM_THREADS"] = "4"
@@ -17,13 +18,20 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 
-def load_documents(file_path: str) -> List[Dict[str, Any]]:
+def load_documents(file_path: str, ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Load and preprocess documents from file."""
     logger.info("Loading documents from %s", file_path)
     file_path_str = str(file_path)
     docs = load_file(file_path_str)
     documents = []
+
+    if ids is not None and len(ids) != len(docs):
+        logger.error("Provided IDs length (%d) does not match documents length (%d)", len(
+            ids), len(docs))
+        raise ValueError("IDs length must match documents length")
+
     for idx, doc in enumerate(tqdm(docs, desc="Processing documents")):
+        doc_id = ids[idx] if ids else str(uuid.uuid4())
         if isinstance(doc, dict) and "metadata" in doc and "header_level" in doc["metadata"]:
             if doc["metadata"].get("header_level") != 1:
                 text = "\n".join([
@@ -31,19 +39,19 @@ def load_documents(file_path: str) -> List[Dict[str, Any]]:
                     doc["metadata"].get("header", ""),
                     doc["metadata"].get("content", "")
                 ]).strip()
-                documents.append({"text": text, "id": idx})
+                documents.append({"text": text, "id": doc_id, "index": idx})
         else:
             text = doc.get("text", "") if isinstance(doc, dict) else ""
             logger.warning(
-                "Document %d lacks metadata, using text: %s", idx, text[:50])
-            documents.append({"text": text, "id": idx})
+                "Document %s lacks metadata, using text: %s", doc_id, text[:50])
+            documents.append({"text": text, "id": doc_id, "index": idx})
     return documents
 
 
-def split_document(doc_text: str, doc_id: int, chunk_size: int = 800, overlap: int = 200) -> List[Dict[str, Any]]:
+def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int = 800, overlap: int = 200) -> List[Dict[str, Any]]:
     """Split document into semantic chunks using sentence boundaries."""
-    logger.info("Splitting document ID %d into chunks with chunk_size=%d, overlap=%d",
-                doc_id, chunk_size, overlap)
+    logger.info("Splitting document ID %s (index %d) into chunks with chunk_size=%d, overlap=%d",
+                doc_id, doc_index, chunk_size, overlap)
     chunks = []
     current_headers = []
     current_chunk = []
@@ -63,7 +71,8 @@ def split_document(doc_text: str, doc_id: int, chunk_size: int = 800, overlap: i
                 chunks.append({
                     "text": chunk_text,
                     "headers": current_headers.copy(),
-                    "doc_id": doc_id
+                    "doc_id": doc_id,
+                    "doc_index": doc_index
                 })
                 current_chunk = [] if not overlap else current_chunk[-1:]
                 current_len = sum(len(s.split()) for s in current_chunk)
@@ -86,7 +95,8 @@ def split_document(doc_text: str, doc_id: int, chunk_size: int = 800, overlap: i
                     chunks.append({
                         "text": chunk_text,
                         "headers": current_headers.copy(),
-                        "doc_id": doc_id
+                        "doc_id": doc_id,
+                        "doc_index": doc_index
                     })
                     current_chunk = [sentence] if not overlap else [
                         current_chunk[-1], sentence] if current_chunk else [sentence]
@@ -105,10 +115,12 @@ def split_document(doc_text: str, doc_id: int, chunk_size: int = 800, overlap: i
             chunks.append({
                 "text": chunk_text,
                 "headers": current_headers.copy(),
-                "doc_id": doc_id
+                "doc_id": doc_id,
+                "doc_index": doc_index
             })
 
-    logger.info("Created %d chunks for document ID %d", len(chunks), doc_id)
+    logger.info("Created %d chunks for document ID %s (index %d)",
+                len(chunks), doc_id, doc_index)
     return chunks
 
 
@@ -164,9 +176,9 @@ def get_bm25_scores(chunk_texts: List[str], query: str) -> List[float]:
     return bm25.get_scores(tokenized_query).tolist()
 
 
-def get_original_document(doc_id: int, documents: List[Dict[str, Any]]) -> str:
+def get_original_document(doc_id: str, documents: List[Dict[str, Any]]) -> str:
     """Retrieve original document text by ID."""
-    logger.info("Retrieving original document for ID %d", doc_id)
+    logger.info("Retrieving original document for ID %s", doc_id)
     for doc in documents:
         if doc["id"] == doc_id:
             return doc["text"]
@@ -176,6 +188,7 @@ def get_original_document(doc_id: int, documents: List[Dict[str, Any]]) -> str:
 def search_docs(
     file_path: str,
     query: str,
+    ids: Optional[List[str]] = None,
     embedder_model: str = "static-retrieval-mrl-en-v1",
     cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     chunk_size: int = 800,
@@ -187,14 +200,14 @@ def search_docs(
 ) -> List[Dict[str, Any]]:
     """Search documents using hybrid retrieval with BM25 and embeddings."""
     total_start_time = time.time()
-    documents = load_documents(file_path)
+    documents = load_documents(file_path, ids)
 
     # Splitting documents
     start_time = time.time()
     chunks = []
     for doc in tqdm(documents, desc="Splitting documents"):
         chunks.extend(split_document(
-            doc["text"], doc["id"], chunk_size, overlap))
+            doc["text"], doc["id"], doc["index"], chunk_size, overlap))
     split_duration = time.time() - start_time
     logger.info("Document splitting completed in %.3f seconds, created %d chunks",
                 split_duration, len(chunks))
@@ -251,6 +264,8 @@ def search_docs(
     except Exception as e:
         logger.error("Error in reranking: %s", e)
         scores = [0] * len(pairs)
+        logger.info(
+            "Added %d zeros as default scores due to reranking error", len(pairs))
     reranked_indices = np.argsort(scores)[::-1][:rerank_top_k]
     reranked_docs = [
         (initial_docs[i][0], initial_docs[i][1], scores[i], initial_docs[i][2])
@@ -267,8 +282,9 @@ def search_docs(
         if doc_id not in seen_doc_ids:
             original_doc = get_original_document(doc_id, documents)
             result = {
+                "id": doc_id,
+                "doc_index": chunk["doc_index"],
                 "rank": i + 1,
-                "doc_index": doc_id,
                 "score": rerank_score,
                 "combined_score": combined_score,
                 "embedding_score": embedding_score,
