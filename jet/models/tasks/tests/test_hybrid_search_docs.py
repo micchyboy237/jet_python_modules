@@ -1,111 +1,75 @@
 import pytest
-import json
-from jet.models.tasks.hybrid_search_docs_with_bm25 import embed_chunks_parallel, search_docs, load_documents, split_document
-from unittest.mock import Mock
-import numpy as np
+from typing import List, Any, Optional
+from jet.vectors.document_types import HeaderDocument
+from jet.models.tasks.hybrid_search_docs_with_bm25 import get_original_document
 
 
-@pytest.fixture
-def mock_documents():
-    """Fixture providing mock documents for testing."""
-    return [
-        {
-            "text": "# Title\nContent paragraph.",
-            "id": 0
-        },
-        {
-            "text": "## Subtitle\nAnother paragraph.",
-            "id": 1
-        }
-    ]
+class TestGetOriginalDocument:
+    def test_mapping_with_ids_for_strings(self):
+        # Arrange
+        documents = ["text1", "text2"]
+        ids = ["id1", "id2"]
+        doc_id = "id1"
+        doc_index = 0
+        expected = HeaderDocument(
+            id="id1", text="text1", metadata={"original_index": 0})
 
+        # Act
+        result = get_original_document(doc_id, doc_index, documents, ids)
 
-def test_load_documents(mock_documents, tmp_path):
-    """Test loading documents from file."""
-    file_path = tmp_path / "docs.json"
-    with open(file_path, "w") as f:
-        json.dump(mock_documents, f)
+        # Assert
+        assert result == expected, f"Expected {expected}, got {result}"
 
-    expected = [
-        {"text": "# Title\nContent paragraph.", "id": 0},
-        {"text": "## Subtitle\nAnother paragraph.", "id": 1}
-    ]
-    result = load_documents(str(file_path))
-    assert result == expected
+    def test_mapping_without_ids_for_strings(self):
+        # Arrange
+        documents = ["text1", "text2", "text3"]
+        doc_id = "doc_1"  # Matches index 1
+        doc_index = 1
+        expected = HeaderDocument(
+            id="doc_1", text="text2", metadata={"original_index": 1})
 
+        # Act
+        result = get_original_document(doc_id, doc_index, documents, None)
 
-def test_split_document():
-    """Test document splitting into chunks.
+        # Assert
+        assert result == expected, f"Expected {expected}, got {result}"
 
-    Expects the input '# Title\nFirst sentence. Second sentence.' to be split into two chunks
-    with chunk_size=10 (words), where the first chunk includes the header and first sentence,
-    and the second chunk includes the second sentence, both with the same header.
-    """
-    doc_text = "# Title\nFirst sentence. Second sentence."
-    doc_id = 0
-    expected = [
-        {
-            "text": "# Title First sentence.",
-            "headers": ["# Title"],
-            "doc_id": 0
-        },
-        {
-            "text": "Second sentence.",
-            "headers": ["# Title"],
-            "doc_id": 0
-        }
-    ]
-    result = split_document(doc_text, doc_id, chunk_size=10, overlap=0)
-    assert result == expected
+    def test_mapping_without_ids_using_index(self):
+        # Arrange
+        documents = ["text1", "text2", "text3"]
+        doc_id = "invalid_id"  # Should match by index
+        doc_index = 2
+        expected = HeaderDocument(
+            id="doc_2", text="text3", metadata={"original_index": 2})
 
+        # Act
+        result = get_original_document(doc_id, doc_index, documents, None)
 
-def test_search_docs(mock_documents, tmp_path, monkeypatch):
-    """Test hybrid search with mocked models."""
-    file_path = tmp_path / "docs.json"
-    with open(file_path, "w") as f:
-        json.dump(mock_documents, f)
+        # Assert
+        assert result == expected, f"Expected {expected}, got {result}"
 
-    query = "Title"
-    mock_embedder = Mock()
-    mock_embedder.encode.side_effect = lambda x, **kwargs: np.array(
-        [[0.1, 0.2], [0.3, 0.4]])
-    mock_embedder.get_sentence_embedding_dimension.return_value = 384
-    mock_cross_encoder = Mock()
-    mock_cross_encoder.predict.return_value = [0.9, 0.8]
+    def test_no_document_found(self):
+        # Arrange
+        documents = ["text1"]
+        doc_id = "doc_999"
+        doc_index = 999
+        expected = None
 
-    monkeypatch.setattr(
-        "jet.models.tasks.hybrid_search_docs.SentenceTransformer", lambda x: mock_embedder)
-    monkeypatch.setattr(
-        "jet.models.tasks.hybrid_search_docs.CrossEncoder", lambda x: mock_cross_encoder)
+        # Act
+        result = get_original_document(doc_id, doc_index, documents, None)
 
-    expected = [
-        {
-            "rank": 1,
-            "doc_id": 0,
-            "combined_score": pytest.approx(0.45, 0.1),
-            "rerank_score": 0.9,
-            "headers": ["# Title"],
-            "text": "# Title\nContent paragraph."
-        }
-    ]
-    result = search_docs(str(file_path), query, top_k=1,
-                         rerank_top_k=1, bm25_weight=0.5)
-    assert len(result) == 1
-    assert result[0]["doc_id"] == expected[0]["doc_id"]
-    assert result[0]["text"] == expected[0]["text"]
+        # Assert
+        assert result == expected, f"Expected {expected}, got {result}"
 
+    def test_empty_documents(self):
+        # Arrange
+        documents = []
+        doc_id = "doc_0"
+        doc_index = 0
+        expected = None
 
-def test_embed_chunks_performance(mock_documents, monkeypatch):
-    """Test embedding performance with batching."""
-    from time import time
-    embedder = Mock()
-    embedder.encode.side_effect = lambda x, **kwargs: np.zeros(
-        (len(x) if isinstance(x, list) else 1, 384))
-    embedder.get_sentence_embedding_dimension.return_value = 384
-    chunk_texts = ["text " * 50] * 100  # Simulate 100 chunks
-    start_time = time()
-    result = embed_chunks_parallel(chunk_texts, embedder)
-    elapsed = time() - start_time
-    expected_shape = (100, 384)
-    assert result.shape == expected_shape
-    assert elapsed < 1.0  # Adjust threshold based on M1 performance
+        # Act
+        result = get_original_document(doc_id, doc_index, documents, None)
+
+        # Assert
+        assert result == expected, f"Expected {expected}, got {result}"

@@ -1,3 +1,4 @@
+from typing import List, Dict, Any, Optional, Union
 import os
 import time
 import numpy as np
@@ -59,11 +60,12 @@ def process_documents(
             "Converting %d strings to HeaderDocument objects", len(documents))
         for idx, text in enumerate(tqdm(documents, desc="Converting strings")):
             try:
+                doc_id = ids[idx] if ids and idx < len(
+                    ids) else f"doc_{idx}"  # Use index-based ID
                 header_doc = HeaderDocument(
-                    id=ids[idx] if ids and idx < len(
-                        ids) else str(uuid.uuid4()),
+                    id=doc_id,
                     text=text,
-                    metadata={}
+                    metadata={"original_index": idx}  # Store index in metadata
                 )
                 processed_docs.append(header_doc)
             except Exception as e:
@@ -78,6 +80,7 @@ def process_documents(
         for idx, doc_dict in enumerate(tqdm(documents, desc="Converting dictionaries")):
             try:
                 header_doc = HeaderDocument(**doc_dict)
+                header_doc.metadata["original_index"] = idx  # Store index
                 processed_docs.append(header_doc)
             except Exception as e:
                 logger.error(
@@ -88,7 +91,9 @@ def process_documents(
     else:
         logger.info(
             "Processing %d HeaderDocument objects directly", len(documents))
-        processed_docs = documents  # Type: List[HeaderDocument]
+        for idx, doc in enumerate(documents):
+            doc.metadata["original_index"] = idx  # Store index
+            processed_docs.append(doc)
 
     if ids is not None and len(ids) != len(processed_docs):
         logger.error("Provided IDs length (%d) does not match documents length (%d)", len(
@@ -96,9 +101,7 @@ def process_documents(
         raise ValueError("IDs length must match documents length")
 
     for idx, doc in enumerate(tqdm(processed_docs, desc="Processing documents")):
-        # Use existing doc.id if available, otherwise use ids[idx] or generate UUID
-        doc_id = doc.id if doc.id else (
-            ids[idx] if ids and idx < len(ids) else str(uuid.uuid4()))
+        doc_id = doc.id
         logger.debug("Assigned ID %s to document at index %d", doc_id, idx)
         metadata = doc.metadata
         if isinstance(metadata, dict) and "header_level" in metadata:
@@ -108,6 +111,8 @@ def process_documents(
                     metadata.get("header", ""),
                     metadata.get("content", "")
                 ]).strip()
+                if not text:
+                    text = doc.text
                 result.append({"text": text, "id": doc_id, "index": idx})
             else:
                 text = doc.get_recursive_text().strip()
@@ -250,35 +255,45 @@ def get_bm25_scores(chunk_texts: List[str], query: str) -> List[float]:
 
 def get_original_document(
     doc_id: str,
-    documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]]
+    doc_index: int,
+    documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]],
+    ids: Optional[List[str]] = None
 ) -> Optional[HeaderDocument]:
-    """Retrieve original HeaderDocument by ID."""
-    logger.info("Retrieving original HeaderDocument for ID %s", doc_id)
-    processed_docs: List[HeaderDocument] = []
+    """Retrieve original HeaderDocument by ID or index."""
+    logger.info("Retrieving original document for ID %s, index %d",
+                doc_id, doc_index)
 
     if documents and isinstance(documents[0], str):
         logger.info(
             "Converting %d strings to HeaderDocument objects for retrieval", len(documents))
         for idx, text in enumerate(documents):
             try:
-                header_doc = HeaderDocument(
-                    id=doc_id if doc_id == (ids[idx] if ids and idx < len(
-                        ids) else str(uuid.uuid4())) else str(uuid.uuid4()),
-                    text=text,
-                    metadata={}
-                )
-                processed_docs.append(header_doc)
+                expected_id = ids[idx] if ids and idx < len(
+                    ids) else f"doc_{idx}"
+                if doc_id == expected_id or (ids is None and doc_index == idx):
+                    header_doc = HeaderDocument(
+                        id=expected_id,
+                        text=text,
+                        metadata={"original_index": idx}
+                    )
+                    logger.debug(
+                        "Matched document at index %d with ID %s", idx, expected_id)
+                    return header_doc
+                # Do not append header_doc here; only append if needed for further processing
             except Exception as e:
-                logger.error(
-                    "Failed to convert string to HeaderDocument for ID %s: %s", doc_id, str(e))
+                logger.error("Failed to convert string to HeaderDocument for ID %s at index %d: %s",
+                             doc_id, idx, str(e))
                 continue
     elif documents and isinstance(documents[0], dict):
         logger.info(
             "Converting %d dictionaries to HeaderDocument objects for retrieval", len(documents))
-        for doc_dict in documents:
+        for idx, doc_dict in enumerate(documents):
             try:
                 header_doc = HeaderDocument(**doc_dict)
-                processed_docs.append(header_doc)
+                if header_doc.id == doc_id or (ids is None and header_doc.metadata.get("original_index") == doc_index):
+                    logger.debug(
+                        "Found HeaderDocument for ID %s at index %d", doc_id, idx)
+                    return header_doc
             except Exception as e:
                 logger.error(
                     "Failed to convert dictionary to HeaderDocument for ID %s: %s", doc_id, str(e))
@@ -286,15 +301,14 @@ def get_original_document(
     else:
         logger.info("Using %d HeaderDocument objects directly for retrieval", len(
             documents) if documents else 0)
-        processed_docs = documents  # Type: List[HeaderDocument]
+        for doc in documents:
+            if doc.id == doc_id or (ids is None and doc.metadata.get("original_index") == doc_index):
+                logger.debug("Found HeaderDocument for ID %s at index %d",
+                             doc_id, doc.metadata.get("original_index"))
+                return doc
 
-    logger.debug("Processed docs IDs: %s", [
-                 doc.id for doc in processed_docs if doc.id])
-    for doc in processed_docs:
-        if doc.id == doc_id:
-            logger.debug("Found HeaderDocument for ID %s", doc_id)
-            return doc
-    logger.warning("No HeaderDocument found for ID %s", doc_id)
+    logger.warning("No HeaderDocument found for ID %s, index %d",
+                   doc_id, doc_index)
     return None
 
 
@@ -319,7 +333,9 @@ def search_docs(
             "id") if isinstance(doc, dict) else str(uuid.uuid4())
         for doc in documents if doc
     ])
-    logger.info("Using instruction: %s", instruction)
+
+    if instruction:
+        logger.info("Using instruction: %s", instruction)
 
     # Validate instruction
     if not isinstance(instruction, str) or not instruction.strip():
@@ -402,7 +418,9 @@ def search_docs(
         scores = [0] * len(pairs)
         logger.info(
             "Added %d zeros as default scores due to reranking error", len(pairs))
-    reranked_indices = np.argsort(scores)[::-1][:rerank_top_k]
+    reranked_indices = np.argsort(
+        # Ensure enough candidates
+        scores)[::-1][:max(rerank_top_k, len(initial_docs))]
     reranked_docs = [
         (initial_docs[i][0], initial_docs[i][1], scores[i], initial_docs[i][2])
         for i in reranked_indices
@@ -410,22 +428,25 @@ def search_docs(
     rerank_duration = time.time() - start_time
     logger.info("Reranking completed in %.3f seconds", rerank_duration)
 
-    # Build results
+    # Build results, ensuring up to rerank_top_k unique documents
     results: List[SearchResult] = []
     seen_doc_ids = set()
     for i, (chunk, combined_score, rerank_score, embedding_score) in enumerate(reranked_docs):
         doc_id = chunk["doc_id"]
-        logger.debug("Processing chunk with doc_id %s", doc_id)
+        doc_index = chunk["doc_index"]
+        logger.debug(
+            "Processing chunk with doc_id %s, doc_index %d, rank %d", doc_id, doc_index, i + 1)
         if doc_id not in seen_doc_ids:
-            original_doc = get_original_document(doc_id, documents)
+            original_doc = get_original_document(
+                doc_id, doc_index, documents, ids)
             if original_doc is None:
                 logger.warning(
                     "Skipping result for ID %s: original document not found", doc_id)
                 continue
             result: SearchResult = {
                 "id": doc_id,
-                "doc_index": chunk["doc_index"],
-                "rank": i + 1,
+                "doc_index": doc_index,
+                "rank": len(results) + 1,
                 "score": rerank_score,
                 "combined_score": combined_score,
                 "embedding_score": embedding_score,
@@ -435,7 +456,19 @@ def search_docs(
             }
             results.append(result)
             seen_doc_ids.add(doc_id)
+            logger.debug(
+                "Added unique result for doc_id %s, total unique results: %d", doc_id, len(results))
+        else:
+            logger.warning(
+                "Skipping duplicate doc_id %s at rank %d", doc_id, i + 1)
 
+        # Stop once we have rerank_top_k unique results
+        if len(results) >= rerank_top_k:
+            logger.info(
+                "Collected %d unique results, stopping early", len(results))
+            break
+
+    logger.info("Total unique results returned: %d", len(results))
     total_duration = time.time() - total_start_time
     logger.info("Total search completed in %.3f seconds", total_duration)
     return results

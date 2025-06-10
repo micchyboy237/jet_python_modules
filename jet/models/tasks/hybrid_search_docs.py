@@ -1,3 +1,4 @@
+import os
 import uuid
 import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -10,6 +11,12 @@ from jet.logger import logger
 from jet.vectors.document_types import HeaderDocument
 from jet.models.tasks.task_types import SimilarityResult
 
+# Set environment variables before importing numpy/pytorch
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
+# Fallback to CPU for unsupported MPS ops
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
 # Initialize global models
 embedder = None
 cross_encoder = None
@@ -21,7 +28,7 @@ def initialize_models(model: str, rerank_model: str) -> None:
     if embedder is None or cross_encoder is None:
         logger.info(
             "Initializing SentenceTransformer (%s) and CrossEncoder (%s)", model, rerank_model)
-        embedder = SentenceTransformer(model)
+        embedder = SentenceTransformer(model, device="cpu", backend="onnx")
         cross_encoder = CrossEncoder(rerank_model)
 
 

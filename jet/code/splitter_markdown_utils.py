@@ -255,7 +255,7 @@ def get_md_header_contents(
 
     if is_html(md_text):
         md_text = html_to_markdown(md_text, ignore_links=ignore_links, remove_selectors=[
-            "style", "script", "nav", "footer", "[class*="ad"]"])
+            "style", "script", "nav", "footer", "[class*=\"ad\"]"])
 
     md_text = md_text.strip()
 
@@ -307,7 +307,21 @@ def get_md_header_contents(
 
             cleaned_text = clean_spaces(raw_text)
             body_links, cleaned_text = extract_markdown_links(cleaned_text)
-            all_links = list(set(header_links + body_links))
+
+            # Combine all links
+            all_links = header_links + body_links
+
+            # Remove duplicates based on (text, url, caption, line)
+            seen = set()
+            unique_links = []
+            for link in all_links:
+                key = (link["text"], link["url"],
+                       link["caption"], link["line"])
+                if key not in seen:
+                    seen.add(key)
+                    unique_links.append(link)
+
+            all_links = unique_links
 
             content_lines = cleaned_text.splitlines()[1:]
             content = "\n".join(

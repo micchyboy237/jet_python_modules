@@ -21,12 +21,17 @@ def normalize_whitespace(html: str) -> str:
     return re.sub(r'\s+', ' ', html.strip())
 
 
-def remove_display_none_elements(html_string: str) -> str:
-    """Remove HTML elements with display: none style."""
+def remove_display_none_elements(html_string):
+    # Parse the HTML content using BeautifulSoup
     soup = BeautifulSoup(html_string, 'html.parser')
+
+    # Find all elements with the style attribute that contains 'display: none'
     for element in soup.find_all(style=True):
-        if 'display:none' in element['style'].replace(' ', ''):
-            element.decompose()
+        elm: bs4.element.Tag = element
+        if elm.attrs and "style" in elm.attrs and 'display:none' in elm['style'].replace(' ', ''):
+            elm.decompose()  # Remove the element from the tree
+
+    # Return the modified HTML as a string
     return normalize_whitespace(str(soup))
 
 
@@ -94,6 +99,9 @@ def html_to_markdown(
     ignore_links: bool = True
 ) -> str:
     """Convert HTML to Markdown with customizable noise removal."""
+
+    from .utils import clean_text
+
     html_str = minify_html(html_str)
     soup = BeautifulSoup(html_str, 'html.parser')
     container = soup.select_one(container_selector)

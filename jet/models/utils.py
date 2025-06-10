@@ -1,3 +1,4 @@
+import os
 from typing import Dict, List, Tuple, Optional, TypedDict, Union
 from jet.models.base import scan_local_hf_models
 from jet.transformers.formatters import format_json
@@ -67,6 +68,30 @@ def get_model_limits(model_id: str | ModelValue) -> Tuple[Optional[int], Optiona
     return max_context, max_embeddings
 
 
+def generate_short_name(model_id: str) -> Optional[str]:
+    """
+    Extract the final segment from a model ID or path and convert it to lowercase.
+
+    Args:
+        model_id (str): Model identifier or path (e.g., "mlx-community/Dolphin3.0-Llama3.1-8B-4bit")
+
+    Returns:
+        Optional[str]: Lowercase short name (e.g., "dolphin3.0-llama3.1-8b-4bit") or None if input is empty
+    """
+    try:
+        if not model_id:
+            logger.warning("Empty model_id provided")
+            return None
+
+        # Get the final path component and convert to lowercase
+        short_name = os.path.basename(model_id).lower()
+        logger.debug(f"Processed short name: {short_name}")
+        return short_name
+    except Exception as e:
+        logger.error(f"Error processing model_id ({model_id}): {str(e)}")
+        return None
+
+
 class ModelInfoDict(TypedDict):
     models: Dict[ModelKey, ModelValue]
     contexts: Dict[ModelKey, int]
@@ -83,13 +108,11 @@ def get_model_info() -> ModelInfoDict:
     }
     model_paths = scan_local_hf_models()
     for model_path in model_paths:
-        if model_path not in MODEL_VALUES_LIST:
-            logger.warning(f"Skipping unavailable model: {model_path}")
-            model_info["missing"].append(model_path)
-            continue
-
         try:
-            short_name = resolve_model_key(model_path)
+            if model_path not in MODEL_VALUES_LIST:
+                short_name = generate_short_name(model_path)
+            else:
+                short_name = resolve_model_key(model_path)
             max_contexts, max_embeddings = get_model_limits(model_path)
             if not max_contexts:
                 raise ValueError(
