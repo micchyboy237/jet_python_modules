@@ -9,6 +9,12 @@ from tqdm import tqdm
 from jet.file.utils import load_file
 from jet.logger import logger
 
+# Set environment variables before importing numpy/pytorch
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
+# Fallback to CPU for unsupported MPS ops
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
 
 # Load SearxNG-scraped data
 
@@ -132,7 +138,8 @@ def main():
     # Initialize models
     logger.info("Initializing SentenceTransformer and CrossEncoder models")
     global embedder, cross_encoder
-    embedder = SentenceTransformer("all-MiniLM-L12-v2")
+    embedder = SentenceTransformer(
+        "all-MiniLM-L12-v2", device="cpu", backend="onnx")  # Use ONNX on CPU
     cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
     # # Quantize cross-encoder

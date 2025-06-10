@@ -1,132 +1,89 @@
-import os
-import time
+import uuid
 import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import faiss
-from rank_bm25 import BM25Okapi
+from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
 from jet.file.utils import load_file
 from jet.logger import logger
-from typing import List, Dict, Any, Optional
-import re
-from tqdm import tqdm
-import uuid
+from jet.vectors.document_types import HeaderDocument
+from jet.models.tasks.task_types import SimilarityResult
 
-# Set environment variables before importing numpy/pytorch
-os.environ["OMP_NUM_THREADS"] = "4"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
-# Fallback to CPU for unsupported MPS ops
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+# Initialize global models
+embedder = None
+cross_encoder = None
 
 
-def load_documents(file_path: str, ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    """Load and preprocess documents from file."""
+def initialize_models(model: str, rerank_model: str) -> None:
+    """Initialize SentenceTransformer and CrossEncoder models."""
+    global embedder, cross_encoder
+    if embedder is None or cross_encoder is None:
+        logger.info(
+            "Initializing SentenceTransformer (%s) and CrossEncoder (%s)", model, rerank_model)
+        embedder = SentenceTransformer(model)
+        cross_encoder = CrossEncoder(rerank_model)
+
+
+def load_documents(file_path: str) -> List[dict]:
+    """Load and process documents from a file."""
     logger.info("Loading documents from %s", file_path)
-    file_path_str = str(file_path)
-    docs = load_file(file_path_str)
-    documents = []
-
-    if ids is not None and len(ids) != len(docs):
-        logger.error("Provided IDs length (%d) does not match documents length (%d)", len(
-            ids), len(docs))
-        raise ValueError("IDs length must match documents length")
-
-    for idx, doc in enumerate(tqdm(docs, desc="Processing documents")):
-        doc_id = ids[idx] if ids else str(uuid.uuid4())
-        if isinstance(doc, dict) and "metadata" in doc and "header_level" in doc["metadata"]:
-            if doc["metadata"].get("header_level") != 1:
-                text = "\n".join([
-                    doc["metadata"].get("parent_header", ""),
-                    doc["metadata"].get("header", ""),
-                    doc["metadata"].get("content", "")
-                ]).strip()
-                documents.append({"text": text, "id": doc_id, "index": idx})
-        else:
-            text = doc.get("text", "") if isinstance(doc, dict) else ""
-            logger.warning(
-                "Document %s lacks metadata, using text: %s", doc_id, text[:50])
-            documents.append({"text": text, "id": doc_id, "index": idx})
+    docs = load_file(file_path)
+    documents = [
+        {
+            "text": "\n".join([
+                doc["metadata"].get("parent_header", ""),
+                doc["metadata"]["header"],
+                doc["metadata"]["content"]
+            ]).strip(),
+            "id": idx,
+            "metadata": doc["metadata"]
+        }
+        for idx, doc in enumerate(tqdm(docs, desc="Processing documents"))
+        if doc["metadata"]["header_level"] != 1
+    ]
     return documents
 
 
-def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int = 800, overlap: int = 200) -> List[Dict[str, Any]]:
-    """Split document into semantic chunks using sentence boundaries."""
-    logger.info("Splitting document ID %s (index %d) into chunks with chunk_size=%d, overlap=%d",
-                doc_id, doc_index, chunk_size, overlap)
+def split_document(doc_text: str, doc_id: int, chunk_size: int = 800, overlap: int = 200) -> List[dict]:
+    """Split a document into chunks with headers and metadata."""
+    logger.info("Splitting document ID %d into chunks", doc_id)
     chunks = []
-    current_headers = []
-    current_chunk = []
+    headers = []
+    lines = doc_text.split("\n")
+    current_chunk = ""
     current_len = 0
-
-    lines = doc_text.strip().split("\n")
     for line in lines:
-        line = line.strip()
-        if not line:
-            continue
         if line.startswith(("# ", "## ")):
-            logger.debug("Processing header: %s", line)
+            headers.append(line)
+        line_len = len(line.split())
+        if line.startswith(("# ", "## ")) or current_len + line_len > chunk_size:
             if current_chunk:
-                chunk_text = " ".join(current_chunk).strip()
-                logger.debug("Creating chunk with text: %s, headers: %s, len: %d",
-                             chunk_text, current_headers, current_len)
                 chunks.append({
-                    "text": chunk_text,
-                    "headers": current_headers.copy(),
-                    "doc_id": doc_id,
-                    "doc_index": doc_index
+                    "text": current_chunk.strip(),
+                    "headers": headers.copy(),
+                    "doc_id": doc_id
                 })
-                current_chunk = [] if not overlap else current_chunk[-1:]
-                current_len = sum(len(s.split()) for s in current_chunk)
-            current_headers = [line]
-            current_chunk.append(line)
-            current_len += len(line.split())
+            if line.startswith(("# ", "## ")):
+                current_chunk = line
+                current_len = line_len
+            else:
+                current_chunk = line
+                current_len = line_len
         else:
-            sentences = re.split(r'(?<=[.!?])\s+', line.strip())
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if not sentence:
-                    continue
-                sentence_len = len(sentence.split())
-                logger.debug("Processing sentence: %s, len: %d, current_len: %d",
-                             sentence, sentence_len, current_len)
-                if current_chunk and (current_len + sentence_len >= chunk_size or len(current_chunk) > 1):
-                    chunk_text = " ".join(current_chunk).strip()
-                    logger.debug("Creating chunk with text: %s, headers: %s, len: %d",
-                                 chunk_text, current_headers, current_len)
-                    chunks.append({
-                        "text": chunk_text,
-                        "headers": current_headers.copy(),
-                        "doc_id": doc_id,
-                        "doc_index": doc_index
-                    })
-                    current_chunk = [sentence] if not overlap else [
-                        current_chunk[-1], sentence] if current_chunk else [sentence]
-                    current_len = sentence_len + \
-                        (sum(len(s.split())
-                         for s in current_chunk[:-1]) if overlap else 0)
-                else:
-                    current_chunk.append(sentence)
-                    current_len += sentence_len
-
+            current_chunk += "\n" + line
+            current_len += line_len
     if current_chunk:
-        chunk_text = " ".join(current_chunk).strip()
-        if chunk_text:
-            logger.debug("Creating final chunk with text: %s, headers: %s, len: %d",
-                         chunk_text, current_headers, current_len)
-            chunks.append({
-                "text": chunk_text,
-                "headers": current_headers.copy(),
-                "doc_id": doc_id,
-                "doc_index": doc_index
-            })
-
-    logger.info("Created %d chunks for document ID %s (index %d)",
-                len(chunks), doc_id, doc_index)
+        chunks.append({
+            "text": current_chunk.strip(),
+            "headers": headers.copy(),
+            "doc_id": doc_id
+        })
     return chunks
 
 
-def filter_by_headers(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
-    """Filter chunks based on header relevance."""
-    start_time = time.time()
+def filter_by_headers(chunks: List[dict], query: str) -> List[dict]:
+    """Filter chunks based on query relevance to headers."""
     logger.info("Filtering chunks by headers for query: %s", query)
     query_terms = set(query.lower().split())
     filtered = []
@@ -134,51 +91,29 @@ def filter_by_headers(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str
         headers = [h.lower() for h in chunk["headers"]]
         if any(any(term in h for term in query_terms) for h in headers) or not headers:
             filtered.append(chunk)
-    duration = time.time() - start_time
-    logger.info("Filtering completed in %.3f seconds, reduced %d to %d chunks",
-                duration, len(chunks), len(filtered))
     return filtered if filtered else chunks
 
 
-def embed_chunk(chunk: str, embedder: SentenceTransformer) -> np.ndarray:
-    """Embed a single chunk using SentenceTransformer."""
+def embed_chunk(chunk: str) -> np.ndarray:
+    """Embed a single chunk using the SentenceTransformer model."""
     return embedder.encode(chunk, convert_to_numpy=True)
 
 
-def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer) -> np.ndarray:
-    """Embed chunks in batches to optimize performance."""
-    start_time = time.time()
-    logger.info("Embedding %d chunks in batches", len(chunk_texts))
-    logger.debug("Embedding device: %s", embedder.device)
-    batch_size = 32  # Adjustable based on memory
-    embeddings = []
-    for i in tqdm(range(0, len(chunk_texts), batch_size), desc="Embedding chunks"):
-        batch = chunk_texts[i:i + batch_size]
-        try:
-            batch_embeddings = embedder.encode(
-                batch, convert_to_numpy=True, batch_size=batch_size)
-            embeddings.extend(batch_embeddings)
-        except Exception as e:
-            logger.error("Error embedding batch: %s", e)
-            for _ in batch:
-                embeddings.append(
-                    np.zeros(embedder.get_sentence_embedding_dimension()))
-    duration = time.time() - start_time
-    logger.info("Embedding completed in %.3f seconds", duration)
+def embed_chunks_parallel(chunk_texts: List[str]) -> np.ndarray:
+    """Embed chunks in parallel using ThreadPoolExecutor."""
+    logger.info("Embedding %d chunks in parallel", len(chunk_texts))
+    with ThreadPoolExecutor() as executor:
+        embeddings = list(tqdm(
+            executor.map(embed_chunk, chunk_texts),
+            total=len(chunk_texts),
+            desc="Embedding chunks"
+        ))
     return np.vstack(embeddings)
 
 
-def get_bm25_scores(chunk_texts: List[str], query: str) -> List[float]:
-    """Calculate BM25 scores for chunks."""
-    tokenized_chunks = [text.lower().split() for text in chunk_texts]
-    bm25 = BM25Okapi(tokenized_chunks)
-    tokenized_query = query.lower().split()
-    return bm25.get_scores(tokenized_query).tolist()
-
-
-def get_original_document(doc_id: str, documents: List[Dict[str, Any]]) -> str:
-    """Retrieve original document text by ID."""
-    logger.info("Retrieving original document for ID %s", doc_id)
+def get_original_document(doc_id: int, documents: List[dict]) -> Optional[str]:
+    """Retrieve the original document text by ID."""
+    logger.info("Retrieving original document for ID %d", doc_id)
     for doc in documents:
         if doc["id"] == doc_id:
             return doc["text"]
@@ -186,115 +121,127 @@ def get_original_document(doc_id: str, documents: List[Dict[str, Any]]) -> str:
 
 
 def search_docs(
-    file_path: str,
     query: str,
-    ids: Optional[List[str]] = None,
-    embedder_model: str = "static-retrieval-mrl-en-v1",
-    cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
-    chunk_size: int = 800,
-    overlap: int = 200,
-    top_k: int = 20,
-    rerank_top_k: int = 5,
-    batch_size: int = 8,
-    bm25_weight: float = 0.5
-) -> List[Dict[str, Any]]:
-    """Search documents using hybrid retrieval with BM25 and embeddings."""
-    total_start_time = time.time()
-    documents = load_documents(file_path, ids)
+    documents: List[HeaderDocument],
+    task_description: str,
+    model: str = "static-retrieval-mrl-en-v1",
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    max_length: int = 512,
+    ids: List[str] = [],
+    threshold: float = 0.0
+) -> List[SimilarityResult]:
+    """
+    Search documents using embeddings and reranking.
 
-    # Splitting documents
-    start_time = time.time()
+    Args:
+        query: The search query string.
+        documents: List of HeaderDocument objects to search through.
+        task_description: Description of the search task for context.
+        model: SentenceTransformer model name for embeddings.
+        rerank_model: CrossEncoder model name for reranking.
+        max_length: Maximum length for chunk texts.
+        ids: Optional list of document IDs to filter results.
+        threshold: Minimum similarity score threshold.
+
+    Returns:
+        List of SimilarityResult objects with ranked documents.
+    """
+    logger.info("Starting document search for query: %s, task: %s",
+                query, task_description)
+
+    # Initialize models
+    initialize_models(model, rerank_model)
+
+    # Convert HeaderDocument to internal format
+    internal_docs = [
+        {
+            "text": doc.get_recursive_text(),
+            "id": doc.id or str(uuid.uuid4()),
+            "metadata": doc.metadata
+        }
+        for doc in documents
+    ]
+
+    # Filter documents by provided IDs if any
+    if ids:
+        internal_docs = [doc for doc in internal_docs if doc["id"] in ids]
+        logger.info("Filtered to %d documents based on provided IDs",
+                    len(internal_docs))
+
+    # Split documents into chunks
+    logger.info("Splitting %d documents into chunks", len(internal_docs))
     chunks = []
-    for doc in tqdm(documents, desc="Splitting documents"):
-        chunks.extend(split_document(
-            doc["text"], doc["id"], doc["index"], chunk_size, overlap))
-    split_duration = time.time() - start_time
-    logger.info("Document splitting completed in %.3f seconds, created %d chunks",
-                split_duration, len(chunks))
+    for doc in tqdm(internal_docs, desc="Splitting documents"):
+        chunks.extend(split_document(doc["text"], doc["id"]))
 
-    # Filtering chunks
+    # Filter chunks by headers
     filtered_chunks = filter_by_headers(chunks, query)
-    chunk_texts = [chunk["text"] for chunk in filtered_chunks]
+    chunk_texts = [chunk["text"][:max_length] for chunk in filtered_chunks]
+    logger.info("Filtered to %d chunks", len(chunk_texts))
 
-    # Embedding chunks
-    logger.info("Initializing SentenceTransformer and CrossEncoder models")
-    embedder = SentenceTransformer(
-        embedder_model, device="cpu", backend="onnx")  # Use ONNX on CPU
-    cross_encoder = CrossEncoder(cross_encoder_model)
-    chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
+    # Embed chunks
+    chunk_embeddings = embed_chunks_parallel(chunk_texts)
 
-    # FAISS search
-    start_time = time.time()
+    # FAISS index
+    logger.info("Building FAISS index")
     dim = chunk_embeddings.shape[1]
-    index = faiss.IndexFlatIP(dim)  # Use inner product for cosine similarity
-    faiss.normalize_L2(chunk_embeddings)  # Normalize for cosine similarity
+    index = faiss.IndexFlatL2(dim)
     index.add(chunk_embeddings)
-    top_k = min(top_k, len(chunk_texts))
-    logger.info("Performing FAISS search with top-k=%d", top_k)
+
+    # Initial retrieval
+    k = min(20 if len(chunk_texts) < 1000 else 50, len(chunk_texts))
+    logger.info("Performing FAISS search with top-k=%d", k)
     query_embedding = embedder.encode([query], convert_to_numpy=True)
-    faiss.normalize_L2(query_embedding)  # Normalize query
-    logger.debug("Query embedding norm: %.4f", np.linalg.norm(query_embedding))
-    distances, indices = index.search(query_embedding, top_k)
-    embed_scores = distances[0].tolist()  # Cosine similarity [0, 1]
-    logger.debug("FAISS distances: %s", distances[0].tolist())
-    logger.debug("Embed scores: %s", embed_scores)
-    faiss_duration = time.time() - start_time
-    logger.info("FAISS search completed in %.3f seconds", faiss_duration)
-
-    # Combine scores
-    bm25_scores = get_bm25_scores(chunk_texts, query)
-    combined_scores = [
-        bm25_weight * bm25_scores[i] + (1 - bm25_weight) * embed_scores[j]
-        for j, i in enumerate(indices[0])
-    ]
+    distances, indices = index.search(query_embedding, k)
+    embed_scores = [1 / (1 + d) for d in distances[0]]
     initial_docs = [
-        (filtered_chunks[i], combined_scores[j], embed_scores[j])
+        (filtered_chunks[i], embed_scores[j])
         for j, i in enumerate(indices[0])
     ]
+    logger.debug("FAISS search results: indices=%s, embed_scores=%s",
+                 indices[0][:5], embed_scores[:5])
 
-    # Reranking
-    start_time = time.time()
+    # Cross-encoder reranking
     logger.info("Reranking %d documents with cross-encoder", len(initial_docs))
-    pairs = [[query, doc["text"]] for doc, _, _ in initial_docs]
+    batch_size = 8
+    pairs = [[query, doc["text"]] for doc, _ in initial_docs]
     scores = []
     try:
-        for i in tqdm(range(0, len(pairs), batch_size), desc="Reranking"):
+        for i in tqdm(range(0, len(pairs), batch_size), desc="Reranking batches"):
             batch = pairs[i:i + batch_size]
             batch_scores = cross_encoder.predict(batch)
             scores.extend(batch_scores)
+            logger.debug("Batch %d rerank scores: %s",
+                         i // batch_size, batch_scores)
     except Exception as e:
         logger.error("Error in reranking: %s", e)
-        scores = [0] * len(pairs)
-        logger.info(
-            "Added %d zeros as default scores due to reranking error", len(pairs))
-    reranked_indices = np.argsort(scores)[::-1][:rerank_top_k]
-    reranked_docs = [
-        (initial_docs[i][0], initial_docs[i][1], scores[i], initial_docs[i][2])
-        for i in reranked_indices
-    ]
-    rerank_duration = time.time() - start_time
-    logger.info("Reranking completed in %.3f seconds", rerank_duration)
+        scores = [0] * len(pairs)  # Fallback
+    logger.debug("All rerank scores: %s", scores[:10])
 
-    # Build results
-    results = []
+    # Prepare results
+    reranked_indices = np.argsort(scores)[::-1][:10]
     seen_doc_ids = set()
-    for i, (chunk, combined_score, rerank_score, embedding_score) in enumerate(reranked_docs):
+    results: List[SimilarityResult] = []
+    rank = 1
+    for i in reranked_indices:
+        chunk, embed_score, rerank_score = initial_docs[i][0], initial_docs[i][1], scores[i]
         doc_id = chunk["doc_id"]
-        if doc_id not in seen_doc_ids:
-            original_doc = get_original_document(doc_id, documents)
-            result = {
-                "id": doc_id,
-                "doc_index": chunk["doc_index"],
-                "rank": i + 1,
-                "score": rerank_score,
-                "combined_score": combined_score,
-                "embedding_score": embedding_score,
-                "headers": chunk["headers"],
-                "text": original_doc if original_doc else "Not found"
-            }
-            results.append(result)
-            seen_doc_ids.add(doc_id)
+        if doc_id not in seen_doc_ids and rerank_score >= threshold:
+            original_doc = get_original_document(doc_id, internal_docs)
+            if original_doc:
+                result: SimilarityResult = {
+                    "id": str(doc_id),
+                    "rank": rank,
+                    "doc_index": int(doc_id),
+                    "score": float(rerank_score),
+                    "text": original_doc[:max_length],
+                    "tokens": len(original_doc.split())
+                }
+                results.append(result)
+                seen_doc_ids.add(doc_id)
+                rank += 1
+            else:
+                logger.warning("Original document not found for ID %d", doc_id)
 
-    total_duration = time.time() - total_start_time
-    logger.info("Total search completed in %.3f seconds", total_duration)
+    logger.info("Returning %d ranked results", len(results))
     return results

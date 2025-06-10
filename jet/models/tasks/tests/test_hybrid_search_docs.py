@@ -1,6 +1,6 @@
 import pytest
 import json
-from jet.models.tasks.hybrid_search_docs import embed_chunks_parallel, search_docs, load_documents, split_document
+from jet.models.tasks.hybrid_search_docs_with_bm25 import embed_chunks_parallel, search_docs, load_documents, split_document
 from unittest.mock import Mock
 import numpy as np
 
