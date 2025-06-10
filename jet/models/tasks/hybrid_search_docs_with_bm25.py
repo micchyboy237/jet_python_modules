@@ -32,8 +32,11 @@ class SearchResult(TypedDict):
     document: HeaderDocument
 
 
-def process_documents(documents: Union[List[HeaderDocument], List[Dict[str, Any]]], ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    """Process and preprocess HeaderDocument objects or dictionaries."""
+def process_documents(
+    documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]],
+    ids: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """Process and preprocess HeaderDocument objects, dictionaries, or strings."""
     logger.info("Processing %d input objects",
                 len(documents) if documents else 0)
     logger.debug("Input documents type: %s, value: %s",
@@ -50,8 +53,26 @@ def process_documents(documents: Union[List[HeaderDocument], List[Dict[str, Any]
     result = []
     processed_docs: List[HeaderDocument] = []
 
-    # Convert dictionaries to HeaderDocument if needed
-    if documents and isinstance(documents[0], dict):
+    # Handle List[str]
+    if documents and isinstance(documents[0], str):
+        logger.info(
+            "Converting %d strings to HeaderDocument objects", len(documents))
+        for idx, text in enumerate(tqdm(documents, desc="Converting strings")):
+            try:
+                header_doc = HeaderDocument(
+                    id=ids[idx] if ids and idx < len(
+                        ids) else str(uuid.uuid4()),
+                    text=text,
+                    metadata={}
+                )
+                processed_docs.append(header_doc)
+            except Exception as e:
+                logger.error(
+                    "Failed to convert string to HeaderDocument at index %d: %s", idx, str(e))
+                raise ValueError(
+                    f"Failed to convert string to HeaderDocument at index {idx}: {str(e)}")
+    # Handle List[Dict[str, Any]]
+    elif documents and isinstance(documents[0], dict):
         logger.info(
             "Converting %d dictionaries to HeaderDocument objects", len(documents))
         for idx, doc_dict in enumerate(tqdm(documents, desc="Converting dictionaries")):
@@ -63,6 +84,7 @@ def process_documents(documents: Union[List[HeaderDocument], List[Dict[str, Any]
                     "Failed to convert dictionary to HeaderDocument at index %d: %s", idx, str(e))
                 raise ValueError(
                     f"Failed to convert dictionary to HeaderDocument at index {idx}: {str(e)}")
+    # Handle List[HeaderDocument]
     else:
         logger.info(
             "Processing %d HeaderDocument objects directly", len(documents))
@@ -226,12 +248,31 @@ def get_bm25_scores(chunk_texts: List[str], query: str) -> List[float]:
     return bm25.get_scores(tokenized_query).tolist()
 
 
-def get_original_document(doc_id: str, documents: Union[List[HeaderDocument], List[Dict[str, Any]]]) -> Optional[HeaderDocument]:
+def get_original_document(
+    doc_id: str,
+    documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]]
+) -> Optional[HeaderDocument]:
     """Retrieve original HeaderDocument by ID."""
     logger.info("Retrieving original HeaderDocument for ID %s", doc_id)
     processed_docs: List[HeaderDocument] = []
 
-    if documents and isinstance(documents[0], dict):
+    if documents and isinstance(documents[0], str):
+        logger.info(
+            "Converting %d strings to HeaderDocument objects for retrieval", len(documents))
+        for idx, text in enumerate(documents):
+            try:
+                header_doc = HeaderDocument(
+                    id=doc_id if doc_id == (ids[idx] if ids and idx < len(
+                        ids) else str(uuid.uuid4())) else str(uuid.uuid4()),
+                    text=text,
+                    metadata={}
+                )
+                processed_docs.append(header_doc)
+            except Exception as e:
+                logger.error(
+                    "Failed to convert string to HeaderDocument for ID %s: %s", doc_id, str(e))
+                continue
+    elif documents and isinstance(documents[0], dict):
         logger.info(
             "Converting %d dictionaries to HeaderDocument objects for retrieval", len(documents))
         for doc_dict in documents:
@@ -258,8 +299,9 @@ def get_original_document(doc_id: str, documents: Union[List[HeaderDocument], Li
 
 
 def search_docs(
-    documents: Union[List[HeaderDocument], List[Dict[str, Any]]],
     query: str,
+    documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]],
+    instruction: Optional[str] = None,
     ids: Optional[List[str]] = None,
     model: str = "static-retrieval-mrl-en-v1",
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
@@ -270,10 +312,21 @@ def search_docs(
     batch_size: int = 8,
     bm25_weight: float = 0.5
 ) -> List[SearchResult]:
-    """Search documents using hybrid retrieval with BM25 and embeddings."""
+    """Search documents using hybrid retrieval with BM25 and embeddings, incorporating an instruction."""
     total_start_time = time.time()
-    logger.debug("Input document IDs: %s", [doc.id if isinstance(
-        doc, HeaderDocument) else doc.get("id") for doc in documents if doc])
+    logger.debug("Input document IDs: %s", [
+        doc.id if isinstance(doc, HeaderDocument) else doc.get(
+            "id") if isinstance(doc, dict) else str(uuid.uuid4())
+        for doc in documents if doc
+    ])
+    logger.info("Using instruction: %s", instruction)
+
+    # Validate instruction
+    if not isinstance(instruction, str) or not instruction.strip():
+        logger.warning(
+            "Invalid or empty instruction provided, proceeding without instruction")
+        instruction = ""
+
     docs = process_documents(documents, ids)
 
     # Splitting documents
@@ -305,7 +358,13 @@ def search_docs(
     index.add(chunk_embeddings)
     top_k = min(top_k, len(chunk_texts))
     logger.info("Performing FAISS search with top-k=%d", top_k)
-    query_embedding = embedder.encode([query], convert_to_numpy=True)
+
+    # Combine instruction with query for embedding
+    query_with_instruction = f"{instruction} {query}".strip(
+    ) if instruction else query
+    logger.debug("Query with instruction: %s", query_with_instruction)
+    query_embedding = embedder.encode(
+        [query_with_instruction], convert_to_numpy=True)
     faiss.normalize_L2(query_embedding)  # Normalize query
     logger.debug("Query embedding norm: %.4f", np.linalg.norm(query_embedding))
     distances, indices = index.search(query_embedding, top_k)
@@ -329,7 +388,9 @@ def search_docs(
     # Reranking
     start_time = time.time()
     logger.info("Reranking %d documents with cross-encoder", len(initial_docs))
-    pairs = [[query, doc["text"]] for doc, _, _ in initial_docs]
+    # Use instruction in reranking
+    pairs = [[query_with_instruction, doc["text"]]
+             for doc, _, _ in initial_docs]
     scores = []
     try:
         for i in tqdm(range(0, len(pairs), batch_size), desc="Reranking"):
