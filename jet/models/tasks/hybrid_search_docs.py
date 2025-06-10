@@ -118,12 +118,13 @@ def embed_chunks_parallel(chunk_texts: List[str]) -> np.ndarray:
     return np.vstack(embeddings)
 
 
-def get_original_document(doc_id: int, documents: List[dict]) -> Optional[str]:
-    """Retrieve the original document text by ID."""
-    logger.info("Retrieving original document for ID %d", doc_id)
+def get_original_document(doc_id: int, documents: List[dict]) -> Optional[dict]:
+    """Retrieve the original document by ID."""
+    logger.info("Retrieving original document for ID %s", doc_id)
     for doc in documents:
         if doc["id"] == doc_id:
-            return doc["text"]
+            return doc
+    logger.warning("Original document not found for ID %s", doc_id)
     return None
 
 
@@ -159,15 +160,18 @@ def search_docs(
     # Initialize models
     initialize_models(model, rerank_model)
 
-    # Convert HeaderDocument to internal format
+    # Convert HeaderDocument to internal format, preserving original index
     internal_docs = [
         {
             "text": doc.get_recursive_text(),
             "id": doc.id or str(uuid.uuid4()),
-            "metadata": doc.metadata
+            "metadata": doc.metadata,
+            "original_index": idx  # Store original index from input list
         }
-        for doc in documents
+        for idx, doc in enumerate(documents)
     ]
+    logger.debug("Created %d internal documents: %s", len(internal_docs),
+                 [doc["id"] for doc in internal_docs[:5]])
 
     # Filter documents by provided IDs if any
     if ids:
@@ -239,16 +243,21 @@ def search_docs(
                 result: SimilarityResult = {
                     "id": str(doc_id),
                     "rank": rank,
-                    "doc_index": int(doc_id),
+                    # Use original index
+                    "doc_index": int(original_doc["original_index"]),
                     "score": float(rerank_score),
-                    "text": original_doc[:max_length],
-                    "tokens": len(original_doc.split())
+                    "text": original_doc["text"][:max_length],
+                    "tokens": len(original_doc["text"].split())
                 }
                 results.append(result)
                 seen_doc_ids.add(doc_id)
                 rank += 1
             else:
-                logger.warning("Original document not found for ID %d", doc_id)
+                logger.warning("Original document not found for ID %s", doc_id)
+    logger.debug("Final results: %s", [
+        {"id": r["id"], "doc_index": r["doc_index"], "rank": r["rank"]}
+        for r in results
+    ])
 
     logger.info("Returning %d ranked results", len(results))
     return results
