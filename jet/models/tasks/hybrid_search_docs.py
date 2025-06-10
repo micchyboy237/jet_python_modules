@@ -188,7 +188,8 @@ def search_docs(
     logger.info("Filtered to %d chunks", len(chunk_texts))
 
     # Use CPU to avoid MPS issues
-    embedder = SentenceTransformer(embedder_model, device="cpu")
+    embedder = SentenceTransformer(
+        embedder_model, device="cpu", backend="onnx")
     cross_encoder = CrossEncoder(cross_encoder_model)
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
 
