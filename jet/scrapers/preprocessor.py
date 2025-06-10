@@ -1,3 +1,4 @@
+from readability import Document as ReadabilityDocument
 import json
 import re
 import html2text
@@ -9,6 +10,73 @@ import bs4.element
 from jet.logger import logger
 
 
+def remove_markdown_comments(markdown_text: str) -> str:
+    """Removes all HTML-style markdown comments and strips the result."""
+    cleaned = re.sub(r'<!--.*?-->', '', markdown_text, flags=re.DOTALL)
+    return cleaned.strip()
+
+
+def normalize_whitespace(html: str) -> str:
+    """Normalize HTML whitespace for consistent test output."""
+    return re.sub(r'\s+', ' ', html.strip())
+
+
+def remove_display_none_elements(html_string: str) -> str:
+    """Remove HTML elements with display: none style."""
+    soup = BeautifulSoup(html_string, 'html.parser')
+    for element in soup.find_all(style=True):
+        if 'display:none' in element['style'].replace(' ', ''):
+            element.decompose()
+    return normalize_whitespace(str(soup))
+
+
+def clean_html_noise(html_string: str) -> str:
+    """Clean HTML by removing noisy elements and boilerplate."""
+    doc = ReadabilityDocument(html_string)
+    clean_html = doc.summary()
+
+    soup = BeautifulSoup(clean_html, 'html.parser')
+
+    # Extract content from readability wrapper
+    target = soup.find('body', id='readabilityBody')
+    if target:
+        # Create a new soup with just the body contents
+        soup = BeautifulSoup(''.join(str(child)
+                             for child in target.children), 'html.parser')
+
+    noisy_selectors = ['script', 'style', 'nav', 'footer',
+                       'aside', '[class*="ad"]', '[class*="banner"]']
+    for selector in noisy_selectors:
+        for element in soup.select(selector):
+            element.decompose()
+
+    boilerplate_patterns = [
+        r'\b(click here|all rights reserved|terms of service|privacy policy)\b',
+        r'\b(subscribe now|sign up today)\b',
+    ]
+    for pattern in boilerplate_patterns:
+        for element in soup.find_all(string=re.compile(pattern, re.IGNORECASE)):
+            element.replace_with('')
+
+    return normalize_whitespace(str(soup))
+
+
+def convert_html_to_markdown(html_string: str, ignore_links: bool = True) -> str:
+    """Convert HTML to Markdown with enhanced noise removal."""
+    filtered_html = remove_display_none_elements(html_string)
+    filtered_html = clean_html_noise(filtered_html)
+
+    converter = html2text.HTML2Text()
+    converter.ignore_links = ignore_links
+    converter.ignore_images = True
+    converter.ignore_emphasis = True
+    converter.mark_code = True
+    converter.body_width = 0
+
+    markdown_string = converter.handle(filtered_html)
+    return markdown_string.strip()
+
+
 def is_html(text: str) -> bool:
     """Check if the input string is valid HTML."""
     try:
@@ -18,45 +86,48 @@ def is_html(text: str) -> bool:
         return False
 
 
-def remove_markdown_comments(markdown_text: str) -> str:
-    """Removes all HTML-style markdown comments and strips the result."""
-    cleaned = re.sub(r'<!--.*?-->', '', markdown_text, flags=re.DOTALL)
-    return cleaned.strip()
+def html_to_markdown(
+    html_str: str,
+    container_selector: str = 'body',
+    remove_selectors: list[str] = [],
+    replace_selectors: list[dict] = [],
+    ignore_links: bool = True
+) -> str:
+    """Convert HTML to Markdown with customizable noise removal."""
+    html_str = minify_html(html_str)
+    soup = BeautifulSoup(html_str, 'html.parser')
+    container = soup.select_one(container_selector)
 
+    if not container:
+        return ""
 
-def remove_display_none_elements(html_string):
-    # Parse the HTML content using BeautifulSoup
-    soup = BeautifulSoup(html_string, 'html.parser')
+    default_remove_selectors = ['script', 'style',
+                                'nav', 'footer', 'aside', '[class*="ad"]']
+    remove_selectors = list(set(remove_selectors + default_remove_selectors))
 
-    # Find all elements with the style attribute that contains 'display: none'
-    for element in soup.find_all(style=True):
-        elm: bs4.element.Tag = element
-        if elm.attrs and "style" in elm.attrs and 'display:none' in elm['style'].replace(' ', ''):
-            elm.decompose()  # Remove the element from the tree
+    for selector in remove_selectors:
+        for element in container.select(selector):
+            element.decompose()
 
-    # Return the modified HTML as a string
-    return str(soup)
+    for replacement in replace_selectors:
+        for old_tag, new_tag in replacement.items():
+            for element in container.select(old_tag):
+                new_element = soup.new_tag(new_tag, **element.attrs)
+                if element.string is not None:
+                    new_element.string = element.string
+                else:
+                    new_element.extend(element.contents)
+                element.replace_with(new_element)
 
+    markdown = convert_html_to_markdown(
+        str(container), ignore_links=ignore_links)
+    markdown = clean_text(markdown)
 
-def convert_html_to_markdown(html_string: str, ignore_links: bool = True):
-    # Remove elements with 'display: none' before converting to Markdown
-    filtered_html = remove_display_none_elements(html_string)
+    first_header_index = markdown.find("# ")
+    if first_header_index != -1:
+        markdown = markdown[first_header_index:]
 
-    # Use the html2text library to convert HTML to Markdown
-    converter = html2text.HTML2Text()
-
-    # Configure the converter if necessary
-    converter.ignore_links = ignore_links
-    converter.ignore_images = True
-    converter.ignore_emphasis = True
-    converter.mark_code = True
-    # converter.bypass_tables = True
-    converter.body_width = 0  # Prevent line wrapping
-
-    # Convert the filtered HTML string to Markdown
-    markdown_string = converter.handle(filtered_html)
-
-    return markdown_string.strip()
+    return markdown
 
 
 def get_header_level(header: str) -> int:
@@ -156,59 +227,6 @@ def extract_header_contents(md_text: str, max_chars_per_chunk: int = 1000) -> li
         header_content["content"] = clean_newlines(header_content["content"])
 
     return header_contents
-
-
-def html_to_markdown(
-    html_str: str,
-    container_selector: str = 'body',
-    remove_selectors: list[str] = [],
-    replace_selectors: list[dict] = [],
-    ignore_links: bool = True
-) -> str:
-    from bs4 import BeautifulSoup
-    from .utils import clean_text
-
-    html_str = minify_html(html_str)
-
-    # Parse the HTML with BeautifulSoup
-    soup = BeautifulSoup(html_str, 'html.parser')
-
-    # Select the container element
-    container = soup.select_one(container_selector)
-
-    if not container:
-        return ""
-
-    # Remove elements by CSS selector within the container
-    for selector in remove_selectors:
-        for element in container.select(selector):
-            element.decompose()
-
-    # Replace elements by CSS selector within the container
-    for replacement in replace_selectors:
-        for old_tag, new_tag in replacement.items():
-            for element in container.select(old_tag):
-                # Create a new tag with the same attributes
-                new_element = soup.new_tag(new_tag, **element.attrs)
-                # Copy over the contents, not just the string (handles nested tags)
-                if element.string is not None:
-                    new_element.string = element.string
-                else:
-                    new_element.extend(element.contents)
-                # Replace the old tag with the new tag
-                element.replace_with(new_element)
-
-    # Convert the cleaned HTML to Markdown
-    markdown = convert_html_to_markdown(
-        str(container), ignore_links=ignore_links)
-    markdown = clean_text(markdown)
-
-    # Find the first instance of "# ", then remove all texts before it
-    first_header_index = markdown.find("# ")
-    if first_header_index != -1:
-        markdown = markdown[first_header_index:]
-
-    return markdown
 
 
 def scrape_markdown(html_str: str) -> dict:

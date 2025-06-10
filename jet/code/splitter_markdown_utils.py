@@ -248,12 +248,14 @@ def get_md_header_contents(
     headers_to_split_on: List[Tuple[str, str]] = [],
     ignore_links: bool = True
 ) -> List[Header]:
+    """Split Markdown text into headers and content with improved semantic chunking."""
+
     from jet.scrapers.utils import clean_newlines, clean_text, clean_spaces
     from jet.scrapers.preprocessor import is_html, html_to_markdown
 
     if is_html(md_text):
         md_text = html_to_markdown(md_text, ignore_links=ignore_links, remove_selectors=[
-            "style", "script", "nav", "footer"])
+            "style", "script", "nav", "footer", "[class*="ad"]"])
 
     md_text = md_text.strip()
 
@@ -276,15 +278,11 @@ def get_md_header_contents(
         raw_text = clean_spaces(clean_newlines(clean_text(
             split.page_content), max_newlines=1, strip_lines=True))
 
-        # Check if metadata is empty
         if not split.metadata:
-            # Skip splits with no metadata or handle as plain content
-            if raw_text.strip():
-                if md_header_contents and parent_stack:
-                    # Append to the last header's content if available
-                    md_header_contents[-1]["content"] += "\n\n" + raw_text
-                    md_header_contents[-1]["text"] += "\n\n" + raw_text
-                continue
+            if raw_text.strip() and md_header_contents and parent_stack:
+                md_header_contents[-1]["content"] += "\n\n" + raw_text
+                md_header_contents[-1]["text"] += "\n\n" + raw_text
+            continue
 
         last_key = list(split.metadata.keys())[-1]
         last_value = split.metadata[last_key]
@@ -302,35 +300,15 @@ def get_md_header_contents(
             raw_text = f"{last_header}\n{raw_text}"
 
         try:
-            # Extract raw header line and clean it
             header_line = get_header_text(raw_text)
             header_line = clean_spaces(header_line)
-
-            # Extract links from header line
             header_links, clean_header = extract_markdown_links(header_line)
-
             header_level = get_header_level(clean_header)
 
-            # Clean full text, extract links
             cleaned_text = clean_spaces(raw_text)
             body_links, cleaned_text = extract_markdown_links(cleaned_text)
+            all_links = list(set(header_links + body_links))
 
-            # Combine all links
-            all_links = header_links + body_links
-
-            # Remove duplicates based on (text, url, caption, line)
-            seen = set()
-            unique_links = []
-            for link in all_links:
-                key = (link["text"], link["url"],
-                       link["caption"], link["line"])
-                if key not in seen:
-                    seen.add(key)
-                    unique_links.append(link)
-
-            all_links = unique_links
-
-            # Extract content below the header
             content_lines = cleaned_text.splitlines()[1:]
             content = "\n".join(
                 line for line in content_lines

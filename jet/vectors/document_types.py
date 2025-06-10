@@ -6,10 +6,6 @@ from typing import Any, List, Optional, TypedDict, cast
 from pydantic import BaseModel, Field
 
 
-class HeadersQueryResponse(BaseModel):
-    data: List[str]
-
-
 class RelevantDocument(BaseModel):
     document_number: int = Field(..., ge=0)
     confidence: int = Field(..., ge=1, le=10)
@@ -59,7 +55,7 @@ class HeaderDocument(Document):
         # Make a defensive copy to avoid modifying input
         data = data.copy()
         # Pop for parent initialization
-        text = data.pop("text", "")
+        text: str = data.pop("text", "")
         # Pass all remaining data to parent, including id
         super().__init__(text=text, **data)
 
@@ -67,7 +63,7 @@ class HeaderDocument(Document):
         metadata = data.pop("metadata", None)
 
         # Define default metadata values
-        default_values = {
+        default_values: HeaderMetadata = {
             "doc_index": 0,
             "header_level": 0,
             "header": "",
@@ -77,7 +73,7 @@ class HeaderDocument(Document):
             "token_count": None,
             "source_url": None,
             "links": None,
-            "texts": None,
+            "texts": text.splitlines(),
         }
 
         # Merge metadata (if valid) with defaults, prioritizing metadata

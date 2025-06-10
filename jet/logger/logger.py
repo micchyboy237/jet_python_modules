@@ -75,41 +75,39 @@ class CustomLogger:
 
     def custom_logger_method(self, level: str) -> Callable[[str, Optional[bool]], None]:
         def wrapper(
-            *messages: list[str],
+            message: str,
+            *args: Any,
             bright: bool = False,
             flush: bool = False,
             end: str = None,
             colors: list[str] = None,
             exc_info: bool = True,
         ) -> None:
-            messages = list(messages)
+            if args:
+                try:
+                    message = message % args
+                except Exception:
+                    message = f"{message} {' '.join(map(str, args))}"
 
             actual_level = f"BRIGHT_{level}" if bright else level
 
             if colors is None:
-                colors = [actual_level] * len(messages)
+                colors = [actual_level]
             else:
-                colors = colors * \
-                    ((len(messages) + len(colors) - 1) // len(colors))
+                colors = colors * ((1 + len(colors) - 1) // len(colors))
 
-            if len(messages) == 1:
-                if is_class_instance(messages[0]):
-                    messages[0] = str(messages[0])
-                else:
-                    parsed_message = parse_json(messages[0])
-                    if isinstance(parsed_message, (dict, list)):
-                        messages[0] = format_json(parsed_message)
+            if is_class_instance(message):
+                message = str(message)
+            else:
+                parsed_message = parse_json(message)
+                if isinstance(parsed_message, (dict, list)):
+                    message = format_json(parsed_message)
 
-            messages = [
-                fix_and_unidecode(message)
-                if isinstance(message, str) else message
-                for message in messages
-            ]
+            message = fix_and_unidecode(message) if isinstance(
+                message, str) else message
 
-            formatted_messages = [
-                f"{COLORS.get(color, COLORS['LOG'])}{message}{RESET}" for message, color in zip(messages, colors)
-            ]
-            output = " ".join(formatted_messages)
+            colored_output = f"{COLORS.get(colors[0], COLORS['LOG'])}{message}{RESET}"
+            final_output = colored_output
 
             if level.lower() == "error" and exc_info:
                 print(colorize_log("Trace exception:", "gray"))
@@ -117,20 +115,19 @@ class CustomLogger:
 
             if not end:
                 end = "" if flush else "\n"
-            print(output, end=end)
+            print(final_output, end=end)
 
             if self.log_file:
                 end = "" if flush else "\n\n"
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 metadata = f"[{level.upper()}] {timestamp}"
-                message = " ".join(str(m) for m in messages)
 
                 with open(self.log_file, "a") as file:
                     if not flush and self._last_message_flushed:
                         file.write("\n\n")
                     if not flush or (flush and not self._last_message_flushed):
                         file.write(metadata + "\n")
-                    file.write(clean_ansi(message) + end)
+                    file.write(clean_ansi(str(message)) + end)
 
                 self._last_message_flushed = flush
 
@@ -202,22 +199,73 @@ def logger_examples(logger: CustomLogger):
     logger.newline()
     logger.log("This is a default log message.")
     logger.info("This is an info message.")
+    logger.info("This is a bright info message.", bright=True)
+    logger.debug("This is a debug message.")
+    logger.debug("This is a bright debug message.", bright=True)
     logger.warning("This is a warning message.")
+    logger.warning("This is a bright warning message.", bright=True)
     logger.error("This is an error message.")
+    logger.error("This is a bright error message.", bright=True)
+    logger.critical("This is an critical message.")
+    logger.critical("This is a bright critical message.", bright=True)
     logger.success("This is a success message.")
-    logger.info({"key": "value", "nested": {"foo": "bar"}})
+    logger.success("This is a bright success message.", bright=True)
+    logger.orange("This is a orange message.")
+    logger.orange("This is a bright orange message.", bright=True)
+    logger.teal("This is a teal message.")
+    logger.teal("This is a bright teal message.", bright=True)
+    logger.cyan("This is a cyan message.")
+    logger.cyan("This is a bright cyan message.", bright=True)
+    logger.purple("This is a purple message.")
+    logger.purple("This is a bright purple message.", bright=True)
+    logger.lime("This is a lime message.")
+    logger.lime("This is a bright lime message.", bright=True)
+    logger.log("Unicode message:", "Playwright Team \u2551 \u255a",
+               colors=["WHITE", "DEBUG"])
+    logger.newline()
+    logger.log("Flush word 1.", flush=True)
+    logger.log("Flush word 2.", flush=True)
+    logger.log("Word 1", flush=False)
+    logger.log("Word 2", flush=False)
+    logger.newline()
+    logger.log("multi-color default", "Message 2",
+               "Message 3", "Message 4", "Message 5")
+    logger.log("2 multi-color with colors",
+               "Message 2", colors=["DEBUG", "SUCCESS"])
+    logger.log("2 multi-color with bright", "Message 2",
+               colors=["GRAY", "BRIGHT_DEBUG"])
+    logger.log("3 multi-color", "Message 2", "Message 3",
+               colors=["WHITE", "BRIGHT_DEBUG", "BRIGHT_SUCCESS"])
+    logger.log("3 multi-color with repeat", "Message 2", "Message 3",
+               colors=["INFO", "DEBUG"])
+    logger.newline()
+    logger.info({
+        "user": "Alice",
+        "attributes": {
+            "age": 30,
+            "preferences": ["running", "cycling", {"nested": "value"}],
+            "contact": {
+                "email": "alice@example.com",
+                "phone": "123-456-7890"
+            }
+        },
+        "status": "active"
+    })
+    logger.newline()
     logger.pretty({
         "user": "Alice",
         "attributes": {
             "age": 30,
             "preferences": ["running", "cycling", {"nested": "value"}],
-        }
+            "contact": {
+                "email": "alice@example.com",
+                "phone": "123-456-7890"
+            }
+        },
+        "status": "active"
     })
-    logger.set_level("WARNING")
-    logger.info("This will not be shown")
-    logger.warning("This will be shown")
-    logger.set_format("[%(asctime)s] [%(levelname)s] %(message)s")
-    logger.error("Formatted error log")
+    logger.info("Splitting document ID %d into chunks", 42)
+    logger.info("Hello %s, your task is complete.", "Jet")
     logger.newline()
     logger.log("====== END LOGGER METHODS ======\n")
 
