@@ -29,6 +29,7 @@ class TestGetTokenizer:
         assert isinstance(result, Tokenizer), "Expected a Tokenizer instance"
         assert isinstance(
             result.model, WordPiece), f"Expected WordPiece model, got {type(result.model)}"
+        assert result.model.unk_token == expected.model.unk_token, f"Expected unk_token {expected.model.unk_token}, got {result.model.unk_token}"
 
     def test_load_tokenizer_from_nested_cache(self, tmp_path, monkeypatch):
         """Test loading tokenizer from nested directory in cache."""
@@ -62,6 +63,7 @@ class TestGetTokenizer:
         assert isinstance(result, Tokenizer), "Expected a Tokenizer instance"
         assert isinstance(
             result.model, WordPiece), f"Expected WordPiece model, got {type(result.model)}"
+        assert result.model.unk_token == expected.model.unk_token, f"Expected unk_token {expected.model.unk_token}, got {result.model.unk_token}"
 
     def test_load_tokenizer_from_symlink(self, tmp_path, monkeypatch):
         """Test loading tokenizer from a symlink in cache."""
@@ -100,6 +102,7 @@ class TestGetTokenizer:
         assert isinstance(result, Tokenizer), "Expected a Tokenizer instance"
         assert isinstance(
             result.model, WordPiece), f"Expected WordPiece model, got {type(result.model)}"
+        assert result.model.unk_token == expected.model.unk_token, f"Expected unk_token {expected.model.unk_token}, got {result.model.unk_token}"
 
     def test_tokenizer_failure(self, tmp_path, monkeypatch):
         """Test failure when both remote and local loading fail."""
