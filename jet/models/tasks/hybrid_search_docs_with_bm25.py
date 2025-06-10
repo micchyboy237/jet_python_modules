@@ -261,8 +261,8 @@ def search_docs(
     documents: Union[List[HeaderDocument], List[Dict[str, Any]]],
     query: str,
     ids: Optional[List[str]] = None,
-    embedder_model: str = "static-retrieval-mrl-en-v1",
-    cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    model: str = "static-retrieval-mrl-en-v1",
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     chunk_size: int = 800,
     overlap: int = 200,
     top_k: int = 20,
@@ -293,8 +293,8 @@ def search_docs(
     # Embedding chunks
     logger.info("Initializing SentenceTransformer and CrossEncoder models")
     embedder = SentenceTransformer(
-        embedder_model, device="cpu", backend="onnx")  # Use ONNX on CPU
-    cross_encoder = CrossEncoder(cross_encoder_model)
+        model, device="cpu", backend="onnx")  # Use ONNX on CPU
+    cross_encoder = CrossEncoder(rerank_model)
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
 
     # FAISS search
