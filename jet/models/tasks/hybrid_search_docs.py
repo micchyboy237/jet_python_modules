@@ -217,6 +217,7 @@ def search_docs(
     chunk_texts = [chunk["text"] for chunk in filtered_chunks]
 
     # Embedding chunks
+    logger.info("Initializing SentenceTransformer and CrossEncoder models")
     embedder = SentenceTransformer(
         embedder_model, device="cpu", backend="onnx")  # Use ONNX on CPU
     cross_encoder = CrossEncoder(cross_encoder_model)
