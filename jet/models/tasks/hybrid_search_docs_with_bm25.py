@@ -109,13 +109,12 @@ def process_documents(
                 ]).strip()
                 if not text:
                     text = doc.text
-            else:
-                text = doc.text
+                result.append({"text": text, "id": doc_id, "index": idx})
         else:
             text = doc.text or ""
             logger.warning(
                 "Document %s lacks metadata, using text: %s", doc_id, text[:50])
-        result.append({"text": text, "id": doc_id, "index": idx})
+            result.append({"text": text, "id": doc_id, "index": idx})
     return result
 
 
