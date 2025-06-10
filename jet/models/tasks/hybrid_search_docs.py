@@ -3,7 +3,6 @@ import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import faiss
 from rank_bm25 import BM25Okapi
-from concurrent.futures import ThreadPoolExecutor
 from jet.file.utils import load_file
 from jet.logger import logger
 from typing import List, Dict, Any
@@ -13,6 +12,8 @@ from tqdm import tqdm
 # Set environment variables before importing numpy/pytorch
 os.environ["OMP_NUM_THREADS"] = "4"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
+# Fallback to CPU for unsupported MPS ops
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 
 def load_documents(file_path: str) -> List[Dict[str, Any]]:
@@ -186,7 +187,8 @@ def search_docs(
     chunk_texts = [chunk["text"] for chunk in filtered_chunks]
     logger.info("Filtered to %d chunks", len(chunk_texts))
 
-    embedder = SentenceTransformer(embedder_model)
+    # Use CPU to avoid MPS issues
+    embedder = SentenceTransformer(embedder_model, device="cpu")
     cross_encoder = CrossEncoder(cross_encoder_model)
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
 
@@ -206,30 +208,30 @@ def search_docs(
         for j, i in enumerate(indices[0])
     ]
     initial_docs = [
-        (filtered_chunks[i], combined_scores[j])
+        (filtered_chunks[i], combined_scores[j], embed_scores[j])
         for j, i in enumerate(indices[0])
     ]
 
     logger.info("Reranking %d documents with cross-encoder", len(initial_docs))
-    pairs = [[query, doc["text"]] for doc, _ in initial_docs]
+    pairs = [[query, doc["text"]] for doc, _, _ in initial_docs]
     scores = []
     try:
-        for i in tqdm(range(0, len(pairs), batch_size), desc="Reranking batches"):
+        for i in tqdm(range(0, len(pairs), batch_size), desc="Reranking"):
             batch = pairs[i:i + batch_size]
             batch_scores = cross_encoder.predict(batch)
             scores.extend(batch_scores)
     except Exception as e:
-        logger.error("Error in reranking: %s", e)
+        logger.error("Error in reranking: %s]", e)
         scores = [0] * len(pairs)
     reranked_indices = np.argsort(scores)[::-1][:rerank_top_k]
     reranked_docs = [
-        (initial_docs[i][0], initial_docs[i][1], scores[i])
+        (initial_docs[i][0], initial_docs[i][1], scores[i], initial_docs[i][2])
         for i in reranked_indices
     ]
 
     results = []
     seen_doc_ids = set()
-    for i, (chunk, combined_score, rerank_score) in enumerate(reranked_docs):
+    for i, (chunk, combined_score, rerank_score, embedding_score) in enumerate(reranked_docs):
         doc_id = chunk["doc_id"]
         if doc_id not in seen_doc_ids:
             original_doc = get_original_document(doc_id, documents)
@@ -238,6 +240,7 @@ def search_docs(
                 "doc_id": doc_id,
                 "combined_score": combined_score,
                 "rerank_score": rerank_score,
+                "embedding_score": embedding_score,
                 "headers": chunk["headers"],
                 "text": original_doc if original_doc else "Not found"
             }
