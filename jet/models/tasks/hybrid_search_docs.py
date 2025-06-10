@@ -176,7 +176,7 @@ def get_original_document(doc_id: int, documents: List[Dict[str, Any]]) -> str:
 def search_docs(
     file_path: str,
     query: str,
-    embedder_model: str = "all-MiniLM-L12-v2",
+    embedder_model: str = "static-retrieval-mrl-en-v1",
     cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     chunk_size: int = 800,
     overlap: int = 200,
