@@ -361,7 +361,7 @@ def search_docs(
     chunk_size: int = 800,
     overlap: int = 200,
     top_k: Optional[int] = 20,
-    rerank_top_k: int = 5,
+    rerank_top_k: int = 10,
     batch_size: int = 8,
     bm25_weight: float = 0.5
 ) -> List[SearchResult]:
