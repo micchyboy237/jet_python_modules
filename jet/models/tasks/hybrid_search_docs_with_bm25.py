@@ -103,7 +103,7 @@ def process_documents(
         if isinstance(metadata, dict) and "header_level" in metadata:
             if metadata.get("header_level") != 1:
                 text = "\n".join([
-                    metadata.get("parent_header", ""),
+                    metadata.get("parent_header") or "",
                     metadata.get("header", ""),
                     metadata.get("content", "")
                 ]).strip()
