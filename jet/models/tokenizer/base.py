@@ -1,7 +1,7 @@
 import numpy as np
 import logging
 
-from typing import Callable, Dict, Union, List
+from typing import Callable, Dict, Optional, Union, List
 from pathlib import Path
 from tokenizers import Tokenizer
 
@@ -16,12 +16,12 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 
-def get_tokenizer(model_name: str, local_cache_dir: str = None) -> Tokenizer:
+def get_tokenizer(model_name: str, local_cache_dir: Optional[str] = None) -> Tokenizer:
     """
     Initialize and return a tokenizer for the specified model.
 
     Args:
-        model_name: The Hugging Face model repository ID (e.g., sentence-transformers/static-retrieval-mrl-en-v1).
+        model_name: The model key (e.g., 'bge-large') or repository ID (e.g., 'BAAI/bge-large-en-v1.5').
         local_cache_dir: Optional local directory to load tokenizer from (defaults to Hugging Face cache).
 
     Returns:
@@ -30,14 +30,15 @@ def get_tokenizer(model_name: str, local_cache_dir: str = None) -> Tokenizer:
     Raises:
         ValueError: If the tokenizer cannot be loaded from remote or local sources.
     """
-    # Ensure correct repository ID
-    repo_id = model_name if '/' in model_name else f"sentence-transformers/{model_name}"
-    logger.info(f"Attempting to load tokenizer for repo_id: {repo_id}")
+    # Resolve model_name to full path if it's a key
+    model_path = resolve_model_value(model_name)
+    logger.info(
+        f"Attempting to load tokenizer for model_name: {model_name}, resolved to: {model_path}")
 
     try:
         # Attempt to load from remote
-        tokenizer = Tokenizer.from_pretrained(repo_id)
-        logger.info(f"Successfully loaded tokenizer from remote: {repo_id}")
+        tokenizer = Tokenizer.from_pretrained(model_path)
+        logger.info(f"Successfully loaded tokenizer from remote: {model_path}")
         return tokenizer
     except Exception as e:
         logger.warning(f"Failed to load tokenizer from remote: {str(e)}")
@@ -50,7 +51,7 @@ def get_tokenizer(model_name: str, local_cache_dir: str = None) -> Tokenizer:
 
         # Construct snapshot directory path
         snapshot_dir = local_cache_dir / \
-            f"models--{repo_id.replace('/', '--')}" / "snapshots"
+            f"models--{model_path.replace('/', '--')}" / "snapshots"
         if not snapshot_dir.exists():
             error_msg = f"Snapshot directory does not exist: {snapshot_dir}"
             logger.error(error_msg)
@@ -58,8 +59,8 @@ def get_tokenizer(model_name: str, local_cache_dir: str = None) -> Tokenizer:
 
         # Recursively search for tokenizer.json in snapshot directory
         tokenizer_files = list(snapshot_dir.rglob("tokenizer.json"))
-        logger.info(
-            f"Found {len(tokenizer_files)} tokenizer.json files in {snapshot_dir}: {[str(p) for p in tokenizer_files]}")
+        logger.debug(
+            f"Found {len(tokenizer_files)} tokenizer.json files in {snapshot_dir}")
 
         for tokenizer_path in tokenizer_files:
             try:
@@ -81,7 +82,7 @@ def get_tokenizer(model_name: str, local_cache_dir: str = None) -> Tokenizer:
                 continue
 
         # If no valid tokenizer is found, raise an error
-        error_msg = f"Could not load tokenizer for {repo_id} from remote or local cache."
+        error_msg = f"Could not load tokenizer for {model_path} from remote or local cache."
         logger.error(error_msg)
         raise ValueError(error_msg)
 
