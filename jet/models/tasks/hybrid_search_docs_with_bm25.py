@@ -259,11 +259,38 @@ def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer)
 
 
 def get_bm25_scores(chunk_texts: List[str], query: str) -> List[float]:
-    """Calculate BM25 scores for chunks."""
-    tokenized_chunks = [text.lower().split() for text in chunk_texts]
-    bm25 = BM25Okapi(tokenized_chunks)
+    """Calculate BM25 scores for chunks, handling edge cases."""
+    logger.info("Calculating BM25 scores for %d chunks", len(chunk_texts))
+    if not chunk_texts or not query.strip():
+        logger.warning("Empty chunk_texts or query, returning zero scores")
+        return [0.0] * len(chunk_texts)
+
+    # Tokenize chunks and query, ensuring non-empty tokens
+    tokenized_chunks = []
+    for i, text in enumerate(chunk_texts):
+        tokens = text.lower().split()
+        if not tokens:
+            logger.warning("Empty tokens for chunk %d, using empty list", i)
+            tokenized_chunks.append([])
+        else:
+            tokenized_chunks.append(tokens)
+
     tokenized_query = query.lower().split()
-    return bm25.get_scores(tokenized_query).tolist()
+    if not tokenized_query:
+        logger.warning("Empty query tokens, returning zero scores")
+        return [0.0] * len(chunk_texts)
+
+    try:
+        bm25 = BM25Okapi(tokenized_chunks)
+        scores = bm25.get_scores(tokenized_query).tolist()
+        logger.debug("Raw BM25 scores: %s", scores)
+        # Ensure non-negative scores
+        scores = [max(0.0, score) for score in scores]
+        logger.debug("Clamped BM25 scores: %s", scores)
+        return scores
+    except Exception as e:
+        logger.error("Error in BM25 scoring: %s", e)
+        return [0.0] * len(chunk_texts)
 
 
 def get_original_document(
@@ -367,6 +394,11 @@ def search_docs(
 
     filtered_chunks = filter_by_headers(chunks, query)
     chunk_texts = [chunk["text"] for chunk in filtered_chunks]
+    logger.debug("Filtered chunks: %s", [
+        {"index": i, "doc_id": chunk["doc_id"],
+            "text": chunk["text"][:50] + "..."}
+        for i, chunk in enumerate(filtered_chunks)
+    ])
 
     logger.info("Initializing SentenceTransformer and CrossEncoder models")
     embedder = SentenceTransformer(model, device="cpu", backend="onnx")
@@ -393,16 +425,40 @@ def search_docs(
     logger.debug("Query embedding norm: %.4f", np.linalg.norm(query_embedding))
     distances, indices = index.search(query_embedding, top_k)
     embed_scores = distances[0].tolist()
-    logger.debug("FAISS distances: %s", distances[0].tolist())
-    logger.debug("Embed scores: %s", embed_scores)
-    faiss_duration = time.time() - start_time
-    logger.info("FAISS search completed in %.3f seconds", faiss_duration)
+    logger.debug("FAISS distances: %s", embed_scores)
 
+    # Normalize embedding scores to [0, 1]
+    embed_scores = [(score + 1) / 2 for score in embed_scores]
+    logger.debug("Normalized embed scores: %s", embed_scores)
+
+    # Calculate BM25 scores
     bm25_scores = get_bm25_scores(chunk_texts, query)
-    combined_scores = [
-        bm25_weight * bm25_scores[i] + (1 - bm25_weight) * embed_scores[j]
-        for j, i in enumerate(indices[0])
-    ]
+    logger.debug("BM25 scores for chunks: %s", [
+        {"chunk_index": i, "score": score} for i, score in enumerate(bm25_scores)
+    ])
+
+    # Normalize BM25 scores to [0, 1]
+    max_bm25 = max(bm25_scores) if bm25_scores and max(
+        bm25_scores) > 0 else 1.0
+    bm25_scores = [score / max_bm25 for score in bm25_scores]
+    logger.debug("Normalized BM25 scores: %s", [
+        {"chunk_index": i, "score": score} for i, score in enumerate(bm25_scores)
+    ])
+
+    # Calculate combined scores with detailed logging
+    combined_scores = []
+    for j, i in enumerate(indices[0]):
+        bm25_score = bm25_scores[i]
+        embed_score = embed_scores[j]
+        combined = bm25_weight * bm25_score + (1 - bm25_weight) * embed_score
+        # Clamp combined score to [0, 1]
+        combined = max(0.0, min(1.0, combined))
+        combined_scores.append(combined)
+        logger.debug(
+            "Combined score for chunk %d (FAISS index %d): BM25=%.4f, Embed=%.4f, Combined=%.4f",
+            i, j, bm25_score, embed_score, combined
+        )
+
     initial_docs = [
         (filtered_chunks[i], combined_scores[j], embed_scores[j])
         for j, i in enumerate(indices[0])
@@ -438,7 +494,9 @@ def search_docs(
         doc_id = chunk["doc_id"]
         doc_index = chunk["doc_index"]
         logger.debug(
-            "Processing chunk with doc_id %s, doc_index %d, rank %d", doc_id, doc_index, i + 1)
+            "Processing chunk with doc_id %s, doc_index %d, rank %d, combined_score=%.4f",
+            doc_id, doc_index, i + 1, combined_score
+        )
         if doc_id not in seen_doc_ids:
             original_doc = get_original_document(
                 doc_id, doc_index, documents, ids)
