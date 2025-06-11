@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 from collections import defaultdict
 from typing import Any, List, Optional, Literal
 from jet.data.utils import generate_key
@@ -23,6 +23,7 @@ from jet.llm.utils.transformer_embeddings import (
 from jet.llm.utils.search_docs import search_docs
 from sentence_transformers import SentenceTransformer
 from scipy.spatial.distance import cosine
+from jet.vectors.document_types import HeaderDocument
 from jet.wordnet.words import get_words
 from jet.logger import logger, time_it
 from difflib import SequenceMatcher, ndiff, get_close_matches, unified_diff
@@ -788,6 +789,88 @@ def group_similar_texts(texts: List[str], threshold: float = 0.7, model_name: Em
         clusters.setdefault(label, []).append(texts[idx])
 
     return list(clusters.values())
+
+
+class GroupedResult(TypedDict):
+    texts: List[str]
+    documents: List[HeaderDocument]
+
+
+def group_similar_headers(
+    docs: List[HeaderDocument],
+    threshold: float = 0.7,
+    model_name: EmbedModelType = "all-MiniLM-L12-v2"
+) -> List[GroupedResult]:
+    """
+    Groups similar documents based on their header text similarity, preserving original documents.
+
+    Args:
+        docs (List[HeaderDocument]): List of documents to group.
+        threshold (float): Similarity threshold for clustering. Default is 0.7.
+        model_name (EmbedModelType): Sentence transformer model to use for embedding.
+
+    Returns:
+        List[GroupedResult]: List of grouped results, each containing texts and their original documents.
+    """
+    # Create text-document pairs
+    try:
+        text_doc_pairs: List[Tuple[str, HeaderDocument]] = [
+            (
+                "\n".join([
+                    doc["metadata"]["header"].lstrip('#').strip(),
+                ]).strip(),
+                doc
+            )
+            for doc in docs
+        ]
+        logger.log("group_similar_headers:",
+                   f"Created {len(text_doc_pairs)} text-document pairs", colors=["WHITE", "BLUE"])
+    except Exception as e:
+        logger.log("group_similar_headers:",
+                   f"Failed to create text-document pairs: {str(e)}", colors=["WHITE", "RED"])
+        raise
+
+    # Extract texts for grouping
+    texts = [pair[0] for pair in text_doc_pairs]
+
+    # Handle empty input
+    if not texts:
+        logger.log("group_similar_headers:", "Empty input list",
+                   colors=["WHITE", "RED"])
+        return []
+
+    # Group similar texts
+    try:
+        grouped_texts = group_similar_texts(
+            texts, threshold=threshold, model_name=model_name)
+        logger.log("group_similar_headers:", f"Grouped into {len(grouped_texts)} clusters", colors=[
+                   "WHITE", "GREEN"])
+    except Exception as e:
+        logger.log("group_similar_headers:",
+                   f"Grouping failed: {str(e)}", colors=["WHITE", "RED"])
+        raise
+
+    # Map grouped texts back to original documents
+    grouped_results: List[GroupedResult] = []
+    try:
+        for group in grouped_texts:
+            group_docs = []
+            for text in group:
+                matching_docs = [pair[1]
+                                 for pair in text_doc_pairs if pair[0] == text]
+                if not matching_docs:
+                    logger.log("group_similar_headers:", f"No document found for text: {text}", colors=[
+                               "WHITE", "YELLOW"])
+                group_docs.extend(matching_docs)
+            grouped_results.append({"texts": group, "documents": group_docs})
+        logger.log("group_similar_headers:", "Mapped grouped texts to documents", colors=[
+                   "WHITE", "GREEN"])
+    except Exception as e:
+        logger.log("group_similar_headers:",
+                   f"Mapping failed: {str(e)}", colors=["WHITE", "RED"])
+        raise
+
+    return grouped_results
 
 
 def filter_low_similarity_clusters(
