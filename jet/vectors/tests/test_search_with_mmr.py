@@ -416,7 +416,7 @@ class TestRerankResults:
         result = rerank_results(
             query="test query",
             candidates=candidates,
-            model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            model_name="cross-encoder/ms-marco-MiniLM-L6-v2",
             device="mps",
             batch_size=16
         )
@@ -430,7 +430,7 @@ class TestRerankResults:
         result = rerank_results(
             query="test query",
             candidates=[],
-            model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            model_name="cross-encoder/ms-marco-MiniLM-L6-v2",
             device="mps"
         )
         assert len(result) == 0
@@ -500,7 +500,7 @@ class TestSearchDiverseContext:
                 query="project architecture",
                 headers=sample_headers,
                 model_name="all-mpnet-base-v2",
-                rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+                rerank_model="cross-encoder/ms-marco-MiniLM-L6-v2",
                 device="mps",
                 top_k=2,
                 num_results=2,

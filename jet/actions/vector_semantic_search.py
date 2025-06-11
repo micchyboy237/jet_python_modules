@@ -37,7 +37,7 @@ class VectorSemanticSearch:
         if self.reranking_model is None:
             from sentence_transformers import CrossEncoder
             self.reranking_model = CrossEncoder(
-                'cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512)
+                'cross-encoder/ms-marco-MiniLM-L6-v2', max_length=512)
         return self.reranking_model
 
     def get_graph(self):

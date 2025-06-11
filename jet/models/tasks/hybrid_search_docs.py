@@ -133,7 +133,7 @@ def search_docs(
     documents: List[HeaderDocument],
     task_description: str,
     model: str = "static-retrieval-mrl-en-v1",
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
     max_length: int = 512,
     ids: List[str] = [],
     threshold: float = 0.0

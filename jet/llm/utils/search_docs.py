@@ -154,7 +154,7 @@ def search_docs_with_rerank(
     query: str,
     documents: List[str],
     model: EmbedModelType = "all-minilm:33m",
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
     top_k: Optional[int] = 10,
     batch_size: Optional[int] = None,
     normalize: bool = True,
@@ -169,7 +169,7 @@ def search_docs_with_rerank(
         query: The query string to search for.
         documents: List of document strings to search through.
         model: Embedding model for initial similarity search.
-        rerank_model: Cross-encoder model for reranking (e.g., 'cross-encoder/ms-marco-MiniLM-L-6-v2').
+        rerank_model: Cross-encoder model for reranking (e.g., 'cross-encoder/ms-marco-MiniLM-L6-v2').
         top_k: Number of top results to return after reranking.
         batch_size: Batch size for embedding and reranking.
         normalize: Whether to normalize embeddings.

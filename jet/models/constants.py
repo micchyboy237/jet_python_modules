@@ -69,7 +69,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "bert-base-cased": "bert-base-cased",
     "bert-base-multilingual-cased": "bert-base-multilingual-cased",
     "bert-base-uncased": "bert-base-uncased",
-    "ms-marco-minilm-l-6-v2": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "ms-marco-minilm-l-6-v2": "cross-encoder/ms-marco-MiniLM-L6-v2",
     "deepseek-r1": "deepseek-ai/DeepSeek-R1",
     "deepseek-r1-distill-qwen-1.5b": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
     "distilbert-base-uncased": "distilbert-base-uncased",

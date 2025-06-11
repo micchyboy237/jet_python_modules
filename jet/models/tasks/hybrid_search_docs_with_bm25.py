@@ -404,11 +404,11 @@ def search_docs(
     instruction: Optional[str] = None,
     ids: Optional[List[str]] = None,
     model: str = "static-retrieval-mrl-en-v1",
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
     chunk_size: int = 800,
     overlap: int = 200,
     top_k: Optional[int] = 20,
-    rerank_top_k: int = 10,
+    rerank_top_k: Optional[int] = 10,
     batch_size: int = 8,
     bm25_weight: float = 0.5
 ) -> List[SearchResult]:
@@ -451,7 +451,7 @@ def search_docs(
 
     logger.info("Initializing SentenceTransformer and CrossEncoder models")
     embedder = SentenceTransformer(model, device="cpu", backend="onnx")
-    cross_encoder = CrossEncoder(rerank_model)
+    cross_encoder = CrossEncoder(rerank_model, device="cpu", backend="onnx")
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
 
     start_time = time.time()
@@ -531,6 +531,8 @@ def search_docs(
         logger.info(
             "Added %d zeros as default scores due to reranking error", len(pairs))
 
+    if not rerank_top_k:
+        rerank_top_k = len(initial_docs)
     reranked_indices = np.argsort(
         scores)[::-1][:max(rerank_top_k, len(initial_docs))]
     reranked_docs = [

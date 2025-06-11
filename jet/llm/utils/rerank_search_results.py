@@ -11,7 +11,7 @@ from jet.llm.utils.transformer_embeddings import SimilarityResult
 def rerank_search_results(
     query: str,
     results: List[SimilarityResult],
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
     batch_size: Optional[int] = 32,
     top_k: Optional[int] = None,
     ids: Optional[List[str]] = None

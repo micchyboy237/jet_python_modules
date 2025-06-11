@@ -29,7 +29,7 @@ def test_search_docs_with_rerank_basic(sample_data):
         query=query,
         documents=documents,
         model="all-minilm:33m",
-        rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        rerank_model="cross-encoder/ms-marco-MiniLM-L6-v2",
         top_k=2,
         batch_size=2,
         ids=ids
@@ -55,7 +55,7 @@ def test_search_docs_with_rerank_empty_input():
         query="",
         documents=[],
         model="all-minilm:33m",
-        rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        rerank_model="cross-encoder/ms-marco-MiniLM-L6-v2",
         top_k=2
     )
     assert result == expected
@@ -69,7 +69,7 @@ def test_search_docs_with_rerank_invalid_ids(sample_data):
             query=query,
             documents=documents,
             model="all-minilm:33m",
-            rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            rerank_model="cross-encoder/ms-marco-MiniLM-L6-v2",
             top_k=2,
             ids=invalid_ids
         )
@@ -81,7 +81,7 @@ def test_search_docs_with_rerank_memory_cleanup(sample_data):
         query=query,
         documents=documents,
         model="all-minilm:33m",
-        rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        rerank_model="cross-encoder/ms-marco-MiniLM-L6-v2",
         top_k=2,
         batch_size=2,
         ids=ids
