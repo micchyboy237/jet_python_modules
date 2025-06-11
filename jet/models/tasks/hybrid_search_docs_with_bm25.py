@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, TypedDict, Union
+from typing import List, Dict, Any, Optional, Tuple, TypedDict, Union
 import os
 import time
 import numpy as np
@@ -11,6 +11,8 @@ import re
 from tqdm import tqdm
 import uuid
 from jet.vectors.document_types import HeaderDocument
+from jet.wordnet.spellcheck import correct_typos
+from jet.wordnet.words import get_words
 
 # Set environment variables for Mac M1 compatibility
 os.environ["OMP_NUM_THREADS"] = "4"
@@ -305,30 +307,39 @@ def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer)
     return result
 
 
-def get_bm25_scores(chunk_texts: List[str], query: str) -> List[float]:
-    """Calculate BM25 scores for chunks, handling edge cases."""
-    logger.info("Calculating BM25 scores for %d chunks", len(chunk_texts))
+def get_bm25_scores(chunk_texts: List[str], query: str, typo_tolerance: bool = True) -> List[float]:
+    """Calculate BM25 scores with typo tolerance, handling small corpora."""
+    logger.info("Calculating BM25 scores for %d chunks, query: %s, typo_tolerance: %s",
+                len(chunk_texts), query, typo_tolerance)
     if not chunk_texts or not query.strip():
         logger.warning("Empty chunk_texts or query, returning zero scores")
         return [0.0] * len(chunk_texts)
 
-    # Tokenize chunks and query, ensuring non-empty tokens
     tokenized_chunks = []
     for i, text in enumerate(chunk_texts):
-        tokens = text.lower().split()
+        tokens = get_words(text.lower())
         if not tokens:
-            logger.warning("Empty tokens for chunk %d, using empty list", i)
-            tokenized_chunks.append([])
-        else:
-            tokenized_chunks.append(tokens)
+            logger.warning("Empty tokens for chunk %d, using ['empty']", i)
+            tokens = ['empty']
+        tokenized_chunks.append(tokens)
+        logger.debug("Tokenized chunk %d: %s", i, tokens[:10])
 
-    tokenized_query = query.lower().split()
-    if not tokenized_query:
-        logger.warning("Empty query tokens, returning zero scores")
-        return [0.0] * len(chunk_texts)
+    tokenized_query = get_words(query.lower())
+    logger.debug("Original query tokens: %s", tokenized_query)
+
+    if typo_tolerance:
+        all_tokens = {t for chunk in tokenized_chunks for t in chunk}
+        logger.debug("All unique tokens for typo correction: %s",
+                     list(all_tokens)[:10])
+        tokenized_query = correct_typos(
+            query_tokens=tokenized_query,
+            all_tokens=all_tokens,
+        )
+        logger.debug("Corrected query tokens: %s", tokenized_query)
 
     try:
-        bm25 = BM25Okapi(tokenized_chunks)
+        # Use lower k1 for small corpora, epsilon for stability
+        bm25 = BM25Okapi(tokenized_chunks, k1=1.0, b=0.5, epsilon=1.0)
         scores = bm25.get_scores(tokenized_query).tolist()
         logger.debug("Raw BM25 scores: %s", scores)
         # Ensure non-negative scores
@@ -410,10 +421,15 @@ def search_docs(
     top_k: Optional[int] = 20,
     rerank_top_k: Optional[int] = 10,
     batch_size: int = 8,
-    bm25_weight: float = 0.5
-) -> List[SearchResult]:
+    bm25_weight: float = 0.5,
+    return_raw_scores: bool = False
+) -> Union[List[SearchResult], Tuple[List[SearchResult], Dict[str, List[float]]]]:
     """Search documents using hybrid retrieval with BM25 and embeddings, incorporating an instruction.
     Ensures unique results by document ID, selecting next top result for duplicates.
+
+    Args:
+        return_raw_scores: If True, returns a tuple of (results, raw_scores) where raw_scores contains
+                          the embedding, BM25, and reranking scores for each result.
     """
     total_start_time = time.time()
     logger.debug("Input document IDs: %s", [
@@ -524,10 +540,11 @@ def search_docs(
         for i in tqdm(range(0, len(pairs), batch_size), desc="Reranking"):
             batch = pairs[i:i + batch_size]
             batch_scores = cross_encoder.predict(batch)
-            scores.extend(batch_scores)
+            # Convert np.float to Python float
+            scores.extend(float(score) for score in batch_scores)
     except Exception as e:
         logger.error("Error in reranking: %s", e)
-        scores = [0] * len(pairs)
+        scores = [0.0] * len(pairs)  # Use Python float for default scores
         logger.info(
             "Added %d zeros as default scores due to reranking error", len(pairs))
 
@@ -545,6 +562,12 @@ def search_docs(
     results: List[SearchResult] = []
     seen_doc_ids = set()
     candidate_index = 0
+    raw_scores = {
+        "embedding_scores": [],
+        "bm25_scores": [],
+        "rerank_scores": []
+    }
+
     while len(results) < rerank_top_k and candidate_index < len(reranked_docs):
         chunk, combined_score, rerank_score, embedding_score = reranked_docs[candidate_index]
         doc_id = chunk["doc_id"]
@@ -566,7 +589,7 @@ def search_docs(
                 "id": doc_id,
                 "doc_index": doc_index,
                 "rank": len(results) + 1,
-                "score": rerank_score,
+                "score": rerank_score,  # Already Python float from scores list
                 "combined_score": combined_score,
                 "embedding_score": embedding_score,
                 "headers": chunk["headers"],
@@ -574,6 +597,12 @@ def search_docs(
                 "document": original_doc
             }
             results.append(result)
+            if return_raw_scores:
+                raw_scores["embedding_scores"].append(embedding_score)
+                raw_scores["bm25_scores"].append(
+                    bm25_scores[indices[0][candidate_index]])
+                raw_scores["rerank_scores"].append(
+                    rerank_score)  # Already Python float
             seen_doc_ids.add(doc_id)
             logger.debug(
                 "Added unique result for doc_id %s, total unique results: %d", doc_id, len(results))
@@ -585,4 +614,7 @@ def search_docs(
     logger.info("Total unique results returned: %d", len(results))
     total_duration = time.time() - total_start_time
     logger.info("Total search completed in %.3f seconds", total_duration)
+
+    if return_raw_scores:
+        return results, raw_scores
     return results
