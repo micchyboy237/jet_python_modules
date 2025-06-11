@@ -34,7 +34,9 @@ def process_documents(
     documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]],
     ids: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
-    """Process and preprocess HeaderDocument objects, dictionaries, or strings."""
+    """Process and preprocess HeaderDocument objects, dictionaries, or strings.
+    Ensures unique document IDs and removes duplicate documents based on text content.
+    """
     logger.info("Processing %d input objects",
                 len(documents) if documents else 0)
     logger.debug("Input documents type: %s, value: %s",
@@ -50,20 +52,35 @@ def process_documents(
 
     result = []
     processed_docs: List[HeaderDocument] = []
+    seen_texts = set()  # Track unique document texts
+    seen_ids = set()    # Track unique document IDs
 
     # Handle List[str]
     if documents and isinstance(documents[0], str):
         logger.info(
             "Converting %d strings to HeaderDocument objects", len(documents))
         for idx, text in enumerate(tqdm(documents, desc="Converting strings")):
+            if text in seen_texts:
+                logger.debug(
+                    "Skipping duplicate text at index %d: %s", idx, text[:50])
+                continue
             try:
-                doc_id = ids[idx] if ids and idx < len(ids) else f"doc_{idx}"
+                doc_id = ids[idx] if ids and idx < len(
+                    ids) else f"doc_{uuid.uuid4()}"
+                if doc_id in seen_ids:
+                    logger.debug(
+                        "Duplicate ID %s detected, generating new UUID", doc_id)
+                    doc_id = f"doc_{uuid.uuid4()}"
                 header_doc = HeaderDocument(
                     id=doc_id,
                     text=text,
                     metadata={"original_index": idx}
                 )
                 processed_docs.append(header_doc)
+                seen_texts.add(text)
+                seen_ids.add(doc_id)
+                logger.debug(
+                    "Processed document ID %s at index %d", doc_id, idx)
             except Exception as e:
                 logger.error(
                     "Failed to convert string to HeaderDocument at index %d: %s", idx, str(e))
@@ -76,8 +93,22 @@ def process_documents(
         for idx, doc_dict in enumerate(tqdm(documents, desc="Converting dictionaries")):
             try:
                 header_doc = HeaderDocument(**doc_dict)
+                if header_doc.text in seen_texts:
+                    logger.debug(
+                        "Skipping duplicate text at index %d: %s", idx, header_doc.text[:50])
+                    continue
+                doc_id = header_doc.id
+                if doc_id in seen_ids:
+                    logger.debug(
+                        "Duplicate ID %s detected, generating new UUID", doc_id)
+                    doc_id = f"doc_{uuid.uuid4()}"
+                    header_doc.id = doc_id
                 header_doc.metadata["original_index"] = idx
                 processed_docs.append(header_doc)
+                seen_texts.add(header_doc.text)
+                seen_ids.add(doc_id)
+                logger.debug(
+                    "Processed document ID %s at index %d", doc_id, idx)
             except Exception as e:
                 logger.error(
                     "Failed to convert dictionary to HeaderDocument at index %d: %s", idx, str(e))
@@ -87,18 +118,31 @@ def process_documents(
     else:
         logger.info(
             "Processing %d HeaderDocument objects directly", len(documents))
-        for idx, doc in enumerate(documents):
+        for idx, doc in enumerate(tqdm(documents, desc="Processing HeaderDocuments")):
+            if doc.text in seen_texts:
+                logger.debug(
+                    "Skipping duplicate text at index %d: %s", idx, doc.text[:50])
+                continue
+            doc_id = doc.id
+            if doc_id in seen_ids:
+                logger.debug(
+                    "Duplicate ID %s detected, generating new UUID", doc_id)
+                doc_id = f"doc_{uuid.uuid4()}"
+                doc.id = doc_id
             doc.metadata["original_index"] = idx
             processed_docs.append(doc)
+            seen_texts.add(doc.text)
+            seen_ids.add(doc_id)
+            logger.debug("Processed document ID %s at index %d", doc_id, idx)
 
-    if ids is not None and len(ids) != len(processed_docs):
+    if ids is not None and len(ids) != len(documents):
         logger.error("Provided IDs length (%d) does not match documents length (%d)", len(
-            ids), len(processed_docs))
+            ids), len(documents))
         raise ValueError("IDs length must match documents length")
 
-    for idx, doc in enumerate(tqdm(processed_docs, desc="Processing documents")):
+    for idx, doc in enumerate(tqdm(processed_docs, desc="Finalizing documents")):
         doc_id = doc.id
-        logger.debug("Assigned ID %s to document at index %d", doc_id, idx)
+        text = doc.text or ""
         metadata = doc.metadata
         if isinstance(metadata, dict) and "header_level" in metadata:
             if metadata.get("header_level") != 1:
@@ -109,12 +153,15 @@ def process_documents(
                 ]).strip()
                 if not text:
                     text = doc.text
-                result.append({"text": text, "id": doc_id, "index": idx})
+                logger.debug(
+                    "Constructed text for document ID %s with metadata: %s", doc_id, text[:50])
         else:
-            text = doc.text or ""
             logger.warning(
-                "Document %s lacks metadata, using text: %s", doc_id, text[:50])
-            result.append({"text": text, "id": doc_id, "index": idx})
+                "Document %s lacks metadata, using raw text: %s", doc_id, text[:50])
+        result.append({"text": text, "id": doc_id, "index": idx})
+        logger.debug("Finalized document ID %s at index %d", doc_id, idx)
+
+    logger.info("Processed %d unique documents", len(result))
     return result
 
 
@@ -365,7 +412,9 @@ def search_docs(
     batch_size: int = 8,
     bm25_weight: float = 0.5
 ) -> List[SearchResult]:
-    """Search documents using hybrid retrieval with BM25 and embeddings, incorporating an instruction."""
+    """Search documents using hybrid retrieval with BM25 and embeddings, incorporating an instruction.
+    Ensures unique results by document ID, selecting next top result for duplicates.
+    """
     total_start_time = time.time()
     logger.debug("Input document IDs: %s", [
         doc.id if isinstance(doc, HeaderDocument) else doc.get(
@@ -454,7 +503,6 @@ def search_docs(
         bm25_score = bm25_scores[i]
         embed_score = embed_scores[j]
         combined = bm25_weight * bm25_score + (1 - bm25_weight) * embed_score
-        # Clamp combined score to [0, 1]
         combined = max(0.0, min(1.0, combined))
         combined_scores.append(combined)
         logger.debug(
@@ -482,6 +530,7 @@ def search_docs(
         scores = [0] * len(pairs)
         logger.info(
             "Added %d zeros as default scores due to reranking error", len(pairs))
+
     reranked_indices = np.argsort(
         scores)[::-1][:max(rerank_top_k, len(initial_docs))]
     reranked_docs = [
@@ -493,19 +542,23 @@ def search_docs(
 
     results: List[SearchResult] = []
     seen_doc_ids = set()
-    for i, (chunk, combined_score, rerank_score, embedding_score) in enumerate(reranked_docs):
+    candidate_index = 0
+    while len(results) < rerank_top_k and candidate_index < len(reranked_docs):
+        chunk, combined_score, rerank_score, embedding_score = reranked_docs[candidate_index]
         doc_id = chunk["doc_id"]
         doc_index = chunk["doc_index"]
         logger.debug(
             "Processing chunk with doc_id %s, doc_index %d, rank %d, combined_score=%.4f",
-            doc_id, doc_index, i + 1, combined_score
+            doc_id, doc_index, candidate_index + 1, combined_score
         )
+
         if doc_id not in seen_doc_ids:
             original_doc = get_original_document(
                 doc_id, doc_index, documents, ids)
             if original_doc is None:
                 logger.warning(
                     "Skipping result for ID %s: original document not found", doc_id)
+                candidate_index += 1
                 continue
             result: SearchResult = {
                 "id": doc_id,
@@ -523,13 +576,9 @@ def search_docs(
             logger.debug(
                 "Added unique result for doc_id %s, total unique results: %d", doc_id, len(results))
         else:
-            logger.warning(
-                "Skipping duplicate doc_id %s at rank %d", doc_id, i + 1)
-
-        if len(results) >= rerank_top_k:
-            logger.info(
-                "Collected %d unique results, stopping early", len(results))
-            break
+            logger.debug(
+                "Skipping duplicate doc_id %s at candidate index %d", doc_id, candidate_index)
+        candidate_index += 1
 
     logger.info("Total unique results returned: %d", len(results))
     total_duration = time.time() - total_start_time
