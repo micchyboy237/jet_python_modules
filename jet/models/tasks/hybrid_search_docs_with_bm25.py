@@ -360,7 +360,7 @@ def search_docs(
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     chunk_size: int = 800,
     overlap: int = 200,
-    top_k: int = 20,
+    top_k: Optional[int] = 20,
     rerank_top_k: int = 5,
     batch_size: int = 8,
     bm25_weight: float = 0.5
@@ -410,6 +410,9 @@ def search_docs(
     index = faiss.IndexFlatIP(dim)
     faiss.normalize_L2(chunk_embeddings)
     index.add(chunk_embeddings)
+
+    if not top_k:
+        top_k = len(chunk_texts)
     top_k = min(top_k, len(chunk_texts))
     logger.info("Performing FAISS search with top-k=%d", top_k)
 
