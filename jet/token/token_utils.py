@@ -1,11 +1,10 @@
 import logging
 from jet.llm.mlx.utils.base import get_model_max_tokens
-from llama_index.core.schema import NodeRelationship
 from jet.vectors.document_types import HeaderTextNode
 from typing import Optional, Callable, Union
 from typing import Callable, Literal, Optional, TypedDict, Union
-from jet.llm.mlx.token_utils import get_tokenizer, get_tokenizer_fn, tokenize
-from jet.llm.mlx.models import get_embedding_size
+from jet.models.tokenizer.base import get_tokenizer, get_tokenizer_fn, tokenize
+from jet.models.utils import get_embedding_size
 from jet.logger import logger
 from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
 from jet.vectors.document_types import HeaderDocument, HeaderTextNode

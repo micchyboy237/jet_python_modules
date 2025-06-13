@@ -6,17 +6,6 @@ from typing import Any, List, Optional, TypedDict, cast
 from pydantic import BaseModel, Field
 
 
-class RelevantDocument(BaseModel):
-    document_number: int = Field(..., ge=0)
-    confidence: int = Field(..., ge=1, le=10)
-
-
-class DocumentSelectionResult(BaseModel):
-    relevant_documents: List[RelevantDocument]
-    evaluated_documents: List[int]
-    feedback: str
-
-
 class Document(BaseDocument):
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
