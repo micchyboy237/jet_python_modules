@@ -1,4 +1,5 @@
 from datetime import datetime
+from jet.utils.url_utils import clean_url
 from jet.wordnet.sentence import split_sentences
 from lxml.etree import Comment
 from typing import Callable, Optional, List, Dict, TypedDict, Union
@@ -89,10 +90,10 @@ def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
             if not (parsed_link.scheme and parsed_link.netloc):
                 continue
 
-        filtered.append(link)
+        filtered.append(clean_url(link))
 
     # Return unique links only
-    return list(set(filtered))
+    return list(dict.fromkeys(filtered))
 
 
 class TitleMetadata(TypedDict):

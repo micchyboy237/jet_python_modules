@@ -142,6 +142,16 @@ class TestCleanUrl:
         result = clean_url(url)
         assert result == expected, f"Expected {expected}, but got {result}"
 
+    def test_fragment(self):
+        result = clean_url("https://example.com/path#héllo")
+        expected = "https://example.com/path#héllo"
+        assert result == expected, "Fragment should remain unchanged"
+
+    def test_empty_fragment(self):
+        result = clean_url("https://example.com/path#")
+        expected = "https://example.com/path"
+        assert result == expected, "Trailing hashtag should be removed"
+
     def test_clean_url_empty(self):
         url = ""
         expected = ""

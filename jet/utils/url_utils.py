@@ -79,8 +79,15 @@ def normalize_url(url: str, base_url: Optional[str] = None) -> str:
     return unquote(normalized_url.rstrip('/'))
 
 
+def transliterate_text(text: str) -> str:
+    """Transliterate non-ASCII text to ASCII using unidecode."""
+    if not text:
+        return ""
+    return unidecode(text)
+
+
 def clean_url(url: str) -> str:
-    """Clean a URL by ensuring a scheme, removing trailing slashes, normalizing format, and transliterating non-ASCII to ASCII."""
+    """Clean a URL by ensuring a scheme, removing trailing slashes, normalizing format, and removing empty fragments."""
     if not url:
         return ""
 
@@ -96,8 +103,6 @@ def clean_url(url: str) -> str:
         parsed = urlparse(url)
         # Normalize path by replacing multiple slashes with a single slash and decoding
         path = re.sub(r'/+', '/', unquote(parsed.path.rstrip('/')))
-        # Transliterate non-ASCII characters in path to ASCII
-        path = unidecode(path) if path else path
 
         # Process query parameters individually
         query = ''
@@ -108,19 +113,19 @@ def clean_url(url: str) -> str:
                 if part:
                     if '=' in part:
                         key, value = part.split('=', 1)
-                        # Decode and transliterate key and value
-                        processed_key = unidecode(unquote(key))
-                        processed_value = unidecode(
-                            unquote(value)) if value else ''
+                        # Decode key and value
+                        processed_key = unquote(key)
+                        processed_value = unquote(value) if value else ''
                         processed_parts.append(
                             f'{processed_key}={processed_value}' if value else processed_key)
                     else:
                         # Handle query parameters without values
-                        processed_parts.append(unidecode(unquote(part)))
+                        processed_parts.append(unquote(part))
             query = f'?{"&".join(processed_parts)}' if processed_parts else ''
 
-        # Decode and transliterate fragment
-        fragment = f'#{unidecode(unquote(parsed.fragment))}' if parsed.fragment else ''
+        # Decode fragment, only include if non-empty
+        fragment = f'#{unquote(parsed.fragment)}' if parsed.fragment.strip(
+        ) else ''
 
         # Reconstruct URL with lowercase scheme
         cleaned_url = f'{parsed.scheme.lower()}://{parsed.netloc}{path}{query}{fragment}'
