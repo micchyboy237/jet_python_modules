@@ -409,6 +409,29 @@ def get_original_document(
     return None
 
 
+def compute_combined_scores(
+    embed_scores: List[float],
+    bm25_scores: List[float],
+    bm25_weight: float,
+    indices: np.ndarray,
+    with_bm25: bool
+) -> List[float]:
+    """Compute combined scores from embedding and BM25 scores."""
+    combined_scores = []
+    for j, i in enumerate(indices[0]):
+        bm25_score = bm25_scores[i] if with_bm25 else 0.0
+        embed_score = embed_scores[j]
+        weight = bm25_weight if with_bm25 else 0.0
+        combined = weight * bm25_score + (1 - weight) * embed_score
+        combined = max(0.0, min(1.0, combined))
+        combined_scores.append(combined)
+        logger.debug(
+            "Chunk %d (FAISS index %d): BM25=%.4f, Embed=%.4f, Combined=%.4f",
+            i, j, bm25_score, embed_score, combined
+        )
+    return combined_scores
+
+
 def search_docs(
     query: str,
     documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]],
@@ -422,14 +445,31 @@ def search_docs(
     rerank_top_k: Optional[int] = 10,
     batch_size: int = 8,
     bm25_weight: float = 0.5,
-    return_raw_scores: bool = False
+    return_raw_scores: bool = False,
+    with_bm25: bool = False,
+    with_rerank: bool = False
 ) -> Union[List[SearchResult], Tuple[List[SearchResult], Dict[str, List[float]]]]:
-    """Search documents using hybrid retrieval with BM25 and embeddings, incorporating an instruction.
-    Ensures unique results by document ID, selecting next top result for duplicates.
+    """Search documents using hybrid retrieval with BM25 and embeddings.
 
     Args:
-        return_raw_scores: If True, returns a tuple of (results, raw_scores) where raw_scores contains
-                          the embedding, BM25, and reranking scores for each result.
+        query: Search query string.
+        documents: List of documents (HeaderDocument, dicts, or strings).
+        instruction: Optional instruction to prepend to query.
+        ids: Optional list of document IDs.
+        model: Embedding model name.
+        rerank_model: Cross-encoder model for reranking.
+        chunk_size: Size of document chunks.
+        overlap: Overlap between chunks.
+        top_k: Number of top results from FAISS.
+        rerank_top_k: Number of results after reranking.
+        batch_size: Batch size for reranking.
+        bm25_weight: Weight for BM25 in combined score.
+        return_raw_scores: If True, returns (results, raw_scores).
+        with_bm25: If True, enables BM25 scoring. Defaults to False.
+        with_rerank: If True, enables reranking. Defaults to False.
+
+    Returns:
+        List of SearchResult or (results, raw_scores) if return_raw_scores=True.
     """
     total_start_time = time.time()
     logger.debug("Input document IDs: %s", [
@@ -438,25 +478,25 @@ def search_docs(
         for doc in documents if doc
     ])
 
-    if instruction:
+    # Handle instruction
+    if instruction and isinstance(instruction, str) and instruction.strip():
         logger.info("Using instruction: %s", instruction)
+        query_with_instruction = f"{instruction} {query}".strip()
+    else:
+        logger.warning("Invalid or empty instruction, using query alone")
+        query_with_instruction = query
 
-    if not isinstance(instruction, str) or not instruction.strip():
-        logger.warning(
-            "Invalid or empty instruction provided, proceeding without instruction")
-        instruction = ""
-
+    # Process and split documents
     docs = process_documents(documents, ids)
-
     start_time = time.time()
     chunks = []
     for doc in tqdm(docs, desc="Splitting documents"):
         chunks.extend(split_document(
             doc["text"], doc["id"], doc["index"], chunk_size, overlap))
-    split_duration = time.time() - start_time
     logger.info("Document splitting completed in %.3f seconds, created %d chunks",
-                split_duration, len(chunks))
+                time.time() - start_time, len(chunks))
 
+    # Filter chunks and embed
     filtered_chunks = filter_by_headers(chunks, query)
     chunk_texts = [chunk["text"] for chunk in filtered_chunks]
     logger.debug("Filtered chunks: %s", [
@@ -465,156 +505,134 @@ def search_docs(
         for i, chunk in enumerate(filtered_chunks)
     ])
 
-    logger.info("Initializing SentenceTransformer and CrossEncoder models")
+    logger.info("Initializing SentenceTransformer")
     embedder = SentenceTransformer(model, device="cpu", backend="onnx")
-    cross_encoder = CrossEncoder(rerank_model, device="cpu", backend="onnx")
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
 
-    start_time = time.time()
+    # FAISS search
+    top_k = min(top_k or len(chunk_texts), len(chunk_texts))
+    logger.info("Performing FAISS search with top-k=%d", top_k)
     dim = chunk_embeddings.shape[1]
     index = faiss.IndexFlatIP(dim)
     faiss.normalize_L2(chunk_embeddings)
     index.add(chunk_embeddings)
 
-    if not top_k:
-        top_k = len(chunk_texts)
-    top_k = min(top_k, len(chunk_texts))
-    logger.info("Performing FAISS search with top-k=%d", top_k)
-
-    query_with_instruction = f"{instruction} {query}".strip(
-    ) if instruction else query
-    logger.debug("Query with instruction: %s", query_with_instruction)
     query_embedding = embedder.encode(
         [query_with_instruction], convert_to_numpy=True)
     query_embedding = np.ascontiguousarray(query_embedding.astype(np.float32))
-    logger.debug("Query embedding shape: %s, dtype: %s",
-                 query_embedding.shape, query_embedding.dtype)
     faiss.normalize_L2(query_embedding)
-    logger.debug("Query embedding norm: %.4f", np.linalg.norm(query_embedding))
     distances, indices = index.search(query_embedding, top_k)
-    embed_scores = distances[0].tolist()
-    logger.debug("FAISS distances: %s", embed_scores)
-
-    # Normalize embedding scores to [0, 1]
-    embed_scores = [(score + 1) / 2 for score in embed_scores]
+    # Normalize to [0, 1]
+    embed_scores = [(score + 1) / 2 for score in distances[0].tolist()]
     logger.debug("Normalized embed scores: %s", embed_scores)
 
-    # Calculate BM25 scores
-    bm25_scores = get_bm25_scores(chunk_texts, query)
-    logger.debug("BM25 scores for chunks: %s", [
-        {"chunk_index": i, "score": score} for i, score in enumerate(bm25_scores)
-    ])
+    # BM25 scores
+    if with_bm25:
+        logger.info("Calculating BM25 scores")
+        bm25_scores = get_bm25_scores(chunk_texts, query)
+        max_bm25 = max(bm25_scores) if bm25_scores and max(
+            bm25_scores) > 0 else 1.0
+        bm25_scores = [score / max_bm25 for score in bm25_scores]
+        logger.debug("Normalized BM25 scores: %s", [
+            {"index": i, "score": score} for i, score in enumerate(bm25_scores)
+        ])
+    else:
+        logger.info("Skipping BM25 scoring")
+        bm25_scores = [0.0] * len(chunk_texts)
 
-    # Normalize BM25 scores to [0, 1]
-    max_bm25 = max(bm25_scores) if bm25_scores and max(
-        bm25_scores) > 0 else 1.0
-    bm25_scores = [score / max_bm25 for score in bm25_scores]
-    logger.debug("Normalized BM25 scores: %s", [
-        {"chunk_index": i, "score": score} for i, score in enumerate(bm25_scores)
-    ])
+    # Compute combined scores
+    combined_scores = compute_combined_scores(
+        embed_scores, bm25_scores, bm25_weight, indices, with_bm25)
+    initial_docs = [(filtered_chunks[i], combined_scores[j],
+                     embed_scores[j]) for j, i in enumerate(indices[0])]
 
-    # Calculate combined scores with detailed logging
-    combined_scores = []
-    for j, i in enumerate(indices[0]):
-        bm25_score = bm25_scores[i]
-        embed_score = embed_scores[j]
-        combined = bm25_weight * bm25_score + (1 - bm25_weight) * embed_score
-        combined = max(0.0, min(1.0, combined))
-        combined_scores.append(combined)
-        logger.debug(
-            "Combined score for chunk %d (FAISS index %d): BM25=%.4f, Embed=%.4f, Combined=%.4f",
-            i, j, bm25_score, embed_score, combined
-        )
+    # Reranking
+    if with_rerank:
+        logger.info("Initializing CrossEncoder for reranking")
+        cross_encoder = CrossEncoder(
+            rerank_model, device="cpu", backend="onnx")
+        start_time = time.time()
+        logger.info("Reranking %d documents", len(initial_docs))
+        pairs = [[query_with_instruction, doc["text"]]
+                 for doc, _, _ in initial_docs]
+        final_scores = []
+        try:
+            for i in tqdm(range(0, len(pairs), batch_size), desc="Reranking"):
+                batch_scores = cross_encoder.predict(pairs[i:i + batch_size])
+                final_scores.extend(float(score) for score in batch_scores)
+        except Exception as e:
+            logger.error("Reranking error: %s", e)
+            final_scores = [0.0] * len(pairs)
+            logger.info(
+                "Assigned %d zero scores due to reranking error", len(pairs))
 
-    initial_docs = [
-        (filtered_chunks[i], combined_scores[j], embed_scores[j])
-        for j, i in enumerate(indices[0])
-    ]
+        rerank_top_k = min(rerank_top_k or len(
+            initial_docs), len(initial_docs))
+        reranked_indices = np.argsort(final_scores)[::-1][:rerank_top_k]
+        reranked_docs = [
+            (initial_docs[i][0], initial_docs[i][1],
+             final_scores[i], initial_docs[i][2])
+            for i in reranked_indices
+        ]
+        logger.info("Reranking completed in %.3f seconds",
+                    time.time() - start_time)
+    else:
+        logger.info("Skipping reranking, using combined scores")
+        rerank_top_k = min(rerank_top_k or len(
+            initial_docs), len(initial_docs))
+        reranked_indices = np.argsort([doc[1] for doc in initial_docs])[
+            ::-1][:rerank_top_k]
+        reranked_docs = [
+            (initial_docs[i][0], initial_docs[i][1], initial_docs[i]
+             [1], initial_docs[i][2])  # final_score = combined_score
+            for i in reranked_indices
+        ]
 
-    start_time = time.time()
-    logger.info("Reranking %d documents with cross-encoder", len(initial_docs))
-    pairs = [[query_with_instruction, doc["text"]]
-             for doc, _, _ in initial_docs]
-    scores = []
-    try:
-        for i in tqdm(range(0, len(pairs), batch_size), desc="Reranking"):
-            batch = pairs[i:i + batch_size]
-            batch_scores = cross_encoder.predict(batch)
-            # Convert np.float to Python float
-            scores.extend(float(score) for score in batch_scores)
-    except Exception as e:
-        logger.error("Error in reranking: %s", e)
-        scores = [0.0] * len(pairs)  # Use Python float for default scores
-        logger.info(
-            "Added %d zeros as default scores due to reranking error", len(pairs))
-
-    if not rerank_top_k:
-        rerank_top_k = len(initial_docs)
-    reranked_indices = np.argsort(
-        scores)[::-1][:max(rerank_top_k, len(initial_docs))]
-    reranked_docs = [
-        (initial_docs[i][0], initial_docs[i][1], scores[i], initial_docs[i][2])
-        for i in reranked_indices
-    ]
-    rerank_duration = time.time() - start_time
-    logger.info("Reranking completed in %.3f seconds", rerank_duration)
-
+    # Build results
     results: List[SearchResult] = []
     seen_doc_ids = set()
-    candidate_index = 0
-    raw_scores = {
-        "embedding_scores": [],
-        "bm25_scores": [],
-        "rerank_scores": []
-    }
-
-    while len(results) < rerank_top_k and candidate_index < len(reranked_docs):
-        chunk, combined_score, rerank_score, embedding_score = reranked_docs[candidate_index]
+    raw_scores = {"embedding_scores": [],
+                  "bm25_scores": [], "rerank_scores": []}
+    for rank, (chunk, combined_score, final_score, embedding_score) in enumerate(reranked_docs, 1):
         doc_id = chunk["doc_id"]
         doc_index = chunk["doc_index"]
-        logger.debug(
-            "Processing chunk with doc_id %s, doc_index %d, rank %d, combined_score=%.4f",
-            doc_id, doc_index, candidate_index + 1, combined_score
-        )
-
-        if doc_id not in seen_doc_ids:
-            original_doc = get_original_document(
-                doc_id, doc_index, documents, ids)
-            if original_doc is None:
-                logger.warning(
-                    "Skipping result for ID %s: original document not found", doc_id)
-                candidate_index += 1
-                continue
-            result: SearchResult = {
-                "id": doc_id,
-                "doc_index": doc_index,
-                "rank": len(results) + 1,
-                "score": rerank_score,  # Already Python float from scores list
-                "combined_score": combined_score,
-                "embedding_score": embedding_score,
-                "headers": chunk["headers"],
-                "text": original_doc.text,
-                "document": original_doc
-            }
-            results.append(result)
-            if return_raw_scores:
-                raw_scores["embedding_scores"].append(embedding_score)
-                raw_scores["bm25_scores"].append(
-                    bm25_scores[indices[0][candidate_index]])
-                raw_scores["rerank_scores"].append(
-                    rerank_score)  # Already Python float
-            seen_doc_ids.add(doc_id)
+        if doc_id in seen_doc_ids:
             logger.debug(
-                "Added unique result for doc_id %s, total unique results: %d", doc_id, len(results))
-        else:
-            logger.debug(
-                "Skipping duplicate doc_id %s at candidate index %d", doc_id, candidate_index)
-        candidate_index += 1
+                "Skipping duplicate doc_id %s at rank %d", doc_id, rank)
+            continue
 
-    logger.info("Total unique results returned: %d", len(results))
-    total_duration = time.time() - total_start_time
-    logger.info("Total search completed in %.3f seconds", total_duration)
+        original_doc = get_original_document(doc_id, doc_index, documents, ids)
+        if original_doc is None:
+            logger.warning(
+                "Skipping doc_id %s: original document not found", doc_id)
+            continue
 
-    if return_raw_scores:
-        return results, raw_scores
-    return results
+        # Assign score: final_score is rerank_score if with_rerank=True, else embedding_score (when with_bm25=False)
+        result: SearchResult = {
+            "id": doc_id,
+            "doc_index": doc_index,
+            "rank": len(results) + 1,
+            # final_score is embedding_score if with_bm25=False and with_rerank=False
+            "score": final_score,
+            "combined_score": combined_score,
+            "embedding_score": embedding_score,
+            "headers": chunk["headers"],
+            "text": original_doc.text,
+            "document": original_doc
+        }
+        results.append(result)
+        seen_doc_ids.add(doc_id)
+        if return_raw_scores:
+            raw_scores["embedding_scores"].append(embedding_score)
+            raw_scores["bm25_scores"].append(bm25_scores[indices[0][rank - 1]])
+            raw_scores["rerank_scores"].append(final_score)
+        logger.debug("Added result for doc_id %s: score=%.4f, combined=%.4f, embed=%.4f",
+                     doc_id, final_score, combined_score, embedding_score)
+        if len(results) >= rerank_top_k:
+            break
+
+    logger.info("Total unique results: %d", len(results))
+    logger.info("Search completed in %.3f seconds",
+                time.time() - total_start_time)
+
+    return (results, raw_scores) if return_raw_scores else results
