@@ -1,17 +1,10 @@
 import json
 from typing import List, Dict, Optional, TypedDict
 from jet.llm.mlx.mlx_types import LLMModelType
-from jet.llm.mlx.models import resolve_model
+from jet.llm.mlx.tasks.utils import ModelComponents, load_model_components
 from jet.logger import logger
 import mlx.core as mx
-from mlx_lm import load
-from mlx_lm.utils import TokenizerWrapper
 from mlx_lm.generate import generate_step
-
-
-class ModelLoadError(Exception):
-    """Raised when model or tokenizer loading fails."""
-    pass
 
 
 class InvalidInputError(Exception):
@@ -39,23 +32,6 @@ class ContextRelevanceResult(TypedDict):
 class ContextRelevanceResults(TypedDict):
     query: str
     results: List[ContextRelevanceResult]
-
-
-class ModelComponents:
-    """Encapsulates model and tokenizer for easier management."""
-
-    def __init__(self, model, tokenizer: TokenizerWrapper):
-        self.model = model
-        self.tokenizer = tokenizer
-
-
-def load_model_components(model_path: LLMModelType) -> ModelComponents:
-    """Loads model and tokenizer from the specified path."""
-    try:
-        model, tokenizer = load(resolve_model(model_path))
-        return ModelComponents(model, tokenizer)
-    except Exception as e:
-        raise ModelLoadError(f"Error loading model or tokenizer: {e}")
 
 
 def create_system_prompt() -> str:
@@ -113,7 +89,7 @@ def validate_inputs(query: str, contexts: List[str]) -> None:
 def evaluate_multiple_contexts_relevance(
     query: str,
     contexts: List[str],
-    model_path: LLMModelType,
+    model_path: LLMModelType | ModelComponents,
     max_tokens: int = 1,
     temperature: float = 0.1,
     system_prompt: Optional[str] = None
@@ -121,7 +97,8 @@ def evaluate_multiple_contexts_relevance(
     """Evaluates the relevance of multiple contexts for a single query."""
     try:
         validate_inputs(query, contexts)
-        model_components = load_model_components(model_path)
+        model_components = model_path if isinstance(
+            model_path, ModelComponents) else load_model_components(model_path)
         valid_outputs = ["0", "1", "2"]
         choice_token_map = {
             choice: model_components.tokenizer.encode(

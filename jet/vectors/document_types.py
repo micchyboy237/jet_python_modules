@@ -30,7 +30,7 @@ class HeaderMetadata(TypedDict, total=False):
     parent_header: str
     content: str
     chunk_index: int | None
-    token_count: int | None
+    tokens: int | None
     source_url: str | None
     links: List[str] | None
     texts: List[str] | None
@@ -59,7 +59,7 @@ class HeaderDocument(Document):
             "parent_header": "",
             "content": "",
             "chunk_index": None,
-            "token_count": None,
+            "tokens": None,
             "source_url": None,
             "links": None,
             "texts": text.splitlines(),
@@ -133,7 +133,7 @@ class HeaderTextNode(TextNode):
             "parent_header": "",
             "content": "",
             "chunk_index": None,
-            "token_count": None,
+            "tokens": None,
             "source_url": None,
             "texts": None,
         }
