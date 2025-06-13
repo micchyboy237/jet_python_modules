@@ -2,7 +2,7 @@ import requests
 import aiohttp
 import asyncio
 from fake_useragent import UserAgent
-from typing import List, Optional
+from typing import AsyncIterator, List, Optional, Tuple
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.logger import logger
 from jet.scrapers.utils import scrape_links
@@ -74,25 +74,32 @@ async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent) ->
         return None
 
 
-async def scrape_urls(urls: List[str], num_parallel: int = 5) -> List[Optional[str]]:
+async def scrape_urls(urls: List[str], num_parallel: int = 5) -> AsyncIterator[Tuple[str, str, Optional[str]]]:
+    """
+    Scrape URLs asynchronously and yield (url, status, html) for each URL.
+    Status is 'started' when processing begins, 'completed' when done.
+    HTML is None for 'started' status, and the scraped content or None for 'completed'.
+    """
     ua = UserAgent()
-    semaphore = asyncio.Semaphore(num_parallel)
+    semaphore = asyncio.Semaphore(num_parallel)  # Keep this line
 
-    async def sem_fetch(url: str, session: aiohttp.ClientSession) -> Optional[str]:
+    async def sem_fetch(url: str, session: aiohttp.ClientSession) -> List[Tuple[str, str, Optional[str]]]:
+        results = []
         async with semaphore:
-            return await scrape_url(session, url, ua)
+            logger.debug(f"Starting to scrape URL: {url}")
+            results.append((url, "started", None))
+            html = await scrape_url(session, url, ua)
+            logger.debug(
+                f"Completed scraping URL: {url}, success: {html is not None}")
+            results.append((url, "completed", html))
+        return results
 
     async with aiohttp.ClientSession() as session:
         tasks = [sem_fetch(url, session) for url in urls]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        final_results = []
-        for result in results:
-            if isinstance(result, Exception):
-                logger.error(f"Task failed with exception: {str(result)}")
-                final_results.append(None)
-            else:
-                final_results.append(result)
-        return final_results
+        for task in asyncio.as_completed(tasks):
+            task_results = await task
+            for url, status, html in task_results:
+                yield url, status, html
 
 if __name__ == "__main__":
     urls = [

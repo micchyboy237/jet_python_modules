@@ -1,10 +1,12 @@
 import numpy as np
+from sentence_transformers import SentenceTransformer
 from tokenizers import Tokenizer
 from typing import Callable, Literal, Union, List, Optional, TypeAlias
 import psutil
 import math
 from tqdm import tqdm
 import torch
+from jet.logger import logger
 import mlx.core as mx
 from jet.models.tokenizer.base import get_tokenizer, tokenize
 from jet.models.tokenizer.utils import calculate_batch_size
@@ -57,102 +59,91 @@ def generate_multiple(
 
 
 def generate_embeddings(
-    texts: Union[str, List[str]],
-    model_name_or_tokenizer: Union[str, Tokenizer],
-    batch_size: Optional[int] = None,
-    show_progress: bool = False,
-    return_format: Literal["list", "numpy", "torch", "mlx"] = "list",
-    model: Optional[Callable] = None,
-    use_last_token_pool: bool = True
-) -> EmbeddingOutput:
-    if return_format not in ["list", "numpy", "torch", "mlx"]:
-        raise ValueError(
-            "return_format must be 'list', 'numpy', 'torch', or 'mlx'")
-    if use_last_token_pool and model is None:
-        raise ValueError(
-            "Model must be provided when use_last_token_pool is True")
-    tokenizer = (
-        get_tokenizer(model_name_or_tokenizer)
-        if isinstance(model_name_or_tokenizer, str)
-        else model_name_or_tokenizer
-    )
-    batch_size = (
-        calculate_batch_size(texts)
-        if not batch_size
-        else batch_size
-    )
+    input_data: Union[str, List[str]],
+    model: str = "static-retrieval-mrl-en-v1",
+    batch_size: int = 32,
+    show_progress: bool = False
+) -> Union[List[float], List[List[float]]]:
+    """
+    Generate embeddings for a single string or list of strings using SentenceTransformer.
 
-    def process_batch(batch: Union[str, List[str]]) -> EmbeddingOutput:
-        batch_list = [batch] if isinstance(batch, str) else batch
-        if not model or not use_last_token_pool:
-            embeddings = tokenize(batch_list, tokenizer)
+    Args:
+        input_data: A single string or list of strings to embed.
+        model: Name of the SentenceTransformer model to use.
+        batch_size: Batch size for embedding multiple strings.
+        show_progress: Whether to display a progress bar for batch processing.
+
+    Returns:
+        List[float] for a single string input, or List[List[float]] for a list of strings.
+    """
+    logger.info("Generating embeddings for input type: %s, model: %s, show_progress: %s",
+                type(input_data), model, show_progress)
+
+    try:
+        # Initialize SentenceTransformer with ONNX backend for Mac M1 compatibility
+        embedder = SentenceTransformer(model, device="cpu", backend="onnx")
+        logger.debug(
+            "Embedding model initialized with device: %s", embedder.device)
+
+        if isinstance(input_data, str):
+            # Handle single string input
+            logger.debug("Processing single string input: %s", input_data[:50])
+            embedding = embedder.encode(input_data, convert_to_numpy=True)
+            embedding = np.ascontiguousarray(embedding.astype(np.float32))
+            logger.debug("Generated embedding shape: %s", embedding.shape)
+            return embedding.tolist()
+
+        elif isinstance(input_data, list) and all(isinstance(item, str) for item in input_data):
+            # Handle list of strings input
+            logger.debug("Processing %d strings in batches of %d",
+                         len(input_data), batch_size)
+            if not input_data:
+                logger.info(
+                    "Empty input list, returning empty list of embeddings")
+                return []
+
+            embeddings = []
+            # Use tqdm for progress bar if show_progress is True
+            iterator = range(0, len(input_data), batch_size)
+            if show_progress:
+                iterator = tqdm(iterator, desc="Embedding texts", total=len(
+                    range(0, len(input_data), batch_size)))
+
+            for i in iterator:
+                batch = input_data[i:i + batch_size]
+                logger.debug("Encoding batch %d-%d", i,
+                             min(i + batch_size, len(input_data)))
+                batch_embeddings = embedder.encode(
+                    batch,
+                    convert_to_numpy=True,
+                    batch_size=batch_size
+                )
+                batch_embeddings = np.ascontiguousarray(
+                    batch_embeddings.astype(np.float32))
+                embeddings.extend(batch_embeddings.tolist())
+
+            logger.debug("Generated embeddings shape: (%d, %d)", len(
+                embeddings), len(embeddings[0]) if embeddings else 0)
+            return embeddings
+
         else:
-            encodings = tokenizer.encode_batch(
-                batch_list, add_special_tokens=True)
-            input_ids_list = [encoding.ids for encoding in encodings]
-            optimal_max_length = max(len(input_ids)
-                                     for input_ids in input_ids_list)
-            padded_inputs = []
-            attention_masks = []
-            for ids in tqdm(input_ids_list, desc="Padding Inputs", disable=not show_progress):
-                if len(ids) > optimal_max_length:
-                    ids = ids[:optimal_max_length]
-                padded = ids + [0] * (optimal_max_length - len(ids))
-                mask = [1] * len(ids) + [0] * (optimal_max_length - len(ids))
-                padded_inputs.append(padded)
-                attention_masks.append(mask)
-            input_ids = mx.array(
-                np.array(padded_inputs, dtype=np.int32), dtype=mx.int32)
-            attention_mask = mx.array(
-                np.array(attention_masks, dtype=np.int32), dtype=mx.int32)
-            outputs = model(input_ids)
-            embeddings = last_token_pool(outputs, attention_mask)
-            embeddings = mx.concatenate([embeddings], axis=0)
-            embeddings = embeddings / \
-                mx.sqrt(mx.sum(embeddings * embeddings,
-                        axis=1, keepdims=True) + 1e-8)
-        if return_format == "numpy":
-            return np.array(embeddings, dtype=np.float32)
-        elif return_format == "torch":
-            return torch.tensor(embeddings, dtype=torch.float32)
-        elif return_format == "mlx":
-            return mx.array(embeddings, dtype=mx.float32) if not use_last_token_pool else embeddings
-        return embeddings
-    embedding_batch_size = batch_size
-    if isinstance(texts, str):
-        return generate_multiple(texts, process_batch, embedding_batch_size, return_format)
-    batch_iter = range(0, len(texts), batch_size)
-    if show_progress:
-        batch_iter = tqdm(batch_iter, total=math.ceil(
-            len(texts) / batch_size), desc="Processing embeddings")
-    embeddings = []
-    for i in batch_iter:
-        batch = texts[i:i + batch_size]
-        batch_embeddings = process_batch(batch)
-        if return_format in ["numpy", "torch", "mlx"]:
-            embeddings.append(batch_embeddings)
-        else:
-            embeddings.extend(batch_embeddings)
-    if return_format == "numpy":
-        return np.concatenate(embeddings, axis=0) if embeddings else np.array([], dtype=np.float32)
-    elif return_format == "torch":
-        return torch.cat(embeddings, dim=0) if embeddings else torch.tensor([], dtype=torch.float32)
-    elif return_format == "mlx":
-        return mx.concatenate(embeddings, axis=0) if embeddings else mx.array([], dtype=mx.float32)
-    return embeddings
+            logger.error(
+                "Invalid input type: %s, expected str or List[str]", type(input_data))
+            raise ValueError("Input must be a string or a list of strings")
+
+    except Exception as e:
+        logger.error("Failed to generate embeddings: %s", str(e))
+        raise
 
 
 def get_embedding_function(
     model_name: str,
-    batch_size: Union[int, None] = None,
+    batch_size: int = 32,
     show_progress: bool = False,
     return_format: Literal["list", "numpy", "torch", "mlx"] = "list",
     model: Optional[Callable] = None,
     use_last_token_pool: bool = True
 ) -> Callable[[Union[str, List[str]]], EmbeddingOutput]:
-    tokenizer = Tokenizer.from_pretrained(model_name)
-
-    def embed(texts: Union[str, List[str]]) -> EmbeddingOutput:
-        optimal_batch_size = calculate_batch_size(texts, batch_size)
-        return generate_embeddings(texts, tokenizer, optimal_batch_size, show_progress, return_format, model, use_last_token_pool)
-    return embed
+    def embed_func(x): return generate_embeddings(
+        x, model_name, batch_size=batch_size, show_progress=show_progress)
+    return embed_func

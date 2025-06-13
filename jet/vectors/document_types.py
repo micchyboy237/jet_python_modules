@@ -23,15 +23,15 @@ class Document(BaseDocument):
 
 
 class HeaderMetadata(TypedDict, total=False):
-    id: str | None
+    id: str
     doc_index: int
     header_level: int
     header: str
     parent_header: str
     content: str
+    source_url: str
     chunk_index: int | None
     tokens: int | None
-    source_url: str | None
     links: List[str] | None
     texts: List[str] | None
 

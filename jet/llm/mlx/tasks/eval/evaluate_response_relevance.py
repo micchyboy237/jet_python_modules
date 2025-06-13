@@ -63,7 +63,7 @@ def evaluate_response_relevance(
     query: str,
     context: str,
     response: str,
-    model_path: LLMModelType,
+    model_path: LLMModelType | ModelComponents,
     max_tokens: int = 1,
     temperature: float = 0.1,
 ) -> RelevanceResult:

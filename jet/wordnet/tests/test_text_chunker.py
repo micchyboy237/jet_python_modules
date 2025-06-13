@@ -1,5 +1,7 @@
 import pytest
-from jet.wordnet.text_chunker import chunk_sentences_with_indices, chunk_texts, chunk_sentences, chunk_texts_with_indices, truncate_texts
+from jet.logger import logger
+from jet.vectors.document_types import HeaderDocument
+from jet.wordnet.text_chunker import chunk_headers, chunk_sentences_with_indices, chunk_texts, chunk_sentences, chunk_texts_with_indices, truncate_texts
 
 
 class TestChunkTexts:
@@ -94,6 +96,50 @@ class TestChunkSentencesWithIndices:
             input_text, chunk_size=2, sentence_overlap=1)
         assert result == expected
         assert result_indices == expected_indices
+
+
+class TestChunkHeaders:
+    def test_chunk_headers_single_doc(self):
+        doc = HeaderDocument(
+            id="doc1",
+            text="Line 1\nLine 2\nLine 3\nLine 4",
+            metadata={"doc_index": 1, "parent_header": "Parent"}
+        )
+        # Small max_tokens for testing
+        result = chunk_headers([doc], max_tokens=2)
+        expected = [
+            HeaderDocument(
+                id="doc1_chunk_0",
+                text="Line 1\nLine 2",
+                metadata={
+                    "header": "Line 1...",
+                    "parent_header": "Parent",
+                    "header_level": 1,
+                    "content": "Line 1\nLine 2",
+                    "doc_index": 1,
+                    "chunk_index": 0,
+                    "texts": ["Line 1", "Line 2"]
+                }
+            ),
+            HeaderDocument(
+                id="doc1_chunk_1",
+                text="Line 3\nLine 4",
+                metadata={
+                    "header": "Line 3...",
+                    "parent_header": "Parent",
+                    "header_level": 1,
+                    "content": "Line 3\nLine 4",
+                    "doc_index": 1,
+                    "chunk_index": 1,
+                    "texts": ["Line 3", "Line 4"]
+                }
+            )
+        ]
+        for r, e in zip(result, expected):
+            assert r.id == e.id
+            assert r.text == e.text
+            assert r.metadata == e.metadata
+        logger.debug("Test chunk_headers_single_doc passed")
 
 
 class TestTruncateText:
