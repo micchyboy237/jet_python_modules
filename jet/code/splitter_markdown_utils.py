@@ -305,8 +305,13 @@ def get_md_header_contents(
             header_links, clean_header = extract_markdown_links(header_line)
             header_level = get_header_level(clean_header)
 
-            cleaned_text = clean_spaces(raw_text)
-            body_links, cleaned_text = extract_markdown_links(cleaned_text)
+            # Conditionally process links in body text based on ignore_links
+            raw_text = clean_spaces(raw_text)
+            body_links = []
+            if ignore_links:
+                body_links, cleaned_text = extract_markdown_links(cleaned_text)
+            else:
+                cleaned_text = raw_text  # Keep original text with links
 
             # Combine all links
             all_links = header_links + body_links
@@ -330,7 +335,9 @@ def get_md_header_contents(
             ).strip()
             clean_content = clean_spaces(content)
 
-            final_text = f"{clean_header}\n{clean_content}".strip()
+            # Use original header_line if ignore_links is False, else use clean_header
+            final_header = header_line if not ignore_links else clean_header
+            final_text = f"{final_header}\n{clean_content}".strip()
             header_text = clean_header.lstrip("#").strip()
 
             if not header_text and parent_stack:
@@ -345,7 +352,7 @@ def get_md_header_contents(
             parent_stack.append((header_level, clean_header))
 
             md_header_contents.append({
-                "header": clean_header,
+                "header": final_header,
                 "header_level": header_level,
                 "parent_header": parent_header,
                 "content": clean_content,
