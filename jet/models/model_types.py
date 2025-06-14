@@ -389,7 +389,7 @@ EmbedModelType = Union[EmbedModelKey, EmbedModelValue, EmbedModelTypeEnum]
 
 ModelKey = Union[LLMModelKey, EmbedModelKey]
 ModelValue = Union[LLMModelValue, EmbedModelValue]
-ModelType = Union[ModelKey, ModelValue]
+ModelType = Union[LLMModelType, EmbedModelType]
 
 
 # Extract Enum classes from the union

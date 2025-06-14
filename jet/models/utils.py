@@ -1,6 +1,7 @@
 import os
 from typing import Dict, List, Tuple, Optional, TypedDict, Union
 from jet.models.base import scan_local_hf_models
+from jet.models.onnx_model_checker import has_onnx_model_in_repo
 from jet.transformers.formatters import format_json
 from jet.utils.object import max_getattr
 from jet.logger import logger
@@ -96,6 +97,7 @@ class ModelInfoDict(TypedDict):
     models: Dict[ModelKey, ModelValue]
     contexts: Dict[ModelKey, int]
     embeddings: Dict[ModelKey, int]
+    has_onnx: Dict[ModelKey, bool]
     missing: List[str]
 
 
@@ -104,6 +106,7 @@ def get_model_info() -> ModelInfoDict:
         "models": {},
         "contexts": {},
         "embeddings": {},
+        "has_onnx": {},
         "missing": []
     }
     model_paths = scan_local_hf_models()
@@ -127,6 +130,8 @@ def get_model_info() -> ModelInfoDict:
             model_info["models"][short_name] = model_path
             model_info["contexts"][short_name] = max_contexts
             model_info["embeddings"][short_name] = max_embeddings
+            model_info["has_onnx"][short_name] = has_onnx_model_in_repo(
+                model_path)
 
         except Exception as e:
             logger.error(
