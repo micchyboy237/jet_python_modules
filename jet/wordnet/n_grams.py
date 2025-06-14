@@ -125,7 +125,8 @@ def count_ngrams_with_texts(
         max_words: Maximum number of words in n-grams (optional).
 
     Returns:
-        List of dictionaries containing n-gram, count, and sorted text indices.
+        List of dictionaries containing n-gram, word count, frequency, and sorted text indices,
+        sorted by number of texts (descending), count (descending), and n-gram (alphabetically).
     """
     logger.debug(
         f"Processing {len(texts)} texts with min_words={min_words}, min_count={min_count}, max_words={max_words}")
@@ -157,14 +158,16 @@ def count_ngrams_with_texts(
             'n': count_words(ngram),
             'count': data['count'],
             # Sort for deterministic output
+            'texts_count': len(data['texts']),
             'texts': sorted(list(data['texts']))
         }
         for ngram, data in ngrams_dict.items()
         if data['count'] >= min_count
     ]
 
-    # Sort by count (descending) and then n-gram (alphabetically) for consistency
-    result = sorted(result, key=lambda x: (-x['count'], x['ngram']))
+    # Sort by length of texts (descending), count (descending), and n-gram (alphabetically)
+    result = sorted(
+        result, key=lambda x: (-x['texts_count'], -x['count'], x['ngram']))
     logger.debug(f"Returning {len(result)} n-grams with count >= {min_count}")
 
     return result
