@@ -250,6 +250,9 @@ def get_md_header_contents(
 ) -> List[Header]:
     """Split Markdown text into headers and content with improved semantic chunking."""
 
+    from jet.scrapers.utils import clean_newlines, clean_text, clean_spaces
+    from jet.scrapers.preprocessor import is_html, html_to_markdown
+
     if is_html(md_text):
         md_text = html_to_markdown(md_text, ignore_links=ignore_links, remove_selectors=[
             "style", "script", "[class*=\"ad\"]"])
