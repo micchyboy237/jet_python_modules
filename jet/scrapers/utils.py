@@ -301,18 +301,25 @@ def clean_newlines(content, max_newlines: int = 2, strip_lines: bool = False) ->
 
 def clean_punctuations(content: str) -> str:
     """
-    Replace consecutive and mixed punctuation marks (.?!), ensuring that each valid group 
-    is replaced with its last occurring punctuation.
+    Replace consecutive and mixed punctuation marks (.?!), ensuring that each valid group
+    is replaced with its last occurring punctuation, and replace hyphens between words with a space.
 
     Example:
         "Hello!!! How are you???" -> "Hello! How are you?"
         "Wait... What.!?" -> "Wait. What?"
         "Really...?!? Are you sure???" -> "Really. Are you sure?"
+        "first-last" -> "first last"
+        "data-test-123" -> "data test 123"
 
-    :param content: Input string with possible consecutive punctuations.
-    :return: String with cleaned punctuation.
+    Args:
+        content: Input string with possible consecutive punctuations and hyphens.
+    Returns:
+        String with cleaned punctuation and hyphens replaced by spaces.
     """
-    return re.sub(r'([.?!#-)]+)', lambda match: match.group()[-1], content)
+    # Replace hyphens between word characters with a space
+    content = re.sub(r'(\w+)-(\w+)', r'\1 \2', content)
+    # Replace consecutive punctuation with the last punctuation mark
+    return re.sub(r'([.?!]+)', lambda match: match.group()[-1], content)
 
 
 def protect_links(text: str) -> Tuple[str, List[str]]:

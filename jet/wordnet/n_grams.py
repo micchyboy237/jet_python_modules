@@ -1,6 +1,7 @@
+from jet.logger import logger
 from jet.wordnet.pos_tagger import POSItem, POSTagEnum, POSTagType, POSTagger
 from itertools import tee, islice
-from typing import List
+from typing import List, Set
 from jet.wordnet.sentence import split_by_punctuations, split_sentences
 from nltk import word_tokenize, ngrams
 import string
@@ -113,26 +114,59 @@ def count_ngrams_with_texts(
     min_words: int = 1,
     min_count: int = 2,
     max_words: Optional[int] = None
-) -> List[dict]:
-    ngrams_dict = {}
-    for text_idx, text in enumerate(texts):
-        words = get_words(text)
-        for n in range(min_words, max_words or len(words) + 1):
-            for i in range(len(words) - n + 1):
-                ngram = ' '.join(words[i:i + n])
-                if ngram not in ngrams_dict:
-                    ngrams_dict[ngram] = {'count': 0, 'texts': set()}
-                ngrams_dict[ngram]['count'] += 1
-                ngrams_dict[ngram]['texts'].add(text_idx)
+) -> List[Dict[str, Union[str, int, List[int]]]]:
+    """
+    Count n-grams in texts and track their occurrences with text indices.
+
+    Args:
+        texts: List of input texts to analyze.
+        min_words: Minimum number of words in n-grams.
+        min_count: Minimum frequency threshold for n-grams.
+        max_words: Maximum number of words in n-grams (optional).
+
+    Returns:
+        List of dictionaries containing n-gram, count, and sorted text indices.
+    """
+    logger.debug(
+        f"Processing {len(texts)} texts with min_words={min_words}, min_count={min_count}, max_words={max_words}")
+
+    if not texts or all(not text.strip() for text in texts):
+        logger.debug("No valid texts provided")
+        return []
+
+    ngrams_dict: Dict[str, Dict[str, Union[int, Set[int]]]
+                      ] = defaultdict(lambda: {'count': 0, 'texts': set()})
+
+    for text_idx, text in enumerate(tqdm(texts, desc="Processing texts")):
+        if not text.strip():
+            logger.debug(f"Skipping empty text at index {text_idx}")
+            continue
+        # Use extract_ngrams for consistent n-gram generation
+        ngrams = extract_ngrams(
+            text.lower(), min_words=min_words, max_words=max_words)
+        logger.debug(
+            f"Text {text_idx} n-grams: {ngrams[:10]}{'...' if len(ngrams) > 10 else ''}")
+
+        for ngram in ngrams:
+            ngrams_dict[ngram]['count'] += 1
+            ngrams_dict[ngram]['texts'].add(text_idx)
+
     result = [
         {
             'ngram': ngram,
+            'n': count_words(ngram),
             'count': data['count'],
-            'texts': list(data['texts'])
+            # Sort for deterministic output
+            'texts': sorted(list(data['texts']))
         }
         for ngram, data in ngrams_dict.items()
         if data['count'] >= min_count
     ]
+
+    # Sort by count (descending) and then n-gram (alphabetically) for consistency
+    result = sorted(result, key=lambda x: (-x['count'], x['ngram']))
+    logger.debug(f"Returning {len(result)} n-grams with count >= {min_count}")
+
     return result
 
 
@@ -348,87 +382,16 @@ def nwise(iterable, n=1):
     return zip(*iters)
 
 
-def get_common_texts(texts, includes_pos=["PROPN", "NOUN", "VERB", "ADJ"], min_words: int = 1, max_words: Optional[int] = None):
-    if not texts:
-        return []
+def get_common_texts(texts, min_words: int = 1, min_count: int = 2, max_words: Optional[int] = None, includes_pos=["PROPN", "NOUN", "VERB", "ADJ"]):
     tagger = POSTagger()
-    stopwords = StopWords()
-    # Process each text to get filtered words based on POS and stopwords
+    # Update each text using tagger.filter_pos
     filtered_texts = []
-    text_ngrams_list = []
-    for text in tqdm(texts, desc="Processing texts"):
-        text = text.lower().strip()
-        if not text:
-            continue
-        pos_results = tagger.filter_pos(text, includes_pos)
-        filtered_words = [pos_result['word'] for pos_result in pos_results if pos_result['word'].lower(
-        ) not in stopwords.english_stop_words]
-        filtered_text = " ".join(filtered_words)
-        if filtered_text:
-            filtered_texts.append(filtered_text)
-            # Generate n-grams of max_words length for this text
-            ngrams = get_words(filtered_text, max_words or min_words)
-            text_ngrams_list.append(set(ngrams))
-    if not filtered_texts:
-        return []
-    # Find n-grams common to all texts
-    if text_ngrams_list:
-        common_ngrams = set.intersection(*text_ngrams_list)
-    else:
-        common_ngrams = set()
-    # Filter n-grams to ensure they have exactly max_words words
-    if max_words:
-        common_ngrams = {
-            ngram for ngram in common_ngrams if count_words(ngram) == max_words}
-    return sorted(list(common_ngrams))
+    for text in tqdm(texts):
+        pos_reults = tagger.filter_pos(text, includes_pos)
+        filtered_text = [pos_result['word'] for pos_result in pos_reults]
+        filtered_text = " ".join(filtered_text)
+        filtered_texts.append(filtered_text)
 
-
-if __name__ == "__main__":
-    texts = [
-        "Describe the structure of an important roadmap.",
-        "Give three tips",
-        "How can we reduce this?",
-        "You need to make a tough decision for an important roadmap.",
-        "Identify the odd one out.",
-        "Explain why",
-        "Write a short story",
-        "Describe the structure of hair",
-        "Because the structure is important",
-    ]
-    print("\nAll n-grams:")
-    all_ngrams = count_ngrams([text.lower() for text in texts], min_words=1)
-    for ngram, count in all_ngrams.items():
-        print(f"{ngram}: {count}")
-    print(f"\nFiltered n-grams by min_count:")
-    filtered_ngrams = count_ngrams([text.lower()
-                                   for text in texts], min_count=2)
-    for ngram, count in filtered_ngrams.items():
-        print(f"{ngram}: {count}")
-    print("\nMost Common n-grams:")
-    result = get_most_common_ngrams([text.lower() for text in texts])
-    print(result)
-    print("\nCommon texts:")
-    result = get_common_texts([text.lower()
-                              for text in texts], includes_pos=["PROPN", "NOUN"])
-    print(result)
-    print("\nGrouped sentences by ngram:")
-    result = group_sentences_by_ngram([text.lower()
-                                       for text in texts], is_start_ngrams=False)
-    print(result)
-    specific_ngrams = count_ngrams([text.lower()
-                                   for text in texts], min_words=1, max_words=3)
-    print(
-        f"\nTotal unique n-grams: {get_total_unique_ngrams(specific_ngrams)}")
-    print(
-        f"\nTotal counts of all n-grams: {get_total_counts_of_ngrams(specific_ngrams)}")
-    print("\nN-grams of Specific Range:")
-    for ngram_dict in get_ngrams_by_range(texts, min_words=1, max_words=2, count=(2, ), show_count=True):
-        print(f"{ngram_dict['ngram']}: {ngram_dict['count']}")
-    print("\nN-grams of Specific Count:")
-    for ngram in get_ngrams_by_range(texts, min_words=2, count=2, show_count=True):
-        print(f"{ngram}")
-    results = filter_texts_by_multi_ngram_count(
-        texts, min_words=1, count=(2, ), count_all_ngrams=True)
-    print(
-        f"\nFilter texts by multi-ngram count: {len(results)}\nOriginal: {len(texts)}")
-    print(results)
+    most_common_dict = get_most_common_ngrams(
+        filtered_texts, min_words=min_words, min_count=min_count, max_words=max_words)
+    return list(most_common_dict.keys())
