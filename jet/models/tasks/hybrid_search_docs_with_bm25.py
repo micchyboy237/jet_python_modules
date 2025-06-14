@@ -250,17 +250,17 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
     return chunks
 
 
-def filter_by_headers(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+def filter_by_query_terms(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
     """Filter chunks based on header relevance."""
     start_time = time.time()
-    logger.info("Filtering chunks by headers for query: %s", query)
+    logger.info("Filtering chunks by text for query: %s", query)
     query_terms = set(get_words(query.lower()))
     filtered = []
     for chunk in tqdm(chunks, desc="Filtering chunks"):
-        headers = [h.lower() for h in chunk["headers"]]
-        logger.debug("Checking headers: %s against query terms: %s",
-                     headers, query_terms)
-        if any(any(term in h for term in query_terms) for h in headers):
+        words = [wprd.lower() for wprd in get_words(chunk["text"])]
+        logger.debug("Checking text: %s against query terms: %s",
+                     words, query_terms)
+        if any(any(term in word for term in query_terms) for word in words):
             filtered.append(chunk)
     duration = time.time() - start_time
     logger.info("Filtering completed in %.3f seconds, reduced %d to %d chunks",
@@ -497,7 +497,7 @@ def search_docs(
                 time.time() - start_time, len(chunks))
 
     # Filter chunks and embed
-    filtered_chunks = filter_by_headers(chunks, query)
+    filtered_chunks = filter_by_query_terms(chunks, query)
     chunk_texts = [chunk["text"] for chunk in filtered_chunks]
     logger.debug("Filtered chunks: %s", [
         {"index": i, "doc_id": chunk["doc_id"],
