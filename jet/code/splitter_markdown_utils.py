@@ -250,9 +250,6 @@ def get_md_header_contents(
 ) -> List[Header]:
     """Split Markdown text into headers and content with improved semantic chunking."""
 
-    from jet.scrapers.utils import clean_newlines, clean_text, clean_spaces
-    from jet.scrapers.preprocessor import is_html, html_to_markdown
-
     if is_html(md_text):
         md_text = html_to_markdown(md_text, ignore_links=ignore_links, remove_selectors=[
             "style", "script", "[class*=\"ad\"]"])
@@ -299,68 +296,63 @@ def get_md_header_contents(
                     raw_text = raw_text[len(header):].strip()
             raw_text = f"{last_header}\n{raw_text}"
 
-        try:
-            header_line = get_header_text(raw_text)
-            header_line = clean_spaces(header_line)
-            header_links, clean_header = extract_markdown_links(header_line)
-            header_level = get_header_level(clean_header)
+        header_line = get_header_text(raw_text)
+        header_line = clean_spaces(header_line)
+        header_links, clean_header = extract_markdown_links(header_line)
+        header_level = get_header_level(clean_header)
 
-            # Conditionally process links in body text based on ignore_links
-            raw_text = clean_spaces(raw_text)
-            body_links = []
-            if ignore_links:
-                body_links, cleaned_text = extract_markdown_links(cleaned_text)
-            else:
-                cleaned_text = raw_text  # Keep original text with links
+        # Process body text before conditional link handling
+        cleaned_text = clean_spaces(raw_text)
+        body_links = []
+        if ignore_links:
+            body_links, cleaned_text = extract_markdown_links(cleaned_text)
 
-            # Combine all links
-            all_links = header_links + body_links
+        # Combine all links
+        all_links = header_links + body_links
 
-            # Remove duplicates based on (text, url, caption, line)
-            seen = set()
-            unique_links = []
-            for link in all_links:
-                key = (link["text"], link["url"],
-                       link["caption"], link["line"])
-                if key not in seen:
-                    seen.add(key)
-                    unique_links.append(link)
+        # Remove duplicates based on (text, url, caption, line)
+        seen = set()
+        unique_links = []
+        for link in all_links:
+            key = (link["text"], link["url"],
+                   link["caption"], link["line"])
+            if key not in seen:
+                seen.add(key)
+                unique_links.append(link)
 
-            all_links = unique_links
+        all_links = unique_links
 
-            content_lines = cleaned_text.splitlines()[1:]
-            content = "\n".join(
-                line for line in content_lines
-                if not any(line.lstrip().startswith(prefix) for prefix, _ in headers_to_split_on)
-            ).strip()
-            clean_content = clean_spaces(content)
+        content_lines = cleaned_text.splitlines()[1:]
+        content = "\n".join(
+            line for line in content_lines
+            if not any(line.lstrip().startswith(prefix) for prefix, _ in headers_to_split_on)
+        ).strip()
+        clean_content = clean_spaces(content)
 
-            # Use original header_line if ignore_links is False, else use clean_header
-            final_header = header_line if not ignore_links else clean_header
-            final_text = f"{final_header}\n{clean_content}".strip()
-            header_text = clean_header.lstrip("#").strip()
+        # Use original header_line if ignore_links is False, else use clean_header
+        final_header = header_line if not ignore_links else clean_header
+        final_text = f"{final_header}\n{clean_content}".strip()
+        header_text = clean_header.lstrip("#").strip()
 
-            if not header_text and parent_stack:
-                if md_header_contents:
-                    md_header_contents[-1]["content"] += "\n\n" + clean_content
-                    md_header_contents[-1]["text"] += "\n\n" + final_text
-                continue
-
-            while parent_stack and parent_stack[-1][0] >= header_level:
-                parent_stack.pop()
-            parent_header = parent_stack[-1][1] if parent_stack else None
-            parent_stack.append((header_level, clean_header))
-
-            md_header_contents.append({
-                "header": final_header,
-                "header_level": header_level,
-                "parent_header": parent_header,
-                "content": clean_content,
-                "text": final_text,
-                "links": all_links,
-            })
-        except ValueError:
+        if not header_text and parent_stack:
+            if md_header_contents:
+                md_header_contents[-1]["content"] += "\n\n" + clean_content
+                md_header_contents[-1]["text"] += "\n\n" + final_text
             continue
+
+        while parent_stack and parent_stack[-1][0] >= header_level:
+            parent_stack.pop()
+        parent_header = parent_stack[-1][1] if parent_stack else None
+        parent_stack.append((header_level, clean_header))
+
+        md_header_contents.append({
+            "header": final_header,
+            "header_level": header_level,
+            "parent_header": parent_header,
+            "content": clean_content,
+            "text": final_text,
+            "links": all_links,
+        })
 
     return md_header_contents
 
