@@ -239,7 +239,7 @@ def filter_by_headers_and_facets(chunks: List[Dict[str, Any]], query: str, facet
     start_time = time.time()
     logger.info("Filtering %d chunks for query: %s, facets: %s",
                 len(chunks), query, facets)
-    query_terms = set(query.lower().split())
+    query_terms = set(get_words(query.lower()))
     filtered = []
 
     for chunk in tqdm(chunks, desc="Filtering chunks"):

@@ -2,7 +2,7 @@ from readability import Document as ReadabilityDocument
 import json
 import re
 import html2text
-from jet.transformers.formatters import minify_html
+from jet.transformers.formatters import format_html, minify_html
 import parsel
 import math
 from bs4 import BeautifulSoup
@@ -49,8 +49,7 @@ def clean_html_noise(html_string: str) -> str:
         soup = BeautifulSoup(''.join(str(child)
                              for child in target.children), 'html.parser')
 
-    noisy_selectors = ['script', 'style', 'nav', 'footer',
-                       'aside', '[class*="ad"]', '[class*="banner"]']
+    noisy_selectors = ['script', 'style', '[class*="ad"]', '[class*="banner"]']
     for selector in noisy_selectors:
         for element in soup.select(selector):
             element.decompose()
@@ -69,7 +68,7 @@ def clean_html_noise(html_string: str) -> str:
 def convert_html_to_markdown(html_string: str, ignore_links: bool = True) -> str:
     """Convert HTML to Markdown with enhanced noise removal."""
     filtered_html = remove_display_none_elements(html_string)
-    filtered_html = clean_html_noise(filtered_html)
+    # filtered_html = clean_html_noise(filtered_html)
 
     converter = html2text.HTML2Text()
     converter.ignore_links = ignore_links
@@ -102,20 +101,20 @@ def html_to_markdown(
 
     from .utils import clean_text
 
-    html_str = minify_html(html_str)
+    # html_str = minify_html(html_str)
+    html_str = format_html(html_str)
     soup = BeautifulSoup(html_str, 'html.parser')
     container = soup.select_one(container_selector)
 
     if not container:
         return ""
 
-    default_remove_selectors = ['script', 'style',
-                                'nav', 'footer', 'aside', '[class*="ad"]']
-    remove_selectors = list(set(remove_selectors + default_remove_selectors))
+    # default_remove_selectors = ['script', 'style', '[class*="ad"]']
+    # remove_selectors = list(set(remove_selectors + default_remove_selectors))
 
-    for selector in remove_selectors:
-        for element in container.select(selector):
-            element.decompose()
+    # for selector in remove_selectors:
+    #     for element in container.select(selector):
+    #         element.decompose()
 
     for replacement in replace_selectors:
         for old_tag, new_tag in replacement.items():

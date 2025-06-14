@@ -182,7 +182,7 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
         line = line.strip()
         if not line:
             continue
-        if re.match(r'^#{1,2}\s+', line):
+        if re.match(r'^#{1,4}\s+', line):
             logger.debug("Processing header: %s", line)
             if current_chunk or current_content:
                 chunk_text = "\n".join(current_chunk + current_content).strip()
@@ -254,7 +254,7 @@ def filter_by_headers(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str
     """Filter chunks based on header relevance."""
     start_time = time.time()
     logger.info("Filtering chunks by headers for query: %s", query)
-    query_terms = set(query.lower().split())
+    query_terms = set(get_words(query.lower()))
     filtered = []
     for chunk in tqdm(chunks, desc="Filtering chunks"):
         headers = [h.lower() for h in chunk["headers"]]

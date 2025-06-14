@@ -255,7 +255,7 @@ def get_md_header_contents(
 
     if is_html(md_text):
         md_text = html_to_markdown(md_text, ignore_links=ignore_links, remove_selectors=[
-            "style", "script", "nav", "footer", "[class*=\"ad\"]"])
+            "style", "script", "[class*=\"ad\"]"])
 
     md_text = md_text.strip()
 

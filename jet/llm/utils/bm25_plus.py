@@ -65,7 +65,7 @@ def bm25_plus(corpus: List[str], query: str, doc_ids: Optional[List[str]] = None
                     "doc_index": i,
                     "score": 0.0,
                     "text": doc,
-                    "tokens": len(doc.lower().split()) if doc else 0,
+                    "tokens": len(get_words(doc.lower())) if doc else 0,
                     "matched": {}
                 }
                 for i, doc in enumerate(corpus)
@@ -200,7 +200,7 @@ def bm25_plus_with_keyword_counts(
                     "doc_index": i,
                     "score": 0.0,
                     "text": doc,
-                    "tokens": len(doc.lower().split()) if doc else 0,
+                    "tokens": len(get_words(doc.lower())) if doc else 0,
                     "matched": {}
                 }
                 for i, doc in enumerate(corpus)

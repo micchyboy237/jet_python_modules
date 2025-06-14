@@ -246,7 +246,7 @@ def preprocess_urls(urls: List[str]) -> Tuple[List[str], Dict[int, str]]:
     return unique_tokenized_urls, unique_index_to_original_url
 
 
-def rerank_bm25_plus(urls: List[str], query: str, top_k: int) -> List[str]:
+def rerank_urls_bm25_plus(urls: List[str], query: str, top_k: int) -> List[str]:
     """
     Reranks URLs using BM25+ algorithm and returns top k results.
 
