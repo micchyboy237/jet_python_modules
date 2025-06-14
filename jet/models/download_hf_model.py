@@ -6,7 +6,7 @@ logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-repo_id = "sentence-transformers/all-MiniLM-L12-v2"
+repo_id = "mixedbread-ai/mxbai-embed-large-v1"
 cache_dir = "/Users/jethroestrada/.cache/huggingface/hub"
 
 logger.info(f"Downloading files from repo id: {repo_id}...")
@@ -16,7 +16,8 @@ try:
         cache_dir=cache_dir,
         allow_patterns=[
             # "onnx/model.onnx",
-            "onnx/model_qint8_arm64.onnx",
+            # "onnx/model_qint8_arm64.onnx",
+            "onnx/model_quantized.onnx"
         ],
         ignore_patterns=[
             "onnx/model_O1.onnx",

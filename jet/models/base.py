@@ -1,4 +1,5 @@
 import os
+from jet.logger import logger
 from jet.models.model_types import ModelKey, ModelType, ModelValue
 import requests
 from pathlib import Path
@@ -26,8 +27,6 @@ EMBED_MODELS = {
     "paraphrase-multilingual": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
     "bge-large": "BAAI/bge-large-en-v1.5",
 }
-
-hf_api = HfApi()
 
 
 def download_huggingface_repo(
@@ -173,3 +172,25 @@ def scan_local_hf_spaces() -> List[str]:
         if repo.repo_type == "space"
     ]
     return sorted(local_models)
+
+
+def get_repo_files(repo_id: str, token: Optional[str] = None) -> List[str]:
+    """
+    Retrieve list of files in a HuggingFace repository.
+
+    Args:
+        repo_id: Repository ID (e.g., 'sentence-transformers/all-MiniLM-L6-v2')
+        token: Optional HuggingFace API token
+
+    Returns:
+        List of file paths in the repository
+    """
+    try:
+        logger.info(f"Checking for files in repository: {repo_id}")
+        api = HfApi()
+        repo_files = api.list_repo_files(repo_id=repo_id, token=token)
+        logger.debug(f"Files found in {repo_id}: {repo_files}")
+        return repo_files
+    except Exception as e:
+        logger.error(f"Error checking files in repository {repo_id}: {str(e)}")
+        return []
