@@ -9,15 +9,13 @@ from jet.logger import logger
 
 # Standalone reusable functions
 
-# Check for MPS availability (for M1 optimization)
-device = torch.device("cpu")
-logger.info(f"Using device: {device}")
-
 
 def load_model(model_name: ModelType):
     model_id = resolve_model_value(model_name)
-    model = SentenceTransformer(model_id)
-    model = model.to(device)  # Move model to MPS or CPU
+    try:
+        model = SentenceTransformer(model_id, device="cpu", backend="onnx")
+    except:
+        model = SentenceTransformer(model_id, device="mps")
     return model
 
 

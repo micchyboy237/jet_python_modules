@@ -1,11 +1,13 @@
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import CrossEncoder, SentenceTransformer
 from tokenizers import Tokenizer
 from typing import Callable, Literal, Union, List, Optional, TypeAlias
 import psutil
 import math
 from tqdm import tqdm
 import torch
+from jet.models.utils import resolve_model_value
+from jet.models.model_types import ModelType
 from jet.logger import logger
 import mlx.core as mx
 from jet.models.tokenizer.base import get_tokenizer, tokenize
@@ -23,6 +25,24 @@ def last_token_pool(last_hidden_states: mx.array, attention_mask: mx.array) -> m
     batch_size = last_hidden_states.shape[0]
     indices = mx.stack([mx.arange(batch_size), sequence_lengths], axis=1)
     return last_hidden_states[indices[:, 0], indices[:, 1]]
+
+
+def load_embed_model(model_name: ModelType) -> SentenceTransformer:
+    model_id = resolve_model_value(model_name)
+    try:
+        model = SentenceTransformer(model_id, device="cpu", backend="onnx")
+    except:
+        model = SentenceTransformer(model_id, device="mps")
+    return model
+
+
+def load_rerank_model(model_name: ModelType) -> CrossEncoder:
+    model_id = resolve_model_value(model_name)
+    try:
+        model = CrossEncoder(model_id, device="cpu", backend="onnx")
+    except:
+        model = CrossEncoder(model_id, device="mps")
+    return model
 
 
 def generate_multiple(

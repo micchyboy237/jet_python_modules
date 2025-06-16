@@ -1,18 +1,13 @@
 import time
 import logging
 import random
-from typing import List, TypedDict
+from typing import List, Optional, TypedDict
 
 import numpy as np
 import torch
 
 
 logger = logging.getLogger(__name__)
-
-
-def get_device() -> str:
-    _device_cache = "cpu"
-    return _device_cache
 
 
 class TextSimilarityResult(TypedDict):
@@ -28,7 +23,6 @@ def sort_by_mmr_diversity(
     num_results: int = 5,
     lambda_param: float = 0.5,
     text_diversity_weight: float = 0.4,
-    device: str = get_device()
 ) -> List[TextSimilarityResult]:
     start_time = time.time()
     logger.info(f"Applying MMR diversity to select {num_results} results")

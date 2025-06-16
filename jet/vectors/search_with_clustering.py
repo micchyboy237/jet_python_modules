@@ -103,7 +103,7 @@ _device_cache = None
 def get_device() -> str:
     global _device_cache
     if _device_cache is None:
-        _device_cache = "cpu"
+        _device_cache = "mps" if torch.backends.mps.is_available() else "cpu"
         logger.info(f"Selected device: {_device_cache}")
     return _device_cache
 
@@ -117,13 +117,15 @@ def embed_search(
     texts: List[Header],
     model_name: str = "all-MiniLM-L12-v2",
     *,
-    device: str = get_device(),
+    device: Optional[str] = None,
     top_k: Optional[int] = None,
     num_threads: int = 4,
     min_header_level: int = 2,
     max_header_level: int = 6
 ) -> List[EmbedResult]:
     start_time = time.time()
+    if not device:
+        device = get_device()
     if not top_k:
         top_k = len(texts)
     logger.info(
@@ -281,7 +283,7 @@ def search_documents(
     query: str,
     headers: List[Header],
     model_name: str = "all-MiniLM-L12-v2",
-    device: str = get_device(),
+    device: Optional[str] = None,
     top_k: int = 20,
     batch_size: int = 16,
     num_threads: int = 4,
@@ -291,6 +293,8 @@ def search_documents(
     header_diversity_weight: float = 0.3,
 ) -> SearchResults:
     start_time = time.time()
+    if not device:
+        device = get_device()
     logger.info(
         f"Starting search with query: {query[:50]}..., {len(headers)} headers, device={device}")
     if not query or not query.strip():

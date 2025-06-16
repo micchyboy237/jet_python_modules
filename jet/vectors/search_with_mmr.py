@@ -74,7 +74,7 @@ _device_cache = None
 def get_device() -> str:
     global _device_cache
     if _device_cache is None:
-        _device_cache = "cpu"
+        _device_cache = "mps" if torch.backends.mps.is_available() else "cpu"
         logger.info(f"Selected device: {_device_cache}")
     return _device_cache
 
@@ -154,12 +154,14 @@ def embed_search(
     query: str,
     texts: List[PreprocessedText],
     model_name: str = "all-mpnet-base-v2",
-    device: str = get_device(),
+    device: Optional[str] = None,
     top_k: int = 20,
     num_threads: int = 4,
     max_header_level: int = 6
 ) -> List[SimilarityResult]:
     start_time = time.time()
+    if not device:
+        device = get_device()
     logger.info(
         f"Starting embedding search for {len(texts)} texts, top_k={top_k}, device={device}, max_header_level={max_header_level}")
 
@@ -233,10 +235,12 @@ def rerank_results(
     query: str,
     candidates: List[SimilarityResult],
     model_name: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
-    device: str = get_device(),
+    device: Optional[str] = None,
     batch_size: int = 16
 ) -> List[SimilarityResult]:
     start_time = time.time()
+    if not device:
+        device = get_device()
     logger.info(
         f"Reranking {len(candidates)} candidates with batch_size={batch_size}")
     model = get_cross_encoder(model_name, device)
@@ -392,7 +396,7 @@ def search_documents(
     headers: List[Header],
     model_name: str = "all-mpnet-base-v2",
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
-    device: str = get_device(),
+    device: Optional[str] = None,
     top_k: int = 20,
     num_results: int = 5,
     lambda_param: float = 0.5,

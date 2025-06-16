@@ -9,19 +9,19 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-cache_dir = "/Users/jethroestrada/.cache/huggingface/hub"
+CACHE_DIR = "/Users/jethroestrada/.cache/huggingface/hub"
 
 
 def has_onnx_model_in_repo(repo_id: str, token: Optional[str] = None) -> bool:
     """
-    Check if any ONNX model (standard model.onnx or model_*_arm64.onnx) exists in a Hugging Face model repository.
+    Check if any ONNX model (standard model.onnx, model_*_arm64.onnx, or model*quantized*onnx) exists in a Hugging Face model repository.
 
     Args:
         repo_id (str): The ID of the repository (e.g., "sentence-transformers/all-MiniLM-L6-v2").
         token (Optional[str]): Hugging Face API token for private repositories.
 
     Returns:
-        bool: True if either a standard or ARM64 ONNX model is found, False otherwise.
+        bool: True if a standard, ARM64, or quantized ONNX model is found, False otherwise.
     """
     try:
         logger.info(f"Checking for ONNX models in repository: {repo_id}")
@@ -30,11 +30,12 @@ def has_onnx_model_in_repo(repo_id: str, token: Optional[str] = None) -> bool:
         logger.debug(f"Files found in {repo_id}: {repo_files}")
         has_onnx = (
             "model.onnx" in repo_files or
-            any(file.startswith("model_") and file.endswith("_arm64.onnx")
+            any(file.startswith("model_") and file.endswith("_arm64.onnx") for file in repo_files) or
+            any("quantized" in file and file.endswith(".onnx")
                 for file in repo_files)
         )
         logger.info(
-            f"ONNX model (standard or ARM64) found in {repo_id}: {has_onnx}")
+            f"ONNX model (standard, ARM64, or quantized) found in {repo_id}: {has_onnx}")
         return has_onnx
     except Exception as e:
         logger.error(
@@ -42,9 +43,9 @@ def has_onnx_model_in_repo(repo_id: str, token: Optional[str] = None) -> bool:
         return False
 
 
-def get_onnx_model_paths(repo_id: str, token: Optional[str] = None) -> List[str]:
+def get_onnx_model_paths(repo_id: str, cache_dir: str = CACHE_DIR, token: Optional[str] = None) -> List[str]:
     """
-    Retrieve a list of ONNX model file paths (standard or ARM64) in the local Hugging Face cache for a repository.
+    Retrieve a list of ONNX model file paths (standard, ARM64, or quantized) in the local Hugging Face cache for a repository.
 
     Args:
         repo_id (str): The ID of the repository (e.g., "sentence-transformers/all-MiniLM-L6-v2").
@@ -70,7 +71,11 @@ def get_onnx_model_paths(repo_id: str, token: Optional[str] = None) -> List[str]
         onnx_paths = []
         for root, _, files in os.walk(repo_path):
             for file in files:
-                if file == "model.onnx" or (file.startswith("model_") and file.endswith("_arm64.onnx")):
+                if (
+                    file == "model.onnx" or
+                    (file.startswith("model_") and file.endswith("_arm64.onnx")) or
+                    ("quantized" in file and file.endswith(".onnx"))
+                ):
                     full_path = os.path.join(root, file)
                     # Store relative path from cache_dir for consistency
                     rel_path = os.path.relpath(full_path, cache_dir)
@@ -87,7 +92,7 @@ def get_onnx_model_paths(repo_id: str, token: Optional[str] = None) -> List[str]
 
 def check_local_models_with_onnx() -> dict[str, bool]:
     """
-    Check local models for ONNX model availability (standard or ARM64).
+    Check local models for ONNX model availability (standard, ARM64, or quantized).
 
     Returns:
         dict[str, bool]: Dictionary mapping model IDs to their ONNX availability.
@@ -103,7 +108,8 @@ def check_local_models_with_onnx() -> dict[str, bool]:
 if __name__ == "__main__":
     repo_id = "sentence-transformers/all-MiniLM-L6-v2"
     result = has_onnx_model_in_repo(repo_id)
-    print(f"ONNX model (standard or ARM64) exists in {repo_id}: {result}")
+    print(
+        f"ONNX model (standard, ARM64, or quantized) exists in {repo_id}: {result}")
 
     onnx_paths = get_onnx_model_paths(repo_id)
     print(f"\nONNX model paths in {repo_id}:")
