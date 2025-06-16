@@ -13,7 +13,7 @@ from jet.llm.mlx.mlx_types import LLMModelType
 from typing import List, Dict, Optional, TypedDict, Literal
 import pytest
 import os
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 mx.random.seed(42)
 

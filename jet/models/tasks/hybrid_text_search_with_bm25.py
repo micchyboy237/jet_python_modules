@@ -30,7 +30,7 @@ except LookupError:
 # Set environment variables for Mac M1 compatibility
 os.environ["OMP_NUM_THREADS"] = "4"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 MODEL_CACHE = LRUCache(maxsize=2)
 

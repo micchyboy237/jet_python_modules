@@ -15,7 +15,7 @@ from jet.models.tasks.task_types import SimilarityResult
 os.environ["OMP_NUM_THREADS"] = "4"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
 # Fallback to CPU for unsupported MPS ops
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 # Initialize global models
 embedder = None
