@@ -41,6 +41,7 @@ class ContextRelevanceResult(TypedDict):
     is_valid: bool
     error: Optional[str]
     context: str
+    priority: Literal["low", "medium", "high"]
 
 class ContextRelevanceResults(TypedDict):
     query: str
@@ -66,24 +67,45 @@ def load_model_components(model_path: LLMModelType, verbose: bool = True) -> Mod
         raise ModelLoadError(f"Error loading model or tokenizer: {str(e)}")
 
 def load_classifier(
+    save_dir: Optional[str] = None,
     example_pairs: Optional[List[str]] = None,
     labels: Optional[List[str]] = None,
-    save_dir: Optional[str] = None,
-    verbose: bool = True
+    verbose: bool = True,
+    overwrite: bool = False
 ) -> Tuple[LogisticRegression, LabelEncoder, SentenceTransformer]:
-    """Loads or trains classifier, label encoder, and embedder, optionally from a saved directory."""
-    if save_dir and os.path.exists(save_dir):
-        if verbose:
-            logger.info("Loading classifier components from saved directory: %s", save_dir)
-        try:
-            classifier = joblib.load(os.path.join(save_dir, "classifier.joblib"))
-            label_encoder = joblib.load(os.path.join(save_dir, "label_encoder.joblib"))
-            embedder = joblib.load(os.path.join(save_dir, "embedder.joblib"))
-            logger.info(f"Classifier components loaded from {save_dir}")
-            return classifier, label_encoder, embedder
-        except Exception as e:
-            logger.error(f"Error loading classifier components: {str(e)}")
-            raise ModelLoadError(f"Failed to load classifier components: {str(e)}")
+    """Loads or trains classifier, label encoder, and embedder, optionally from a saved directory.
+
+    Args:
+        save_dir: Directory to load/save classifier components.
+        example_pairs: List of query-context pair strings for training.
+        labels: List of string labels corresponding to example_pairs.
+        verbose: If True, logs detailed information.
+        overwrite: If True, forces training a new classifier even if saved files exist.
+
+    Returns:
+        Tuple containing the classifier, label encoder, and embedder.
+    """
+    if save_dir and not overwrite:
+        classifier_path = os.path.join(save_dir, "classifier.joblib")
+        label_encoder_path = os.path.join(save_dir, "label_encoder.joblib")
+        embedder_path = os.path.join(save_dir, "embedder.joblib")
+        
+        # Check if all required files exist
+        if all(os.path.isfile(path) for path in [classifier_path, label_encoder_path, embedder_path]):
+            if verbose:
+                logger.info("Loading classifier components from saved directory: %s", save_dir)
+            try:
+                classifier = joblib.load(classifier_path)
+                label_encoder = joblib.load(label_encoder_path)
+                embedder = joblib.load(embedder_path)
+                logger.info(f"Classifier components loaded from {save_dir}")
+                return classifier, label_encoder, embedder
+            except Exception as e:
+                logger.error(f"Error loading classifier components: {str(e)}")
+                raise ModelLoadError(f"Failed to load classifier components: {str(e)}")
+        else:
+            if verbose:
+                logger.info("Classifier component files not found in %s, training new classifier", save_dir)
     
     try:
         if verbose:
@@ -141,11 +163,8 @@ def train_classifier(
         "Query: What is the capital of France?\nContext: The capital of France is Paris.",
         "Query: What is the capital of France?\nContext: Paris is a popular tourist destination.",
         "Query: What is the capital of France?\nContext: Einstein developed the theory of relativity.",
-        "Query: List all ongoing and upcoming isekai anime 2025.\nContext: Every New Isekai Anime Announced For 2025 (So Far) By Mark Sammut Updated May 29, 2025",
-        "Query: List all ongoing and upcoming isekai anime 2025.\nContext: 10 Best Isekai Anime With OP MC Reincarnated As A Child, Ranked",
-        "Query: List all ongoing and upcoming isekai anime 2025.\nContext: Game Rant Advance Mario Kart World Deltarune Dune Awakening Nightreign Coming Soon"
     ]
-    default_labels = ["2", "1", "0", "2", "1", "0"]
+    default_labels = ["2", "1", "0"]
     pairs = example_pairs if example_pairs is not None else default_pairs
     labels = labels if labels is not None else default_labels
     if len(pairs) != len(labels):
@@ -216,10 +235,11 @@ def evaluate_multiple_contexts_relevance(
             model_components = model_path
         else:
             model_components = load_model_components(model_path, verbose=verbose)
-            classifier, label_encoder, embedder = load_classifier(example_pairs, labels, save_dir, verbose=verbose)
+            classifier, label_encoder, embedder = load_classifier(save_dir, example_pairs, labels, verbose=verbose)
             model_components = ExtendedModelComponents(
                 model_components.model, model_components.tokenizer, classifier, label_encoder, embedder)
         valid_outputs = ["0", "1", "2"]
+        priority_map = {0: "low", 1: "medium", 2: "high"}
         results = []
         pairs = [f"Query: {query}\nContext: {context}" for context in contexts]
         logger.debug("Prepared pairs: %s", pairs)
@@ -236,16 +256,18 @@ def evaluate_multiple_contexts_relevance(
                 if not is_valid:
                     logger.warning("Invalid label predicted: %s for context: %s", predicted_label, context[:100])
                     predicted_label = "0"
+                relevance_score = int(predicted_label)
                 if verbose:
                     logger.info("Query: %s\nContext: %s\nPredicted: %s\nConfidence: %.4f",
                                 query[:100], context[:100], predicted_label, confidence)
                     logger.success(f"Result: {confidence:.4f}")
                 results.append(ContextRelevanceResult(
                     context=context,
-                    relevance_score=int(predicted_label),
+                    relevance_score=relevance_score,
                     confidence=confidence,
                     is_valid=is_valid,
-                    error=error
+                    error=error,
+                    priority=priority_map[relevance_score]
                 ))
             except Exception as e:
                 logger.error(f"Error processing context '{context[:100]}': {str(e)}")
@@ -254,8 +276,11 @@ def evaluate_multiple_contexts_relevance(
                     relevance_score=0,
                     confidence=0.0,
                     is_valid=False,
-                    error=str(e)
+                    error=str(e),
+                    priority="low"
                 ))
+        # Sort results by relevance_score in descending order, then by confidence in descending order
+        results = sorted(results, key=lambda x: (x["relevance_score"], x["confidence"]), reverse=True)
         return ContextRelevanceResults(query=query, results=results)
     except (ModelLoadError, ClassificationError, InvalidInputError) as e:
         logger.error(f"Error in evaluate_multiple_contexts_relevance: {str(e)}")
@@ -265,6 +290,10 @@ def evaluate_multiple_contexts_relevance(
         raise
 
 if __name__ == "__main__":
+    import json
+    import tempfile
+    import shutil
+
     query = "What is the capital of France?"
     contexts = [
         "The capital of France is Paris.",
@@ -272,20 +301,26 @@ if __name__ == "__main__":
         "Einstein developed the theory of relativity."
     ]
     model_path = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
-    save_dir = f"{os.path.dirname(__file__)}/saved_models/default_trained"
     
-    # Training step
-    classifier, label_encoder, embedder = load_classifier(save_dir=save_dir, verbose=True)
-    save_classifier(classifier, label_encoder, embedder, save_dir, verbose=True)
-    
-    # Inference step
-    model_components = load_model_components(model_path, verbose=True)
-    extended_components = ExtendedModelComponents(
-        model_components.model, model_components.tokenizer, classifier, label_encoder, embedder)
-    result = evaluate_multiple_contexts_relevance(query, contexts, extended_components, verbose=True)
-    
-    print(f"Query: {result['query']}")
-    for res in result['results']:
-        print(f"Context: {res['context']}")
-        print(f"Relevance Score: {res['relevance_score']} (Confidence: {res['confidence']:.4f})")
-        print(f"Valid: {res['is_valid']}, Error: {res['error']}\n")
+    # Create temporary directory
+    temp_dir = tempfile.mkdtemp()
+    try:
+        # Training step
+        classifier, label_encoder, embedder = load_classifier(save_dir=temp_dir, verbose=True, overwrite=True)
+        save_classifier(classifier, label_encoder, embedder, temp_dir, verbose=True)
+        
+        # Inference step
+        model_components = load_model_components(model_path, verbose=True)
+        extended_components = ExtendedModelComponents(
+            model_components.model, model_components.tokenizer, classifier, label_encoder, embedder)
+        result = evaluate_multiple_contexts_relevance(query, contexts, extended_components, verbose=True)
+        
+        print(f"Query: {result['query']}")
+        for res in result['results']:
+            print(f"Context: {json.dumps(res['context'])[:100]}")
+            print(f"Relevance Score: {res['relevance_score']} (Confidence: {res['confidence']:.4f})")
+            print(f"Priority: {res['priority']}")
+            print(f"Valid: {res['is_valid']}, Error: {res['error']}\n")
+    finally:
+        # Clean up temporary directory
+        shutil.rmtree(temp_dir)
