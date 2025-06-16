@@ -248,7 +248,7 @@ def preprocess_urls(urls: List[str]) -> Tuple[List[str], Dict[int, str]]:
     return unique_tokenized_urls, unique_index_to_original_url
 
 
-def rerank_urls_bm25_plus(urls: List[str], query: str, top_k: int) -> List[str]:
+def rerank_urls_bm25_plus(urls: List[str], query: str, top_k: Optional[int] = None, threshold: float = 0.7) -> List[str]:
     """
     Reranks URLs using BM25+ algorithm and returns top k results.
 
@@ -261,6 +261,9 @@ def rerank_urls_bm25_plus(urls: List[str], query: str, top_k: int) -> List[str]:
     """
     from jet.data.sample_diverse_urls import sample_diverse_urls
 
+    if not top_k:
+        top_k = len(urls)
+
     preprocessed_urls, unique_index_to_original_url = preprocess_urls(urls)
 
     logger.info(f"Reranking urls ({len(preprocessed_urls)})...")
@@ -272,7 +275,7 @@ def rerank_urls_bm25_plus(urls: List[str], query: str, top_k: int) -> List[str]:
     for result in bm25_plus_results["results"]:
         doc_index = result["doc_index"]
         score = result["score"]
-        if score > 0.9 and doc_index in unique_index_to_original_url:
+        if score > threshold and doc_index in unique_index_to_original_url:
             original_url = unique_index_to_original_url[doc_index]
             reranked_urls.append(original_url)
 

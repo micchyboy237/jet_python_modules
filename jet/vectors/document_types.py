@@ -100,16 +100,20 @@ class HeaderDocument(Document):
             "content": "",
             "chunk_index": None,
             "tokens": None,
-            "source_url": None,
+            # Prioritize source_url from data
+            "source_url": data.get("source_url", None),
             "links": None,
             "texts": text.splitlines(),
         }
         metadata_dict = metadata if isinstance(metadata, dict) else {}
         default_metadata = {
             **default_values,
-            **data,
-            **metadata_dict,
+            **metadata_dict,  # metadata_dict overrides defaults
+            # Other data fields, excluding source_url
+            **{k: v for k, v in data.items() if k in default_values and k != "source_url"},
         }
+        if "source_url" in metadata_dict:  # Explicitly check metadata for source_url
+            default_metadata["source_url"] = metadata_dict["source_url"]
         id = data.pop("id", self.id_)
         default_metadata["id"] = id
         self.id = id

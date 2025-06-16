@@ -3,7 +3,7 @@ from typing import Callable, Optional, List, Dict, Tuple, TypedDict, Union
 
 from jet.scrapers.preprocessor import html_to_markdown, is_html, scrape_markdown
 from jet.scrapers.utils import clean_spaces
-from jet.vectors.document_types import HeaderDocument
+from jet.vectors.document_types import HeaderDocument, HeaderMetadata as HeaderMetadataDoc
 from .helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
 
 
@@ -363,7 +363,8 @@ def get_md_header_contents(
 def get_md_header_docs(
     md_text: str,
     headers_to_split_on: List[tuple[str, str]] = [],
-    ignore_links: bool = False
+    ignore_links: bool = False,
+    metadata: Optional[HeaderMetadataDoc] = None
 ) -> List[HeaderDocument]:
     headers = get_md_header_contents(
         md_text, headers_to_split_on, ignore_links)
@@ -371,6 +372,7 @@ def get_md_header_docs(
         HeaderDocument(
             doc_index=i,
             **header,
+            metadata=metadata
         )
         for i, header in enumerate(headers)
     ]
