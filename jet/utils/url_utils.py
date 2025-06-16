@@ -10,6 +10,8 @@ import requests
 import xml.etree.ElementTree as ET
 import re
 
+from jet.vectors.reranker.bm25_plus import rerank_bm25_plus
+
 
 def get_sitemap_url_from_robots(base_url: str) -> str | None:
     try:
@@ -262,7 +264,8 @@ def rerank_urls_bm25_plus(urls: List[str], query: str, top_k: int) -> List[str]:
     preprocessed_urls, unique_index_to_original_url = preprocess_urls(urls)
 
     logger.info(f"Reranking urls ({len(preprocessed_urls)})...")
-    bm25_plus_results = bm25_plus(preprocessed_urls, query, k1=1.5)
+    preprocessed_urls = [transliterate_text(url) for url in preprocessed_urls]
+    bm25_plus_results = rerank_bm25_plus(preprocessed_urls, query)
 
     # Map doc_index to original URLs and debug
     reranked_urls = []

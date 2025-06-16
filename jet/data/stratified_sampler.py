@@ -1,29 +1,33 @@
-from typing import List, Optional, TypedDict, Tuple
+from typing import List, Optional, TypedDict, Tuple, Union
 from collections import Counter, defaultdict
 from sklearn.model_selection import train_test_split
-from jet.logger import time_it
+from jet.logger import logger, time_it
 from jet.wordnet.words import get_unique_words, get_words
 from tqdm import tqdm
 import numpy as np
 import itertools
 
+# Define primitive types for category_values
+PrimitiveType = Union[str, int, float, bool]
+
 
 class ProcessedData(TypedDict):
     source: str
     target: Optional[str]
-    category_values: List[str]
+    category_values: List[PrimitiveType]
     score: Optional[float]
 
 
 class ProcessedDataString(TypedDict):
     source: str
-    category_values: List[str]
+    category_values: List[PrimitiveType]
 
 
 class StratifiedData(TypedDict):
     source: str
     target: Optional[str]
     score: Optional[float]
+    category_values: List[PrimitiveType]
 
 
 def get_ngrams(text: str, n: int = 1) -> List[str]:
@@ -49,16 +53,14 @@ def sort_sentences(sentences: List[str], n: int) -> List[str]:
             previous_ngrams = set(get_ngrams(sorted_sentences[-1], n))
         else:
             previous_ngrams = set()
-        sentences.sort(key=lambda sentence: get_ngram_weight(
-            all_ngrams, sentence_ngrams_dict[sentence], previous_ngrams),
-            reverse=False
-        )
+        sentences.sort(key=lambda sentence: (get_ngram_weight(
+            all_ngrams, sentence_ngrams_dict[sentence], previous_ngrams), sentence))
         sorted_sentences.append(sentences.pop(0))
     return sorted_sentences
 
 
 def n_gram_frequency(sentence: str, n: int = 2) -> Counter:
-    """Calculate the frequency of n-grams in a sentence"""
+    """Calculate the frequency of character-based n-grams in a sentence"""
     n_grams = [sentence[i:i+n] for i in range(len(sentence) - n + 1)]
     return Counter(n_grams)
 
@@ -81,21 +83,28 @@ def filter_and_sort_sentences_by_ngrams(sentences: List[str], n: int = 2, top_n:
                 sentence_ngrams[" ".join(ngram)].append(sentence)
     optimized_groups = {ngram: group_sentences[:top_n]
                         for ngram, group_sentences in sentence_ngrams.items()}
-    flattened_sentences = set(
-        itertools.chain.from_iterable(optimized_groups.values()))
-    sorted_sentences = sort_sentences(list(flattened_sentences), n)
-    return sorted_sentences
+    flattened_sentences = list(set(
+        itertools.chain.from_iterable(optimized_groups.values())))
+    # Stable sort with secondary key (lexicographical order)
+    sorted_sentences = sort_sentences(flattened_sentences, n)
+    sorted_sentences.sort(key=lambda x: (
+        get_ngram_weight(all_ngrams, get_ngrams(x, n), set()), x))
+    return sorted_sentences[:top_n]
 
 
 class StratifiedSampler:
     def __init__(self, data: List[ProcessedData | str | ProcessedDataString], num_samples: float | int = 0.8):
-        # Validate input data type
         if not data:
             raise ValueError("Input data cannot be empty")
         if isinstance(data[0], dict):
             if all(key in data[0] for key in ['source', 'category_values']):
                 str_data = [item['source'] for item in data]
-                self.data = data  # Preserve original dicts for methods like get_samples
+                # Validate category_values types
+                for item in data:
+                    if not all(isinstance(val, (str, int, float, bool)) for val in item['category_values']):
+                        raise ValueError(
+                            "category_values must contain only str, int, float, or bool")
+                self.data = data
             else:
                 raise ValueError(
                     "Dictionary input must contain 'source' and 'category_values' keys")
@@ -112,6 +121,7 @@ class StratifiedSampler:
                 "num_samples must be a float in the range (0.0, 1.0) or a positive integer")
         self.num_samples = final_num_samples
 
+    @time_it
     def filter_strings(self, n: int = 2, top_n: int = 2) -> List[str]:
         filtered_data = filter_and_sort_sentences_by_ngrams(
             self.data if isinstance(self.data[0], str) else [item['source'] for item in self.data], n, top_n, is_start_ngrams=True)
@@ -122,28 +132,61 @@ class StratifiedSampler:
         labels = [item['category_values'] for item in self.data]
         has_target = isinstance(
             self.data[0], dict) and 'target' in self.data[0] and 'score' in self.data[0]
-
         if has_target:
-            score_map = {(item['source'], item['target'])                         : item['score'] for item in self.data}
+            score_map = {(item['source'], item['target'])
+                          : item['score'] for item in self.data}
             features_targets = [(item['source'], item['target'])
                                 for item in self.data]
         else:
             score_map = {(item['source'], None): None for item in self.data}
             features_targets = [(item['source'], None) for item in self.data]
-
-        try:
-            features_targets_sample, _, labels_sample, _ = train_test_split(
-                features_targets, labels, train_size=self.num_samples, stratify=labels
-            )
-        except ValueError:
-            # Fallback to non-stratified sampling if stratification fails
-            features_targets_sample, _, labels_sample, _ = train_test_split(
-                features_targets, labels, train_size=self.num_samples
-            )
-
+        # Calculate proportional sample sizes per category
+        category_counts = Counter(tuple(lbl) for lbl in labels)
+        total_data = len(self.data)
+        samples_per_category = {
+            cat: max(1, int(self.num_samples * count / total_data))
+            for cat, count in category_counts.items()
+        }
+        # Adjust to strictly match num_samples
+        total_assigned = sum(samples_per_category.values())
+        if total_assigned > self.num_samples:
+            excess = total_assigned - self.num_samples
+            for cat in sorted(samples_per_category, key=samples_per_category.get, reverse=True):
+                while excess > 0 and samples_per_category[cat] > 1:
+                    samples_per_category[cat] -= 1
+                    excess -= 1
+        elif total_assigned < self.num_samples:
+            deficit = self.num_samples - total_assigned
+            for cat in sorted(samples_per_category, key=samples_per_category.get):
+                if deficit == 0:
+                    break
+                samples_per_category[cat] += 1
+                deficit -= 1
+        # Sample from each category
+        selected_samples = []
+        selected_labels = []
+        for cat, n_samples in samples_per_category.items():
+            cat_indices = [i for i, lbl in enumerate(
+                labels) if tuple(lbl) == cat]
+            if n_samples > len(cat_indices):
+                n_samples = len(cat_indices)
+            try:
+                sampled_indices, _ = train_test_split(
+                    cat_indices, train_size=n_samples, random_state=42
+                )
+            except ValueError:
+                sampled_indices = cat_indices[:n_samples]
+            for idx in sampled_indices:
+                selected_samples.append(features_targets[idx])
+                selected_labels.append(labels[idx])
+        # Ensure exact num_samples
+        if len(selected_samples) > self.num_samples:
+            selected_samples = selected_samples[:self.num_samples]
+            selected_labels = selected_labels[:self.num_samples]
         stratified_samples = [
-            StratifiedData(source=ft[0], target=ft[1], score=score_map[ft])
-            for ft, lbl in zip(features_targets_sample, labels_sample)
+            StratifiedData(source=ft[0], target=ft[1],
+                           score=score_map[ft], category_values=lbl)
+            for ft, lbl in zip(selected_samples, selected_labels)
         ]
         return stratified_samples
 
@@ -157,7 +200,6 @@ class StratifiedSampler:
                 features_targets, labels, train_size=self.num_samples, stratify=labels
             )
         except ValueError:
-            # Fallback to non-stratified sampling if stratification fails
             features_targets_sample, _, labels_sample, _ = train_test_split(
                 features_targets, labels, train_size=self.num_samples
             )
@@ -205,7 +247,6 @@ class StratifiedSampler:
         def determine_quantiles(values: List[float], num_quantiles: int) -> np.ndarray:
             quantile_values = np.linspace(0, 1, num_quantiles + 2)[1:-1]
             return np.quantile(values, quantile_values)
-
         sentence_counts = [len(item.split()) for item in data]
         ttrs = [calculate_ttr(item) for item in data]
         num_length_quantiles = min(max_q, min(
@@ -233,7 +274,6 @@ class StratifiedSampler:
             starting_ngram_category = categorize_based_on_quantiles(
                 ngram_count, starting_ngram_quantiles)
             starting_ngram_categories[ngram] = starting_ngram_category
-
         processed_data = []
         ttr_class_distribution = Counter()
         sentence_length_distribution = Counter()
@@ -260,7 +300,6 @@ class StratifiedSampler:
                 'category_values': [ttr_class, sentence_length, n_gram_diversity_class, starting_ngram_category]
             }
             processed_data.append(processed_item)
-
         print("TTR Class Distribution:", dict(ttr_class_distribution))
         print("Sentence Length Distribution:",
               dict(sentence_length_distribution))

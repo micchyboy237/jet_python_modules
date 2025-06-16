@@ -243,6 +243,34 @@ def evaluate_multiple_contexts_relevance(
     save_dir: Optional[str] = None,
     verbose: bool = True
 ) -> List[ContextRelevanceResult]:
+    """Evaluate the relevance of multiple contexts for a given query using a trained classifier.
+
+    Args:
+        query: The search query to evaluate contexts against
+        contexts: List of context strings to evaluate
+        model_path: Either a model path string or pre-loaded ExtendedModelComponents
+        batch_size: Batch size for embedding generation
+        example_pairs: Optional list of example query-context pairs for training
+        labels: Optional list of labels corresponding to example_pairs
+        save_dir: Optional directory to save/load model components
+        verbose: Whether to print detailed logging information
+
+    Returns:
+        List[ContextRelevanceResult]: List of results sorted by relevance score and confidence.
+        Each result contains:
+        - context: The original context string
+        - relevance_score: Integer score (0=low, 1=medium, 2=high)
+        - score: Float confidence score between 0-1
+        - probabilities: List of probabilities for each relevance level
+        - is_valid: Whether the prediction was valid
+        - error: Error message if prediction was invalid
+        - priority: String priority level ("low", "medium", "high")
+
+    Raises:
+        ModelLoadError: If model components fail to load
+        ClassificationError: If classification fails
+        InvalidInputError: If inputs are invalid
+    """
     try:
         validate_inputs(query, contexts)
         if isinstance(model_path, ExtendedModelComponents):
