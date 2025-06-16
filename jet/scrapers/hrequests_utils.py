@@ -74,14 +74,19 @@ async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent) ->
         return None
 
 
-async def scrape_urls(urls: List[str], num_parallel: int = 5) -> AsyncIterator[Tuple[str, str, Optional[str]]]:
+async def scrape_urls(urls: List[str], num_parallel: int = 5, limit: Optional[int] = None) -> AsyncIterator[Tuple[str, str, Optional[str]]]:
     """
     Scrape URLs asynchronously and yield (url, status, html) for each URL.
     Status is 'started' when processing begins, 'completed' when done.
     HTML is None for 'started' status, and the scraped content or None for 'completed'.
+
+    Args:
+        urls: List of URLs to scrape.
+        num_parallel: Number of concurrent requests (default: 5).
+        limit: Optional maximum number of URLs to process (default: None, processes all URLs).
     """
     ua = UserAgent()
-    semaphore = asyncio.Semaphore(num_parallel)  # Keep this line
+    semaphore = asyncio.Semaphore(num_parallel)
 
     async def sem_fetch(url: str, session: aiohttp.ClientSession) -> List[Tuple[str, str, Optional[str]]]:
         results = []
@@ -94,14 +99,18 @@ async def scrape_urls(urls: List[str], num_parallel: int = 5) -> AsyncIterator[T
             results.append((url, "completed", html))
         return results
 
+    # Apply limit to the URLs list
+    urls_to_process = urls[:limit] if limit is not None else urls
+
     async with aiohttp.ClientSession() as session:
-        tasks = [sem_fetch(url, session) for url in urls]
+        tasks = [sem_fetch(url, session) for url in urls_to_process]
         for task in asyncio.as_completed(tasks):
             task_results = await task
             for url, status, html in task_results:
                 yield url, status, html
 
-if __name__ == "__main__":
+
+async def main():
     urls = [
         "https://www.imdb.com/list/ls505070747",
         "https://myanimelist.net/stacks/32507",
@@ -113,12 +122,23 @@ if __name__ == "__main__":
         "https://www.mozilla.org",
         "https://www.stackoverflow.com"
     ]
-    results = asyncio.run(scrape_urls(urls, num_parallel=3))
-    for url, html_str in zip(urls, results):
-        if html_str:
-            all_links = scrape_links(html_str, base_url=url)
-            headers = get_md_header_contents(html_str)
+
+    limit = 5
+    html_list = []
+    async for url, status, html in scrape_urls(urls, num_parallel=3, limit=5):
+        if status == "completed":
+            if not html:
+                continue
+
+            all_links = scrape_links(html, base_url=url)
+            headers = get_md_header_contents(html)
             logger.success(
                 f"Scraped {url}, headers length: {len(headers)}, links count: {len(all_links)}")
-        else:
-            logger.error(f"Failed to fetch {url}")
+
+            html_list.append(html)
+
+    logger.info(f"Scraped {len(html_list)} htmls")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

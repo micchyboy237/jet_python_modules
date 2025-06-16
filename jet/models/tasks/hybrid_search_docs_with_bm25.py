@@ -22,6 +22,13 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 
+class Match(TypedDict):
+    word: str
+    start_idx: int
+    end_idx: int
+    line: str
+
+
 class SearchResult(TypedDict):
     id: str
     doc_index: int
@@ -32,7 +39,8 @@ class SearchResult(TypedDict):
     headers: List[str]
     text: str
     highlighted_text: str
-    document: HeaderDocument
+    matches: List[Match]  # Added matches field
+    # document: HeaderDocument
 
 
 def process_documents(
@@ -435,35 +443,54 @@ def compute_combined_scores(
     return combined_scores
 
 
-def highlight_text(text: str, query: str) -> str:
-    """Highlight non-stopword query terms in text, removing highlights at edges if they are stop words."""
+def highlight_text(text: str, query: str) -> Tuple[str, List[Match]]:
+    """Highlight non-stopword query terms in text and collect match details."""
     logger.debug("Highlighting text for query: %s, text: %s",
                  query, text[:100])
     if not query.strip():
-        return ""
+        return "", []
 
     query_terms = query.lower().split()
-    unique_terms = {term.strip(string.punctuation)
-                    for term in query_terms if term not in StopWords.english_stop_words}
-
+    unique_terms = {
+        term.strip(string.punctuation)
+        for term in query_terms
+        if term not in StopWords.english_stop_words
+    }
     if not unique_terms:
         logger.debug(
             "All query terms are stop words or empty after filtering.")
-        return ""
+        return "", []
+
+    matches: List[Match] = []
+    pattern = re.compile(
+        r'\b(' + '|'.join(map(re.escape, unique_terms)) + r')\b', re.IGNORECASE
+    )
 
     def highlight_match(match: re.Match) -> str:
         word = match.group(0)
         lower_word = word.lower().strip(string.punctuation)
         if lower_word in unique_terms:
+            start_idx = match.start()
+            end_idx = match.end()
+            # Find the line containing the match
+            line_start = text.rfind('\n', 0, start_idx) + 1
+            line_end = text.find('\n', end_idx)
+            if line_end == -1:
+                line_end = len(text)
+            line = text[line_start:line_end].strip()
+            matches.append({
+                "word": word,
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+                "line": line
+            })
             return f"<mark>{word}</mark>"
         return word
 
-    pattern = re.compile(
-        r'\b(' + '|'.join(map(re.escape, unique_terms)) + r')\b', re.IGNORECASE)
     highlighted = pattern.sub(highlight_match, text)
-
-    logger.debug("Final highlighted text: %s", highlighted[:100])
-    return highlighted
+    logger.debug("Final highlighted text: %s, matches: %s",
+                 highlighted[:100], matches)
+    return highlighted, matches
 
 
 def search_docs(
@@ -484,29 +511,7 @@ def search_docs(
     with_rerank: bool = False,
     threshold: float = 0.0
 ) -> Union[List[SearchResult], Tuple[List[SearchResult], Dict[str, List[float]]]]:
-    """Search documents using hybrid retrieval with BM25 and embeddings.
-
-    Args:
-        query: Search query string.
-        documents: List of documents (HeaderDocument, dicts, or strings).
-        instruction: Optional instruction to prepend to query.
-        ids: Optional list of document IDs.
-        model: Embedding model name.
-        rerank_model: Cross-encoder model for reranking.
-        chunk_size: Size of document chunks.
-        overlap: Overlap between chunks.
-        top_k: Number of top results from FAISS.
-        rerank_top_k: Number of results after reranking.
-        batch_size: Batch size for reranking.
-        bm25_weight: Weight for BM25 in combined score.
-        return_raw_scores: If True, returns (results, raw_scores).
-        with_bm25: If True, enables BM25 scoring. Defaults to False.
-        with_rerank: If True, enables reranking. Defaults to False.
-        threshold: Minimum score for results to be included (applied to final_score).
-
-    Returns:
-        List of SearchResult or (results, raw_scores) if return_raw_scores=True.
-    """
+    """Search documents using hybrid retrieval with BM25 and embeddings."""
     total_start_time = time.time()
     logger.debug("Input document IDs: %s", [
         doc.id if isinstance(doc, HeaderDocument) else doc.get(
@@ -558,7 +563,6 @@ def search_docs(
     query_embedding = np.ascontiguousarray(query_embedding.astype(np.float32))
     faiss.normalize_L2(query_embedding)
     distances, indices = index.search(query_embedding, top_k)
-    # Normalize to [0, 1]
     embed_scores = [(score + 1) / 2 for score in distances[0].tolist()]
     logger.debug("Normalized embed scores: %s", embed_scores)
 
@@ -566,8 +570,7 @@ def search_docs(
     if with_bm25:
         logger.info("Calculating BM25 scores")
         bm25_scores = get_bm25_scores(chunk_texts, query)
-        max_bm25 = max(bm25_scores) if bm25_scores and max(
-            bm25_scores) > 0 else 1.0
+        max_bm25 = max(bm25_scores, default=1.0)
         bm25_scores = [score / max_bm25 for score in bm25_scores]
         logger.debug("Normalized BM25 scores: %s", [
             {"index": i, "score": score} for i, score in enumerate(bm25_scores)
@@ -579,8 +582,8 @@ def search_docs(
     # Compute combined scores
     combined_scores = compute_combined_scores(
         embed_scores, bm25_scores, bm25_weight, indices, with_bm25)
-    initial_docs = [(filtered_chunks[i], combined_scores[j],
-                     embed_scores[j]) for j, i in enumerate(indices[0])]
+    initial_docs = [(filtered_chunks[i], combined_scores[j], embed_scores[j])
+                    for j, i in enumerate(indices[0])]
 
     # Reranking
     if with_rerank:
@@ -618,7 +621,6 @@ def search_docs(
             ::-1][:top_k]
         sorted_docs = [
             (initial_docs[i][0], initial_docs[i][1],
-             # final_score = combined_score
              initial_docs[i][1], initial_docs[i][2])
             for i in sorted_indices
         ]
@@ -648,19 +650,19 @@ def search_docs(
                 "Skipping doc_id %s: original document not found", doc_id)
             continue
 
-        # Assign score: final_score is rerank_score if with_rerank=True, else embedding_score (when with_bm25=False)
+        highlighted_text, matches = highlight_text(original_doc.text, query)
         result: SearchResult = {
             "id": doc_id,
             "doc_index": doc_index,
             "rank": len(results) + 1,
-            # final_score is embedding_score if with_bm25=False and with_rerank=False
             "score": final_score,
             "combined_score": combined_score,
             "embedding_score": embedding_score,
             "headers": chunk["headers"],
             "text": original_doc.text,
-            "highlighted_text": highlight_text(original_doc.text, query),
-            "document": original_doc
+            "highlighted_text": highlighted_text,
+            "matches": matches,  # Include matches
+            # "document": original_doc
         }
         results.append(result)
         seen_doc_ids.add(doc_id)
