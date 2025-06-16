@@ -1,3 +1,4 @@
+import string
 from typing import List, Dict, Any, Optional, Tuple, TypedDict, Union
 import os
 import time
@@ -12,6 +13,7 @@ from tqdm import tqdm
 import uuid
 from jet.vectors.document_types import HeaderDocument
 from jet.wordnet.spellcheck import correct_typos
+from jet.wordnet.stopwords import StopWords
 from jet.wordnet.words import get_words
 
 # Set environment variables for Mac M1 compatibility
@@ -29,6 +31,7 @@ class SearchResult(TypedDict):
     embedding_score: float
     headers: List[str]
     text: str
+    highlighted_text: str
     document: HeaderDocument
 
 
@@ -432,6 +435,37 @@ def compute_combined_scores(
     return combined_scores
 
 
+def highlight_text(text: str, query: str) -> str:
+    """Highlight non-stopword query terms in text, removing highlights at edges if they are stop words."""
+    logger.debug("Highlighting text for query: %s, text: %s",
+                 query, text[:100])
+    if not query.strip():
+        return ""
+
+    query_terms = query.lower().split()
+    unique_terms = {term.strip(string.punctuation)
+                    for term in query_terms if term not in StopWords.english_stop_words}
+
+    if not unique_terms:
+        logger.debug(
+            "All query terms are stop words or empty after filtering.")
+        return ""
+
+    def highlight_match(match: re.Match) -> str:
+        word = match.group(0)
+        lower_word = word.lower().strip(string.punctuation)
+        if lower_word in unique_terms:
+            return f"<mark>{word}</mark>"
+        return word
+
+    pattern = re.compile(
+        r'\b(' + '|'.join(map(re.escape, unique_terms)) + r')\b', re.IGNORECASE)
+    highlighted = pattern.sub(highlight_match, text)
+
+    logger.debug("Final highlighted text: %s", highlighted[:100])
+    return highlighted
+
+
 def search_docs(
     query: str,
     documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]],
@@ -569,7 +603,7 @@ def search_docs(
         rerank_top_k = min(rerank_top_k or len(
             initial_docs), len(initial_docs))
         reranked_indices = np.argsort(final_scores)[::-1][:rerank_top_k]
-        reranked_docs = [
+        sorted_docs = [
             (initial_docs[i][0], initial_docs[i][1],
              final_scores[i], initial_docs[i][2])
             for i in reranked_indices
@@ -577,15 +611,14 @@ def search_docs(
         logger.info("Reranking completed in %.3f seconds",
                     time.time() - start_time)
     else:
-        logger.info("Skipping reranking, using combined scores")
-        rerank_top_k = min(rerank_top_k or len(
-            initial_docs), len(initial_docs))
-        reranked_indices = np.argsort([doc[1] for doc in initial_docs])[
-            ::-1][:rerank_top_k]
-        reranked_docs = [
-            (initial_docs[i][0], initial_docs[i][1], initial_docs[i]
-             [1], initial_docs[i][2])  # final_score = combined_score
-            for i in reranked_indices
+        logger.info("Sorting by combined scores, no reranking")
+        sorted_indices = np.argsort([doc[1] for doc in initial_docs])[
+            ::-1][:top_k]
+        sorted_docs = [
+            (initial_docs[i][0], initial_docs[i][1],
+             # final_score = combined_score
+             initial_docs[i][1], initial_docs[i][2])
+            for i in sorted_indices
         ]
 
     # Build results
@@ -593,7 +626,7 @@ def search_docs(
     seen_doc_ids = set()
     raw_scores = {"embedding_scores": [],
                   "bm25_scores": [], "rerank_scores": []}
-    for rank, (chunk, combined_score, final_score, embedding_score) in enumerate(reranked_docs, 1):
+    for rank, (chunk, combined_score, final_score, embedding_score) in enumerate(sorted_docs, 1):
         doc_id = chunk["doc_id"]
         doc_index = chunk["doc_index"]
         if doc_id in seen_doc_ids:
@@ -618,6 +651,7 @@ def search_docs(
             "embedding_score": embedding_score,
             "headers": chunk["headers"],
             "text": original_doc.text,
+            "highlighted_text": highlight_text(original_doc.text, query),
             "document": original_doc
         }
         results.append(result)

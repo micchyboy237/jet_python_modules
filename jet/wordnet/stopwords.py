@@ -2,27 +2,20 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from jet.file.utils import load_data
-
-# nltk.download('stopwords')
-# nltk.download('punkt')
+from typing import List, Set
 
 
 class StopWords:
-    def __init__(self):
-        # English stop words
-        self.english_stop_words = list(set(stopwords.words('english')))
+    # Static attributes initialized once
+    english_stop_words: Set[str] = set(stopwords.words('english'))
+    tl_stopwords = load_data(
+        "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/wordnet/data/tl_stopwords.json")
+    tagalog_stop_words: Set[str] = set(
+        word.lower() for sublist in tl_stopwords.values() for word in sublist
+    )
 
-        # Tagalog stop words organized by type
-        tl_stopwords = load_data(
-            "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/wordnet/data/tl_stopwords.json")
-        # flatten the list of lists
-        tl_stopwords = [word.lower() for sublist in tl_stopwords.values()
-                        for word in sublist]
-
-        # Combine all Tagalog stop words
-        self.tagalog_stop_words = list(set(tl_stopwords))
-
-    def remove_stop_words(self, text, language='english'):
+    @classmethod
+    def remove_stop_words(cls, text: str, language: str = 'english') -> str:
         if language not in ['english', 'tagalog']:
             raise ValueError(
                 "Unsupported language. Choose 'english' or 'tagalog'.")
@@ -33,9 +26,9 @@ class StopWords:
 
         if language == 'english':
             filtered_text = [
-                word for word in words if word.lower() not in self.english_stop_words]
+                word for word in words if word.lower() not in cls.english_stop_words]
         else:  # tagalog
             filtered_text = [
-                word for word in words if word.lower() not in self.tagalog_stop_words]
+                word for word in words if word.lower() not in cls.tagalog_stop_words]
 
         return ' '.join(filtered_text)
