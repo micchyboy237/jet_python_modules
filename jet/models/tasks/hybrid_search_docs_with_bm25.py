@@ -481,7 +481,8 @@ def search_docs(
     bm25_weight: float = 0.5,
     return_raw_scores: bool = False,
     with_bm25: bool = False,
-    with_rerank: bool = False
+    with_rerank: bool = False,
+    threshold: float = 0.0
 ) -> Union[List[SearchResult], Tuple[List[SearchResult], Dict[str, List[float]]]]:
     """Search documents using hybrid retrieval with BM25 and embeddings.
 
@@ -501,6 +502,7 @@ def search_docs(
         return_raw_scores: If True, returns (results, raw_scores).
         with_bm25: If True, enables BM25 scoring. Defaults to False.
         with_rerank: If True, enables reranking. Defaults to False.
+        threshold: Minimum score for results to be included (applied to final_score).
 
     Returns:
         List of SearchResult or (results, raw_scores) if return_raw_scores=True.
@@ -627,6 +629,12 @@ def search_docs(
     raw_scores = {"embedding_scores": [],
                   "bm25_scores": [], "rerank_scores": []}
     for rank, (chunk, combined_score, final_score, embedding_score) in enumerate(sorted_docs, 1):
+        if final_score < threshold:
+            logger.debug(
+                "Skipping doc_id %s at rank %d: score %.4f below threshold %.4f",
+                chunk["doc_id"], rank, final_score, threshold)
+            continue
+
         doc_id = chunk["doc_id"]
         doc_index = chunk["doc_index"]
         if doc_id in seen_doc_ids:
@@ -662,8 +670,6 @@ def search_docs(
             raw_scores["rerank_scores"].append(final_score)
         logger.debug("Added result for doc_id %s: score=%.4f, combined=%.4f, embed=%.4f",
                      doc_id, final_score, combined_score, embedding_score)
-        if len(results) >= rerank_top_k:
-            break
 
     logger.info("Total unique results: %d", len(results))
     logger.info("Search completed in %.3f seconds",
