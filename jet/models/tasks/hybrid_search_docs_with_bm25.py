@@ -11,12 +11,12 @@ from jet.logger import logger
 import re
 from tqdm import tqdm
 import uuid
-from jet.vectors.document_types import HeaderDocument
+from jet.vectors.document_types import HeaderDocument, HeaderDocumentWithScore
 from jet.wordnet.spellcheck import correct_typos
 from jet.wordnet.stopwords import StopWords
 from jet.wordnet.words import get_words
+from llama_index.core.schema import MetadataMode
 
-# Set environment variables for Mac M1 compatibility
 os.environ["OMP_NUM_THREADS"] = "4"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -39,36 +39,27 @@ class SearchResult(TypedDict):
     headers: List[str]
     text: str
     highlighted_text: str
-    matches: List[Match]  # Added matches field
-    # document: HeaderDocument
+    matches: List[Match]
 
 
 def process_documents(
     documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]],
     ids: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
-    """Process and preprocess HeaderDocument objects, dictionaries, or strings.
-    Ensures unique document IDs and removes duplicate documents based on text content.
-    """
     logger.info("Processing %d input objects",
                 len(documents) if documents else 0)
     logger.debug("Input documents type: %s, value: %s",
                  type(documents), documents)
-
     if documents is None:
         logger.error("Received None as documents input")
         raise ValueError("Documents input cannot be None")
-
     if not isinstance(documents, list):
         logger.error("Input must be a list, got %s", type(documents))
         raise ValueError("Input must be a list")
-
     result = []
     processed_docs: List[HeaderDocument] = []
-    seen_texts = set()  # Track unique document texts
-    seen_ids = set()    # Track unique document IDs
-
-    # Handle List[str]
+    seen_texts = set()
+    seen_ids = set()
     if documents and isinstance(documents[0], str):
         logger.info(
             "Converting %d strings to HeaderDocument objects", len(documents))
@@ -99,7 +90,6 @@ def process_documents(
                     "Failed to convert string to HeaderDocument at index %d: %s", idx, str(e))
                 raise ValueError(
                     f"Failed to convert string to HeaderDocument at index {idx}: {str(e)}")
-    # Handle List[Dict[str, Any]]
     elif documents and isinstance(documents[0], dict):
         logger.info(
             "Converting %d dictionaries to HeaderDocument objects", len(documents))
@@ -127,7 +117,6 @@ def process_documents(
                     "Failed to convert dictionary to HeaderDocument at index %d: %s", idx, str(e))
                 raise ValueError(
                     f"Failed to convert dictionary to HeaderDocument at index {idx}: {str(e)}")
-    # Handle List[HeaderDocument]
     else:
         logger.info(
             "Processing %d HeaderDocument objects directly", len(documents))
@@ -147,12 +136,10 @@ def process_documents(
             seen_texts.add(doc.text)
             seen_ids.add(doc_id)
             logger.debug("Processed document ID %s at index %d", doc_id, idx)
-
     if ids is not None and len(ids) != len(documents):
         logger.error("Provided IDs length (%d) does not match documents length (%d)", len(
             ids), len(documents))
         raise ValueError("IDs length must match documents length")
-
     for idx, doc in enumerate(tqdm(processed_docs, desc="Finalizing documents")):
         doc_id = doc.id
         text = doc.text or ""
@@ -173,7 +160,6 @@ def process_documents(
                 "Document %s lacks metadata, using raw text: %s", doc_id, text[:50])
         result.append({"text": text, "id": doc_id, "index": idx})
         logger.debug("Finalized document ID %s at index %d", doc_id, idx)
-
     logger.info("Processed %d unique documents", len(result))
     return result
 
@@ -187,13 +173,12 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
     current_chunk = []
     current_content = []
     current_len = 0
-
     lines = doc_text.strip().split("\n")
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        if re.match(r'^#{1,4}\s+', line):
+        if re.match(r'^#+\s', line):
             logger.debug("Processing header: %s", line)
             if current_chunk or current_content:
                 chunk_text = "\n".join(current_chunk + current_content).strip()
@@ -243,7 +228,6 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
                 else:
                     current_content.append(sentence)
                     current_len += sentence_len
-
     if current_chunk or current_content:
         chunk_text = "\n".join(current_chunk + current_content).strip()
         if chunk_text:
@@ -255,7 +239,6 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
                 "doc_id": doc_id,
                 "doc_index": doc_index
             })
-
     logger.info("Created %d chunks for document ID %s (index %d)",
                 len(chunks), doc_id, doc_index)
     return chunks
@@ -325,7 +308,6 @@ def get_bm25_scores(chunk_texts: List[str], query: str, typo_tolerance: bool = T
     if not chunk_texts or not query.strip():
         logger.warning("Empty chunk_texts or query, returning zero scores")
         return [0.0] * len(chunk_texts)
-
     tokenized_chunks = []
     for i, text in enumerate(chunk_texts):
         tokens = get_words(text.lower())
@@ -334,10 +316,8 @@ def get_bm25_scores(chunk_texts: List[str], query: str, typo_tolerance: bool = T
             tokens = ['empty']
         tokenized_chunks.append(tokens)
         logger.debug("Tokenized chunk %d: %s", i, tokens[:10])
-
     tokenized_query = get_words(query.lower())
     logger.debug("Original query tokens: %s", tokenized_query)
-
     if typo_tolerance:
         all_tokens = {t for chunk in tokenized_chunks for t in chunk}
         logger.debug("All unique tokens for typo correction: %s",
@@ -347,13 +327,10 @@ def get_bm25_scores(chunk_texts: List[str], query: str, typo_tolerance: bool = T
             all_tokens=all_tokens,
         )
         logger.debug("Corrected query tokens: %s", tokenized_query)
-
     try:
-        # Use lower k1 for small corpora, epsilon for stability
         bm25 = BM25Okapi(tokenized_chunks, k1=1.0, b=0.5, epsilon=1.0)
         scores = bm25.get_scores(tokenized_query).tolist()
         logger.debug("Raw BM25 scores: %s", scores)
-        # Ensure non-negative scores
         scores = [max(0.0, score) for score in scores]
         logger.debug("Clamped BM25 scores: %s", scores)
         return scores
@@ -371,7 +348,6 @@ def get_original_document(
     """Retrieve original HeaderDocument by ID or index."""
     logger.info("Retrieving original document for ID %s, index %d",
                 doc_id, doc_index)
-
     if documents and isinstance(documents[0], str):
         logger.info(
             "Converting %d strings to HeaderDocument objects for retrieval", len(documents))
@@ -414,7 +390,6 @@ def get_original_document(
                 logger.debug("Found HeaderDocument for ID %s at index %d",
                              doc_id, doc.metadata.get("original_index"))
                 return doc
-
     logger.warning("No HeaderDocument found for ID %s, index %d",
                    doc_id, doc_index)
     return None
@@ -449,7 +424,6 @@ def highlight_text(text: str, query: str) -> Tuple[str, List[Match]]:
                  query, text[:100])
     if not query.strip():
         return "", []
-
     query_terms = query.lower().split()
     unique_terms = {
         term.strip(string.punctuation)
@@ -460,7 +434,6 @@ def highlight_text(text: str, query: str) -> Tuple[str, List[Match]]:
         logger.debug(
             "All query terms are stop words or empty after filtering.")
         return "", []
-
     matches: List[Match] = []
     pattern = re.compile(
         r'\b(' + '|'.join(map(re.escape, unique_terms)) + r')\b', re.IGNORECASE
@@ -472,7 +445,6 @@ def highlight_text(text: str, query: str) -> Tuple[str, List[Match]]:
         if lower_word in unique_terms:
             start_idx = match.start()
             end_idx = match.end()
-            # Find the line containing the match
             line_start = text.rfind('\n', 0, start_idx) + 1
             line_end = text.find('\n', end_idx)
             if line_end == -1:
@@ -486,7 +458,6 @@ def highlight_text(text: str, query: str) -> Tuple[str, List[Match]]:
             })
             return f"<mark>{word}</mark>"
         return word
-
     highlighted = pattern.sub(highlight_match, text)
     logger.debug("Final highlighted text: %s, matches: %s",
                  highlighted[:100], matches)
@@ -509,25 +480,45 @@ def search_docs(
     return_raw_scores: bool = False,
     with_bm25: bool = False,
     with_rerank: bool = False,
-    threshold: float = 0.0
-) -> Union[List[SearchResult], Tuple[List[SearchResult], Dict[str, List[float]]]]:
-    """Search documents using hybrid retrieval with BM25 and embeddings."""
+    threshold: float = 0.0,
+    filter_by_headers_enabled: bool = True
+) -> Union[List[HeaderDocumentWithScore], Tuple[List[HeaderDocumentWithScore], Dict[str, List[float]]]]:
+    """Search documents using hybrid retrieval with BM25 and embeddings.
+
+    Args:
+        query: The search query string.
+        documents: List of documents, HeaderDocument objects, dictionaries, or strings.
+        instruction: Optional instruction to prepend to the query.
+        ids: Optional list of document IDs.
+        model: Embedding model name (default: "static-retrieval-mrl-en-v1").
+        rerank_model: Reranking model name (default: "cross-encoder/ms-marco-MiniLM-L6-v2").
+        chunk_size: Size of document chunks (default: 800).
+        overlap: Overlap between chunks (default: 200).
+        top_k: Number of top results to retrieve (default: 20).
+        rerank_top_k: Number of results to rerank (default: 10).
+        batch_size: Batch size for reranking (default: 8).
+        bm25_weight: Weight for BM25 scores in hybrid search (default: 0.5).
+        return_raw_scores: Whether to return raw scores (default: False).
+        with_bm25: Whether to use BM25 scoring (default: False).
+        with_rerank: Whether to apply reranking (default: False).
+        threshold: Minimum score threshold for results (default: 0.0).
+        filter_by_headers_enabled: Whether to filter chunks by headers (default: True).
+
+    Returns:
+        List of HeaderDocumentWithScore or a tuple with scores if return_raw_scores is True.
+    """
     total_start_time = time.time()
     logger.debug("Input document IDs: %s", [
         doc.id if isinstance(doc, HeaderDocument) else doc.get(
             "id") if isinstance(doc, dict) else str(uuid.uuid4())
         for doc in documents if doc
     ])
-
-    # Handle instruction
     if instruction and isinstance(instruction, str) and instruction.strip():
         logger.info("Using instruction: %s", instruction)
         query_with_instruction = f"{instruction} {query}".strip()
     else:
         logger.warning("Invalid or empty instruction, using query alone")
         query_with_instruction = query
-
-    # Process and split documents
     docs = process_documents(documents, ids)
     start_time = time.time()
     chunks = []
@@ -536,28 +527,23 @@ def search_docs(
             doc["text"], doc["id"], doc["index"], chunk_size, overlap))
     logger.info("Document splitting completed in %.3f seconds, created %d chunks",
                 time.time() - start_time, len(chunks))
-
-    # Filter chunks and embed
-    filtered_chunks = filter_by_headers(chunks, query)
+    filtered_chunks = filter_by_headers(
+        chunks, query) if filter_by_headers_enabled else chunks
     chunk_texts = [chunk["text"] for chunk in filtered_chunks]
     logger.debug("Filtered chunks: %s", [
         {"index": i, "doc_id": chunk["doc_id"],
             "text": chunk["text"][:50] + "..."}
         for i, chunk in enumerate(filtered_chunks)
     ])
-
     logger.info("Initializing SentenceTransformer")
     embedder = SentenceTransformer(model, device="cpu", backend="onnx")
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
-
-    # FAISS search
     top_k = min(top_k or len(chunk_texts), len(chunk_texts))
     logger.info("Performing FAISS search with top-k=%d", top_k)
     dim = chunk_embeddings.shape[1]
     index = faiss.IndexFlatIP(dim)
     faiss.normalize_L2(chunk_embeddings)
     index.add(chunk_embeddings)
-
     query_embedding = embedder.encode(
         [query_with_instruction], convert_to_numpy=True)
     query_embedding = np.ascontiguousarray(query_embedding.astype(np.float32))
@@ -565,8 +551,6 @@ def search_docs(
     distances, indices = index.search(query_embedding, top_k)
     embed_scores = [(score + 1) / 2 for score in distances[0].tolist()]
     logger.debug("Normalized embed scores: %s", embed_scores)
-
-    # BM25 scores
     if with_bm25:
         logger.info("Calculating BM25 scores")
         bm25_scores = get_bm25_scores(chunk_texts, query)
@@ -578,14 +562,10 @@ def search_docs(
     else:
         logger.info("Skipping BM25 scoring")
         bm25_scores = [0.0] * len(chunk_texts)
-
-    # Compute combined scores
     combined_scores = compute_combined_scores(
         embed_scores, bm25_scores, bm25_weight, indices, with_bm25)
     initial_docs = [(filtered_chunks[i], combined_scores[j], embed_scores[j])
                     for j, i in enumerate(indices[0])]
-
-    # Reranking
     if with_rerank:
         logger.info("Initializing CrossEncoder for reranking")
         cross_encoder = CrossEncoder(
@@ -604,7 +584,6 @@ def search_docs(
             final_scores = [0.0] * len(pairs)
             logger.info(
                 "Assigned %d zero scores due to reranking error", len(pairs))
-
         rerank_top_k = min(rerank_top_k or len(
             initial_docs), len(initial_docs))
         reranked_indices = np.argsort(final_scores)[::-1][:rerank_top_k]
@@ -624,9 +603,7 @@ def search_docs(
              initial_docs[i][1], initial_docs[i][2])
             for i in sorted_indices
         ]
-
-    # Build results
-    results: List[SearchResult] = []
+    results: List[HeaderDocumentWithScore] = []
     seen_doc_ids = set()
     raw_scores = {"embedding_scores": [],
                   "bm25_scores": [], "rerank_scores": []}
@@ -636,34 +613,29 @@ def search_docs(
                 "Skipping doc_id %s at rank %d: score %.4f below threshold %.4f",
                 chunk["doc_id"], rank, final_score, threshold)
             continue
-
         doc_id = chunk["doc_id"]
         doc_index = chunk["doc_index"]
         if doc_id in seen_doc_ids:
             logger.debug(
                 "Skipping duplicate doc_id %s at rank %d", doc_id, rank)
             continue
-
         original_doc = get_original_document(doc_id, doc_index, documents, ids)
         if original_doc is None:
             logger.warning(
                 "Skipping doc_id %s: original document not found", doc_id)
             continue
-
         highlighted_text, matches = highlight_text(original_doc.text, query)
-        result: SearchResult = {
-            "id": doc_id,
-            "doc_index": doc_index,
-            "rank": len(results) + 1,
-            "score": final_score,
-            "combined_score": combined_score,
-            "embedding_score": embedding_score,
-            "headers": chunk["headers"],
-            "text": original_doc.text,
-            "highlighted_text": highlighted_text,
-            "matches": matches,  # Include matches
-            # "document": original_doc
-        }
+        result = HeaderDocumentWithScore(
+            node=original_doc,
+            score=final_score,
+            doc_index=doc_index,
+            rank=rank,
+            combined_score=combined_score,
+            embedding_score=embedding_score,
+            headers=chunk["headers"],
+            highlighted_text=highlighted_text,
+            matches=matches
+        )
         results.append(result)
         seen_doc_ids.add(doc_id)
         if return_raw_scores:
@@ -672,9 +644,7 @@ def search_docs(
             raw_scores["rerank_scores"].append(final_score)
         logger.debug("Added result for doc_id %s: score=%.4f, combined=%.4f, embed=%.4f",
                      doc_id, final_score, combined_score, embedding_score)
-
     logger.info("Total unique results: %d", len(results))
     logger.info("Search completed in %.3f seconds",
                 time.time() - total_start_time)
-
     return (results, raw_scores) if return_raw_scores else results

@@ -1,25 +1,12 @@
-from llama_index.core.schema import Document, TextNode, MetadataMode
-from pydantic import Field
-from typing import Any, List, TypedDict, cast
-from llama_index.core.schema import Document as BaseDocument, MetadataMode, TextNode
-from typing import Any, List, Optional, TypedDict, cast
+from llama_index.core.schema import (
+    Document as BaseDocument,
+    TextNode,
+    MetadataMode,
+    NodeRelationship,
+    RelatedNodeInfo
+)
 from pydantic import BaseModel, Field
-
-
-class Document(BaseDocument):
-    def __init__(self, **data: Any) -> None:
-        super().__init__(**data)
-
-    def get_recursive_text(self) -> str:
-        """
-        Get content of this node and all of its child nodes recursively.
-        """
-        texts = [self.text, "\n"]
-        for child in self.child_nodes or []:
-            texts.append(child.metadata["header"])
-        if self.parent_node:
-            texts.insert(0, self.parent_node.metadata["header"])
-        return "\n".join(filter(None, texts))
+from typing import Any, Dict, List, Optional, TypedDict, cast, ItemsView
 
 
 class HeaderMetadata(TypedDict, total=False):
@@ -36,22 +23,75 @@ class HeaderMetadata(TypedDict, total=False):
     texts: List[str] | None
 
 
+class Match(TypedDict):
+    word: str
+    start_idx: int
+    end_idx: int
+    line: str
+
+
+class Document(BaseDocument):
+    def __init__(self, **data: Any) -> None:
+        super().__init__(**data)
+
+    def get_recursive_text(self, node_registry: Optional[Dict[str, 'Document']] = None) -> str:
+        texts = [self.text]
+        parent_header = ""
+        if node_registry and self.relationships.get(NodeRelationship.PARENT):
+            parent_info = self.relationships[NodeRelationship.PARENT]
+            if isinstance(parent_info, RelatedNodeInfo):
+                parent_id = parent_info.node_id
+                parent_node = node_registry.get(parent_id)
+                if parent_node:
+                    parent_header = parent_node.metadata.get("header", "")
+        elif self.parent_node:
+            parent_header = self.parent_node.metadata.get("header", "")
+        child_headers = []
+        if node_registry and self.relationships.get(NodeRelationship.CHILD):
+            child_infos = self.relationships[NodeRelationship.CHILD]
+            if isinstance(child_infos, list):
+                for child_info in child_infos:
+                    if isinstance(child_info, RelatedNodeInfo):
+                        child_node = node_registry.get(child_info.node_id)
+                        if child_node:
+                            child_header = child_node.metadata.get(
+                                "header", "")
+                            if child_header:
+                                child_headers.append(child_header)
+        elif self.child_nodes:
+            for child in self.child_nodes:
+                child_header = child.metadata.get("header", "")
+                if child_header:
+                    child_headers.append(child_header)
+        result_texts = [self.text]
+        if parent_header or child_headers:
+            result_texts.append("")
+            if parent_header:
+                result_texts.append(parent_header)
+            result_texts.extend(child_headers)
+            result = "\n".join(result_texts)
+        else:
+            result = self.text
+        return result
+
+    def items(self) -> ItemsView[str, Any]:
+        """Return key-value pairs of attributes and metadata."""
+        result = {}
+        for attr in ["text", "metadata", "metadata_separator"]:
+            if hasattr(self, attr):
+                result[attr] = getattr(self, attr)
+        return result.items()
+
+
 class HeaderDocument(Document):
-    id: Optional[str] = Field(None,
-                              description="Unique identifier for the document")
+    id: Optional[str] = Field(
+        None, description="Unique identifier for the document")
 
     def __init__(self, **data: Any):
-        # Make a defensive copy to avoid modifying input
         data = data.copy()
-        # Pop for parent initialization
         text: str = data.pop("text", "")
-        # Pass all remaining data to parent, including id
         super().__init__(text=text, **data)
-
-        # Pop metadata after parent initialization
         metadata = data.pop("metadata", None)
-
-        # Define default metadata values
         default_values: HeaderMetadata = {
             "doc_index": 0,
             "header_level": 0,
@@ -64,67 +104,63 @@ class HeaderDocument(Document):
             "links": None,
             "texts": text.splitlines(),
         }
-
-        # Merge metadata (if valid) with defaults, prioritizing metadata
         metadata_dict = metadata if isinstance(metadata, dict) else {}
         default_metadata = {
             **default_values,
-            **data,  # Include any extra keys from data
-            **metadata_dict,  # Metadata overrides defaults and data
+            **data,
+            **metadata_dict,
         }
-
-        # Ensure metadata["id"] matches id
         id = data.pop("id", self.id_)
         default_metadata["id"] = id
-        self.id = id  # Explicit for clarity
+        self.id = id
         self.node_id = id
         self.metadata = HeaderMetadata(**default_metadata)
 
     def __getitem__(self, key: str) -> Any:
-        """Allow direct dictionary-like access to instance attributes or metadata."""
         if hasattr(self, key):
             return getattr(self, key)
         metadata = cast(HeaderMetadata, self.metadata)
         return metadata[key]
 
     def __iter__(self):
-        """Enable **obj unpacking by yielding key-value pairs for attributes and metadata."""
         for attr in ["text", "metadata", "metadata_separator"]:
             if hasattr(self, attr):
                 yield attr, getattr(self, attr)
-        metadata = cast(HeaderMetadata, self.metadata)
-        for key, value in metadata.items():
-            if value is not None:  # Only include non-None metadata
-                yield key, value
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get attribute or metadata value by key, returning default if not found."""
         if hasattr(self, key):
             return getattr(self, key)
         metadata = cast(HeaderMetadata, self.metadata)
         return metadata.get(key, default)
 
     def get_recursive_text(self) -> str:
-        """
-        Get content of this node and all of its child nodes recursively, using header property.
-        """
         metadata = cast(HeaderMetadata, self.metadata)
-        texts = [self.text, "\n"]
+        texts = []
         if metadata["parent_header"]:
-            texts.insert(0, metadata["parent_header"])
-        return "\n".join(filter(None, texts))
+            texts.append(metadata["parent_header"])
+        texts.append(self.text)
+        result = "\n".join(filter(None, texts))
+        if result:
+            result += "\n"
+        return result
+
+    def items(self) -> ItemsView[str, Any]:
+        """Return key-value pairs of attributes and metadata."""
+        result = {}
+        for attr in ["text", "metadata", "metadata_separator"]:
+            if hasattr(self, attr):
+                result[attr] = getattr(self, attr)
+        return result.items()
 
 
 class HeaderTextNode(TextNode):
-    id: Optional[str] = Field(None,
-                              description="Unique identifier for the text node")
+    id: Optional[str] = Field(
+        None, description="Unique identifier for the text node")
     text_template: str = Field(
         default="{parent_header}\n{header}\n\n{metadata_str}\n\n{content}")
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        # Defensive copy of kwargs
         kwargs = kwargs.copy()
-        # Pass all args and kwargs to parent, including id
         super().__init__(*args, **kwargs)
         default_metadata: HeaderMetadata = {
             "doc_index": 0,
@@ -138,65 +174,158 @@ class HeaderTextNode(TextNode):
             "texts": None,
         }
         provided_metadata = kwargs.get("metadata", {})
-        # Ensure metadata["id"] matches self.id_
         id = kwargs.pop("id", self.id_)
         default_metadata["id"] = id
-        self.id = id  # Explicit for clarity
+        self.id = id
         self.node_id = id
-        self.metadata = {**default_metadata, **
-                         provided_metadata, "id": id}
+        self.metadata = {**default_metadata, **provided_metadata, "id": id}
 
     def __getitem__(self, key: str) -> Any:
-        """Allow direct dictionary-like access to instance attributes or metadata."""
         if hasattr(self, key):
             return getattr(self, key)
         metadata = cast(HeaderMetadata, self.metadata)
         return metadata[key]
 
     def __iter__(self):
-        """Enable **obj unpacking by yielding key-value pairs for attributes and metadata."""
         for attr in ["text", "metadata", "metadata_template", "metadata_separator", "text_template"]:
             if hasattr(self, attr):
                 yield attr, getattr(self, attr)
-        metadata = cast(HeaderMetadata, self.metadata)
-        for key, value in metadata.items():
-            if value is not None:  # Only include non-None metadata
-                yield key, value
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get attribute or metadata value by key, returning default if not found."""
         if hasattr(self, key):
             return getattr(self, key)
         metadata = cast(HeaderMetadata, self.metadata)
         return metadata.get(key, default)
 
     def get_content(self, metadata_mode: MetadataMode = MetadataMode.NONE) -> str:
-        """Get object content."""
-        metadata_str = self.get_metadata_str(mode=metadata_mode).strip()
-        if not metadata_str:
-            return self.text
         metadata = cast(HeaderMetadata, self.metadata)
         content = self.text
-        if self.text.startswith(metadata["header"]):
-            content = "\n".join(self.text.splitlines()[1:])
-        return self.text_template.format(
-            parent_header=metadata["parent_header"],
-            header=metadata["header"],
-            content=content,
-            metadata_str=metadata_str
-        ).strip()
+        if metadata_mode != MetadataMode.NONE and self.text.startswith(metadata["header"]):
+            content = "\n".join(self.text.splitlines()[1:]).strip()
+        if metadata_mode == MetadataMode.NONE:
+            result = content
+        else:
+            metadata_str = self.get_metadata_str(mode=metadata_mode).strip()
+            result = self.text_template.format(
+                parent_header=metadata["parent_header"],
+                header=metadata["header"],
+                content=content,
+                metadata_str=metadata_str
+            ).strip()
+        return result
 
     def get_metadata_str(self, mode: MetadataMode = MetadataMode.ALL) -> str:
         metadata = cast(HeaderMetadata, self.metadata)
-        usable_metadata_keys = ["id", "doc_index", "chunk_index"]
-        if mode == MetadataMode.EMBED:
-            usable_metadata_keys = ["parent_header", "header"]
+        usable_metadata_keys = ["id", "doc_index", "chunk_index"] if mode == MetadataMode.ALL else [
+            "parent_header", "header"]
         metadata_str = self.metadata_separator.join(
             [
                 self.metadata_template.format(
                     key=key, value=str(metadata[key]))
                 for key in usable_metadata_keys
-                if key in metadata and metadata[key] is not None
+                if key in metadata and metadata[key] is not None and str(metadata[key]).strip()
             ]
         )
         return metadata_str
+
+    def items(self) -> ItemsView[str, Any]:
+        """Return key-value pairs of attributes and metadata."""
+        result = {}
+        for attr in ["text", "metadata", "metadata_template", "metadata_separator", "text_template"]:
+            if hasattr(self, attr):
+                result[attr] = getattr(self, attr)
+        return result.items()
+
+
+class HeaderDocumentWithScore(BaseModel):
+    """A class that wraps a HeaderDocument with a score, similar to NodeWithScore, and includes SearchResult properties."""
+    node: HeaderDocument
+    score: Optional[float] = None
+    doc_index: int = Field(
+        default=0, description="Index of the document in the original list")
+    rank: int = Field(
+        default=0, description="Rank of the document in search results")
+    combined_score: float = Field(
+        default=0.0, description="Combined BM25 and embedding score")
+    embedding_score: float = Field(
+        default=0.0, description="Embedding-based score")
+    headers: List[str] = Field(
+        default_factory=list, description="List of headers associated with the chunk")
+    highlighted_text: str = Field(
+        default="", description="Text with query terms highlighted")
+    matches: List[Match] = Field(
+        default_factory=list, description="List of query term matches")
+
+    def __init__(self, **data: Any):
+        super().__init__(**data)
+
+    def __str__(self) -> str:
+        score_str = "None" if self.score is None else f"{self.score:0.3f}"
+        result = f"{self.node}\nScore: {score_str}\nRank: {self.rank}\nCombined Score: {self.combined_score:0.3f}\nEmbedding Score: {self.embedding_score:0.3f}"
+        return result
+
+    def get_score(self, raise_error: bool = False) -> float:
+        if self.score is None:
+            if raise_error:
+                raise ValueError("Score not set.")
+            return 0.0
+        return self.score
+
+    @classmethod
+    def class_name(cls) -> str:
+        return "HeaderDocumentWithScore"
+
+    @property
+    def node_id(self) -> str:
+        return self.node.node_id
+
+    @property
+    def id_(self) -> str:
+        return self.node.id_
+
+    @property
+    def text(self) -> str:
+        return self.node.text
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        return self.node.metadata
+
+    @property
+    def embedding(self) -> Optional[List[float]]:
+        return self.node.embedding
+
+    def get_text(self) -> str:
+        return self.node.get_text()
+
+    def get_content(self, metadata_mode: MetadataMode = MetadataMode.NONE) -> str:
+        return self.node.get_content(metadata_mode=metadata_mode)
+
+    def get_embedding(self) -> List[float]:
+        return self.node.get_embedding()
+
+    def __getitem__(self, key: str) -> Any:
+        if hasattr(self, key):
+            return getattr(self, key)
+        return self.node[key]
+
+    def __iter__(self):
+        for attr in ["node", "score", "doc_index", "rank", "combined_score", "embedding_score", "headers", "highlighted_text", "matches"]:
+            if hasattr(self, attr):
+                yield attr, getattr(self, attr)
+        for key, value in self.node:
+            if value is not None:
+                yield key, value
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if hasattr(self, key):
+            return getattr(self, key)
+        return self.node.get(key, default)
+
+    def items(self) -> ItemsView[str, Any]:
+        """Return key-value pairs of attributes and node properties."""
+        result = {}
+        for attr in ["node", "score", "doc_index", "rank", "combined_score", "embedding_score", "headers", "highlighted_text", "matches"]:
+            if hasattr(self, attr):
+                result[attr] = getattr(self, attr)
+        return result.items()
