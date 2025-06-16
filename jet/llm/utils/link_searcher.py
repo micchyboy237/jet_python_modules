@@ -6,7 +6,7 @@ from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer, util
 import torch
 
-device = "mps" if torch.backends.mps.is_available() else "cpu"
+device = "cpu"
 
 
 class Link(TypedDict):

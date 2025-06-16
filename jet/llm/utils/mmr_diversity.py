@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_device() -> str:
-    _device_cache = "mps" if torch.backends.mps.is_available() else "cpu"
+    _device_cache = "cpu"
     return _device_cache
 
 

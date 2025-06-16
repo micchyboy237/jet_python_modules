@@ -103,7 +103,7 @@ _device_cache = None
 def get_device() -> str:
     global _device_cache
     if _device_cache is None:
-        _device_cache = "mps" if torch.backends.mps.is_available() else "cpu"
+        _device_cache = "cpu"
         logger.info(f"Selected device: {_device_cache}")
     return _device_cache
 

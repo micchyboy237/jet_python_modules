@@ -10,8 +10,7 @@ from jet.logger import logger
 # Standalone reusable functions
 
 # Check for MPS availability (for M1 optimization)
-device = torch.device(
-    "mps") if torch.backends.mps.is_available() else torch.device("cpu")
+device = torch.device("cpu")
 logger.info(f"Using device: {device}")
 
 

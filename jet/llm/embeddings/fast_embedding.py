@@ -28,7 +28,7 @@ class EmbeddingGenerator:
             use_mps: Whether to use MPS (Apple Silicon GPU) if available
         """
         self.model_name = model_name
-        self.device = 'mps' if use_mps and torch.backends.mps.is_available() else 'cpu'
+        self.device = 'cpu'
         logger.info(f"Using device: {self.device}")
 
         # Auto-detect model type if not specified

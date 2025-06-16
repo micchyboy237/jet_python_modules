@@ -23,7 +23,7 @@ def cluster_texts(
     texts: List[str],
     model_name: str = "all-MiniLM-L12-v2",
     batch_size: int = 32,
-    device: str = "mps" if torch.backends.mps.is_available() else "cpu",
+    device: str = "cpu",
     reduce_dim: bool = True,
     n_components: int = 10,
     min_cluster_size: int = 5,

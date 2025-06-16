@@ -24,7 +24,7 @@ def load_sentence_transformer(
     try:
         logger.debug(
             f"Loading model {model_name} with pooling mode {pooling_mode}")
-        device = "mps" if use_mps and torch.backends.mps.is_available() else "cpu"
+        device = "cpu"
         logger.debug(f"Using device: {device}")
 
         # Load transformer model and tokenizer

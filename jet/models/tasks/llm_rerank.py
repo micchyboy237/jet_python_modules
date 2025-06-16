@@ -135,7 +135,7 @@ def rerank_docs(
 
     # Initialize device
     device = torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu")
+        "cpu")
 
     # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')

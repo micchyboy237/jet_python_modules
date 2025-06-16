@@ -12,8 +12,7 @@ from jet.llm.mlx.models import resolve_model_value
 import mlx.nn as nn
 import torch
 
-device = torch.device(
-    "mps") if torch.backends.mps.is_available() else torch.device("cpu")
+device = torch.device("cpu")
 
 
 def load_model(model: ModelType):

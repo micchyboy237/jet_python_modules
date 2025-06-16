@@ -9,7 +9,7 @@ from sentence_transformers import SentenceTransformer, util
 model = SentenceTransformer("all-mpnet-base-v2")
 
 # Use MPS if available (for Mac M1)
-device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+device = torch.device("cpu")
 model.to(device)
 
 

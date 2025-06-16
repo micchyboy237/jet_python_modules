@@ -1,59 +1,63 @@
+from sklearn.preprocessing import LabelEncoder
+from sklearn.linear_model import LogisticRegression
+from sentence_transformers import SentenceTransformer
+from mlx_lm import load
+from jet.logger import logger
+from jet.llm.mlx.tasks.utils import ModelComponents, load_model_components
+from jet.llm.mlx.models import resolve_model
+from jet.llm.mlx.mlx_types import LLMModelType
+from tqdm import tqdm
+from typing import List, Dict, Optional, TypedDict, Literal, Tuple
+import joblib
+import time
+import torch
+import numpy as np
+import mlx.core as mx
+import pytest
 import os
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-import pytest
-import mlx.core as mx
-import numpy as np
-import torch
-import time
-import joblib
-from typing import List, Dict, Optional, TypedDict, Literal, Tuple
-from tqdm import tqdm
-from jet.llm.mlx.mlx_types import LLMModelType
-from jet.llm.mlx.models import resolve_model
-from jet.llm.mlx.tasks.utils import ModelComponents, load_model_components
-from jet.logger import logger
-from mlx_lm import load
-from sentence_transformers import SentenceTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import LabelEncoder
-
 mx.random.seed(42)
+
 
 class ModelLoadError(Exception):
     """Raised when model or tokenizer loading fails."""
     pass
 
+
 class InvalidInputError(Exception):
     """Raised when query or contexts are empty or invalid."""
     pass
+
 
 class ClassificationError(Exception):
     """Raised when classification fails."""
     pass
 
+
 class ChatMessage(TypedDict):
     role: str
     content: str
 
+
 class ContextRelevanceResult(TypedDict):
     relevance_score: Literal[0, 1, 2]
-    confidence: float
+    score: float
+    probabilities: List[float]
     is_valid: bool
     error: Optional[str]
     context: str
     priority: Literal["low", "medium", "high"]
 
-class ContextRelevanceResults(TypedDict):
-    query: str
-    results: List[ContextRelevanceResult]
 
 class ExtendedModelComponents(ModelComponents):
     """Extends ModelComponents to include classifier, label encoder, and embedder."""
+
     def __init__(self, model, tokenizer, classifier: LogisticRegression, label_encoder: LabelEncoder, embedder: SentenceTransformer):
         super().__init__(model, tokenizer)
         self.classifier = classifier
         self.label_encoder = label_encoder
         self.embedder = embedder
+
 
 def load_model_components(model_path: LLMModelType, verbose: bool = True) -> ModelComponents:
     """Loads model and tokenizer."""
@@ -66,34 +70,22 @@ def load_model_components(model_path: LLMModelType, verbose: bool = True) -> Mod
         logger.error(f"Error loading model components: {str(e)}")
         raise ModelLoadError(f"Error loading model or tokenizer: {str(e)}")
 
+
 def load_classifier(
     save_dir: Optional[str] = None,
     example_pairs: Optional[List[str]] = None,
-    labels: Optional[List[str]] = None,
+    labels: Optional[List[str] | List[int]] = None,
     verbose: bool = True,
     overwrite: bool = False
 ) -> Tuple[LogisticRegression, LabelEncoder, SentenceTransformer]:
-    """Loads or trains classifier, label encoder, and embedder, optionally from a saved directory.
-
-    Args:
-        save_dir: Directory to load/save classifier components.
-        example_pairs: List of query-context pair strings for training.
-        labels: List of string labels corresponding to example_pairs.
-        verbose: If True, logs detailed information.
-        overwrite: If True, forces training a new classifier even if saved files exist.
-
-    Returns:
-        Tuple containing the classifier, label encoder, and embedder.
-    """
     if save_dir and not overwrite:
         classifier_path = os.path.join(save_dir, "classifier.joblib")
         label_encoder_path = os.path.join(save_dir, "label_encoder.joblib")
         embedder_path = os.path.join(save_dir, "embedder.joblib")
-        
-        # Check if all required files exist
         if all(os.path.isfile(path) for path in [classifier_path, label_encoder_path, embedder_path]):
             if verbose:
-                logger.info("Loading classifier components from saved directory: %s", save_dir)
+                logger.info(
+                    "Loading classifier components from saved directory: %s", save_dir)
             try:
                 classifier = joblib.load(classifier_path)
                 label_encoder = joblib.load(label_encoder_path)
@@ -102,20 +94,25 @@ def load_classifier(
                 return classifier, label_encoder, embedder
             except Exception as e:
                 logger.error(f"Error loading classifier components: {str(e)}")
-                raise ModelLoadError(f"Failed to load classifier components: {str(e)}")
+                raise ModelLoadError(
+                    f"Failed to load classifier components: {str(e)}")
         else:
             if verbose:
-                logger.info("Classifier component files not found in %s, training new classifier", save_dir)
-    
+                logger.info(
+                    "Classifier component files not found in %s, training new classifier", save_dir)
     try:
         if verbose:
-            logger.debug("Loading embedder and training classifier from scratch")
-        embedder = SentenceTransformer("static-retrieval-mrl-en-v1", device="cpu", backend="onnx")
-        classifier, label_encoder = train_classifier(embedder, example_pairs, labels, verbose=verbose)
+            logger.debug(
+                "Loading embedder and training classifier from scratch")
+        embedder = SentenceTransformer(
+            "static-retrieval-mrl-en-v1", device="cpu", backend="onnx")
+        classifier, label_encoder = train_classifier(
+            embedder, example_pairs, labels, verbose=verbose)
         return classifier, label_encoder, embedder
     except Exception as e:
         logger.error(f"Error loading classifier components: {str(e)}")
         raise ModelLoadError(f"Error loading classifier or embedder: {str(e)}")
+
 
 def save_classifier(
     classifier: LogisticRegression,
@@ -127,18 +124,21 @@ def save_classifier(
     """Save classifier, label encoder, and embedder to the specified directory."""
     if save_dir is None:
         if verbose:
-            logger.info("save_dir is None, skipping classifier components save")
+            logger.info(
+                "save_dir is None, skipping classifier components save")
         return
     try:
         os.makedirs(save_dir, exist_ok=True)
         joblib.dump(classifier, os.path.join(save_dir, "classifier.joblib"))
-        joblib.dump(label_encoder, os.path.join(save_dir, "label_encoder.joblib"))
+        joblib.dump(label_encoder, os.path.join(
+            save_dir, "label_encoder.joblib"))
         joblib.dump(embedder, os.path.join(save_dir, "embedder.joblib"))
         if verbose:
             logger.info(f"Classifier components saved to {save_dir}")
     except Exception as e:
         logger.error(f"Error saving classifier components: {str(e)}")
         raise ModelLoadError(f"Failed to save classifier components: {str(e)}")
+
 
 def validate_inputs(query: str, contexts: List[str]) -> None:
     """Validates that query and contexts are non-empty."""
@@ -148,12 +148,14 @@ def validate_inputs(query: str, contexts: List[str]) -> None:
         raise InvalidInputError("Contexts list cannot be empty.")
     for context in contexts:
         if not context.strip():
-            raise InvalidInputError(f"Context cannot be empty for query: {query}")
+            raise InvalidInputError(
+                f"Context cannot be empty for query: {query}")
+
 
 def train_classifier(
     embedder: SentenceTransformer,
     example_pairs: Optional[List[str]] = None,
-    labels: Optional[List[str]] = None,
+    labels: Optional[List[str] | List[int]] = None,
     verbose: bool = True
 ) -> Tuple[LogisticRegression, LabelEncoder]:
     """Train a logistic regression classifier on example query-context pairs with progress tracking."""
@@ -164,9 +166,12 @@ def train_classifier(
         "Query: What is the capital of France?\nContext: Paris is a popular tourist destination.",
         "Query: What is the capital of France?\nContext: Einstein developed the theory of relativity.",
     ]
-    default_labels = ["2", "1", "0"]
+    default_labels = [2, 1, 0]
     pairs = example_pairs if example_pairs is not None else default_pairs
     labels = labels if labels is not None else default_labels
+    # Convert labels to integers if they are strings
+    labels = [int(label) if isinstance(label, str)
+              else label for label in labels]
     if len(pairs) != len(labels):
         raise ValueError("Number of example pairs must match number of labels")
     logger.info(f"Processing {len(pairs)} query-context pairs")
@@ -182,17 +187,22 @@ def train_classifier(
     label_encoder = LabelEncoder()
     encoded_labels = label_encoder.fit_transform(labels)
     label_encoding_time = time.time() - step_start
-    logger.info(f"Label encoding completed in {label_encoding_time:.2f} seconds")
+    logger.info(
+        f"Label encoding completed in {label_encoding_time:.2f} seconds")
     step_start = time.time()
     if verbose:
         logger.info("Training logistic regression classifier...")
-    classifier = LogisticRegression(multi_class='multinomial', solver='lbfgs', max_iter=200)
+    classifier = LogisticRegression(
+        multi_class='multinomial', solver='lbfgs', max_iter=200)
     classifier.fit(embeddings, encoded_labels)
     training_time = time.time() - step_start
-    logger.info(f"Classifier training completed in {training_time:.2f} seconds")
+    logger.info(
+        f"Classifier training completed in {training_time:.2f} seconds")
     total_time = time.time() - start_time
-    logger.info(f"Classifier training completed successfully in {total_time:.2f} seconds")
+    logger.info(
+        f"Classifier training completed successfully in {total_time:.2f} seconds")
     return classifier, label_encoder
+
 
 def embed_query_context_pairs(
     pairs: List[str],
@@ -201,8 +211,9 @@ def embed_query_context_pairs(
     verbose: bool = True
 ) -> np.ndarray:
     """Embed query-context pairs in batches using SentenceTransformer with progress tracking."""
-    logger.info("Embedding %d query-context pairs with batch_size=%d", len(pairs), batch_size)
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    logger.info("Embedding %d query-context pairs with batch_size=%d",
+                len(pairs), batch_size)
+    device = "cpu"
     logger.info("Using device: %s", device)
     try:
         embeddings = embedder.encode(
@@ -213,11 +224,14 @@ def embed_query_context_pairs(
             show_progress_bar=verbose
         )
         embeddings = np.ascontiguousarray(embeddings.astype(np.float32))
-        logger.debug("Embeddings shape: %s, dtype: %s", embeddings.shape, embeddings.dtype)
+        logger.debug("Embeddings shape: %s, dtype: %s",
+                     embeddings.shape, embeddings.dtype)
         return embeddings
     except Exception as e:
         logger.error("Error embedding pairs: %s", str(e))
-        raise ClassificationError(f"Failed to embed query-context pairs: {str(e)}")
+        raise ClassificationError(
+            f"Failed to embed query-context pairs: {str(e)}")
+
 
 def evaluate_multiple_contexts_relevance(
     query: str,
@@ -225,75 +239,85 @@ def evaluate_multiple_contexts_relevance(
     model_path: LLMModelType | ExtendedModelComponents,
     batch_size: int = 32,
     example_pairs: Optional[List[str]] = None,
-    labels: Optional[List[str]] = None,
+    labels: Optional[List[str] | List[int]] = None,
     save_dir: Optional[str] = None,
     verbose: bool = True
-) -> ContextRelevanceResults:
+) -> List[ContextRelevanceResult]:
     try:
         validate_inputs(query, contexts)
         if isinstance(model_path, ExtendedModelComponents):
             model_components = model_path
         else:
-            model_components = load_model_components(model_path, verbose=verbose)
-            classifier, label_encoder, embedder = load_classifier(save_dir, example_pairs, labels, verbose=verbose)
+            model_components = load_model_components(
+                model_path, verbose=verbose)
+            classifier, label_encoder, embedder = load_classifier(
+                save_dir, example_pairs, labels, verbose=verbose)
             model_components = ExtendedModelComponents(
                 model_components.model, model_components.tokenizer, classifier, label_encoder, embedder)
-        valid_outputs = ["0", "1", "2"]
+        valid_outputs = [0, 1, 2]
         priority_map = {0: "low", 1: "medium", 2: "high"}
         results = []
         pairs = [f"Query: {query}\nContext: {context}" for context in contexts]
         logger.debug("Prepared pairs: %s", pairs)
-        embeddings = embed_query_context_pairs(pairs, model_components.embedder, batch_size, verbose)
+        embeddings = embed_query_context_pairs(
+            pairs, model_components.embedder, batch_size, verbose)
         pred_probas = model_components.classifier.predict_proba(embeddings)
         pred_indices = np.argmax(pred_probas, axis=1)
-        confidences = pred_probas[np.arange(len(pred_indices)), pred_indices]
+        scores = pred_probas[np.arange(len(pred_indices)), pred_indices]
         for i, context in enumerate(contexts):
             try:
-                predicted_label = model_components.label_encoder.inverse_transform([pred_indices[i]])[0]
-                confidence = float(confidences[i])
+                predicted_label = model_components.label_encoder.inverse_transform([
+                                                                                   pred_indices[i]])[0]
+                score = float(scores[i])
+                probabilities = pred_probas[i].tolist()
                 is_valid = predicted_label in valid_outputs
                 error = None if is_valid else f"Predicted label '{predicted_label}' not in {valid_outputs}"
                 if not is_valid:
-                    logger.warning("Invalid label predicted: %s for context: %s", predicted_label, context[:100])
-                    predicted_label = "0"
+                    logger.warning(
+                        "Invalid label predicted: %s for context: %s", predicted_label, context[:100])
+                    predicted_label = 0
                 relevance_score = int(predicted_label)
                 if verbose:
-                    logger.info("Query: %s\nContext: %s\nPredicted: %s\nConfidence: %.4f",
-                                query[:100], context[:100], predicted_label, confidence)
-                    logger.success(f"Result: {confidence:.4f}")
+                    logger.info("Query: %s\nContext: %s\nPredicted: %s\nScore: %.4f\nProbabilities: %s",
+                                query[:100], context[:100], predicted_label, score, probabilities)
+                    logger.success(f"Result: {score:.4f}")
                 results.append(ContextRelevanceResult(
                     context=context,
                     relevance_score=relevance_score,
-                    confidence=confidence,
+                    score=score,
+                    probabilities=probabilities,
                     is_valid=is_valid,
                     error=error,
                     priority=priority_map[relevance_score]
                 ))
             except Exception as e:
-                logger.error(f"Error processing context '{context[:100]}': {str(e)}")
+                logger.error(
+                    f"Error processing context '{context[:100]}': {str(e)}")
                 results.append(ContextRelevanceResult(
                     context=context,
                     relevance_score=0,
-                    confidence=0.0,
+                    score=0.0,
+                    probabilities=[0.0, 0.0, 0.0],
                     is_valid=False,
                     error=str(e),
                     priority="low"
                 ))
-        # Sort results by relevance_score in descending order, then by confidence in descending order
-        results = sorted(results, key=lambda x: (x["relevance_score"], x["confidence"]), reverse=True)
-        return ContextRelevanceResults(query=query, results=results)
+        results = sorted(results, key=lambda x: (
+            x["relevance_score"], x["score"]), reverse=True)
+        return results
     except (ModelLoadError, ClassificationError, InvalidInputError) as e:
-        logger.error(f"Error in evaluate_multiple_contexts_relevance: {str(e)}")
+        logger.error(
+            f"Error in evaluate_multiple_contexts_relevance: {str(e)}")
         raise
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         raise
 
+
 if __name__ == "__main__":
     import json
     import tempfile
     import shutil
-
     query = "What is the capital of France?"
     contexts = [
         "The capital of France is Paris.",
@@ -301,26 +325,26 @@ if __name__ == "__main__":
         "Einstein developed the theory of relativity."
     ]
     model_path = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
-    
-    # Create temporary directory
     temp_dir = tempfile.mkdtemp()
     try:
-        # Training step
-        classifier, label_encoder, embedder = load_classifier(save_dir=temp_dir, verbose=True, overwrite=True)
-        save_classifier(classifier, label_encoder, embedder, temp_dir, verbose=True)
-        
-        # Inference step
+        classifier, label_encoder, embedder = load_classifier(
+            save_dir=temp_dir, verbose=True, overwrite=True)
+        save_classifier(classifier, label_encoder,
+                        embedder, temp_dir, verbose=True)
         model_components = load_model_components(model_path, verbose=True)
         extended_components = ExtendedModelComponents(
             model_components.model, model_components.tokenizer, classifier, label_encoder, embedder)
-        result = evaluate_multiple_contexts_relevance(query, contexts, extended_components, verbose=True)
-        
-        print(f"Query: {result['query']}")
-        for res in result['results']:
+        results = evaluate_multiple_contexts_relevance(
+            query, contexts, extended_components, verbose=True)
+        print(f"Query: {query}")
+        for res in results:
             print(f"Context: {json.dumps(res['context'])[:100]}")
-            print(f"Relevance Score: {res['relevance_score']} (Confidence: {res['confidence']:.4f})")
+            print(
+                f"Relevance Score: {res['relevance_score']} (Score: {res['score']:.4f})")
+            print(
+                f"Probabilities (0, 1, 2): {[f'{p:.4f}' for p in res['probabilities']]}")
             print(f"Priority: {res['priority']}")
             print(f"Valid: {res['is_valid']}, Error: {res['error']}\n")
     finally:
-        # Clean up temporary directory
+        logger.info("Removing temp_dir: %s", temp_dir)
         shutil.rmtree(temp_dir)

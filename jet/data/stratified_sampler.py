@@ -22,8 +22,8 @@ class ProcessedDataString(TypedDict):
 
 class StratifiedData(TypedDict):
     source: str
-    target: str
-    score: float
+    target: Optional[str]
+    score: Optional[float]
 
 
 def get_ngrams(text: str, n: int = 1) -> List[str]:
@@ -119,11 +119,18 @@ class StratifiedSampler:
 
     @time_it
     def get_samples(self) -> List[StratifiedData]:
-        score_map = {(item['source'], item['target']): item['score']
-                     for item in self.data}
-        features_targets = [(item['source'], item['target'])
-                            for item in self.data]
         labels = [item['category_values'] for item in self.data]
+        has_target = isinstance(
+            self.data[0], dict) and 'target' in self.data[0] and 'score' in self.data[0]
+
+        if has_target:
+            score_map = {(item['source'], item['target'])                         : item['score'] for item in self.data}
+            features_targets = [(item['source'], item['target'])
+                                for item in self.data]
+        else:
+            score_map = {(item['source'], None): None for item in self.data}
+            features_targets = [(item['source'], None) for item in self.data]
+
         try:
             features_targets_sample, _, labels_sample, _ = train_test_split(
                 features_targets, labels, train_size=self.num_samples, stratify=labels
@@ -133,6 +140,7 @@ class StratifiedSampler:
             features_targets_sample, _, labels_sample, _ = train_test_split(
                 features_targets, labels, train_size=self.num_samples
             )
+
         stratified_samples = [
             StratifiedData(source=ft[0], target=ft[1], score=score_map[ft])
             for ft, lbl in zip(features_targets_sample, labels_sample)
@@ -277,7 +285,8 @@ class StratifiedSampler:
 
         if has_target:
             # Handle ProcessedData with target and score
-            score_map = {(item['source'], item['target'])                         : item['score'] for item in self.data}
+            score_map = {(item['source'], item['target'])
+                          : item['score'] for item in self.data}
             features_targets = [(item['source'], item['target'])
                                 for item in self.data]
         else:

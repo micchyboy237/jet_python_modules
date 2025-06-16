@@ -1,3 +1,4 @@
+import psutil
 from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 import atexit
 from jet.llm.mlx.mlx_types import EmbedModelType
@@ -190,6 +191,12 @@ def get_embedding_function(
     return embedding_function
 
 
+def log_memory_usage():
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    logger.debug(f"Process memory usage: {mem_info.rss / 1024**3:.2f} GB")
+
+
 def cleanup():
     # Clear MPS memory
     if torch.backends.mps.is_available():
@@ -201,6 +208,8 @@ def cleanup():
     gc.collect()
 
     logger.info("Transformer embed models unloaded and memory cleared.")
+
+    log_memory_usage()
 
 
 # Register cleanup function to run at exit
