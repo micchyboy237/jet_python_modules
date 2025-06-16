@@ -54,7 +54,7 @@ class POSTaggerProperNouns:
         try:
             logging.info(f"Loading model: {model_name}")
             self.model = SpanMarkerModel.from_pretrained(
-                model_name, device='cpu')  # Use CPU to avoid MPS issues
+                model_name, device="cpu")  # Use CPU to avoid MPS issues
             logging.info("Model loaded successfully")
         except Exception as e:
             logging.error(f"Failed to load model: {e}")

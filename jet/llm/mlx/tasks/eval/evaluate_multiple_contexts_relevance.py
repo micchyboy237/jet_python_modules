@@ -15,7 +15,7 @@ import numpy as np
 import mlx.core as mx
 import pytest
 import os
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
 mx.random.seed(42)
 
 

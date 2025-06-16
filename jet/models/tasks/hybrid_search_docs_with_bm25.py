@@ -19,7 +19,7 @@ from llama_index.core.schema import MetadataMode
 
 os.environ["OMP_NUM_THREADS"] = "4"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
 
 
 class Match(TypedDict):
