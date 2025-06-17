@@ -1,5 +1,6 @@
 import re
 from typing import Callable, Optional, List, Dict, Tuple, TypedDict, Union
+from urllib.parse import urljoin, urlparse
 
 from jet.scrapers.preprocessor import html_to_markdown, is_html, scrape_markdown
 from jet.scrapers.utils import clean_spaces
@@ -191,7 +192,7 @@ def get_header_contents(md_text: str,
     return hierarchy
 
 
-def extract_markdown_links(text: str) -> Tuple[List[HeaderLink], str]:
+def extract_markdown_links(text: str, base_url: Optional[str] = None) -> Tuple[List[HeaderLink], str]:
     pattern = re.compile(r'\[([^\]]*)\]\((\S+?)(?:\s+"([^"]+)")?\)')
     links: List[HeaderLink] = []
     output = ""
@@ -203,11 +204,21 @@ def extract_markdown_links(text: str) -> Tuple[List[HeaderLink], str]:
         start, end = match.span()
         label, url, caption = match.group(1), match.group(2), match.group(3)
 
+        # Convert relative URLs to absolute using base_url if provided
+        if base_url and not url.startswith(('http://', 'https://')):
+            url = urljoin(base_url, url.strip())
+
+        # Skip empty labels or labels with only spaces
+        if not label.strip():
+            output += text[last_end:start]
+            last_end = end
+            continue
+
         # Append text before this match
         output += text[last_end:start]
 
         start_idx = len(output)
-        replacement_text = label if label.strip() else ""
+        replacement_text = label
         output += replacement_text
         end_idx = len(output)
 
@@ -217,6 +228,9 @@ def extract_markdown_links(text: str) -> Tuple[List[HeaderLink], str]:
         if end_line_idx == -1:
             end_line_idx = len(text)
         line = text[start_line_idx:end_line_idx].strip()
+        # Update line with absolute URL
+        line = re.sub(r'\[([^\]]*)\]\(\S+?(?:\s+"[^"]+")?\)',
+                      f'[{label}]({url}{" " + f'"{caption}"' if caption else ""})', line)
         # Calculate line index (0-based)
         line_idx = len(text[:start].splitlines()) - 1
 
@@ -246,10 +260,10 @@ def extract_markdown_links(text: str) -> Tuple[List[HeaderLink], str]:
 def get_md_header_contents(
     md_text: str,
     headers_to_split_on: List[Tuple[str, str]] = [],
-    ignore_links: bool = True
+    ignore_links: bool = True,
+    base_url: Optional[str] = None
 ) -> List[Header]:
     """Split Markdown text into headers and content with improved semantic chunking."""
-
     from jet.scrapers.utils import clean_newlines, clean_text, clean_spaces
     from jet.scrapers.preprocessor import is_html, html_to_markdown
 
@@ -301,14 +315,16 @@ def get_md_header_contents(
 
         header_line = get_header_text(raw_text)
         header_line = clean_spaces(header_line)
-        header_links, clean_header = extract_markdown_links(header_line)
+        header_links, clean_header = extract_markdown_links(
+            header_line, base_url)
         header_level = get_header_level(clean_header)
 
         # Process body text before conditional link handling
         cleaned_text = clean_spaces(raw_text)
         body_links = []
         if ignore_links:
-            body_links, cleaned_text = extract_markdown_links(cleaned_text)
+            body_links, cleaned_text = extract_markdown_links(
+                cleaned_text, base_url)
 
         # Combine all links
         all_links = header_links + body_links
@@ -366,8 +382,14 @@ def get_md_header_docs(
     ignore_links: bool = False,
     metadata: Optional[HeaderMetadataDoc] = None
 ) -> List[HeaderDocument]:
+    # Extract base_url from metadata if available
+    base_url = None
+    if metadata and "source_url" in metadata:
+        parsed_url = urlparse(metadata["source_url"])
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+
     headers = get_md_header_contents(
-        md_text, headers_to_split_on, ignore_links)
+        md_text, headers_to_split_on, ignore_links, base_url)
     header_docs = [
         HeaderDocument(
             doc_index=i,

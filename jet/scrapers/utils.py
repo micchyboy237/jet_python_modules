@@ -328,8 +328,10 @@ def protect_links(text: str) -> Tuple[str, List[str]]:
     # Find all markdown links and plain URLs
     links = []
     # Match markdown links: [text](url)
-    markdown_links = re.findall(r'\[.*?\]\(.*?\)', text)
-    links.extend(markdown_links)
+    markdown_links = re.findall(
+        r'\[([^\]]*)\]\((\S+?)(?:\s+"([^"]+)")?\)', text)
+    links.extend(f'[{text}]({url}{" " + f'"{caption}"' if caption else ""})' for text,
+                 url, caption in markdown_links)
     # Match plain URLs (http(s):// followed by non-whitespace characters)
     plain_urls = re.findall(r'https?://[^\s]+', text)
     links.extend(plain_urls)
@@ -357,6 +359,9 @@ def clean_spaces(content: str) -> str:
 
     # Remove consecutive spaces
     content = re.sub(r' +', ' ', content).strip()
+
+    # Remove empty brackets or brackets with only spaces
+    content = re.sub(r'\[\s*\]', '', content)
 
     content = restore_links(content, links)
     return content
