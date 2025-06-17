@@ -2,14 +2,12 @@ import logging
 from typing import List, Optional
 import os
 from huggingface_hub import HfApi, list_repo_files
-from jet.models.base import scan_local_hf_models
+from jet.models.config import MODELS_CACHE_DIR
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-CACHE_DIR = "/Users/jethroestrada/.cache/huggingface/hub"
 
 
 def has_onnx_model_in_repo(repo_id: str, token: Optional[str] = None) -> bool:
@@ -43,7 +41,7 @@ def has_onnx_model_in_repo(repo_id: str, token: Optional[str] = None) -> bool:
         return False
 
 
-def get_onnx_model_paths(repo_id: str, cache_dir: str = CACHE_DIR, token: Optional[str] = None) -> List[str]:
+def get_onnx_model_paths(repo_id: str, cache_dir: str = MODELS_CACHE_DIR, token: Optional[str] = None) -> List[str]:
     """
     Retrieve a list of ONNX model file paths (standard, ARM64, or quantized) in the local Hugging Face cache for a repository.
 
@@ -97,6 +95,8 @@ def check_local_models_with_onnx() -> dict[str, bool]:
     Returns:
         dict[str, bool]: Dictionary mapping model IDs to their ONNX availability.
     """
+    from jet.models.utils import scan_local_hf_models
+
     local_models = scan_local_hf_models()
     results = {}
     for model in local_models:

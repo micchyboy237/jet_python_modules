@@ -4,6 +4,7 @@ from threading import Lock
 import onnxruntime as ort
 import os
 import logging
+from jet.models.config import MODELS_CACHE_DIR
 from jet.models.model_registry.base import BaseModelRegistry, ModelFeatures
 from jet.models.onnx_model_checker import has_onnx_model_in_repo, get_onnx_model_paths
 
@@ -48,7 +49,7 @@ class TransformersModelRegistry(BaseModelRegistry, ABC):
             logger.info(
                 f"Loading ONNX model for model_id: {model_id}, path: {selected_path}")
             try:
-                cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+                cache_dir = MODELS_CACHE_DIR
                 full_path = os.path.join(cache_dir, selected_path)
                 session_options = ort.SessionOptions()
                 providers = ["CPUExecutionProvider"]

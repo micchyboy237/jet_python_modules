@@ -132,6 +132,7 @@ LLMModelKey = Literal[
     "qwen3-0.6b-4bit",
     "qwen3-0.6b-4bit-dwq-053125",
     "qwen3-1.7b-3bit",
+    "qwen3-1.7b-4bit",
     "qwen3-1.7b-4bit-dwq-053125",
     "qwen3-4b-3bit",
     "qwen3-4b-4bit",

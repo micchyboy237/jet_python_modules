@@ -1,5 +1,5 @@
 from typing import Dict, Tuple, Optional, TypedDict, Union
-from jet.models.base import scan_local_hf_models
+from jet.models.utils import scan_local_hf_models
 from jet.transformers.formatters import format_json
 from jet.utils.object import max_getattr
 from jet.logger import logger

@@ -1,9 +1,4 @@
-from typing import Dict, List, Tuple, Optional, TypedDict, Union
-from jet.models.base import scan_local_hf_models
-from jet.transformers.formatters import format_json
-from jet.utils.object import max_getattr
-from jet.logger import logger
-from transformers import AutoConfig
+from typing import Dict, List
 from jet.models.model_types import (
     EmbedModelKey,
     EmbedModelValue,
@@ -49,6 +44,7 @@ AVAILABLE_LLM_MODELS: Dict[LLMModelKey, LLMModelValue] = {
     "qwen3-0.6b-4bit": "mlx-community/Qwen3-0.6B-4bit",
     "qwen3-0.6b-4bit-dwq-053125": "mlx-community/Qwen3-0.6B-4bit-DWQ-053125",
     "qwen3-1.7b-3bit": "mlx-community/Qwen3-1.7B-3bit",
+    "qwen3-1.7b-4bit": "mlx-community/Qwen3-1.7B-4bit-DWQ-053125",
     "qwen3-1.7b-4bit-dwq-053125": "mlx-community/Qwen3-1.7B-4bit-DWQ-053125",
     "qwen3-4b-3bit": "mlx-community/Qwen3-4B-3bit",
     "qwen3-4b-4bit": "mlx-community/Qwen3-4B-4bit-DWQ-053125",

@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 from huggingface_hub import snapshot_download, get_hf_file_metadata, hf_hub_url
 from tqdm import tqdm
-from jet.models.base import get_repo_files, scan_local_hf_models, EMBED_MODELS
+from jet.models.utils import get_repo_files, scan_local_hf_models, EMBED_MODELS
 
 logger = logging.getLogger(__name__)
 
