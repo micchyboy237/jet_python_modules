@@ -84,19 +84,8 @@ class BaseModelRegistry(ABC):
         pass
 
     def _select_device(self, features: ModelFeatures) -> str:
-        """Select device based on features and availability."""
-        device = features.get("device")
-        if device is None and torch.backends.mps.is_available():
-            device = "mps"
-            logger.info("MPS detected, using MPS")
-        elif device is None or device == "cpu":
-            device = "cpu"
-            logger.info("Using CPU")
-        elif device == "cuda" and torch.cuda.is_available():
-            device = "cuda"
-            logger.info("Using CUDA")
-        else:
-            device = "cpu"
-            logger.warning(
-                f"Requested device {device} unavailable, falling back to CPU")
-        return device
+        if features.get("device") == "cuda" and torch.cuda.is_available():
+            return "cuda"
+        elif features.get("device") == "mps" and torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
