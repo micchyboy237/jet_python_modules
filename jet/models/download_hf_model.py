@@ -6,7 +6,7 @@ logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-repo_id = "cross-encoder/ms-marco-MiniLM-L6-v2"
+repo_id = "Falconsai/intent_classification"
 cache_dir = "/Users/jethroestrada/.cache/huggingface/hub"
 
 logger.info(f"Downloading files from repo id: {repo_id}...")
@@ -14,12 +14,13 @@ try:
     snapshot_download(
         repo_id=repo_id,
         cache_dir=cache_dir,
-        allow_patterns=[
-            # "onnx/model.onnx",
-            "onnx/model_qint8_arm64.onnx",
-            # "onnx/model_quantized.onnx"
-        ],
+        # allow_patterns=[
+        #     # "onnx/model.onnx",
+        #     "onnx/model_qint8_arm64.onnx",
+        #     # "onnx/model_quantized.onnx"
+        # ],
         ignore_patterns=[
+            "pytorch_model.bin",
             "onnx/model_O1.onnx",
             "onnx/model_O2.onnx",
             "onnx/model_O3.onnx",
