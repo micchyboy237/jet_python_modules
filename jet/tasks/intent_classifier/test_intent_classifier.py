@@ -1,7 +1,7 @@
 import pytest
 from typing import Dict
 from jet.tasks.intent_classifier import classify_intents
-from jet.tasks.intent_classifier.utils import ClassificationResult, Id2Label
+from jet.tasks.intent_classifier.utils import ClassificationResult, Id2Label, transform_label
 from jet.models.model_registry.transformers.bert_model_registry import BERTModelRegistry
 from transformers import PreTrainedTokenizer, AutoModelForSequenceClassification
 
