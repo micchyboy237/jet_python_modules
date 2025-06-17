@@ -1,51 +1,32 @@
-from typing import Dict, List, Literal, TypedDict
-IntentLabel = Literal[
-    "cancellation",
-    "ordering",
-    "shipping",
-    "invoicing",
-    "billing and payment",
-    "returns and refunds",
-    "complaints and feedback",
-    "speak to person",
-    "edit account",
-    "delete account",
-    "delivery information",
-    "subscription",
-    "recover password",
-    "registration problems",
-    "appointment"
-]
-LABELS: List[IntentLabel] = [
-    "cancellation",
-    "ordering",
-    "shipping",
-    "invoicing",
-    "billing and payment",
-    "returns and refunds",
-    "complaints and feedback",
-    "speak to person",
-    "edit account",
-    "delete account",
-    "delivery information",
-    "subscription",
-    "recover password",
-    "registration problems",
-    "appointment"
-]
-Id2Label = Dict[str, IntentLabel]
+from typing import Dict, TypedDict
+
+# Remove IntentLabel and LABELS
+Id2Label = Dict[int, str]  # Dynamic labels as strings
 
 
-def transform_label(index: int) -> IntentLabel:
+def transform_label(index: int, id2label: Id2Label) -> str:
+    """
+    Transform a label index to its corresponding label using the id2label mapping.
+
+    Args:
+        index: The integer index of the label.
+        id2label: Dictionary mapping string indices to label names.
+
+    Returns:
+        The label string corresponding to the index.
+
+    Raises:
+        IndexError: If the index is not found in id2label.
+    """
     try:
-        return LABELS[index]
-    except IndexError:
+        return id2label[index]
+    except KeyError:
         raise IndexError(
-            f"Label index {index} is out of range for available labels")
+            f"Label index {index} is not found in id2label mapping")
 
 
 class ClassificationResult(TypedDict):
-    label: IntentLabel
+    label: str  # Changed from IntentLabel to str
     score: float
     value: int
     text: str

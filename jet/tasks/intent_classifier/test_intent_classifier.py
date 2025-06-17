@@ -1,94 +1,112 @@
-from typing import List, Dict, Union, Optional
 import pytest
-import torch
-from jet.tasks.intent_classifier.base import classify_text
-from jet.logger import logger
-from jet.transformers.formatters import format_json
+from typing import Dict
+from jet.tasks.intent_classifier import classify_intents
+from jet.tasks.intent_classifier.utils import ClassificationResult, Id2Label
+from jet.models.model_registry.transformers.bert_model_registry import BERTModelRegistry
+from transformers import PreTrainedTokenizer, AutoModelForSequenceClassification
 
 
 class TestIntentClassifier:
     @pytest.fixture
-    def model_name(self) -> str:
+    def model_registry(self):
+        registry = BERTModelRegistry()
+        yield registry
+        registry.clear()
+
+    @pytest.fixture
+    def model_id(self):
         return "Falconsai/intent_classification"
 
-    def test_single_text_classification(self, model_name: str):
+    @pytest.fixture
+    def texts(self):
+        return [
+            "I want to cancel my order",
+            "Can you tell me about shipping options?",
+            "I need to speak to a customer service representative",
+        ]
+
+    @pytest.fixture
+    def id2label(self):
+        return {
+            "0": "cancellation",
+            "1": "ordering",
+            "2": "shipping",
+            "3": "invoicing",
+            "4": "billing and payment",
+            "5": "returns and refunds",
+            "6": "complaints and feedback",
+            "7": "speak to person",
+            "8": "edit account",
+            "9": "delete account",
+            "10": "delivery information",
+            "11": "subscription",
+            "12": "recover password",
+            "13": "registration problems",
+            "14": "appointment",
+        }
+
+    def test_classify_intents(self, model_registry, model_id, texts, id2label):
         # Arrange
-        text = "Book a flight to New York"
+        model = model_registry.load_model(
+            model_id, {"device": "cpu", "precision": "fp32"})
+        tokenizer = model_registry.get_tokenizer(model_id)
         expected = [
-            {
-                "label": "BookFlight",  # Adjust based on actual model output
-                "score": float
-            }
+            ClassificationResult(
+                label="cancellation",
+                score=pytest.approx(0.9, abs=0.1),
+                value=0,
+                text="I want to cancel my order",
+                doc_index=0,
+                rank=1,
+            ),
+            ClassificationResult(
+                label="shipping",
+                score=pytest.approx(0.9, abs=0.1),
+                value=2,
+                text="Can you tell me about shipping options?",
+                doc_index=1,
+                rank=2,
+            ),
+            ClassificationResult(
+                label="speak to person",
+                score=pytest.approx(0.9, abs=0.1),
+                value=7,
+                text="I need to speak to a customer service representative",
+                doc_index=2,
+                rank=3,
+            ),
         ]
 
         # Act
-        result = classify_text(text, model_name)
+        results = classify_intents(
+            model, tokenizer, texts, batch_size=2, show_progress=False)
 
         # Assert
-        assert isinstance(result, List), "Result should be a list"
-        assert isinstance(
-            result[0], Dict), "Result item should be a dictionary"
-        assert result[0]["label"] == expected[0][
-            "label"], f"Expected label {expected[0]['label']}, got {result[0]['label']}"
-        assert isinstance(result[0]["score"], float), "Score should be a float"
-        assert 0 <= result[0]["score"] <= 1, "Score should be between 0 and 1"
+        for result, expected_result in zip(results, expected):
+            assert result["label"] == expected_result["label"]
+            assert result["value"] == expected_result["value"]
+            assert result["text"] == expected_result["text"]
+            assert result["doc_index"] == expected_result["doc_index"]
+            assert result["rank"] == expected_result["rank"]
+            assert result["score"] == pytest.approx(
+                expected_result["score"], abs=0.1)
 
-    def test_batch_text_classification(self, model_name: str):
+    def test_transform_label_valid(self, id2label):
         # Arrange
-        texts = ["Book a flight", "Cancel my reservation"]
-        expected = [
-            {
-                "label": "BookFlight",  # Adjust based on actual model output
-                "score": float
-            },
-            {
-                "label": "Cancel",  # Adjust based on actual model output
-                "score": float
-            }
-        ]
+        index = 0
+        expected = "cancellation"
 
         # Act
-        result = classify_text(texts, model_name, batch_size=2)
+        result = transform_label(index, id2label)
 
         # Assert
-        assert isinstance(result, List), "Result should be a list"
-        for i, (res, exp) in enumerate(zip(result, expected)):
-            assert isinstance(
-                res, Dict), f"Result item {i+1} should be a dictionary"
-            assert res["label"] == exp[
-                "label"], f"Expected label {exp['label']} for text {i+1}, got {res['label']}"
-            assert isinstance(
-                res["score"], float), f"Score for text {i+1} should be a float"
-            assert 0 <= res["score"] <= 1, f"Score for text {i+1} should be between 0 and 1"
+        assert result == expected
 
-    def test_empty_input(self, model_name: str):
+    def test_transform_label_invalid(self, id2label):
         # Arrange
-        text = []
+        index = 999
+        expected_error = f"Label index {index} is not found in id2label mapping"
 
         # Act & Assert
-        with pytest.raises(ValueError, match="Input must not be empty"):
-            classify_text(text, model_name)
-
-    def test_invalid_model_name(self):
-        # Arrange
-        invalid_model = "invalid/model/name"
-        text = "Test text"
-
-        # Act & Assert
-        # Model loading error (specific exception may vary)
-        with pytest.raises(Exception):
-            classify_text(text, invalid_model)
-
-    def test_mps_device_selection(self, model_name: str, monkeypatch):
-        # Arrange
-        text = "Test device usage"
-        expected_device = "mps" if torch.backends.mps.is_available() else "cpu"
-
-        # Act
-        result = classify_text(text, model_name)
-
-        # Assert
-        assert isinstance(result, List), "Result should be a list"
-        assert isinstance(
-            result[0], Dict), "Result item should be a dictionary"
-        # Note: Device logging is verified indirectly via successful execution
+        with pytest.raises(IndexError, match=expected_error):
+            transform_label(index, id2label)
