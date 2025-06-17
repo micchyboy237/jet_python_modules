@@ -1,5 +1,4 @@
 from typing import Dict, List, Literal, TypedDict
-
 IntentLabel = Literal[
     "cancellation",
     "ordering",
@@ -17,7 +16,6 @@ IntentLabel = Literal[
     "registration problems",
     "appointment"
 ]
-
 LABELS: List[IntentLabel] = [
     "cancellation",
     "ordering",
@@ -35,7 +33,6 @@ LABELS: List[IntentLabel] = [
     "registration problems",
     "appointment"
 ]
-
 Id2Label = Dict[str, IntentLabel]
 
 
@@ -51,3 +48,6 @@ class ClassificationResult(TypedDict):
     label: IntentLabel
     score: float
     value: int
+    text: str
+    doc_index: int
+    rank: int
