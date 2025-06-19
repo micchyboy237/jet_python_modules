@@ -1,12 +1,10 @@
-from typing import Dict, List, Optional, Union, Iterator
+from typing import Dict, List, Literal, Optional, Union, Iterator
 from jet.logger import logger
 
 from jet.llm.mlx.config import DEFAULT_MODEL
-from jet.llm.mlx.mlx_types import MLXTokenizer, LLMModelKey, LLMModelType
-from jet.models.tokenizer.base import count_tokens, get_tokenizer_fn
-from jet.models.utils import resolve_model
-from jet.llm.mlx.utils.base import get_model_max_tokens
-from jet.llm.mlx.token_utils import merge_texts
+from jet.models.model_types import MLXTokenizer, LLMModelKey, LLMModelType
+from jet.models.tokenizer.base import count_tokens, merge_texts
+from jet.models.utils import resolve_model, get_context_size
 from jet.llm.mlx.client import MLXLMClient, ModelsResponse, CompletionResponse, Message, RoleMapping, Tool
 from jet.llm.mlx.chat_history import ChatHistory
 
@@ -36,6 +34,7 @@ class MLX:
         with_history: bool = False,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
+        device: Optional[Literal["cpu", "mps"]] = "mps"
     ):
         """Initialize the MLX client with configuration and optional database."""
         self.model_path = resolve_model(model)
@@ -50,6 +49,7 @@ class MLX:
             chat_template=chat_template,
             use_default_chat_template=use_default_chat_template,
             seed=seed,
+            device=device,
         )
         self.prompt_cache = self.client.prompt_cache
         self.system_fingerprint = self.client.system_fingerprint
@@ -390,7 +390,7 @@ class MLX:
                 "Messages must be a string or list of strings/dictionaries")
 
         # Get model max tokens and reserve buffer
-        model_max_tokens = get_model_max_tokens(self.model_path)
+        model_max_tokens = get_context_size(self.model_path)
         max_tokens = model_max_tokens - buffer
 
         # Merge texts to fit within token limit
@@ -410,7 +410,7 @@ class MLX:
         return filtered_contexts
 
     def get_remaining_tokens(self, messages: str | List[str] | List[Message]) -> int:
-        model_max_tokens = get_model_max_tokens(self.model_path)
+        model_max_tokens = get_context_size(self.model_path)
         prompt_tokens = self.count_tokens(messages)
         # Set remaining tokens as max tokens
         remaining_tokens = model_max_tokens - prompt_tokens

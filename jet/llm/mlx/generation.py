@@ -1,6 +1,6 @@
 from typing import Union, List, Optional, Dict, Iterator
-from jet.llm.mlx.mlx_types import LLMModelType, RoleMapping, Tool
-from jet.llm.mlx.models import resolve_model
+from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
+from jet.models.model_types import LLMModelType, RoleMapping, Tool
 from jet.llm.mlx.client import CompletionResponse, Message
 from jet.llm.mlx.chat_history import ChatHistory
 from jet.llm.mlx.base import MLX
@@ -70,7 +70,7 @@ def chat(
 ) -> CompletionResponse:
     """Generate a chat completion."""
     if client is None:
-        client = MLX(
+        client = MLXModelRegistry.load_model(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
@@ -129,7 +129,7 @@ def stream_chat(
 ) -> Iterator[CompletionResponse]:
     """Stream chat completions."""
     if client is None:
-        client = MLX(
+        client = MLXModelRegistry.load_model(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
@@ -186,7 +186,7 @@ def generate(
 ) -> CompletionResponse:
     """Generate a text completion."""
     if client is None:
-        client = MLX(
+        client = MLXModelRegistry.load_model(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,
@@ -241,7 +241,7 @@ def stream_generate(
 ) -> Iterator[CompletionResponse]:
     """Stream text completions."""
     if client is None:
-        client = MLX(
+        client = MLXModelRegistry.load_model(
             model=model,
             adapter_path=adapter,
             draft_model=draft_model,

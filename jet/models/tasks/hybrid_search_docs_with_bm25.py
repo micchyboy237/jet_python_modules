@@ -147,8 +147,7 @@ def process_documents(
         if isinstance(metadata, dict) and "header_level" in metadata:
             if metadata.get("header_level") != 1:
                 text = "\n".join([
-                    # metadata.get("parent_header") or "",
-                    metadata.get("header", ""),
+                    f"{metadata["parent_header"] or ""}{" -> " if metadata["parent_header"] else ""}{metadata["header"]}",
                     metadata.get("content", "")
                 ]).strip()
                 if not text:
@@ -301,44 +300,6 @@ def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer)
     return result
 
 
-def get_bm25_scores(chunk_texts: List[str], query: str, typo_tolerance: bool = True) -> List[float]:
-    """Calculate BM25 scores with typo tolerance, handling small corpora."""
-    logger.info("Calculating BM25 scores for %d chunks, query: %s, typo_tolerance: %s",
-                len(chunk_texts), query, typo_tolerance)
-    if not chunk_texts or not query.strip():
-        logger.warning("Empty chunk_texts or query, returning zero scores")
-        return [0.0] * len(chunk_texts)
-    tokenized_chunks = []
-    for i, text in enumerate(chunk_texts):
-        tokens = get_words(text.lower())
-        if not tokens:
-            logger.warning("Empty tokens for chunk %d, using ['empty']", i)
-            tokens = ['empty']
-        tokenized_chunks.append(tokens)
-        logger.debug("Tokenized chunk %d: %s", i, tokens[:10])
-    tokenized_query = get_words(query.lower())
-    logger.debug("Original query tokens: %s", tokenized_query)
-    if typo_tolerance:
-        all_tokens = {t for chunk in tokenized_chunks for t in chunk}
-        logger.debug("All unique tokens for typo correction: %s",
-                     list(all_tokens)[:10])
-        tokenized_query = correct_typos(
-            query_tokens=tokenized_query,
-            all_tokens=all_tokens,
-        )
-        logger.debug("Corrected query tokens: %s", tokenized_query)
-    try:
-        bm25 = BM25Okapi(tokenized_chunks, k1=1.0, b=0.5, epsilon=1.0)
-        scores = bm25.get_scores(tokenized_query).tolist()
-        logger.debug("Raw BM25 scores: %s", scores)
-        scores = [max(0.0, score) for score in scores]
-        logger.debug("Clamped BM25 scores: %s", scores)
-        return scores
-    except Exception as e:
-        logger.error("Error in BM25 scoring: %s", e)
-        return [0.0] * len(chunk_texts)
-
-
 def get_original_document(
     doc_id: str,
     doc_index: int,
@@ -395,25 +356,69 @@ def get_original_document(
     return None
 
 
+def compute_header_similarities(
+    chunks: List[Dict[str, Any]],
+    query: str,
+    embedder: SentenceTransformer
+) -> List[float]:
+    """Compute cosine similarities between query and concatenated headers for each chunk."""
+    logger.info("Computing header similarities for %d chunks", len(chunks))
+    header_texts = []
+    for chunk in chunks:
+        headers = chunk.get("headers", [])
+        # Extract parent_header and header from metadata if available
+        original_doc = chunk.get("original_doc")
+        if original_doc and isinstance(original_doc.metadata, dict):
+            parent_header = original_doc.metadata.get("parent_header", "")
+            header = original_doc.metadata.get("header", "")
+            header_text = f"{parent_header} -> {header}" if parent_header and header else header or parent_header
+        else:
+            # Fallback to headers list
+            header_text = " -> ".join(h for h in headers if h) if headers else ""
+        header_texts.append(header_text or "")
+
+    if not any(header_texts):
+        logger.info("No valid headers found, returning zero similarities")
+        return [0.0] * len(chunks)
+
+    # Embed headers in batches
+    header_embeddings = embed_chunks_parallel(header_texts, embedder)
+    query_embedding = embedder.encode([query], convert_to_numpy=True)
+    query_embedding = np.ascontiguousarray(query_embedding.astype(np.float32))
+    faiss.normalize_L2(header_embeddings)
+    faiss.normalize_L2(query_embedding)
+
+    # Compute cosine similarities
+    similarities = np.dot(header_embeddings, query_embedding.T).flatten()
+    # Normalize to [0, 1]
+    similarities = [(score + 1) / 2 for score in similarities]
+    logger.debug("Header similarities: %s", similarities)
+    return similarities
+
+
 def compute_combined_scores(
     embed_scores: List[float],
     bm25_scores: List[float],
+    header_scores: List[float],  # Added header_scores
     bm25_weight: float,
     indices: np.ndarray,
     with_bm25: bool
 ) -> List[float]:
-    """Compute combined scores from embedding and BM25 scores."""
+    """Compute combined scores by averaging embedding and header scores, with optional BM25 contribution."""
     combined_scores = []
     for j, i in enumerate(indices[0]):
         bm25_score = bm25_scores[i] if with_bm25 else 0.0
         embed_score = embed_scores[j]
+        header_score = header_scores[i]
+        # Average content and header scores
+        content_header_score = (embed_score + header_score) / 2
         weight = bm25_weight if with_bm25 else 0.0
-        combined = weight * bm25_score + (1 - weight) * embed_score
+        combined = weight * bm25_score + (1 - weight) * content_header_score
         combined = max(0.0, min(1.0, combined))
         combined_scores.append(combined)
         logger.debug(
-            "Chunk %d (FAISS index %d): BM25=%.4f, Embed=%.4f, Combined=%.4f",
-            i, j, bm25_score, embed_score, combined
+            "Chunk %d (FAISS index %d): BM25=%.4f, Embed=%.4f, Header=%.4f, Combined=%.4f",
+            i, j, bm25_score, embed_score, header_score, combined
         )
     return combined_scores
 
@@ -470,20 +475,15 @@ def search_docs(
     instruction: Optional[str] = None,
     ids: Optional[List[str]] = None,
     model: str = "static-retrieval-mrl-en-v1",
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
     chunk_size: int = 800,
     overlap: int = 200,
     top_k: Optional[int] = 20,
-    rerank_top_k: Optional[int] = 10,
-    batch_size: int = 8,
-    bm25_weight: float = 0.5,
-    return_raw_scores: bool = False,
-    with_bm25: bool = False,
-    with_rerank: bool = False,
     threshold: float = 0.0,
-    filter_by_headers_enabled: bool = True
-) -> Union[List[HeaderDocumentWithScore], Tuple[List[HeaderDocumentWithScore], Dict[str, List[float]]]]:
-    """Search documents using hybrid retrieval with BM25 and embeddings.
+    filter_by_headers_enabled: bool = True,
+    bm25_weight: float = 0.3,  # Added for BM25 integration
+    with_bm25: bool = False    # Added to toggle BM25
+) -> List[HeaderDocumentWithScore]:
+    """Search documents using embedding-based retrieval, averaging header and content similarities.
 
     Args:
         query: The search query string.
@@ -491,21 +491,16 @@ def search_docs(
         instruction: Optional instruction to prepend to the query.
         ids: Optional list of document IDs.
         model: Embedding model name (default: "static-retrieval-mrl-en-v1").
-        rerank_model: Reranking model name (default: "cross-encoder/ms-marco-MiniLM-L6-v2").
         chunk_size: Size of document chunks (default: 800).
         overlap: Overlap between chunks (default: 200).
         top_k: Number of top results to retrieve (default: 20).
-        rerank_top_k: Number of results to rerank (default: 10).
-        batch_size: Batch size for reranking (default: 8).
-        bm25_weight: Weight for BM25 scores in hybrid search (default: 0.5).
-        return_raw_scores: Whether to return raw scores (default: False).
-        with_bm25: Whether to use BM25 scoring (default: False).
-        with_rerank: Whether to apply reranking (default: False).
         threshold: Minimum score threshold for results (default: 0.0).
         filter_by_headers_enabled: Whether to filter chunks by headers (default: True).
+        bm25_weight: Weight for BM25 score in combined score (default: 0.3).
+        with_bm25: Whether to include BM25 scores (default: False).
 
     Returns:
-        List of HeaderDocumentWithScore or a tuple with scores if return_raw_scores is True.
+        List of HeaderDocumentWithScore.
     """
     total_start_time = time.time()
     logger.debug("Input document IDs: %s", [
@@ -519,6 +514,7 @@ def search_docs(
     else:
         logger.warning("Invalid or empty instruction, using query alone")
         query_with_instruction = query
+
     docs = process_documents(documents, ids)
     start_time = time.time()
     chunks = []
@@ -527,17 +523,37 @@ def search_docs(
             doc["text"], doc["id"], doc["index"], chunk_size, overlap))
     logger.info("Document splitting completed in %.3f seconds, created %d chunks",
                 time.time() - start_time, len(chunks))
+
     filtered_chunks = filter_by_headers(
         chunks, query) if filter_by_headers_enabled else chunks
     chunk_texts = [chunk["text"] for chunk in filtered_chunks]
     logger.debug("Filtered chunks: %s", [
         {"index": i, "doc_id": chunk["doc_id"],
-            "text": chunk["text"][:50] + "..."}
+         "text": chunk["text"][:50] + "..."}
         for i, chunk in enumerate(filtered_chunks)
     ])
+
     logger.info("Initializing SentenceTransformer")
     embedder = SentenceTransformer(model, device="cpu", backend="onnx")
+
+    # Embed chunks and compute header similarities
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
+    header_scores = compute_header_similarities(
+        filtered_chunks, query_with_instruction, embedder)
+
+    # Compute BM25 scores if enabled
+    bm25_scores = []
+    if with_bm25:
+        tokenized_chunks = [chunk["text"].lower().split()
+                            for chunk in filtered_chunks]
+        bm25 = BM25Okapi(tokenized_chunks)
+        tokenized_query = query_with_instruction.lower().split()
+        bm25_scores = bm25.get_scores(tokenized_query).tolist()
+        # Normalize BM25 scores to [0, 1]
+        max_bm25 = max(bm25_scores) if bm25_scores else 1.0
+        bm25_scores = [score / max_bm25 if max_bm25 >
+                       0 else 0.0 for score in bm25_scores]
+
     top_k = min(top_k or len(chunk_texts), len(chunk_texts))
     logger.info("Performing FAISS search with top-k=%d", top_k)
     dim = chunk_embeddings.shape[1]
@@ -551,67 +567,25 @@ def search_docs(
     distances, indices = index.search(query_embedding, top_k)
     embed_scores = [(score + 1) / 2 for score in distances[0].tolist()]
     logger.debug("Normalized embed scores: %s", embed_scores)
-    if with_bm25:
-        logger.info("Calculating BM25 scores")
-        bm25_scores = get_bm25_scores(chunk_texts, query)
-        max_bm25 = max(bm25_scores, default=1.0)
-        bm25_scores = [score / max_bm25 for score in bm25_scores]
-        logger.debug("Normalized BM25 scores: %s", [
-            {"index": i, "score": score} for i, score in enumerate(bm25_scores)
-        ])
-    else:
-        logger.info("Skipping BM25 scoring")
-        bm25_scores = [0.0] * len(chunk_texts)
+
+    # Compute combined scores with header similarities
     combined_scores = compute_combined_scores(
-        embed_scores, bm25_scores, bm25_weight, indices, with_bm25)
-    initial_docs = [(filtered_chunks[i], combined_scores[j], embed_scores[j])
+        embed_scores, bm25_scores, header_scores, bm25_weight, indices, with_bm25
+    )
+
+    initial_docs = [(filtered_chunks[i], embed_scores[j], combined_scores[j])
                     for j, i in enumerate(indices[0])]
-    if with_rerank:
-        logger.info("Initializing CrossEncoder for reranking")
-        cross_encoder = CrossEncoder(
-            rerank_model, device="cpu", backend="onnx")
-        start_time = time.time()
-        logger.info("Reranking %d documents", len(initial_docs))
-        pairs = [[query_with_instruction, doc["text"]]
-                 for doc, _, _ in initial_docs]
-        final_scores = []
-        try:
-            for i in tqdm(range(0, len(pairs), batch_size), desc="Reranking"):
-                batch_scores = cross_encoder.predict(pairs[i:i + batch_size])
-                final_scores.extend(float(score) for score in batch_scores)
-        except Exception as e:
-            logger.error("Reranking error: %s", e)
-            final_scores = [0.0] * len(pairs)
-            logger.info(
-                "Assigned %d zero scores due to reranking error", len(pairs))
-        rerank_top_k = min(rerank_top_k or len(
-            initial_docs), len(initial_docs))
-        reranked_indices = np.argsort(final_scores)[::-1][:rerank_top_k]
-        sorted_docs = [
-            (initial_docs[i][0], initial_docs[i][1],
-             final_scores[i], initial_docs[i][2])
-            for i in reranked_indices
-        ]
-        logger.info("Reranking completed in %.3f seconds",
-                    time.time() - start_time)
-    else:
-        logger.info("Sorting by combined scores, no reranking")
-        sorted_indices = np.argsort([doc[1] for doc in initial_docs])[
-            ::-1][:top_k]
-        sorted_docs = [
-            (initial_docs[i][0], initial_docs[i][1],
-             initial_docs[i][1], initial_docs[i][2])
-            for i in sorted_indices
-        ]
+    sorted_indices = np.argsort([doc[2] for doc in initial_docs])[::-1][:top_k]
+    sorted_docs = [(initial_docs[i][0], initial_docs[i][1], initial_docs[i][2])
+                   for i in sorted_indices]
+
     results: List[HeaderDocumentWithScore] = []
     seen_doc_ids = set()
-    raw_scores = {"embedding_scores": [],
-                  "bm25_scores": [], "rerank_scores": []}
-    for rank, (chunk, combined_score, final_score, embedding_score) in enumerate(sorted_docs, 1):
-        if final_score < threshold:
+    for rank, (chunk, embedding_score, combined_score) in enumerate(sorted_docs, 1):
+        if combined_score < threshold:
             logger.debug(
-                "Skipping doc_id %s at rank %d: score %.4f below threshold %.4f",
-                chunk["doc_id"], rank, final_score, threshold)
+                "Skipping doc_id %s at rank %d: combined score %.4f below threshold %.4f",
+                chunk["doc_id"], rank, combined_score, threshold)
             continue
         doc_id = chunk["doc_id"]
         doc_index = chunk["doc_index"]
@@ -624,10 +598,12 @@ def search_docs(
             logger.warning(
                 "Skipping doc_id %s: original document not found", doc_id)
             continue
+        # Attach original_doc to chunk for header similarity computation
+        chunk["original_doc"] = original_doc
         highlighted_text, matches = highlight_text(original_doc.text, query)
         result = HeaderDocumentWithScore(
             node=original_doc,
-            score=final_score,
+            score=combined_score,
             doc_index=doc_index,
             rank=rank,
             combined_score=combined_score,
@@ -638,13 +614,10 @@ def search_docs(
         )
         results.append(result)
         seen_doc_ids.add(doc_id)
-        if return_raw_scores:
-            raw_scores["embedding_scores"].append(embedding_score)
-            raw_scores["bm25_scores"].append(bm25_scores[indices[0][rank - 1]])
-            raw_scores["rerank_scores"].append(final_score)
-        logger.debug("Added result for doc_id %s: score=%.4f, combined=%.4f, embed=%.4f",
-                     doc_id, final_score, combined_score, embedding_score)
+        logger.debug("Added result for doc_id %s: combined=%.4f, embed=%.4f",
+                     doc_id, combined_score, embedding_score)
+
     logger.info("Total unique results: %d", len(results))
     logger.info("Search completed in %.3f seconds",
                 time.time() - total_start_time)
-    return (results, raw_scores) if return_raw_scores else results
+    return results

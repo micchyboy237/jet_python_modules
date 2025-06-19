@@ -109,12 +109,12 @@ def html_to_markdown(
     if not container:
         return ""
 
-    # default_remove_selectors = ['script', 'style', '[class*="ad"]']
-    # remove_selectors = list(set(remove_selectors + default_remove_selectors))
+    default_remove_selectors = ['script', 'style', 'nav', 'footer', 'aside']
+    remove_selectors = list(set(remove_selectors + default_remove_selectors))
 
-    # for selector in remove_selectors:
-    #     for element in container.select(selector):
-    #         element.decompose()
+    for selector in remove_selectors:
+        for element in container.select(selector):
+            element.decompose()
 
     for replacement in replace_selectors:
         for old_tag, new_tag in replacement.items():

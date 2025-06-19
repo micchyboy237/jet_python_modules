@@ -78,8 +78,20 @@ class MLXLMClient:
         use_default_chat_template: bool = True,
         seed: Optional[int] = None,
         log_dir: str = DEFAULT_LOG_DIR,
+        device: Optional[Literal["cpu", "mps"]] = "mps"
     ) -> None:
         """Initialize the client with configuration."""
+        if device and device not in ["cpu", "mps"]:
+            logger.error(
+                f"Unsupported device {device} for MLX model {model}")
+            raise ValueError(
+                f"Device {device} is not supported for MLX (use 'cpu' or 'mps')")
+
+        if device == "cpu":
+            mx.set_default_device(mx.cpu)
+        else:
+            mx.set_default_device(mx.gpu)
+
         if seed:
             mx.random.seed(seed)
 

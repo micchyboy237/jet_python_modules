@@ -23,7 +23,7 @@ class EvaluationDetails:
 @dataclass
 class EvaluationResult:
     query: Optional[str] = None
-    contexts: Optional[list[str]] = None
+    response: Optional[str] = None
     score: Optional[float] = None
     feedback: Optional[str] = None
     passing: Optional[bool] = None
@@ -32,15 +32,14 @@ class EvaluationResult:
 
 
 EVAL_QUESTIONS = [
-    "Does the retrieved context match the subject matter of the user's query?",
-    "Can the retrieved context be used exclusively to provide an answer to the user's query?",
+    "Does the response directly address the subject matter of the user's query?",
+    "Is the response factually accurate and complete in answering the user's query?",
 ]
 
-# Updated evaluation template with new scoring guide
-CONTEXT_EVAL_TEMPLATE = (
-    "Your task is to evaluate whether the provided context is relevant to the user's query by answering the following questions:\n"
+RESPONSE_EVAL_TEMPLATE = (
+    "Your task is to evaluate whether the provided response is relevant and accurate to the user's query by answering the following questions:\n"
     "{questions_str}\n"
-    "For each question, assign a score based on how well the context addresses it:\n"
+    "For each question, assign a score based on how well the response addresses it:\n"
     "- 1.0 = Fully and concretely answered with clear, complete info\n"
     "- 0.5 = Partially answered or missing important details\n"
     "- 0.0 = Not answered at all or only vaguely mentioned\n\n"
@@ -50,31 +49,30 @@ CONTEXT_EVAL_TEMPLATE = (
     "Follow these examples below:\n"
     "Example 1:\n"
     "Query: \"What is the capital of France?\"\n"
-    "<context>\nThe theory of relativity was developed by Albert Einstein.\n</context>\n"
+    "<response>\nThe theory of relativity was developed by Albert Einstein.\n</response>\n"
     "Feedback:\n"
-    "Q1: Score - 0.0 | Explanation - Context is unrelated to France or its capital.\n"
-    "Q2: Score - 0.0 | Explanation - Context cannot answer the query.\n"
+    "Q1: Score - 0.0 | Explanation - Response is unrelated to France or its capital.\n"
+    "Q2: Score - 0.0 | Explanation - Response does not answer the query.\n"
     "Example 2:\n"
     "Query: \"What is the capital of France?\"\n"
-    "<context>\nParis hosts many tourists in France.\n</context>\n"
+    "<response>\nParis is a major city in France.\n</response>\n"
     "Feedback:\n"
-    "Q1: Score - 0.5 | Explanation - Context mentions Paris and France, partially relevant.\n"
-    "Q2: Score - 0.0 | Explanation - Context does not specify Paris as the capital.\n"
+    "Q1: Score - 0.5 | Explanation - Response mentions Paris and France, partially relevant.\n"
+    "Q2: Score - 0.0 | Explanation - Response does not specify Paris as the capital.\n"
     "Example 3:\n"
     "Query: \"What is the capital of France?\"\n"
-    "<context>\nThe capital of France is Paris.\n</context>\n"
+    "<response>\nThe capital of France is Paris.\n</response>\n"
     "Feedback:\n"
-    "Q1: Score - 1.0 | Explanation - Context directly mentions the capital of France.\n"
-    "Q2: Score - 1.0 | Explanation - Context fully answers the query.\n"
+    "Q1: Score - 1.0 | Explanation - Response directly addresses the capital of France.\n"
+    "Q2: Score - 1.0 | Explanation - Response is factually accurate and complete.\n"
     "Given the instructions above, generate feedback.\n"
     "Query: \"{query_str}\"\n"
-    "<context>\n{context_str}\n</context>\n"
+    "<response>\n{response_str}\n</response>\n"
     "Feedback:\n"
 )
 
-# Adjusted for new max score of 2.0 (1.0 per question)
 _DEFAULT_SCORE_THRESHOLD = 2.0
-_PASSING_SCORE_THRESHOLD = 1.0  # Adjusted for new scoring system
+_PASSING_SCORE_THRESHOLD = 1.0
 
 
 def default_parser_function(response: str) -> tuple[Optional[float], Optional[str]]:
@@ -114,38 +112,47 @@ def parse_feedback(feedback: Optional[str]) -> EvaluationDetails:
                 score=score,
                 explanation=explanation,
                 question=question,
-                answer=""  # No YES/NO answer anymore
+                answer=""
             ))
     return EvaluationDetails(comments=comments)
 
 
-def evaluate_context_relevancy(
+def evaluate_response_relevancy(
     query: str,
-    contexts: str | list[str],
+    response: str,
     model: LLMModelType = "qwen3-1.7b-4bit",
     questions: list[str] = EVAL_QUESTIONS,
-    eval_template: str = CONTEXT_EVAL_TEMPLATE,
+    eval_template: str = RESPONSE_EVAL_TEMPLATE,
     score_threshold: float = _DEFAULT_SCORE_THRESHOLD,
     passing_score_threshold: float = _PASSING_SCORE_THRESHOLD,
     **kwargs
 ) -> EvaluationResult:
-    """Evaluates the relevancy of the context to the query using MLX stream_chat."""
-    if isinstance(contexts, str):
-        contexts = [contexts]
+    """
+    Evaluates the relevancy and accuracy of the response to the query using MLX stream_chat.
 
-    context_str = "\n".join(contexts)
+    Args:
+        query: The user's query.
+        response: The response to evaluate.
+        model: The LLM model to use for evaluation.
+        questions: List of evaluation questions.
+        eval_template: Template for the evaluation prompt.
+        score_threshold: Threshold for maximum score.
+        passing_score_threshold: Threshold for passing score.
+        **kwargs: Additional arguments for stream_chat.
+
+    Returns:
+        EvaluationResult containing the evaluation details.
+    """
     questions_str = "\n".join(
         [f"{idx + 1}. {q}" for idx, q in enumerate(questions)])
     prompt = eval_template.format(
         questions_str=questions_str,
         query_str=query,
-        context_str=context_str
+        response_str=response
     )
-
-    logger.debug("Evaluating context relevancy with prompt:\n%s", prompt)
-
+    logger.debug("Evaluating response relevancy with prompt:\n%s", prompt)
     response_text = ""
-    for response in stream_chat(
+    for response_chunk in stream_chat(
         messages=[{"role": "user", "content": prompt}],
         model=model,
         max_tokens=512,
@@ -156,21 +163,19 @@ def evaluate_context_relevancy(
                     " 0.0", " Score", " Explanation"],
         **kwargs
     ):
-        if response.get("choices"):
-            content = response["choices"][0].get(
+        if response_chunk.get("choices"):
+            content = response_chunk["choices"][0].get(
                 "message", {}).get("content", "")
             response_text += content
-
     details = parse_feedback(response_text)
     score = sum(
         comment.score for comment in details.comments) if details.comments else 0.0
     feedback = response_text if response_text else None
     passing = score >= passing_score_threshold
     excerpts = parse_excerpts(feedback) if passing else []
-
     return EvaluationResult(
         query=query,
-        contexts=contexts,
+        response=response,
         score=score,
         feedback=feedback,
         passing=passing,

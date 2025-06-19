@@ -1,13 +1,13 @@
-from collections import OrderedDict
+from collections import defaultdict, OrderedDict
 import re
 import os
 from jet.file.utils import load_data, load_data_from_directories
-from typing import Optional, List
+from typing import Optional, List, Dict
 from jet.search.formatters import decode_encoded_characters
 from tqdm import tqdm
 from jet.logger import time_it
 from jet.wordnet.words import get_words
-from gensim.corpora import Dictionary
+
 
 UNIGRAMS_FILE = "server/static/unigrams/unigrams.bin"
 DICTIONARY_FILE = "server/static/unigrams/en_tl_dictionary.bin"
@@ -31,6 +31,36 @@ TRANSLATION_FILES = [
     # 'server/static/models/dost-asti-gpt2/base_model/datasets/base/glosbe_top_translations.json',
     # 'server/static/datasets/translations/Ramos-Ramos_nllb-eng-tgl-600k.json',
 ]
+
+
+class Dictionary:
+    """Custom dictionary class to replace gensim.corpora.Dictionary"""
+
+    def __init__(self, documents: List[List[str]]):
+        self.token2id: Dict[str, int] = {}
+        self.dfs: Dict[int, int] = defaultdict(int)
+        self.num_docs = 0
+        self._build_dictionary(documents)
+
+    def _build_dictionary(self, documents: List[List[str]]) -> None:
+        """Build dictionary from list of tokenized documents"""
+        current_id = 0
+        for doc in documents:
+            self.num_docs += 1
+            unique_tokens = set(doc)
+            for token in unique_tokens:
+                if token not in self.token2id:
+                    self.token2id[token] = current_id
+                    current_id += 1
+                token_id = self.token2id[token]
+                self.dfs[token_id] += 1
+
+    def __getitem__(self, token_id: int) -> str:
+        """Get token from token_id"""
+        for token, tid in self.token2id.items():
+            if tid == token_id:
+                return token
+        raise KeyError(f"Token ID {token_id} not found")
 
 
 def get_base_words():

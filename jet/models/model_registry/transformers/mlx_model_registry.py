@@ -1,199 +1,217 @@
 from abc import ABC
-from typing import Optional, Dict, Literal
+from typing import Optional, Dict, Literal, List, Iterator, TypedDict, Union
 from threading import Lock
+from jet.llm.mlx.config import DEFAULT_MODEL
 from jet.logger import logger
-from jet.models.convert import convert_hf_to_mlx
-from jet.models.utils import get_local_repo_dir
+from pathlib import Path
 import mlx.core as mx
 import mlx.nn as nn
-import numpy as np
 from transformers import AutoConfig, PretrainedConfig
-from pathlib import Path
 from tokenizers import Tokenizer
-from .base import TransformersModelRegistry, ModelFeatures
+from jet.llm.mlx.base import MLX
+from jet.llm.mlx.client import CompletionResponse, Message
+from jet.models.model_types import LLMModelType, RoleMapping, Tool
+from .base import TransformersModelRegistry
+from jet.models.utils import resolve_model_value, get_local_repo_dir
+
+
+class ModelFeatures(TypedDict):
+    """Configuration options for loading models."""
+    model: LLMModelType
+    adapter_path: Optional[str]
+    draft_model: Optional[LLMModelType]
+    trust_remote_code: bool
+    chat_template: Optional[str]
+    use_default_chat_template: bool
+    dbname: Optional[str]
+    user: Optional[str]
+    password: Optional[str]
+    host: Optional[str]
+    port: Optional[str]
+    session_id: Optional[str]
+    with_history: bool
+    seed: Optional[int]
+    log_dir: Optional[str]
+    device: Optional[Literal["cpu", "mps"]]
 
 
 class MLXModelRegistry(TransformersModelRegistry):
     """Abstract base class for MLX-based model registries."""
-    _instance = None
-    _lock = Lock()
     _models: Dict[str, nn.Module] = {}
     _tokenizers: Dict[str, Tokenizer] = {}
     _configs: Dict[str, PretrainedConfig] = {}
+    _model_lock = Lock()  # Lock for thread-safe model caching
+    _tokenizer_lock = Lock()  # Lock for thread-safe tokenizer caching
+    _config_lock = Lock()  # Lock for thread-safe config caching
 
-    def load_model(self, model_id: str, features: Optional[ModelFeatures] = None) -> Optional[nn.Module]:
-        """Load or retrieve an MLX model."""
-        with self._lock:
-            if model_id in self._models:
+    @staticmethod
+    def load_model(
+        # Model Config
+        model: LLMModelType = DEFAULT_MODEL,
+        adapter_path: Optional[str] = None,
+        draft_model: Optional[LLMModelType] = None,
+        trust_remote_code: bool = False,
+        chat_template: Optional[str] = None,
+        use_default_chat_template: bool = True,
+        # DB Config
+        dbname: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        host: Optional[str] = None,
+        port: Optional[str] = None,
+        session_id: Optional[str] = None,
+        with_history: bool = False,
+        seed: Optional[int] = None,
+        log_dir: Optional[str] = None,
+        device: Optional[Literal["cpu", "mps"]] = "mps"
+    ) -> MLX:
+        """Load or retrieve an MLX model statically."""
+        # Get the Singleton instance
+        instance = MLXModelRegistry()
+        resolved_model_id = resolve_model_value(model)
+        with instance._model_lock:
+            if resolved_model_id in instance._models:
                 logger.info(
-                    f"Reusing existing MLX model for model_id: {model_id}")
-                return self._models[model_id]
-            logger.info(f"Loading MLX model for model_id: {model_id}")
-            try:
-                model = self._load_mlx_model(model_id, features or {})
-                self._models[model_id] = model
-                return model
-            except Exception as e:
-                logger.error(f"Failed to load MLX model {model_id}: {str(e)}")
-                raise ValueError(
-                    f"Could not load MLX model {model_id}: {str(e)}")
+                    f"Reusing existing MLX model for model_id: {resolved_model_id}")
+                return instance._models[resolved_model_id]
 
-    def _load_mlx_model(self, model_id: str, features: ModelFeatures) -> nn.Module:
-        """Load an MLX model with specified device and precision."""
+        logger.info(f"Loading MLX model for model_id: {resolved_model_id}")
         try:
-            device = features.get("device", "mps")
-            if device not in ["cpu", "mps"]:
-                logger.error(
-                    f"Unsupported device {device} for MLX model {model_id}")
-                raise ValueError(
-                    f"Device {device} is not supported for MLX (use 'cpu' or 'mps')")
-            precision = features.get("precision", "fp32")
-            if precision not in ["fp16", "fp32"]:
-                logger.error(
-                    f"Unsupported precision {precision} for MLX model {model_id}")
-                raise ValueError(
-                    f"Precision {precision} is not supported for MLX (use 'fp16' or 'fp32')")
-            if device == "cpu":
-                mx.set_default_device(mx.cpu)
-            else:
-                mx.set_default_device(mx.gpu)
-            dtype = mx.float16 if precision == "fp16" else mx.float32
-            cache_dir = Path(get_local_repo_dir(model_id))
-            snapshot_dir = cache_dir / "snapshots"
-            model_path = next((p for p in snapshot_dir.glob(
-                "*/weights.npz") if p.is_file()), None)
-            if not model_path or not model_path.exists():
-                logger.info(
-                    f"weights.npz not found in {snapshot_dir}. Attempting to convert from safetensors.")
-                weights_dir = cache_dir / "weights"
-                safetensors_path = next((p.parent for p in snapshot_dir.glob(
-                    "*/model.safetensors") if p.is_file()), None)
-                if not safetensors_path:
-                    logger.error(
-                        f"No safetensors files found in {snapshot_dir}")
-                    raise FileNotFoundError(
-                        f"No model.safetensors or model.safetensors.index.json found in {snapshot_dir}")
-                convert_hf_to_mlx(
-                    hf_path=str(safetensors_path),
-                    weights_dir=str(weights_dir),
-                    quantize=features.get("quantize", False),
-                    q_group_size=features.get("q_group_size", 64),
-                    q_bits=features.get("q_bits", 4),
-                    dtype="float32" if precision == "fp32" else "float16",
-                    quant_predicate=features.get("quant_predicate", None),
-                    revision=None,
-                    overwrite=True,
-                    model_id=model_id,  # Pass model_id to convert_hf_to_mlx
-                )
-                model_path = weights_dir / "weights.npz"
-                if not model_path.exists():
-                    logger.error(
-                        f"Failed to generate weights.npz at {model_path}")
-                    raise FileNotFoundError(
-                        f"Model weights for {model_id} not found and could not be converted in {snapshot_dir}. "
-                        f"Please ensure the model weights are downloaded and compatible."
-                    )
-            weights = np.load(model_path, allow_pickle=True)
-            model_params = {k: mx.array(v, dtype=dtype)
-                            for k, v in weights.items()}
-
-            class MLXModel(nn.Module):
-                def __init__(self):
-                    super().__init__()
-                    self.params = model_params
-
-                def __call__(self, x):
-                    return x
-            model = MLXModel()
-            model.eval()
-            logger.info(
-                f"Successfully loaded MLX model {model_id} on device {device} with {precision} precision")
+            model = instance._load_mlx_model(
+                model=resolved_model_id,
+                adapter_path=adapter_path,
+                draft_model=draft_model,
+                trust_remote_code=trust_remote_code,
+                chat_template=chat_template,
+                use_default_chat_template=use_default_chat_template,
+                dbname=dbname,
+                user=user,
+                password=password,
+                host=host,
+                port=port,
+                session_id=session_id,
+                with_history=with_history,
+                seed=seed,
+                log_dir=log_dir,
+                device=device,
+            )
+            with instance._model_lock:
+                instance._models[resolved_model_id] = model
             return model
         except Exception as e:
-            logger.error(f"Failed to load MLX model {model_id}: {str(e)}")
-            raise ValueError(f"Could not load MLX model {model_id}: {str(e)}")
+            logger.error(
+                f"Failed to load MLX model {resolved_model_id}: {str(e)}")
+            raise ValueError(
+                f"Could not load MLX model {resolved_model_id}: {str(e)}")
+
+    def _load_mlx_model(self, model: LLMModelType, device: Optional[Literal["cpu", "mps"]], *args, **kwargs) -> MLX:
+        """Load an MLX model with specified device, precision, and generation features."""
+        try:
+            model = MLX(model=model, device=device, *args, **kwargs)
+            logger.info(
+                f"Successfully loaded MLX model {model} on device {device}")
+            return model
+        except Exception as e:
+            logger.error(f"Failed to load MLX model {model}: {str(e)}")
+            raise ValueError(f"Could not load MLX model {model}: {str(e)}")
 
     def get_tokenizer(self, model_id: str) -> Optional[Tokenizer]:
         """Load or retrieve a tokenizer for the MLX model."""
-        with self._lock:
-            if model_id in self._tokenizers:
-                logger.info(f"Reusing tokenizer for model_id: {model_id}")
-                return self._tokenizers[model_id]
-            logger.info(f"Loading tokenizer for model_id: {model_id}")
-            try:
-                cache_dir = Path(get_local_repo_dir(model_id))
-                snapshot_dir = cache_dir / "snapshots"
-                tokenizer_files = list(snapshot_dir.glob("*/tokenizer.json"))
-                logger.debug(
-                    f"Found {len(tokenizer_files)} tokenizer.json files in {snapshot_dir}")
-                for tokenizer_path in tokenizer_files:
-                    try:
-                        resolved_path = tokenizer_path.resolve()
-                        logger.debug(
-                            f"Resolved {tokenizer_path} to {resolved_path}")
-                        if not resolved_path.is_file():
-                            logger.warning(
-                                f"Resolved path is not a file: {resolved_path}")
-                            continue
-                        tokenizer = Tokenizer.from_file(str(resolved_path))
-                        logger.info(
-                            f"Successfully loaded tokenizer from local cache: {resolved_path}")
-                        self._tokenizers[model_id] = tokenizer
-                        return tokenizer
-                    except Exception as local_e:
-                        logger.error(
-                            f"Failed to load tokenizer from {resolved_path}: {str(local_e)}")
+        resolved_model_id = resolve_model_value(model_id)
+        with self._tokenizer_lock:
+            if resolved_model_id in self._tokenizers:
+                logger.info(
+                    f"Reusing tokenizer for model_id: {resolved_model_id}")
+                return self._tokenizers[resolved_model_id]
+
+        logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
+        try:
+            cache_dir = Path(get_local_repo_dir(resolved_model_id))
+            snapshot_dir = cache_dir / "snapshots"
+            tokenizer_files = list(snapshot_dir.glob("*/tokenizer.json"))
+            logger.debug(
+                f"Found {len(tokenizer_files)} tokenizer.json files in {snapshot_dir}")
+
+            for tokenizer_path in tokenizer_files:
+                try:
+                    resolved_path = tokenizer_path.resolve()
+                    logger.debug(
+                        f"Resolved {tokenizer_path} to {resolved_path}")
+                    if not resolved_path.is_file():
+                        logger.warning(
+                            f"Resolved path is not a file: {resolved_path}")
                         continue
-                error_msg = f"Could not load tokenizer for {model_id} from local cache."
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-            except Exception as e:
-                logger.error(f"Failed to load tokenizer {model_id}: {str(e)}")
-                raise ValueError(
-                    f"Could not load tokenizer {model_id}: {str(e)}")
+                    tokenizer = Tokenizer.from_file(str(resolved_path))
+                    logger.info(
+                        f"Successfully loaded tokenizer from local cache: {resolved_path}")
+                    with self._tokenizer_lock:
+                        self._tokenizers[resolved_model_id] = tokenizer
+                    return tokenizer
+                except Exception as local_e:
+                    logger.error(
+                        f"Failed to load tokenizer from {resolved_path}: {str(local_e)}")
+                    continue
+
+            error_msg = f"Could not load tokenizer for {resolved_model_id} from local cache."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        except Exception as e:
+            logger.error(
+                f"Failed to load tokenizer {resolved_model_id}: {str(e)}")
+            raise ValueError(
+                f"Could not load tokenizer {resolved_model_id}: {str(e)}")
 
     def get_config(self, model_id: str) -> Optional[PretrainedConfig]:
         """Load or retrieve a config for the MLX model."""
-        with self._lock:
-            if model_id in self._configs:
-                logger.info(f"Reusing config for model_id: {model_id}")
-                return self._configs[model_id]
-            logger.info(f"Loading config for model_id: {model_id}")
-            try:
-                cache_dir = Path(get_local_repo_dir(model_id))
-                snapshot_dir = cache_dir / "snapshots"
-                config_files = list(snapshot_dir.glob("*/config.json"))
-                logger.debug(
-                    f"Found {len(config_files)} config.json files in {snapshot_dir}")
-                for config_path in config_files:
-                    try:
-                        resolved_path = config_path.resolve()
-                        logger.debug(
-                            f"Resolved {config_path} to {resolved_path}")
-                        if not resolved_path.is_file():
-                            logger.warning(
-                                f"Resolved path is not a file: {resolved_path}")
-                            continue
-                        config = AutoConfig.from_pretrained(str(resolved_path))
-                        logger.info(
-                            f"Successfully loaded config from local cache: {resolved_path}")
-                        self._configs[model_id] = config
-                        return config
-                    except Exception as local_e:
-                        logger.error(
-                            f"Failed to load config from {resolved_path}: {str(local_e)}")
+        resolved_model_id = resolve_model_value(model_id)
+        with self._config_lock:
+            if resolved_model_id in self._configs:
+                logger.info(
+                    f"Reusing config for model_id: {resolved_model_id}")
+                return self._configs[resolved_model_id]
+
+        logger.info(f"Loading config for model_id: {resolved_model_id}")
+        try:
+            cache_dir = Path(get_local_repo_dir(resolved_model_id))
+            snapshot_dir = cache_dir / "snapshots"
+            config_files = list(snapshot_dir.glob("*/config.json"))
+            logger.debug(
+                f"Found {len(config_files)} config.json files in {snapshot_dir}")
+
+            for config_path in config_files:
+                try:
+                    resolved_path = config_path.resolve()
+                    logger.debug(f"Resolved {config_path} to {resolved_path}")
+                    if not resolved_path.is_file():
+                        logger.warning(
+                            f"Resolved path is not a file: {resolved_path}")
                         continue
-                error_msg = f"Could not load config for {model_id} from local cache."
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-            except Exception as e:
-                logger.error(f"Failed to load config {model_id}: {str(e)}")
-                raise ValueError(f"Could not load config {model_id}: {str(e)}")
+                    config = AutoConfig.from_pretrained(str(resolved_path))
+                    logger.info(
+                        f"Successfully loaded config from local cache: {resolved_path}")
+                    with self._config_lock:
+                        self._configs[resolved_model_id] = config
+                    return config
+                except Exception as local_e:
+                    logger.error(
+                        f"Failed to load config from {resolved_path}: {str(local_e)}")
+                    continue
+
+            error_msg = f"Could not load config for {resolved_model_id} from local cache."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        except Exception as e:
+            logger.error(
+                f"Failed to load config {resolved_model_id}: {str(e)}")
+            raise ValueError(
+                f"Could not load config {resolved_model_id}: {str(e)}")
 
     def clear(self) -> None:
         """Clear all cached models, tokenizers, and configs."""
-        with self._lock:
+        with self._model_lock:
             self._models.clear()
+        with self._tokenizer_lock:
             self._tokenizers.clear()
+        with self._config_lock:
             self._configs.clear()
-            logger.info("MLX registry cleared")
+        logger.info("MLX registry cleared")
