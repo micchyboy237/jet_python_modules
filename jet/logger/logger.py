@@ -5,7 +5,7 @@ import traceback
 import unidecode
 import argparse
 from datetime import datetime
-from typing import List, Callable, Optional, Any, Union, Literal
+from typing import List, Callable, Optional, Any, Union, Literal, Iterable
 from jet.logger.config import DEFAULT_LOGGER, COLORS, RESET, colorize_log
 from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
@@ -85,6 +85,102 @@ class CustomLogger:
             fmt, logging.Formatter) else logging.Formatter(fmt)
         for handler in self.logger.handlers:
             handler.setFormatter(formatter)
+
+    def set_config(
+        self,
+        *,
+        filename: Optional[str] = None,
+        filemode: str = "a",
+        format: str = "%(message)s",
+        datefmt: Optional[str] = None,
+        style: Literal["%", "{", "$"] = "%",
+        level: Optional[Literal["DEBUG", "INFO",
+                                "WARNING", "ERROR", "CRITICAL"]] = None,
+        stream: Optional[Any] = None,
+        handlers: Optional[Iterable[logging.Handler]] = None,
+        force: bool = False,
+        encoding: Optional[str] = None,
+        errors: Optional[str] = None,
+    ) -> None:
+        """
+        Configure the logger with settings similar to logging.basicConfig.
+
+        Args:
+            filename: If specified, log messages to this file.
+            filemode: Mode to open the file ('a' for append, 'w' for overwrite). Default is 'a'.
+            format: Format string for log messages. Default is '%(message)s'.
+            datefmt: Format string for timestamps in log messages.
+            style: Format style for the formatter ('%', '{', or '$'). Default is '%'.
+            level: Logging level for all handlers. If None, existing levels are unchanged.
+            stream: Stream for console output. If specified, replaces existing StreamHandler.
+            handlers: Iterable of handlers to set. If specified, replaces all existing handlers.
+            force: If True, clear all existing handlers before applying new configuration.
+            encoding: Encoding for the file handler, if filename is specified.
+            errors: Error handling scheme for the file handler, if filename is specified.
+        """
+        # Clear existing handlers if force is True
+        if force:
+            self.logger.handlers.clear()
+
+        # Update formatter with the provided format, datefmt, and style
+        formatter = logging.Formatter(
+            fmt=format,
+            datefmt=datefmt,
+            style=style
+        )
+        self.formatter = formatter
+
+        # Update log file and file-related settings
+        if filename:
+            self.log_file = filename
+            self.overwrite = filemode == "w"
+            if self.overwrite and os.path.exists(self.log_file):
+                os.remove(self.log_file)
+            # Remove existing FileHandler, if any
+            for handler in self.logger.handlers[:]:
+                if isinstance(handler, logging.FileHandler):
+                    self.logger.removeHandler(handler)
+            file_handler = logging.FileHandler(
+                filename,
+                mode=filemode,
+                encoding=encoding,
+                errors=errors
+            )
+            file_handler.setLevel(
+                self.file_level if level is None else level.upper())
+            file_handler.setFormatter(self.formatter)
+            self.logger.addHandler(file_handler)
+
+        # Update console handler with stream, if provided
+        if stream is not None:
+            for handler in self.logger.handlers[:]:
+                if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                    self.logger.removeHandler(handler)
+            console_handler = logging.StreamHandler(stream)
+            console_handler.setLevel(
+                self.console_level if level is None else level.upper())
+            console_handler.setFormatter(self.formatter)
+            self.logger.addHandler(console_handler)
+
+        # Replace all handlers if handlers are provided
+        if handlers is not None:
+            self.logger.handlers.clear()
+            for handler in handlers:
+                handler.setFormatter(self.formatter)
+                if level is not None:
+                    handler.setLevel(level.upper())
+                self.logger.addHandler(handler)
+
+        # Update levels for all handlers if level is provided
+        if level is not None:
+            self.console_level = level.upper()
+            self.file_level = level.upper()
+            for handler in self.logger.handlers:
+                handler.setLevel(self.console_level)
+
+        # Debug log to inspect configuration
+        print(
+            f"DEBUG: Configured logger with filename={filename}, level={level}, format={format}")
 
     def custom_logger_method(self, level: str) -> Callable[[str, Optional[bool]], None]:
         def wrapper(

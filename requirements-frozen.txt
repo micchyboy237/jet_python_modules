@@ -3,6 +3,7 @@ blake3==1.0.5
 bs4==0.0.2
 chromadb==1.0.12
 compressed-tensors==0.9.4
+coremltools==8.3.0
 depyf==0.18.0
 einops==0.8.1
 email_validator==2.2.0
@@ -23,6 +24,7 @@ lxml_html_clean==0.4.2
 matplotlib==3.10.3
 mistral_common==1.5.6
 -e git+ssh://git@github.com/ml-explore/mlx-lm.git@e673a97c80a5e1108aff93113ff2ee8df49918e0#egg=mlx_lm
+-e git+ssh://git@github.com/yannbanas/mrkdwn_analysis.git@0f0b1808f3405cfe200f94286a3ec087e9cd2ad7#egg=mrkdwn_analysis
 msgspec==0.19.0
 ninja==1.11.1.4
 onnx==1.18.0
@@ -88,4 +90,5 @@ watchfiles==1.0.5
 webcolors==24.11.1
 webdriver-manager==4.0.2
 wikipedia==1.4.0
+xgboost==3.0.2
 yt-dlp==2025.3.31

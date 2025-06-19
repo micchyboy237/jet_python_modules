@@ -5,19 +5,13 @@ from typing import Dict, List, Optional, TypedDict, Union
 from markdownify import markdownify
 from mrkdwn_analysis import MarkdownAnalyzer
 
+from jet.code.markdown_analyzer import analyze_markdown, MarkdownAnalysisResult
 from jet.file.utils import save_file
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-
-class MarkdownAnalysisResult(TypedDict):
-    headers: int
-    paragraphs: int
-    links: int
-    code_blocks: int
 
 
 def convert_html_to_markdown(html_input: Union[str, Path]) -> str:
@@ -63,17 +57,8 @@ def analyze_markdown_file(md_path: str | Path) -> MarkdownAnalysisResult:
 
     logger.info("Analyzing Markdown file: %s", md_path)
     try:
-        analyzer = MarkdownAnalyzer(str(md_path))
-        analysis = analyzer.analyse()
-
-        result: MarkdownAnalysisResult = {
-            'headers': analysis.get('headers', 0),
-            'paragraphs': analysis.get('paragraphs', 0),
-            'links': analysis.get('links', 0),
-            'code_blocks': analysis.get('code_blocks', 0)
-        }
-        logger.info("Analysis result: %s", result)
-        return result
+        analysis = analyze_markdown(str(md_path))
+        return analysis
 
     except Exception as e:
         logger.error("Failed to analyze Markdown: %s", e)

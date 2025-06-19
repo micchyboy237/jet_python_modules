@@ -60,7 +60,6 @@ class TestAnalyzeMarkdown:
 
     def test_given_string_content_then_analyzes_and_returns_results(self, sample_md_content):
         """Given markdown content as a string, it should analyze and return results."""
-        # Arrange
         expected_results: MarkdownAnalysisResult = {
             "headers": [
                 {"level": 1, "text": "Project Overview"},
@@ -86,21 +85,25 @@ class TestAnalyzeMarkdown:
             "lists": [
                 [
                     {"text": "Task 1: Implement login", "type": "unordered",
-                        "task_item": True, "checked": False},
+                        "task_item": True, "checked": False, "level": None},
                     {"text": "Task 2: Add dashboard", "type": "unordered",
-                        "task_item": True, "checked": True},
+                        "task_item": True, "checked": True, "level": None},
                     {"text": "Task 3: Optimize performance",
-                        "type": "unordered", "task_item": False}
+                        "type": "unordered", "task_item": False, "level": None}
                 ],
                 [
-                    {"text": "List item 1", "type": "unordered", "task_item": False},
-                    {"text": "Nested item", "type": "unordered",
+                    {"text": "List item", "type": "unordered",
+                        "task_item": False, "level": None},
+                    {"text": "Nested", "type": "unordered",
                         "task_item": False, "level": 2},
-                    {"text": "List item 2", "type": "unordered", "task_item": False}
+                    {"text": "List item 2", "type": "unordered",
+                        "task_item": False, "level": None}
                 ],
                 [
-                    {"text": "Ordered list", "type": "ordered"},
-                    {"text": "Another item", "type": "ordered"}
+                    {"text": "Ordered list", "type": "ordered",
+                        "task_item": False, "level": None},
+                    {"text": "Another item", "type": "ordered",
+                        "task_item": False, "level": None}
                 ]
             ],
             "tables": [
@@ -169,13 +172,13 @@ class TestAnalyzeMarkdown:
                 {"type": "italic", "content": "Italic"},
                 {"type": "italic", "content": "bold"},
                 {"type": "italic", "content": "*bold italic"},
-                {"type": "html_block", "content": '<div class="alert">This is an HTML block.</div>\n<span class="badge">New</span> inline HTML.'},
+                {"type": "html_block", "content": '<div class="alert">This is an HTML block.</div>\n<span class="badge">New</span>'},
                 {"type": "paragraph",
                     "content": "[^1]: This is a footnote reference.\n[^1]: Footnote definition here."},
                 {"type": "unordered_list",
-                    "content": "List item 1\nNested item\nList item 2"},
-                {"type": "list_item", "content": "List item 1", "checked": None},
-                {"type": "list_item", "content": "Nested item", "checked": None},
+                    "content": "List item\nNested\nList item 2"},
+                {"type": "list_item", "content": "List item", "checked": None},
+                {"type": "list_item", "content": "Nested", "checked": None},
                 {"type": "list_item", "content": "List item 2", "checked": None},
                 {"type": "ordered_list", "content": "Ordered list\nAnother item"},
                 {"type": "list_item", "content": "Ordered list", "checked": None},
@@ -185,7 +188,6 @@ class TestAnalyzeMarkdown:
             "char_count": [374],
             "analysis": {"summary": "Comprehensive markdown with diverse elements"}
         }
-
         mock_analyzer = Mock()
         mock_analyzer.identify_headers.return_value = expected_results["headers"]
         mock_analyzer.identify_paragraphs.return_value = expected_results["paragraphs"]
@@ -200,10 +202,13 @@ class TestAnalyzeMarkdown:
                 {"text": "Task 3: Optimize performance", "task_item": False}
             ],
             [
-                {"text": "List item 1", "task_item": False},
-                {"text": "Nested item", "task_item": False},
-                {"text": "List item 2", "task_item": False},
-                {"text": "Ordered list\nAnother item", "task_item": False}
+                {"text": "List item", "task_item": False},
+                {"text": "Nested", "task_item": False},
+                {"text": "List item 2", "task_item": False}
+            ],
+            [
+                {"text": "Ordered list", "task_item": False},
+                {"text": "Another item", "task_item": False}
             ]
         ]
         mock_analyzer.identify_tables.return_value = expected_results["tables"]
@@ -214,64 +219,55 @@ class TestAnalyzeMarkdown:
         mock_analyzer.identify_task_items.return_value = expected_results["task_items"]
         mock_analyzer.identify_html_blocks.return_value = expected_results["html_blocks"]
         mock_analyzer.identify_html_inline.return_value = expected_results["html_inline"]
-        mock_analyzer.get_tokens_sequential.return_value = [
-            t for t in expected_results["tokens_sequential"] if t["type"] not in ("unordered_list", "ordered_list")
-        ]
+        mock_analyzer.get_tokens_sequential.return_value = expected_results["tokens_sequential"]
         mock_analyzer.count_words.return_value = expected_results["word_count"]["word_count"]
         mock_analyzer.count_characters.return_value = expected_results["char_count"][0]
         mock_analyzer.analyse.return_value = expected_results["analysis"]
-
         with patch("jet.code.markdown_analyzer.MarkdownAnalyzer", return_value=mock_analyzer):
-            # Act
             result = analyze_markdown(sample_md_content)
-
-            # Assert
             assert result == expected_results
 
     def test_given_file_path_then_analyzes_and_returns_results(self):
         """Given a file path, it should read the file, analyze, and return results."""
-        # Arrange
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
             temp_file.write("""
-# Project Overview
-Welcome to our **project**! Featuring a [website](https://project.com).
+        # Project Overview
+        Welcome to our **project**! Featuring a [website](https://project.com).
 
-> **Note**: Check [docs](https://docs.project.com).
+        > **Note**: Check [docs](https://docs.project.com).
 
-## Features
-- [ ] Task 1: Implement login
-- [x] Task 2: Add dashboard
+        ## Features
+        - [ ] Task 1: Implement login
+        - [x] Task 2: Add dashboard
 
-### Technical Details
-```python
-def greet():
-    pass
-```
+        ### Technical Details
+        ```python
+        def greet():
+        pass
+        ```
 
-#### API Endpoints
-| Endpoint   | Method | Description |
-|------------|--------|-------------|
-| /api/users | GET    | Fetch users |
+        #### API Endpoints
+        | Endpoint | Method | Description |
+        |----------|--------|-------------|
+        | /api/users | GET | Fetch users |
 
-##### Inline Code
-Use `print()`.
+        ##### Inline Code
+        Use `print()`.
 
-###### Emphasis
-*Italic* text.
+        ###### Emphasis
+        *Italic* text.
 
-<div class="alert">HTML block.</div>
-<span class="badge">Inline</span>
+        <div class="alert">HTML block.</div>
+        <span class="badge">Inline</span>
 
-[^1]: Footnote.
-[^1]: Definition.
+        [^1]: Footnote.
+        [^1]: Definition.
 
-- List item
-  - Nested
-
-1. Ordered item
-""")
+        - List item
+        - Nested
+        1. Ordered item
+        """)
             temp_md_path = Path(temp_file.name)
-
         expected_results: MarkdownAnalysisResult = {
             "headers": [
                 {"level": 1, "text": "Project Overview"},
@@ -296,17 +292,17 @@ Use `print()`.
             "lists": [
                 [
                     {"text": "Task 1: Implement login", "type": "unordered",
-                        "task_item": True, "checked": False},
+                        "task_item": True, "checked": False, "level": None},
                     {"text": "Task 2: Add dashboard", "type": "unordered",
-                        "task_item": True, "checked": True}
+                        "task_item": True, "checked": True, "level": None}
                 ],
                 [
-                    {"text": "List item", "type": "unordered", "task_item": False},
+                    {"text": "List item", "type": "unordered",
+                        "task_item": False, "level": None},
                     {"text": "Nested", "type": "unordered",
-                        "task_item": False, "level": 2}
-                ],
-                [
-                    {"text": "Ordered item", "type": "ordered"}
+                        "task_item": False, "level": 2},
+                    {"text": "Ordered item", "type": "ordered",
+                        "task_item": False, "level": None}
                 ]
             ],
             "tables": [
@@ -376,7 +372,6 @@ Use `print()`.
             "char_count": [260],
             "analysis": {"summary": "Markdown with multiple elements"}
         }
-
         mock_analyzer = Mock()
         mock_analyzer.identify_headers.return_value = expected_results["headers"]
         mock_analyzer.identify_paragraphs.return_value = expected_results["paragraphs"]
@@ -403,18 +398,12 @@ Use `print()`.
         mock_analyzer.identify_task_items.return_value = expected_results["task_items"]
         mock_analyzer.identify_html_blocks.return_value = expected_results["html_blocks"]
         mock_analyzer.identify_html_inline.return_value = expected_results["html_inline"]
-        mock_analyzer.get_tokens_sequential.return_value = [
-            t for t in expected_results["tokens_sequential"] if t["type"] not in ("unordered_list", "ordered_list")
-        ]
+        mock_analyzer.get_tokens_sequential.return_value = expected_results["tokens_sequential"]
         mock_analyzer.count_words.return_value = expected_results["word_count"]["word_count"]
         mock_analyzer.count_characters.return_value = expected_results["char_count"][0]
         mock_analyzer.analyse.return_value = expected_results["analysis"]
-
         with patch("jet.code.markdown_analyzer.MarkdownAnalyzer", return_value=mock_analyzer):
-            # Act
             result = analyze_markdown(temp_md_path)
-
-            # Assert
             assert result == expected_results
 
     def test_given_nonexistent_file_path_then_raises_os_error(self):
