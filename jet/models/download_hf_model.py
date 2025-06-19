@@ -6,7 +6,7 @@ logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-repo_id = "yeniguno/bert-uncased-intent-classification"
+repo_id = "sentence-transformers/static-retrieval-mrl-en-v1"
 cache_dir = "/Users/jethroestrada/.cache/huggingface/hub"
 
 logger.info(f"Downloading files from repo id: {repo_id}...")

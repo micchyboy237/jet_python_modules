@@ -324,8 +324,9 @@ class CustomLogger:
     def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
         if name.upper() in COLORS:
             return self.custom_logger_method(name.upper())
-        raise AttributeError(
-            f"'CustomLogger' object has no attribute '{name}'")
+        # raise AttributeError(
+        #     f"'CustomLogger' object has no attribute '{name}'")
+        self.warning(f"'CustomLogger' object has no attribute '{name}'")
 
 
 def logger_examples(logger: CustomLogger):

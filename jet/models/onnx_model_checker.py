@@ -2,17 +2,14 @@ import logging
 from typing import List, Optional
 import os
 from huggingface_hub import HfApi, list_repo_files
+from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR
-
-# Configure logging
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
 
 
 def has_onnx_model_in_repo(repo_id: str, token: Optional[str] = None) -> bool:
     """
     Check if any ONNX model (standard model.onnx, model_*_arm64.onnx, or model*quantized*onnx) exists in a Hugging Face model repository.
+    Checks the local cache first, then falls back to the remote repository if no local models are found.
 
     Args:
         repo_id (str): The ID of the repository (e.g., "sentence-transformers/all-MiniLM-L6-v2").
@@ -21,8 +18,23 @@ def has_onnx_model_in_repo(repo_id: str, token: Optional[str] = None) -> bool:
     Returns:
         bool: True if a standard, ARM64, or quantized ONNX model is found, False otherwise.
     """
+    from jet.models.utils import resolve_model_value
+
     try:
+        repo_id = resolve_model_value(repo_id)
         logger.info(f"Checking for ONNX models in repository: {repo_id}")
+
+        # Check local cache first
+        local_onnx_paths = get_onnx_model_paths(
+            repo_id, cache_dir=MODELS_CACHE_DIR, token=token)
+        if local_onnx_paths:
+            logger.info(
+                f"ONNX model(s) found in local cache for {repo_id}: {local_onnx_paths}")
+            return True
+
+        # Fall back to remote repository check
+        logger.info(
+            f"No ONNX models found in local cache, checking remote repository: {repo_id}")
         api = HfApi()
         repo_files = api.list_repo_files(repo_id=repo_id, token=token)
         logger.debug(f"Files found in {repo_id}: {repo_files}")
@@ -50,7 +62,7 @@ def get_onnx_model_paths(repo_id: str, cache_dir: str = MODELS_CACHE_DIR, token:
         token (Optional[str]): Hugging Face API token (unused for local checks but included for consistency).
 
     Returns:
-        List[str]: List of ONNX model file paths found in the local cache.
+        List[str]: List of absolute ONNX model file paths found in the local cache.
     """
     try:
         logger.info(
@@ -75,9 +87,7 @@ def get_onnx_model_paths(repo_id: str, cache_dir: str = MODELS_CACHE_DIR, token:
                     ("quantized" in file and file.endswith(".onnx"))
                 ):
                     full_path = os.path.join(root, file)
-                    # Store relative path from cache_dir for consistency
-                    rel_path = os.path.relpath(full_path, cache_dir)
-                    onnx_paths.append(rel_path)
+                    onnx_paths.append(full_path)
 
         logger.info(
             f"Found {len(onnx_paths)} ONNX model paths for {repo_id}: {onnx_paths}")

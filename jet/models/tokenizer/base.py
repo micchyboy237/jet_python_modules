@@ -8,7 +8,7 @@ from transformers import PreTrainedTokenizerBase
 
 from jet.logger import logger
 from jet.models.utils import resolve_model_value
-from jet.models.model_types import LLMModelType
+from jet.models.model_types import ModelType
 from jet.wordnet.sentence import split_sentences
 
 
@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 
-def get_tokenizer(model_name: LLMModelType, local_cache_dir: Optional[str] = None) -> Tokenizer:
+def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) -> Tokenizer:
     """
     Initialize and return a tokenizer for the specified model.
 
@@ -90,7 +90,7 @@ def get_tokenizer(model_name: LLMModelType, local_cache_dir: Optional[str] = Non
 
 
 def get_tokenizer_fn(
-    model_name_or_tokenizer: Union[LLMModelType, Tokenizer]
+    model_name_or_tokenizer: Union[ModelType, Tokenizer]
 ) -> Callable[[Union[str, List[str]]], Union[List[int], List[List[int]]]]:
     """Return a tokenizer function from a model name or a Tokenizer instance."""
     tokenizer = (
@@ -112,7 +112,7 @@ def get_tokenizer_fn(
 
 def tokenize(
     texts: Union[str, List[str]],
-    tokenizer: Union[LLMModelType, Tokenizer]
+    tokenizer: Union[ModelType, Tokenizer]
 ) -> Union[List[int], List[List[int]]]:
     tokenizer = (
         get_tokenizer(tokenizer)
@@ -128,7 +128,7 @@ def tokenize(
 
 def detokenize(
     token_ids: Union[List[int], List[List[int]]],
-    tokenizer: Union[LLMModelType, Tokenizer]
+    tokenizer: Union[ModelType, Tokenizer]
 ) -> Union[str, List[str]]:
     tokenizer = (
         get_tokenizer(tokenizer)
@@ -140,7 +140,7 @@ def detokenize(
     return [tokenizer.decode(ids) for ids in token_ids]
 
 
-def count_tokens(model_name_or_tokenizer: Union[LLMModelType, Tokenizer], messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
+def count_tokens(model_name_or_tokenizer: Union[ModelType, Tokenizer], messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
     if not messages:
         return 0
 

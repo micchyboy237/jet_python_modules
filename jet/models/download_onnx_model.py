@@ -1,4 +1,4 @@
-from huggingface_hub import snapshot_download
+from huggingface_hub import HfApi, GitCommitInfo, snapshot_download
 import logging
 import subprocess
 from pathlib import Path
@@ -43,19 +43,68 @@ def download_and_process_model(
     """
     snapshot_dir = Path(cache_dir) / \
         f"models--{repo_id.replace('/', '--')}" / "snapshots"
-    # Replace with dynamic retrieval if needed
-    snapshot_hash = "ce0834f22110de6d9222af7a7a03628121708969"
+    # Dynamically retrieve the latest snapshot hash for the repo
+    api = HfApi()
+    snapshots: List[GitCommitInfo] = api.list_repo_commits(repo_id)
+    if not snapshots:
+        raise RuntimeError(f"No snapshots found for repo {repo_id}")
+    snapshot_hash = snapshots[0].commit_id
     snapshot_path = snapshot_dir / snapshot_hash
-    source_path = snapshot_path / model_file
+
+    # Check for any other folders under snapshot_dir and remove if not the current snapshot_hash
+    if snapshot_dir.exists() and snapshot_dir.is_dir():
+        for folder in snapshot_dir.iterdir():
+            if folder.is_dir() and folder.name != snapshot_hash:
+                logger.info(f"Removing old snapshot directory: {folder}")
+                try:
+                    import shutil
+                    shutil.rmtree(folder)
+                except Exception as e:
+                    logger.error(f"Failed to remove {folder}: {e}")
+
+    # Verify available files in the repository and select model file by priority
+    logger.info(
+        f"Checking available files in repo {repo_id} for snapshot {snapshot_hash}")
+    try:
+        repo_files = api.list_repo_files(
+            repo_id=repo_id, revision=snapshot_hash)
+        logger.debug(f"Available files: {repo_files}")
+
+        # Define priority order for model files
+        model_file_candidates = [
+            "onnx/model_qint8_arm64.onnx",
+            "onnx/model_quantized.onnx",
+            "onnx/model.onnx"
+        ]
+        selected_model_file = None
+        for candidate in model_file_candidates:
+            if candidate in repo_files:
+                selected_model_file = candidate
+                break
+
+        if selected_model_file is None:
+            logger.error(
+                f"No suitable model file found in repository {repo_id} snapshot {snapshot_hash}")
+            raise FileNotFoundError(
+                f"No suitable model file found in repository {repo_id} snapshot {snapshot_hash}. "
+                f"Expected one of {model_file_candidates}, but available files: {repo_files}"
+            )
+        logger.info(f"Selected model file: {selected_model_file}")
+    except Exception as e:
+        logger.error(f"Failed to list repository files: {str(e)}")
+        raise
+
+    source_path = snapshot_path / selected_model_file
     target_path = snapshot_path / target_file
 
-    # Download model
-    logger.info(f"Downloading files from repo id: {repo_id}...")
+    # Download only the selected model file
+    logger.info(
+        f"Downloading file {selected_model_file} from repo id: {repo_id}...")
     try:
         snapshot_download(
             repo_id=repo_id,
             cache_dir=cache_dir,
-            allow_patterns=[model_file],
+            allow_patterns=[selected_model_file],
             ignore_patterns=[
                 "onnx/model_O1.onnx",
                 "onnx/model_O2.onnx",
@@ -70,8 +119,15 @@ def download_and_process_model(
         )
         logger.info("Download completed")
     except Exception as e:
-        logger.error(f"Download failed: {str(e)}")
+        logger.error(f"Download failed for {selected_model_file}: {str(e)}")
         raise
+
+    # Verify that the source model file exists
+    if not source_path.exists():
+        logger.error(
+            f"Model file {source_path} does not exist after download.")
+        raise FileNotFoundError(
+            f"Model file {source_path} not found in snapshot {snapshot_hash}")
 
     # Execute shell commands
     try:
@@ -117,6 +173,6 @@ def download_and_process_model(
 
 
 if __name__ == "__main__":
-    repo_id = "cross-encoder/ms-marco-MiniLM-L6-v2"
+    repo_id = "sentence-transformers/static-retrieval-mrl-en-v1"
     cache_dir = "/Users/jethroestrada/.cache/huggingface/hub"
     download_and_process_model(repo_id, cache_dir)
