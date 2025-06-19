@@ -6,7 +6,7 @@ import unidecode
 import argparse
 from datetime import datetime
 from typing import List, Callable, Optional, Any, Union, Literal
-from jet.logger.config import COLORS, RESET, colorize_log
+from jet.logger.config import DEFAULT_LOGGER, COLORS, RESET, colorize_log
 from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
 from jet.utils.text import fix_and_unidecode
@@ -24,19 +24,24 @@ class CustomLogger:
     def __init__(
         self,
         log_file: Optional[str] = None,
-        name: str = "default",
+        name: str = DEFAULT_LOGGER,
         overwrite: bool = False,
         console_level: Literal["DEBUG", "INFO",
                                "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
         file_level: Literal["DEBUG", "INFO",
                             "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
-        formatter: Optional[logging.Formatter] = None,
+        fmt: Union[str, logging.Formatter] = "%(message)s",
     ):
         self.log_file = log_file
+        self.name = name
         self.overwrite = overwrite
         self.console_level = console_level.upper()
         self.file_level = file_level.upper()
-        self.formatter = formatter or logging.Formatter("%(message)s")
+        # Initialize formatter first to ensure it's available before _initialize_logger
+        formatter = fmt if isinstance(
+            fmt, logging.Formatter) else logging.Formatter(fmt)
+        self.formatter = formatter
+        # Initialize logger after formatter is set
         self.logger = self._initialize_logger(name)
         self._last_message_flushed = False
         # Debug log to inspect initialization
@@ -317,10 +322,31 @@ def parse_arguments() -> argparse.Namespace:
     return args
 
 
+def getLogger(
+    name: str = DEFAULT_LOGGER,
+    log_file: Optional[str] = None,
+    overwrite: bool = False,
+    console_level: Literal["DEBUG", "INFO",
+                           "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
+    file_level: Literal["DEBUG", "INFO",
+                        "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
+    fmt: Union[str, logging.Formatter] = "%(message)s",
+):
+    """
+    Return a logger with the specified name, creating it if necessary.
+
+    If no name is specified, return the root logger.
+    """
+    if not name or isinstance(name, str) and name == logger.name:
+        return logger
+    return CustomLogger(log_file, name, overwrite, console_level, file_level, fmt)
+
+
 logger = CustomLogger()
 
 __all__ = [
     "logger",
+    "getLogger",
     "CustomLogger",
 ]
 

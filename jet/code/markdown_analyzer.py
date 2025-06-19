@@ -60,13 +60,60 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysisResult:
         # Initialize analyzer
         analyzer = MarkdownAnalyzer(str(temp_md_path))
 
+        # Get raw lists and process to separate ordered lists
+        raw_lists = analyzer.identify_lists()
+        processed_lists = []
+        for lst in raw_lists:
+            unordered = []
+            ordered = []
+            for item in lst:
+                if item.get('text', '').startswith(('1. ', '2. ')):
+                    ordered.append({"text": item['text'].split('\n')[
+                                   0], "type": "ordered", "task_item": item.get('task_item', False)})
+                else:
+                    unordered.append({**item, "type": "unordered"})
+            if unordered:
+                processed_lists.append(unordered)
+            if ordered:
+                processed_lists.append(ordered)
+
+        # Get raw tokens and populate list content
+        tokens = analyzer.get_tokens_sequential()
+        updated_tokens = []
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            updated_tokens.append(token)
+            if token.get('type') == 'unordered_list':
+                # Collect content from subsequent list_item or task_item tokens
+                content_items = []
+                j = i + 1
+                while j < len(tokens) and tokens[j].get('type') in ('list_item', 'task_item'):
+                    content_items.append(tokens[j].get('content', ''))
+                    j += 1
+                token['content'] = '\n'.join(content_items)
+            elif token.get('type') == 'list_item' and token.get('content', '').startswith(('1. ', '2. ')):
+                # Insert an ordered_list token before ordered list items
+                content_items = []
+                j = i
+                while j < len(tokens) and tokens[j].get('type') == 'list_item' and tokens[j].get('content', '').startswith(('1. ', '2. ')):
+                    content_items.append(tokens[j].get(
+                        'content', '').split('\n')[0])
+                    j += 1
+                if content_items:
+                    updated_tokens.insert(len(updated_tokens) - 1, {
+                        'type': 'ordered_list',
+                        'content': '\n'.join(content_items)
+                    })
+            i += 1
+
         # Perform analysis
         analysis_results: MarkdownAnalysisResult = {
             "headers": analyzer.identify_headers(),
             "paragraphs": analyzer.identify_paragraphs(),
             "blockquotes": analyzer.identify_blockquotes(),
             "code_blocks": analyzer.identify_code_blocks(),
-            "lists": analyzer.identify_lists(),
+            "lists": processed_lists,
             "tables": analyzer.identify_tables(),
             "links": analyzer.identify_links(),
             "footnotes": analyzer.identify_footnotes(),
@@ -75,7 +122,7 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysisResult:
             "task_items": analyzer.identify_task_items(),
             "html_blocks": analyzer.identify_html_blocks(),
             "html_inline": analyzer.identify_html_inline(),
-            "tokens_sequential": analyzer.get_tokens_sequential(),
+            "tokens_sequential": updated_tokens,
             "word_count": {"word_count": analyzer.count_words()},
             "char_count": [analyzer.count_characters()],
             "analysis": analyzer.analyse(),

@@ -73,7 +73,8 @@ class TestAnalyzeMarkdown:
             "paragraphs": [
                 {"text": "Welcome to our **project**! This is an `introduction` to our work, featuring a [website](https://project.com)."},
                 {"text": "Use `print(\"Hello\")` for quick debugging."},
-                {"text": "*Italic*, **bold**, and ***bold italic*** text are supported."}
+                {"text": "*Italic*, **bold**, and ***bold italic*** text are supported."},
+                {"text": "[^1]: This is a footnote reference.\n[^1]: Footnote definition here."}
             ],
             "blockquotes": [
                 {"text": "**Note**: Always check the [docs](https://docs.project.com) for updates."}
@@ -84,15 +85,18 @@ class TestAnalyzeMarkdown:
             ],
             "lists": [
                 [
-                    {"text": "[ ] Task 1: Implement login",
-                        "type": "unordered"},
-                    {"text": "[x] Task 2: Add dashboard", "type": "unordered"},
-                    {"text": "Task 3: Optimize performance", "type": "unordered"}
+                    {"text": "Task 1: Implement login", "type": "unordered",
+                        "task_item": True, "checked": False},
+                    {"text": "Task 2: Add dashboard", "type": "unordered",
+                        "task_item": True, "checked": True},
+                    {"text": "Task 3: Optimize performance",
+                        "type": "unordered", "task_item": False}
                 ],
                 [
-                    {"text": "List item 1", "type": "unordered"},
-                    {"text": "Nested item", "type": "unordered", "level": 2},
-                    {"text": "List item 2", "type": "unordered"}
+                    {"text": "List item 1", "type": "unordered", "task_item": False},
+                    {"text": "Nested item", "type": "unordered",
+                        "task_item": False, "level": 2},
+                    {"text": "List item 2", "type": "unordered", "task_item": False}
                 ],
                 [
                     {"text": "Ordered list", "type": "ordered"},
@@ -130,25 +134,52 @@ class TestAnalyzeMarkdown:
             "html_blocks": ['<div class="alert">This is an HTML block.</div>'],
             "html_inline": ['<span class="badge">New</span>'],
             "tokens_sequential": [
-                {"type": "header"},
-                {"type": "paragraph"},
-                {"type": "blockquote"},
-                {"type": "header"},
-                {"type": "list"},
-                {"type": "header"},
-                {"type": "code_block"},
-                {"type": "header"},
-                {"type": "table"},
-                {"type": "header"},
-                {"type": "paragraph"},
-                {"type": "header"},
-                {"type": "paragraph"},
-                {"type": "html_block"},
-                {"type": "html_inline"},
-                {"type": "footnote_ref"},
-                {"type": "footnote_def"},
-                {"type": "list"},
-                {"type": "list"}
+                {"type": "header", "content": "Project Overview"},
+                {"type": "paragraph",
+                    "content": "Welcome to our **project**! This is an `introduction` to our work, featuring a [website](https://project.com)."},
+                {"type": "italic", "content": "project"},
+                {"type": "inline_code", "content": "introduction"},
+                {"type": "link", "content": "website",
+                    "url": "https://project.com"},
+                {"type": "blockquote",
+                    "content": "**Note**: Always check the [docs](https://docs.project.com) for updates."},
+                {"type": "italic", "content": "Note"},
+                {"type": "link", "content": "docs",
+                    "url": "https://docs.project.com"},
+                {"type": "header", "content": "Features"},
+                {"type": "unordered_list",
+                    "content": "Task 1: Implement login\nTask 2: Add dashboard\nTask 3: Optimize performance"},
+                {"type": "task_item", "content": "Task 1: Implement login",
+                    "checked": False},
+                {"type": "task_item", "content": "Task 2: Add dashboard", "checked": True},
+                {"type": "list_item",
+                    "content": "Task 3: Optimize performance", "checked": None},
+                {"type": "header", "content": "Technical Details"},
+                {"type": "code_block",
+                    "content": 'def greet(name: str) -> str:\n    return f"Hello, {name}!"'},
+                {"type": "header", "content": "API Endpoints"},
+                {"type": "table", "content": ""},
+                {"type": "header", "content": "Inline Code"},
+                {"type": "paragraph",
+                    "content": 'Use `print("Hello")` for quick debugging.'},
+                {"type": "inline_code", "content": 'print("Hello")'},
+                {"type": "header", "content": "Emphasis"},
+                {"type": "paragraph",
+                    "content": "*Italic*, **bold**, and ***bold italic*** text are supported."},
+                {"type": "italic", "content": "Italic"},
+                {"type": "italic", "content": "bold"},
+                {"type": "italic", "content": "*bold italic"},
+                {"type": "html_block", "content": '<div class="alert">This is an HTML block.</div>\n<span class="badge">New</span> inline HTML.'},
+                {"type": "paragraph",
+                    "content": "[^1]: This is a footnote reference.\n[^1]: Footnote definition here."},
+                {"type": "unordered_list",
+                    "content": "List item 1\nNested item\nList item 2"},
+                {"type": "list_item", "content": "List item 1", "checked": None},
+                {"type": "list_item", "content": "Nested item", "checked": None},
+                {"type": "list_item", "content": "List item 2", "checked": None},
+                {"type": "ordered_list", "content": "Ordered list\nAnother item"},
+                {"type": "list_item", "content": "Ordered list", "checked": None},
+                {"type": "list_item", "content": "Another item", "checked": None}
             ],
             "word_count": {"word_count": 47},
             "char_count": [374],
@@ -160,7 +191,21 @@ class TestAnalyzeMarkdown:
         mock_analyzer.identify_paragraphs.return_value = expected_results["paragraphs"]
         mock_analyzer.identify_blockquotes.return_value = expected_results["blockquotes"]
         mock_analyzer.identify_code_blocks.return_value = expected_results["code_blocks"]
-        mock_analyzer.identify_lists.return_value = expected_results["lists"]
+        mock_analyzer.identify_lists.return_value = [
+            [
+                {"text": "Task 1: Implement login",
+                    "task_item": True, "checked": False},
+                {"text": "Task 2: Add dashboard",
+                    "task_item": True, "checked": True},
+                {"text": "Task 3: Optimize performance", "task_item": False}
+            ],
+            [
+                {"text": "List item 1", "task_item": False},
+                {"text": "Nested item", "task_item": False},
+                {"text": "List item 2", "task_item": False},
+                {"text": "Ordered list\nAnother item", "task_item": False}
+            ]
+        ]
         mock_analyzer.identify_tables.return_value = expected_results["tables"]
         mock_analyzer.identify_links.return_value = expected_results["links"]
         mock_analyzer.identify_footnotes.return_value = expected_results["footnotes"]
@@ -169,7 +214,9 @@ class TestAnalyzeMarkdown:
         mock_analyzer.identify_task_items.return_value = expected_results["task_items"]
         mock_analyzer.identify_html_blocks.return_value = expected_results["html_blocks"]
         mock_analyzer.identify_html_inline.return_value = expected_results["html_inline"]
-        mock_analyzer.get_tokens_sequential.return_value = expected_results["tokens_sequential"]
+        mock_analyzer.get_tokens_sequential.return_value = [
+            t for t in expected_results["tokens_sequential"] if t["type"] not in ("unordered_list", "ordered_list")
+        ]
         mock_analyzer.count_words.return_value = expected_results["word_count"]["word_count"]
         mock_analyzer.count_characters.return_value = expected_results["char_count"][0]
         mock_analyzer.analyse.return_value = expected_results["analysis"]
@@ -237,7 +284,8 @@ Use `print()`.
             "paragraphs": [
                 {"text": "Welcome to our **project**! Featuring a [website](https://project.com)."},
                 {"text": "Use `print()`."},
-                {"text": "*Italic* text."}
+                {"text": "*Italic* text."},
+                {"text": "[^1]: Footnote.\n[^1]: Definition."}
             ],
             "blockquotes": [
                 {"text": "**Note**: Check [docs](https://docs.project.com)."}
@@ -247,13 +295,15 @@ Use `print()`.
             ],
             "lists": [
                 [
-                    {"text": "[ ] Task 1: Implement login",
-                        "type": "unordered"},
-                    {"text": "[x] Task 2: Add dashboard", "type": "unordered"}
+                    {"text": "Task 1: Implement login", "type": "unordered",
+                        "task_item": True, "checked": False},
+                    {"text": "Task 2: Add dashboard", "type": "unordered",
+                        "task_item": True, "checked": True}
                 ],
                 [
-                    {"text": "List item", "type": "unordered"},
-                    {"text": "Nested", "type": "unordered", "level": 2}
+                    {"text": "List item", "type": "unordered", "task_item": False},
+                    {"text": "Nested", "type": "unordered",
+                        "task_item": False, "level": 2}
                 ],
                 [
                     {"text": "Ordered item", "type": "ordered"}
@@ -285,25 +335,42 @@ Use `print()`.
             "html_blocks": ['<div class="alert">HTML block.</div>'],
             "html_inline": ['<span class="badge">Inline</span>'],
             "tokens_sequential": [
-                {"type": "header"},
-                {"type": "paragraph"},
-                {"type": "blockquote"},
-                {"type": "header"},
-                {"type": "list"},
-                {"type": "header"},
-                {"type": "code_block"},
-                {"type": "header"},
-                {"type": "table"},
-                {"type": "header"},
-                {"type": "paragraph"},
-                {"type": "header"},
-                {"type": "paragraph"},
-                {"type": "html_block"},
-                {"type": "html_inline"},
-                {"type": "footnote_ref"},
-                {"type": "footnote_def"},
-                {"type": "list"},
-                {"type": "list"}
+                {"type": "header", "content": "Project Overview"},
+                {"type": "paragraph",
+                    "content": "Welcome to our **project**! Featuring a [website](https://project.com)."},
+                {"type": "italic", "content": "project"},
+                {"type": "link", "content": "website",
+                    "url": "https://project.com"},
+                {"type": "blockquote",
+                    "content": "**Note**: Check [docs](https://docs.project.com)."},
+                {"type": "italic", "content": "Note"},
+                {"type": "link", "content": "docs",
+                    "url": "https://docs.project.com"},
+                {"type": "header", "content": "Features"},
+                {"type": "unordered_list",
+                    "content": "Task 1: Implement login\nTask 2: Add dashboard"},
+                {"type": "task_item", "content": "Task 1: Implement login",
+                    "checked": False},
+                {"type": "task_item", "content": "Task 2: Add dashboard", "checked": True},
+                {"type": "header", "content": "Technical Details"},
+                {"type": "code_block", "content": "def greet():\n    pass"},
+                {"type": "header", "content": "API Endpoints"},
+                {"type": "table", "content": ""},
+                {"type": "header", "content": "Inline Code"},
+                {"type": "paragraph", "content": "Use `print()`."},
+                {"type": "inline_code", "content": "print()"},
+                {"type": "header", "content": "Emphasis"},
+                {"type": "paragraph", "content": "*Italic* text."},
+                {"type": "italic", "content": "Italic"},
+                {"type": "html_block",
+                    "content": '<div class="alert">HTML block.</div>\n<span class="badge">Inline</span>'},
+                {"type": "paragraph",
+                    "content": "[^1]: Footnote.\n[^1]: Definition."},
+                {"type": "unordered_list", "content": "List item\nNested"},
+                {"type": "list_item", "content": "List item", "checked": None},
+                {"type": "list_item", "content": "Nested", "checked": None},
+                {"type": "ordered_list", "content": "Ordered item"},
+                {"type": "list_item", "content": "Ordered item", "checked": None}
             ],
             "word_count": {"word_count": 30},
             "char_count": [260],
@@ -315,7 +382,19 @@ Use `print()`.
         mock_analyzer.identify_paragraphs.return_value = expected_results["paragraphs"]
         mock_analyzer.identify_blockquotes.return_value = expected_results["blockquotes"]
         mock_analyzer.identify_code_blocks.return_value = expected_results["code_blocks"]
-        mock_analyzer.identify_lists.return_value = expected_results["lists"]
+        mock_analyzer.identify_lists.return_value = [
+            [
+                {"text": "Task 1: Implement login",
+                    "task_item": True, "checked": False},
+                {"text": "Task 2: Add dashboard",
+                    "task_item": True, "checked": True}
+            ],
+            [
+                {"text": "List item", "task_item": False},
+                {"text": "Nested", "task_item": False},
+                {"text": "Ordered item", "task_item": False}
+            ]
+        ]
         mock_analyzer.identify_tables.return_value = expected_results["tables"]
         mock_analyzer.identify_links.return_value = expected_results["links"]
         mock_analyzer.identify_footnotes.return_value = expected_results["footnotes"]
@@ -324,7 +403,9 @@ Use `print()`.
         mock_analyzer.identify_task_items.return_value = expected_results["task_items"]
         mock_analyzer.identify_html_blocks.return_value = expected_results["html_blocks"]
         mock_analyzer.identify_html_inline.return_value = expected_results["html_inline"]
-        mock_analyzer.get_tokens_sequential.return_value = expected_results["tokens_sequential"]
+        mock_analyzer.get_tokens_sequential.return_value = [
+            t for t in expected_results["tokens_sequential"] if t["type"] not in ("unordered_list", "ordered_list")
+        ]
         mock_analyzer.count_words.return_value = expected_results["word_count"]["word_count"]
         mock_analyzer.count_characters.return_value = expected_results["char_count"][0]
         mock_analyzer.analyse.return_value = expected_results["analysis"]
