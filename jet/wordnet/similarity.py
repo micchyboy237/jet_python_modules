@@ -32,10 +32,10 @@ from tqdm import tqdm
 from jet.wordnet.wordnet_types import FilterResult, SimilarityResult
 from jet.models.embeddings.base import get_embedding_function
 
-DEFAULT_SENTENCE_EMBED_MODEL: EmbedModelType = "all-MiniLM-L12-v2"
+DEFAULT_EMBED_MODEL: EmbedModelType = "all-MiniLM-L12-v2"
 
 
-def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, List[str]], *, model_name: EmbedModelType = DEFAULT_SENTENCE_EMBED_MODEL) -> List[float]:
+def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, List[str]], *, model_name: EmbedModelType = DEFAULT_EMBED_MODEL) -> List[float]:
     # Convert a single string to a list
     if isinstance(sentences_to_compare, str):
         sentences_to_compare = [sentences_to_compare]
@@ -361,7 +361,7 @@ def fuse_all_results(
     return sorted_scores
 
 
-def filter_highest_similarity_old(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL, threshold: Optional[float] = None) -> FilterResult:
+def filter_highest_similarity_old(query: str, candidates: List[str], *, model_name: str = DEFAULT_EMBED_MODEL, threshold: Optional[float] = None) -> FilterResult:
     if not candidates:
         raise ValueError("No candidates provided for comparison.")
 
@@ -394,7 +394,7 @@ def filter_highest_similarity(
     query: str,
     candidates: List[str],
     *,
-    model_name: str = "paraphrase-MiniLM-L12-v2",
+    model_name: str = DEFAULT_EMBED_MODEL,
     similarity_metric: Literal["cosine", "dot", "euclidean"] = "cosine",
     threshold: Optional[float] = None
 ) -> FilterResult:
@@ -452,7 +452,7 @@ def filter_highest_similarity(
 
 
 @time_it
-def search_similarities(query: str, candidates: List[str], *, model_name: str = DEFAULT_SENTENCE_EMBED_MODEL, threshold: Optional[float] = None) -> List[SimilarityResult]:
+def search_similarities(query: str, candidates: List[str], *, model_name: str = DEFAULT_EMBED_MODEL, threshold: Optional[float] = None) -> List[SimilarityResult]:
     if not candidates:
         raise ValueError("No candidates provided for comparison.")
 
@@ -752,9 +752,13 @@ def plot_text_embeddings(texts: List[str], embeddings: List[List[float]], title:
     plt.show()
 
 
-def group_similar_texts(texts: List[str], threshold: float = 0.7, model_name: EmbedModelType = DEFAULT_SENTENCE_EMBED_MODEL) -> List[List[str]]:
+def group_similar_texts(
+    texts: List[str],
+    threshold: float = 0.7,
+    model_name: EmbedModelType = DEFAULT_EMBED_MODEL
+) -> List[List[str]]:
     """
-    Groups similar texts based on cosine similarity score.
+    Groups similar texts based on cosine similarity score, with deduplicated input texts.
 
     Args:
         texts (List[str]): List of input texts to be grouped.
@@ -762,20 +766,30 @@ def group_similar_texts(texts: List[str], threshold: float = 0.7, model_name: Em
         model_name (str): Sentence transformer model to use for embedding.
 
     Returns:
-        List[List[str]]: List of grouped similar texts.
+        List[List[str]]: List of grouped similar texts, with no duplicate texts.
     """
     if not texts:
         return []
 
+    # Deduplicate texts while preserving order
+    seen_texts = {}
+    unique_texts = []
+    original_texts = []
+    for text in texts:
+        if text not in seen_texts:
+            seen_texts[text] = True
+            unique_texts.append(text.lower())
+            original_texts.append(text)
+
     # Load the embedding model
     model = SentenceTransformer(model_name)
-    embeddings = model.encode(texts, convert_to_tensor=True)
+    embeddings = model.encode(unique_texts, convert_to_tensor=True)
 
     # Compute cosine similarity matrix
     similarity_matrix = util.pytorch_cos_sim(
         embeddings, embeddings).cpu().numpy()
 
-    # Perform clustering using Agglomerative Clustering
+    # Perform clustering using AgglomerativeClustering
     clustering = AgglomerativeClustering(
         n_clusters=None,
         metric="precomputed",
@@ -783,16 +797,19 @@ def group_similar_texts(texts: List[str], threshold: float = 0.7, model_name: Em
         distance_threshold=1 - threshold
     ).fit(1 - similarity_matrix)
 
-    # Organize texts into clusters
+    # Organize texts into clusters using original texts
     clusters = {}
     for idx, label in enumerate(clustering.labels_):
-        clusters.setdefault(label, []).append(texts[idx])
+        clusters.setdefault(label, []).append(original_texts[idx])
 
     return list(clusters.values())
 
 
 class GroupedResult(TypedDict):
+    headers: List[str]
     texts: List[str]
+    doc_indexes: List[int]
+    source_urls: List[str]
     documents: List[HeaderDocument]
 
 
@@ -810,7 +827,7 @@ def group_similar_headers(
         model_name (EmbedModelType): Sentence transformer model to use for embedding.
 
     Returns:
-        List[GroupedResult]: List of grouped results, each containing texts and their original documents.
+        List[GroupedResult]: List of grouped results, each containing headers, texts, doc_indexes, source_urls, and their original documents.
     """
     # Create text-document pairs
     try:
@@ -818,7 +835,7 @@ def group_similar_headers(
             (
                 "\n".join([
                     doc["metadata"]["header"].lstrip('#').strip(),
-                ]).strip(),
+                ]).strip().lower(),
                 doc
             )
             for doc in docs
@@ -855,14 +872,37 @@ def group_similar_headers(
     try:
         for group in grouped_texts:
             group_docs = []
+            group_headers = []
+            group_doc_indexes = []
+            group_source_urls = []
+            group_texts = []
+            seen_doc_indexes = set()
+            seen_texts = set()
             for text in group:
                 matching_docs = [pair[1]
                                  for pair in text_doc_pairs if pair[0] == text]
+                # Deduplicate documents by doc_index and texts
+                for doc in matching_docs:
+                    doc_index = doc["metadata"]["doc_index"]
+                    doc_text = doc.text
+                    if doc_index not in seen_doc_indexes and doc_text not in seen_texts:
+                        seen_doc_indexes.add(doc_index)
+                        seen_texts.add(doc_text)
+                        group_docs.append(doc)
+                        group_headers.append(doc["metadata"]["header"])
+                        group_doc_indexes.append(doc_index)
+                        group_source_urls.append(doc["metadata"]["source_url"])
+                        group_texts.append(doc_text)
                 if not matching_docs:
                     logger.log("group_similar_headers:", f"No document found for text: {text}", colors=[
                                "WHITE", "YELLOW"])
-                group_docs.extend(matching_docs)
-            grouped_results.append({"texts": group, "documents": group_docs})
+            grouped_results.append({
+                "headers": group_headers,
+                "texts": group_texts,
+                "doc_indexes": group_doc_indexes,
+                "source_urls": group_source_urls,
+                "documents": group_docs
+            })
         logger.log("group_similar_headers:", "Mapped grouped texts to documents", colors=[
                    "WHITE", "GREEN"])
     except Exception as e:
@@ -1033,7 +1073,7 @@ if __name__ == "__main__":
     ]
 
     # Generate embeddings (Replace with actual embedding function)
-    embedding_function = get_embedding_function("paraphrase-MiniLM-L12-v2")
+    embedding_function = get_embedding_function(DEFAULT_EMBED_MODEL)
     embeddings = embedding_function(texts)
 
     # Plot the embeddings
