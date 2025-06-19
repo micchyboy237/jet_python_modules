@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 from unittest.mock import Mock, patch
 import pytest
 
-from jet.code.markdown_analyzer import analyze_markdown, MarkdownAnalysisResult
+from jet.code.markdown_utils import analyze_markdown, MarkdownAnalysis
 
 
 @pytest.fixture
@@ -60,7 +60,7 @@ class TestAnalyzeMarkdown:
 
     def test_given_string_content_then_analyzes_and_returns_results(self, sample_md_content):
         """Given markdown content as a string, it should analyze and return results."""
-        expected_results: MarkdownAnalysisResult = {
+        expected_results: MarkdownAnalysis = {
             "headers": [
                 {"level": 1, "text": "Project Overview"},
                 {"level": 2, "text": "Features"},
@@ -223,7 +223,7 @@ class TestAnalyzeMarkdown:
         mock_analyzer.count_words.return_value = expected_results["word_count"]["word_count"]
         mock_analyzer.count_characters.return_value = expected_results["char_count"][0]
         mock_analyzer.analyse.return_value = expected_results["analysis"]
-        with patch("jet.code.markdown_analyzer.MarkdownAnalyzer", return_value=mock_analyzer):
+        with patch("jet.code.markdown_utils.MarkdownAnalyzer", return_value=mock_analyzer):
             result = analyze_markdown(sample_md_content)
             assert result == expected_results
 
@@ -268,7 +268,7 @@ class TestAnalyzeMarkdown:
         1. Ordered item
         """)
             temp_md_path = Path(temp_file.name)
-        expected_results: MarkdownAnalysisResult = {
+        expected_results: MarkdownAnalysis = {
             "headers": [
                 {"level": 1, "text": "Project Overview"},
                 {"level": 2, "text": "Features"},
@@ -402,7 +402,7 @@ class TestAnalyzeMarkdown:
         mock_analyzer.count_words.return_value = expected_results["word_count"]["word_count"]
         mock_analyzer.count_characters.return_value = expected_results["char_count"][0]
         mock_analyzer.analyse.return_value = expected_results["analysis"]
-        with patch("jet.code.markdown_analyzer.MarkdownAnalyzer", return_value=mock_analyzer):
+        with patch("jet.code.markdown_utils.MarkdownAnalyzer", return_value=mock_analyzer):
             result = analyze_markdown(temp_md_path)
             assert result == expected_results
 
@@ -420,7 +420,7 @@ class TestAnalyzeMarkdown:
         """Given an empty string, it should analyze and return empty results."""
         # Arrange
         empty_content = ""
-        expected_results: MarkdownAnalysisResult = {
+        expected_results: MarkdownAnalysis = {
             "headers": [],
             "paragraphs": [],
             "blockquotes": [],
@@ -459,7 +459,7 @@ class TestAnalyzeMarkdown:
         mock_analyzer.count_characters.return_value = expected_results["char_count"][0]
         mock_analyzer.analyse.return_value = expected_results["analysis"]
 
-        with patch("jet.code.markdown_analyzer.MarkdownAnalyzer", return_value=mock_analyzer):
+        with patch("jet.code.markdown_utils.MarkdownAnalyzer", return_value=mock_analyzer):
             # Act
             result = analyze_markdown(empty_content)
 

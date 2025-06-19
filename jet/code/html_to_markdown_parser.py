@@ -3,12 +3,12 @@ from pathlib import Path
 import tempfile
 from typing import Dict, List, Optional, TypedDict, Union
 
-from jet.code.markdown_utils import convert_html_to_markdown, analyze_markdown, MarkdownAnalysis
+from jet.code.markdown_utils import convert_html_to_markdown, parse_markdown, MarkdownToken
 from jet.file.utils import save_file
 from jet.logger import logger
 
 
-def analyze_markdown_file(md_path: str | Path) -> MarkdownAnalysis:
+def parse_markdown_file(md_path: str | Path) -> List[MarkdownToken]:
     """
     Analyze a Markdown file using mrkdwn_analysis and return key metrics.
 
@@ -23,17 +23,17 @@ def analyze_markdown_file(md_path: str | Path) -> MarkdownAnalysis:
 
     logger.info("Analyzing Markdown file: %s", md_path)
     try:
-        analysis = analyze_markdown(str(md_path))
-        return analysis
+        result = parse_markdown(str(md_path))
+        return result
 
     except Exception as e:
-        logger.error("Failed to analyze Markdown: %s", e)
+        logger.error("Failed to parse Markdown: %s", e)
         raise
 
 
-def process_html_for_analysis(html_input: Union[str, Path], output_md_path: Optional[str | Path] = None) -> MarkdownAnalysis:
+def process_html_for_parsing(html_input: Union[str, Path], output_md_path: Optional[str | Path] = None) -> List[MarkdownToken]:
     """
-    Process HTML input to generate and analyze Markdown content.
+    Process HTML input to generate and parse Markdown content.
 
     Args:
         html_input: HTML content as a string or path to an HTML file.
@@ -47,7 +47,7 @@ def process_html_for_analysis(html_input: Union[str, Path], output_md_path: Opti
 
     try:
         md_content = convert_html_to_markdown(html_input)
-        result = analyze_markdown(md_content)
+        result = parse_markdown(md_content)
 
         if output_md_path:
             final_md_path = output_md_path

@@ -5,7 +5,7 @@ from jet.code.html_to_markdown_analyzer import (
     convert_html_to_markdown,
     analyze_markdown_file,
     process_html_for_analysis,
-    MarkdownAnalysisResult
+    MarkdownAnalysis
 )
 
 
@@ -40,7 +40,7 @@ print("Test")
 ```
 """
         temp_md_file.write_text(md_content, encoding='utf-8')
-        expected_result: MarkdownAnalysisResult = {
+        expected_result: MarkdownAnalysis = {
             'headers': 2,
             'paragraphs': 1,
             'links': 1,
@@ -62,7 +62,7 @@ class TestProcessHtmlForAnalysis:
 <p>Text with <a href='https://example.com'>link</a>.</p>
 <pre><code>code here</code></pre>
 """
-        expected_result: MarkdownAnalysisResult = {
+        expected_result: MarkdownAnalysis = {
             'headers': 1,
             'paragraphs': 1,
             'links': 0,
