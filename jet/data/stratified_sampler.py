@@ -133,8 +133,7 @@ class StratifiedSampler:
         has_target = isinstance(
             self.data[0], dict) and 'target' in self.data[0] and 'score' in self.data[0]
         if has_target:
-            score_map = {(item['source'], item['target'])
-                          : item['score'] for item in self.data}
+            score_map = {(item['source'], item['target'])                         : item['score'] for item in self.data}
             features_targets = [(item['source'], item['target'])
                                 for item in self.data]
         else:
@@ -188,7 +187,30 @@ class StratifiedSampler:
                            score=score_map[ft], category_values=lbl)
             for ft, lbl in zip(selected_samples, selected_labels)
         ]
-        return stratified_samples
+        # Precompute n-grams for sorting
+        n = 2  # Consistent with default in filter_and_sort_sentences_by_ngrams
+        all_ngrams = Counter()
+        sentence_ngrams_dict = {}
+        sentences = [sample['source'] for sample in stratified_samples]
+        for sentence in sentences:
+            ngram_list = get_ngrams(sentence, n)
+            all_ngrams.update(ngram_list)
+            sentence_ngrams_dict[sentence] = ngram_list
+        # Sort samples based on n-gram weights
+        sorted_samples = []
+        for _ in range(len(stratified_samples)):
+            if sorted_samples:
+                previous_ngrams = set(get_ngrams(
+                    sorted_samples[-1]['source'], n))
+            else:
+                previous_ngrams = set()
+            stratified_samples.sort(key=lambda sample: (
+                get_ngram_weight(
+                    all_ngrams, sentence_ngrams_dict[sample['source']], previous_ngrams),
+                sample['source']
+            ))
+            sorted_samples.append(stratified_samples.pop(0))
+        return sorted_samples
 
     @time_it
     def get_unique_strings(self) -> List[str]:
@@ -324,8 +346,7 @@ class StratifiedSampler:
 
         if has_target:
             # Handle ProcessedData with target and score
-            score_map = {(item['source'], item['target'])
-                          : item['score'] for item in self.data}
+            score_map = {(item['source'], item['target'])                         : item['score'] for item in self.data}
             features_targets = [(item['source'], item['target'])
                                 for item in self.data]
         else:

@@ -1,3 +1,4 @@
+from functools import lru_cache
 import numpy as np
 from sentence_transformers import CrossEncoder, SentenceTransformer
 from tokenizers import Tokenizer
@@ -7,7 +8,7 @@ import math
 from tqdm import tqdm
 import torch
 from jet.models.utils import resolve_model_value
-from jet.models.model_types import ModelType
+from jet.models.model_types import EmbedModelType
 from jet.logger import logger
 import mlx.core as mx
 from jet.models.tokenizer.base import get_tokenizer, tokenize
@@ -15,6 +16,43 @@ from jet.models.tokenizer.utils import calculate_batch_size
 
 EmbeddingOutput: TypeAlias = Union[List[int], List[List[int]],
                                    List[float], List[List[float]], np.ndarray, 'torch.Tensor', 'mx.array']
+
+
+# Add at top of file with other imports
+
+# Global model caches
+_embed_model_cache: dict[str, SentenceTransformer] = {}
+_rerank_model_cache: dict[str, CrossEncoder] = {}
+
+
+def load_embed_model(model: EmbedModelType) -> SentenceTransformer:
+    model_id = resolve_model_value(model)
+    if model_id in _embed_model_cache:
+        logger.info(f"Reusing cached embedding model: {model_id}")
+        return _embed_model_cache[model_id]
+    try:
+        logger.info(f"Loading embedding model on CPU (onnx): {model_id}")
+        model = SentenceTransformer(model_id, device="cpu", backend="onnx")
+    except Exception as e:
+        logger.warning(f"Falling back to MPS for embed model due to: {e}")
+        model = SentenceTransformer(model_id, device="mps")
+    _embed_model_cache[model_id] = model
+    return model
+
+
+def load_rerank_model(model: EmbedModelType) -> CrossEncoder:
+    model_id = resolve_model_value(model)
+    if model_id in _rerank_model_cache:
+        logger.info(f"Reusing cached rerank model: {model_id}")
+        return _rerank_model_cache[model_id]
+    try:
+        logger.info(f"Loading rerank model on CPU (onnx): {model_id}")
+        model = CrossEncoder(model_id, device="cpu", backend="onnx")
+    except Exception as e:
+        logger.warning(f"Falling back to MPS for rerank model due to: {e}")
+        model = CrossEncoder(model_id, device="mps")
+    _rerank_model_cache[model_id] = model
+    return model
 
 
 def last_token_pool(last_hidden_states: mx.array, attention_mask: mx.array) -> mx.array:
@@ -25,24 +63,6 @@ def last_token_pool(last_hidden_states: mx.array, attention_mask: mx.array) -> m
     batch_size = last_hidden_states.shape[0]
     indices = mx.stack([mx.arange(batch_size), sequence_lengths], axis=1)
     return last_hidden_states[indices[:, 0], indices[:, 1]]
-
-
-def load_embed_model(model_name: ModelType) -> SentenceTransformer:
-    model_id = resolve_model_value(model_name)
-    try:
-        model = SentenceTransformer(model_id, device="cpu", backend="onnx")
-    except:
-        model = SentenceTransformer(model_id, device="mps")
-    return model
-
-
-def load_rerank_model(model_name: ModelType) -> CrossEncoder:
-    model_id = resolve_model_value(model_name)
-    try:
-        model = CrossEncoder(model_id, device="cpu", backend="onnx")
-    except:
-        model = CrossEncoder(model_id, device="mps")
-    return model
 
 
 def generate_multiple(

@@ -7,6 +7,8 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import faiss
 from rank_bm25 import BM25Okapi
 from jet.file.utils import load_file
+from jet.models.model_types import EmbedModelType
+from jet.models.embeddings.base import load_embed_model
 from jet.logger import logger
 import re
 from tqdm import tqdm
@@ -474,7 +476,7 @@ def search_docs(
     documents: Union[List[HeaderDocument], List[Dict[str, Any]], List[str]],
     instruction: Optional[str] = None,
     ids: Optional[List[str]] = None,
-    model: str = "static-retrieval-mrl-en-v1",
+    model: EmbedModelType = "static-retrieval-mrl-en-v1",
     chunk_size: int = 800,
     overlap: int = 200,
     top_k: Optional[int] = 20,
@@ -534,7 +536,7 @@ def search_docs(
     ])
 
     logger.info("Initializing SentenceTransformer")
-    embedder = SentenceTransformer(model, device="cpu", backend="onnx")
+    embedder = load_embed_model(model)
 
     # Embed chunks and compute header similarities
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)

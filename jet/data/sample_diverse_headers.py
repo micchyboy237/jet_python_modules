@@ -1,6 +1,7 @@
 from typing import List, Optional
 from jet.vectors.document_types import HeaderDocument
-from .stratified_sampler import StratifiedSampler, ProcessedDataString
+from jet.wordnet.words import get_words
+from jet.data.stratified_sampler import StratifiedSampler, ProcessedDataString
 
 
 def sample_diverse_headers(
@@ -29,34 +30,33 @@ def sample_diverse_headers(
         num_samples = len(docs)
 
     # Extract text content from documents
-    texts = [doc.text for doc in docs]
+    tokenized_docs = [doc.text for doc in docs]
 
-    # Tokenize each text (simple whitespace tokenizer here)
-    tokenized_docs = [' '.join(doc.strip().split()) for doc in texts]
+    data: list[ProcessedDataString] = [
+        ProcessedDataString(
+            source=doc.text,
+            category_values=[
+                # doc["source_url"],
+                # (doc["parent_header"] or "").lstrip().strip().lower(),
+                doc["header"].lstrip().strip().lower(),
+            ]
+        ) for doc in docs
+    ]
 
-    # Create ProcessedDataString if category_values are provided
-    if category_values:
-        if len(category_values) != len(docs):
-            raise ValueError(
-                "Length of category_values must match length of docs")
-        data = [
-            ProcessedDataString(source=tokenized, category_values=cats)
-            for tokenized, cats in zip(tokenized_docs, category_values)
-        ]
-    else:
-        data = tokenized_docs
-
-    # Initialize and use StratifiedSampler
-    sampler = StratifiedSampler(data, num_samples=num_samples)
-    sampled_tokenized = sampler.filter_strings(n=n, top_n=top_n)
+    sampler = StratifiedSampler(data)
+    # samples, _, _ = sampler.split_train_test_val(
+    #     train_ratio=0.8, test_ratio=0.1)
+    samples = sampler.get_samples()
+    sampled_tokenized = [sample["source"] for sample in samples]
 
     # Map back to original documents
     result = []
     seen = set()
     for sampled in sampled_tokenized:
         idx = tokenized_docs.index(sampled)
-        if docs[idx] not in seen:
+        doc_id = docs[idx].id
+        if doc_id not in seen:
             result.append(docs[idx])
-            seen.add(docs[idx])
+            seen.add(doc_id)
 
     return result

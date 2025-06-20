@@ -212,6 +212,8 @@ def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Opti
         metadata = HeaderMetadata(**doc.metadata)
         parent_header = metadata.get("parent_header", "")
         doc_index = metadata.get("doc_index", 0)
+        # Use original header from metadata
+        header = metadata.get("header", "")
 
         if model:
             # Token-based chunking with sentence boundaries
@@ -223,7 +225,6 @@ def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Opti
                 sentence_tokens = len(tokenize_fn(sentence))
                 if current_tokens + sentence_tokens > max_tokens and current_chunk:
                     chunk_text = " ".join(current_chunk)
-                    header = current_chunk[0][:100] if current_chunk else ""
                     chunked_docs.append(HeaderDocument(
                         id=f"{doc.id}_chunk_{chunk_index}",
                         text=chunk_text,
@@ -256,10 +257,8 @@ def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Opti
                 line_tokens = len(get_words(line))
                 if current_tokens + line_tokens > max_tokens and current_chunk:
                     chunk_text = "\n".join(current_chunk)
-                    header = current_chunk[0][:100] if current_chunk else ""
                     chunked_docs.append(HeaderDocument(
                         id=f"{doc.id}_chunk_{chunk_index}",
-                        text=chunk_text,
                         metadata={
                             "source_url": metadata.get("source_url", None),
                             "header": header,
@@ -284,7 +283,6 @@ def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Opti
         if current_chunk:
             chunk_text = " ".join(
                 current_chunk) if model else "\n".join(current_chunk)
-            header = current_chunk[0][:100] if current_chunk else ""
             chunked_docs.append(HeaderDocument(
                 id=f"{doc.id}_chunk_{chunk_index}",
                 text=chunk_text,

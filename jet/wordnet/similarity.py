@@ -2,7 +2,8 @@ from typing import List, Tuple
 from collections import defaultdict
 from typing import Any, List, Optional, Literal
 from jet.data.utils import generate_key
-from jet.llm.mlx.mlx_types import EmbedModelType
+from jet.models.model_types import EmbedModelType
+from jet.models.embeddings.base import load_embed_model
 from sentence_transformers import util
 import torch
 from typing import Callable, List
@@ -23,7 +24,7 @@ from jet.llm.utils.transformer_embeddings import (
 from jet.llm.utils.search_docs import search_docs
 from sentence_transformers import SentenceTransformer
 from scipy.spatial.distance import cosine
-from jet.vectors.document_types import HeaderDocument
+from jet.vectors.document_types import HeaderDocument, HeaderDocumentWithScore
 from jet.wordnet.words import get_words
 from jet.logger import logger, time_it
 from difflib import SequenceMatcher, ndiff, get_close_matches, unified_diff
@@ -782,7 +783,7 @@ def group_similar_texts(
             original_texts.append(text)
 
     # Load the embedding model
-    model = SentenceTransformer(model_name)
+    model = load_embed_model(model_name)
     embeddings = model.encode(unique_texts, convert_to_tensor=True)
 
     # Compute cosine similarity matrix
@@ -807,44 +808,59 @@ def group_similar_texts(
 
 class GroupedResult(TypedDict):
     headers: List[str]
-    texts: List[str]
+    contents: List[str]
     doc_indexes: List[int]
     source_urls: List[str]
-    documents: List[HeaderDocument]
+    average_score: Optional[float]
+    documents: Union[List[HeaderDocument], List[HeaderDocumentWithScore]]
 
 
 def group_similar_headers(
-    docs: List[HeaderDocument],
+    docs: Union[List[HeaderDocument], List[HeaderDocumentWithScore]],
     threshold: float = 0.7,
-    model_name: EmbedModelType = "all-MiniLM-L12-v2"
+    model_name: EmbedModelType = "static-retrieval-mrl-en-v1"
 ) -> List[GroupedResult]:
     """
     Groups similar documents based on their header text similarity, preserving original documents.
 
     Args:
-        docs (List[HeaderDocument]): List of documents to group.
+        docs (Union[List[HeaderDocument], List[HeaderDocumentWithScore]]): List of documents to group.
         threshold (float): Similarity threshold for clustering. Default is 0.7.
         model_name (EmbedModelType): Sentence transformer model to use for embedding.
 
     Returns:
-        List[GroupedResult]: List of grouped results, each containing headers, texts, doc_indexes, source_urls, and their original documents.
+        List[GroupedResult]: List of grouped results, each containing headers, contents, doc_indexes, source_urls, and their original documents.
     """
+    # Determine if docs is a list of HeaderDocumentWithScore
+    is_with_score = (
+        len(docs) > 0 and hasattr(
+            docs[0], "score") and hasattr(docs[0], "node")
+    )
+
     # Create text-document pairs
     try:
-        text_doc_pairs: List[Tuple[str, HeaderDocument]] = [
-            (
-                "\n".join([
-                    doc["metadata"]["header"].lstrip('#').strip(),
-                ]).strip().lower(),
-                doc
-            )
-            for doc in docs
-        ]
-        logger.log("group_similar_headers:",
-                   f"Created {len(text_doc_pairs)} text-document pairs", colors=["WHITE", "BLUE"])
+        if is_with_score:
+            # For HeaderDocumentWithScore, use node.metadata
+            text_doc_pairs: List[Tuple[str, HeaderDocumentWithScore]] = [
+                (
+                    doc.node.metadata["header"].lstrip('#').strip().lower(),
+                    doc
+                )
+                for doc in docs
+            ]
+        else:
+            text_doc_pairs: List[Tuple[str, HeaderDocument]] = [
+                (
+                    doc["metadata"]["header"].lstrip('#').strip().lower(),
+                    doc
+                )
+                for doc in docs
+            ]
+        logger.info(
+            f"group_similar_headers: Created {len(text_doc_pairs)} text-document pairs")
     except Exception as e:
-        logger.log("group_similar_headers:",
-                   f"Failed to create text-document pairs: {str(e)}", colors=["WHITE", "RED"])
+        logger.error(
+            f"group_similar_headers: Failed to create text-document pairs: {str(e)}")
         raise
 
     # Extract texts for grouping
@@ -852,19 +868,17 @@ def group_similar_headers(
 
     # Handle empty input
     if not texts:
-        logger.log("group_similar_headers:", "Empty input list",
-                   colors=["WHITE", "RED"])
+        logger.error("group_similar_headers: Empty input list")
         return []
 
     # Group similar texts
     try:
         grouped_texts = group_similar_texts(
             texts, threshold=threshold, model_name=model_name)
-        logger.log("group_similar_headers:", f"Grouped into {len(grouped_texts)} clusters", colors=[
-                   "WHITE", "GREEN"])
+        logger.info(
+            f"group_similar_headers: Grouped into {len(grouped_texts)} clusters")
     except Exception as e:
-        logger.log("group_similar_headers:",
-                   f"Grouping failed: {str(e)}", colors=["WHITE", "RED"])
+        logger.error(f"group_similar_headers: Grouping failed: {str(e)}")
         raise
 
     # Map grouped texts back to original documents
@@ -875,40 +889,72 @@ def group_similar_headers(
             group_headers = []
             group_doc_indexes = []
             group_source_urls = []
-            group_texts = []
+            group_contents = []
             seen_doc_indexes = set()
-            seen_texts = set()
+            seen_contents = set()
+            group_scores = []
             for text in group:
-                matching_docs = [pair[1]
-                                 for pair in text_doc_pairs if pair[0] == text]
-                # Deduplicate documents by doc_index and texts
-                for doc in matching_docs:
-                    doc_index = doc["metadata"]["doc_index"]
-                    doc_text = doc.text
-                    if doc_index not in seen_doc_indexes and doc_text not in seen_texts:
-                        seen_doc_indexes.add(doc_index)
-                        seen_texts.add(doc_text)
-                        group_docs.append(doc)
-                        group_headers.append(doc["metadata"]["header"])
-                        group_doc_indexes.append(doc_index)
-                        group_source_urls.append(doc["metadata"]["source_url"])
-                        group_texts.append(doc_text)
+                if is_with_score:
+                    matching_docs = [pair[1]
+                                     for pair in text_doc_pairs if pair[0] == text]
+                    for doc in matching_docs:
+                        doc_index = doc.node.metadata.get("doc_index", 0)
+                        doc_content = doc.node.metadata.get("content", "")
+                        if doc_index not in seen_doc_indexes and doc_content not in seen_contents:
+                            seen_doc_indexes.add(doc_index)
+                            seen_contents.add(doc_content)
+                            group_docs.append(doc)
+                            group_headers.append(
+                                doc.node.metadata.get("header", ""))
+                            group_doc_indexes.append(doc_index)
+                            group_source_urls.append(
+                                doc.node.metadata.get("source_url", ""))
+                            group_contents.append(doc_content)
+                            if hasattr(doc, "score") and doc.score is not None:
+                                group_scores.append(doc.score)
+                else:
+                    matching_docs = [pair[1]
+                                     for pair in text_doc_pairs if pair[0] == text]
+                    for doc in matching_docs:
+                        doc_index = doc["metadata"]["doc_index"]
+                        doc_content = doc["metadata"]["content"]
+                        if doc_index not in seen_doc_indexes and doc_content not in seen_contents:
+                            seen_doc_indexes.add(doc_index)
+                            seen_contents.add(doc_content)
+                            group_docs.append(doc)
+                            group_headers.append(doc["metadata"]["header"])
+                            group_doc_indexes.append(doc_index)
+                            group_source_urls.append(
+                                doc["metadata"]["source_url"])
+                            group_contents.append(doc_content)
                 if not matching_docs:
-                    logger.log("group_similar_headers:", f"No document found for text: {text}", colors=[
-                               "WHITE", "YELLOW"])
+                    logger.warning(
+                        f"group_similar_headers: No document found for text: {text}")
+            # Compute average_score if possible
+            if is_with_score and group_scores:
+                average_score = sum(group_scores) / len(group_scores)
+            elif is_with_score:
+                average_score = 0.0
+            else:
+                average_score = None
             grouped_results.append({
                 "headers": group_headers,
-                "texts": group_texts,
+                "contents": group_contents,
                 "doc_indexes": group_doc_indexes,
                 "source_urls": group_source_urls,
+                "average_score": average_score,
                 "documents": group_docs
             })
-        logger.log("group_similar_headers:", "Mapped grouped texts to documents", colors=[
-                   "WHITE", "GREEN"])
+        logger.info("group_similar_headers: Mapped grouped texts to documents")
     except Exception as e:
-        logger.log("group_similar_headers:",
-                   f"Mapping failed: {str(e)}", colors=["WHITE", "RED"])
+        logger.error(f"group_similar_headers: Mapping failed: {str(e)}")
         raise
+
+    grouped_results.sort(
+        key=lambda x: x["average_score"] if x["average_score"] is not None else float(
+            '-inf'),
+        reverse=True
+    )
 
     return grouped_results
 
