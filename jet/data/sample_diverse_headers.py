@@ -38,7 +38,8 @@ def sample_diverse_headers(
             category_values=[
                 # doc["source_url"],
                 # (doc["parent_header"] or "").lstrip().strip().lower(),
-                doc["header"].lstrip().strip().lower(),
+                # doc["header"].lstrip().strip().lower(),
+                doc["text"].lstrip().strip().lower(),
             ]
         ) for doc in docs
     ]

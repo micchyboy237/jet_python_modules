@@ -1,5 +1,5 @@
 # Initialize all shared modules
-from jet.utils.inference_config import check_accelerate_usage, check_numpy_config
+# from jet.utils.inference_config import check_accelerate_usage, check_numpy_config
 import shared.setup.builtin_modules
 
 # from shared.setup.events import setup_events
@@ -13,5 +13,5 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 # Trigger event initialize
 # setup_events()
 
-check_numpy_config()
-check_accelerate_usage()
+# check_numpy_config()
+# check_accelerate_usage()
