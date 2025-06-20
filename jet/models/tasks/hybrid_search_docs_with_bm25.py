@@ -483,7 +483,7 @@ def search_docs(
     threshold: float = 0.0,
     filter_by_headers_enabled: bool = True,
     bm25_weight: float = 0.3,  # Added for BM25 integration
-    with_bm25: bool = True    # Added to toggle BM25
+    with_bm25: bool = False    # Added to toggle BM25
 ) -> List[HeaderDocumentWithScore]:
     """Search documents using embedding-based retrieval, averaging header and content similarities.
 
