@@ -36,7 +36,7 @@ def sample_diverse_headers(
         ProcessedDataString(
             source=doc.text,
             category_values=[
-                doc["source_url"],
+                # doc["source_url"],
                 # (doc["parent_header"] or "").lstrip().strip().lower(),
                 doc["header"].lstrip().strip().lower(),
             ]
