@@ -3,14 +3,14 @@ from nltk.tokenize import sent_tokenize
 from jet.logger import logger
 from jet.vectors.document_types import HeaderDocument, HeaderMetadata
 from jet.models.tokenizer.base import detokenize, get_tokenizer_fn, Tokenizer
-from jet.models.model_types import LLMModelType
+from jet.models.model_types import ModelType
 import re
 import numpy as np
 
 from jet.wordnet.words import get_words
 
 
-def chunk_texts(texts: Union[str, List[str]], chunk_size: int = 128, chunk_overlap: int = 0, model: Optional[LLMModelType] = None) -> List[str]:
+def chunk_texts(texts: Union[str, List[str]], chunk_size: int = 128, chunk_overlap: int = 0, model: Optional[ModelType] = None) -> List[str]:
     """Chunk large texts into smaller segments with word or token overlap based on model presence.
 
     Args:
@@ -48,7 +48,7 @@ def chunk_texts(texts: Union[str, List[str]], chunk_size: int = 128, chunk_overl
     return chunked_texts
 
 
-def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, sentence_overlap: int = 0, model: Optional[LLMModelType] = None) -> List[str]:
+def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, sentence_overlap: int = 0, model: Optional[ModelType] = None) -> List[str]:
     """Chunk texts by sentences with sentence overlap, using tokens if model is provided.
 
     Args:
@@ -101,7 +101,7 @@ def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, sentence_
     return chunked_texts
 
 
-def chunk_texts_with_indices(texts: Union[str, List[str]], chunk_size: int = 128, chunk_overlap: int = 0, model: Optional[LLMModelType] = None) -> Tuple[List[str], List[int]]:
+def chunk_texts_with_indices(texts: Union[str, List[str]], chunk_size: int = 128, chunk_overlap: int = 0, model: Optional[ModelType] = None) -> Tuple[List[str], List[int]]:
     """Chunk large texts and track original document indices with word or token overlap.
 
     Args:
@@ -140,7 +140,7 @@ def chunk_texts_with_indices(texts: Union[str, List[str]], chunk_size: int = 128
     return chunked_texts, doc_indices
 
 
-def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int = 5, sentence_overlap: int = 0, model: Optional[LLMModelType] = None) -> Tuple[List[str], List[int]]:
+def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int = 5, sentence_overlap: int = 0, model: Optional[ModelType] = None) -> Tuple[List[str], List[int]]:
     """Chunk texts by sentences with sentence overlap and track original document indices, using tokens if model is provided.
 
     Args:
@@ -196,7 +196,7 @@ def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int =
     return chunked_texts, doc_indices
 
 
-def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Optional[LLMModelType] = None) -> List[HeaderDocument]:
+def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Optional[ModelType] = None) -> List[HeaderDocument]:
     """Chunk HeaderDocument list into smaller segments based on token count or lines, ensuring complete sentences when model is provided.
 
     Args:
@@ -310,7 +310,7 @@ def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Opti
 def truncate_texts(
     texts: Union[str, List[str]],
     max_words: int,
-    model: Optional[LLMModelType] = None
+    model: Optional[ModelType] = None
 ) -> Union[str, List[str]]:
     """Truncate texts to a maximum number of words or tokens.
 

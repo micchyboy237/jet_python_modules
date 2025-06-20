@@ -548,8 +548,7 @@ def search_docs(
     if with_bm25:
         tokenized_chunks = [get_words(chunk["text"].lower())
                             for chunk in filtered_chunks]
-        bm25 = BM25Okapi(
-            tokenized_chunks, k1=1.5, b=0.75, epsilon=0.5)
+        bm25 = BM25Okapi(tokenized_chunks, k1=1.5, b=0.25, epsilon=0.1)
         tokenized_query = get_words(query_with_instruction.lower())
         bm25_scores = bm25.get_scores(tokenized_query).tolist()
         # Normalize BM25 scores to [0, 1]

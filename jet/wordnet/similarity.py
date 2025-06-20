@@ -812,6 +812,7 @@ class GroupedResult(TypedDict):
     doc_indexes: List[int]
     source_urls: List[str]
     average_score: Optional[float]
+    max_score: Optional[float]
     documents: Union[List[HeaderDocument], List[HeaderDocumentWithScore]]
 
 
@@ -829,7 +830,7 @@ def group_similar_headers(
         model_name (EmbedModelType): Sentence transformer model to use for embedding.
 
     Returns:
-        List[GroupedResult]: List of grouped results, each containing headers, contents, doc_indexes, source_urls, and their original documents.
+        List[GroupedResult]: List of grouped results, each containing headers, contents, doc_indexes, source_urls, average_score, max_score, and their original documents.
     """
     # Determine if docs is a list of HeaderDocumentWithScore
     is_with_score = (
@@ -930,19 +931,17 @@ def group_similar_headers(
                 if not matching_docs:
                     logger.warning(
                         f"group_similar_headers: No document found for text: {text}")
-            # Compute average_score if possible
-            if is_with_score and group_scores:
-                average_score = sum(group_scores) / len(group_scores)
-            elif is_with_score:
-                average_score = 0.0
-            else:
-                average_score = None
+            # Compute average_score and max_score
+            average_score = sum(group_scores) / \
+                len(group_scores) if group_scores else None
+            max_score = max(group_scores) if group_scores else None
             grouped_results.append({
                 "headers": group_headers,
                 "contents": group_contents,
                 "doc_indexes": group_doc_indexes,
                 "source_urls": group_source_urls,
                 "average_score": average_score,
+                "max_score": max_score,
                 "documents": group_docs
             })
         logger.info("group_similar_headers: Mapped grouped texts to documents")
@@ -951,7 +950,7 @@ def group_similar_headers(
         raise
 
     grouped_results.sort(
-        key=lambda x: x["average_score"] if x["average_score"] is not None else float(
+        key=lambda x: x["max_score"] if x["max_score"] is not None else float(
             '-inf'),
         reverse=True
     )
