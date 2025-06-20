@@ -280,6 +280,11 @@ class HeaderDocumentWithScore(BaseModel):
         return "HeaderDocumentWithScore"
 
     @property
+    def id(self) -> str:
+        """Unique identifier for the document, alias for id_."""
+        return self.node.id
+
+    @property
     def node_id(self) -> str:
         return self.node.node_id
 

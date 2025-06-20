@@ -1,20 +1,20 @@
-from typing import List, Optional
-from jet.vectors.document_types import HeaderDocument
+from typing import List, Optional, Union
+from jet.vectors.document_types import HeaderDocument, HeaderDocumentWithScore
 from jet.wordnet.words import get_words
 from jet.data.stratified_sampler import StratifiedSampler, ProcessedDataString
 
 
 def sample_diverse_headers(
-    docs: List[HeaderDocument],
+    docs: Union[List[HeaderDocument], List[HeaderDocumentWithScore]],
     num_samples: Optional[int] = None,
     n: int = 2,
     top_n: int = 1,
     category_values: Optional[List[List[str]]] = None
-) -> List[HeaderDocument]:
+) -> Union[List[HeaderDocument], List[HeaderDocumentWithScore]]:
     """Sample diverse documents using StratifiedSampler.
 
     Args:
-        docs: List of HeaderDocument objects to sample from.
+        docs: List of HeaderDocument or HeaderDocumentWithScore objects to sample from.
         num_samples: Number of documents to sample. If None, uses all documents.
         n: N-gram size for diversity sampling.
         top_n: Number of documents to keep per n-gram group.
@@ -36,7 +36,7 @@ def sample_diverse_headers(
         ProcessedDataString(
             source=doc.text,
             category_values=[
-                # doc["source_url"],
+                doc["source_url"],
                 # (doc["parent_header"] or "").lstrip().strip().lower(),
                 doc["header"].lstrip().strip().lower(),
             ]
