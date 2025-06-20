@@ -13,44 +13,10 @@ from jet.models.onnx_model_checker import has_onnx_model_in_repo, get_onnx_model
 from jet.models.utils import resolve_model_value
 
 
-class ONNXSentenceTransformerWrapper:
-    """Wrapper for ONNX SentenceTransformer model to mimic encode method."""
-
-    def __init__(self, session: ort.InferenceSession, tokenizer: PreTrainedTokenizer):
-        self.session = session
-        self.tokenizer = tokenizer
-
-    def encode(self, sentences, batch_size=32, **kwargs) -> np.ndarray:
-        logger.info(
-            f"Encoding {len(sentences)} sentences with ONNX SentenceTransformer model")
-        all_embeddings = []
-        for i in range(0, len(sentences), batch_size):
-            batch = sentences[i:i + batch_size]
-            inputs = self.tokenizer(
-                batch,
-                return_tensors="np",
-                padding=True,
-                truncation=True,
-                **kwargs
-            )
-            input_feed = {
-                "input_ids": inputs["input_ids"],
-                "attention_mask": inputs["attention_mask"]
-            }
-            if "token_type_ids" in [inp.name for inp in self.session.get_inputs()]:
-                input_feed["token_type_ids"] = inputs.get(
-                    "token_type_ids", np.zeros_like(inputs["input_ids"]))
-            outputs = self.session.run(None, input_feed)
-            embeddings = outputs[0]
-            all_embeddings.append(embeddings)
-        return np.concatenate(all_embeddings, axis=0)
-
-
 class SentenceTransformerRegistry(BaseModelRegistry):
     """Registry for SentenceTransformer models."""
     _instance = None
-    _models: Dict[str, Union[SentenceTransformer,
-                             ONNXSentenceTransformerWrapper]] = {}
+    _models: Dict[str, SentenceTransformer] = {}
     _tokenizers: Dict[str, PreTrainedTokenizer] = {}
     _configs: Dict[str, PretrainedConfig] = {}
     _onnx_sessions: Dict[Tuple[str, str], ort.InferenceSession] = {}
@@ -66,8 +32,8 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         model_id: str = "static-retrieval-mrl-en-v1",
         device: Optional[Literal["cpu", "cuda", "mps"]] = "cpu",
         precision: Optional[Literal["fp32", "fp16"]] = "fp32",
-        backend: Optional[Literal["pytorch", "onnx"]] = "pytorch"
-    ) -> Union[SentenceTransformer, ONNXSentenceTransformerWrapper]:
+        backend: Optional[Literal["pytorch", "onnx"]] = "onnx"
+    ) -> SentenceTransformer:
         """Load or retrieve a SentenceTransformer model statically."""
         instance = SentenceTransformerRegistry()
         resolved_model_id = resolve_model_value(model_id)
@@ -89,61 +55,50 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             raise ValueError(
                 f"Could not load SentenceTransformer model {resolved_model_id}: {str(e)}")
 
-    def _load_model(self, model_id: str, features: Optional[ModelFeatures] = None) -> Optional[Union[SentenceTransformer, ONNXSentenceTransformerWrapper]]:
+    def _load_model(self, model_id: str, features: Optional[ModelFeatures] = None) -> Optional[SentenceTransformer]:
         features = features or {}
         if model_id in self._models:
             logger.info(
                 f"Reusing existing SentenceTransformer model for model_id: {model_id}")
             return self._models[model_id]
         if features.get("backend", "pytorch") == "onnx" and has_onnx_model_in_repo(model_id):
-            onnx_paths = get_onnx_model_paths(model_id)
-            if onnx_paths:
-                selected_path = None
-                for path in onnx_paths:
-                    if "arm64.onnx" in path:
-                        selected_path = path
-                        break
-                    elif "quantized" in path:
-                        selected_path = path
-                    elif "model.onnx" in path and not selected_path:
-                        selected_path = path
-                if selected_path:
-                    session_key = (model_id, selected_path)
-                    if session_key in self._onnx_sessions:
-                        logger.info(
-                            f"Reusing ONNX session for model_id: {model_id}, path: {selected_path}")
-                        session = self._onnx_sessions[session_key]
-                    else:
-                        logger.info(
-                            f"Loading ONNX SentenceTransformer model for model_id: {model_id}, path: {selected_path}")
-                        try:
-                            full_path = os.path.join(
-                                "/Users/jethroestrada/.cache/huggingface/hub", selected_path)
-                            session_options = ort.SessionOptions()
-                            providers = ["CPUExecutionProvider"]
-                            if features.get("device") == "cuda":
-                                providers = [
-                                    "CUDAExecutionProvider"] + providers
-                            session = ort.InferenceSession(
-                                full_path, providers=providers, sess_options=session_options)
-                            self._onnx_sessions[session_key] = session
-                        except Exception as e:
-                            logger.error(
-                                f"Failed to load ONNX SentenceTransformer model {model_id}: {str(e)}")
-                            return self._load_pytorch_model(model_id, features)
-                    try:
-                        tokenizer = self.get_tokenizer(model_id)
-                        model = ONNXSentenceTransformerWrapper(
-                            session, tokenizer)
-                        self._models[model_id] = model
-                        return model
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to load tokenizer for ONNX SentenceTransformer model {model_id}: {str(e)}")
-                        return self._load_pytorch_model(model_id, features)
+            model = self._load_onnx_model(model_id, features)
+            if model:
+                return model
         logger.info(
             f"No ONNX model found or backend set to pytorch, loading PyTorch SentenceTransformer model for model_id: {model_id}")
         return self._load_pytorch_model(model_id, features)
+
+    def _load_onnx_model(self, model_id: str, features: ModelFeatures) -> Optional[SentenceTransformer]:
+        """Load an ONNX SentenceTransformer model."""
+        if features.get("backend", "pytorch") != "onnx" or not has_onnx_model_in_repo(model_id):
+            logger.debug(
+                f"Debug: Skipping ONNX load for model_id={model_id}, backend={features.get('backend')}, has_onnx={has_onnx_model_in_repo(model_id)}")
+            return None
+        logger.info(
+            f"Loading ONNX SentenceTransformer model for model_id: {model_id}")
+        logger.debug(f"Debug: Checking ONNX model paths for {model_id}")
+        try:
+            onnx_paths = get_onnx_model_paths(model_id)
+            logger.debug(f"Debug: ONNX paths found: {onnx_paths}")
+            model = SentenceTransformer(model_id, device="cpu", backend="onnx")
+            logger.debug(
+                f"Debug: Model loaded with device={getattr(model, 'device', 'cpu')}")
+            # Verify model with test encoding
+            test_input = ["Test sentence"]
+            logger.debug(
+                f"Debug: Attempting test encoding with input={test_input}")
+            test_embedding = model.encode(
+                test_input, batch_size=1, convert_to_numpy=True)
+            logger.debug(
+                f"Debug: Test encoding successful, shape={test_embedding.shape}")
+            self._models[model_id] = model
+            return model
+        except Exception as e:
+            logger.error(
+                f"Failed to load ONNX SentenceTransformer model {model_id}: {str(e)}")
+            logger.debug(f"Debug: Exception details: {str(e)}")
+            return None
 
     def _load_pytorch_model(self, model_id: str, features: ModelFeatures) -> SentenceTransformer:
         """Load a PyTorch SentenceTransformer model."""
@@ -167,6 +122,18 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             logger.info(f"Reusing tokenizer for model_id: {resolved_model_id}")
             return self._tokenizers[resolved_model_id]
         logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
+        try:
+            if has_onnx_model_in_repo(resolved_model_id):
+                logger.info(
+                    f"Using SentenceTransformer with ONNX backend for tokenizer: {resolved_model_id}")
+                model = SentenceTransformer(
+                    resolved_model_id, device="cpu", backend="onnx")
+                tokenizer = model.tokenizer
+                self._tokenizers[resolved_model_id] = tokenizer
+                return tokenizer
+        except Exception as e:
+            logger.warning(
+                f"Failed to load SentenceTransformer with ONNX backend for tokenizer {resolved_model_id}: {str(e)}")
         try:
             model = SentenceTransformer(resolved_model_id)
             tokenizer = model.tokenizer
@@ -244,7 +211,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         batch_size: int = 32,
         show_progress: bool = False,
         return_format: Literal["list", "numpy", "torch"] = "list",
-        backend: Literal["pytorch", "onnx"] = "pytorch"
+        backend: Literal["pytorch", "onnx"] = "onnx"
     ) -> Union[List[float], List[List[float]], np.ndarray, torch.Tensor]:
         """Generate embeddings for input text using a SentenceTransformer model."""
         if return_format not in ["list", "numpy", "torch"]:
@@ -258,13 +225,19 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         try:
             model = self._load_model(
                 resolved_model_id, {"device": "cpu", "backend": backend})
+            if not model:
+                raise ValueError(f"Failed to load model {resolved_model_id}")
             logger.debug(
                 f"Embedding model initialized with device: {getattr(model, 'device', 'cpu')}")
             if isinstance(input_data, str):
                 logger.debug(
                     f"Processing single string input: {input_data[:50]}")
                 embedding = model.encode(
-                    input_data, batch_size=batch_size, convert_to_numpy=True)
+                    input_data,
+                    batch_size=1,
+                    convert_to_numpy=True,
+                    normalize_embeddings=True
+                )
                 embedding = np.ascontiguousarray(embedding.astype(np.float32))
                 logger.debug(f"Generated embedding shape: {embedding.shape}")
                 if return_format == "numpy":
@@ -275,6 +248,8 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             elif isinstance(input_data, list) and all(isinstance(item, str) for item in input_data):
                 logger.debug(
                     f"Processing {len(input_data)} strings in batches of {batch_size}")
+                logger.debug(
+                    f"Debug: Input data sample: {input_data[:2] if input_data else []}")
                 if not input_data:
                     logger.info(
                         "Empty input list, returning empty list of embeddings")
@@ -288,12 +263,26 @@ class SentenceTransformerRegistry(BaseModelRegistry):
                 for i in iterator:
                     batch = input_data[i:i + batch_size]
                     logger.debug(
-                        f"Encoding batch {i}-{min(i + batch_size, len(input_data))}")
-                    batch_embeddings = model.encode(
-                        batch, batch_size=batch_size, convert_to_numpy=True)
-                    batch_embeddings = np.ascontiguousarray(
-                        batch_embeddings.astype(np.float32))
-                    embeddings.extend(batch_embeddings.tolist())
+                        f"Debug: Encoding batch {i}-{min(i + batch_size, len(input_data))}, size: {len(batch)}")
+                    try:
+                        batch_embeddings = model.encode(
+                            batch,
+                            batch_size=len(batch),
+                            convert_to_numpy=True,
+                            normalize_embeddings=True
+                        )
+                        batch_embeddings = np.ascontiguousarray(
+                            batch_embeddings.astype(np.float32))
+                        embeddings.extend(batch_embeddings.tolist())
+                        logger.debug(
+                            f"Debug: Batch {i}-{min(i + batch_size, len(input_data))} encoded, shape: {batch_embeddings.shape}")
+                        # Force garbage collection to prevent memory leaks
+                        import gc
+                        gc.collect()
+                    except Exception as e:
+                        logger.error(
+                            f"Debug: Failed to encode batch {i}-{i + batch_size}: {str(e)}")
+                        raise
                 if return_format == "numpy":
                     return np.array(embeddings, dtype=np.float32)
                 elif return_format == "torch":
