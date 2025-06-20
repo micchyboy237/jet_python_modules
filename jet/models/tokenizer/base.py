@@ -12,15 +12,13 @@ from jet.models.model_types import ModelType
 from jet.wordnet.sentence import split_sentences
 
 
-# Configure logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Cache for storing loaded tokenizers
+_tokenizer_cache: Dict[str, Tokenizer] = {}
 
 
 def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) -> Tokenizer:
     """
-    Initialize and return a tokenizer for the specified model.
+    Initialize and return a tokenizer for the specified model, using a cache to prevent reloading.
 
     Args:
         model_name: The model key (e.g., 'bge-large') or repository ID (e.g., 'BAAI/bge-large-en-v1.5').
@@ -37,10 +35,16 @@ def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) 
     logger.info(
         f"Attempting to load tokenizer for model_name: {model_name}, resolved to: {model_path}")
 
+    # Check cache first
+    if model_path in _tokenizer_cache:
+        logger.info(f"Using cached tokenizer for: {model_path}")
+        return _tokenizer_cache[model_path]
+
     try:
         # Attempt to load from remote
         tokenizer = Tokenizer.from_pretrained(model_path)
         logger.info(f"Successfully loaded tokenizer from remote: {model_path}")
+        _tokenizer_cache[model_path] = tokenizer
         return tokenizer
     except Exception as e:
         logger.warning(f"Failed to load tokenizer from remote: {str(e)}")
@@ -77,6 +81,7 @@ def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) 
                 tokenizer = Tokenizer.from_file(str(resolved_path))
                 logger.info(
                     f"Successfully loaded tokenizer from local cache: {resolved_path}")
+                _tokenizer_cache[model_path] = tokenizer
                 return tokenizer
             except Exception as local_e:
                 logger.error(

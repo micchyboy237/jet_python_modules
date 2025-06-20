@@ -192,19 +192,19 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
                 current_content = [
                 ] if not overlap else current_content[-int(overlap / 2):]
                 current_chunk = [] if not overlap else current_chunk
-                current_len = sum(len(s.split())
+                current_len = sum(len(get_words(s))
                                   for s in current_chunk + current_content)
             current_headers = [line]
             current_chunk = [line]
             current_content = []
-            current_len += len(line.split())
+            current_len += len(get_words(line))
         else:
             sentences = re.split(r'(?<=[.!?])\s+', line.strip())
             for sentence in sentences:
                 sentence = sentence.strip()
                 if not sentence:
                     continue
-                sentence_len = len(sentence.split())
+                sentence_len = len(get_words(sentence))
                 logger.debug("Processing sentence: %s, len: %d, current_len: %d",
                              sentence, sentence_len, current_len)
                 if (current_chunk or current_content) and current_len + sentence_len > chunk_size:
@@ -222,7 +222,7 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
                         sentence] if not overlap else current_content[-int(overlap / 2):] + [sentence]
                     current_chunk = current_chunk if overlap else []
                     current_len = sentence_len + \
-                        sum(len(s.split())
+                        sum(len(get_words(s))
                             for s in current_chunk + current_content[:-1])
                 else:
                     current_content.append(sentence)
@@ -429,7 +429,7 @@ def highlight_text(text: str, query: str) -> Tuple[str, List[Match]]:
                  query, text[:100])
     if not query.strip():
         return "", []
-    query_terms = query.lower().split()
+    query_terms = get_words(query.lower())
     unique_terms = {
         term.strip(string.punctuation)
         for term in query_terms
@@ -544,10 +544,10 @@ def search_docs(
     # Compute BM25 scores if enabled
     bm25_scores = []
     if with_bm25:
-        tokenized_chunks = [chunk["text"].lower().split()
+        tokenized_chunks = [get_words(chunk["text"].lower())
                             for chunk in filtered_chunks]
         bm25 = BM25Okapi(tokenized_chunks)
-        tokenized_query = query_with_instruction.lower().split()
+        tokenized_query = get_words(query_with_instruction.lower())
         bm25_scores = bm25.get_scores(tokenized_query).tolist()
         # Normalize BM25 scores to [0, 1]
         max_bm25 = max(bm25_scores) if bm25_scores else 1.0
