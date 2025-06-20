@@ -8,7 +8,7 @@ import math
 from bs4 import BeautifulSoup
 import bs4.element
 from jet.logger import logger
-from jet.code.html_to_markdown_parser import convert_html_to_markdown
+# from jet.code.html_to_markdown_parser import convert_html_to_markdown
 
 
 def remove_markdown_comments(markdown_text: str) -> str:
@@ -66,20 +66,20 @@ def clean_html_noise(html_string: str) -> str:
     return normalize_whitespace(str(soup))
 
 
-# def convert_html_to_markdown(html_string: str, ignore_links: bool = True) -> str:
-#     """Convert HTML to Markdown with enhanced noise removal."""
-#     filtered_html = remove_display_none_elements(html_string)
-#     # filtered_html = clean_html_noise(filtered_html)
+def convert_html_to_markdown(html_string: str, ignore_links: bool = True) -> str:
+    """Convert HTML to Markdown with enhanced noise removal."""
+    filtered_html = remove_display_none_elements(html_string)
+    # filtered_html = clean_html_noise(filtered_html)
 
-#     converter = html2text.HTML2Text()
-#     converter.ignore_links = ignore_links
-#     converter.ignore_images = True
-#     converter.ignore_emphasis = True
-#     converter.mark_code = True
-#     converter.body_width = 0
+    converter = html2text.HTML2Text()
+    converter.ignore_links = ignore_links
+    converter.ignore_images = True
+    converter.ignore_emphasis = True
+    converter.mark_code = True
+    converter.body_width = 0
 
-#     markdown_string = converter.handle(filtered_html)
-#     return markdown_string.strip()
+    markdown_string = converter.handle(filtered_html)
+    return markdown_string.strip()
 
 
 def is_html(text: str) -> bool:
