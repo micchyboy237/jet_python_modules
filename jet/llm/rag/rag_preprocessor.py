@@ -1,5 +1,5 @@
 from tqdm import tqdm
-from typing import List, Optional, Iterator
+from typing import List, Optional, Iterator, Literal
 from jet.logger import logger
 from jet.models.model_types import ModelType
 from jet.models.utils import resolve_model_value
@@ -17,7 +17,7 @@ import numpy as np
 class MLXRAGProcessor:
     """Processes preprocessed web data with MLX for RAG usage."""
 
-    def __init__(self, model_name: ModelType = "qwen3-1.7b-4bit", batch_size: int = 8, show_progress: bool = False):
+    def __init__(self, model_name: ModelType = "qwen3-1.7b-4bit", batch_size: int = 4, show_progress: bool = False):
         """Initialize with MLX model, tokenizer, batch size, and progress display option."""
         logger.debug(
             f"Loading MLX model: {model_name}, batch_size: {batch_size}, show_progress: {show_progress}")
@@ -65,14 +65,20 @@ class MLXRAGProcessor:
                 f"Batch NumPy embedding shape: {embedding.shape}, dtype: {embedding.dtype}")
             embeddings.extend(embedding)
             del input_ids, output
-            mx.metal.clear_cache()
+            mx.clear_cache()
         embeddings_array = np.stack(embeddings)
         logger.info(f"Generated embeddings shape: {embeddings_array.shape}")
         return embeddings_array
 
-    def generate(self, query: str, chunks: List[str], embeddings: np.ndarray) -> str:
-        """Process a query using embeddings for RAG."""
-        logger.info(f"Processing query: {query}")
+    def generate(self, query: str, chunks: List[str], embeddings: np.ndarray, relevance_threshold: float = 0.7) -> Literal["relevant", "non-relevant"]:
+        """Classify if the most relevant chunk is relevant or non-relevant based on query similarity."""
+        logger.info(
+            f"Classifying query: {query}, threshold: {relevance_threshold}")
+        if not chunks or embeddings.shape[0] != len(chunks):
+            logger.error(
+                "Invalid chunks or embeddings, returning non-relevant")
+            return "non-relevant"
+
         query_inputs = self.tokenizer(
             query, return_tensors="np", padding=True, truncation=True, max_length=512
         )
@@ -86,6 +92,7 @@ class MLXRAGProcessor:
             mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
         logger.debug(
             f"Query embedding shape: {query_embedding.shape}, dtype: {query_embedding.dtype}")
+
         norm_embeddings = embeddings / \
             np.linalg.norm(embeddings, axis=1, keepdims=True)
         norm_query = query_embedding / np.linalg.norm(query_embedding)
@@ -94,22 +101,25 @@ class MLXRAGProcessor:
         similarities = np.dot(norm_embeddings, norm_query)
         logger.debug(f"Similarities shape: {similarities.shape}")
         top_idx = np.argmax(similarities)
-        relevant_chunk = chunks[top_idx]
-        response = f"Based on the context: {relevant_chunk[:100]}..., the answer is derived from the relevant information."
-        logger.info("Query processed successfully")
-        return response
+        similarity_score = similarities[top_idx]
 
-    def stream_generate(self, query: str, chunks: List[str], embeddings: np.ndarray, top_k: int = 3) -> Iterator[str]:
-        """Stream responses for a query based on top-k relevant chunks using embeddings."""
-        logger.info(f"Streaming responses for query: {query}, top_k: {top_k}")
+        label: Literal["relevant",
+                       "non-relevant"] = "relevant" if similarity_score >= relevance_threshold else "non-relevant"
+        logger.debug(
+            f"Top chunk index: {top_idx}, score: {similarity_score:.4f}, label: {label}")
+        logger.info(f"Query classified as {label}")
+        return label
+
+    def stream_generate(self, query: str, chunks: List[str], embeddings: np.ndarray, top_k: int = 3, relevance_threshold: float = 0.7) -> Iterator[tuple[Literal["relevant", "non-relevant"], float, int]]:
+        """Stream classification labels, scores, and indices for top-k chunks based on query similarity."""
+        logger.info(
+            f"Streaming classifications for query: {query}, top_k: {top_k}, threshold: {relevance_threshold}")
         if top_k < 1:
             logger.warning("top_k must be at least 1, setting to 1")
             top_k = 1
         if not chunks or embeddings.shape[0] != len(chunks):
             logger.error("Invalid chunks or embeddings, cannot stream")
             return
-
-        # Process query embedding
         query_inputs = self.tokenizer(
             query, return_tensors="np", padding=True, truncation=True, max_length=512
         )
@@ -123,30 +133,22 @@ class MLXRAGProcessor:
             mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
         logger.debug(
             f"Query embedding shape: {query_embedding.shape}, dtype: {query_embedding.dtype}")
-
-        # Normalize embeddings and query
         norm_embeddings = embeddings / \
             np.linalg.norm(embeddings, axis=1, keepdims=True)
         norm_query = query_embedding / np.linalg.norm(query_embedding)
         logger.debug(
             f"Norm query shape: {norm_query.shape}, Norm embeddings shape: {norm_embeddings.shape}")
-
-        # Compute similarities and get top-k indices
         similarities = np.dot(norm_embeddings, norm_query)
         logger.debug(f"Similarities shape: {similarities.shape}")
-        top_indices = np.argsort(
-            similarities)[-top_k:][::-1]  # Descending order
-
-        # Stream responses for each top-k chunk
+        top_indices = np.argsort(similarities)[-top_k:][::-1]
         for idx in top_indices:
-            relevant_chunk = chunks[idx]
             similarity_score = similarities[idx]
-            response = f"Based on chunk (score: {similarity_score:.4f}): {relevant_chunk[:100]}..., the answer is derived from the relevant information."
+            label: Literal["relevant",
+                           "non-relevant"] = "relevant" if similarity_score >= relevance_threshold else "non-relevant"
             logger.debug(
-                f"Streaming response for chunk index {idx}, score: {similarity_score:.4f}")
-            yield response
-
-        logger.info("Streaming completed successfully")
+                f"Streaming chunk index {idx}, score: {similarity_score:.4f}, label: {label}")
+            yield label, similarity_score, idx  # Yield idx along with label and score
+        logger.info("Streaming classification completed successfully")
 
 
 class WebDataPreprocessor:
