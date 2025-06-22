@@ -6,10 +6,7 @@ import spacy
 from spacy.language import Language
 import textacy.preprocessing as tprep
 
-# Configure logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+from jet.logger import logger
 
 
 class WebDataPreprocessor:
