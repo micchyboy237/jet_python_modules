@@ -1,6 +1,7 @@
 from tqdm import tqdm
-from typing import List, Iterator, Literal, Optional
+from typing import List, Iterator, Literal, Optional, Dict
 from collections import defaultdict
+import hashlib
 from jet.logger import logger
 from jet.models.model_types import ModelType
 from jet.models.utils import resolve_model_value
@@ -15,13 +16,12 @@ class MLXRAGClassifier:
 
     def __init__(self, model_name: ModelType = "qwen3-1.7b-4bit", batch_size: int = 4, show_progress: bool = False):
         """Initialize with MLX model, tokenizer, batch size, and progress display option."""
-        logger.debug(
-            f"Loading MLX model: {model_name}, batch_size: {batch_size}, show_progress: {show_progress}")
         self.batch_size = batch_size
         self.show_progress = show_progress
+        self.embedding_cache: Dict[str, np.ndarray] = {}
+        self.query_cache: Dict[str, np.ndarray] = {}
         try:
             model_path = resolve_model_value(model_name)
-            logger.debug(f"Resolved model path: {model_path}")
             self.tokenizer = AutoTokenizer.from_pretrained(model_path)
             self.model, _ = load(model_path)
             logger.info("Model and tokenizer loaded successfully")
@@ -29,35 +29,43 @@ class MLXRAGClassifier:
             logger.error(f"Failed to load model or tokenizer: {str(e)}")
             raise
 
+    def _hash_text(self, text: str) -> str:
+        """Generate a hash for a given text string."""
+        return hashlib.md5(text.encode('utf-8')).hexdigest()
+
     def generate_embeddings(self, chunks: List[str], group_ids: Optional[List[str]] = None) -> np.ndarray:
-        """Generate embeddings for text chunks using MLX with batch processing, grouping by optional identifiers.
-
-        Args:
-            chunks: List of text chunks to embed.
-            group_ids: Optional list of identifiers to group chunks, ensuring no mixed groups in batches.
-
-        Returns:
-            NumPy array of embeddings in original chunk order.
-        """
         logger.info(f"Generating embeddings for {len(chunks)} chunks")
         embeddings = []
         original_indices = list(range(len(chunks)))
+        cached_count = 0
 
-        # Group chunks by group_ids if provided
+        # Deduplicate chunks while preserving original indices
+        chunk_to_indices = defaultdict(list)
+        for idx, chunk in enumerate(chunks):
+            chunk_to_indices[chunk].append(idx)
+        unique_chunks = list(chunk_to_indices.keys())
+        chunk_index_map = {chunk: indices for chunk,
+                           indices in chunk_to_indices.items()}
+
+        # Organize batches by group_ids if provided
         if group_ids and len(group_ids) == len(chunks):
-            url_to_indices = defaultdict(list)
-            for idx, url in enumerate(group_ids):
-                url_to_indices[url].append(idx)
+            url_to_unique_chunks = defaultdict(list)
+            for chunk in unique_chunks:
+                indices = chunk_index_map[chunk]
+                # Use the first group_id for this chunk (assumes same chunk has same group_id)
+                group_id = group_ids[indices[0]]
+                url_to_unique_chunks[group_id].append(chunk)
             batches = []
-            for url, indices in url_to_indices.items():
-                url_chunks = [chunks[i] for i in indices]
-                url_indices = indices
+            for url, url_chunks in url_to_unique_chunks.items():
+                url_indices = [chunk_index_map[chunk][0]
+                               for chunk in url_chunks]
                 for i in range(0, len(url_chunks), self.batch_size):
-                    batches.append(
-                        (url_chunks[i:i + self.batch_size], url_indices[i:i + self.batch_size]))
+                    batch_chunks = url_chunks[i:i + self.batch_size]
+                    batch_indices = url_indices[i:i + self.batch_size]
+                    batches.append((batch_chunks, batch_indices))
         else:
-            batches = [(chunks[i:i + self.batch_size], original_indices[i:i + self.batch_size])
-                       for i in range(0, len(chunks), self.batch_size)]
+            batches = [(unique_chunks[i:i + self.batch_size], original_indices[i:i + self.batch_size])
+                       for i in range(0, len(unique_chunks), self.batch_size)]
 
         num_batches = len(batches)
         iterator = range(num_batches)
@@ -67,39 +75,63 @@ class MLXRAGClassifier:
 
         for i in iterator:
             batch_chunks, batch_indices = batches[i]
-            logger.debug(
-                f"Processing batch {i + 1} with {len(batch_chunks)} chunks")
-            encoded_inputs = [self.tokenizer(
-                chunk, truncation=False, add_special_tokens=True) for chunk in batch_chunks]
-            max_len = max(len(enc["input_ids"]) for enc in encoded_inputs)
-            logger.debug(f"Dynamic max_length for this batch: {max_len}")
-            inputs = self.tokenizer(
-                batch_chunks,
-                return_tensors="np",
-                padding="max_length",
-                truncation=True,
-                max_length=max_len
-            )
-            input_ids = mx.array(inputs["input_ids"]).astype(mx.int32)
-            logger.debug(
-                f"Batch input IDs shape: {input_ids.shape}, dtype: {input_ids.dtype}")
-            output = self.model(input_ids)
-            logger.debug(
-                f"Batch output shape: {output.shape}, dtype: {output.dtype}")
-            embedding = np.array(
-                mx.mean(output, axis=1).tolist(), dtype=np.float32)
-            logger.debug(
-                f"Batch NumPy embedding shape: {embedding.shape}, dtype: {embedding.dtype}")
+            batch_embeddings = []
+            batch_remaining_chunks = []
+            batch_remaining_indices = []
 
-            for emb, idx in zip(embedding, batch_indices):
-                embeddings.append((idx, emb))
+            for chunk, idx in zip(batch_chunks, batch_indices):
+                chunk_hash = self._hash_text(chunk)
+                if chunk_hash in self.embedding_cache:
+                    batch_embeddings.append(
+                        (idx, self.embedding_cache[chunk_hash]))
+                    cached_count += len(chunk_index_map[chunk])
+                else:
+                    batch_remaining_chunks.append(chunk)
+                    batch_remaining_indices.append(idx)
 
-            del input_ids, output
-            mx.clear_cache()
+            if batch_remaining_chunks:
+                encoded_inputs = [self.tokenizer(
+                    chunk, truncation=False, add_special_tokens=True) for chunk in batch_remaining_chunks]
+                max_len = max(len(enc["input_ids"]) for enc in encoded_inputs)
+                inputs = self.tokenizer(
+                    batch_remaining_chunks,
+                    return_tensors="np",
+                    padding="max_length",
+                    truncation=True,
+                    max_length=max_len
+                )
+                input_ids = mx.array(inputs["input_ids"]).astype(mx.int32)
+                output = self.model(input_ids)
+                embedding = np.array(
+                    mx.mean(output, axis=1).tolist(), dtype=np.float32)
 
-        embeddings = [emb for _, emb in sorted(embeddings, key=lambda x: x[0])]
-        embeddings_array = np.stack(embeddings)
-        logger.info(f"Generated embeddings shape: {embeddings_array.shape}")
+                for emb, chunk, idx in zip(embedding, batch_remaining_chunks, batch_remaining_indices):
+                    chunk_hash = self._hash_text(chunk)
+                    self.embedding_cache[chunk_hash] = emb
+                    batch_embeddings.append((idx, emb))
+                    # Count additional cache uses
+                    cached_count += len(chunk_index_map[chunk]) - 1
+
+                del input_ids, output
+                mx.clear_cache()
+
+            embeddings.extend(batch_embeddings)
+
+        # Reconstruct embeddings in original chunk order
+        final_embeddings = [None] * len(chunks)
+        for chunk, indices in chunk_index_map.items():
+            chunk_hash = self._hash_text(chunk)
+            emb = self.embedding_cache.get(chunk_hash)
+            if emb is not None:
+                for idx in indices:
+                    final_embeddings[idx] = emb
+            else:
+                logger.error(f"No embedding found for chunk: {chunk}")
+                raise ValueError(f"Embedding missing for chunk: {chunk}")
+
+        embeddings_array = np.stack(final_embeddings)
+        logger.info(
+            f"Generated embeddings shape: {embeddings_array.shape}, {cached_count} chunks retrieved from cache")
         return embeddings_array
 
     def generate(self, query: str, chunks: List[str], embeddings: np.ndarray, relevance_threshold: float = 0.7) -> Literal["relevant", "non-relevant"]:
@@ -111,34 +143,28 @@ class MLXRAGClassifier:
                 "Invalid chunks or embeddings, returning non-relevant")
             return "non-relevant"
 
-        query_inputs = self.tokenizer(
-            query, return_tensors="np", padding=True, truncation=True, max_length=512
-        )
-        logger.debug(
-            f"Query input IDs shape: {query_inputs['input_ids'].shape}, dtype: {query_inputs['input_ids'].dtype}")
-        query_input_ids = mx.array(query_inputs["input_ids"]).astype(mx.int32)
-        query_output = self.model(query_input_ids)
-        logger.debug(
-            f"Query output shape: {query_output.shape}, dtype: {query_output.dtype}")
-        query_embedding = np.array(
-            mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
-        logger.debug(
-            f"Query embedding shape: {query_embedding.shape}, dtype: {query_embedding.dtype}")
+        query_hash = self._hash_text(query)
+        if query_hash in self.query_cache:
+            query_embedding = self.query_cache[query_hash]
+        else:
+            query_inputs = self.tokenizer(
+                query, return_tensors="np", padding=True, truncation=True, max_length=512
+            )
+            query_input_ids = mx.array(
+                query_inputs["input_ids"]).astype(mx.int32)
+            query_output = self.model(query_input_ids)
+            query_embedding = np.array(
+                mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
+            self.query_cache[query_hash] = query_embedding
 
         norm_embeddings = embeddings / \
             np.linalg.norm(embeddings, axis=1, keepdims=True)
         norm_query = query_embedding / np.linalg.norm(query_embedding)
-        logger.debug(
-            f"Norm query shape: {norm_query.shape}, Norm embeddings shape: {norm_embeddings.shape}")
         similarities = np.dot(norm_embeddings, norm_query)
-        logger.debug(f"Similarities shape: {similarities.shape}")
         top_idx = np.argmax(similarities)
         similarity_score = similarities[top_idx]
-
         label: Literal["relevant",
                        "non-relevant"] = "relevant" if similarity_score >= relevance_threshold else "non-relevant"
-        logger.debug(
-            f"Top chunk index: {top_idx}, score: {similarity_score:.4f}, label: {label}")
         logger.info(f"Query classified as {label}")
         return label
 
@@ -152,32 +178,29 @@ class MLXRAGClassifier:
         if not chunks or embeddings.shape[0] != len(chunks):
             logger.error("Invalid chunks or embeddings, cannot stream")
             return
-        query_inputs = self.tokenizer(
-            query, return_tensors="np", padding=True, truncation=True, max_length=512
-        )
-        logger.debug(
-            f"Query input IDs shape: {query_inputs['input_ids'].shape}, dtype: {query_inputs['input_ids'].dtype}")
-        query_input_ids = mx.array(query_inputs["input_ids"]).astype(mx.int32)
-        query_output = self.model(query_input_ids)
-        logger.debug(
-            f"Query output shape: {query_output.shape}, dtype: {query_output.dtype}")
-        query_embedding = np.array(
-            mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
-        logger.debug(
-            f"Query embedding shape: {query_embedding.shape}, dtype: {query_embedding.dtype}")
+
+        query_hash = self._hash_text(query)
+        if query_hash in self.query_cache:
+            query_embedding = self.query_cache[query_hash]
+        else:
+            query_inputs = self.tokenizer(
+                query, return_tensors="np", padding=True, truncation=True, max_length=512
+            )
+            query_input_ids = mx.array(
+                query_inputs["input_ids"]).astype(mx.int32)
+            query_output = self.model(query_input_ids)
+            query_embedding = np.array(
+                mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
+            self.query_cache[query_hash] = query_embedding
+
         norm_embeddings = embeddings / \
             np.linalg.norm(embeddings, axis=1, keepdims=True)
         norm_query = query_embedding / np.linalg.norm(query_embedding)
-        logger.debug(
-            f"Norm query shape: {norm_query.shape}, Norm embeddings shape: {norm_embeddings.shape}")
         similarities = np.dot(norm_embeddings, norm_query)
-        logger.debug(f"Similarities shape: {similarities.shape}")
         top_indices = np.argsort(similarities)[-top_k:][::-1]
         for idx in top_indices:
             similarity_score = similarities[idx]
             label: Literal["relevant",
                            "non-relevant"] = "relevant" if similarity_score >= relevance_threshold else "non-relevant"
-            logger.debug(
-                f"Streaming chunk index {idx}, score: {similarity_score:.4f}, label: {label}")
-            yield label, similarity_score, idx  # Yield idx along with label and score
+            yield label, similarity_score, idx
         logger.info("Streaming classification completed successfully")

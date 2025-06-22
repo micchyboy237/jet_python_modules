@@ -11,6 +11,29 @@ from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 from jet.logger import logger
 
 
+def preprocess_markdown(md_content: str) -> str:
+    """
+    Preprocess markdown to normalize non-standard structures.
+
+    Args:
+        md_content: Raw markdown content.
+
+    Returns:
+        Normalized markdown content.
+    """
+    # Remove bold markdown syntax (e.g., **text** or __text__ to text)
+    md_content = re.sub(r'\*\*(.*?)\*\*', r'\1', md_content)
+    md_content = re.sub(r'__(.*?)__', r'\1', md_content)
+    # Remove leading spaces from header lines
+    md_content = re.sub(r'^\s*(#+)', r'\1', md_content, flags=re.MULTILINE)
+    # Remove leading spaces from blockquote lines
+    md_content = re.sub(r'^\s*(>+)', r'\1', md_content, flags=re.MULTILINE)
+    # Ensure proper spacing around headers with links
+    md_content = re.sub(r'^(#+)\s*\[([^\]]+)\]\(([^)]+)\)',
+                        r'\1 [\2](\3)', md_content, flags=re.MULTILINE)
+    return md_content
+
+
 def clean_markdown_text(text: Optional[str]) -> Optional[str]:
     """
     Clean markdown text by removing unnecessary escape characters.
@@ -30,26 +53,26 @@ def clean_markdown_text(text: Optional[str]) -> Optional[str]:
 
 def convert_html_to_markdown(html_input: Union[str, Path], **options) -> str:
     """
-    Convert HTML content to Markdown and save to a file.
-
-    Args:
-        html_input: HTML content as a string or path to an HTML file.
-        output_md_path: Path to save the generated Markdown file.
+    Convert HTML content to Markdown and return the string.
     """
     logger.info("Starting HTML to Markdown conversion")
     try:
-        # Read HTML content
         if isinstance(html_input, Path):
             with html_input.open('r', encoding='utf-8') as f:
                 html_content = f.read()
         else:
             html_content = html_input
 
-        # Convert to Markdown
+        # Convert to Markdown using markdownify
         markdown_content = MarkdownConverter(
             heading_style="ATX").convert(html_content)
-        logger.debug("Markdown content generated: %s", markdown_content[:100])
 
+        # Ensure consistent spacing after title, headers, and paragraphs
+        markdown_content = re.sub(
+            r'(?<!\n)\n(?=[#*-]|\w)', '\n\n', markdown_content.strip())
+        markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)
+
+        logger.debug("Markdown content generated: %s", markdown_content[:100])
         return markdown_content
 
     except Exception as e:
@@ -69,6 +92,7 @@ def parse_markdown(md_input: Union[str, Path]) -> List[MarkdownToken]:
 
     Raises:
         OSError: If the input file does not exist.
+        TimeoutError: If parsing takes too long.
     """
     try:
         if isinstance(md_input, (str, Path)) and str(md_input).endswith('.md'):
@@ -79,12 +103,19 @@ def parse_markdown(md_input: Union[str, Path]) -> List[MarkdownToken]:
         else:
             md_content = str(md_input)
 
-        parser = MarkdownParser(md_content)
-        tokens = parser.parse()
+        # Preprocess markdown
+        logger.debug("Preprocessing markdown content")
+        md_content = preprocess_markdown(md_content)
+
+        def parse_with_timeout(content: str) -> List[MarkdownToken]:
+            parser = MarkdownParser(content)
+            return parser.parse()
+
+        logger.debug("Starting markdown parsing")
+        tokens = parse_with_timeout(md_content)
         parsed_tokens = [
             {
                 "type": token.type,
-                # Apply text cleaning
                 "content": clean_markdown_text(token.content),
                 "level": token.level,
                 "meta": token.meta,
@@ -95,6 +126,9 @@ def parse_markdown(md_input: Union[str, Path]) -> List[MarkdownToken]:
         logger.debug(f"Parsed {len(parsed_tokens)} markdown tokens")
         return parsed_tokens
 
+    except TimeoutError as e:
+        logger.error(f"Parsing timed out: {str(e)}")
+        raise
     except Exception as e:
         logger.error(f"Error parsing markdown: {str(e)}")
         raise
@@ -112,6 +146,7 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
 
     Raises:
         OSError: If the input file does not exist.
+        TimeoutError: If analysis takes too long.
     """
     temp_md_path: Optional[Path] = None
     try:
@@ -122,55 +157,94 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
                 md_content = file.read()
         else:
             md_content = str(md_input)
+
+        # Preprocess markdown
+        logger.debug("Preprocessing markdown content")
+        md_content = preprocess_markdown(md_content)
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
             temp_file.write(md_content)
             temp_md_path = Path(temp_file.name)
-        analyzer = MarkdownAnalyzer(str(temp_md_path))
 
-        # Get raw analysis results
-        raw_headers = analyzer.identify_headers()
-        raw_paragraphs = analyzer.identify_paragraphs()
-        raw_blockquotes = analyzer.identify_blockquotes()
-        raw_code_blocks = analyzer.identify_code_blocks()
-        raw_lists = analyzer.identify_lists()
-        raw_tables = analyzer.identify_tables()
-        raw_links = analyzer.identify_links()
-        raw_footnotes = analyzer.identify_footnotes()
-        raw_inline_code = analyzer.identify_inline_code()
-        raw_emphasis = analyzer.identify_emphasis()
-        raw_task_items = analyzer.identify_task_items()
-        raw_html_blocks = analyzer.identify_html_blocks()
-        raw_html_inline = analyzer.identify_html_inline()
-        raw_tokens_sequential = analyzer.get_tokens_sequential()
-        raw_summary = analyzer.analyse()
+        def analyze_with_timeout(temp_file_path: str) -> tuple:
+            analyzer = MarkdownAnalyzer(temp_file_path)
+            raw_headers = analyzer.identify_headers()
+            raw_paragraphs = analyzer.identify_paragraphs()
+            raw_blockquotes = analyzer.identify_blockquotes()
+            raw_code_blocks = analyzer.identify_code_blocks()
+            raw_lists = analyzer.identify_lists()
+            raw_tables = analyzer.identify_tables()
+            raw_links = analyzer.identify_links()
+            raw_footnotes = analyzer.identify_footnotes()
+            raw_inline_code = analyzer.identify_inline_code()
+            raw_emphasis = analyzer.identify_emphasis()
+            raw_task_items = analyzer.identify_task_items()
+            raw_html_blocks = analyzer.identify_html_blocks()
+            raw_html_inline = analyzer.identify_html_inline()
+            raw_tokens_sequential = analyzer.get_tokens_sequential()
+            raw_summary = get_summary(md_content)
+            return (
+                raw_summary, raw_headers, raw_paragraphs, raw_blockquotes, raw_code_blocks,
+                raw_lists, raw_tables, raw_links, raw_footnotes, raw_inline_code,
+                raw_emphasis, raw_task_items, raw_html_blocks, raw_html_inline,
+                raw_tokens_sequential, analyzer.count_words(), analyzer.count_characters()
+            )
 
-        # Clean text fields in analysis results
+        logger.debug("Starting markdown analysis")
+        (
+            raw_summary, raw_headers, raw_paragraphs, raw_blockquotes, raw_code_blocks,
+            raw_lists, raw_tables, raw_links, raw_footnotes, raw_inline_code,
+            raw_emphasis, raw_task_items, raw_html_blocks, raw_html_inline,
+            raw_tokens_sequential, word_count, char_count
+        ) = analyze_with_timeout(str(temp_md_path))
+
         analysis_results: MarkdownAnalysis = {
-            "summary": raw_summary,  # Summary contains counts, no text fields to clean
+            "summary": raw_summary,
             "headers": {
                 "Header": [
                     {**header, "text": clean_markdown_text(header["text"])}
-                    for header in raw_headers["Header"]
+                    for header in raw_headers.get("Header", [])
                 ]
             },
             "paragraphs": {
-                "Paragraph": [clean_markdown_text(p) for p in raw_paragraphs["Paragraph"]]
+                "Paragraph": [clean_markdown_text(p) for p in raw_paragraphs.get("Paragraph", [])]
             },
             "blockquotes": {
-                "Blockquote": [clean_markdown_text(b) for b in raw_blockquotes["Blockquote"]]
+                "Blockquote": [clean_markdown_text(b) for b in raw_blockquotes.get("Blockquote", [])]
             },
             "code_blocks": {
                 "Code block": [
                     {**cb, "content": clean_markdown_text(cb["content"])}
-                    for cb in raw_code_blocks["Code block"]
+                    for cb in raw_code_blocks.get("Code block", [])
                 ]
             },
-            "lists": raw_lists,  # ListItem.text is cleaned below
-            "tables": raw_tables,  # TableItem.header and rows are cleaned below
+            "lists": {
+                k: [
+                    [{**item, "text": clean_markdown_text(item["text"])}
+                     for item in sublist]
+                    for sublist in v
+                ]
+                for k, v in raw_lists.items()
+            },
+            "tables": {
+                "Table": [
+                    {
+                        "header": [clean_markdown_text(h) for h in table["header"]],
+                        "rows": [
+                            [clean_markdown_text(cell) for cell in row]
+                            for row in table["rows"]
+                        ]
+                    }
+                    for table in raw_tables.get("Table", [])
+                ]
+            },
             "links": {
                 k: [
-                    {**link, "text": clean_markdown_text(
-                        link.get("text")), "alt_text": clean_markdown_text(link.get("alt_text"))}
+                    {
+                        **link,
+                        "text": clean_markdown_text(link.get("text")),
+                        "alt_text": clean_markdown_text(link.get("alt_text"))
+                    }
                     for link in v
                 ]
                 for k, v in raw_links.items()
@@ -184,7 +258,10 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
                 for ic in raw_inline_code
             ],
             "emphasis": [
-                {**em, "text": clean_markdown_text(em["text"])}
+                {
+                    "Emphasis": em,
+                    "text": clean_markdown_text(em["text"])
+                }
                 for em in raw_emphasis
             ],
             "task_items": [
@@ -203,36 +280,61 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
                 {**token, "content": clean_markdown_text(token["content"])}
                 for token in raw_tokens_sequential
             ],
-            "word_count": {"word_count": analyzer.count_words()},
-            "char_count": [analyzer.count_characters()]
-        }
-
-        # Clean nested ListItem.text in lists
-        analysis_results["lists"] = {
-            k: [
-                [{**item, "text": clean_markdown_text(item["text"])}
-                 for item in sublist]
-                for sublist in v
-            ]
-            for k, v in raw_lists.items()
-        }
-
-        # Clean nested TableItem.header and rows
-        analysis_results["tables"] = {
-            "Table": [
-                {
-                    "header": [clean_markdown_text(h) for h in table["header"]],
-                    "rows": [[clean_markdown_text(cell) for cell in row] for row in table["rows"]]
-                }
-                for table in raw_tables["Table"]
-            ]
+            "word_count": {"word_count": word_count},
+            "char_count": {"char": char_count}
         }
 
         return analysis_results
+
+    except TimeoutError as e:
+        logger.error(f"Analysis timed out: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error analyzing markdown: {str(e)}")
+        raise
     finally:
         if temp_md_path and temp_md_path.exists():
             try:
                 temp_md_path.unlink()
             except OSError:
-                print(
+                logger.warning(
+                    f"Warning: Could not delete temporary file {temp_md_path}")
+
+
+def get_summary(md_input: Union[str, Path]) -> MarkdownAnalysis:
+    """
+    Get summary analysis of markdown content using MarkdownAnalyzer.
+
+    Args:
+        md_input: Either a string containing markdown content or a Path to a markdown file.
+
+    Returns:
+        A dictionary containing summary analysis of markdown elements.
+
+    Raises:
+        OSError: If the input file does not exist.
+    """
+    temp_md_path: Optional[Path] = None
+    try:
+        if isinstance(md_input, (str, Path)) and str(md_input).endswith('.md'):
+            if not Path(str(md_input)).is_file():
+                raise OSError(f"File {md_input} does not exist")
+            with open(md_input, 'r', encoding='utf-8') as file:
+                md_content = file.read()
+        else:
+            md_content = str(md_input)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
+            temp_file.write(md_content)
+            temp_md_path = Path(temp_file.name)
+
+        analyzer = MarkdownAnalyzer(str(temp_md_path))
+        return analyzer.analyse()
+
+    finally:
+        if temp_md_path and temp_md_path.exists():
+            try:
+                temp_md_path.unlink()
+            except OSError:
+                logger.warning(
                     f"Warning: Could not delete temporary file {temp_md_path}")

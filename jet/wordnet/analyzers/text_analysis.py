@@ -69,7 +69,7 @@ class TextStats(TypedDict):
     overall_difficulty_category: OverallDifficultyCategoryType
 
 
-class MLTDScores(TypedDict):
+class MTLDScores(TypedDict):
     text_without_punctuation: str
     lexicon_count: int
 
@@ -135,7 +135,7 @@ def get_readability_description(category: OverallDifficultyCategoryType) -> str:
     return category_map.get(category, "N/A")
 
 
-def calculate_mtld(text_stats: MLTDScores) -> float:
+def calculate_mtld(text_stats: MTLDScores) -> float:
     """
     Calculates the Measure of Textual Lexical Diversity (MTLD) for the given text stats.
 
@@ -313,7 +313,7 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
     }
 
     # Compute mtld scores
-    mtld_scores: MLTDScores = {
+    mtld_scores: MTLDScores = {
         "text_without_punctuation": ts.remove_punctuation(text),
         "lexicon_count": ts.lexicon_count(text, removepunct=True),
     }
@@ -515,7 +515,7 @@ def analyze_readability(text: str) -> ReadabilityResult:
         weight = weights.get(metric, 0)
         weighted_scores[category_label] += weight
 
-    mtld_scores: MLTDScores = {
+    mtld_scores: MTLDScores = {
         "text_without_punctuation": ts.remove_punctuation(text),
         "lexicon_count": ts.lexicon_count(text, removepunct=True),
     }

@@ -1,3 +1,4 @@
+import uuid
 from llama_index.core.schema import (
     Document as BaseDocument,
     TextNode,
@@ -6,7 +7,7 @@ from llama_index.core.schema import (
     RelatedNodeInfo
 )
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Optional, TypedDict, cast, ItemsView
+from typing import Any, Dict, List, Optional, TypedDict, Union, cast, ItemsView
 
 
 class HeaderMetadata(TypedDict, total=False):
@@ -83,9 +84,89 @@ class Document(BaseDocument):
         return result.items()
 
 
+class HeaderDocumentDict(TypedDict, total=False):
+    text: str
+    id: Optional[str]
+    metadata: HeaderMetadata
+    embedding: Optional[List[float]]
+
+
 class HeaderDocument(Document):
     id: Optional[str] = Field(
         None, description="Unique identifier for the document")
+
+    @staticmethod
+    def from_list(documents: Union[List['HeaderDocument'], List[HeaderDocumentDict]]) -> List['HeaderDocument']:
+        """
+        Builds a list of HeaderDocument instances with parent-child relationships
+        derived from header_level metadata using parent stack logic.
+
+        Args:
+            documents: List of HeaderDocument instances or HeaderDocumentDict dictionaries
+                       with header_level metadata. Any relationships in the input are ignored.
+
+        Returns:
+            List of new HeaderDocument instances with derived relationships and parent_header metadata.
+        """
+        result: List[HeaderDocument] = []
+        level_stack: List[tuple[int, HeaderDocument]] = []
+        doc_map: Dict[str, HeaderDocument] = {}
+
+        # Convert all inputs to HeaderDocument instances
+        processed_docs: List[HeaderDocument] = []
+        for doc in documents:
+            if isinstance(doc, dict):
+                metadata = doc.get("metadata", {})
+                # Generate ID if not provided
+                doc_id = doc.get("id", str(uuid.uuid4()))
+                metadata["id"] = doc_id
+                new_doc = HeaderDocument(
+                    text=doc.get("text", ""),
+                    id=doc_id,
+                    metadata=metadata,
+                    embedding=doc.get("embedding")
+                )
+            else:
+                new_doc = HeaderDocument(
+                    text=doc.text,
+                    id=doc.id or str(uuid.uuid4()),
+                    metadata=dict(doc.metadata),
+                    embedding=doc.embedding
+                )
+            processed_docs.append(new_doc)
+
+        for doc in processed_docs:
+            metadata = dict(doc.metadata)
+            header_level = metadata.get("header_level", 0)
+            doc_id = cast(str, doc.id)
+
+            # Clear any existing relationships to ensure derivation from stack
+            doc.relationships = {}
+
+            # Update parent relationships
+            while level_stack and level_stack[-1][0] >= header_level:
+                level_stack.pop()
+
+            if level_stack:
+                parent_level, parent_doc = level_stack[-1]
+                doc.relationships[NodeRelationship.PARENT] = RelatedNodeInfo(
+                    node_id=parent_doc.id)
+                doc.metadata["parent_header"] = parent_doc.metadata["header"]
+                parent_children = parent_doc.relationships.get(
+                    NodeRelationship.CHILD, [])
+                if not isinstance(parent_children, list):
+                    parent_children = [
+                        parent_children] if parent_children else []
+                parent_children.append(RelatedNodeInfo(node_id=doc_id))
+                parent_doc.relationships[NodeRelationship.CHILD] = parent_children
+            else:
+                doc.metadata["parent_header"] = ""
+
+            level_stack.append((header_level, doc))
+            doc_map[doc_id] = doc
+            result.append(doc)
+
+        return result
 
     def __init__(self, **data: Any):
         data = data.copy()

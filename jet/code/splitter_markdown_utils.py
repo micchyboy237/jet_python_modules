@@ -1,8 +1,16 @@
+from urllib.parse import urljoin
+import uuid
+from jet.code.html_utils import is_html
+from jet.logger import logger
+from jet.code.markdown_types import MarkdownAnalysis
+from jet.code.markdown_utils import analyze_markdown, convert_html_to_markdown
+from typing import List, Optional, Tuple
 import re
 from typing import Callable, Optional, List, Dict, Tuple, TypedDict, Union
 from urllib.parse import urljoin, urlparse
+from bs4 import BeautifulSoup
 
-from jet.scrapers.preprocessor import html_to_markdown, is_html, scrape_markdown
+from jet.scrapers.preprocessor import html_to_markdown, scrape_markdown
 from jet.scrapers.utils import clean_spaces
 from jet.vectors.document_types import HeaderDocument, HeaderMetadata as HeaderMetadataDoc
 from .helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
@@ -262,126 +270,199 @@ def get_md_header_contents(
     headers_to_split_on: List[Tuple[str, str]] = [],
     ignore_links: bool = True,
     base_url: Optional[str] = None
-) -> List[Header]:
-    """Split Markdown text into headers and content with improved semantic chunking."""
-    from jet.scrapers.utils import clean_newlines, clean_text, clean_spaces
-    from jet.scrapers.preprocessor import is_html, html_to_markdown
+) -> List[HeaderDocument]:
+    """
+    Parses a Markdown string and splits it into a list of HeaderDocument instances,
+    each containing the header text, parent header, header level, content, and links.
+    Relationships are derived using HeaderDocument.from_list.
 
+    Args:
+        md_text (str): The Markdown (or HTML) text to parse and split.
+        headers_to_split_on (List[Tuple[str, str]], optional): List of (prefix, tag) pairs to identify headers.
+        ignore_links (bool, optional): If True, skips extracting links. Defaults to True.
+        base_url (Optional[str], optional): Base URL to resolve relative links. Defaults to None.
+
+    Returns:
+        List[HeaderDocument]: A list of HeaderDocument instances with derived relationships.
+    """
+    # Convert HTML to Markdown if input is HTML
+    title = ""
     if is_html(md_text):
-        md_text = html_to_markdown(md_text, ignore_links=ignore_links, remove_selectors=[
-            "style", "script", "[class*=\"ad\"]"])
+        logger.debug("Converting HTML input to Markdown")
+        soup = BeautifulSoup(md_text, 'html.parser')
+        title_tag = soup.find('title')
+        title = title_tag.get_text().strip() if title_tag else ""
+        md_text = convert_html_to_markdown(md_text)
 
-    md_text = md_text.strip()
+    # Analyze Markdown content
+    analysis: MarkdownAnalysis = analyze_markdown(md_text)
+    headers = analysis["headers"]["Header"]
+    links = analysis["links"]
+    tokens = analysis["tokens_sequential"]
 
-    headers_to_split_on = headers_to_split_on or [
-        ("#", "h1"), ("##", "h2"), ("###", "h3"),
-        ("####", "h4"), ("#####", "h5"), ("######", "h6"),
-    ]
-    headers_to_split_on += [(f"* {header}", tag)
-                            for header, tag in headers_to_split_on]
+    # Debug: Log tokens and headers
+    logger.debug(f"Tokens: {tokens}")
+    logger.debug(f"Headers: {headers}")
 
-    markdown_splitter = MarkdownHeaderTextSplitter(
-        headers_to_split_on, strip_headers=False, return_each_line=False
-    )
-    md_header_splits = markdown_splitter.split_text(md_text)
+    # Default headers to split on if none provided
+    if not headers_to_split_on:
+        headers_to_split_on = [
+            (r"^(#+)\s*(.*)$", "header")
+        ]
 
-    md_header_contents: List[Header] = []
-    parent_stack: List[Tuple[int, str]] = []
+    result: List[HeaderDocumentDict] = []
+    header_stack: List[Dict[str, Any]] = []  # Track header hierarchy
+    lines = md_text.splitlines()
 
-    for split in md_header_splits:
-        raw_text = clean_spaces(clean_newlines(clean_text(
-            split.page_content), max_newlines=1, strip_lines=True))
+    # Process custom headers if provided
+    custom_headers = []
+    if headers_to_split_on:
+        for line_idx, line in enumerate(lines, 1):
+            for pattern, _ in headers_to_split_on:
+                match = re.match(pattern, line)
+                if match:
+                    if pattern == r"^(#+)\s*(.*)$":
+                        level = len(match.group(1))
+                        header_text = match.group(2).strip()
+                        raw_line = line.strip()
+                    else:
+                        level = 1
+                        header_text = match.group(1).strip(
+                        ) if match.groups() else line.strip()
+                        raw_line = line.strip()
+                    if header_text or raw_line:
+                        custom_headers.append(
+                            {"text": header_text, "level": level, "line": line_idx, "raw_line": raw_line})
+                        logger.debug(
+                            f"Custom header detected: {header_text}, level: {level}, line: {line_idx}, raw_line: {raw_line}")
+        headers = custom_headers
+        logger.debug(f"Using custom headers: {headers}")
 
-        if not split.metadata:
-            if raw_text.strip() and md_header_contents and parent_stack:
-                md_header_contents[-1]["content"] += "\n\n" + raw_text
-                md_header_contents[-1]["text"] += "\n\n" + raw_text
+    # Handle content before first header, using HTML title as level 0 if present
+    first_header_line = min((h["line"]
+                            for h in headers), default=1) if headers else 1
+    if title or first_header_line > 1:
+        content_lines = [
+            line for line in lines[:first_header_line-1] if line.strip()]
+        content = "\n".join(content_lines)
+        content = re.sub(r'\n{3,}', '\n\n', content) if content else ""
+        if content or title:
+            result.append({
+                "text": title + ("\n" + content if content else "") if title else content,
+                "metadata": {
+                    "header": title,
+                    "parent_header": "",
+                    "header_level": 0,
+                    "content": content,
+                    "doc_index": 0,
+                    "chunk_index": None,
+                    "tokens": None,
+                    "source_url": base_url,
+                    "links": [],
+                    "texts": content.splitlines() if content else [],
+                    "id": str(uuid.uuid4())
+                }
+            })
+            logger.debug(
+                f"Content before first header (title: {title}): {content}")
+
+    # Build header sections
+    for header in headers:
+        level = header["level"]
+        text = header["text"].strip()
+        line_idx = header["line"]
+        raw_line = header.get("raw_line", f"{'#' * level} {text}").strip()
+
+        if not raw_line:
             continue
 
-        last_key = list(split.metadata.keys())[-1]
-        last_value = split.metadata[last_key]
-        last_hashtag = next(
-            (prefix for prefix, header in headers_to_split_on if header == last_key), None)
-        last_header = f"{last_hashtag} {last_value}"
+        logger.debug(
+            f"Processing header: {text}, level: {level}, line: {line_idx}, raw_line: {raw_line}")
 
-        if not raw_text.startswith(last_header):
-            for key, value in split.metadata.items():
-                hashtag = next(
-                    (prefix for prefix, header in headers_to_split_on if header == key), None)
-                header = f"{hashtag} {value}"
-                if raw_text.startswith(header):
-                    raw_text = raw_text[len(header):].strip()
-            raw_text = f"{last_header}\n{raw_text}"
+        # Determine parent header
+        parent_header = ""
+        while header_stack and header_stack[-1]["header_level"] >= level:
+            header_stack.pop()
+        if header_stack:
+            parent_header = header_stack[-1]["header"]
 
-        header_line = get_header_text(raw_text)
-        header_line = clean_spaces(header_line)
-        header_links, clean_header = extract_markdown_links(
-            header_line, base_url)
-        header_level = get_header_level(clean_header)
+        # Initialize header dictionary
+        content_lines = []
+        next_header_line = min(
+            (h["line"] for h in headers if h["line"] > line_idx), default=len(lines) + 1)
+        for i in range(line_idx, next_header_line - 1):
+            if i < len(lines) and i >= line_idx:  # Start after header line
+                content_lines.append(lines[i].strip())
 
-        # Process body text before conditional link handling
-        cleaned_text = clean_spaces(raw_text)
-        body_links = []
-        if ignore_links:
-            body_links, cleaned_text = extract_markdown_links(
-                cleaned_text, base_url)
+        content = "\n".join(line for line in content_lines if line)
+        content = re.sub(r'\n{3,}', '\n\n', content) if content else ""
+        full_text = raw_line + ("\n" + content if content else "")
 
-        # Combine all links
-        all_links = header_links + body_links
+        # Extract links if not ignored
+        header_links = []
+        if not ignore_links:
+            for link_type in ["Text link", "Image link"]:
+                for link in links.get(link_type, []):
+                    link_line = link.get("line", 0)
+                    if link_line >= line_idx and link_line < next_header_line:
+                        url = link["url"]
+                        if base_url and not url.startswith(("http://", "https://")):
+                            url = urljoin(base_url, url)
+                        link_line_text = lines[link_line - 1].strip(
+                        ) if link_line > 0 and link_line <= len(lines) else ""
+                        header_links.append({
+                            "text": link.get("text", link.get("alt_text", "")),
+                            "url": url,
+                            "caption": None,
+                            "start_idx": -1,
+                            "end_idx": -1,
+                            "line": link_line_text,
+                            "line_idx": link_line,
+                            "is_heading": link_line == line_idx
+                        })
+                        logger.debug(
+                            f"Added link: text={header_links[-1]['text']}, url={url}, line={link_line_text}, line_idx={link_line}, is_heading={header_links[-1]['is_heading']}")
 
-        # Remove duplicates based on (text, url, caption, line)
-        seen = set()
-        unique_links = []
-        for link in all_links:
-            key = (link["text"], link["url"],
-                   link["caption"], link["line"])
-            if key not in seen:
-                seen.add(key)
-                unique_links.append(link)
-
-        all_links = unique_links
-
-        content_lines = cleaned_text.splitlines()[1:]
-        content = "\n".join(
-            line for line in content_lines
-            if not any(line.lstrip().startswith(prefix) for prefix, _ in headers_to_split_on)
-        ).strip()
-        clean_content = clean_spaces(content)
-
-        # Use original header_line if ignore_links is False, else use clean_header
-        final_header = header_line if not ignore_links else clean_header
-        final_text = f"{final_header}\n{clean_content}".strip()
-        header_text = clean_header.lstrip("#").strip()
-
-        if not header_text and parent_stack:
-            if md_header_contents:
-                md_header_contents[-1]["content"] += "\n\n" + clean_content
-                md_header_contents[-1]["text"] += "\n\n" + final_text
-            continue
-
-        while parent_stack and parent_stack[-1][0] >= header_level:
-            parent_stack.pop()
-        parent_header = parent_stack[-1][1] if parent_stack else None
-        parent_stack.append((header_level, clean_header))
-
-        md_header_contents.append({
-            "header": final_header,
-            "header_level": header_level,
-            "parent_header": parent_header,
-            "content": clean_content,
-            "text": final_text,
-            "links": all_links,
+        result.append({
+            "text": full_text,
+            "metadata": {
+                "header": raw_line,
+                "parent_header": parent_header,
+                "header_level": level,
+                "content": content,
+                "doc_index": 0,
+                "chunk_index": None,
+                "tokens": None,
+                "source_url": base_url,
+                "links": header_links,
+                "texts": full_text.splitlines(),
+                "id": str(uuid.uuid4())
+            }
         })
+        header_stack.append({"header": raw_line, "header_level": level})
 
-    return md_header_contents
+    logger.debug(f"Extracted {len(result)} header sections")
+    return HeaderDocument.from_list(result)
 
 
 def get_md_header_docs(
     md_text: str,
-    headers_to_split_on: List[tuple[str, str]] = [],
+    headers_to_split_on: List[Tuple[str, str]] = [],
     ignore_links: bool = False,
     metadata: Optional[HeaderMetadataDoc] = None
 ) -> List[HeaderDocument]:
+    """
+    Splits the given markdown text into header-based document chunks and returns a list of HeaderDocument objects.
+
+    Args:
+        md_text (str): The markdown text to split.
+        headers_to_split_on (List[Tuple[str, str]], optional): List of (prefix, header) tuples to split on. Defaults to [].
+        ignore_links (bool, optional): If True, ignores links in headers. Defaults to False.
+        metadata (Optional[HeaderMetadataDoc], optional): Metadata to attach to each HeaderDocument. Defaults to None.
+
+    Returns:
+        List[HeaderDocument]: List of HeaderDocument objects, one for each header chunk.
+    """
     # Extract base_url from metadata if available
     base_url = None
     if metadata and "source_url" in metadata:
@@ -390,16 +471,16 @@ def get_md_header_docs(
 
     headers = get_md_header_contents(
         md_text, headers_to_split_on, ignore_links, base_url)
-    header_docs = [
-        HeaderDocument(
-            doc_index=i,
-            **header,
-            metadata=metadata
-        )
-        for i, header in enumerate(headers)
-    ]
 
-    return header_docs
+    # Update each HeaderDocument with doc_index and metadata
+    for i, header_doc in enumerate(headers):
+        current_metadata = dict(header_doc.metadata)
+        current_metadata["doc_index"] = i
+        if metadata:
+            current_metadata.update(metadata)
+        header_doc.metadata = current_metadata
+
+    return headers
 
 
 def merge_md_header_contents(
