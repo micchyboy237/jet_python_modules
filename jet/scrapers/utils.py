@@ -1402,7 +1402,7 @@ def safe_path_from_url(url: str, output_dir: str) -> str:
     return "_".join([output_dir, safe_host, last_path_no_ext])
 
 
-def search_data(query, **kwargs) -> list[SearchResult]:
+def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResult]:
     filter_sites = []
     engines = [
         "google",
@@ -1412,22 +1412,28 @@ def search_data(query, **kwargs) -> list[SearchResult]:
         "yahoo",
     ]
 
-    # Simulating the search function with the placeholder for your search logic
-    results: list[SearchResult] = search_searxng(
-        query_url="http://jetairm1:3000/search",
-        query=query,
-        filter_sites=filter_sites,
-        engines=engines,
-        config={
-            "port": 3101
-        },
-        **kwargs
-    )
-
-    if not results:
-        raise NoResultsFoundError(f"No results found for query: '{query}'")
-
-    return results
+    try:
+        results: list[SearchResult] = search_searxng(
+            query_url="http://jetairm1:3000/search",
+            query=query,
+            filter_sites=filter_sites,
+            engines=engines,
+            config={
+                "port": 3101
+            },
+            use_cache=use_cache,
+            **kwargs
+        )
+        if not results:
+            raise NoResultsFoundError(f"No results found for query: '{query}'")
+        return results
+    except NoResultsFoundError as e:
+        if use_cache:
+            logger.warning(
+                f"No results found for query: '{query}'. Recursively retrying with use_cache=False.")
+            return search_data(query, use_cache=False, **kwargs)
+        else:
+            raise
 
 
 async def scrape_urls(urls: list[str], *, max_depth: Optional[int] = 0, query: Optional[str] = None, **kwargs) -> AsyncGenerator[tuple[str, str], None]:

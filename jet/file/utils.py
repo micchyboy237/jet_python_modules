@@ -8,6 +8,7 @@ import pandas as pd
 
 from typing import Any, Dict, Optional, Union
 from jet.logger import logger
+from jet.transformers.formatters import format_html
 from jet.transformers.object import make_serializable
 from pydantic.main import BaseModel
 
@@ -154,6 +155,11 @@ def save_file(
             if output_file.endswith(".json"):
                 with open(output_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
+            elif output_file.endswith(".html"):
+                # Format HTML before saving
+                formatted_html = format_html(data)
+                with open(output_file, "w", encoding="utf-8") as f:
+                    f.write(formatted_html)
             else:
                 mode = "a" if append and os.path.exists(output_file) else "w"
                 with open(output_file, mode, encoding="utf-8") as f:

@@ -1,5 +1,6 @@
 from tqdm import tqdm
-from typing import List, Iterator, Literal
+from typing import List, Iterator, Literal, Optional
+from collections import defaultdict
 from jet.logger import logger
 from jet.models.model_types import ModelType
 from jet.models.utils import resolve_model_value
@@ -28,28 +29,50 @@ class MLXRAGClassifier:
             logger.error(f"Failed to load model or tokenizer: {str(e)}")
             raise
 
-    def generate_embeddings(self, chunks: List[str]) -> np.ndarray:
-        """Generate embeddings for text chunks using MLX with batch processing."""
+    def generate_embeddings(self, chunks: List[str], group_ids: Optional[List[str]] = None) -> np.ndarray:
+        """Generate embeddings for text chunks using MLX with batch processing, grouping by optional identifiers.
+
+        Args:
+            chunks: List of text chunks to embed.
+            group_ids: Optional list of identifiers to group chunks, ensuring no mixed groups in batches.
+
+        Returns:
+            NumPy array of embeddings in original chunk order.
+        """
         logger.info(f"Generating embeddings for {len(chunks)} chunks")
         embeddings = []
-        num_batches = (len(chunks) + self.batch_size - 1) // self.batch_size
-        iterator = range(0, len(chunks), self.batch_size)
+        original_indices = list(range(len(chunks)))
+
+        # Group chunks by group_ids if provided
+        if group_ids and len(group_ids) == len(chunks):
+            url_to_indices = defaultdict(list)
+            for idx, url in enumerate(group_ids):
+                url_to_indices[url].append(idx)
+            batches = []
+            for url, indices in url_to_indices.items():
+                url_chunks = [chunks[i] for i in indices]
+                url_indices = indices
+                for i in range(0, len(url_chunks), self.batch_size):
+                    batches.append(
+                        (url_chunks[i:i + self.batch_size], url_indices[i:i + self.batch_size]))
+        else:
+            batches = [(chunks[i:i + self.batch_size], original_indices[i:i + self.batch_size])
+                       for i in range(0, len(chunks), self.batch_size)]
+
+        num_batches = len(batches)
+        iterator = range(num_batches)
         if self.show_progress:
             iterator = tqdm(iterator, total=num_batches,
                             desc="Processing batches")
 
         for i in iterator:
-            batch_chunks = chunks[i:i + self.batch_size]
+            batch_chunks, batch_indices = batches[i]
             logger.debug(
-                f"Processing batch {i//self.batch_size + 1} with {len(batch_chunks)} chunks")
-
-            # Tokenize individually to compute actual token lengths
+                f"Processing batch {i + 1} with {len(batch_chunks)} chunks")
             encoded_inputs = [self.tokenizer(
                 chunk, truncation=False, add_special_tokens=True) for chunk in batch_chunks]
             max_len = max(len(enc["input_ids"]) for enc in encoded_inputs)
             logger.debug(f"Dynamic max_length for this batch: {max_len}")
-
-            # Re-tokenize with consistent padding/truncation using max_len
             inputs = self.tokenizer(
                 batch_chunks,
                 return_tensors="np",
@@ -57,23 +80,24 @@ class MLXRAGClassifier:
                 truncation=True,
                 max_length=max_len
             )
-
             input_ids = mx.array(inputs["input_ids"]).astype(mx.int32)
             logger.debug(
                 f"Batch input IDs shape: {input_ids.shape}, dtype: {input_ids.dtype}")
             output = self.model(input_ids)
             logger.debug(
                 f"Batch output shape: {output.shape}, dtype: {output.dtype}")
-
             embedding = np.array(
                 mx.mean(output, axis=1).tolist(), dtype=np.float32)
             logger.debug(
                 f"Batch NumPy embedding shape: {embedding.shape}, dtype: {embedding.dtype}")
-            embeddings.extend(embedding)
+
+            for emb, idx in zip(embedding, batch_indices):
+                embeddings.append((idx, emb))
 
             del input_ids, output
             mx.clear_cache()
 
+        embeddings = [emb for _, emb in sorted(embeddings, key=lambda x: x[0])]
         embeddings_array = np.stack(embeddings)
         logger.info(f"Generated embeddings shape: {embeddings_array.shape}")
         return embeddings_array
