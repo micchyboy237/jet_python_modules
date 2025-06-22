@@ -17,7 +17,7 @@ html2text==2025.4.15
 httptools==0.6.4
 langchain-text-splitters==0.3.8
 -e git+https://github.com/abetlen/llama-cpp-python.git@b1d23df0bbd327b774083b5cf88e67ca0dd52b92#egg=llama_cpp_python
--e git+ssh://git@github.com/run-llama/llama_index.git@edbba3daa0c3d21f4608cce3ceb666447b90e47d#egg=llama_index
+-e git+ssh://git@github.com/run-llama/llama_index.git@98b5451d3992b0a7ebde4c9c5341e83f434660a9#egg=llama_index
 llguidance==0.7.29
 lm-format-enforcer==0.10.11
 lxml_html_clean==0.4.2
@@ -69,12 +69,12 @@ rq==2.3.2
 rumps==0.4.0
 scrapy-selenium4==1.0.0
 sentence-transformers==4.1.0
-spacy==3.8.7
 spacy-curated-transformers==0.3.0
 spacy-lookups-data==1.0.5
 span_marker==1.7.0
 sqlite-utils==3.38
 streamlit==1.41.1
+textacy==0.13.0
 textstat==0.7.5
 thefuzz==0.22.1
 thinc_apple_ops==1.0.0
