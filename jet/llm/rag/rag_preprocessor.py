@@ -53,20 +53,17 @@ class WebDataPreprocessor:
         cleaned = tprep.normalize.whitespace(cleaned)
         # Replace URLs with empty string
         cleaned = tprep.replace.urls(cleaned, "")
-        # Replace emails with empty string
-        cleaned = tprep.replace.emails(cleaned, "")
+        cleaned = tprep.replace.emails(cleaned, "")  # Replace emails
         cleaned = tprep.replace.phone_numbers(
             cleaned, "")  # Replace phone numbers
         cleaned = tprep.remove.punctuation(cleaned)  # Remove all punctuation
-        # Remove excessive whitespace after textacy cleaning
-        cleaned = " ".join(cleaned.split())
+        cleaned = " ".join(cleaned.split())  # Remove excessive whitespace
         logger.info("Text cleaning completed")
         return cleaned
 
     def chunk_text(self, text: str) -> List[str]:
         """Chunk text into semantically coherent pieces using Spacy."""
         logger.info("Chunking text")
-        # Use Spacy for sentence boundary detection
         doc: Language = self.nlp(text)
         sentences = [sent.text.strip()
                      for sent in doc.sents if len(sent.text.strip()) > 10]
@@ -74,7 +71,6 @@ class WebDataPreprocessor:
             logger.warning("No valid sentences found for chunking")
             return []
 
-        # Join sentences and split into chunks
         text_to_chunk = " ".join(sentences)
         chunks = []
         start_idx = 0
@@ -82,19 +78,35 @@ class WebDataPreprocessor:
 
         while start_idx < text_length:
             end_idx = min(start_idx + self.chunk_size, text_length)
-            # Adjust end_idx to avoid splitting mid-sentence
             if end_idx < text_length:
-                # Find the nearest sentence boundary before or at end_idx
                 sub_doc = self.nlp(text_to_chunk[start_idx:end_idx])
                 last_sent = list(sub_doc.sents)[-1] if sub_doc.sents else None
                 if last_sent:
                     sentence_end = start_idx + last_sent.end_char
                     end_idx = min(sentence_end, end_idx)
             chunk = text_to_chunk[start_idx:end_idx].strip()
-            if len(chunk) >= 10:  # Lowered threshold to allow smaller chunks
+            if len(chunk) >= 10:
                 chunks.append(chunk)
             start_idx = max(start_idx + self.chunk_size -
                             self.chunk_overlap, end_idx)
 
         logger.info(f"Generated {len(chunks)} valid chunks")
+        return chunks
+
+    def preprocess(self, url: str) -> List[str]:
+        """Full preprocessing pipeline: fetch, clean, and chunk."""
+        logger.info(f"Starting preprocessing for {url}")
+        raw_text = self.fetch_and_extract(url)
+        if not raw_text:
+            logger.error(f"Preprocessing failed: No content from {url}")
+            return []
+
+        cleaned_text = self.clean_text(raw_text)
+        if not cleaned_text:
+            logger.warning(f"Preprocessing resulted in empty text for {url}")
+            return []
+
+        chunks = self.chunk_text(cleaned_text)
+        logger.info(
+            f"Preprocessing completed for {url} with {len(chunks)} chunks")
         return chunks
