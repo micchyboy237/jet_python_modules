@@ -42,30 +42,43 @@ class MLXRAGProcessor:
         if self.show_progress:
             iterator = tqdm(iterator, total=num_batches,
                             desc="Processing batches")
+
         for i in iterator:
             batch_chunks = chunks[i:i + self.batch_size]
             logger.debug(
                 f"Processing batch {i//self.batch_size + 1} with {len(batch_chunks)} chunks")
+
+            # Tokenize individually to compute actual token lengths
+            encoded_inputs = [self.tokenizer(
+                chunk, truncation=False, add_special_tokens=True) for chunk in batch_chunks]
+            max_len = max(len(enc["input_ids"]) for enc in encoded_inputs)
+            logger.debug(f"Dynamic max_length for this batch: {max_len}")
+
+            # Re-tokenize with consistent padding/truncation using max_len
             inputs = self.tokenizer(
                 batch_chunks,
                 return_tensors="np",
-                padding=True,
+                padding="max_length",
                 truncation=True,
-                max_length=512
+                max_length=max_len
             )
+
             input_ids = mx.array(inputs["input_ids"]).astype(mx.int32)
             logger.debug(
                 f"Batch input IDs shape: {input_ids.shape}, dtype: {input_ids.dtype}")
             output = self.model(input_ids)
             logger.debug(
                 f"Batch output shape: {output.shape}, dtype: {output.dtype}")
+
             embedding = np.array(
                 mx.mean(output, axis=1).tolist(), dtype=np.float32)
             logger.debug(
                 f"Batch NumPy embedding shape: {embedding.shape}, dtype: {embedding.dtype}")
             embeddings.extend(embedding)
+
             del input_ids, output
             mx.clear_cache()
+
         embeddings_array = np.stack(embeddings)
         logger.info(f"Generated embeddings shape: {embeddings_array.shape}")
         return embeddings_array
