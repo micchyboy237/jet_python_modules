@@ -481,7 +481,7 @@ def search_docs(
     overlap: int = 200,
     top_k: Optional[int] = 20,
     threshold: float = 0.0,
-    filter_by_headers_enabled: bool = True,
+    filter_by_headers_enabled: bool = False,
     bm25_weight: float = 0.3,  # Added for BM25 integration
     with_bm25: bool = False    # Added to toggle BM25
 ) -> List[HeaderDocumentWithScore]:
