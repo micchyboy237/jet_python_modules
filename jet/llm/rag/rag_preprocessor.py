@@ -1,12 +1,20 @@
-# jet/llm/rag/rag_preprocessor.py
 from typing import List, Optional
+from jet.logger import logger
+from jet.models.model_types import ModelType
+from jet.models.utils import resolve_model_value
+import mlx.core as mx
+import mlx.nn as nn
+from mlx_lm import load
+from transformers import AutoTokenizer
 import trafilatura
 import logging
 import spacy
 from spacy.language import Language
 import textacy.preprocessing as tprep
+import numpy as np
 
-from jet.logger import logger
+
+# Configure logging
 
 
 class WebDataPreprocessor:
@@ -48,13 +56,11 @@ class WebDataPreprocessor:
         logger.info("Cleaning text")
         cleaned = tprep.normalize.unicode(text, form="NFKC")
         cleaned = tprep.normalize.whitespace(cleaned)
-        # Replace URLs with empty string
         cleaned = tprep.replace.urls(cleaned, "")
-        cleaned = tprep.replace.emails(cleaned, "")  # Replace emails
-        cleaned = tprep.replace.phone_numbers(
-            cleaned, "")  # Replace phone numbers
-        cleaned = tprep.remove.punctuation(cleaned)  # Remove all punctuation
-        cleaned = " ".join(cleaned.split())  # Remove excessive whitespace
+        cleaned = tprep.replace.emails(cleaned, "")
+        cleaned = tprep.replace.phone_numbers(cleaned, "")
+        cleaned = tprep.remove.punctuation(cleaned)
+        cleaned = " ".join(cleaned.split())
         logger.info("Text cleaning completed")
         return cleaned
 
@@ -67,12 +73,10 @@ class WebDataPreprocessor:
         if not sentences:
             logger.warning("No valid sentences found for chunking")
             return []
-
         text_to_chunk = " ".join(sentences)
         chunks = []
         start_idx = 0
         text_length = len(text_to_chunk)
-
         while start_idx < text_length:
             end_idx = min(start_idx + self.chunk_size, text_length)
             if end_idx < text_length:
@@ -86,7 +90,6 @@ class WebDataPreprocessor:
                 chunks.append(chunk)
             start_idx = max(start_idx + self.chunk_size -
                             self.chunk_overlap, end_idx)
-
         logger.info(f"Generated {len(chunks)} valid chunks")
         return chunks
 
@@ -97,12 +100,10 @@ class WebDataPreprocessor:
         if not raw_text:
             logger.error(f"Preprocessing failed: No content from {url}")
             return []
-
         cleaned_text = self.clean_text(raw_text)
         if not cleaned_text:
             logger.warning(f"Preprocessing resulted in empty text for {url}")
             return []
-
         chunks = self.chunk_text(cleaned_text)
         logger.info(
             f"Preprocessing completed for {url} with {len(chunks)} chunks")
