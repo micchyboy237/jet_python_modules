@@ -1,6 +1,6 @@
 import pytest
 from typing import List, Tuple
-from jet.code.splitter_markdown_utils import Header, HeaderLink, get_md_header_contents
+from jet.code.splitter_markdown_utils import Header, HeaderLink, get_md_header_contents, extract_markdown_links
 from llama_index.core.schema import NodeRelationship, RelatedNodeInfo
 from jet.vectors.document_types import HeaderDocument
 
@@ -87,28 +87,39 @@ class TestGetMdHeaderContents:
 
     def test_nested_headers(self):
         # Given: A Markdown text with nested headers
-        md_text = "# Header 1\nContent 1\n## Header 2\nContent 2"
+        md_text = "# Header 1\nContent 1 [link](http://example.com)\n## Header 2\nContent 2"
 
         # When: The function is called
-        result = get_md_header_contents(md_text)
+        result = get_md_header_contents(md_text, ignore_links=True)
 
         # Then: The result matches the expected HeaderDocument structure
         assert len(result) == 2
         expected = [
             HeaderDocument(
-                text="# Header 1\nContent 1",
+                text="# Header 1\nContent 1 link",
                 id=result[0].id,
                 metadata={
                     "header": "# Header 1",
                     "parent_header": "",
                     "header_level": 1,
-                    "content": "Content 1",
+                    "content": "Content 1 link",
                     "doc_index": 0,
                     "chunk_index": None,
                     "tokens": None,
                     "source_url": None,
-                    "links": [],
-                    "texts": ["# Header 1", "Content 1"],
+                    "links": [
+                        {
+                            "text": "link",
+                            "url": "http://example.com",
+                            "caption": None,
+                            "start_idx": 12,
+                            "end_idx": 35,
+                            "line": "Content 1 [link](http://example.com)",
+                            "line_idx": 1,
+                            "is_heading": False
+                        }
+                    ],
+                    "texts": ["# Header 1", "Content 1 link"],
                     "id": result[0].id
                 },
                 relationships={
@@ -147,32 +158,43 @@ class TestGetMdHeaderContents:
     def test_nested_headers_with_content(self):
         # Given: Markdown with nested headers and content
         md_text = """# Header 1
-Content 1
-## Header 2
-Content 2
-## Header 3
-Content 3"""
+    Content 1 [link](http://example.com)
+    ## Header 2
+    Content 2
+    ## Header 3
+    Content 3 [link2](http://test.com)"""
 
         # When: get_md_header_contents is called
-        result = get_md_header_contents(md_text)
+        result = get_md_header_contents(md_text, ignore_links=True)
 
         # Then: HeaderDocuments with correct relationships and metadata
         assert len(result) == 3
         expected = [
             HeaderDocument(
-                text="# Header 1\nContent 1",
+                text="# Header 1\nContent 1 link",
                 id=result[0].id,
                 metadata={
                     "header": "# Header 1",
                     "parent_header": "",
                     "header_level": 1,
-                    "content": "Content 1",
+                    "content": "Content 1 link",
                     "doc_index": 0,
                     "chunk_index": None,
                     "tokens": None,
                     "source_url": None,
-                    "links": [],
-                    "texts": ["# Header 1", "Content 1"],
+                    "links": [
+                        {
+                            "text": "link",
+                            "url": "http://example.com",
+                            "caption": None,
+                            "start_idx": 12,
+                            "end_idx": 35,
+                            "line": "Content 1 [link](http://example.com)",
+                            "line_idx": 1,
+                            "is_heading": False
+                        }
+                    ],
+                    "texts": ["# Header 1", "Content 1 link"],
                     "id": result[0].id
                 },
                 relationships={
@@ -204,19 +226,30 @@ Content 3"""
                 }
             ),
             HeaderDocument(
-                text="# Header 3\nContent 3",
+                text="# Header 3\nContent 3 link2",
                 id=result[2].id,
                 metadata={
                     "header": "# Header 3",
                     "parent_header": "# Header 1",
                     "header_level": 2,
-                    "content": "Content 3",
+                    "content": "Content 3 link2",
                     "doc_index": 0,
                     "chunk_index": None,
                     "tokens": None,
                     "source_url": None,
-                    "links": [],
-                    "texts": ["# Header 3", "Content 3"],
+                    "links": [
+                        {
+                            "text": "link2",
+                            "url": "http://test.com",
+                            "caption": None,
+                            "start_idx": 45,
+                            "end_idx": 66,
+                            "line": "Content 3 [link2](http://test.com)",
+                            "line_idx": 5,
+                            "is_heading": False
+                        }
+                    ],
+                    "texts": ["# Header 3", "Content 3 link2"],
                     "id": result[2].id
                 },
                 relationships={
@@ -233,28 +266,39 @@ Content 3"""
 
     def test_content_before_header(self):
         # Given: A Markdown text with content before any header
-        md_text = "Intro content\n# Header 1\nContent 1"
+        md_text = "Intro content [link](http://example.com)\n# Header 1\nContent 1"
 
         # When: The function is called
-        result = get_md_header_contents(md_text)
+        result = get_md_header_contents(md_text, ignore_links=True)
 
         # Then: The result matches the expected HeaderDocument structure
         assert len(result) == 2
         expected = [
             HeaderDocument(
-                text="Intro content",
+                text="Intro content link",
                 id=result[0].id,
                 metadata={
                     "header": "",
                     "parent_header": "",
                     "header_level": 0,
-                    "content": "Intro content",
+                    "content": "Intro content link",
                     "doc_index": 0,
                     "chunk_index": None,
                     "tokens": None,
                     "source_url": None,
-                    "links": [],
-                    "texts": ["Intro content"],
+                    "links": [
+                        {
+                            "text": "link",
+                            "url": "http://example.com",
+                            "caption": None,
+                            "start_idx": 13,
+                            "end_idx": 36,
+                            "line": "Intro content [link](http://example.com)",
+                            "line_idx": 0,
+                            "is_heading": True
+                        }
+                    ],
+                    "texts": ["Intro content link"],
                     "id": result[0].id
                 },
                 relationships={
@@ -294,20 +338,20 @@ Content 3"""
         # Given: A Markdown text with headers and links
         md_text = "# Header 1\nContent with [link](http://example.com)"
 
-        # When: The function is called with ignore_links=False
-        result = get_md_header_contents(md_text, ignore_links=False)
+        # When: The function is called with ignore_links=True
+        result = get_md_header_contents(md_text, ignore_links=True)
 
         # Then: The result includes the link information
         assert len(result) == 1
         expected = [
             HeaderDocument(
-                text="# Header 1\nContent with [link](http://example.com)",
+                text="# Header 1\nContent with link",
                 id=result[0].id,
                 metadata={
                     "header": "# Header 1",
                     "parent_header": "",
                     "header_level": 1,
-                    "content": "Content with [link](http://example.com)",
+                    "content": "Content with link",
                     "doc_index": 0,
                     "chunk_index": None,
                     "tokens": None,
@@ -317,14 +361,14 @@ Content 3"""
                             "text": "link",
                             "url": "http://example.com",
                             "caption": None,
-                            "start_idx": -1,
-                            "end_idx": -1,
+                            "start_idx": 13,
+                            "end_idx": 36,
                             "line": "Content with [link](http://example.com)",
-                            "line_idx": 2,
+                            "line_idx": 1,
                             "is_heading": False
                         }
                     ],
-                    "texts": ["# Header 1", "Content with [link](http://example.com)"],
+                    "texts": ["# Header 1", "Content with link"],
                     "id": result[0].id
                 },
                 relationships={}
@@ -338,26 +382,26 @@ Content 3"""
     def test_with_links_and_base_url(self):
         # Given: Markdown with headers and links
         md_text = """# Header 1
-[Link](http://example.com)
-## Header 2
-[Relative Link](/page)"""
+    [Link](http://example.com)
+    ## Header 2
+    [Relative Link](/page)"""
         base_url = "http://base.com"
 
-        # When: get_md_header_contents is called with ignore_links=False
+        # When: get_md_header_contents is called with ignore_links=True
         result = get_md_header_contents(
-            md_text, ignore_links=False, base_url=base_url)
+            md_text, ignore_links=True, base_url=base_url)
 
         # Then: HeaderDocuments with links in metadata
         assert len(result) == 2
         expected = [
             HeaderDocument(
-                text="# Header 1\n[Link](http://example.com)",
+                text="# Header 1\nLink",
                 id=result[0].id,
                 metadata={
                     "header": "# Header 1",
                     "parent_header": "",
                     "header_level": 1,
-                    "content": "[Link](http://example.com)",
+                    "content": "Link",
                     "doc_index": 0,
                     "chunk_index": None,
                     "tokens": None,
@@ -367,14 +411,14 @@ Content 3"""
                             "text": "Link",
                             "url": "http://example.com",
                             "caption": None,
-                            "start_idx": -1,
-                            "end_idx": -1,
+                            "start_idx": 11,
+                            "end_idx": 34,
                             "line": "[Link](http://example.com)",
-                            "line_idx": 2,
+                            "line_idx": 1,
                             "is_heading": False
                         }
                     ],
-                    "texts": ["# Header 1", "[Link](http://example.com)"],
+                    "texts": ["# Header 1", "Link"],
                     "id": result[0].id
                 },
                 relationships={
@@ -383,13 +427,13 @@ Content 3"""
                 }
             ),
             HeaderDocument(
-                text="# Header 2\n[Relative Link](/page)",
+                text="# Header 2\nRelative Link",
                 id=result[1].id,
                 metadata={
                     "header": "# Header 2",
                     "parent_header": "# Header 1",
                     "header_level": 2,
-                    "content": "[Relative Link](/page)",
+                    "content": "Relative Link",
                     "doc_index": 0,
                     "chunk_index": None,
                     "tokens": None,
@@ -399,14 +443,14 @@ Content 3"""
                             "text": "Relative Link",
                             "url": "http://base.com/page",
                             "caption": None,
-                            "start_idx": -1,
-                            "end_idx": -1,
+                            "start_idx": 28,
+                            "end_idx": 46,
                             "line": "[Relative Link](/page)",
-                            "line_idx": 4,
+                            "line_idx": 3,
                             "is_heading": False
                         }
                     ],
-                    "texts": ["# Header 2", "[Relative Link](/page)"],
+                    "texts": ["# Header 2", "Relative Link"],
                     "id": result[1].id
                 },
                 relationships={
@@ -948,17 +992,17 @@ Content 3"""
         # Given: A Markdown text with a link in the header
         md_text = "# Header [link](http://example.com)\nContent"
 
-        # When: The function is called with ignore_links=False
-        result = get_md_header_contents(md_text, ignore_links=False)
+        # When: The function is called with ignore_links=True
+        result = get_md_header_contents(md_text, ignore_links=True)
 
         # Then: The result includes the link information
         assert len(result) == 1
         expected = [
             HeaderDocument(
-                text="# Header [link](http://example.com)\nContent",
+                text="# Header link\nContent",
                 id=result[0].id,
                 metadata={
-                    "header": "# Header [link](http://example.com)",
+                    "header": "# Header link",
                     "parent_header": "",
                     "header_level": 1,
                     "content": "Content",
@@ -971,14 +1015,14 @@ Content 3"""
                             "text": "link",
                             "url": "http://example.com",
                             "caption": None,
-                            "start_idx": -1,
-                            "end_idx": -1,
+                            "start_idx": 8,
+                            "end_idx": 31,
                             "line": "# Header [link](http://example.com)",
-                            "line_idx": 1,
+                            "line_idx": 0,
                             "is_heading": True
                         }
                     ],
-                    "texts": ["# Header [link](http://example.com)", "Content"],
+                    "texts": ["# Header link", "Content"],
                     "id": result[0].id
                 },
                 relationships={}
@@ -991,28 +1035,39 @@ Content 3"""
 
     def test_multiple_newlines_between_content(self):
         # Given: A Markdown text with multiple newlines between content lines
-        md_text = "# Header 1\nContent 1\n\n\nContent 2"
+        md_text = "# Header 1\nContent 1 [link](http://example.com)\n\n\nContent 2"
 
         # When: The function is called
-        result = get_md_header_contents(md_text)
+        result = get_md_header_contents(md_text, ignore_links=True)
 
         # Then: The result matches the expected HeaderDocument structure
         assert len(result) == 1
         expected = [
             HeaderDocument(
-                text="# Header 1\nContent 1\n\nContent 2",
+                text="# Header 1\nContent 1 link\n\nContent 2",
                 id=result[0].id,
                 metadata={
                     "header": "# Header 1",
                     "parent_header": "",
                     "header_level": 1,
-                    "content": "Content 1\n\nContent 2",
+                    "content": "Content 1 link\n\nContent 2",
                     "doc_index": 0,
                     "chunk_index": None,
                     "tokens": None,
                     "source_url": None,
-                    "links": [],
-                    "texts": ["# Header 1", "Content 1", "", "", "Content 2"],
+                    "links": [
+                        {
+                            "text": "link",
+                            "url": "http://example.com",
+                            "caption": None,
+                            "start_idx": 12,
+                            "end_idx": 35,
+                            "line": "Content 1 [link](http://example.com)",
+                            "line_idx": 1,
+                            "is_heading": False
+                        }
+                    ],
+                    "texts": ["# Header 1", "Content 1 link", "", "", "Content 2"],
                     "id": result[0].id
                 },
                 relationships={}
@@ -1022,3 +1077,134 @@ Content 3"""
         assert result[0].id == expected[0].id
         assert result[0].metadata == expected[0].metadata
         assert result[0].relationships == expected[0].relationships
+
+
+class TestExtractMarkdownLinks:
+    def test_ignore_links_true(self):
+        # Given: Text with markdown and plain URLs
+        input_text = "See [link1](http://example.com) and http://plain.com"
+        expected_text = "See link1 and "
+        expected_links: List[dict] = []
+
+        # When: Extract links with ignore_links=True
+        result_links, result_text = extract_markdown_links(
+            input_text, ignore_links=True)
+
+        # Then: Links are removed, markdown link replaced with label, plain URL removed
+        assert result_text == expected_text
+        assert result_links == expected_links
+
+    def test_ignore_links_false(self):
+        # Given: Text with markdown and plain URLs
+        input_text = "See [link1](http://example.com) and http://plain.com"
+        expected_text = "See [link1](http://example.com) and http://plain.com"
+        expected_links = [
+            {
+                "text": "link1",
+                "url": "http://example.com",
+                "caption": None,
+                "start_idx": 4,
+                "end_idx": 27,
+                "line": "[link1](http://example.com)",
+                "line_idx": 0,
+                "is_heading": True
+            },
+            {
+                "text": "",
+                "url": "http://plain.com",
+                "caption": None,
+                "start_idx": 31,
+                "end_idx": 47,
+                "line": "http://plain.com",
+                "line_idx": 0,
+                "is_heading": True
+            }
+        ]
+
+        # When: Extract links with ignore_links=False
+        result_links, result_text = extract_markdown_links(
+            input_text, ignore_links=False)
+
+        # Then: Links are extracted with cleaned URLs, text retains original links
+        assert result_text == expected_text
+        assert len(result_links) == len(expected_links)
+        for result, expected in zip(result_links, expected_links):
+            assert result["text"] == expected["text"]
+            assert result["url"] == expected["url"]
+            assert result["caption"] == expected["caption"]
+            assert result["line_idx"] == expected["line_idx"]
+            assert result["is_heading"] == expected["is_heading"]
+
+    def test_ignore_links_true_with_caption(self):
+        # Given: Text with a markdown link with caption
+        input_text = 'Content with [link](http://example.com "Caption")'
+        expected_text = "Content with link"
+        expected_links: List[dict] = []
+
+        # When: Extract links with ignore_links=True
+        result_links, result_text = extract_markdown_links(
+            input_text, ignore_links=True)
+
+        # Then: Markdown link is replaced with label, no links returned
+        assert result_text == expected_text
+        assert result_links == expected_links
+
+    def test_ignore_links_false_with_base_url(self):
+        # Given: Text with a relative markdown link and base URL
+        input_text = "See [link1](/path/page)"
+        base_url = "http://example.com"
+        expected_text = "See link1"
+        expected_links = [
+            {
+                "text": "link1",
+                "url": "http://example.com/path/page",
+                "caption": None,
+                "start_idx": 4,
+                "end_idx": 22,
+                "line": "[link1](http://example.com/path/page)",
+                "line_idx": 0,
+                "is_heading": True
+            }
+        ]
+
+        # When: Extract links with ignore_links=False and base_url
+        result_links, result_text = extract_markdown_links(
+            input_text, base_url=base_url, ignore_links=False)
+
+        # Then: Relative URL is resolved, link extracted, text replaced with label
+        assert result_text == expected_text
+        assert len(result_links) == len(expected_links)
+        for result, expected in zip(result_links, expected_links):
+            assert result["text"] == expected["text"]
+            assert result["url"] == expected["url"]
+            assert result["caption"] == expected["caption"]
+            assert result["line_idx"] == expected["line_idx"]
+            assert result["is_heading"] == expected["is_heading"]
+
+    def test_empty_input(self):
+        # Given: Empty input text
+        input_text = ""
+        expected_text = ""
+        expected_links: List[dict] = []
+
+        # When: Extract links with ignore_links=True
+        result_links, result_text = extract_markdown_links(
+            input_text, ignore_links=True)
+
+        # Then: Empty text and links returned
+        assert result_text == expected_text
+        assert result_links == expected_links
+
+    def test_no_links(self):
+        # Given: Text with no links
+        input_text = "Just plain text"
+        expected_text = "Just plain text"
+        expected_links: List[dict] = []
+
+        # When: Extract links with ignore_links=True
+        result_links, result_text = extract_markdown_links(
+            input_text, ignore_links=True)
+
+        # Then: Text unchanged, no links returned
+        assert result_text == expected_text
+        assert result_links == expected_links

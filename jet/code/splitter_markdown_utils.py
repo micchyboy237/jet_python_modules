@@ -220,18 +220,8 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
     output = text
     seen = set()
 
-    if ignore_links:
-        # Replace markdown links with their label
-        def replace_md_link(match):
-            label = match.group(1).strip()
-            return label if label else ""
-
-        output = pattern.sub(replace_md_link, output)
-        # Remove plain URLs
-        output = plain_url_pattern.sub("", output)
-        return [], output
-
     # Extract markdown links
+    replacements = []
     for match in pattern.finditer(text):
         start, end = match.span()
         label, url, caption = match.group(1), match.group(2), match.group(3)
@@ -243,6 +233,8 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
 
         # Skip empty labels
         if not label.strip():
+            if ignore_links:
+                replacements.append((start, end, ""))
             continue
 
         # Find line and line index
@@ -273,6 +265,10 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
                 "line_idx": line_idx,
                 "is_heading": line_idx == 0
             })
+        if ignore_links:
+            replacements.append((start, end, label if label.strip() else ""))
+        # When ignore_links=False, do not replace markdown links
+        # Output text retains original markdown links
 
     # Extract plain URLs
     for match in plain_url_pattern.finditer(text):
@@ -298,6 +294,18 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
                     "line_idx": line_idx,
                     "is_heading": line_idx == 0
                 })
+            if ignore_links:
+                replacements.append((start, end, ""))
+
+    # Apply replacements for ignore_links=True
+    if ignore_links and replacements:
+        replacements.sort(key=lambda x: x[0])
+        offset = 0
+        for start, end, replacement in reversed(replacements):
+            start += offset
+            end += offset
+            output = output[:start] + replacement + output[end:]
+            offset += len(replacement) - (end - start)
 
     return links, output
 
