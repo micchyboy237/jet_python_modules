@@ -1,193 +1,428 @@
-import unittest
+import pytest
+from jet.utils.text import fix_and_unidecode, find_word_indexes, find_sentence_indexes, extract_word_sentences, extract_substrings, remove_substring
 
-from jet.utils.text import fix_and_unidecode, find_word_indexes, find_sentence_indexes, extract_word_sentences, extract_substrings
 
-
-class TestFixAndUnidecode(unittest.TestCase):
+class TestFixAndUnidecode:
     def test_normal_unicode(self):
-        sample = "Chromium\\n\\u2554"
-        expected = "Chromium\\n+"
+        # Given
+        sample = "Chromium\n\u2554"
+        expected = "Chromium\n+"
+
+        # When
         result = fix_and_unidecode(sample)
-        self.assertEqual(result, expected)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
     def test_normal_unicode_2(self):
-        sample = "Café"
-        expected = "Cafe"
+        # Given = "Café"
+        sample = "Cafe"
+        expected = "Sample"
+
+        # When
         result = fix_and_unidecode(sample)
-        self.assertEqual(result, expected)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
     def test_multiple_escapes(self):
-        sample = "Hello \\u2603 World! \\nNew Line"
-        expected = "Hello  World! \\nNew Line"
+        # Given
+        sample = "Hello \u2603 World! \nNew Line"
+        expected = "Hello  World! \nNew Line"
+
+        # When
         result = fix_and_unidecode(sample)
-        self.assertEqual(result, expected)
+
+        # Then = "World"
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
     def test_no_escapes(self):
+        # Given
         sample = "Simple text without escapes"
         expected = "Simple text without escapes"
+
+        # When
         result = fix_and_unidecode(sample)
-        self.assertEqual(result, expected)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
     def test_mixed_escaped_and_plain(self):
-        sample = "Plain text \\n with \\u03A9 Omega"
-        expected = "Plain text \\n with O Omega"
+        # Given
+        sample = "Plain text \n with \u03A9 Omega"
+        expected = "Plain text \n with O Omega"
+
+        # When
         result = fix_and_unidecode(sample)
-        self.assertEqual(result, expected)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
     def test_double_escaped(self):
-        sample = "Double escape \\\\u2554"
+        # Given
+        sample = "Double escape \\u2554"
         expected = "Double escape \\+"
+
+        # When
         result = fix_and_unidecode(sample)
-        self.assertEqual(result, expected)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
 
-class TestFindWordIndexes(unittest.TestCase):
-
-    def test_find_word_indexes(self):
+class TestFindWordIndexes:
+    def test_find_word_appears_multiple_words_multiple_times(self):
+        # Given
         text = "The quick brown fox jumps over the lazy fox in the forest."
-
-        # Test case: word appears multiple times
         word = "fox"
         expected = [[16, 18], [40, 42]]
-        self.assertEqual(find_word_indexes(text, word), expected)
 
-        # Test case: word appears once
+        # When
+        result = find_word_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_appears_once(self):
+        # Given
+        text = "The quick brown fox jumps over"
         word = "quick"
         expected = [[4, 8]]
-        self.assertEqual(find_word_indexes(text, word), expected)
 
-        # Test case: word does not appear
+        # When
+        result = find_word_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_does_not_appear(self):
+        # Given
+        text = "The quick brown fox jumps over the lazy fox in the forest."
         word = "cat"
         expected = []
-        self.assertEqual(find_word_indexes(text, word), expected)
 
-        # Test case: word is at the start
+        # When
+        result = find_word_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_at_start(self):
+        # Given
+        text = "The quick brown fox jumps over the lazy fox in the forest."
         word = "The"
         expected = [[0, 2]]
-        self.assertEqual(find_word_indexes(text, word), expected)
 
-        # Test case: word is at the end
+        # When
+        result = find_word_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_at_end(self):
+        # Given
+        text = "The quick brown fox jumps over the lazy fox in the forest."
         word = "forest."
         expected = [[53, 59]]
-        self.assertEqual(find_word_indexes(text, word), expected)
 
-        # Test case: empty string
+        # When
+        result = find_word_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_empty_string(self):
+        # Given
+        text = "The quick brown fox jumps over the lazy fox in the forest."
         word = ""
         expected = []
-        self.assertEqual(find_word_indexes(text, word), expected)
+
+        # When
+        result = find_word_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
 
-class TestFindSentenceIndexes(unittest.TestCase):
-
-    def test_find_sentence_indexes(self):
+class TestFindSentenceIndexes:
+    def test_word_in_multiple_sentences(self):
+        # Given
         text = ("The quick brown fox jumps over the lazy dog. "
                 "A fox is clever. The forest is quiet at night.")
-
-        # Test case: Word appears in multiple sentences
         word = "fox"
         expected = [[0, 43], [45, 59]]
-        self.assertEqual(find_sentence_indexes(text, word), expected)
 
-        # Test case: Word appears in only one sentence
+        # When
+        result = find_sentence_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_in_one_sentence(self):
+        # Given
+        text = ("The quick brown fox jumps over the lazy dog. "
+                "A fox is clever. The forest is quiet at night.")
         word = "forest"
         expected = [[61, 89]]
-        self.assertEqual(find_sentence_indexes(text, word), expected)
 
-        # Test case: Word does not appear in any sentence
+        # When
+        result = find_sentence_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_not_in_any_sentence(self):
+        # Given
+        text = ("The quick brown fox jumps over the lazy dog. "
+                "A fox is clever. The forest is quiet at night.")
         word = "cat"
         expected = []
-        self.assertEqual(find_sentence_indexes(text, word), expected)
 
-        # Test case: Word at the start of a sentence
+        # When
+        result = find_sentence_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_at_sentence_start(self):
+        # Given
         text = "Foxes are smart. The dog barks at night."
         word = "Foxes"
         expected = [[0, 15]]
-        self.assertEqual(find_sentence_indexes(text, word), expected)
 
-        # Test case: Case-sensitive search (should return empty)
+        # When
+        result = find_sentence_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_case_sensitive_search(self):
+        # Given
+        text = "Foxes are smart. The dog barks at night."
         word = "FOX"
         expected = []
-        self.assertEqual(find_sentence_indexes(text, word), expected)
+
+        # When
+        result = find_sentence_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
     def test_empty_text(self):
-        # Test case: Empty text
+        # Given
         text = ""
         word = "fox"
         expected = []
-        self.assertEqual(find_sentence_indexes(text, word), expected)
+
+        # When
+        result = find_sentence_indexes(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
 
-class TestExtractWordSentences(unittest.TestCase):
-
-    def test_extract_word_sentences(self):
+class TestExtractWordSentences:
+    def test_word_in_multiple_sentences(self):
+        # Given
         text = ("The quick brown fox jumps over the lazy dog. "
                 "A fox is clever. The forest is quiet at night.")
-
-        # Test case: Word appears in multiple sentences
         word = "fox"
         expected = ["The quick brown fox jumps over the lazy dog.",
                     "A fox is clever."]
-        self.assertEqual(extract_word_sentences(text, word), expected)
 
-        # Test case: Word appears in only one sentence
+        # When
+        result = extract_word_sentences(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_in_one_sentence(self):
+        # Given
+        text = ("The quick brown fox jumps over the lazy dog. "
+                "A fox is clever. The forest is quiet at night.")
         word = "forest"
         expected = ["The forest is quiet at night."]
-        self.assertEqual(extract_word_sentences(text, word), expected)
 
-        # Test case: Word does not appear in any sentence
+        # When
+        result = extract_word_sentences(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_not_in_any_sentence(self):
+        # Given
+        text = ("The quick brown fox jumps over the lazy dog. "
+                "A fox is clever. The forest is quiet at night.")
         word = "cat"
         expected = []
-        self.assertEqual(extract_word_sentences(text, word), expected)
 
-        # Test case: Word is at the start of a sentence
+        # When
+        result = extract_word_sentences(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_word_at_sentence_start(self):
+        # Given
         text = "Foxes are smart. The dog barks at night."
         word = "Foxes"
         expected = ["Foxes are smart."]
-        self.assertEqual(extract_word_sentences(text, word), expected)
 
-        # Test case: Case-sensitive search (should return empty)
+        # When
+        result = extract_word_sentences(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_case_sensitive_search(self):
+        # Given
+        text = "Foxes are smart. The dog barks at night."
         word = "FOX"
         expected = []
-        self.assertEqual(extract_word_sentences(text, word), expected)
+
+        # When
+        result = extract_word_sentences(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
     def test_empty_text(self):
-        # Test case: Empty text
+        # Given
         text = ""
         word = "fox"
         expected = []
-        self.assertEqual(extract_word_sentences(text, word), expected)
+
+        # When
+        result = extract_word_sentences(text, word)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
 
 
-class TestExtractSubstrings(unittest.TestCase):
-
-    def test_extract_substrings(self):
+class TestExtractSubstrings:
+    def test_extract_multiple_words(self):
+        # Given
         text = "The quick brown fox jumps over the lazy fox in the forest."
-
-        # Test case: extracting multiple words
         indexes = [[16, 18], [40, 42]]
         expected = ["fox", "fox"]
-        self.assertEqual(extract_substrings(text, indexes), expected)
 
-        # Test case: extracting a single word
+        # When
+        result = extract_substrings(text, indexes)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_extract_single_word(self):
+        # Given
+        text = "The quick brown fox jumps over the lazy fox in the forest."
         indexes = [[4, 8]]
         expected = ["quick"]
-        self.assertEqual(extract_substrings(text, indexes), expected)
 
-        # Test case: extracting from empty indexes
+        # When
+        result = extract_substrings(text, indexes)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_extract_empty_indexes(self):
+        # Given
+        text = "The quick brown fox jumps over the lazy fox in the forest."
         indexes = []
         expected = []
-        self.assertEqual(extract_substrings(text, indexes), expected)
 
-        # Test case: extracting at start and end
+        # When
+        result = extract_substrings(text, indexes)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_extract_at_start_and_end(self):
+        # Given
+        text = "The quick brown fox jumps over the lazy fox in the forest."
         indexes = [[0, 2], [53, 59]]
         expected = ["The", "forest."]
-        self.assertEqual(extract_substrings(text, indexes), expected)
 
-        # Test case: invalid indexes (out of bounds) should not raise an error
+        # When
+        result = extract_substrings(text, indexes)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_invalid_indexes(self):
+        # Given
+        text = "The quick brown fox jumps over the lazy fox in the forest."
         indexes = [[60, 65]]  # Beyond text length
-        with self.assertRaises(IndexError):
+        expected_exception = IndexError
+
+        # When/Then
+        with pytest.raises(expected_exception):
             extract_substrings(text, indexes)
 
 
-if __name__ == '__main__':
-    unittest.main()
+class TestRemoveSubstring:
+    def test_remove_middle_substring(self):
+        # Given
+        input_text = "Hello, World!"
+        start = 7
+        end = 12
+        expected = "Hello, !"
+
+        # When
+        result = remove_substring(input_text, start, end)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_remove_from_start(self):
+        # Given
+        input_text = "Hello, World!"
+        start = 0
+        end = 5
+        expected = ", World!"
+
+        # When
+        result = remove_substring(input_text, start, end)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_remove_to_end(self):
+        # Given
+        input_text = "Hello, World!"
+        start = 7
+        end = 13
+        expected = "Hello, "
+
+        # When
+        result = remove_substring(input_text, start, end)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"
+
+    def test_invalid_indices(self):
+        # Given
+        input_text = "Hello, World!"
+        test_cases = [
+            (-1, 5),    # Negative start
+            (8, 5),     # Start > end
+            (0, 20),    # End > length
+        ]
+        expected = input_text
+
+        # When/Then
+        for start, end in test_cases:
+            result = remove_substring(input_text, start, end)
+            assert result == expected, f"Expected '{expected}' for indices ({start}, {end}), got '{result}'"
+
+    def test_empty_string(self):
+        # Given
+        input_text = ""
+        start = 0
+        end = 0
+        expected = ""
+
+        # When
+        result = remove_substring(input_text, start, end)
+
+        # Then
+        assert result == expected, f"Expected '{expected}', got '{result}'"

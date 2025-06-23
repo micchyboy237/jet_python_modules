@@ -91,6 +91,23 @@ def extract_substrings(text: str, indexes: list[tuple[int, int]]) -> list[str]:
     return [text[start:end + 1] for start, end in indexes]
 
 
+def remove_substring(text: str, start: int, end: int) -> str:
+    """
+    Remove a substring from text given start and end indices (end is exclusive).
+
+    Args:
+        text: Input string to modify
+        start: Starting index (inclusive)
+        end: Ending index (exclusive)
+
+    Returns:
+        Modified string with substring removed, or original string if indices are invalid
+    """
+    if not text or start < 0 or end > len(text) or start > end:
+        return text
+    return text[:start] + text[end:]
+
+
 __all__ = [
     "fix_and_unidecode",
     "has_non_ascii",
@@ -98,4 +115,5 @@ __all__ = [
     "find_sentence_indexes",
     "extract_word_sentences",
     "extract_substrings",
+    "remove_substring",
 ]

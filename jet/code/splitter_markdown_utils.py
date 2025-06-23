@@ -1,10 +1,11 @@
 from urllib.parse import urljoin
 import uuid
 from jet.code.html_utils import is_html
+from jet.llm.mlx.helpers.detect_repetition import clean_repeated_ngrams
 from jet.logger import logger
 from jet.code.markdown_types import MarkdownAnalysis
 from jet.code.markdown_utils import analyze_markdown, convert_html_to_markdown
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 import re
 from typing import Callable, Optional, List, Dict, Tuple, TypedDict, Union
 from urllib.parse import urljoin, urlparse
@@ -12,7 +13,7 @@ from bs4 import BeautifulSoup
 
 from jet.scrapers.preprocessor import html_to_markdown, scrape_markdown
 from jet.scrapers.utils import clean_spaces
-from jet.vectors.document_types import HeaderDocument, HeaderMetadata as HeaderMetadataDoc
+from jet.vectors.document_types import HeaderDocument, HeaderDocumentDict, HeaderMetadata as HeaderMetadataDoc
 from .helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
 
 
@@ -300,10 +301,6 @@ def get_md_header_contents(
     links = analysis["links"]
     tokens = analysis["tokens_sequential"]
 
-    # Debug: Log tokens and headers
-    logger.debug(f"Tokens: {tokens}")
-    logger.debug(f"Headers: {headers}")
-
     # Default headers to split on if none provided
     if not headers_to_split_on:
         headers_to_split_on = [
@@ -346,6 +343,7 @@ def get_md_header_contents(
             line for line in lines[:first_header_line-1] if line.strip()]
         content = "\n".join(content_lines)
         content = re.sub(r'\n{3,}', '\n\n', content) if content else ""
+        content = clean_repeated_ngrams(content)
         if content or title:
             result.append({
                 "text": title + ("\n" + content if content else "") if title else content,
