@@ -860,7 +860,7 @@ Content 3"""
         assert len(result) == 2
         expected = [
             HeaderDocument(
-                text="#Header\nContent",
+                text="# Header\nContent",
                 id=result[0].id,
                 metadata={
                     "header": "#Header",
@@ -881,7 +881,7 @@ Content 3"""
                 }
             ),
             HeaderDocument(
-                text="###Header\nContent 2",
+                text="### Header\nContent 2",
                 id=result[1].id,
                 metadata={
                     "header": "###Header",

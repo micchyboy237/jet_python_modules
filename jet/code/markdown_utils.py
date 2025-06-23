@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, TypedDict
 
 from markdownify import MarkdownConverter
+from markitdown import MarkItDown
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken
 from jet.decorators.timer import timeout
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
@@ -32,7 +33,49 @@ def preprocess_markdown(md_content: str) -> str:
     # Ensure proper spacing around headers with links
     md_content = re.sub(r'^(#+)\s*\[([^\]]+)\]\(([^)]+)\)',
                         r'\1 [\2](\3)', md_content, flags=re.MULTILINE)
+    # Process separator lines
+    md_content = process_separator_lines(md_content)
     return md_content
+
+
+def process_separator_lines(md_content: str) -> str:
+    """
+    Process markdown content to handle lines with only '-' or '*', moving next line's text to the right
+    with a single space, or removing the separator if no text follows.
+
+    Args:
+        md_content: Raw markdown content as a string.
+
+    Returns:
+        Processed markdown content with transformed separator lines.
+    """
+    lines = md_content.splitlines()
+    result: List[str] = []
+    i = 0
+
+    while i < len(lines):
+        current_line = lines[i].strip()
+        if current_line in ("-", "*"):
+            # Check if there's a next line
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                if next_line:
+                    # Combine separator and next line text
+                    result.append(f"{current_line} {next_line}")
+                    i += 2  # Skip the next line
+                else:
+                    # No text in next line, skip the separator
+                    i += 1
+            else:
+                # Separator is the last line, skip it
+                i += 1
+        else:
+            # Preserve non-separator lines
+            result.append(lines[i])
+            i += 1
+
+    # Join lines, preserving original line endings
+    return "\n".join(result)
 
 
 def clean_markdown_text(text: Optional[str]) -> Optional[str]:
@@ -52,7 +95,7 @@ def clean_markdown_text(text: Optional[str]) -> Optional[str]:
     return cleaned_text
 
 
-def convert_html_to_markdown(html_input: Union[str, Path], **options) -> str:
+def convert_html_to_markdownify(html_input: Union[str, Path], **options) -> str:
     """
     Convert HTML content to Markdown and return the string.
     """
@@ -73,6 +116,43 @@ def convert_html_to_markdown(html_input: Union[str, Path], **options) -> str:
             r'(?<!\n)\n(?=[#*-]|\w)', '\n\n', markdown_content.strip())
         markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)
 
+        logger.debug("Markdown content generated: %s", markdown_content[:100])
+        return markdown_content
+
+    except Exception as e:
+        logger.error("Failed to convert HTML to Markdown: %s", e)
+        raise
+
+
+def convert_html_to_markdown(html_input: Union[str, Path], **options) -> str:
+    """
+    Convert HTML content to Markdown using MarkItDown and return the string.
+
+    Args:
+        html_input: Either a string containing HTML content or a Path to an HTML file.
+        **options: Additional options for MarkItDown conversion.
+
+    Returns:
+        Formatted Markdown content.
+    """
+    logger.info("Starting HTML to Markdown conversion with MarkItDown")
+    try:
+        md_converter = MarkItDown(enable_plugins=False, **options)
+
+        if isinstance(html_input, Path):
+            result = md_converter.convert(str(html_input))
+        else:
+            # Write HTML content to a temporary file for MarkItDown
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
+                temp_file.write(html_input)
+                temp_file_path = temp_file.name
+            try:
+                result = md_converter.convert(temp_file_path)
+            finally:
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+
+        markdown_content = result.text_content
         logger.debug("Markdown content generated: %s", markdown_content[:100])
         return markdown_content
 
@@ -108,7 +188,7 @@ def parse_markdown(md_input: Union[str, Path]) -> List[MarkdownToken]:
         logger.debug("Preprocessing markdown content")
         md_content = preprocess_markdown(md_content)
 
-        @timeout(3)
+        # @timeout(3)
         def parse_with_timeout(content: str) -> List[MarkdownToken]:
             parser = MarkdownParser(content)
             return parser.parse()
@@ -168,7 +248,7 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
             temp_file.write(md_content)
             temp_md_path = Path(temp_file.name)
 
-        @timeout(3)
+        # @timeout(3)
         def analyze_with_timeout(temp_file_path: str) -> tuple:
             analyzer = MarkdownAnalyzer(temp_file_path)
             raw_headers = analyzer.identify_headers()

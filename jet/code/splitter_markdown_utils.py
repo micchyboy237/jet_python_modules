@@ -201,49 +201,65 @@ def get_header_contents(md_text: str,
     return hierarchy
 
 
-def extract_markdown_links(text: str, base_url: Optional[str] = None) -> Tuple[List[HeaderLink], str]:
-    pattern = re.compile(r'\[([^\]]*)\]\((\S+?)(?:\s+"([^"]+)")?\)')
-    links: List[HeaderLink] = []
-    output = ""
-    last_end = 0
-    seen = set()
-    all_lines = text.splitlines()
+def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_links: bool = True) -> Tuple[List[HeaderLink], str]:
+    """
+    Extracts markdown links and plain URLs from text, optionally replacing them with their text content or cleaning URLs.
 
+    Args:
+        text: Input string containing markdown links or plain URLs.
+        base_url: Base URL to resolve relative links, if provided.
+        ignore_links: If True, removes links and replaces with text content; if False, extracts and cleans links.
+
+    Returns:
+        Tuple of a list of HeaderLink dictionaries and the modified text.
+    """
+    pattern = re.compile(r'\[([^\]]*)\]\((\S+?)(?:\s+"([^"]+)")?\)')
+    plain_url_pattern = re.compile(
+        r'(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]')
+    links: List[HeaderLink] = []
+    output = text
+    seen = set()
+
+    if ignore_links:
+        # Replace markdown links with their label
+        def replace_md_link(match):
+            label = match.group(1).strip()
+            return label if label else ""
+
+        output = pattern.sub(replace_md_link, output)
+        # Remove plain URLs
+        output = plain_url_pattern.sub("", output)
+        return [], output
+
+    # Extract markdown links
     for match in pattern.finditer(text):
         start, end = match.span()
         label, url, caption = match.group(1), match.group(2), match.group(3)
+        url = url.strip()  # Clean trailing spaces
 
-        # Convert relative URLs to absolute using base_url if provided
+        # Convert relative URLs to absolute
         if base_url and not url.startswith(('http://', 'https://')):
-            url = urljoin(base_url, url.strip())
+            url = urljoin(base_url, url)
 
-        # Skip empty labels or labels with only spaces
+        # Skip empty labels
         if not label.strip():
-            output += text[last_end:start]
-            last_end = end
             continue
 
-        # Append text before this match
-        output += text[last_end:start]
-
-        start_idx = len(output)
-        replacement_text = label
-        output += replacement_text
-        end_idx = len(output)
-
-        # Find the full line containing the link and its line index
+        # Find line and line index
         start_line_idx = text[:start].rfind('\n') + 1
         end_line_idx = text.find('\n', end)
         if end_line_idx == -1:
             end_line_idx = len(text)
         line = text[start_line_idx:end_line_idx].strip()
-        # Update line with absolute URL
-        line = re.sub(r'\[([^\]]*)\]\(\S+?(?:\s+"[^"]+")?\)',
-                      f'[{label}]({url}{" " + f'"{caption}"' if caption else ""})', line)
-        # Calculate line index (0-based)
         line_idx = len(text[:start].splitlines()) - 1
 
-        # Uniqueness key ignoring positions
+        # Update line with cleaned URL
+        line = re.sub(
+            r'\[([^\]]*)\]\(\S+?(?:\s+"[^"]+")?\)',
+            f'[{label}]({url}{" " + f'"{caption}"' if caption else ""})',
+            line
+        )
+
         key = (label, url, caption, line)
         if key not in seen:
             seen.add(key)
@@ -251,17 +267,37 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None) -> Tuple[L
                 "text": label,
                 "url": url,
                 "caption": caption,
-                "start_idx": start_idx,
-                "end_idx": end_idx,
+                "start_idx": start,
+                "end_idx": end,
                 "line": line,
                 "line_idx": line_idx,
                 "is_heading": line_idx == 0
             })
 
-        last_end = end
-
-    # Append remaining text after last match
-    output += text[last_end:]
+    # Extract plain URLs
+    for match in plain_url_pattern.finditer(text):
+        url = match.group(0).strip()
+        start, end = match.span()
+        if not any(url in link["url"] for link in links):  # Avoid duplicates
+            start_line_idx = text[:start].rfind('\n') + 1
+            end_line_idx = text.find('\n', end)
+            if end_line_idx == -1:
+                end_line_idx = len(text)
+            line = text[start_line_idx:end_line_idx].strip()
+            line_idx = len(text[:start].splitlines()) - 1
+            key = ("", url, None, line)
+            if key not in seen:
+                seen.add(key)
+                links.append({
+                    "text": "",
+                    "url": url,
+                    "caption": None,
+                    "start_idx": start,
+                    "end_idx": end,
+                    "line": line,
+                    "line_idx": line_idx,
+                    "is_heading": line_idx == 0
+                })
 
     return links, output
 
@@ -286,29 +322,39 @@ def get_md_header_contents(
     Returns:
         List[HeaderDocument]: A list of HeaderDocument instances with derived relationships.
     """
+    logger.debug(
+        # Debug
+        f"Processing markdown text (ignore_links={ignore_links}): {md_text[:100]}...")
     # Convert HTML to Markdown if input is HTML
     title = ""
     if is_html(md_text):
-        logger.debug("Converting HTML input to Markdown")
+        logger.debug("Converting HTML input to Markdown")  # Debug
         soup = BeautifulSoup(md_text, 'html.parser')
         title_tag = soup.find('title')
         title = title_tag.get_text().strip() if title_tag else ""
         md_text = convert_html_to_markdown(md_text)
 
-    # # Clean markdown
-    # md_text = clean_spaces(clean_newlines(
-    #     clean_text(md_text), max_newlines=2, strip_lines=True))
+    # Clean markdown
+    md_text = clean_spaces(clean_newlines(
+        clean_text(md_text), max_newlines=2, strip_lines=True))
+    logger.debug(f"Cleaned markdown text: {md_text[:100]}...")  # Debug
 
+    # Extract links if not ignored
+    all_links = []
     if ignore_links:
-        # Remove markdown links
-        all_links, md_text_no_links = extract_markdown_links(md_text, base_url)
-        md_text = md_text_no_links
+        _, md_text = extract_markdown_links(
+            md_text, base_url, ignore_links=True)
+        logger.debug(f"Text after removing links: {md_text[:100]}...")  # Debug
+    else:
+        all_links, md_text = extract_markdown_links(
+            md_text, base_url, ignore_links=False)
+        logger.debug(f"Extracted {len(all_links)} links")  # Debug
 
     # Analyze Markdown content
     analysis: MarkdownAnalysis = analyze_markdown(md_text)
     headers = analysis["headers"]["Header"]
-    links = analysis["links"]
     tokens = analysis["tokens_sequential"]
+    logger.debug(f"Analyzed headers: {headers}")  # Debug
 
     # Default headers to split on if none provided
     if not headers_to_split_on:
@@ -340,9 +386,10 @@ def get_md_header_contents(
                         custom_headers.append(
                             {"text": header_text, "level": level, "line": line_idx, "raw_line": raw_line})
                         logger.debug(
+                            # Debug
                             f"Custom header detected: {header_text}, level: {level}, line: {line_idx}, raw_line: {raw_line}")
         headers = custom_headers
-        logger.debug(f"Using custom headers: {headers}")
+        logger.debug(f"Using custom headers: {headers}")  # Debug
 
     # Handle content before first header, using HTML title as level 0 if present
     first_header_line = min((h["line"]
@@ -354,6 +401,8 @@ def get_md_header_contents(
         content = re.sub(r'\n{3,}', '\n\n', content) if content else ""
         content = clean_repeated_ngrams(content)
         if content or title:
+            texts = [title] + \
+                content.splitlines() if title else content.splitlines()
             result.append({
                 "text": title + ("\n" + content if content else "") if title else content,
                 "metadata": {
@@ -365,16 +414,17 @@ def get_md_header_contents(
                     "chunk_index": None,
                     "tokens": None,
                     "source_url": base_url,
-                    "links": [],
-                    "texts": content.splitlines() if content else [],
+                    "links": [link for link in all_links if link["line_idx"] < first_header_line],
+                    "texts": texts,
                     "id": str(uuid.uuid4())
                 }
             })
             logger.debug(
+                # Debug
                 f"Content before first header (title: {title}): {content}")
 
     # Build header sections
-    for header in headers:
+    for header_idx, header in enumerate(headers):
         level = header["level"]
         text = header["text"].strip()
         line_idx = header["line"]
@@ -384,6 +434,7 @@ def get_md_header_contents(
             continue
 
         logger.debug(
+            # Debug
             f"Processing header: {text}, level: {level}, line: {line_idx}, raw_line: {raw_line}")
 
         # Determine parent header
@@ -396,40 +447,27 @@ def get_md_header_contents(
         # Initialize header dictionary
         content_lines = []
         next_header_line = min(
-            (h["line"] for h in headers if h["line"] > line_idx), default=len(lines) + 1)
+            (h["line"] for h in headers[header_idx + 1:]), default=len(lines) + 1)
         for i in range(line_idx, next_header_line - 1):
-            if i < len(lines) and i >= line_idx:  # Start after header line
+            if i < len(lines):
                 content_lines.append(lines[i].strip())
 
         content = "\n".join(line for line in content_lines if line)
         content = re.sub(r'\n{3,}', '\n\n', content) if content else ""
+        content = clean_repeated_ngrams(content)
         full_text = raw_line + ("\n" + content if content else "")
 
-        # Extract links if not ignored
+        # Extract links for this section
         header_links = []
         if not ignore_links:
-            for link_type in ["Text link", "Image link"]:
-                for link in links.get(link_type, []):
-                    link_line = link.get("line", 0)
-                    if link_line >= line_idx and link_line < next_header_line:
-                        url = link["url"]
-                        if base_url and not url.startswith(("http://", "https://")):
-                            url = urljoin(base_url, url)
-                        link_line_text = lines[link_line - 1].strip(
-                        ) if link_line > 0 and link_line <= len(lines) else ""
-                        header_links.append({
-                            "text": link.get("text", link.get("alt_text", "")),
-                            "url": url,
-                            "caption": None,
-                            "start_idx": -1,
-                            "end_idx": -1,
-                            "line": link_line_text,
-                            "line_idx": link_line,
-                            "is_heading": link_line == line_idx
-                        })
-                        logger.debug(
-                            f"Added link: text={header_links[-1]['text']}, url={url}, line={link_line_text}, line_idx={link_line}, is_heading={header_links[-1]['is_heading']}")
+            for link in all_links:
+                if line_idx <= link["line_idx"] < next_header_line:
+                    header_links.append(link)
+                    logger.debug(
+                        # Debug
+                        f"Added link: text={link['text']}, url={link['url']}, line={link['line']}, line_idx={link['line_idx']}, is_heading={link['is_heading']}")
 
+        texts = [raw_line] + content.splitlines() if content else [raw_line]
         result.append({
             "text": full_text,
             "metadata": {
@@ -442,13 +480,13 @@ def get_md_header_contents(
                 "tokens": None,
                 "source_url": base_url,
                 "links": header_links,
-                "texts": full_text.splitlines(),
+                "texts": texts,
                 "id": str(uuid.uuid4())
             }
         })
         header_stack.append({"header": raw_line, "header_level": level})
 
-    logger.debug(f"Extracted {len(result)} header sections")
+    logger.debug(f"Extracted {len(result)} header sections")  # Debug
     return HeaderDocument.from_list(result)
 
 

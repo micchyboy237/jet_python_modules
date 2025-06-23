@@ -266,6 +266,7 @@ def clean_text(text: str) -> str:
 
     # text = ' '.join(lemmas).strip()
     text = clean_newlines(text)
+    text = clean_markdown_formatting(text)
     # text = clean_spaces(text, exclude_chars=["-", "\n"])
     text = clean_non_ascii(text)
     text = clean_other_characters(text)
@@ -299,6 +300,35 @@ def clean_newlines(content, max_newlines: int = 2, strip_lines: bool = False) ->
     return content
 
 
+def clean_markdown_formatting(content: str) -> str:
+    """
+    Remove markdown formatting (bold, italic, strikethrough, code, headers, blockquotes, lists, etc.)
+    while preserving the content text.
+
+    Args:
+        content (str): Input string with markdown formatting.
+
+    Returns:
+        str: String with markdown formatting removed.
+    """
+
+    # Remove bold (**text**, __text__)
+    content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)
+    content = re.sub(r'__(.*?)__', r'\1', content)
+
+    # Remove italic (*text*, _text_)
+    content = re.sub(r'\*(.*?)\*', r'\1', content)
+    content = re.sub(r'_(.*?)_', r'\1', content)
+
+    # Remove strikethrough (~~text~~)
+    content = re.sub(r'~~(.*?)~~', r'\1', content)
+
+    # Remove horizontal rules (---, ***, ___)
+    content = re.sub(r'^\s*[-*_]{3,}\s*$', '', content, flags=re.MULTILINE)
+
+    return content.strip()
+
+
 def clean_punctuations(content: str) -> str:
     """
     Replace consecutive and mixed punctuation marks (.?!), ensuring that each valid group
@@ -325,27 +355,66 @@ def clean_punctuations(content: str) -> str:
 
 
 def protect_links(text: str) -> Tuple[str, List[str]]:
-    # Find all markdown links and plain URLs
-    links = []
-    # Match markdown links: [text](url)
-    markdown_links = re.findall(
-        r'\[([^\]]*)\]\((\S+?)(?:\s+"([^"]+)")?\)', text)
-    links.extend(f'[{text}]({url}{" " + f'"{caption}"' if caption else ""})' for text,
-                 url, caption in markdown_links)
-    # Match plain URLs (http(s):// followed by non-whitespace characters)
-    plain_urls = re.findall(r'https?://[^\s]+', text)
-    links.extend(plain_urls)
+    """
+    Protect markdown links and plain URLs by replacing them with placeholders.
 
-    # Replace links with placeholders
-    for i, link in enumerate(links):
-        text = text.replace(link, f"__LINK_{i}__")
-    return text, links
+    Args:
+        text: Input string containing markdown links or plain URLs.
+
+    Returns:
+        Tuple containing the text with links replaced by placeholders and a list of the original links.
+    """
+    links = []
+    replacements = []
+
+    # Match markdown links: [text](url) or [text](url "caption")
+    markdown_pattern = r'\[([^\]]*)\]\((\S+?)(?:\s+"([^"]+)")?\)'
+    for match in re.finditer(markdown_pattern, text, re.MULTILINE):
+        full_link = match.group(0)
+        links.append(full_link)
+        replacements.append((match.start(), match.end(), full_link))
+
+    # Match plain URLs (http(s):// followed by non-whitespace characters, excluding markdown links)
+    plain_url_pattern = r'(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]'
+    for match in re.finditer(plain_url_pattern, text):
+        full_url = match.group(0)
+        if not any(full_url in link for link in links):
+            links.append(full_url)
+            replacements.append((match.start(), match.end(), full_url))
+
+    # Sort replacements by start position to preserve text order
+    replacements.sort(key=lambda x: x[0])
+
+    # Replace links with unique placeholders in a single pass
+    protected_text = text
+    offset = 0
+    for i, (start, end, link) in enumerate(replacements):
+        placeholder = f"__LINK_{i}_{uuid.uuid4().hex[:8]}__"
+        start += offset
+        end += offset
+        protected_text = protected_text[:start] + \
+            placeholder + protected_text[end:]
+        offset += len(placeholder) - (end - start)
+
+    return protected_text, links
 
 
 def restore_links(text: str, links: List[str]) -> str:
+    """
+    Restore protected links in the text by replacing placeholders with the original links.
+
+    Args:
+        text: Input string with placeholders.
+        links: List of original links to restore.
+
+    Returns:
+        String with placeholders replaced by the original links.
+    """
+    restored_text = text
     for i, link in enumerate(links):
-        text = text.replace(f"__LINK_{i}__", link)
-    return text
+        placeholder = f"__LINK_{i}_[0-9a-f]{{8}}__"  # Match unique placeholder
+        restored_text = re.sub(placeholder, link, restored_text)
+    return restored_text
 
 
 def clean_spaces(content: str) -> str:
