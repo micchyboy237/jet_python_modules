@@ -182,22 +182,28 @@ class TestMLXRAGClassifierClassify:
                 "id": "id3",
                 "doc_index": 2,
                 "rank": 1,
-                "score": 0.9131,
-                "text": "Cooking recipes are delicious."
+                "score": 0.913122296333313,
+                "text": "Cooking recipes are delicious.",
+                "label": "relevant",
+                "threshold": 0.7
             },
             {
                 "id": "id2",
                 "doc_index": 1,
                 "rank": 2,
-                "score": 0.8591,
-                "text": "Machine learning improves efficiency."
+                "score": 0.8591018319129944,
+                "text": "Machine learning improves efficiency.",
+                "label": "relevant",
+                "threshold": 0.7
             },
             {
                 "id": "id1",
                 "doc_index": 0,
                 "rank": 3,
-                "score": 0.5856,
-                "text": "AI is transforming industries."
+                "score": 0.5855764150619507,
+                "text": "AI is transforming industries.",
+                "label": "non-relevant",
+                "threshold": 0.7
             }
         ]
 
@@ -271,25 +277,31 @@ class TestMLXRAGClassifierClassify:
         query = "AI and machine learning"
         expected_results: List[ClassificationResult] = [
             {
-                "id": "",  # UUID will be generated, checked separately
+                "id": "94b0872b-c154-4667-a784-2f0e0b19abad",
                 "doc_index": 2,
                 "rank": 1,
-                "score": 0.9131,  # From previous logs
-                "text": "Cooking recipes are delicious."
+                "score": 0.913122296333313,
+                "text": "Cooking recipes are delicious.",
+                "label": "relevant",
+                "threshold": 0.7
             },
             {
-                "id": "",
+                "id": "99baf3e1-e258-4af6-b64b-3345f0f2182e",
                 "doc_index": 1,
                 "rank": 2,
-                "score": 0.8591,
-                "text": "Machine learning improves efficiency."
+                "score": 0.8591018319129944,
+                "text": "Machine learning improves efficiency.",
+                "label": "relevant",
+                "threshold": 0.7
             },
             {
-                "id": "",
+                "id": "ef0d381d-264f-4e07-9eb1-7f2b628fcc08",
                 "doc_index": 0,
                 "rank": 3,
-                "score": 0.5856,
-                "text": "AI is transforming industries."
+                "score": 0.5855764150619507,
+                "text": "AI is transforming industries.",
+                "label": "non-relevant",
+                "threshold": 0.7
             }
         ]
 

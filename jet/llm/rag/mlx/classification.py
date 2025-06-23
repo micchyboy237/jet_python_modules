@@ -21,6 +21,8 @@ class ClassificationResult(TypedDict):
     rank: int
     score: float
     text: str
+    label: Literal["relevant", "non-relevant"]
+    threshold: float
 
 
 class MLXRAGClassifier:
@@ -211,7 +213,7 @@ class MLXRAGClassifier:
             yield label, similarity_score, idx
         logger.info("Streaming classification completed successfully")
 
-    def classify(self, query: str, chunks: List[str], embeddings: np.ndarray, ids: Optional[List[str]] = None, verbose: bool = False) -> List[ClassificationResult]:
+    def classify(self, query: str, chunks: List[str], embeddings: np.ndarray, ids: Optional[List[str]] = None, verbose: bool = False, relevance_threshold: float = 0.7) -> List[ClassificationResult]:
         """
         Classify chunks based on query similarity, returning a sorted list of ClassificationResult.
 
@@ -221,12 +223,13 @@ class MLXRAGClassifier:
             embeddings: Precomputed embeddings for the chunks.
             ids: Optional list of IDs corresponding to chunks. If None, UUIDs are generated.
             verbose: If True, log detailed classification information.
+            relevance_threshold: Score threshold for labeling as "relevant" (default: 0.7).
 
         Returns:
             List of ClassificationResult dictionaries sorted by score in descending order.
         """
         logger.info(
-            f"Classifying query: {query}, {len(chunks)} chunks, verbose={verbose}")
+            f"Classifying query: {query}, {len(chunks)} chunks, verbose={verbose}, threshold={relevance_threshold}")
         if not chunks or embeddings.shape[0] != len(chunks):
             logger.error("Invalid chunks or embeddings, returning empty list")
             return []
@@ -255,17 +258,21 @@ class MLXRAGClassifier:
         similarities = np.dot(norm_embeddings, norm_query)
         results: List[ClassificationResult] = []
         for idx, (chunk, chunk_id, score) in enumerate(zip(chunks, ids, similarities)):
+            label: Literal["relevant",
+                           "non-relevant"] = "relevant" if score >= relevance_threshold else "non-relevant"
             result: ClassificationResult = {
                 "id": chunk_id,
                 "doc_index": idx,
                 "rank": 0,
                 "score": float(score),
-                "text": chunk
+                "text": chunk,
+                "label": label,
+                "threshold": relevance_threshold
             }
             results.append(result)
             if verbose:
                 logger.debug(
-                    f"Chunk {idx}: id={chunk_id}, score={score:.4f}, text='{chunk[:50]}...'")
+                    f"Chunk {idx}: id={chunk_id}, score={score:.4f}, label={label}, threshold={relevance_threshold}, text='{chunk[:50]}...'")
         sorted_results = sorted(
             results, key=lambda x: x["score"], reverse=True)
         for rank, result in enumerate(sorted_results, start=1):
