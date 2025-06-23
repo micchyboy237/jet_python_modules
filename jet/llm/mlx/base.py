@@ -1,6 +1,7 @@
-from typing import Dict, List, Literal, Optional, Union, Iterator
-from jet.logger import logger
+import mlx.core as mx
+from typing import Any, Dict, List, Literal, Optional, Union, Iterator, Tuple
 
+from jet.logger import logger
 from jet.llm.mlx.config import DEFAULT_MODEL
 from jet.models.model_types import MLXTokenizer, LLMModelKey, LLMModelType
 from jet.models.tokenizer.base import count_tokens, merge_texts
@@ -74,6 +75,29 @@ class MLX:
             )
         else:
             self.history = ChatHistory()
+
+    def __call__(self, *args, **kwargs) -> Union[mx.array, Tuple[mx.array, Any]]:
+        """
+        Call the underlying MLX model to generate logits.
+
+        Args:
+            *args: Positional arguments to pass to the model (e.g., input token arrays).
+            **kwargs: Keyword arguments to pass to the model (e.g., attention masks).
+
+        Returns:
+            Union[mx.array, Tuple[mx.array, Any]]: The logits or a tuple of logits and additional outputs
+            (e.g., hidden states) depending on the model's configuration.
+
+        Raises:
+            ValueError: If the model is not loaded or inputs are invalid.
+        """
+        if self.model is None:
+            logger.error("Model is not loaded")
+            raise ValueError("Model is not loaded")
+
+        logger.debug(
+            "Calling MLX model with args: %s, kwargs: %s", args, kwargs)
+        return self.model(*args, **kwargs)
 
     def get_models(self) -> ModelsResponse:
         return self.client.get_models()

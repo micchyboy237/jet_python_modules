@@ -6,7 +6,7 @@ from jet.logger import logger
 from pathlib import Path
 import mlx.core as mx
 import mlx.nn as nn
-from transformers import AutoConfig, PretrainedConfig
+from transformers import AutoTokenizer, PreTrainedTokenizerBase, AutoConfig, PretrainedConfig
 from tokenizers import Tokenizer
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.client import CompletionResponse, Message
@@ -38,7 +38,7 @@ class ModelFeatures(TypedDict):
 class MLXModelRegistry(TransformersModelRegistry):
     """Abstract base class for MLX-based model registries."""
     _models: Dict[str, nn.Module] = {}
-    _tokenizers: Dict[str, Tokenizer] = {}
+    _tokenizers: Dict[str, PreTrainedTokenizerBase] = {}
     _configs: Dict[str, PretrainedConfig] = {}
     _model_lock = Lock()  # Lock for thread-safe model caching
     _tokenizer_lock = Lock()  # Lock for thread-safe tokenizer caching
@@ -104,71 +104,40 @@ class MLXModelRegistry(TransformersModelRegistry):
             raise ValueError(
                 f"Could not load MLX model {resolved_model_id}: {str(e)}")
 
-    def _load_mlx_model(self, model: LLMModelType, device: Optional[Literal["cpu", "mps"]], *args, **kwargs) -> MLX:
-        """Load an MLX model with specified device, precision, and generation features."""
-        try:
-            model = MLX(model=model, device=device, *args, **kwargs)
-            logger.info(
-                f"Successfully loaded MLX model {model} on device {device}")
-            return model
-        except Exception as e:
-            logger.error(f"Failed to load MLX model {model}: {str(e)}")
-            raise ValueError(f"Could not load MLX model {model}: {str(e)}")
-
-    def get_tokenizer(self, model_id: str) -> Optional[Tokenizer]:
+    @staticmethod
+    def get_tokenizer(model_id: str) -> Optional[PreTrainedTokenizerBase]:
         """Load or retrieve a tokenizer for the MLX model."""
         resolved_model_id = resolve_model_value(model_id)
-        with self._tokenizer_lock:
-            if resolved_model_id in self._tokenizers:
+        with MLXModelRegistry._tokenizer_lock:
+            if resolved_model_id in MLXModelRegistry._tokenizers:
                 logger.info(
                     f"Reusing tokenizer for model_id: {resolved_model_id}")
-                return self._tokenizers[resolved_model_id]
+                return MLXModelRegistry._tokenizers[resolved_model_id]
 
         logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
         try:
             cache_dir = Path(get_local_repo_dir(resolved_model_id))
-            snapshot_dir = cache_dir / "snapshots"
-            tokenizer_files = list(snapshot_dir.glob("*/tokenizer.json"))
-            logger.debug(
-                f"Found {len(tokenizer_files)} tokenizer.json files in {snapshot_dir}")
-
-            for tokenizer_path in tokenizer_files:
-                try:
-                    resolved_path = tokenizer_path.resolve()
-                    logger.debug(
-                        f"Resolved {tokenizer_path} to {resolved_path}")
-                    if not resolved_path.is_file():
-                        logger.warning(
-                            f"Resolved path is not a file: {resolved_path}")
-                        continue
-                    tokenizer = Tokenizer.from_file(str(resolved_path))
-                    logger.info(
-                        f"Successfully loaded tokenizer from local cache: {resolved_path}")
-                    with self._tokenizer_lock:
-                        self._tokenizers[resolved_model_id] = tokenizer
-                    return tokenizer
-                except Exception as local_e:
-                    logger.error(
-                        f"Failed to load tokenizer from {resolved_path}: {str(local_e)}")
-                    continue
-
-            error_msg = f"Could not load tokenizer for {resolved_model_id} from local cache."
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+            tokenizer = AutoTokenizer.from_pretrained(resolved_model_id)
+            logger.info(
+                f"Successfully loaded tokenizer for {resolved_model_id} from local cache: {cache_dir}")
+            with MLXModelRegistry._tokenizer_lock:
+                MLXModelRegistry._tokenizers[resolved_model_id] = tokenizer
+            return tokenizer
         except Exception as e:
             logger.error(
-                f"Failed to load tokenizer {resolved_model_id}: {str(e)}")
+                f"Failed to load tokenizer for {resolved_model_id}: {str(e)}")
             raise ValueError(
-                f"Could not load tokenizer {resolved_model_id}: {str(e)}")
+                f"Could not load tokenizer for {resolved_model_id}: {str(e)}")
 
-    def get_config(self, model_id: str) -> Optional[PretrainedConfig]:
+    @staticmethod
+    def get_config(model_id: str) -> Optional[PretrainedConfig]:
         """Load or retrieve a config for the MLX model."""
         resolved_model_id = resolve_model_value(model_id)
-        with self._config_lock:
-            if resolved_model_id in self._configs:
+        with MLXModelRegistry._config_lock:
+            if resolved_model_id in MLXModelRegistry._configs:
                 logger.info(
                     f"Reusing config for model_id: {resolved_model_id}")
-                return self._configs[resolved_model_id]
+                return MLXModelRegistry._configs[resolved_model_id]
 
         logger.info(f"Loading config for model_id: {resolved_model_id}")
         try:
@@ -189,8 +158,8 @@ class MLXModelRegistry(TransformersModelRegistry):
                     config = AutoConfig.from_pretrained(str(resolved_path))
                     logger.info(
                         f"Successfully loaded config from local cache: {resolved_path}")
-                    with self._config_lock:
-                        self._configs[resolved_model_id] = config
+                    with MLXModelRegistry._config_lock:
+                        MLXModelRegistry._configs[resolved_model_id] = config
                     return config
                 except Exception as local_e:
                     logger.error(
@@ -215,3 +184,14 @@ class MLXModelRegistry(TransformersModelRegistry):
         with self._config_lock:
             self._configs.clear()
         logger.info("MLX registry cleared")
+
+    def _load_mlx_model(self, model: LLMModelType, device: Optional[Literal["cpu", "mps"]], *args, **kwargs) -> MLX:
+        """Load an MLX model with specified device, precision, and generation features."""
+        try:
+            model = MLX(model=model, device=device, *args, **kwargs)
+            logger.info(
+                f"Successfully loaded MLX model {model} on device {device}")
+            return model
+        except Exception as e:
+            logger.error(f"Failed to load MLX model {model}: {str(e)}")
+            raise ValueError(f"Could not load MLX model {model}: {str(e)}")

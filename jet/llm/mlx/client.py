@@ -5,7 +5,7 @@ import json
 import time
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat, find_repeated_consecutive_ngrams
 import jet.llm.mlx.model_cache  # Activates cleanup listener
-from typing import Dict, List, Optional, Union, Literal, TypedDict, Any, Iterator
+from typing import Dict, List, Optional, Tuple, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass
 from huggingface_hub import scan_cache_dir
 from jet.llm.mlx.config import DEFAULT_MODEL
@@ -128,6 +128,28 @@ class MLXLMClient:
 
         self.model = self.model_provider.model
         self.tokenizer: MLXTokenizer = self.model_provider.tokenizer
+
+    def __call__(self, *args, **kwargs) -> Union[mx.array, Tuple[mx.array, Any]]:
+        """
+        Call the underlying MLX model to generate logits.
+
+        Args:
+            *args: Positional arguments to pass to the model (e.g., input token arrays).
+            **kwargs: Keyword arguments to pass to the model (e.g., attention masks).
+
+        Returns:
+            Union[mx.array, Tuple[mx.array, Any]]: The logits or a tuple of logits and additional outputs
+            (e.g., hidden states) depending on the model's configuration.
+
+        Raises:
+            ValueError: If the model is not loaded or inputs are invalid.
+        """
+        if self.model is None:
+            logger.error("Model is not loaded")
+            raise ValueError("Model is not loaded")
+
+        logger.debug("Calling model with args: %s, kwargs: %s", args, kwargs)
+        return self.model(*args, **kwargs)
 
     def chat(
         self,

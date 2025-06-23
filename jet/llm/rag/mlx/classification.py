@@ -4,6 +4,7 @@ from collections import defaultdict
 import hashlib
 import uuid
 from jet.logger import logger
+from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
 from jet.models.model_types import ModelType
 from jet.models.utils import resolve_model_value
 import mlx.core as mx
@@ -13,6 +14,8 @@ import numpy as np
 
 _model_cache: Dict[str, Any] = {}
 _tokenizer_cache: Dict[str, Any] = {}
+
+seed = 45
 
 
 class ClassificationResult(TypedDict):
@@ -42,8 +45,8 @@ class MLXRAGClassifier:
                 logger.info(
                     f"Reused cached model and tokenizer for {model_name}")
             else:
-                self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-                self.model, _ = load(model_path)
+                self.model = MLXModelRegistry.load_model(model_path, seed=seed)
+                self.tokenizer = MLXModelRegistry.get_tokenizer(model_path)
                 _model_cache[model_name] = self.model
                 _tokenizer_cache[model_name] = self.tokenizer
                 logger.info(
@@ -279,3 +282,12 @@ class MLXRAGClassifier:
             result["rank"] = rank
         logger.info(f"Classification completed, {len(sorted_results)} results")
         return sorted_results
+
+    def clear_cache(self) -> None:
+        """Clear the embedding, query, model, and tokenizer caches."""
+        logger.info("Clearing embedding, query, model, and tokenizer caches")
+        self.embedding_cache.clear()
+        self.query_cache.clear()
+        _model_cache.clear()
+        _tokenizer_cache.clear()
+        logger.info("All caches cleared successfully")
