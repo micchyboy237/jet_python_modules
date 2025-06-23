@@ -204,7 +204,7 @@ def get_header_contents(md_text: str,
 def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_links: bool = True) -> Tuple[List[HeaderLink], str]:
     """
     Extracts markdown links and plain URLs from text, optionally replacing them with their text content or cleaning URLs.
-    Handles nested image links like [![alt](image_url)](link_url).
+    Handles nested image links like [![alt](image_url)](link_url) and reference-style links like [text][ref].
 
     Args:
         text: Input string containing markdown links or plain URLs.
@@ -216,7 +216,14 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
     """
     # Pattern for markdown links, including nested image links
     pattern = re.compile(
-        r'\[(?:!\[([^\]]*?)\]\(([^)]+?)(?:\s+"[^"]*")?\)|([^\]]*))\]\((\S+?)(?:\s+"([^"]*)")?\)',
+        r'\[(?:!\[([^\]]*?)\]\(([^)]+?)(?:\s+"[^"]*")?\)|([^\]]*))\]\((\S+?)(?:\s+"([^"]*)")?\)|'
+        # Capture reference-style links [text][ref]
+        r'\[([^\]]*)\]\[([^\]]*)\]',
+        re.MULTILINE
+    )
+    # Pattern for reference definitions [ref]: url
+    ref_pattern = re.compile(
+        r'^\[([^\]]*)\]:\s*(\S+)(?:\s+"([^"]*)")?$',
         re.MULTILINE
     )
     plain_url_pattern = re.compile(
@@ -227,15 +234,35 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
     output = text
     seen: Set[Tuple[str, str, Optional[str], str]] = set()
     replacements: List[Tuple[int, int, str]] = []
+    # Store reference URLs and captions
+    ref_urls: Dict[str, Tuple[str, Optional[str]]] = {}
+
+    # Extract reference definitions first
+    for match in ref_pattern.finditer(text):
+        ref_id = match.group(1).strip()
+        url = match.group(2).strip()
+        caption = match.group(3)
+        if ref_id and url:
+            ref_urls[ref_id.lower()] = (url, caption)
 
     # Extract markdown links
     for match in pattern.finditer(text):
         start, end = match.span()
-        image_alt, image_url, label, url, caption = match.groups()
-        label = image_alt if image_alt else label  # Use image alt as label if present
-        # Prioritize outer link URL if present, otherwise use image URL
-        selected_url = url.strip() if url and not image_url else (
-            image_url.strip() if image_url else "")
+        image_alt, image_url, label, url, caption, ref_text, ref_id = match.groups()
+        selected_url = ""
+        selected_caption = caption
+
+        if ref_text and ref_id:  # Handle reference-style link [text][ref]
+            label = ref_text
+            if ref_id.lower() in ref_urls:
+                selected_url, selected_caption = ref_urls[ref_id.lower()]
+            else:
+                continue  # Skip if reference not found
+        else:
+            label = image_alt if image_alt else label  # Use image alt as label if present
+            # Prioritize outer link URL if present, otherwise use image URL
+            selected_url = url.strip() if url and not image_url else (
+                image_url.strip() if image_url else "")
 
         if not selected_url:  # Skip if no valid URL
             continue
@@ -253,13 +280,13 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
         line_idx = len(text[:start].splitlines()) - 1
 
         # Create link entry
-        key = (label or "", selected_url, caption, line)
+        key = (label or "", selected_url, selected_caption, line)
         if key not in seen:
             seen.add(key)
             links.append({
                 "text": label or "",
                 "url": selected_url,
-                "caption": caption,
+                "caption": selected_caption,
                 "start_idx": start,
                 "end_idx": end,
                 "line": line,
@@ -273,7 +300,7 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
         else:
             replacements.append((start, end, match.group(0)))
 
-    # Extract plain URLs
+    # Extract plain URLs (unchanged)
     for match in plain_url_pattern.finditer(text):
         url = match.group(0).strip()
         start, end = match.span()
