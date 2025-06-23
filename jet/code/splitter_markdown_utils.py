@@ -251,7 +251,7 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
         if key not in seen:
             seen.add(key)
             links.append({
-                "text": label,
+                "text": label or "",  # Ensure text is a string
                 "url": selected_url,
                 "caption": caption,
                 "start_idx": start,
@@ -260,7 +260,7 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
                 "line_idx": line_idx,
                 "is_heading": line.startswith('#')
             })
-        if ignore_links and label.strip():
+        if ignore_links and label and label.strip():  # Check if label is not None
             replacements.append((start, end, label))
         elif ignore_links:
             replacements.append((start, end, ""))
