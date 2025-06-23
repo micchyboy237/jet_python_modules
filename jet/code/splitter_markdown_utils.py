@@ -370,6 +370,8 @@ def get_md_header_contents(
         content = "\n".join(content_lines)
         content = re.sub(r'\n{3,}', '\n\n', content) if content else ""
         content = clean_repeated_ngrams(content)
+        content = content.strip()
+        title = title.strip()
         if content or title:
             texts = [title] if title else content.splitlines()
             header_links = [
