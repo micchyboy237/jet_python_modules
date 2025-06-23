@@ -80,7 +80,8 @@ def process_documents(
                 header_doc = HeaderDocument(
                     id=doc_id,
                     text=text,
-                    metadata={"original_index": idx}
+                    metadata={"original_index": idx,
+                              "doc_index": idx}  # Assign doc_index
                 )
                 processed_docs.append(header_doc)
                 seen_texts.add(text)
@@ -109,6 +110,8 @@ def process_documents(
                     doc_id = f"doc_{uuid.uuid4()}"
                     header_doc.id = doc_id
                 header_doc.metadata["original_index"] = idx
+                header_doc.metadata["doc_index"] = doc_dict.get(
+                    "doc_index", idx)  # Preserve doc_index
                 processed_docs.append(header_doc)
                 seen_texts.add(header_doc.text)
                 seen_ids.add(doc_id)
@@ -134,6 +137,8 @@ def process_documents(
                 doc_id = f"doc_{uuid.uuid4()}"
                 doc.id = doc_id
             doc.metadata["original_index"] = idx
+            doc.metadata["doc_index"] = doc.metadata.get(
+                "doc_index", idx)  # Preserve doc_index
             processed_docs.append(doc)
             seen_texts.add(doc.text)
             seen_ids.add(doc_id)
@@ -153,13 +158,14 @@ def process_documents(
                     metadata.get("content", "")
                 ]).strip()
                 if not text:
-                    text = doc.text
+                    text = doc.metadata.get("content", "")
                 logger.debug(
-                    "Constructed text for document ID %s with metadata: %s", doc_id, text[:50])
+                    "Constructed text for document ID %s: %s", doc_id, text[:50])
         else:
             logger.warning(
                 "Document %s lacks metadata, using raw text: %s", doc_id, text[:50])
-        result.append({"text": text, "id": doc_id, "index": idx})
+        result.append({"text": text, "id": doc_id,
+                      "index": metadata.get("doc_index", idx)})
         logger.debug("Finalized document ID %s at index %d", doc_id, idx)
     logger.info("Processed %d unique documents", len(result))
     return result

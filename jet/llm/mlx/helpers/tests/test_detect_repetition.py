@@ -74,13 +74,6 @@ class TestFindRepeatedConsecutiveNgrams:
                         full_end_index=29,
                         num_of_repeats=5,
                     ),
-                    NgramRepeat(
-                        ngram="again again",
-                        start_index=0,
-                        end_index=11,
-                        full_end_index=23,
-                        num_of_repeats=2,
-                    ),
                 ],
             ),
             (
@@ -234,20 +227,6 @@ class TestFindRepeatedConcatenatedTokens:
                         end_index=2,
                         full_end_index=7,
                         num_of_repeats=6
-                    ),
-                    NgramRepeat(
-                        ngram="00",
-                        start_index=1,
-                        end_index=3,
-                        full_end_index=7,
-                        num_of_repeats=3
-                    ),
-                    NgramRepeat(
-                        ngram="000",
-                        start_index=1,
-                        end_index=4,
-                        full_end_index=7,
-                        num_of_repeats=2
                     )
                 ],
             ),

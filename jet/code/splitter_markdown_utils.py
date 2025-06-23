@@ -204,6 +204,7 @@ def get_header_contents(md_text: str,
 def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_links: bool = True) -> Tuple[List[HeaderLink], str]:
     """
     Extracts markdown links and plain URLs from text, optionally replacing them with their text content or cleaning URLs.
+    Handles nested image links like [![alt](image_url)](link_url).
 
     Args:
         text: Input string containing markdown links or plain URLs.
@@ -213,9 +214,13 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
     Returns:
         Tuple of a list of HeaderLink dictionaries and the modified text.
     """
-    pattern = re.compile(r'\[([^\]]*)\]\((\S+?)(?:\s+"([^"]+)")?\)')
+    # Pattern for markdown links, including nested image links
+    pattern = re.compile(
+        r'\[(?:!\[([^\]]*)\]\(([^)]+?)(?:\s+"[^"]*")?\)|([^\]]*))\]\((\S+?)(?:\s+"([^"]+)")?\)'
+    )
     plain_url_pattern = re.compile(
-        r'(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]')
+        r'(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]'
+    )
     links: List[HeaderLink] = []
     output = text
     seen = set()
@@ -224,12 +229,14 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
     # Extract markdown links
     for match in pattern.finditer(text):
         start, end = match.span()
-        label, url, caption = match.group(1), match.group(2), match.group(3)
-        url = url.strip()
+        image_alt, image_url, label, url, caption = match.groups()
+        label = image_alt if image_alt else label  # Use image alt as label if present
+        # Use image_url if present, otherwise fall back to outer url
+        selected_url = image_url.strip() if image_url else url.strip()
 
         # Convert relative URLs to absolute
-        if base_url and not url.startswith(('http://', 'https://')):
-            url = urljoin(base_url, url)
+        if base_url and not selected_url.startswith(('http://', 'https://')):
+            selected_url = urljoin(base_url, selected_url)
 
         # Find line and line index
         start_line_idx = text[:start].rfind('\n') + 1
@@ -240,12 +247,12 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
         line_idx = len(text[:start].splitlines()) - 1
 
         # Create link entry
-        key = (label, url, caption, line)
+        key = (label, selected_url, caption, line)
         if key not in seen:
             seen.add(key)
             links.append({
                 "text": label,
-                "url": url,
+                "url": selected_url,
                 "caption": caption,
                 "start_idx": start,
                 "end_idx": end,
@@ -257,6 +264,9 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
             replacements.append((start, end, label))
         elif ignore_links:
             replacements.append((start, end, ""))
+        else:
+            # Preserve original markdown when ignore_links is False
+            replacements.append((start, end, match.group(0)))
 
     # Extract plain URLs
     for match in plain_url_pattern.finditer(text):
@@ -284,6 +294,8 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
                 })
             if ignore_links:
                 replacements.append((start, end, ""))
+            else:
+                replacements.append((start, end, url))
 
     # Apply replacements in reverse order
     if replacements:

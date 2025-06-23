@@ -1,9 +1,9 @@
 import re
-
-from typing import List, Optional, TypedDict
+from typing import List, Optional, TypedDict, Tuple
 from transformers import PreTrainedTokenizer
-
 from jet.utils.text import remove_substring
+from tqdm import tqdm
+from collections import defaultdict
 
 
 class NgramRepeat(TypedDict):
@@ -50,34 +50,47 @@ def find_repeated_consecutive_ngrams(
     words_to_compare = [clean_word(w[0]) for w in words_with_pos]
     max_words = max_words or len(words_to_compare)
     results = []
-    for n in range(min_words, max_words + 1):
-        i = 0
-        while i <= len(words_to_compare) - n * min_repeat:
-            count = 1
-            while (
-                i + (count + 1) * n <= len(words_to_compare)
-                and words_to_compare[i: i + n] == words_to_compare[i + count * n: i + (count + 1) * n]
-            ):
-                count += 1
-            if count >= min_repeat:
-                start_char = words_with_pos[i][1]
-                end_char = words_with_pos[i + n - 1][2]
-                full_end_char = words_with_pos[i + count * n - 1][2]
-                ngram_text = text[start_char:end_char] if tokenizer else " ".join(
-                    w[0] for w in words_with_pos[i: i + n])
-                results.append(
-                    NgramRepeat(
-                        ngram=ngram_text,
-                        start_index=start_char,
-                        end_index=end_char,
-                        full_end_index=full_end_char,
-                        num_of_repeats=count,
+
+    for n in tqdm(range(min_words, min(min_words + 100, max_words + 1)), desc="Processing n-grams"):
+        ngram_positions = defaultdict(list)  # ngram -> list of start indices
+        for i in range(len(words_to_compare) - n + 1):
+            ngram = tuple(words_to_compare[i:i + n])
+            ngram_positions[ngram].append(i)
+
+        for ngram, indices in ngram_positions.items():
+            if len(indices) < min_repeat:
+                continue
+            i = 0
+            while i < len(indices) - 1:
+                count = 1
+                start_idx = indices[i]
+                while i < len(indices) - 1 and indices[i + 1] == indices[i] + n:
+                    count += 1
+                    i += 1
+                if count >= min_repeat:
+                    start_char = words_with_pos[start_idx][1]
+                    end_char = words_with_pos[start_idx + n - 1][2]
+                    full_end_char = words_with_pos[start_idx +
+                                                   count * n - 1][2]
+                    ngram_text = text[start_char:end_char] if tokenizer else " ".join(
+                        w[0] for w in words_with_pos[start_idx:start_idx + n]
                     )
-                )
-                i += count * n
-            else:
-                i += 1
-    return results
+                    results.append(
+                        NgramRepeat(
+                            ngram=ngram_text,
+                            start_index=start_char,
+                            end_index=end_char,
+                            full_end_index=full_end_char,
+                            num_of_repeats=count,
+                        )
+                    )
+                else:
+                    i += 1
+                # Skip to the next non-overlapping position
+                if i < len(indices) and indices[i] <= start_idx + count * n:
+                    i += 1
+
+    return sorted(results, key=lambda x: (x["start_index"], -x["num_of_repeats"], x["end_index"] - x["start_index"]))
 
 
 def clean_repeated_ngrams(
@@ -88,20 +101,6 @@ def clean_repeated_ngrams(
     case_sensitive: bool = False,
     tokenizer: Optional[PreTrainedTokenizer] = None,
 ) -> str:
-    """
-    Clean repeated consecutive n-grams from the text.
-
-    Args:
-        text: Input text to process.
-        min_words: Minimum number of words in an n-gram.
-        max_words: Maximum number of words in an n-gram (None for no limit).
-        min_repeat: Minimum number of consecutive repeats to consider.
-        case_sensitive: Whether to treat case differences as distinct.
-        tokenizer: Optional tokenizer for custom word splitting.
-
-    Returns:
-        Text with repeated n-grams removed, keeping the first occurrence.
-    """
     repeats = find_repeated_consecutive_ngrams(
         text,
         min_words=min_words,
@@ -112,25 +111,14 @@ def clean_repeated_ngrams(
     )
     if not repeats:
         return text
-
-    # Remove all repeats from end_index + 1 to full_end_index safely on text
-    # We'll process from the end to avoid messing up indices as we remove substrings.
     result = text
-    # Convert repeats to a list of (start, end) tuples to remove
-    # We want to remove from end_index (exclusive) to full_end_index (exclusive)
-    # i.e., result[end_index:full_end_index] should be removed
-    # But since end_index is inclusive in the repeat, we want to start at end_index, but not include the ngram itself
-    # So, remove from end_index to full_end_index
-
-    # To avoid index shifting, process from the end
     spans_to_remove = []
     for repeat in repeats:
         start = repeat["end_index"]
         end = repeat["full_end_index"]
         if start < end:
             spans_to_remove.append((start, end))
-
-    for start, end in spans_to_remove:
+    # Process from end to start
+    for start, end in sorted(spans_to_remove, reverse=True):
         result = remove_substring(result, start, end)
-
-    return result.strip()  # Strip to handle any trailing spaces
+    return result.strip()
