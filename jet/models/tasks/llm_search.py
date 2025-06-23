@@ -9,11 +9,10 @@ from jet.models.tasks.utils import last_token_pool, get_detailed_instruct, encod
 
 
 def search_docs(
+    model: Llama,
     queries: List[str],
     documents: List[str],
     task_description: str,
-    model: str = "static-retrieval-mrl-en-v1",
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
     max_length: int = 512,
     ids: List[str] = [],
     threshold: float = 0.0
