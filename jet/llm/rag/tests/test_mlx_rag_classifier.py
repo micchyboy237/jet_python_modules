@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from jet.llm.rag.mlx.classification import MLXRAGClassifier
+from jet.llm.rag.mlx.classification import MLXRAGClassifier, _model_cache, _tokenizer_cache
 from jet.logger import logger
 from typing import List
 from collections import defaultdict
@@ -9,6 +9,27 @@ import time
 
 class TestMLXRAGClassifier:
     """Tests for MLXRAGClassifier ensuring batch grouping and performance."""
+
+    def test_model_and_tokenizer_caching(self):
+        # Given: A model name and an empty cache
+        model_name = "qwen3-1.7b-4bit"
+        _model_cache.clear()
+        _tokenizer_cache.clear()
+
+        # When: Two classifiers are initialized with the same model name
+        classifier1 = MLXRAGClassifier(model_name=model_name)
+        classifier2 = MLXRAGClassifier(model_name=model_name)
+
+        # Then: The same model and tokenizer instances should be reused
+        expected_model = classifier1.model
+        expected_tokenizer = classifier1.tokenizer
+        result_model = classifier2.model
+        result_tokenizer = classifier2.tokenizer
+
+        assert result_model is expected_model, "Model instances should be identical (cached)"
+        assert result_tokenizer is expected_tokenizer, "Tokenizer instances should be identical (cached)"
+        assert model_name in _model_cache, "Model should be in cache"
+        assert model_name in _tokenizer_cache, "Tokenizer should be in cache"
 
     @pytest.fixture
     def classifier(self) -> MLXRAGClassifier:
