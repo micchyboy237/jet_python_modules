@@ -424,7 +424,7 @@ def clean_spaces(content: str) -> str:
     content = re.sub(r'\s*([.?!,;:\]\)}])', r'\1', content)
 
     # Ensure single space *after* punctuation if followed by alphanum
-    content = re.sub(r'([.?!,;:\]\)}])(\w)', r'\1 \2', content)
+    # content = re.sub(r'([.?!,;:\]\)}])(\w)', r'\1 \2', content)
 
     # Remove consecutive spaces
     content = re.sub(r' +', ' ', content).strip()
