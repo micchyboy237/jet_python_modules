@@ -139,12 +139,28 @@ def convert_html_to_markdown(html_input: Union[str, Path], **options) -> str:
     try:
         md_converter = MarkItDown(enable_plugins=False, **options)
 
+        # Pre-process HTML to add whitespace between consecutive spans
+        def add_space_between_spans(html: str) -> str:
+            return re.sub(r'</span><span', '</span> <span', html)
+
         if isinstance(html_input, Path):
-            result = md_converter.convert(str(html_input))
-        else:
-            # Write HTML content to a temporary file for MarkItDown
+            # Read HTML file content and pre-process
+            with open(html_input, 'r', encoding='utf-8') as file:
+                html_content = add_space_between_spans(file.read())
+            # Write pre-processed content to a temporary file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
-                temp_file.write(html_input)
+                temp_file.write(html_content)
+                temp_file_path = temp_file.name
+            try:
+                result = md_converter.convert(temp_file_path)
+            finally:
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+        else:
+            # Pre-process HTML string and write to temporary file
+            html_content = add_space_between_spans(html_input)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
+                temp_file.write(html_content)
                 temp_file_path = temp_file.name
             try:
                 result = md_converter.convert(temp_file_path)

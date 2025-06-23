@@ -154,7 +154,7 @@ def process_documents(
         if isinstance(metadata, dict) and "header_level" in metadata:
             if metadata.get("header_level") != 1:
                 text = "\n".join([
-                    f"{metadata["parent_header"] or ""}{" -> " if metadata["parent_header"] else ""}{metadata["header"]}",
+                    f"{metadata["parent_header"] or ""}{"\n" if metadata["parent_header"] else ""}{metadata["header"]}",
                     metadata.get("content", "")
                 ]).strip()
                 if not text:
@@ -379,10 +379,10 @@ def compute_header_similarities(
         if original_doc and isinstance(original_doc.metadata, dict):
             parent_header = original_doc.metadata.get("parent_header", "")
             header = original_doc.metadata.get("header", "")
-            header_text = f"{parent_header} -> {header}" if parent_header and header else header or parent_header
+            header_text = f"{parent_header}\n{header}" if parent_header and header else header or parent_header
         else:
             # Fallback to headers list
-            header_text = " -> ".join(h for h in headers if h) if headers else ""
+            header_text = "\n".join(h for h in headers if h) if headers else ""
         header_texts.append(header_text or "")
 
     if not any(header_texts):

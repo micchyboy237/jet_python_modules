@@ -6,7 +6,7 @@ import pickle
 import re
 import pandas as pd
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from jet.logger import logger
 from jet.transformers.formatters import format_html
 from jet.transformers.object import make_serializable
@@ -131,7 +131,7 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
 
 
 def save_file(
-    data: Union[str, list, Dict, BaseModel],
+    data: Union[str, List, Dict, BaseModel],
     output_file: Union[str, Path],
     verbose: bool = True,
     append: bool = False
@@ -141,7 +141,10 @@ def save_file(
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
     try:
-        if output_file.endswith((".json", ".jsonl")):
+        ext = Path(output_file).suffix.lower()
+
+        # JSON or JSONL
+        if ext in {".json", ".jsonl"}:
             if isinstance(data, str):
                 try:
                     data = json.loads(data)
@@ -152,15 +155,10 @@ def save_file(
             else:
                 data = make_serializable(data)
 
-            if output_file.endswith(".json"):
+            if ext == ".json":
                 with open(output_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
-            elif output_file.endswith(".html"):
-                # Format HTML before saving
-                formatted_html = format_html(data)
-                with open(output_file, "w", encoding="utf-8") as f:
-                    f.write(formatted_html)
-            else:
+            else:  # .jsonl
                 mode = "a" if append and os.path.exists(output_file) else "w"
                 with open(output_file, mode, encoding="utf-8") as f:
                     if isinstance(data, list):
@@ -170,15 +168,24 @@ def save_file(
                         f.write(json.dumps(data, ensure_ascii=False) + "\n")
 
             if verbose:
-                upper_cased_ext = "JSONL" if output_file.endswith(
-                    ".jsonl") else "JSON"
-                prefix = f"{'Appended' if append and os.path.exists(output_file) else 'Saved'} {upper_cased_ext} data"
-                if isinstance(data, list):
-                    prefix += f" {len(data)}"
-                prefix += " to:"
                 logger.newline()
-                logger.log(prefix, output_file, colors=[
-                           "SUCCESS", "BRIGHT_SUCCESS"])
+                upper_ext = ext.upper().lstrip('.')
+                count = f" {len(data)}" if isinstance(data, list) else ""
+                logger.log(f"{'Appended' if append else 'Saved'} {upper_ext} data{count} to:",
+                           output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+
+        # HTML
+        elif ext == ".html":
+            if not isinstance(data, str):
+                data = format_html(data)
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(data)
+            if verbose:
+                logger.newline()
+                logger.log("Saved HTML to:", output_file,
+                           colors=["SUCCESS", "BRIGHT_SUCCESS"])
+
+        # Other files
         else:
             if not isinstance(data, str):
                 data = str(data)
@@ -190,6 +197,7 @@ def save_file(
                            colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
         return output_file
+
     except Exception as e:
         if verbose:
             logger.newline()

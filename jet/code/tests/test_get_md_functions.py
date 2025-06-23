@@ -1,5 +1,5 @@
 import pytest
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 from jet.code.splitter_markdown_utils import Header, HeaderLink, get_md_header_contents, extract_markdown_links
 from llama_index.core.schema import NodeRelationship, RelatedNodeInfo
 from jet.vectors.document_types import HeaderDocument
@@ -1077,6 +1077,29 @@ class TestGetMdHeaderContents:
         assert result[0].id == expected[0].id
         assert result[0].metadata == expected[0].metadata
         assert result[0].relationships == expected[0].relationships
+
+    def test_header_with_image_link(self) -> None:
+        # Given: A markdown text with a header containing an image link
+        input_text = "###### ![Game Rant logo](https://screenrant.com/db/tv-show/the-beginning-after-the-end/)\n\nSample content"
+        expected: List[Dict] = [
+            {
+                "header": "###### Game Rant logo",
+                "content": "\nSample content",
+                "text": "###### Game Rant logo\n\nSample content"
+            }
+        ]
+
+        # When: The function is called with ignore_links=True
+        result_docs: List[HeaderDocument] = get_md_header_contents(
+            input_text, ignore_links=True)
+        result = [{
+            "header": doc["metadata"]["header"],
+            "content": doc["metadata"]["content"],
+            "text": doc["text"]
+        } for doc in result_docs]
+
+        # Then: The header is correctly cleaned, and content is preserved
+        assert result == expected
 
 
 class TestExtractMarkdownLinks:

@@ -173,6 +173,6 @@ def download_and_process_model(
 
 
 if __name__ == "__main__":
-    repo_id = "sentence-transformers/static-retrieval-mrl-en-v1"
+    repo_id = "mixedbread-ai/mxbai-embed-large-v1"
     cache_dir = "/Users/jethroestrada/.cache/huggingface/hub"
     download_and_process_model(repo_id, cache_dir)

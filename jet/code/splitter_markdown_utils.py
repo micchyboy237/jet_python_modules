@@ -216,23 +216,29 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
     """
     # Pattern for markdown links, including nested image links
     pattern = re.compile(
-        r'\[(?:!\[([^\]]*)\]\(([^)]+?)(?:\s+"[^"]*")?\)|([^\]]*))\]\((\S+?)(?:\s+"([^"]+)")?\)'
+        r'\[(?:!\[([^\]]*?)\]\(([^)]+?)(?:\s+"[^"]*")?\)|([^\]]*))\]\((\S+?)(?:\s+"([^"]*)")?\)',
+        re.MULTILINE
     )
     plain_url_pattern = re.compile(
-        r'(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]'
+        r'(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]',
+        re.MULTILINE
     )
     links: List[HeaderLink] = []
     output = text
-    seen = set()
-    replacements = []
+    seen: Set[Tuple[str, str, Optional[str], str]] = set()
+    replacements: List[Tuple[int, int, str]] = []
 
     # Extract markdown links
     for match in pattern.finditer(text):
         start, end = match.span()
         image_alt, image_url, label, url, caption = match.groups()
         label = image_alt if image_alt else label  # Use image alt as label if present
-        # Use image_url if present, otherwise fall back to outer url
-        selected_url = image_url.strip() if image_url else url.strip()
+        # Prioritize outer link URL if present, otherwise use image URL
+        selected_url = url.strip() if url and not image_url else (
+            image_url.strip() if image_url else "")
+
+        if not selected_url:  # Skip if no valid URL
+            continue
 
         # Convert relative URLs to absolute
         if base_url and not selected_url.startswith(('http://', 'https://')):
@@ -247,11 +253,11 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
         line_idx = len(text[:start].splitlines()) - 1
 
         # Create link entry
-        key = (label, selected_url, caption, line)
+        key = (label or "", selected_url, caption, line)
         if key not in seen:
             seen.add(key)
             links.append({
-                "text": label or "",  # Ensure text is a string
+                "text": label or "",
                 "url": selected_url,
                 "caption": caption,
                 "start_idx": start,
@@ -260,19 +266,18 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
                 "line_idx": line_idx,
                 "is_heading": line.startswith('#')
             })
-        if ignore_links and label and label.strip():  # Check if label is not None
+        if ignore_links and label and label.strip():
             replacements.append((start, end, label))
         elif ignore_links:
             replacements.append((start, end, ""))
         else:
-            # Preserve original markdown when ignore_links is False
             replacements.append((start, end, match.group(0)))
 
     # Extract plain URLs
     for match in plain_url_pattern.finditer(text):
         url = match.group(0).strip()
         start, end = match.span()
-        if not any(url in link["url"] for link in links):
+        if not any(url in link["url"] for link in links):  # Avoid duplicates
             start_line_idx = text[:start].rfind('\n') + 1
             end_line_idx = text.find('\n', end)
             if end_line_idx == -1:
@@ -341,10 +346,6 @@ def get_md_header_contents(
     all_links, md_text = extract_markdown_links(
         md_text, base_url, ignore_links)
 
-    # Analyze Markdown content
-    analysis: MarkdownAnalysis = analyze_markdown(md_text)
-    headers = analysis["headers"]["Header"]
-
     # Default headers to split on
     if not headers_to_split_on:
         headers_to_split_on = [(r"^(#+)\s*(.*)$", "header")]
@@ -353,25 +354,25 @@ def get_md_header_contents(
     header_stack: List[Dict[str, Any]] = []
     lines = md_text.splitlines()
 
-    # Process custom headers
-    custom_headers = []
+    # Process headers from modified markdown
+    headers = []
     for line_idx, line in enumerate(lines, 1):
         for pattern, _ in headers_to_split_on:
             match = re.match(pattern, line)
             if match:
                 if pattern == r"^(#+)\s*(.*)$":
                     level = len(match.group(1))
-                    header_text = match.group(2).strip()
-                    raw_line = line.strip()
+                    # Remove residual markdown characters
+                    header_text = re.sub(r'[!]+', '', match.group(2)).strip()
+                    raw_line = f"{'#' * level} {header_text}".strip()
                 else:
                     level = 1
-                    header_text = match.group(1).strip(
-                    ) if match.groups() else line.strip()
-                    raw_line = line.strip()
+                    header_text = re.sub(
+                        r'[!]+', '', match.group(1)).strip() if match.groups() else line.strip()
+                    raw_line = header_text.strip()
                 if header_text or raw_line:
-                    custom_headers.append(
+                    headers.append(
                         {"text": header_text, "level": level, "line": line_idx, "raw_line": raw_line})
-    headers = custom_headers or headers
 
     # Handle content before first header
     first_header_line = min((h["line"]
@@ -410,7 +411,7 @@ def get_md_header_contents(
         level = header["level"]
         text = header["text"].strip()
         line_idx = header["line"]
-        raw_line = header.get("raw_line", f"{'#' * level} {text}").strip()
+        raw_line = header["raw_line"].strip()
 
         if not raw_line:
             continue

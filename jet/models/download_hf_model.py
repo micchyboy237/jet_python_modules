@@ -5,7 +5,7 @@ import glob
 from jet.logger import logger
 
 
-repo_id = "sentence-transformers/static-retrieval-mrl-en-v1"
+repo_id = "mixedbread-ai/mxbai-embed-large-v1"
 cache_dir = "/Users/jethroestrada/.cache/huggingface/hub"
 
 
@@ -47,6 +47,8 @@ try:
         #     # "onnx/model_quantized.onnx"
         # ],
         ignore_patterns=[
+            "model.safetensors",
+            "pytorch_model.bin",
             "onnx/model.onnx",
             "onnx/model_bnb4.onnx",
             "onnx/model_fp16.onnx",
@@ -55,7 +57,10 @@ try:
             "onnx/model_q4f16.onnx",
             "onnx/model_quantized.onnx",
             "onnx/model_uint8.onnx",
-            "pytorch_model.bin",
+            "openvino/",
+            "openvino/openvino_model.bin",
+            "openvino/openvino_model.xml",
+            "openvino/openvino_model_qint8_quantized.xml",
         ],
         local_dir_use_symlinks=False,
         force_download=True
