@@ -52,7 +52,7 @@ def find_repeated_consecutive_ngrams(
     results = []
 
     for n in tqdm(range(min_words, min(min_words + 100, max_words + 1)), desc="Processing n-grams"):
-        ngram_positions = defaultdict(list)  # ngram -> list of start indices
+        ngram_positions = defaultdict(list)
         for i in range(len(words_to_compare) - n + 1):
             ngram = tuple(words_to_compare[i:i + n])
             ngram_positions[ngram].append(i)
@@ -64,6 +64,7 @@ def find_repeated_consecutive_ngrams(
             while i < len(indices) - 1:
                 count = 1
                 start_idx = indices[i]
+                # Check for consecutive repeats
                 while i < len(indices) - 1 and indices[i + 1] == indices[i] + n:
                     count += 1
                     i += 1
@@ -84,11 +85,14 @@ def find_repeated_consecutive_ngrams(
                             num_of_repeats=count,
                         )
                     )
+                # Move to the next non-overlapping index
+                if i < len(indices) - 1:
+                    next_i = i + 1
+                    while next_i < len(indices) and indices[next_i] < start_idx + count * n:
+                        next_i += 1
+                    i = next_i
                 else:
-                    i += 1
-                # Skip to the next non-overlapping position
-                if i < len(indices) and indices[i] <= start_idx + count * n:
-                    i += 1
+                    break  # Exit if no more indices to process
 
     return sorted(results, key=lambda x: (x["start_index"], -x["num_of_repeats"], x["end_index"] - x["start_index"]))
 
