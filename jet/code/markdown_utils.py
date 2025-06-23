@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional, Union, TypedDict
 
 from markdownify import MarkdownConverter
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken
+from jet.decorators.timer import timeout
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 
 from jet.logger import logger
@@ -107,6 +108,7 @@ def parse_markdown(md_input: Union[str, Path]) -> List[MarkdownToken]:
         logger.debug("Preprocessing markdown content")
         md_content = preprocess_markdown(md_content)
 
+        @timeout(3)
         def parse_with_timeout(content: str) -> List[MarkdownToken]:
             parser = MarkdownParser(content)
             return parser.parse()
@@ -166,6 +168,7 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
             temp_file.write(md_content)
             temp_md_path = Path(temp_file.name)
 
+        @timeout(3)
         def analyze_with_timeout(temp_file_path: str) -> tuple:
             analyzer = MarkdownAnalyzer(temp_file_path)
             raw_headers = analyzer.identify_headers()

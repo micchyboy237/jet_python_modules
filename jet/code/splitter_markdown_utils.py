@@ -12,7 +12,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
 from jet.scrapers.preprocessor import html_to_markdown, scrape_markdown
-from jet.scrapers.utils import clean_spaces
+from jet.scrapers.utils import clean_newlines, clean_text, clean_spaces
 from jet.vectors.document_types import HeaderDocument, HeaderDocumentDict, HeaderMetadata as HeaderMetadataDoc
 from .helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
 
@@ -294,6 +294,15 @@ def get_md_header_contents(
         title_tag = soup.find('title')
         title = title_tag.get_text().strip() if title_tag else ""
         md_text = convert_html_to_markdown(md_text)
+
+    # # Clean markdown
+    # md_text = clean_spaces(clean_newlines(
+    #     clean_text(md_text), max_newlines=2, strip_lines=True))
+
+    if ignore_links:
+        # Remove markdown links
+        all_links, md_text_no_links = extract_markdown_links(md_text, base_url)
+        md_text = md_text_no_links
 
     # Analyze Markdown content
     analysis: MarkdownAnalysis = analyze_markdown(md_text)
