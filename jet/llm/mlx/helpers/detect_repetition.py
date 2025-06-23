@@ -22,6 +22,10 @@ def find_repeated_consecutive_ngrams(
     case_sensitive: bool = False,
     tokenizer: Optional[PreTrainedTokenizer] = None,
 ) -> List[NgramRepeat]:
+    # Early termination for short texts
+    if len(text.strip()) < min_words * min_repeat * 2:
+        return []
+
     words_with_pos = []
     if tokenizer:
         tokens = tokenizer.tokenize(text)
@@ -48,11 +52,15 @@ def find_repeated_consecutive_ngrams(
         return w if case_sensitive else w.lower()
 
     words_to_compare = [clean_word(w[0]) for w in words_with_pos]
-    max_words = max_words or len(words_to_compare)
-    results = []
+    # Cap max_words at 10 unless specified
+    max_words = max_words or min(len(words_to_compare), 10)
+    if max_words < min_words:
+        return []
 
-    for n in tqdm(range(min_words, min(min_words + 100, max_words + 1)), desc="Processing n-grams"):
+    results = []
+    for n in tqdm(range(min_words, max_words + 1), desc="Processing n-grams"):
         ngram_positions = defaultdict(list)
+        # Use sliding window to collect n-grams
         for i in range(len(words_to_compare) - n + 1):
             ngram = tuple(words_to_compare[i:i + n])
             ngram_positions[ngram].append(i)
@@ -61,18 +69,23 @@ def find_repeated_consecutive_ngrams(
             if len(indices) < min_repeat:
                 continue
             i = 0
-            while i < len(indices) - 1:
+            while i < len(indices):
                 count = 1
                 start_idx = indices[i]
-                # Check for consecutive repeats
-                while i < len(indices) - 1 and indices[i + 1] == indices[i] + n:
+                j = i + 1
+                # Check for consecutive indices
+                while j < len(indices) and indices[j] == indices[j - 1] + n:
                     count += 1
-                    i += 1
+                    j += 1
                 if count >= min_repeat:
                     start_char = words_with_pos[start_idx][1]
                     end_char = words_with_pos[start_idx + n - 1][2]
-                    full_end_char = words_with_pos[start_idx +
-                                                   count * n - 1][2]
+                    try:
+                        full_end_char = words_with_pos[start_idx +
+                                                       count * n - 1][2]
+                    except IndexError:
+                        # Handle edge case where indices exceed list length
+                        break
                     ngram_text = text[start_char:end_char] if tokenizer else " ".join(
                         w[0] for w in words_with_pos[start_idx:start_idx + n]
                     )
@@ -85,14 +98,7 @@ def find_repeated_consecutive_ngrams(
                             num_of_repeats=count,
                         )
                     )
-                # Move to the next non-overlapping index
-                if i < len(indices) - 1:
-                    next_i = i + 1
-                    while next_i < len(indices) and indices[next_i] < start_idx + count * n:
-                        next_i += 1
-                    i = next_i
-                else:
-                    break  # Exit if no more indices to process
+                i = max(i + 1, j)  # Move to next unprocessed index
 
     return sorted(results, key=lambda x: (x["start_index"], -x["num_of_repeats"], x["end_index"] - x["start_index"]))
 

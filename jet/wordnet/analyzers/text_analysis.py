@@ -90,6 +90,11 @@ class ReadabilityResult(TypedDict):
     overall_difficulty: float
     overall_difficulty_category: OverallDifficultyCategoryType
     overall_difficulty_description: str
+    words_per_sentence: float
+    lexicon_count: int
+    sentence_count: int
+    text_without_punctuation: str
+    scores_average: float  # Added metric for average of readability scores
 
 
 def categorize_score(metric: str, value: float, thresholds) -> str:
@@ -501,6 +506,8 @@ def analyze_readability(text: str) -> ReadabilityResult:
             'smog_index': ts.smog_index(text),
             'automated_readability_index': ts.automated_readability_index(text)
         }
+        # Compute average of readability scores
+        scores_average = sum(scores.values()) / len(scores) if scores else 0.0
     except Exception as e:
         raise ValueError(f"Error computing readability measures: {e}")
 
@@ -535,4 +542,9 @@ def analyze_readability(text: str) -> ReadabilityResult:
         "overall_difficulty_description": get_readability_description(overall_difficulty_category),
         'categories': categories,
         'scores': scores,
+        "words_per_sentence": ts.words_per_sentence(text),
+        "lexicon_count": ts.lexicon_count(text, removepunct=True),
+        "sentence_count": ts.sentence_count(text),
+        "text_without_punctuation": ts.remove_punctuation(text),
+        "scores_average": scores_average
     }

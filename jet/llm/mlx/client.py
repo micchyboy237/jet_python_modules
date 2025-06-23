@@ -840,17 +840,17 @@ class MLXLMClient:
                     segment = segment[:segment.index(stop_text)]
                     break
 
-            if not finish_reason:
-                repetitions = find_repeated_consecutive_ngrams(
-                    text,
-                    min_repeat=3,
-                    tokenizer=self.tokenizer
-                )
-                if repetitions:
-                    logger.warning(
-                        f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
-                    finish_reason = "repeat"
-                    all_repetitions.extend(repetitions)
+            # if not finish_reason:
+            #     repetitions = find_repeated_consecutive_ngrams(
+            #         text,
+            #         min_repeat=3,
+            #         tokenizer=self.tokenizer
+            #     )
+            #     if repetitions:
+            #         logger.warning(
+            #             f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
+            #         finish_reason = "repeat"
+            #         all_repetitions.extend(repetitions)
 
             yield self._generate_response(
                 text=text,
@@ -983,17 +983,17 @@ class MLXLMClient:
                     segment = segment[:segment.index(stop_text)]
                     break
 
-            if not finish_reason:
-                repetitions = find_repeated_consecutive_ngrams(
-                    text,
-                    min_repeat=3,
-                    tokenizer=self.tokenizer
-                )
-                if repetitions:
-                    logger.warning(
-                        f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
-                    finish_reason = "repeat"
-                    all_repetitions.extend(repetitions)
+            # if not finish_reason:
+            #     repetitions = find_repeated_consecutive_ngrams(
+            #         text,
+            #         min_repeat=3,
+            #         tokenizer=self.tokenizer
+            #     )
+            #     if repetitions:
+            #         logger.warning(
+            #             f"\nStopping generation due to detected repetitions:\n{format_json(repetitions)}")
+            #         finish_reason = "repeat"
+            #         all_repetitions.extend(repetitions)
 
             if finish_reason:
                 break

@@ -813,6 +813,7 @@ class GroupedResult(TypedDict):
     source_urls: List[str]
     average_score: Optional[float]
     max_score: Optional[float]
+    scores: Optional[List[float]]
     documents: Union[List[HeaderDocument], List[HeaderDocumentWithScore]]
 
 
@@ -830,7 +831,7 @@ def group_similar_headers(
         model_name (EmbedModelType): Sentence transformer model to use for embedding.
 
     Returns:
-        List[GroupedResult]: List of grouped results, each containing headers, contents, doc_indexes, source_urls, average_score, max_score, and their original documents.
+        List[GroupedResult]: List of grouped results, each containing headers, contents, doc_indexes, source_urls, average_score, max_score, scores, and their original documents.
     """
     # Determine if docs is a list of HeaderDocumentWithScore
     is_with_score = (
@@ -942,6 +943,7 @@ def group_similar_headers(
                 "source_urls": group_source_urls,
                 "average_score": average_score,
                 "max_score": max_score,
+                "scores": group_scores if group_scores else None,
                 "documents": group_docs
             })
         logger.info("group_similar_headers: Mapped grouped texts to documents")
@@ -950,8 +952,7 @@ def group_similar_headers(
         raise
 
     grouped_results.sort(
-        key=lambda x: x["max_score"] if x["max_score"] is not None else float(
-            '-inf'),
+        key=lambda x: len(x["documents"]),
         reverse=True
     )
 
