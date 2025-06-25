@@ -14,6 +14,29 @@ from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 from jet.logger import logger
 
 
+def to_snake_case(s: str) -> str:
+    """Convert a string to lowercase and underscore-separated, replacing spaces and normalizing underscores."""
+    # Replace all whitespace with a single underscore
+    s = re.sub(r'\s+', '_', s.strip())
+    # Insert underscore before uppercase letters (except at start), then lowercase
+    s = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s)
+    # Convert to lowercase and normalize multiple underscores to one
+    s = re.sub(r'_+', '_', s.lower())
+    return s
+
+
+def convert_dict_keys_to_snake_case(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively convert dictionary keys to snake_case."""
+    if not isinstance(d, dict):
+        return d
+    return {
+        to_snake_case(k): [convert_dict_keys_to_snake_case(item) for item in v]
+        if isinstance(v, list) else convert_dict_keys_to_snake_case(v)
+        if isinstance(v, dict) else v
+        for k, v in d.items()
+    }
+
+
 def preprocess_markdown(md_content: str) -> str:
     """
     Preprocess markdown to normalize non-standard structures.
@@ -294,21 +317,36 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
         # @timeout(3)
         def analyze_with_timeout(temp_file_path: str) -> tuple:
             analyzer = MarkdownAnalyzer(temp_file_path)
-            raw_headers = analyzer.identify_headers()
-            raw_paragraphs = analyzer.identify_paragraphs()
-            raw_blockquotes = analyzer.identify_blockquotes()
-            raw_code_blocks = analyzer.identify_code_blocks()
-            raw_lists = analyzer.identify_lists()
-            raw_tables = analyzer.identify_tables()
-            raw_links = analyzer.identify_links()
-            raw_footnotes = analyzer.identify_footnotes()
-            raw_inline_code = analyzer.identify_inline_code()
-            raw_emphasis = analyzer.identify_emphasis()
-            raw_task_items = analyzer.identify_task_items()
-            raw_html_blocks = analyzer.identify_html_blocks()
-            raw_html_inline = analyzer.identify_html_inline()
-            raw_tokens_sequential = analyzer.get_tokens_sequential()
-            raw_summary = get_summary(md_content)
+            raw_headers = convert_dict_keys_to_snake_case(
+                analyzer.identify_headers())
+            raw_paragraphs = convert_dict_keys_to_snake_case(
+                analyzer.identify_paragraphs())
+            raw_blockquotes = convert_dict_keys_to_snake_case(
+                analyzer.identify_blockquotes())
+            raw_code_blocks = convert_dict_keys_to_snake_case(
+                analyzer.identify_code_blocks())
+            raw_lists = convert_dict_keys_to_snake_case(
+                analyzer.identify_lists())
+            raw_tables = convert_dict_keys_to_snake_case(
+                analyzer.identify_tables())
+            raw_links = convert_dict_keys_to_snake_case(
+                analyzer.identify_links())
+            raw_footnotes = convert_dict_keys_to_snake_case(
+                analyzer.identify_footnotes())
+            raw_inline_code = convert_dict_keys_to_snake_case(
+                analyzer.identify_inline_code())
+            raw_emphasis = convert_dict_keys_to_snake_case(
+                analyzer.identify_emphasis())
+            raw_task_items = convert_dict_keys_to_snake_case(
+                analyzer.identify_task_items())
+            raw_html_blocks = convert_dict_keys_to_snake_case(
+                analyzer.identify_html_blocks())
+            raw_html_inline = convert_dict_keys_to_snake_case(
+                analyzer.identify_html_inline())
+            raw_tokens_sequential = convert_dict_keys_to_snake_case(
+                analyzer.get_tokens_sequential())
+            raw_summary = convert_dict_keys_to_snake_case(
+                get_summary(md_content))
             return (
                 raw_summary, raw_headers, raw_paragraphs, raw_blockquotes, raw_code_blocks,
                 raw_lists, raw_tables, raw_links, raw_footnotes, raw_inline_code,
@@ -327,33 +365,33 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
         analysis_results: MarkdownAnalysis = {
             "summary": raw_summary,
             "headers": {
-                "Header": [
+                "header": [
                     {**header, "text": clean_markdown_text(header["text"])}
-                    for header in raw_headers.get("Header", [])
+                    for header in raw_headers.get("header", [])
                 ]
             },
             "paragraphs": {
-                "Paragraph": [clean_markdown_text(p) for p in raw_paragraphs.get("Paragraph", [])]
+                "paragraph": [clean_markdown_text(p) for p in raw_paragraphs.get("paragraph", [])]
             },
             "blockquotes": {
-                "Blockquote": [clean_markdown_text(b) for b in raw_blockquotes.get("Blockquote", [])]
+                "blockquote": [clean_markdown_text(b) for b in raw_blockquotes.get("blockquote", [])]
             },
             "code_blocks": {
-                "Code block": [
+                "code_block": [
                     {**cb, "content": clean_markdown_text(cb["content"])}
-                    for cb in raw_code_blocks.get("Code block", [])
+                    for cb in raw_code_blocks.get("code_block", [])
                 ]
             },
             "lists": {
-                k: [
+                key: [
                     [{**item, "text": clean_markdown_text(item["text"])}
                      for item in sublist]
                     for sublist in v
                 ]
-                for k, v in raw_lists.items()
+                for key, v in raw_lists.items()
             },
             "tables": {
-                "Table": [
+                "table": [
                     {
                         "header": [clean_markdown_text(h) for h in table["header"]],
                         "rows": [
@@ -361,19 +399,21 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
                             for row in table["rows"]
                         ]
                     }
-                    for table in raw_tables.get("Table", [])
+                    for table in raw_tables.get("table", [])
                 ]
             },
             "links": {
-                k: [
+                key: [
                     {
                         **link,
-                        "text": clean_markdown_text(link.get("text")),
-                        "alt_text": clean_markdown_text(link.get("alt_text"))
+                        "text": clean_markdown_text(link.get("text")) if link.get("text") is not None else None,
+                        "alt_text": clean_markdown_text(link.get("alt_text")) if link.get("alt_text") is not None else None,
+                        "line": link["line"],
+                        "url": link["url"]
                     }
                     for link in v
                 ]
-                for k, v in raw_links.items()
+                for key, v in raw_links.items()
             },
             "footnotes": [
                 {**fn, "content": clean_markdown_text(fn["content"])}
@@ -385,7 +425,7 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
             ],
             "emphasis": [
                 {
-                    "Emphasis": em,
+                    "emphasis": {**em, "text": clean_markdown_text(em["text"])},
                     "text": clean_markdown_text(em["text"])
                 }
                 for em in raw_emphasis

@@ -1,3 +1,4 @@
+from typing import List, Optional, TypedDict, Literal
 from typing import TypedDict, List, Optional, Literal, Union
 from pathlib import Path
 
@@ -7,7 +8,8 @@ from pathlib import Path
 class ListItem(TypedDict, total=False):
     text: str
     task_item: bool
-    checked: bool
+    # checked is optional as not all list items have it
+    checked: Optional[bool]
 
 
 class CodeMeta(TypedDict, total=False):
@@ -20,92 +22,33 @@ class TableMeta(TypedDict):
     rows: List[List[str]]
 
 
-MetaType = Union[ListItem, CodeMeta, TableMeta, dict]
+class ListMeta(TypedDict):
+    items: List[ListItem]
+
+
+MetaType = Union[ListMeta, CodeMeta, TableMeta, dict]
 
 
 class MarkdownToken(TypedDict):
     type: Literal[
         "header",
-        "hr",
-        "code",
-        "html_block",
-        "table",
-        "frontmatter",
+        "paragraph",
         "blockquote",
-        "ordered_list",
+        "code",
+        "table",
         "unordered_list",
-        "paragraph"
+        "ordered_list",
+        "html_block"
     ]
-    content: Optional[str]
+    content: str  # content is always present in the JSON, can be empty string
     level: Optional[int]
-    meta: Optional[MetaType]
+    meta: MetaType
     line: int
 
 # Typed dicts for analyze_markdown components
 
 
-class HeaderItem(TypedDict):
-    line: int
-    level: int
-    text: str
-
-
-class CodeBlockItem(TypedDict):
-    start_line: int
-    content: str
-    language: Optional[str]
-
-
-class TableItem(TypedDict):
-    header: List[str]
-    rows: List[List[str]]
-
-
-class TextLinkItem(TypedDict):
-    line: int
-    text: str
-    url: str
-
-
-class ImageLinkItem(TypedDict):
-    line: int
-    alt_text: str
-    url: str
-
-
-class FootnoteItem(TypedDict):
-    line: int
-    id: str
-    content: str
-
-
-class InlineCodeItem(TypedDict):
-    line: int
-    code: str
-
-
-class EmphasisItem(TypedDict):
-    line: int
-    text: str
-
-
-class TaskItem(TypedDict):
-    line: int
-    text: str
-    checked: bool
-
-
-class HtmlBlockItem(TypedDict):
-    line: int
-    content: str
-
-
-class HtmlInlineItem(TypedDict):
-    line: int
-    html: str
-
-
-class Summary(TypedDict):
+class SummaryDict(TypedDict):
     headers: int
     paragraphs: int
     blockquotes: int
@@ -119,23 +62,139 @@ class Summary(TypedDict):
     characters: int
 
 
+class HeaderItemDict(TypedDict):
+    line: int
+    level: Literal[1, 2, 3, 4, 5, 6]
+    text: str
+
+
+class HeadersDict(TypedDict):
+    header: List[HeaderItemDict]
+
+
+class ParagraphsDict(TypedDict):
+    paragraph: List[str]
+
+
+class BlockquotesDict(TypedDict):
+    blockquote: List[str]
+
+
+class CodeBlockItemDict(TypedDict):
+    start_line: int
+    content: str
+    language: str
+
+
+class CodeBlocksDict(TypedDict):
+    code_block: List[CodeBlockItemDict]
+
+
+class ListItemDict(TypedDict):
+    text: str
+    task_item: bool
+    checked: Optional[bool]
+
+
+class ListsDict(TypedDict):
+    unordered_list: List[List[ListItemDict]]
+    ordered_list: List[List[ListItemDict]]
+
+
+class TableItemDict(TypedDict):
+    header: List[str]
+    rows: List[List[str]]
+
+
+class TablesDict(TypedDict):
+    table: List[TableItemDict]
+
+
+class LinkItemDict(TypedDict):
+    line: int
+    text: Optional[str]
+    url: str
+    alt_text: Optional[str]
+
+
+class LinksDict(TypedDict):
+    text_link: List[LinkItemDict]
+    image_link: List[LinkItemDict]
+
+
+class FootnoteItemDict(TypedDict):
+    line: int
+    id: str
+    content: str
+
+
+class InlineCodeItemDict(TypedDict):
+    line: int
+    code: str
+
+
+class EmphasisInnerDict(TypedDict):
+    line: int
+    text: str
+
+
+class EmphasisItemDict(TypedDict):
+    emphasis: EmphasisInnerDict
+    text: str
+
+
+class TaskItemDict(TypedDict):
+    line: int
+    text: str
+    checked: bool
+
+
+class HtmlBlockItemDict(TypedDict):
+    line: int
+    content: str
+
+
+class HtmlInlineItemDict(TypedDict):
+    line: int
+    html: str
+
+
+class TokenSequentialItemDict(TypedDict):
+    id: int
+    type: Literal[
+        "header1", "header2", "header3", "header4", "header5", "header6",
+        "paragraph", "inline_code", "link", "blockquote", "unordered_list",
+        "task_item", "list_item", "code", "table", "italic", "html_block",
+        "ordered_list"
+    ]
+    content: str
+    url: Optional[str]
+    checked: Optional[bool]
+
+
+class WordCountDict(TypedDict):
+    word_count: int
+
+
+class CharCountDict(TypedDict):
+    char: int
+
+
 class MarkdownAnalysis(TypedDict):
-    headers: dict[Literal["Header"], List[HeaderItem]]
-    paragraphs: dict[Literal["Paragraph"], List[str]]
-    blockquotes: dict[Literal["Blockquote"], List[str]]
-    code_blocks: dict[Literal["Code block"], List[CodeBlockItem]]
-    lists: dict[Literal["Ordered list",
-                        "Unordered list"], List[List[ListItem]]]
-    tables: dict[Literal["Table"], List[TableItem]]
-    links: dict[Literal["Text link", "Image link"],
-                List[Union[TextLinkItem, ImageLinkItem]]]
-    footnotes: List[FootnoteItem]
-    inline_code: List[InlineCodeItem]
-    emphasis: List[EmphasisItem]
-    task_items: List[TaskItem]
-    html_blocks: List[HtmlBlockItem]
-    html_inline: List[HtmlInlineItem]
-    tokens_sequential: List[MarkdownToken]
-    word_count: dict[Literal["word_count"], int]
-    char_count: List[int]
-    summary: Summary
+    summary: SummaryDict
+    headers: HeadersDict
+    paragraphs: ParagraphsDict
+    blockquotes: BlockquotesDict
+    code_blocks: CodeBlocksDict
+    lists: ListsDict
+    tables: TablesDict
+    links: LinksDict
+    footnotes: List[FootnoteItemDict]
+    inline_code: List[InlineCodeItemDict]
+    emphasis: List[EmphasisItemDict]
+    task_items: List[TaskItemDict]
+    html_blocks: List[HtmlBlockItemDict]
+    html_inline: List[HtmlInlineItemDict]
+    tokens_sequential: List[TokenSequentialItemDict]
+    word_count: WordCountDict
+    char_count: CharCountDict
