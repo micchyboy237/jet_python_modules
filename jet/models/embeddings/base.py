@@ -7,6 +7,7 @@ import psutil
 import math
 from tqdm import tqdm
 import torch
+from jet.data.utils import generate_key
 from jet.models.utils import resolve_model_value
 from jet.models.model_types import EmbedModelType
 from jet.logger import logger
@@ -25,19 +26,22 @@ _embed_model_cache: dict[str, SentenceTransformer] = {}
 _rerank_model_cache: dict[str, CrossEncoder] = {}
 
 
-def load_embed_model(model: EmbedModelType) -> SentenceTransformer:
+def load_embed_model(model: EmbedModelType, truncate_dim: Optional[int] = None) -> SentenceTransformer:
+    _cache_key = generate_key(model, truncate_dim)
     model_id = resolve_model_value(model)
-    if model_id in _embed_model_cache:
-        logger.info(f"Reusing cached embedding model: {model_id}")
-        return _embed_model_cache[model_id]
+    if _cache_key in _embed_model_cache:
+        logger.info(
+            f"Reusing cached embedding model: {model_id} (cache key: {_cache_key})")
+        return _embed_model_cache[_cache_key]
     try:
         logger.info(f"Loading embedding model on CPU (onnx): {model_id}")
-        model = SentenceTransformer(model_id, device="cpu", backend="onnx")
+        model_instance = SentenceTransformer(
+            model_id, device="cpu", backend="onnx", truncate_dim=truncate_dim)
     except Exception as e:
         logger.warning(f"Falling back to MPS for embed model due to: {e}")
-        model = SentenceTransformer(model_id, device="mps")
-    _embed_model_cache[model_id] = model
-    return model
+        model_instance = SentenceTransformer(model_id, device="mps")
+    _embed_model_cache[_cache_key] = model_instance
+    return model_instance
 
 
 def load_rerank_model(model: EmbedModelType) -> CrossEncoder:

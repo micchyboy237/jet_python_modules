@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
+from jet.models.config import MODELS_CACHE_DIR
+
 # Configure logging
 logging.basicConfig(
     level=logging.DEBUG,
@@ -26,9 +28,9 @@ def run_shell_command(command: List[str], description: str) -> Optional[str]:
         raise
 
 
-def download_and_process_model(
+def download_onnx_model(
     repo_id: str,
-    cache_dir: str,
+    cache_dir: str = MODELS_CACHE_DIR,
     model_file: str = "onnx/model_qint8_arm64.onnx",
     target_file: str = "onnx/model.onnx",
 ) -> None:
@@ -73,7 +75,7 @@ def download_and_process_model(
         # Define priority order for model files
         model_file_candidates = [
             "onnx/model_qint8_arm64.onnx",
-            "onnx/model_quantized.onnx",
+            "onnxai_file_quantized.onnx",
             "onnx/model.onnx"
         ]
         selected_model_file = None
@@ -84,10 +86,9 @@ def download_and_process_model(
 
         if selected_model_file is None:
             logger.error(
-                f"No suitable model file found in repository {repo_id} snapshot {snapshot_hash}")
+                f"No suitable model file found in repository {repo_id} for snapshot {snapshot_hash}")
             raise FileNotFoundError(
-                f"No suitable model file found in repository {repo_id} snapshot {snapshot_hash}. "
-                f"Expected one of {model_file_candidates}, but available files: {repo_files}"
+                f"No suitable model file found in repository {repo_id} snapshot {snapshot_hash}.\nExpected one of {model_file_candidates}, but available files: {repo_files}"
             )
         logger.info(f"Selected model file: {selected_model_file}")
     except Exception as e:
@@ -99,7 +100,11 @@ def download_and_process_model(
 
     # Download only the selected model file
     logger.info(
-        f"Downloading file {selected_model_file} from repo id: {repo_id}...")
+        "Downloading file %s from repo id: %s...",
+        source_path,
+        selected_model_file
+    )
+
     try:
         snapshot_download(
             repo_id=repo_id,
@@ -154,10 +159,29 @@ def download_and_process_model(
             f"Removing {source_path}",
         )
 
+        # Remove all symlinks in onnx folder except model.onnx and their referenced files
+        onnx_dir = snapshot_path / "onnx"
+        if onnx_dir.exists():
+            for item in onnx_dir.iterdir():
+                if item.name != "model.onnx" and item.is_symlink():
+                    try:
+                        # Get the real path of the symlink
+                        real_path = item.resolve()
+                        logger.info(
+                            f"Removing symlink {item} pointing to {real_path}")
+                        item.unlink()  # Remove the symlink
+                        if real_path.exists():
+                            logger.info(
+                                f"Removing referenced file {real_path}")
+                            real_path.unlink()  # Remove the referenced file
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to remove symlink {item} or its target: {e}")
+
         # ls -l <onnx_dir>
         run_shell_command(
-            ["ls", "-l", str(snapshot_path / "onnx")],
-            f"Listing directory {snapshot_path / 'onnx'}",
+            ["ls", "-l", str(onnx_dir)],
+            f"Listing directory {onnx_dir}",
         )
 
         # du -sh <target_path>
@@ -173,6 +197,6 @@ def download_and_process_model(
 
 
 if __name__ == "__main__":
-    repo_id = "mixedbread-ai/mxbai-embed-large-v1"
-    cache_dir = "/Users/jethroestrada/.cache/huggingface/hub"
-    download_and_process_model(repo_id, cache_dir)
+    repo_id = "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
+    cache_dir = MODELS_CACHE_DIR
+    download_onnx_model(repo_id, cache_dir)

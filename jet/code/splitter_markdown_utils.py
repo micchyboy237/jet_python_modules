@@ -417,7 +417,14 @@ def get_md_header_contents(
         content = content.strip()
         title = title.strip()
         if content or title:
-            texts = [title] if title else content.splitlines()
+            # Ensure unique, non-empty stripped texts
+            texts_set = set()
+            texts = []
+            for line in ([title] if title else []) + content.splitlines():
+                stripped_line = line.strip()
+                if stripped_line and stripped_line not in texts_set:
+                    texts_set.add(stripped_line)
+                    texts.append(stripped_line)
             header_links = [
                 link for link in all_links if link["line_idx"] < first_header_line - 1]
             result.append({
@@ -470,7 +477,15 @@ def get_md_header_contents(
         header_links = [link for link in all_links if line_idx -
                         1 <= link["line_idx"] < next_header_line - 1]
 
-        texts = [raw_line] + content.splitlines() if content else [raw_line]
+        # Ensure unique, non-empty stripped texts
+        texts_set = set()
+        texts = []
+        for line in [raw_line] + (content.splitlines() if content else []):
+            stripped_line = line.strip()
+            if stripped_line and stripped_line not in texts_set:
+                texts_set.add(stripped_line)
+                texts.append(stripped_line)
+
         result.append({
             "text": full_text,
             "metadata": {

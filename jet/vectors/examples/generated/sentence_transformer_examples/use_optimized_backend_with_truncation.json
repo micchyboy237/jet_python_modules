@@ -1,0 +1,24 @@
+[
+  {
+    "id": "doc_0",
+    "rank": 1,
+    "doc_index": 0,
+    "score": 1.0,
+    "text": "Fast inference test.",
+    "tokens": 6,
+    "matched": {
+      "fast": 1,
+      "inference": 1,
+      "test.": 1
+    }
+  },
+  {
+    "id": "doc_1",
+    "rank": 2,
+    "doc_index": 1,
+    "score": 0.27313876152038574,
+    "text": "Optimized model performance.",
+    "tokens": 8,
+    "matched": {}
+  }
+]

@@ -1,0 +1,35 @@
+[
+  {
+    "id": "doc_0",
+    "rank": 1,
+    "doc_index": 0,
+    "score": 0.8541126251220703,
+    "text": "Python is a programming language.",
+    "tokens": 8,
+    "matched": {
+      "is": 1
+    }
+  },
+  {
+    "id": "doc_1",
+    "rank": 3,
+    "doc_index": 1,
+    "score": 0.42806684970855713,
+    "text": "Java is used for enterprise applications.",
+    "tokens": 9,
+    "matched": {
+      "is": 2
+    }
+  },
+  {
+    "id": "doc_2",
+    "rank": 2,
+    "doc_index": 2,
+    "score": 0.7044652700424194,
+    "text": "Python is great for data science.",
+    "tokens": 9,
+    "matched": {
+      "is": 1
+    }
+  }
+]

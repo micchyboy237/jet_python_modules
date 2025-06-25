@@ -1,0 +1,24 @@
+[
+  {
+    "id": "doc_0",
+    "rank": 1,
+    "doc_index": 0,
+    "score": 0.9999997615814209,
+    "text": "Confidential data analysis.",
+    "tokens": 6,
+    "matched": {
+      "confidential": 1,
+      "data": 1,
+      "analysis.": 1
+    }
+  },
+  {
+    "id": "doc_1",
+    "rank": 2,
+    "doc_index": 1,
+    "score": 0.06802870333194733,
+    "text": "Secure text processing.",
+    "tokens": 6,
+    "matched": {}
+  }
+]

@@ -10,6 +10,26 @@ from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional, TypedDict, Union, cast, ItemsView
 
 
+class DotDict(dict):
+    """A dictionary subclass that supports dot notation access."""
+
+    def __getattr__(self, key: str) -> Any:
+        if key in self:
+            return self[key]
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{key}'")
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        self[key] = value
+
+    def __delattr__(self, key: str) -> None:
+        if key in self:
+            del self[key]
+        else:
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{key}'")
+
+
 class HeaderMetadata(TypedDict, total=False):
     id: str
     doc_index: int
@@ -92,8 +112,7 @@ class HeaderDocumentDict(TypedDict, total=False):
 
 
 class HeaderDocument(Document):
-    id: Optional[str] = Field(
-        None, description="Unique identifier for the document")
+    id: str = Field(..., description="Unique identifier for the document")
 
     @staticmethod
     def from_list(documents: Union[List['HeaderDocument'], List[HeaderDocumentDict]]) -> List['HeaderDocument']:
@@ -112,11 +131,16 @@ class HeaderDocument(Document):
         level_stack: List[tuple[int, HeaderDocument]] = []
         doc_map: Dict[str, HeaderDocument] = {}
         processed_docs: List[HeaderDocument] = []
-        for doc in documents:
+        for idx, doc in enumerate(documents):
             if isinstance(doc, dict):
                 metadata = doc.get("metadata", {})
                 doc_id = doc.get("id", str(uuid.uuid4()))
                 metadata["id"] = doc_id
+                # Ensure doc_index and chunk_index are set
+                if "doc_index" not in metadata or metadata["doc_index"] is None:
+                    metadata["doc_index"] = idx
+                if "chunk_index" not in metadata or metadata["chunk_index"] is None:
+                    metadata["chunk_index"] = 0
                 new_doc = HeaderDocument(
                     text=doc.get("text", ""),
                     id=doc_id,
@@ -124,15 +148,21 @@ class HeaderDocument(Document):
                     embedding=doc.get("embedding")
                 )
             else:
+                # doc is HeaderDocument
+                doc_metadata = dict(doc.metadata)
+                if "doc_index" not in doc_metadata or doc_metadata["doc_index"] is None:
+                    doc_metadata["doc_index"] = idx
+                if "chunk_index" not in doc_metadata or doc_metadata["chunk_index"] is None:
+                    doc_metadata["chunk_index"] = 0
                 new_doc = HeaderDocument(
                     text=doc.text,
                     id=doc.id or str(uuid.uuid4()),
-                    metadata=dict(doc.metadata),
+                    metadata=doc_metadata,
                     embedding=doc.embedding
                 )
             processed_docs.append(new_doc)
         for doc in processed_docs:
-            metadata = dict(doc.metadata)
+            metadata = DotDict(doc.metadata)
             header_level = metadata.get("header_level", 0)
             doc_id = cast(str, doc.id)
             doc.relationships = {}
@@ -175,24 +205,34 @@ class HeaderDocument(Document):
             "texts": [HeaderTextNode(text=line, id=str(uuid.uuid4())) for line in text.splitlines()],
         }
         metadata_dict = metadata if isinstance(metadata, dict) else {}
-        default_metadata = {
+        default_metadata = DotDict({
             **default_values,
             **metadata_dict,
             **{k: v for k, v in data.items() if k in default_values and k != "source_url"},
-        }
+        })
         if "source_url" in metadata_dict:
             default_metadata["source_url"] = metadata_dict["source_url"]
         id = data.pop("id", self.id_)
         default_metadata["id"] = id
         self.id = id
         self.node_id = id
-        self.metadata = HeaderMetadata(**default_metadata)
+        self.metadata = default_metadata
+
+    def __getattr__(self, key: str) -> Any:
+        if key in self.metadata:
+            return self.metadata[key]
+        return super().__getattr__(key)
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        if key in HeaderMetadata.__annotations__:
+            self.metadata[key] = value
+        else:
+            super().__setattr__(key, value)
 
     def __getitem__(self, key: str) -> Any:
         if hasattr(self, key):
             return getattr(self, key)
-        metadata = cast(HeaderMetadata, self.metadata)
-        return metadata[key]
+        return self.metadata[key]
 
     def __iter__(self):
         for attr in ["text", "metadata", "metadata_separator"]:
@@ -202,14 +242,12 @@ class HeaderDocument(Document):
     def get(self, key: str, default: Any = None) -> Any:
         if hasattr(self, key):
             return getattr(self, key)
-        metadata = cast(HeaderMetadata, self.metadata)
-        return metadata.get(key, default)
+        return self.metadata.get(key, default)
 
     def get_recursive_text(self) -> str:
-        metadata = cast(HeaderMetadata, self.metadata)
         texts = []
-        if metadata["parent_header"]:
-            texts.append(metadata["parent_header"])
+        if self.metadata.parent_header:
+            texts.append(self.metadata.parent_header)
         texts.append(self.text)
         result = "\n".join(filter(None, texts))
         if result:
@@ -251,17 +289,28 @@ class HeaderTextNode(TextNode):
         default_metadata["id"] = id
         self.id = id
         self.node_id = id
-        self.metadata = {**default_metadata, **provided_metadata, "id": id}
+        self.metadata = DotDict(
+            {**default_metadata, **provided_metadata, "id": id})
 
     def __str__(self) -> str:
         """Return the text content as a string for compatibility with existing code."""
         return self.text
 
+    def __getattr__(self, key: str) -> Any:
+        if key in self.metadata:
+            return self.metadata[key]
+        return super().__getattr__(key)
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        if key in HeaderMetadata.__annotations__:
+            self.metadata[key] = value
+        else:
+            super().__setattr__(key, value)
+
     def __getitem__(self, key: str) -> Any:
         if hasattr(self, key):
             return getattr(self, key)
-        metadata = cast(HeaderMetadata, self.metadata)
-        return metadata[key]
+        return self.metadata[key]
 
     def __iter__(self):
         for attr in ["text", "metadata", "metadata_template", "metadata_separator", "text_template"]:
@@ -271,36 +320,33 @@ class HeaderTextNode(TextNode):
     def get(self, key: str, default: Any = None) -> Any:
         if hasattr(self, key):
             return getattr(self, key)
-        metadata = cast(HeaderMetadata, self.metadata)
-        return metadata.get(key, default)
+        return self.metadata.get(key, default)
 
     def get_content(self, metadata_mode: MetadataMode = MetadataMode.NONE) -> str:
-        metadata = cast(HeaderMetadata, self.metadata)
         content = self.text
-        if metadata_mode != MetadataMode.NONE and self.text.startswith(metadata["header"]):
+        if metadata_mode != MetadataMode.NONE and self.text.startswith(self.metadata.header):
             content = "\n".join(self.text.splitlines()[1:]).strip()
         if metadata_mode == MetadataMode.NONE:
             result = content
         else:
             metadata_str = self.get_metadata_str(mode=metadata_mode).strip()
             result = self.text_template.format(
-                parent_header=metadata["parent_header"],
-                header=metadata["header"],
+                parent_header=self.metadata.parent_header,
+                header=self.metadata.header,
                 content=content,
                 metadata_str=metadata_str
             ).strip()
         return result
 
     def get_metadata_str(self, mode: MetadataMode = MetadataMode.ALL) -> str:
-        metadata = cast(HeaderMetadata, self.metadata)
         usable_metadata_keys = ["id", "doc_index", "chunk_index"] if mode == MetadataMode.ALL else [
             "parent_header", "header"]
         metadata_str = self.metadata_separator.join(
             [
                 self.metadata_template.format(
-                    key=key, value=str(metadata[key]))
+                    key=key, value=str(self.metadata[key]))
                 for key in usable_metadata_keys
-                if key in metadata and metadata[key] is not None and str(metadata[key]).strip()
+                if key in self.metadata and self.metadata[key] is not None and str(self.metadata[key]).strip()
             ]
         )
         return metadata_str
@@ -340,6 +386,20 @@ class HeaderDocumentWithScore(BaseModel):
         score_str = "None" if self.score is None else f"{self.score:0.3f}"
         result = f"{self.node}\nScore: {score_str}\nRank: {self.rank}\nCombined Score: {self.combined_score:0.3f}\nEmbedding Score: {self.embedding_score:0.3f}"
         return result
+
+    def __getattr__(self, key: str) -> Any:
+        if key in self.__dict__:
+            return self.__dict__[key]
+        return getattr(self.node, key)
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        if key in self.__fields__ or key in HeaderMetadata.__annotations__:
+            if key in HeaderMetadata.__annotations__:
+                self.node.metadata[key] = value
+            else:
+                super().__setattr__(key, value)
+        else:
+            super().__setattr__(key, value)
 
     def get_score(self, raise_error: bool = False) -> float:
         if self.score is None:

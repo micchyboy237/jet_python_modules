@@ -1,0 +1,27 @@
+[
+  {
+    "id": "doc_0",
+    "rank": 1,
+    "doc_index": 0,
+    "score": 1.0,
+    "text": "This is a test.",
+    "tokens": 7,
+    "matched": {
+      "this": 1,
+      "is": 2,
+      "a": 1,
+      "test.": 1
+    }
+  },
+  {
+    "id": "doc_1",
+    "rank": 2,
+    "doc_index": 1,
+    "score": 0.7284717559814453,
+    "text": "Another test sentence.",
+    "tokens": 6,
+    "matched": {
+      "a": 1
+    }
+  }
+]

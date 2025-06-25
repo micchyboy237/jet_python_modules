@@ -24,6 +24,7 @@ from jet.llm.utils.transformer_embeddings import (
 from jet.llm.utils.search_docs import search_docs
 from sentence_transformers import SentenceTransformer
 from scipy.spatial.distance import cosine
+from jet.models.tokenizer.base import get_max_token_count
 from jet.vectors.document_types import HeaderDocument, HeaderDocumentWithScore
 from jet.wordnet.words import get_words
 from jet.logger import logger, time_it
@@ -783,7 +784,8 @@ def group_similar_texts(
             original_texts.append(text)
 
     # Load the embedding model
-    model = load_embed_model(model_name)
+    max_token_length = get_max_token_count(model_name, unique_texts)
+    model = load_embed_model(model_name, max_token_length)
     embeddings = model.encode(unique_texts, convert_to_tensor=True)
 
     # Compute cosine similarity matrix

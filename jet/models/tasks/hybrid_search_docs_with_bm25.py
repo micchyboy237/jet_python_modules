@@ -13,6 +13,7 @@ from jet.logger import logger
 import re
 from tqdm import tqdm
 import uuid
+from jet.models.tokenizer.base import get_max_token_count
 from jet.vectors.document_types import HeaderDocument, HeaderDocumentWithScore
 from jet.wordnet.spellcheck import correct_typos
 from jet.wordnet.stopwords import StopWords
@@ -50,8 +51,6 @@ def process_documents(
 ) -> List[Dict[str, Any]]:
     logger.info("Processing %d input objects",
                 len(documents) if documents else 0)
-    logger.debug("Input documents type: %s, value: %s",
-                 type(documents), documents)
     if documents is None:
         logger.error("Received None as documents input")
         raise ValueError("Documents input cannot be None")
@@ -67,15 +66,11 @@ def process_documents(
             "Converting %d strings to HeaderDocument objects", len(documents))
         for idx, text in enumerate(tqdm(documents, desc="Converting strings")):
             if text in seen_texts:
-                logger.debug(
-                    "Skipping duplicate text at index %d: %s", idx, text[:50])
                 continue
             try:
                 doc_id = ids[idx] if ids and idx < len(
                     ids) else f"doc_{uuid.uuid4()}"
                 if doc_id in seen_ids:
-                    logger.debug(
-                        "Duplicate ID %s detected, generating new UUID", doc_id)
                     doc_id = f"doc_{uuid.uuid4()}"
                 header_doc = HeaderDocument(
                     id=doc_id,
@@ -86,8 +81,6 @@ def process_documents(
                 processed_docs.append(header_doc)
                 seen_texts.add(text)
                 seen_ids.add(doc_id)
-                logger.debug(
-                    "Processed document ID %s at index %d", doc_id, idx)
             except Exception as e:
                 logger.error(
                     "Failed to convert string to HeaderDocument at index %d: %s", idx, str(e))
@@ -100,13 +93,9 @@ def process_documents(
             try:
                 header_doc = HeaderDocument(**doc_dict)
                 if header_doc.text in seen_texts:
-                    logger.debug(
-                        "Skipping duplicate text at index %d: %s", idx, header_doc.text[:50])
                     continue
                 doc_id = header_doc.id
                 if doc_id in seen_ids:
-                    logger.debug(
-                        "Duplicate ID %s detected, generating new UUID", doc_id)
                     doc_id = f"doc_{uuid.uuid4()}"
                     header_doc.id = doc_id
                 header_doc.metadata["original_index"] = idx
@@ -115,8 +104,6 @@ def process_documents(
                 processed_docs.append(header_doc)
                 seen_texts.add(header_doc.text)
                 seen_ids.add(doc_id)
-                logger.debug(
-                    "Processed document ID %s at index %d", doc_id, idx)
             except Exception as e:
                 logger.error(
                     "Failed to convert dictionary to HeaderDocument at index %d: %s", idx, str(e))
@@ -127,13 +114,9 @@ def process_documents(
             "Processing %d HeaderDocument objects directly", len(documents))
         for idx, doc in enumerate(tqdm(documents, desc="Processing HeaderDocuments")):
             if doc.text in seen_texts:
-                logger.debug(
-                    "Skipping duplicate text at index %d: %s", idx, doc.text[:50])
                 continue
             doc_id = doc.id
             if doc_id in seen_ids:
-                logger.debug(
-                    "Duplicate ID %s detected, generating new UUID", doc_id)
                 doc_id = f"doc_{uuid.uuid4()}"
                 doc.id = doc_id
             doc.metadata["original_index"] = idx
@@ -142,7 +125,6 @@ def process_documents(
             processed_docs.append(doc)
             seen_texts.add(doc.text)
             seen_ids.add(doc_id)
-            logger.debug("Processed document ID %s at index %d", doc_id, idx)
     if ids is not None and len(ids) != len(documents):
         logger.error("Provided IDs length (%d) does not match documents length (%d)", len(
             ids), len(documents))
@@ -159,22 +141,17 @@ def process_documents(
                 ]).strip()
                 if not text:
                     text = doc.metadata.get("content", "")
-                logger.debug(
-                    "Constructed text for document ID %s: %s", doc_id, text[:50])
         else:
             logger.warning(
                 "Document %s lacks metadata, using raw text: %s", doc_id, text[:50])
         result.append({"text": text, "id": doc_id,
                       "index": metadata.get("doc_index", idx)})
-        logger.debug("Finalized document ID %s at index %d", doc_id, idx)
     logger.info("Processed %d unique documents", len(result))
     return result
 
 
 def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int = 800, overlap: int = 200) -> List[Dict[str, Any]]:
     """Split document into semantic chunks using sentence boundaries, preserving newlines between headers and content."""
-    logger.info("Splitting document ID %s (index %d) into chunks with chunk_size=%d, overlap=%d",
-                doc_id, doc_index, chunk_size, overlap)
     chunks = []
     current_headers = []
     current_chunk = []
@@ -185,23 +162,19 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
         line = line.strip()
         if not line:
             continue
-        if re.match(r'^#+\s', line):
-            logger.debug("Processing header: %s", line)
-            if current_chunk or current_content:
+        if re.match(r'^#{1,6}\s+', line):  # Detect header
+            if current_content:  # Only create a chunk if there's content
                 chunk_text = "\n".join(current_chunk + current_content).strip()
-                logger.debug("Creating chunk with text: %s, headers: %s, len: %d",
-                             chunk_text, current_headers, current_len)
-                chunks.append({
-                    "text": chunk_text,
-                    "headers": current_headers.copy(),
-                    "doc_id": doc_id,
-                    "doc_index": doc_index
-                })
-                current_content = [
-                ] if not overlap else current_content[-int(overlap / 2):]
-                current_chunk = [] if not overlap else current_chunk
-                current_len = sum(len(get_words(s))
-                                  for s in current_chunk + current_content)
+                if chunk_text:
+                    chunks.append({
+                        "text": chunk_text,
+                        "headers": current_headers.copy(),
+                        "doc_id": doc_id,
+                        "doc_index": doc_index
+                    })
+                current_content = current_content[-int(
+                    overlap / 2):] if overlap else []
+                current_len = sum(len(get_words(s)) for s in current_content)
             current_headers = [line]
             current_chunk = [line]
             current_content = []
@@ -213,19 +186,16 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
                 if not sentence:
                     continue
                 sentence_len = len(get_words(sentence))
-                logger.debug("Processing sentence: %s, len: %d, current_len: %d",
-                             sentence, sentence_len, current_len)
-                if (current_chunk or current_content) and current_len + sentence_len > chunk_size:
+                if current_len + sentence_len > chunk_size and (current_chunk or current_content):
                     chunk_text = "\n".join(
                         current_chunk + current_content).strip()
-                    logger.debug("Creating chunk with text: %s, headers: %s, len: %d",
-                                 chunk_text, current_headers, current_len)
-                    chunks.append({
-                        "text": chunk_text,
-                        "headers": current_headers.copy(),
-                        "doc_id": doc_id,
-                        "doc_index": doc_index
-                    })
+                    if chunk_text:
+                        chunks.append({
+                            "text": chunk_text,
+                            "headers": current_headers.copy(),
+                            "doc_id": doc_id,
+                            "doc_index": doc_index
+                        })
                     current_content = [
                         sentence] if not overlap else current_content[-int(overlap / 2):] + [sentence]
                     current_chunk = current_chunk if overlap else []
@@ -235,19 +205,16 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
                 else:
                     current_content.append(sentence)
                     current_len += sentence_len
-    if current_chunk or current_content:
+    # Final chunk, only append if there's meaningful content
+    if current_content:
         chunk_text = "\n".join(current_chunk + current_content).strip()
         if chunk_text:
-            logger.debug("Creating final chunk with text: %s, headers: %s, len: %d",
-                         chunk_text, current_headers, current_len)
             chunks.append({
                 "text": chunk_text,
                 "headers": current_headers.copy(),
                 "doc_id": doc_id,
                 "doc_index": doc_index
             })
-    logger.info("Created %d chunks for document ID %s (index %d)",
-                len(chunks), doc_id, doc_index)
     return chunks
 
 
@@ -259,8 +226,6 @@ def filter_by_headers(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str
     filtered = []
     for chunk in tqdm(chunks, desc="Filtering chunks"):
         headers = [h.lower() for h in chunk["headers"]]
-        logger.debug("Checking headers: %s against query terms: %s",
-                     headers, query_terms)
         if any(any(term in h for term in query_terms) for h in headers):
             filtered.append(chunk)
     duration = time.time() - start_time
@@ -279,7 +244,6 @@ def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer)
     """Embed chunks in batches to optimize performance."""
     start_time = time.time()
     logger.info("Embedding %d chunks in batches", len(chunk_texts))
-    logger.debug("Embedding device: %s", embedder.device)
     if not chunk_texts:
         logger.info("No chunks to embed, returning empty array")
         return np.zeros((0, embedder.get_sentence_embedding_dimension()), dtype=np.float32)
@@ -292,8 +256,6 @@ def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer)
                 batch, convert_to_numpy=True, batch_size=batch_size)
             batch_embeddings = np.ascontiguousarray(
                 batch_embeddings.astype(np.float32))
-            logger.debug("Batch embeddings shape: %s, dtype: %s",
-                         batch_embeddings.shape, batch_embeddings.dtype)
             embeddings.extend(batch_embeddings)
         except Exception as e:
             logger.error("Error embedding batch: %s", e)
@@ -303,8 +265,6 @@ def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer)
     duration = time.time() - start_time
     logger.info("Embedding completed in %.3f seconds", duration)
     result = np.vstack(embeddings)
-    logger.debug("Final embeddings shape: %s, dtype: %s",
-                 result.shape, result.dtype)
     return result
 
 
@@ -330,8 +290,6 @@ def get_original_document(
                         text=text,
                         metadata={"original_index": idx}
                     )
-                    logger.debug(
-                        "Matched document at index %d with ID %s", idx, expected_id)
                     return header_doc
             except Exception as e:
                 logger.error("Failed to convert string to HeaderDocument for ID %s at index %d: %s",
@@ -344,8 +302,6 @@ def get_original_document(
             try:
                 header_doc = HeaderDocument(**doc_dict)
                 if header_doc.id == doc_id or (ids is None and header_doc.metadata.get("original_index") == doc_index):
-                    logger.debug(
-                        "Found HeaderDocument for ID %s at index %d", doc_id, idx)
                     return header_doc
             except Exception as e:
                 logger.error(
@@ -356,8 +312,6 @@ def get_original_document(
             documents) if documents else 0)
         for doc in documents:
             if doc.id == doc_id or (ids is None and doc.metadata.get("original_index") == doc_index):
-                logger.debug("Found HeaderDocument for ID %s at index %d",
-                             doc_id, doc.metadata.get("original_index"))
                 return doc
     logger.warning("No HeaderDocument found for ID %s, index %d",
                    doc_id, doc_index)
@@ -400,7 +354,6 @@ def compute_header_similarities(
     similarities = np.dot(header_embeddings, query_embedding.T).flatten()
     # Normalize to [0, 1]
     similarities = [(score + 1) / 2 for score in similarities]
-    logger.debug("Header similarities: %s", similarities)
     return similarities
 
 
@@ -424,17 +377,11 @@ def compute_combined_scores(
         combined = weight * bm25_score + (1 - weight) * content_header_score
         combined = max(0.0, min(1.0, combined))
         combined_scores.append(combined)
-        logger.debug(
-            "Chunk %d (FAISS index %d): BM25=%.4f, Embed=%.4f, Header=%.4f, Combined=%.4f",
-            i, j, bm25_score, embed_score, header_score, combined
-        )
     return combined_scores
 
 
 def highlight_text(text: str, query: str) -> Tuple[str, List[Match]]:
     """Highlight non-stopword query terms in text and collect match details."""
-    logger.debug("Highlighting text for query: %s, text: %s",
-                 query, text[:100])
     if not query.strip():
         return "", []
     query_terms = get_words(query.lower())
@@ -444,8 +391,6 @@ def highlight_text(text: str, query: str) -> Tuple[str, List[Match]]:
         if term not in StopWords.english_stop_words
     }
     if not unique_terms:
-        logger.debug(
-            "All query terms are stop words or empty after filtering.")
         return "", []
     matches: List[Match] = []
     pattern = re.compile(
@@ -472,8 +417,6 @@ def highlight_text(text: str, query: str) -> Tuple[str, List[Match]]:
             return f"<mark>{word}</mark>"
         return word
     highlighted = pattern.sub(highlight_match, text)
-    logger.debug("Final highlighted text: %s, matches: %s",
-                 highlighted[:100], matches)
     return highlighted, matches
 
 
@@ -511,11 +454,6 @@ def search_docs(
         List of HeaderDocumentWithScore.
     """
     total_start_time = time.time()
-    logger.debug("Input document IDs: %s", [
-        doc.id if isinstance(doc, HeaderDocument) else doc.get(
-            "id") if isinstance(doc, dict) else str(uuid.uuid4())
-        for doc in documents if doc
-    ])
     if instruction and isinstance(instruction, str) and instruction.strip():
         logger.info("Using instruction: %s", instruction)
         query_with_instruction = f"{instruction} {query}".strip()
@@ -535,14 +473,10 @@ def search_docs(
     filtered_chunks = filter_by_headers(
         chunks, query) if filter_by_headers_enabled else chunks
     chunk_texts = [chunk["text"] for chunk in filtered_chunks]
-    logger.debug("Filtered chunks: %s", [
-        {"index": i, "doc_id": chunk["doc_id"],
-         "text": chunk["text"][:50] + "..."}
-        for i, chunk in enumerate(filtered_chunks)
-    ])
 
     logger.info("Initializing SentenceTransformer")
-    embedder = load_embed_model(model)
+    max_token_length = get_max_token_count(model, chunk_texts)
+    embedder = load_embed_model(model, max_token_length)
 
     # Embed chunks and compute header similarities
     chunk_embeddings = embed_chunks_parallel(chunk_texts, embedder)
@@ -574,7 +508,6 @@ def search_docs(
     faiss.normalize_L2(query_embedding)
     distances, indices = index.search(query_embedding, top_k)
     embed_scores = [(score + 1) / 2 for score in distances[0].tolist()]
-    logger.debug("Normalized embed scores: %s", embed_scores)
 
     # Compute combined scores with header similarities
     combined_scores = compute_combined_scores(
@@ -591,15 +524,10 @@ def search_docs(
     seen_doc_ids = set()
     for rank, (chunk, embedding_score, combined_score) in enumerate(sorted_docs, 1):
         if combined_score < threshold:
-            logger.debug(
-                "Skipping doc_id %s at rank %d: combined score %.4f below threshold %.4f",
-                chunk["doc_id"], rank, combined_score, threshold)
             continue
         doc_id = chunk["doc_id"]
         doc_index = chunk["doc_index"]
         if doc_id in seen_doc_ids:
-            logger.debug(
-                "Skipping duplicate doc_id %s at rank %d", doc_id, rank)
             continue
         original_doc = get_original_document(doc_id, doc_index, documents, ids)
         if original_doc is None:
@@ -622,8 +550,6 @@ def search_docs(
         )
         results.append(result)
         seen_doc_ids.add(doc_id)
-        logger.debug("Added result for doc_id %s: combined=%.4f, embed=%.4f",
-                     doc_id, combined_score, embedding_score)
 
     logger.info("Total unique results: %d", len(results))
     logger.info("Search completed in %.3f seconds",

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "doc_0",
+    "rank": 1,
+    "doc_index": 0,
+    "score": 0.9999998211860657,
+    "text": "Reproducible research.",
+    "tokens": 7,
+    "matched": {
+      "reproducible": 1,
+      "research.": 1
+    }
+  },
+  {
+    "id": "doc_1",
+    "rank": 2,
+    "doc_index": 1,
+    "score": -0.029555588960647583,
+    "text": "Consistent model version.",
+    "tokens": 6,
+    "matched": {}
+  }
+]

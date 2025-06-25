@@ -1,5 +1,4 @@
-# from instruction_generator.wordnet.SpellingCorrectorNorvig import SpellingCorrectorNorvig
-from typing import Any, Generator, Optional
+from typing import Any, Generator, List, Optional, Union
 from bs4 import BeautifulSoup
 import bs4
 from jet.utils.text import has_non_ascii
@@ -371,25 +370,31 @@ def sliding_window(text: str | list[Any], window_size: int, step_size: int = 1) 
         yield data[last_index:]
 
 
-def increasing_window(text: str | list[Any], step_size: int = 1, max_window_size: Optional[int] = None):
+def increasing_window(
+    text: Union[str, List[Any]], step_size: int = 1, max_window_size: Optional[int] = None
+) -> Generator[List[Any], None, None]:
+    """
+    Generate sequences using an increasing window approach, starting from size 1 up to max_window_size.
+
+    :param text: A string or list of tokens (words or characters) from the text corpus.
+    :param step_size: The number of tokens to increase the window size at each step.
+    :param max_window_size: The maximum size of the window. If None, uses the length of the text.
+    :return: A generator of text sequences with increasing window sizes.
+    """
     if isinstance(text, str):
         text = [word for sentence in split_sentences(
             text) for word in get_words(sentence)]
 
-    if not max_window_size or max_window_size > len(text):
+    if not text:
+        return
+
+    if max_window_size is None or max_window_size > len(text):
         max_window_size = len(text)
 
     data = text.copy()
-    last_index = 1
-
-    for i in range(1, max_window_size + 1, step_size):
-        last_index = i
-        yield data[0:i]
-
-    # yield remaining data if any
-    remaining_data = data[last_index:]
-    if remaining_data:
-        yield from increasing_window(remaining_data, step_size, max_window_size)
+    for start_idx in range(len(data)):
+        for window_size in range(1, min(max_window_size + 1, len(data) - start_idx + 1), step_size):
+            yield data[start_idx:start_idx + window_size]
 
 
 if __name__ == "__main__":

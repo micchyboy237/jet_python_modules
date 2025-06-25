@@ -7,6 +7,7 @@ from tokenizers import Tokenizer
 from transformers import PreTrainedTokenizerBase
 
 from jet.logger import logger
+from jet.models.config import MODELS_CACHE_DIR
 from jet.models.utils import resolve_model_value
 from jet.models.model_types import ModelType
 from jet.wordnet.sentence import split_sentences
@@ -51,7 +52,7 @@ def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) 
 
         # Fallback to local cache
         if local_cache_dir is None:
-            local_cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+            local_cache_dir = Path(MODELS_CACHE_DIR)
         else:
             local_cache_dir = Path(local_cache_dir)
 
@@ -159,6 +160,25 @@ def count_tokens(model_name_or_tokenizer: Union[ModelType, Tokenizer], messages:
     else:
         token_counts = [len(item) for item in tokenized]
         return sum(token_counts) if not prevent_total else token_counts
+
+
+def get_max_token_count(model_name_or_tokenizer: Union[ModelType, Tokenizer], messages: str | List[str] | List[Dict], buffer: int = 10) -> int:
+    """
+    Calculate the maximum number of tokens in the provided messages, adding a buffer and capping at 512.
+
+    Args:
+        model_name_or_tokenizer: The model name or tokenizer instance to use.
+        messages: A string, list of strings, or list of dicts representing the input messages.
+        buffer: Number of extra tokens to add as a safety margin (default: 10).
+
+    Returns:
+        int: The maximum token count plus buffer, capped at 512.
+    """
+    token_counts: List[int] = count_tokens(
+        model_name_or_tokenizer, messages, prevent_total=True)
+    max_tokens = min(max(token_counts) + buffer, 512)  # Cap at 512
+    logger.info(f"Max token count for {len(messages)} documents: {max_tokens}")
+    return max_tokens
 
 
 class MergeMetadata(TypedDict):
