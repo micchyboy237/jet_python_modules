@@ -1,6 +1,7 @@
 import os
+import spacy
 import numpy as np
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 from keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
 from jet.models.model_types import EmbedModelType
@@ -22,6 +23,53 @@ def setup_keybert(model_name: EmbedModelType = "static-retrieval-mrl-en-v1") -> 
     logger.info(f"Initializing KeyBERT with model: {model_name}")
     embed_model = load_embed_model(model_name)
     return KeyBERT(model=embed_model)
+
+
+def extract_query_candidates(query: str, nlp=None) -> list[str]:
+    """Extract candidate keywords from a query using spaCy NLP."""
+    if nlp is None:
+        nlp = spacy.load("en_core_web_sm")
+
+    doc = nlp(query.lower())
+    candidates = set()
+
+    # Extract noun chunks and filter out those containing stop words
+    for chunk in doc.noun_chunks:
+        chunk_text = chunk.text.strip()
+        chunk_words = chunk_text.split()
+        if len(chunk_words) <= 3:
+            if all(not token.is_stop and token.pos_ in ["NOUN", "PROPN", "ADJ"] for token in chunk):
+                candidates.add(chunk_text)
+                # Add valid 2-word sub-phrases only if they are noun chunks
+                if len(chunk_words) == 3:
+                    for i in range(len(chunk_words) - 1):
+                        sub_phrase = " ".join(chunk_words[i:i+2])
+                        sub_doc = nlp(sub_phrase)
+                        # Convert generator to list
+                        sub_chunks = list(sub_doc.noun_chunks)
+                        if sub_chunks and all(not token.is_stop for token in sub_doc):
+                            candidates.add(sub_phrase)
+
+    # Add single-word nouns and proper nouns
+    for token in doc:
+        if token.pos_ in ["NOUN", "PROPN"] and not token.is_stop:
+            candidates.add(token.text)
+
+    # Remove candidates that are prefixes of longer candidates
+    final_candidates = set()
+    for cand in candidates:
+        is_prefix = any(
+            cand != longer_cand and longer_cand.startswith(cand + " ")
+            for longer_cand in candidates
+        )
+        if not is_prefix:
+            final_candidates.add(cand)
+
+    # Remove any candidates that are purely stop words
+    final_candidates = {cand for cand in final_candidates if any(
+        not nlp.vocab[word].is_stop for word in cand.split())}
+
+    return list(final_candidates)
 
 
 def extract_single_doc_keywords(

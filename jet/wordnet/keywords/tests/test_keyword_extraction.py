@@ -1,7 +1,99 @@
 import pytest
 from typing import List, Tuple, Union
+
+import spacy
 from keybert import KeyBERT
-from jet.wordnet.keywords.keyword_extraction import setup_keybert, extract_keywords_with_embeddings
+from jet.wordnet.keywords.keyword_extraction import setup_keybert, extract_query_candidates, extract_keywords_with_embeddings
+
+
+class TestExtractQueryCandidates:
+    """Test suite for extract_query_candidates function."""
+
+    @pytest.fixture
+    def nlp(self):
+        """Fixture to initialize spaCy model."""
+        return spacy.load("en_core_web_sm")
+
+    def test_basic_query_extraction(self, nlp):
+        """Test candidate extraction from a basic query."""
+        # Given: A spaCy model and a query with nouns and phrases
+        query = "Artificial intelligence and machine learning in healthcare"
+        # When: Extracting candidate keywords
+        result_candidates = extract_query_candidates(query, nlp)
+        # Then: Expect specific nouns and phrases
+        expected_candidates = [
+            "artificial intelligence",
+            "machine learning",
+            "healthcare",
+            "intelligence",
+            "learning"
+        ]
+        assert sorted(result_candidates) == sorted(expected_candidates), (
+            f"Expected {expected_candidates}, got {result_candidates}"
+        )
+
+    def test_empty_query(self, nlp):
+        """Test candidate extraction from an empty query."""
+        # Given: A spaCy model and an empty query
+        query = ""
+        # When: Extracting candidate keywords
+        result_candidates = extract_query_candidates(query, nlp)
+        # Then: Expect an empty list
+        expected_candidates: List[str] = []
+        assert result_candidates == expected_candidates, (
+            f"Expected {expected_candidates}, got {result_candidates}"
+        )
+
+    def test_stop_words_only_query(self, nlp):
+        """Test candidate extraction from a query with only stop words."""
+        # Given: A spaCy model and a query with only stop words
+        query = "the and is are"
+        # When: Extracting candidate keywords
+        result_candidates = extract_query_candidates(query, nlp)
+        # Then: Expect an empty list
+        expected_candidates: List[str] = []
+        assert result_candidates == expected_candidates, (
+            f"Expected {expected_candidates}, got {result_candidates}"
+        )
+
+    def test_multi_word_phrase_extraction(self, nlp):
+        """Test candidate extraction with multi-word phrases."""
+        # Given: A spaCy model and a query with complex phrases
+        query = "Renewable energy sources and climate change mitigation"
+        # When: Extracting candidate keywords
+        result_candidates = extract_query_candidates(query, nlp)
+        # Then: Expect specific nouns and multi-word phrases
+        expected_candidates = [
+            "renewable energy sources",
+            "climate change mitigation",
+            "energy sources",
+            "climate change",
+            "mitigation",
+            "sources",
+            "energy",
+            "climate",
+            "change"
+        ]
+        assert sorted(result_candidates) == sorted(expected_candidates), (
+            f"Expected {expected_candidates}, got {result_candidates}"
+        )
+
+    def test_case_insensitivity(self, nlp):
+        """Test candidate extraction with mixed case query."""
+        # Given: A spaCy model and a query with mixed case
+        query = "MACHINE Learning AND Artificial INTELLIGENCE"
+        # When: Extracting candidate keywords
+        result_candidates = extract_query_candidates(query, nlp)
+        # Then: Expect lowercase candidates
+        expected_candidates = [
+            "machine learning",
+            "artificial intelligence",
+            "learning",
+            "intelligence"
+        ]
+        assert sorted(result_candidates) == sorted(expected_candidates), (
+            f"Expected {expected_candidates}, got {result_candidates}"
+        )
 
 
 class TestExtractKeywordsWithEmbeddings:
