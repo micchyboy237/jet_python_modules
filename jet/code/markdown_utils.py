@@ -163,14 +163,24 @@ def convert_html_to_markitdown(html_input: Union[str, Path], **options) -> str:
     try:
         md_converter = MarkItDown(enable_plugins=False, **options)
 
-        # Pre-process HTML to add whitespace between consecutive spans
-        def add_space_between_spans(html: str) -> str:
-            return re.sub(r'</span><span', '</span> <span', html)
+        # Pre-process HTML to remove unwanted elements
+        def remove_unwanted_elements(html: str) -> str:
+            unwanted_elements = r'button|script|style|form|input|select|textarea'
+            pattern = rf'<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>'
+            return re.sub(pattern, '', html, flags=re.DOTALL)
+
+        # Pre-process HTML to add whitespace between consecutive inline elements
+        def add_space_between_inline_elements(html: str) -> str:
+            inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
+            pattern = rf'</({inline_elements})><({inline_elements})'
+            return re.sub(pattern, r'</\1> <\2', html)
 
         if isinstance(html_input, Path):
             # Read HTML file content and pre-process
             with open(html_input, 'r', encoding='utf-8') as file:
-                html_content = add_space_between_spans(file.read())
+                html_content = file.read()
+                html_content = remove_unwanted_elements(html_content)
+                html_content = add_space_between_inline_elements(html_content)
             # Write pre-processed content to a temporary file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
                 temp_file.write(html_content)
@@ -182,7 +192,8 @@ def convert_html_to_markitdown(html_input: Union[str, Path], **options) -> str:
                     os.unlink(temp_file_path)
         else:
             # Pre-process HTML string and write to temporary file
-            html_content = add_space_between_spans(html_input)
+            html_content = remove_unwanted_elements(html_input)
+            html_content = add_space_between_inline_elements(html_content)
             with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
                 temp_file.write(html_content)
                 temp_file_path = temp_file.name
@@ -203,10 +214,15 @@ def convert_html_to_markitdown(html_input: Union[str, Path], **options) -> str:
 
 def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = True) -> str:
     """Convert HTML to Markdown with enhanced noise removal."""
-    import re
+    def remove_unwanted_elements(html: str) -> str:
+        unwanted_elements = r'button|script|style|form|input|select|textarea'
+        pattern = rf'<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>'
+        return re.sub(pattern, '', html, flags=re.DOTALL)
 
-    def add_space_between_spans(html: str) -> str:
-        return re.sub(r'</span><span', '</span> <span', html)
+    def add_space_between_inline_elements(html: str) -> str:
+        inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
+        pattern = rf'</({inline_elements})><({inline_elements})'
+        return re.sub(pattern, r'</\1> <\2', html)
 
     if isinstance(html_input, Path):
         with html_input.open('r', encoding='utf-8') as f:
@@ -214,17 +230,18 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     else:
         html_content = html_input
 
-    html_content = add_space_between_spans(html_content)
+    html_content = remove_unwanted_elements(html_content)
+    html_content = add_space_between_inline_elements(html_content)
 
     converter = html2text.HTML2Text()
     converter.ignore_links = ignore_links
     converter.ignore_images = True
     converter.ignore_emphasis = True
-    converter.mark_code = True
+    converter.mark_code = False
     converter.body_width = 0
 
-    markdown_string = converter.handle(html_content)
-    return markdown_string.strip()
+    markdown_content = converter.handle(html_content)
+    return markdown_content.strip()
 
 
 def parse_markdown(md_input: Union[str, Path]) -> List[MarkdownToken]:
