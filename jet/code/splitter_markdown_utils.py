@@ -352,7 +352,7 @@ def get_md_header_contents(
     Args:
         md_text: The Markdown (or HTML) text to parse and split.
         headers_to_split_on: List of (prefix, tag) pairs to identify headers.
-        ignore_links: If True, replaces links with text content; if False, preserves links.
+        ignore_links: If True, replaces links with text content in links output; if False, preserves links in links output.
         base_url: Base URL to resolve relative links.
 
     Returns:
@@ -369,9 +369,13 @@ def get_md_header_contents(
     md_text = clean_spaces(clean_newlines(
         clean_text(md_text), max_newlines=2, strip_lines=True))
 
-    # Extract links
-    all_links, md_text = extract_markdown_links(
-        md_text, base_url, ignore_links)
+    # Extract links with original ignore_links setting for link extraction
+    all_links, _ = extract_markdown_links(
+        md_text, base_url, ignore_links=ignore_links)
+
+    # Extract cleaned text with links replaced by their labels for header/content/text
+    _, cleaned_md_text = extract_markdown_links(
+        md_text, base_url, ignore_links=True)
 
     # Default headers to split on
     if not headers_to_split_on:
@@ -379,9 +383,9 @@ def get_md_header_contents(
 
     result: List[HeaderDocumentDict] = []
     header_stack: List[Dict[str, Any]] = []
-    lines = md_text.splitlines()
+    lines = cleaned_md_text.splitlines()  # Use cleaned text for processing
 
-    # Process headers from modified markdown
+    # Process headers from cleaned markdown
     headers = []
     for line_idx, line in enumerate(lines, 1):
         for pattern, _ in headers_to_split_on:

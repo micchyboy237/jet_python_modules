@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, TypedDict
 
+import html2text
 from markdownify import MarkdownConverter
 from markitdown import MarkItDown
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken
@@ -124,7 +125,7 @@ def convert_html_to_markdownify(html_input: Union[str, Path], **options) -> str:
         raise
 
 
-def convert_html_to_markdown(html_input: Union[str, Path], **options) -> str:
+def convert_html_to_markitdown(html_input: Union[str, Path], **options) -> str:
     """
     Convert HTML content to Markdown using MarkItDown and return the string.
 
@@ -175,6 +176,32 @@ def convert_html_to_markdown(html_input: Union[str, Path], **options) -> str:
     except Exception as e:
         logger.error("Failed to convert HTML to Markdown: %s", e)
         raise
+
+
+def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = True) -> str:
+    """Convert HTML to Markdown with enhanced noise removal."""
+    import re
+
+    def add_space_between_spans(html: str) -> str:
+        return re.sub(r'</span><span', '</span> <span', html)
+
+    if isinstance(html_input, Path):
+        with html_input.open('r', encoding='utf-8') as f:
+            html_content = f.read()
+    else:
+        html_content = html_input
+
+    html_content = add_space_between_spans(html_content)
+
+    converter = html2text.HTML2Text()
+    converter.ignore_links = ignore_links
+    converter.ignore_images = True
+    converter.ignore_emphasis = True
+    converter.mark_code = True
+    converter.body_width = 0
+
+    markdown_string = converter.handle(html_content)
+    return markdown_string.strip()
 
 
 def parse_markdown(md_input: Union[str, Path]) -> List[MarkdownToken]:
