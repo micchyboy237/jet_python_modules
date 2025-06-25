@@ -1,4 +1,5 @@
 import os
+import re
 import spacy
 import numpy as np
 from typing import List, Optional, Tuple, Union
@@ -25,8 +26,8 @@ def setup_keybert(model_name: EmbedModelType = "static-retrieval-mrl-en-v1") -> 
     return KeyBERT(model=embed_model)
 
 
-def extract_query_candidates(query: str, nlp=None) -> list[str]:
-    """Extract candidate keywords from a query using spaCy NLP."""
+def extract_query_candidates(query: str, nlp=None) -> List[str]:
+    """Extract candidate keywords from a query using spaCy NLP, including years."""
     if nlp is None:
         nlp = spacy.load("en_core_web_sm")
 
@@ -38,7 +39,7 @@ def extract_query_candidates(query: str, nlp=None) -> list[str]:
         chunk_text = chunk.text.strip()
         chunk_words = chunk_text.split()
         if len(chunk_words) <= 3:
-            if all(not token.is_stop and token.pos_ in ["NOUN", "PROPN", "ADJ"] for token in chunk):
+            if all(not token.is_stop and token.pos_ in ["NOUN", "PROPN", "ADJ", "NUM"] for token in chunk):
                 candidates.add(chunk_text)
                 # Add valid 2-word sub-phrases only if they are noun chunks
                 if len(chunk_words) == 3:
@@ -50,9 +51,10 @@ def extract_query_candidates(query: str, nlp=None) -> list[str]:
                         if sub_chunks and all(not token.is_stop for token in sub_doc):
                             candidates.add(sub_phrase)
 
-    # Add single-word nouns and proper nouns
+    # Add single-word nouns, proper nouns, and years
     for token in doc:
-        if token.pos_ in ["NOUN", "PROPN"] and not token.is_stop:
+        if (token.pos_ in ["NOUN", "PROPN"] and not token.is_stop) or \
+           (token.pos_ == "NUM" and re.match(r"^\d{4}$", token.text)):  # Match 4-digit years
             candidates.add(token.text)
 
     # Remove candidates that are prefixes of longer candidates
@@ -77,7 +79,9 @@ def extract_single_doc_keywords(
     model: KeyBERT,
     top_n: int = 5,
     use_mmr: bool = False,
-    diversity: float = 0.5
+    diversity: float = 0.5,
+    keyphrase_ngram_range: Tuple[int, int] = (1, 2),
+    stop_words: str = "english"
 ) -> List[Tuple[str, float]]:
     """Extract keywords from a single document.
 
@@ -87,6 +91,8 @@ def extract_single_doc_keywords(
         top_n: Number of keywords to return (default: 5).
         use_mmr: Whether to use MMR for diversity (default: False).
         diversity: Diversity level for MMR (default: 0.5).
+        keyphrase_ngram_range: Range of n-grams for keyphrases (default: (1, 2)).
+        stop_words: Stop words to filter out (default: "english").
 
     Returns:
         List of tuples containing keywords and their similarity scores.
@@ -97,7 +103,9 @@ def extract_single_doc_keywords(
         docs=doc,
         top_n=top_n,
         use_mmr=use_mmr,
-        diversity=diversity
+        diversity=diversity,
+        keyphrase_ngram_range=keyphrase_ngram_range,
+        stop_words=stop_words,
     )
     logger.debug(f"Extracted keywords: {keywords}")
     return keywords
@@ -106,7 +114,10 @@ def extract_single_doc_keywords(
 def extract_multi_doc_keywords(
     docs: List[str],
     model: KeyBERT,
+    seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5,
+    use_mmr: bool = False,
+    diversity: float = 0.5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
     stop_words: str = "english"
 ) -> List[List[Tuple[str, float]]]:
@@ -115,7 +126,11 @@ def extract_multi_doc_keywords(
     Args:
         docs: List of input document texts.
         model: Initialized KeyBERT model.
+        seed_keywords: Seed keywords that may guide the extraction of keywords by
+                           steering the similarities towards the seeded keywords.
         top_n: Number of keywords to return per document (default: 5).
+        use_mmr: Whether to use MMR for diversity (default: False).
+        diversity: Diversity level for MMR (default: 0.5).
         keyphrase_ngram_range: Range of n-grams for keyphrases (default: (1, 2)).
         stop_words: Stop words to filter out (default: "english").
 
@@ -125,16 +140,20 @@ def extract_multi_doc_keywords(
     logger.info(f"Extracting keywords from {len(docs)} documents")
     keywords = model.extract_keywords(
         docs=docs,
+        # candidates=candidates,
+        seed_keywords=seed_keywords,
+        top_n=top_n,
+        use_mmr=use_mmr,
+        diversity=diversity,
         keyphrase_ngram_range=keyphrase_ngram_range,
         stop_words=stop_words,
-        top_n=top_n
     )
     logger.debug(f"Extracted keywords for {len(keywords)} documents")
     return keywords
 
 
 def extract_keywords_with_candidates(
-    doc: str,
+    docs: Union[str, List[str]],
     model: KeyBERT,
     candidates: List[str],
     top_n: int = 5
@@ -152,7 +171,7 @@ def extract_keywords_with_candidates(
     """
     logger.info(f"Extracting keywords with {len(candidates)} candidates")
     keywords = model.extract_keywords(
-        docs=doc,
+        docs=docs,
         candidates=candidates,
         top_n=top_n
     )
@@ -164,6 +183,7 @@ def extract_keywords_with_custom_vectorizer(
     docs: Union[str, List[str]],
     model: KeyBERT,
     vectorizer: CountVectorizer,
+    seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5
 ) -> Union[List[Tuple[str, float]], List[List[Tuple[str, float]]]]:
     """Extract keywords using a custom CountVectorizer.
@@ -171,6 +191,8 @@ def extract_keywords_with_custom_vectorizer(
     Args:
         docs: Single document or list of documents.
         model: Initialized KeyBERT model.
+        seed_keywords: Seed keywords that may guide the extraction of keywords by
+                           steering the similarities towards the seeded keywords.
         vectorizer: Custom CountVectorizer instance.
         top_n: Number of keywords to return (default: 5).
 
@@ -181,6 +203,8 @@ def extract_keywords_with_custom_vectorizer(
         f"Extracting keywords with custom vectorizer for {1 if isinstance(docs, str) else len(docs)} document(s)")
     keywords = model.extract_keywords(
         docs=docs,
+        # candidates=candidates,
+        seed_keywords=seed_keywords,
         vectorizer=vectorizer,
         top_n=top_n
     )
