@@ -14,7 +14,6 @@ import numpy as np
 
 _model_cache: Dict[str, Any] = {}
 _tokenizer_cache: Dict[str, Any] = {}
-
 seed = 45
 
 
@@ -24,7 +23,8 @@ class ClassificationResult(TypedDict):
     rank: int
     score: float
     text: str
-    label: Literal["relevant", "non-relevant"]
+    label: Literal["relevant", "non-relevant",
+                   "highly relevant", "moderately relevant"]
     threshold: float
 
 
@@ -59,17 +59,54 @@ class MLXRAGClassifier:
         """Generate a hash for a given text string."""
         return hashlib.md5(text.encode('utf-8')).hexdigest()
 
+    def _generate_query_embedding(self, query: str) -> np.ndarray:
+        """Generate and cache query embedding."""
+        query_hash = self._hash_text(query)
+        if query_hash in self.query_cache:
+            logger.debug(
+                f"Retrieved query embedding from cache for hash: {query_hash}")
+            return self.query_cache[query_hash]
+
+        if not query.strip():
+            logger.error("Empty query provided")
+            raise ValueError("Query cannot be empty")
+
+        query_inputs = self.tokenizer(
+            query, return_tensors="np", padding=True, truncation=True, max_length=512
+        )
+        query_input_ids = mx.array(query_inputs["input_ids"]).astype(mx.int32)
+        query_output = self.model(query_input_ids)
+        query_embedding = np.array(
+            mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
+
+        if np.all(query_embedding == 0):
+            logger.error("Query embedding is a zero vector")
+            raise ValueError("Invalid query embedding: zero vector")
+
+        self.query_cache[query_hash] = query_embedding
+        logger.debug(f"Cached query embedding for hash: {query_hash}")
+        return query_embedding
+
     def generate_embeddings(self, chunks: List[str], group_ids: Optional[List[str]] = None) -> np.ndarray:
         logger.info(f"Generating embeddings for {len(chunks)} chunks")
+        if not chunks:
+            logger.warning("Empty chunk list provided, returning empty array")
+            return np.array([])
+
         embeddings = []
         original_indices = list(range(len(chunks)))
         cached_count = 0
         chunk_to_indices = defaultdict(list)
         for idx, chunk in enumerate(chunks):
+            if not chunk.strip():
+                logger.warning(f"Skipping empty chunk at index {idx}")
+                continue
             chunk_to_indices[chunk].append(idx)
+
         unique_chunks = list(chunk_to_indices.keys())
         chunk_index_map = {chunk: indices for chunk,
                            indices in chunk_to_indices.items()}
+
         if group_ids and len(group_ids) == len(chunks):
             url_to_unique_chunks = defaultdict(list)
             for chunk in unique_chunks:
@@ -87,11 +124,13 @@ class MLXRAGClassifier:
         else:
             batches = [(unique_chunks[i:i + self.batch_size], original_indices[i:i + self.batch_size])
                        for i in range(0, len(unique_chunks), self.batch_size)]
+
         num_batches = len(batches)
         iterator = range(num_batches)
         if self.show_progress:
             iterator = tqdm(iterator, total=num_batches,
                             desc="Processing batches")
+
         for i in iterator:
             batch_chunks, batch_indices = batches[i]
             batch_embeddings = []
@@ -106,6 +145,7 @@ class MLXRAGClassifier:
                 else:
                     batch_remaining_chunks.append(chunk)
                     batch_remaining_indices.append(idx)
+
             if batch_remaining_chunks:
                 encoded_inputs = [self.tokenizer(
                     chunk, truncation=False, add_special_tokens=True) for chunk in batch_remaining_chunks]
@@ -121,14 +161,19 @@ class MLXRAGClassifier:
                 output = self.model(input_ids)
                 embedding = np.array(
                     mx.mean(output, axis=1).tolist(), dtype=np.float32)
+
                 for emb, chunk, idx in zip(embedding, batch_remaining_chunks, batch_remaining_indices):
+                    if np.all(emb == 0):
+                        logger.warning(
+                            f"Skipping zero-vector embedding for chunk at index {idx}")
+                        continue
                     chunk_hash = self._hash_text(chunk)
                     self.embedding_cache[chunk_hash] = emb
                     batch_embeddings.append((idx, emb))
                     cached_count += len(chunk_index_map[chunk]) - 1
                 del input_ids, output
                 mx.clear_cache()
-            embeddings.extend(batch_embeddings)
+
         final_embeddings = [None] * len(chunks)
         for chunk, indices in chunk_index_map.items():
             chunk_hash = self._hash_text(chunk)
@@ -139,7 +184,12 @@ class MLXRAGClassifier:
             else:
                 logger.error(f"No embedding found for chunk: {chunk}")
                 raise ValueError(f"Embedding missing for chunk: {chunk}")
+
         embeddings_array = np.stack(final_embeddings)
+        if embeddings_array.size > 0 and np.any(np.linalg.norm(embeddings_array, axis=1) == 0):
+            logger.error("Zero-vector embeddings detected in final array")
+            raise ValueError("Invalid embeddings: zero vectors detected")
+
         logger.info(
             f"Generated embeddings shape: {embeddings_array.shape}, {cached_count} chunks retrieved from cache")
         return embeddings_array
@@ -152,19 +202,8 @@ class MLXRAGClassifier:
             logger.error(
                 "Invalid chunks or embeddings, returning non-relevant")
             return "non-relevant"
-        query_hash = self._hash_text(query)
-        if query_hash in self.query_cache:
-            query_embedding = self.query_cache[query_hash]
-        else:
-            query_inputs = self.tokenizer(
-                query, return_tensors="np", padding=True, truncation=True, max_length=512
-            )
-            query_input_ids = mx.array(
-                query_inputs["input_ids"]).astype(mx.int32)
-            query_output = self.model(query_input_ids)
-            query_embedding = np.array(
-                mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
-            self.query_cache[query_hash] = query_embedding
+
+        query_embedding = self._generate_query_embedding(query)
         norm_embeddings = embeddings / \
             np.linalg.norm(embeddings, axis=1, keepdims=True)
         norm_query = query_embedding / np.linalg.norm(query_embedding)
@@ -186,19 +225,8 @@ class MLXRAGClassifier:
         if not chunks or embeddings.shape[0] != len(chunks):
             logger.error("Invalid chunks or embeddings, cannot stream")
             return
-        query_hash = self._hash_text(query)
-        if query_hash in self.query_cache:
-            query_embedding = self.query_cache[query_hash]
-        else:
-            query_inputs = self.tokenizer(
-                query, return_tensors="np", padding=True, truncation=True, max_length=512
-            )
-            query_input_ids = mx.array(
-                query_inputs["input_ids"]).astype(mx.int32)
-            query_output = self.model(query_input_ids)
-            query_embedding = np.array(
-                mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
-            self.query_cache[query_hash] = query_embedding
+
+        query_embedding = self._generate_query_embedding(query)
         norm_embeddings = embeddings / \
             np.linalg.norm(embeddings, axis=1, keepdims=True)
         norm_query = query_embedding / np.linalg.norm(query_embedding)
@@ -242,19 +270,8 @@ class MLXRAGClassifier:
             ids = None
         if not ids:
             ids = [str(uuid.uuid4()) for _ in range(len(chunks))]
-        query_hash = self._hash_text(query)
-        if query_hash in self.query_cache:
-            query_embedding = self.query_cache[query_hash]
-        else:
-            query_inputs = self.tokenizer(
-                query, return_tensors="np", padding=True, truncation=True, max_length=512
-            )
-            query_input_ids = mx.array(
-                query_inputs["input_ids"]).astype(mx.int32)
-            query_output = self.model(query_input_ids)
-            query_embedding = np.array(
-                mx.mean(query_output, axis=1).tolist(), dtype=np.float32).squeeze()
-            self.query_cache[query_hash] = query_embedding
+
+        query_embedding = self._generate_query_embedding(query)
         norm_embeddings = embeddings / \
             np.linalg.norm(embeddings, axis=1, keepdims=True)
         norm_query = query_embedding / np.linalg.norm(query_embedding)
@@ -281,6 +298,61 @@ class MLXRAGClassifier:
         for rank, result in enumerate(sorted_results, start=1):
             result["rank"] = rank
         logger.info(f"Classification completed, {len(sorted_results)} results")
+        return sorted_results
+
+    def classify_multi_label(self, query: str, chunks: List[str], embeddings: np.ndarray, ids: Optional[List[str]] = None, verbose: bool = False, high_threshold: float = 0.9, moderate_threshold: float = 0.7) -> List[ClassificationResult]:
+        """Classify chunks into 'highly relevant', 'moderately relevant', or 'non-relevant' based on query similarity."""
+        logger.info(
+            f"Classifying query (multi-label): {query}, {len(chunks)} chunks, verbose={verbose}, high_threshold={high_threshold}, moderate_threshold={moderate_threshold}")
+        if high_threshold <= moderate_threshold:
+            logger.error(
+                "high_threshold must be greater than moderate_threshold")
+            raise ValueError(
+                "high_threshold must be greater than moderate_threshold")
+        if not chunks or embeddings.shape[0] != len(chunks):
+            logger.error("Invalid chunks or embeddings, returning empty list")
+            return []
+        if ids and len(ids) != len(chunks):
+            logger.warning(
+                "Length of ids does not match chunks, generating UUIDs")
+            ids = None
+        if not ids:
+            ids = [str(uuid.uuid4()) for _ in range(len(chunks))]
+
+        query_embedding = self._generate_query_embedding(query)
+        norm_embeddings = embeddings / \
+            np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norm_query = query_embedding / np.linalg.norm(query_embedding)
+        similarities = np.dot(norm_embeddings, norm_query)
+        results: List[ClassificationResult] = []
+        for idx, (chunk, chunk_id, score) in enumerate(zip(chunks, ids, similarities)):
+            if score >= high_threshold:
+                label: Literal["highly relevant", "moderately relevant",
+                               "non-relevant"] = "highly relevant"
+            elif score >= moderate_threshold:
+                label = "moderately relevant"
+            else:
+                label = "non-relevant"
+            result: ClassificationResult = {
+                "id": chunk_id,
+                "doc_index": idx,
+                "rank": 0,
+                "score": float(score),
+                "text": chunk,
+                "label": label,
+                # Store moderate_threshold for consistency with classify
+                "threshold": moderate_threshold
+            }
+            results.append(result)
+            if verbose:
+                logger.debug(
+                    f"Chunk {idx}: id={chunk_id}, score={score:.4f}, label={label}, high_threshold={high_threshold}, moderate_threshold={moderate_threshold}, text='{chunk[:50]}...'")
+        sorted_results = sorted(
+            results, key=lambda x: x["score"], reverse=True)
+        for rank, result in enumerate(sorted_results, start=1):
+            result["rank"] = rank
+        logger.info(
+            f"Multi-label classification completed, {len(sorted_results)} results")
         return sorted_results
 
     def clear_cache(self) -> None:

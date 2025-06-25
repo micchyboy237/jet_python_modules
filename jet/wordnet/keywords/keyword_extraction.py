@@ -1,98 +1,223 @@
+import os
+import numpy as np
+from typing import List, Tuple, Union
 from keybert import KeyBERT
+from sklearn.feature_extraction.text import CountVectorizer
+from jet.models.model_types import EmbedModelType
 from jet.logger import logger
-from jet.transformers.formatters import format_json
+from jet.models.embeddings.base import generate_embeddings, load_embed_model
+
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 
-def extract_keywords(
-    text: str,
-    query: str = None,
-    model_name: str = "all-mpnet-base-v2",
-    keyphrase_ngram_range: tuple = (1, 3),
-    top_n: int = 5,
-    use_mmr: bool = True,
-    diversity: float = 0.5,
-    stop_words: list = None
-) -> list:
-    """
-    Extract keywords from text using KeyBERT, optionally guided by a query.
+def setup_keybert(model_name: EmbedModelType = "static-retrieval-mrl-en-v1") -> KeyBERT:
+    """Initialize KeyBERT with a specified model.
 
     Args:
-        text (str): Input text to extract keywords from.
-        query (str, optional): Query to guide keyword extraction (e.g., 'anime').
-        model_name (str): Name of the KeyBERT model (default: 'all-MiniLM-L12-v2').
-        keyphrase_ngram_range (tuple): Range of n-grams for keyphrases (default: (1, 3)).
-        top_n (int): Number of keywords to extract (default: 5).
-        use_mmr (bool): Use Maximal Marginal Relevance for diversity (default: True).
-        diversity (float): Diversity parameter for MMR (default: 0.5).
-        stop_words (list): List of stop words to filter out (default: None).
+        model_name: Name of the embedding model (default: static-retrieval-mrl-en-v1).
 
     Returns:
-        list: List of extracted keywords relevant to the query (if provided).
+        KeyBERT: Initialized KeyBERT instance.
     """
+    logger.info(f"Initializing KeyBERT with model: {model_name}")
+    embed_model = load_embed_model(model_name)
+    return KeyBERT(model=embed_model)
+
+
+def extract_single_doc_keywords(
+    doc: str,
+    model: KeyBERT,
+    top_n: int = 5,
+    use_mmr: bool = False,
+    diversity: float = 0.5
+) -> List[Tuple[str, float]]:
+    """Extract keywords from a single document.
+
+    Args:
+        doc: Input document text.
+        model: Initialized KeyBERT model.
+        top_n: Number of keywords to return (default: 5).
+        use_mmr: Whether to use MMR for diversity (default: False).
+        diversity: Diversity level for MMR (default: 0.5).
+
+    Returns:
+        List of tuples containing keywords and their similarity scores.
+    """
+    logger.info(
+        f"Extracting keywords from single document (length: {len(doc)} chars)")
+    keywords = model.extract_keywords(
+        docs=doc,
+        top_n=top_n,
+        use_mmr=use_mmr,
+        diversity=diversity
+    )
+    logger.debug(f"Extracted keywords: {keywords}")
+    return keywords
+
+
+def extract_multi_doc_keywords(
+    docs: List[str],
+    model: KeyBERT,
+    top_n: int = 5,
+    keyphrase_ngram_range: Tuple[int, int] = (1, 2),
+    stop_words: str = "english"
+) -> List[List[Tuple[str, float]]]:
+    """Extract keywords from multiple documents.
+
+    Args:
+        docs: List of input document texts.
+        model: Initialized KeyBERT model.
+        top_n: Number of keywords to return per document (default: 5).
+        keyphrase_ngram_range: Range of n-grams for keyphrases (default: (1, 2)).
+        stop_words: Stop words to filter out (default: "english").
+
+    Returns:
+        List of lists of tuples containing keywords and their similarity scores.
+    """
+    logger.info(f"Extracting keywords from {len(docs)} documents")
+    keywords = model.extract_keywords(
+        docs=docs,
+        keyphrase_ngram_range=keyphrase_ngram_range,
+        stop_words=stop_words,
+        top_n=top_n
+    )
+    logger.debug(f"Extracted keywords for {len(keywords)} documents")
+    return keywords
+
+
+def extract_keywords_with_candidates(
+    doc: str,
+    model: KeyBERT,
+    candidates: List[str],
+    top_n: int = 5
+) -> List[Tuple[str, float]]:
+    """Extract keywords from a document using provided candidate keywords.
+
+    Args:
+        doc: Input document text.
+        model: Initialized KeyBERT model.
+        candidates: List of candidate keywords.
+        top_n: Number of keywords to return (default: 5).
+
+    Returns:
+        List of tuples containing keywords and their similarity scores.
+    """
+    logger.info(f"Extracting keywords with {len(candidates)} candidates")
+    keywords = model.extract_keywords(
+        docs=doc,
+        candidates=candidates,
+        top_n=top_n
+    )
+    logger.debug(f"Extracted keywords: {keywords}")
+    return keywords
+
+
+def extract_keywords_with_custom_vectorizer(
+    docs: Union[str, List[str]],
+    model: KeyBERT,
+    vectorizer: CountVectorizer,
+    top_n: int = 5
+) -> Union[List[Tuple[str, float]], List[List[Tuple[str, float]]]]:
+    """Extract keywords using a custom CountVectorizer.
+
+    Args:
+        docs: Single document or list of documents.
+        model: Initialized KeyBERT model.
+        vectorizer: Custom CountVectorizer instance.
+        top_n: Number of keywords to return (default: 5).
+
+    Returns:
+        Keywords for single document or list of keywords for multiple documents.
+    """
+    logger.info(
+        f"Extracting keywords with custom vectorizer for {1 if isinstance(docs, str) else len(docs)} document(s)")
+    keywords = model.extract_keywords(
+        docs=docs,
+        vectorizer=vectorizer,
+        top_n=top_n
+    )
+    logger.debug(f"Extracted keywords: {keywords}")
+    return keywords
+
+
+def extract_keywords_with_embeddings(
+    docs: Union[str, List[str]],
+    model: KeyBERT,
+    top_n: int = 5,
+    keyphrase_ngram_range: Tuple[int, int] = (1, 2)
+) -> Union[List[Tuple[str, float]], List[List[Tuple[str, float]]]]:
+    """Extract keywords using precomputed embeddings.
+
+    Args:
+        docs: Single document (str) or list of documents (List[str]).
+        model: Initialized KeyBERT model.
+        top_n: Number of keywords to extract per document.
+        keyphrase_ngram_range: N-gram range for keyword extraction (e.g., (1, 2)).
+
+    Returns:
+        List of (keyword, score) tuples for a single document, or list of such lists for multiple documents.
+
+    Raises:
+        ValueError: If docs is not a string or a list of strings.
+    """
+    logger.info(
+        f"Extracting keywords with precomputed embeddings for {1 if isinstance(docs, str) else len(docs)} document(s)")
+
+    # Validate input
+    if not isinstance(docs, (str, list)):
+        logger.error(
+            f"Invalid input type: {type(docs)}. Expected str or List[str].")
+        raise ValueError("Input must be a string or a list of strings")
+    if isinstance(docs, list) and not all(isinstance(doc, str) for doc in docs):
+        logger.error("All elements in docs must be strings.")
+        raise ValueError("All elements in docs must be strings")
+
+    # Handle empty input
+    if not docs:
+        return [] if isinstance(docs, list) else []
+
+    # Generate document embeddings
+    model_name = 'static-retrieval-mrl-en-v1'
+    doc_embeddings = generate_embeddings(
+        docs, model=model_name, return_format="numpy")
+
+    # Initialize vectorizer
+    vectorizer = CountVectorizer(ngram_range=keyphrase_ngram_range)
     try:
-        # Initialize KeyBERT model
-        model = KeyBERT(model_name)
+        vocab = vectorizer.fit([docs] if isinstance(
+            docs, str) else docs).get_feature_names_out()
+    except ValueError as e:
+        logger.warning(f"Vectorization failed: {e}. Returning empty keywords.")
+        return [] if isinstance(docs, str) else [[] for _ in docs]
 
-        # If query is provided, append it to the text to bias extraction
-        input_text = f"{text} {query}" if query else text
+    if len(vocab) == 0:
+        logger.warning(
+            f"Empty vocabulary after vectorization for {len(docs if isinstance(docs, list) else 1)} document(s). Returning empty keywords.")
+        return [] if isinstance(docs, str) else [[] for _ in docs]
 
-        # Extract keywords
+    # Generate word embeddings
+    word_embeddings = generate_embeddings(
+        vocab.tolist(), model=model_name, return_format="numpy")
+
+    # Try extraction with precomputed embeddings
+    try:
         keywords = model.extract_keywords(
-            input_text,
-            keyphrase_ngram_range=keyphrase_ngram_range,
-            top_n=top_n * 2,  # Extract more candidates to filter later
-            use_mmr=use_mmr,
-            diversity=diversity,
-            stop_words=stop_words
+            docs=docs,
+            doc_embeddings=doc_embeddings,
+            word_embeddings=word_embeddings,
+            vectorizer=vectorizer,
+            top_n=top_n
+        )
+    except Exception as e:
+        logger.error(f"Error in extract_keywords with embeddings: {e}")
+        keywords = []
+
+    # Fallback to default extraction if empty
+    if not keywords:
+        keywords = model.extract_keywords(
+            docs=docs,
+            vectorizer=vectorizer,
+            top_n=top_n
         )
 
-        # Extract keyword strings
-        extracted_keywords = [kw[0] for kw in keywords]
-
-        # If query is provided, filter keywords to those related to the query
-        if query:
-            # Simple heuristic: keep keywords that are not the query itself
-            # and are likely related (e.g., contain or are similar to query terms)
-            from sentence_transformers import SentenceTransformer, util
-            embedding_model = SentenceTransformer(model_name)
-            query_embedding = embedding_model.encode(
-                query, convert_to_tensor=True)
-            filtered_keywords = []
-            for keyword in extracted_keywords:
-                if keyword.lower() != query.lower():  # Exclude the query itself
-                    keyword_embedding = embedding_model.encode(
-                        keyword, convert_to_tensor=True)
-                    similarity = util.cos_sim(
-                        query_embedding, keyword_embedding).item()
-                    if similarity > 0.3:  # Threshold for relevance
-                        filtered_keywords.append(keyword)
-            extracted_keywords = filtered_keywords[:top_n]  # Limit to top_n
-
-        # Log the extracted keywords
-        logger.success(format_json(extracted_keywords))
-        return extracted_keywords
-
-    except Exception as e:
-        logger.error(f"Error extracting keywords: {str(e)}")
-        return []
-
-
-# Pytest test
-
-
-def test_keybert_query_extraction():
-    text = "I love watching Naruto and Attack on Titan."
-    extracted = extract_keywords(
-        text,
-        query="anime",
-        keyphrase_ngram_range=(1, 3),
-        top_n=5,
-        stop_words=['love', 'watching']
-    )
-    print(extracted)  # Debug: Print extracted keywords
-    assert set(['attack on titan', 'naruto']).issubset(extracted)
-
-
-if __name__ == "__main__":
-    import pytest
-    pytest.main(["-v", __file__])
+    return keywords

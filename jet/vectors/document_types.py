@@ -21,7 +21,7 @@ class HeaderMetadata(TypedDict, total=False):
     chunk_index: int | None
     tokens: int | None
     links: List[str] | None
-    texts: List[str] | None
+    texts: List['HeaderTextNode'] | None
 
 
 class Match(TypedDict):
@@ -111,13 +111,10 @@ class HeaderDocument(Document):
         result: List[HeaderDocument] = []
         level_stack: List[tuple[int, HeaderDocument]] = []
         doc_map: Dict[str, HeaderDocument] = {}
-
-        # Convert all inputs to HeaderDocument instances
         processed_docs: List[HeaderDocument] = []
         for doc in documents:
             if isinstance(doc, dict):
                 metadata = doc.get("metadata", {})
-                # Generate ID if not provided
                 doc_id = doc.get("id", str(uuid.uuid4()))
                 metadata["id"] = doc_id
                 new_doc = HeaderDocument(
@@ -134,19 +131,13 @@ class HeaderDocument(Document):
                     embedding=doc.embedding
                 )
             processed_docs.append(new_doc)
-
         for doc in processed_docs:
             metadata = dict(doc.metadata)
             header_level = metadata.get("header_level", 0)
             doc_id = cast(str, doc.id)
-
-            # Clear any existing relationships to ensure derivation from stack
             doc.relationships = {}
-
-            # Update parent relationships
             while level_stack and level_stack[-1][0] >= header_level:
                 level_stack.pop()
-
             if level_stack:
                 parent_level, parent_doc = level_stack[-1]
                 doc.relationships[NodeRelationship.PARENT] = RelatedNodeInfo(
@@ -161,11 +152,9 @@ class HeaderDocument(Document):
                 parent_doc.relationships[NodeRelationship.CHILD] = parent_children
             else:
                 doc.metadata["parent_header"] = ""
-
             level_stack.append((header_level, doc))
             doc_map[doc_id] = doc
             result.append(doc)
-
         return result
 
     def __init__(self, **data: Any):
@@ -181,19 +170,17 @@ class HeaderDocument(Document):
             "content": "",
             "chunk_index": None,
             "tokens": None,
-            # Prioritize source_url from data
             "source_url": data.get("source_url", None),
             "links": None,
-            "texts": text.splitlines(),
+            "texts": [HeaderTextNode(text=line, id=str(uuid.uuid4())) for line in text.splitlines()],
         }
         metadata_dict = metadata if isinstance(metadata, dict) else {}
         default_metadata = {
             **default_values,
-            **metadata_dict,  # metadata_dict overrides defaults
-            # Other data fields, excluding source_url
+            **metadata_dict,
             **{k: v for k, v in data.items() if k in default_values and k != "source_url"},
         }
-        if "source_url" in metadata_dict:  # Explicitly check metadata for source_url
+        if "source_url" in metadata_dict:
             default_metadata["source_url"] = metadata_dict["source_url"]
         id = data.pop("id", self.id_)
         default_metadata["id"] = id
@@ -242,13 +229,13 @@ class HeaderTextNode(TextNode):
     id: Optional[str] = Field(
         None, description="Unique identifier for the text node")
     text_template: str = Field(
-        default="{parent_header}\n{header}\n\n{metadata_str}\n\n{content}")
+        default="{parent_header}\n{header}\n\n{metadata_str}\n{content}")
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs = kwargs.copy()
         super().__init__(*args, **kwargs)
         default_metadata: HeaderMetadata = {
-            "doc_index": 0,
+            "doc_index": "",
             "header_level": 0,
             "header": "",
             "parent_header": "",
@@ -257,6 +244,7 @@ class HeaderTextNode(TextNode):
             "tokens": None,
             "source_url": None,
             "texts": None,
+            "id": "",
         }
         provided_metadata = kwargs.get("metadata", {})
         id = kwargs.pop("id", self.id_)
@@ -264,6 +252,10 @@ class HeaderTextNode(TextNode):
         self.id = id
         self.node_id = id
         self.metadata = {**default_metadata, **provided_metadata, "id": id}
+
+    def __str__(self) -> str:
+        """Return the text content as a string for compatibility with existing code."""
+        return self.text
 
     def __getitem__(self, key: str) -> Any:
         if hasattr(self, key):

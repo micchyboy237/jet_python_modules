@@ -100,10 +100,11 @@ def generate_multiple(
 
 def generate_embeddings(
     input_data: Union[str, List[str]],
-    model: str = "static-retrieval-mrl-en-v1",
+    model: EmbedModelType = "static-retrieval-mrl-en-v1",
     batch_size: int = 32,
-    show_progress: bool = False
-) -> Union[List[float], List[List[float]]]:
+    show_progress: bool = False,
+    return_format: Literal["list", "numpy"] = "list"
+) -> Union[List[float], List[List[float]], np.ndarray]:
     """
     Generate embeddings for a single string or list of strings using SentenceTransformer.
 
@@ -112,16 +113,21 @@ def generate_embeddings(
         model: Name of the SentenceTransformer model to use.
         batch_size: Batch size for embedding multiple strings.
         show_progress: Whether to display a progress bar for batch processing.
+        return_format: Format of the returned embeddings ("list" or "numpy").
 
     Returns:
-        List[float] for a single string input, or List[List[float]] for a list of strings.
+        List[float] or np.ndarray for a single string input, or List[List[float]] or np.ndarray
+        for a list of strings, based on return_format.
     """
-    logger.info("Generating embeddings for input type: %s, model: %s, show_progress: %s",
-                type(input_data), model, show_progress)
+    logger.info("Generating embeddings for input type: %s, model: %s, show_progress: %s, return_format: %s",
+                type(input_data), model, show_progress, return_format)
+
+    if return_format not in ["list", "numpy"]:
+        raise ValueError("return_format must be 'list' or 'numpy'")
 
     try:
-        # Initialize SentenceTransformer with ONNX backend for Mac M1 compatibility
-        embedder = SentenceTransformer(model, device="cpu", backend="onnx")
+        # Initialize SentenceTransformer
+        embedder = load_embed_model(model)
         logger.debug(
             "Embedding model initialized with device: %s", embedder.device)
 
@@ -131,7 +137,7 @@ def generate_embeddings(
             embedding = embedder.encode(input_data, convert_to_numpy=True)
             embedding = np.ascontiguousarray(embedding.astype(np.float32))
             logger.debug("Generated embedding shape: %s", embedding.shape)
-            return embedding.tolist()
+            return embedding if return_format == "numpy" else embedding.tolist()
 
         elif isinstance(input_data, list) and all(isinstance(item, str) for item in input_data):
             # Handle list of strings input
@@ -140,7 +146,7 @@ def generate_embeddings(
             if not input_data:
                 logger.info(
                     "Empty input list, returning empty list of embeddings")
-                return []
+                return [] if return_format == "list" else np.array([])
 
             embeddings = []
             # Use tqdm for progress bar if show_progress is True
@@ -162,9 +168,9 @@ def generate_embeddings(
                     batch_embeddings.astype(np.float32))
                 embeddings.extend(batch_embeddings.tolist())
 
-            logger.debug("Generated embeddings shape: (%d, %d)", len(
-                embeddings), len(embeddings[0]) if embeddings else 0)
-            return embeddings
+            embeddings = np.array(embeddings, dtype=np.float32)
+            logger.debug("Generated embeddings shape: %s", embeddings.shape)
+            return embeddings if return_format == "numpy" else embeddings.tolist()
 
         else:
             logger.error(
