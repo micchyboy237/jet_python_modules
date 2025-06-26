@@ -249,6 +249,7 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
 
 
 def read_md_content(input) -> str:
+    md_content = ""
     try:
         if Path(str(input)).is_file():
             with open(input, 'r', encoding='utf-8') as file:
@@ -261,6 +262,8 @@ def read_md_content(input) -> str:
 
         if valid_html(md_content):
             md_content = convert_html_to_markdown(md_content)
+    except Exception:
+        raise
     return md_content
 
 
