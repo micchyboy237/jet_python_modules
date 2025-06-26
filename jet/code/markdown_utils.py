@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional, Union, TypedDict
 import html2text
 from markdownify import MarkdownConverter
 from markitdown import MarkItDown
+from jet.code.html_utils import is_html
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken
 from jet.decorators.timer import timeout
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
@@ -244,50 +245,51 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     return markdown_content.strip()
 
 
-def parse_markdown(md_input: Union[str, Path]) -> List[MarkdownToken]:
-    """
-    Parse markdown content into a list of structured tokens using MarkdownParser.
+def parse_markdown(input: Union[str, Path]) -> List[MarkdownToken]:
+    def read_file(file_path: Path) -> str:
+        if not file_path.is_file():
+            raise OSError(f"File {file_path} does not exist")
+        with file_path.open('r', encoding='utf-8') as file:
+            return file.read()
 
-    Args:
-        md_input: Either a string containing markdown content or a Path to a markdown file.
+    def parse_with_timeout(content: str) -> List[MarkdownToken]:
+        parser = MarkdownParser(content)
+        return parser.parse()
 
-    Returns:
-        A list of dictionaries representing parsed markdown tokens with their type, content, and metadata.
-
-    Raises:
-        OSError: If the input file does not exist.
-        TimeoutError: If parsing takes too long.
-    """
     try:
-        if isinstance(md_input, (str, Path)) and str(md_input).endswith('.md'):
-            if not Path(str(md_input)).is_file():
-                raise OSError(f"File {md_input} does not exist")
-            with open(md_input, 'r', encoding='utf-8') as file:
-                md_content = file.read()
-        else:
-            md_content = str(md_input)
+        input_str = str(input)
+        input_path = Path(input_str)
 
-        # Preprocess markdown
+        if is_html(input_str) or input_str.endswith('.html'):
+            md_content = convert_html_to_markdown(input)
+        elif input_str.endswith('.md'):
+            md_content = read_file(input_path)
+        else:
+            md_content = input_str
+
         logger.debug("Preprocessing markdown content")
         md_content = preprocess_markdown(md_content)
 
-        # @timeout(3)
-        def parse_with_timeout(content: str) -> List[MarkdownToken]:
-            parser = MarkdownParser(content)
-            return parser.parse()
-
         logger.debug("Starting markdown parsing")
         tokens = parse_with_timeout(md_content)
+
         parsed_tokens = [
             {
                 "type": token.type,
-                "content": clean_markdown_text(token.content),
+                "content": derive_text({
+                    "type": token.type,
+                    "content": token.content,
+                    "level": token.level,
+                    "meta": token.meta,
+                    "line": token.line
+                }),
                 "level": token.level,
                 "meta": token.meta,
                 "line": token.line
             }
             for token in tokens
         ]
+
         logger.debug(f"Parsed {len(parsed_tokens)} markdown tokens")
         return parsed_tokens
 
@@ -299,12 +301,12 @@ def parse_markdown(md_input: Union[str, Path]) -> List[MarkdownToken]:
         raise
 
 
-def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
+def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
     """
     Analyze markdown content and return structured analysis results.
 
     Args:
-        md_input: Either a string containing markdown content or a Path to a markdown file.
+        input: Either a string containing markdown content or a Path to a markdown file.
 
     Returns:
         A dictionary containing detailed analysis of markdown elements.
@@ -313,63 +315,50 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
         OSError: If the input file does not exist.
         TimeoutError: If analysis takes too long.
     """
-    temp_md_path: Optional[Path] = None
-    try:
-        if isinstance(md_input, (str, Path)) and str(md_input).endswith('.md'):
-            if not Path(str(md_input)).is_file():
-                raise OSError(f"File {md_input} does not exist")
-            with open(md_input, 'r', encoding='utf-8') as file:
-                md_content = file.read()
-        else:
-            md_content = str(md_input)
+    def read_file(file_path: Path) -> str:
+        if not file_path.is_file():
+            raise OSError(f"File {file_path} does not exist")
+        return file_path.read_text(encoding='utf-8')
 
-        # Preprocess markdown
+    def analyze_with_timeout(temp_file_path: str) -> tuple:
+        analyzer = MarkdownAnalyzer(temp_file_path)
+        return (
+            convert_dict_keys_to_snake_case(get_summary(md_content)),
+            convert_dict_keys_to_snake_case(analyzer.identify_headers()),
+            convert_dict_keys_to_snake_case(analyzer.identify_paragraphs()),
+            convert_dict_keys_to_snake_case(analyzer.identify_blockquotes()),
+            convert_dict_keys_to_snake_case(analyzer.identify_code_blocks()),
+            convert_dict_keys_to_snake_case(analyzer.identify_lists()),
+            convert_dict_keys_to_snake_case(analyzer.identify_tables()),
+            convert_dict_keys_to_snake_case(analyzer.identify_links()),
+            convert_dict_keys_to_snake_case(analyzer.identify_footnotes()),
+            convert_dict_keys_to_snake_case(analyzer.identify_inline_code()),
+            convert_dict_keys_to_snake_case(analyzer.identify_emphasis()),
+            convert_dict_keys_to_snake_case(analyzer.identify_task_items()),
+            convert_dict_keys_to_snake_case(analyzer.identify_html_blocks()),
+            convert_dict_keys_to_snake_case(analyzer.identify_html_inline()),
+            convert_dict_keys_to_snake_case(analyzer.get_tokens_sequential()),
+            analyzer.count_words(),
+            analyzer.count_characters()
+        )
+
+    temp_md_path: Optional[Path] = None
+
+    try:
+        input_str = str(input)
+        input_path = Path(input_str)
+
+        if input_str.endswith('.md'):
+            md_content = read_file(input_path)
+        else:
+            md_content = input_str
+
         logger.debug("Preprocessing markdown content")
         md_content = preprocess_markdown(md_content)
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
             temp_file.write(md_content)
             temp_md_path = Path(temp_file.name)
-
-        # @timeout(3)
-        def analyze_with_timeout(temp_file_path: str) -> tuple:
-            analyzer = MarkdownAnalyzer(temp_file_path)
-            raw_headers = convert_dict_keys_to_snake_case(
-                analyzer.identify_headers())
-            raw_paragraphs = convert_dict_keys_to_snake_case(
-                analyzer.identify_paragraphs())
-            raw_blockquotes = convert_dict_keys_to_snake_case(
-                analyzer.identify_blockquotes())
-            raw_code_blocks = convert_dict_keys_to_snake_case(
-                analyzer.identify_code_blocks())
-            raw_lists = convert_dict_keys_to_snake_case(
-                analyzer.identify_lists())
-            raw_tables = convert_dict_keys_to_snake_case(
-                analyzer.identify_tables())
-            raw_links = convert_dict_keys_to_snake_case(
-                analyzer.identify_links())
-            raw_footnotes = convert_dict_keys_to_snake_case(
-                analyzer.identify_footnotes())
-            raw_inline_code = convert_dict_keys_to_snake_case(
-                analyzer.identify_inline_code())
-            raw_emphasis = convert_dict_keys_to_snake_case(
-                analyzer.identify_emphasis())
-            raw_task_items = convert_dict_keys_to_snake_case(
-                analyzer.identify_task_items())
-            raw_html_blocks = convert_dict_keys_to_snake_case(
-                analyzer.identify_html_blocks())
-            raw_html_inline = convert_dict_keys_to_snake_case(
-                analyzer.identify_html_inline())
-            raw_tokens_sequential = convert_dict_keys_to_snake_case(
-                analyzer.get_tokens_sequential())
-            raw_summary = convert_dict_keys_to_snake_case(
-                get_summary(md_content))
-            return (
-                raw_summary, raw_headers, raw_paragraphs, raw_blockquotes, raw_code_blocks,
-                raw_lists, raw_tables, raw_links, raw_footnotes, raw_inline_code,
-                raw_emphasis, raw_task_items, raw_html_blocks, raw_html_inline,
-                raw_tokens_sequential, analyzer.count_words(), analyzer.count_characters()
-            )
 
         logger.debug("Starting markdown analysis")
         (
@@ -379,7 +368,7 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
             raw_tokens_sequential, word_count, char_count
         ) = analyze_with_timeout(str(temp_md_path))
 
-        analysis_results: MarkdownAnalysis = {
+        return {
             "summary": raw_summary,
             "headers": {
                 "header": [
@@ -467,8 +456,6 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
             "char_count": {"char": char_count}
         }
 
-        return analysis_results
-
     except TimeoutError as e:
         logger.error(f"Analysis timed out: {str(e)}")
         raise
@@ -484,12 +471,12 @@ def analyze_markdown(md_input: Union[str, Path]) -> MarkdownAnalysis:
                     f"Warning: Could not delete temporary file {temp_md_path}")
 
 
-def get_summary(md_input: Union[str, Path]) -> MarkdownAnalysis:
+def get_summary(input: Union[str, Path]) -> MarkdownAnalysis:
     """
     Get summary analysis of markdown content using MarkdownAnalyzer.
 
     Args:
-        md_input: Either a string containing markdown content or a Path to a markdown file.
+        input: Either a string containing markdown content or a Path to a markdown file.
 
     Returns:
         A dictionary containing summary analysis of markdown elements.
@@ -497,15 +484,21 @@ def get_summary(md_input: Union[str, Path]) -> MarkdownAnalysis:
     Raises:
         OSError: If the input file does not exist.
     """
+    def read_file(file_path: Path) -> str:
+        if not file_path.is_file():
+            raise OSError(f"File {file_path} does not exist")
+        return file_path.read_text(encoding='utf-8')
+
     temp_md_path: Optional[Path] = None
+
     try:
-        if isinstance(md_input, (str, Path)) and str(md_input).endswith('.md'):
-            if not Path(str(md_input)).is_file():
-                raise OSError(f"File {md_input} does not exist")
-            with open(md_input, 'r', encoding='utf-8') as file:
-                md_content = file.read()
+        input_str = str(input)
+        input_path = Path(input_str)
+
+        if input_str.endswith('.md'):
+            md_content = read_file(input_path)
         else:
-            md_content = str(md_input)
+            md_content = input_str
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
             temp_file.write(md_content)
@@ -521,3 +514,44 @@ def get_summary(md_input: Union[str, Path]) -> MarkdownAnalysis:
             except OSError:
                 logger.warning(
                     f"Warning: Could not delete temporary file {temp_md_path}")
+
+
+def derive_text(token: MarkdownToken) -> str:
+    if token['type'] == 'header' and token['level'] is not None:
+        return f"{'#' * token['level']} {token['content']}"
+    elif token['type'] in ['unordered_list', 'ordered_list']:
+        if not token['meta'] or 'items' not in token['meta']:
+            return ""
+        items = token['meta']['items']
+        prefix = '*' if token['type'] == 'unordered_list' else lambda i: f"{i+1}."
+        lines = []
+        for i, item in enumerate(items):
+            checkbox = '[x]' if item.get('checked', False) else '[ ]' if item.get(
+                'task_item', False) else ''
+            prefix_str = prefix(
+                i) if token['type'] == 'ordered_list' else prefix
+            line = f"{prefix_str} {checkbox}{' ' if checkbox else ''}{item['text']}".strip(
+            )
+            lines.append(line)
+        return '\n'.join(lines)
+    elif token['type'] == 'table':
+        if not token['meta'] or 'header' not in token['meta'] or 'rows' not in token['meta']:
+            return ""
+        header = token['meta']['header']
+        rows = token['meta']['rows']
+        widths = [max(len(str(cell)) for row in [header] +
+                      rows for cell in row[i:i+1]) for i in range(len(header))]
+        lines = ['| ' + ' | '.join(cell.ljust(widths[i])
+                                   for i, cell in enumerate(header)) + ' |']
+        lines.append(
+            '| ' + ' | '.join('-' * width for width in widths) + ' |')
+        for row in rows:
+            lines.append(
+                '| ' + ' | '.join(str(cell).ljust(widths[i]) for i, cell in enumerate(row)) + ' |')
+        return '\n'.join(lines)
+    elif token['type'] == 'code':
+        language = token['meta'].get(
+            'language', '') if token['meta'] else ''
+        return f"```{' ' + language if language else ''}\n{token['content']}\n```"
+    else:
+        return token['content']

@@ -1,3 +1,4 @@
+from pathlib import Path
 import uuid
 from llama_index.core.schema import (
     Document as BaseDocument,
@@ -8,6 +9,8 @@ from llama_index.core.schema import (
 )
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional, TypedDict, Union, cast, ItemsView
+
+from jet.code.markdown_utils import parse_markdown
 
 
 class DotDict(dict):
@@ -186,6 +189,56 @@ class HeaderDocument(Document):
             doc_map[doc_id] = doc
             result.append(doc)
         return result
+
+    @staticmethod
+    def from_markdown(md_input: Union[str, Path], source_url: Optional[str] = None) -> List['HeaderDocument']:
+        """Convert markdown content into a list of HeaderDocument instances."""
+        tokens = parse_markdown(md_input)
+        documents: List[HeaderDocumentDict] = []
+        current_content: List[str] = []
+        current_header: str = ""
+        current_level: int = 0
+        doc_index: int = 0
+
+        for token in tokens:
+            if token['type'] == 'header' and token['level'] is not None:
+                if current_content or current_header:
+                    # Save the previous document if it exists
+                    documents.append({
+                        'text': '\n'.join(current_content).strip(),
+                        'metadata': {
+                            'header': current_header,
+                            'header_level': current_level,
+                            'doc_index': doc_index,
+                            'content': '\n'.join(current_content).strip(),
+                            'source_url': source_url,
+                            'chunk_index': 0,
+                            'texts': [HeaderTextNode(text=line, id=str(uuid.uuid4())) for line in current_content]
+                        }
+                    })
+                    doc_index += 1
+                    current_content = []
+                current_header = token['content'].lstrip('#').strip()
+                current_level = token['level']
+            else:
+                current_content.append(token['content'])
+
+        # Save the last document if it exists
+        if current_content or current_header:
+            documents.append({
+                'text': '\n'.join(current_content).strip(),
+                'metadata': {
+                    'header': current_header,
+                    'header_level': current_level,
+                    'doc_index': doc_index,
+                    'content': '\n'.join(current_content).strip(),
+                    'source_url': source_url,
+                    'chunk_index': 0,
+                    'texts': [HeaderTextNode(text=line, id=str(uuid.uuid4())) for line in current_content]
+                }
+            })
+
+        return HeaderDocument.from_list(documents)
 
     def __init__(self, **data: Any):
         data = data.copy()

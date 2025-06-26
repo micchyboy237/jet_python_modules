@@ -28,18 +28,20 @@ class ListMeta(TypedDict):
 
 MetaType = Union[ListMeta, CodeMeta, TableMeta, dict]
 
+ContentType = Literal[
+    "header",
+    "paragraph",
+    "blockquote",
+    "code",
+    "table",
+    "unordered_list",
+    "ordered_list",
+    "html_block"
+]
+
 
 class MarkdownToken(TypedDict):
-    type: Literal[
-        "header",
-        "paragraph",
-        "blockquote",
-        "code",
-        "table",
-        "unordered_list",
-        "ordered_list",
-        "html_block"
-    ]
+    type: ContentType
     content: str  # content is always present in the JSON, can be empty string
     level: Optional[int]
     meta: MetaType
