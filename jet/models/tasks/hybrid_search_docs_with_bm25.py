@@ -152,19 +152,31 @@ def process_documents(
 
 def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int = 800, overlap: int = 200) -> List[Dict[str, Any]]:
     """Split document into semantic chunks using sentence boundaries, preserving newlines between headers and content."""
+    logger.debug("Starting split_document for doc_id=%s, doc_index=%d, text_length=%d",
+                 doc_id, doc_index, len(doc_text))
     chunks = []
     current_headers = []
     current_chunk = []
     current_content = []
     current_len = 0
     lines = doc_text.strip().split("\n")
+    logger.debug("Split into %d lines: %s", len(
+        lines), lines[:3] if lines else [])
+
     for line in lines:
         line = line.strip()
+        logger.debug("Processing line: '%s'", line)
         if not line:
+            logger.debug("Skipping empty line")
             continue
         if re.match(r'^#{1,6}\s+', line):  # Detect header
-            if current_content:  # Only create a chunk if there's content
-                chunk_text = "\n".join(current_chunk + current_content).strip()
+            logger.debug("Detected header: '%s'", line)
+            if current_content or current_chunk:  # Create chunk if there's content or a previous header
+                content_text = " ".join(
+                    current_content) if current_content else ""
+                chunk_text = "\n".join(current_chunk + [content_text]).strip()
+                logger.debug(
+                    "Creating chunk with text: '%s', headers: %s", chunk_text, current_headers)
                 if chunk_text:
                     chunks.append({
                         "text": chunk_text,
@@ -175,6 +187,8 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
                 current_content = current_content[-int(
                     overlap / 2):] if overlap else []
                 current_len = sum(len(get_words(s)) for s in current_content)
+                logger.debug(
+                    "After header, reset current_content: %s, current_len: %d", current_content, current_len)
             current_headers = [line]
             current_chunk = [line]
             current_content = []
@@ -184,11 +198,52 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
             for sentence in sentences:
                 sentence = sentence.strip()
                 if not sentence:
+                    logger.debug("Skipping empty sentence")
                     continue
                 sentence_len = len(get_words(sentence))
-                if current_len + sentence_len > chunk_size and (current_chunk or current_content):
+                logger.debug("Processing sentence: '%s', length: %d",
+                             sentence, sentence_len)
+                # Handle large sentences by splitting into smaller chunks
+                if sentence_len > chunk_size:
+                    words = get_words(sentence)
+                    header_word_count = len(
+                        get_words(current_chunk[0])) if current_chunk else 0
+                    available_chunk_size = chunk_size - header_word_count
+                    i = 0
+                    while i < len(words):
+                        if i == 0 and current_chunk:  # First chunk includes header
+                            chunk_words = words[i:i + available_chunk_size]
+                            content_text = " ".join(chunk_words)
+                            chunk_text = "\n".join(
+                                current_chunk + [content_text]).strip()
+                        else:  # Subsequent chunks
+                            chunk_words = words[i:i + chunk_size]
+                            content_text = " ".join(chunk_words)
+                            chunk_text = content_text
+                        if chunk_text:
+                            chunks.append({
+                                "text": chunk_text,
+                                "headers": current_headers.copy(),
+                                "doc_id": doc_id,
+                                "doc_index": doc_index
+                            })
+                            logger.debug(
+                                "Large sentence split, new chunk: '%s', headers: %s", chunk_text, current_headers)
+                        current_content = chunk_words[-int(
+                            overlap / 2):] if overlap else []
+                        current_len = sum(len(get_words(w))
+                                          for w in current_content)
+                        current_chunk = current_chunk if overlap and i == 0 else []
+                        i += len(chunk_words)
+                        logger.debug(
+                            "After large sentence chunk, current_content: %s, current_len: %d", current_content, current_len)
+                elif current_len + sentence_len > chunk_size and (current_chunk or current_content):
+                    content_text = " ".join(
+                        current_content) if current_content else ""
                     chunk_text = "\n".join(
-                        current_chunk + current_content).strip()
+                        current_chunk + [content_text]).strip()
+                    logger.debug(
+                        "Chunk size exceeded, creating chunk with text: '%s'", chunk_text)
                     if chunk_text:
                         chunks.append({
                             "text": chunk_text,
@@ -198,23 +253,32 @@ def split_document(doc_text: str, doc_id: str, doc_index: int, chunk_size: int =
                         })
                     current_content = [
                         sentence] if not overlap else current_content[-int(overlap / 2):] + [sentence]
-                    current_chunk = current_chunk if overlap else []
                     current_len = sentence_len + \
-                        sum(len(get_words(s))
-                            for s in current_chunk + current_content[:-1])
+                        sum(len(get_words(s)) for s in current_content[:-1])
+                    current_chunk = current_chunk if overlap else []
+                    logger.debug(
+                        "After chunk creation, current_content: %s, current_len: %d", current_content, current_len)
                 else:
                     current_content.append(sentence)
                     current_len += sentence_len
-    # Final chunk, only append if there's meaningful content
-    if current_content:
-        chunk_text = "\n".join(current_chunk + current_content).strip()
-        if chunk_text:
-            chunks.append({
-                "text": chunk_text,
-                "headers": current_headers.copy(),
-                "doc_id": doc_id,
-                "doc_index": doc_index
-            })
+                    logger.debug(
+                        "Added sentence, current_content: %s, current_len: %d", current_content, current_len)
+
+    # Final chunk: Include even if it's just a header or small content
+    content_text = " ".join(current_content) if current_content else ""
+    chunk_text = "\n".join(current_chunk + [content_text]).strip()
+    logger.debug("Final chunk processing, chunk_text: '%s'", chunk_text)
+    if chunk_text:  # Always include non-empty final chunk
+        chunks.append({
+            "text": chunk_text,
+            "headers": current_headers.copy(),
+            "doc_id": doc_id,
+            "doc_index": doc_index
+        })
+        logger.debug("Appended final chunk: %s", chunks[-1])
+
+    logger.info(
+        "Completed splitting for doc_id=%s, created %d chunks", doc_id, len(chunks))
     return chunks
 
 
@@ -431,8 +495,9 @@ def search_docs(
     top_k: Optional[int] = 20,
     threshold: float = 0.0,
     filter_by_headers_enabled: bool = False,
-    bm25_weight: float = 0.3,  # Added for BM25 integration
-    with_bm25: bool = False    # Added to toggle BM25
+    bm25_weight: float = 0.3,
+    with_bm25: bool = False,
+    split_document_enabled: bool = True  # New parameter to toggle document splitting
 ) -> List[HeaderDocumentWithScore]:
     """Search documents using embedding-based retrieval, averaging header and content similarities.
 
@@ -446,9 +511,10 @@ def search_docs(
         overlap: Overlap between chunks (default: 200).
         top_k: Number of top results to retrieve (default: 20).
         threshold: Minimum score threshold for results (default: 0.0).
-        filter_by_headers_enabled: Whether to filter chunks by headers (default: True).
+        filter_by_headers_enabled: Whether to filter chunks by headers (default: False).
         bm25_weight: Weight for BM25 score in combined score (default: 0.3).
-        with_bm25: Whether to include BM25 scores (default: True).
+        with_bm25: Whether to include BM25 scores (default: False).
+        split_document_enabled: Whether to split documents into chunks (default: True).
 
     Returns:
         List of HeaderDocumentWithScore.
@@ -463,12 +529,27 @@ def search_docs(
 
     docs = process_documents(documents, ids)
     start_time = time.time()
-    chunks = []
-    for doc in tqdm(docs, desc="Splitting documents"):
-        chunks.extend(split_document(
-            doc["text"], doc["id"], doc["index"], chunk_size, overlap))
-    logger.info("Document splitting completed in %.3f seconds, created %d chunks",
-                time.time() - start_time, len(chunks))
+
+    if split_document_enabled:
+        chunks = []
+        for doc in tqdm(docs, desc="Splitting documents"):
+            chunks.extend(split_document(
+                doc["text"], doc["id"], doc["index"], chunk_size, overlap))
+        logger.info("Document splitting completed in %.3f seconds, created %d chunks",
+                    time.time() - start_time, len(chunks))
+    else:
+        # Use original documents directly without splitting
+        chunks = [
+            {
+                "text": doc["text"],
+                "headers": [],  # No headers when splitting is disabled
+                "doc_id": doc["id"],
+                "doc_index": doc["index"]
+            }
+            for doc in docs
+        ]
+        logger.info("Document splitting disabled, using %d original documents as chunks",
+                    len(chunks))
 
     filtered_chunks = filter_by_headers(
         chunks, query) if filter_by_headers_enabled else chunks
