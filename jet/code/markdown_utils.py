@@ -163,6 +163,12 @@ def convert_html_to_markdownify(html_input: Union[str, Path], **options) -> str:
     Convert HTML content to Markdown and return the string.
     """
     logger.info("Starting HTML to Markdown conversion")
+    if isinstance(html_input, Path):
+        with html_input.open('r', encoding='utf-8') as f:
+            html_content = preprocess_html(f.read())
+    else:
+        html_content = preprocess_html(html_input)
+
     try:
         if isinstance(html_input, Path):
             with html_input.open('r', encoding='utf-8') as f:

@@ -86,7 +86,10 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
         return None
 
     try:
-        if input_file.endswith((".json", ".jsonl")):
+        ext = Path(input_file).suffix.lower()
+
+        # JSON or JSONL
+        if ext in {".json", ".jsonl"}:
             if input_file.endswith(".json"):
                 with open(input_file, "r", encoding="utf-8") as f:
                     try:
@@ -115,6 +118,19 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                 logger.newline()
                 logger.log(prefix, input_file, colors=["INFO", "BRIGHT_INFO"])
             return data
+
+        # HTML
+        elif ext == ".html":
+            with open(input_file, "r", encoding="utf-8") as f:
+                html_content = f.read()
+            formatted_html = format_html(html_content)
+            if verbose:
+                logger.newline()
+                logger.log("Loaded and formatted HTML from:", input_file,
+                           colors=["INFO", "BRIGHT_INFO"])
+            return formatted_html
+
+        # Other files
         else:
             with open(input_file, "r", encoding="utf-8") as f:
                 data = f.read()
@@ -176,8 +192,7 @@ def save_file(
 
         # HTML
         elif ext == ".html":
-            if not isinstance(data, str):
-                data = format_html(data)
+            data = format_html(data)
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(data)
             if verbose:
