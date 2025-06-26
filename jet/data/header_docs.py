@@ -136,15 +136,26 @@ class HeaderDocs(BaseModel):
 
     def as_nodes(self) -> Nodes:
         """
-        Returns a flattened list of all nodes in document order.
+        Returns a flattened list of all nodes in document order with hashtags prepended to header content.
         """
         nodes: Nodes = []
 
         def traverse(node: Union[HeaderNode, TextNode]) -> None:
-            nodes.append(node)
             if isinstance(node, HeaderNode):
+                # Create a new HeaderNode with hashtags prepended to content
+                modified_node = HeaderNode(
+                    id=node.id,
+                    parent_id=node.parent_id,
+                    line=node.line,
+                    content=f"{'#' * node.level} {node.content.strip()}" if node.content else "",
+                    level=node.level,
+                    children=node.children
+                )
+                nodes.append(modified_node)
                 for child in node.children:
                     traverse(child)
+            else:
+                nodes.append(node)
 
         for node in self.root:
             traverse(node)

@@ -549,7 +549,7 @@ def derive_text(token: MarkdownToken) -> str:
     Derives the Markdown text representation for a given token based on its type.
     """
     if token['type'] == 'header' and token['level'] is not None:
-        return f"{'#' * token['level']} {token['content'].strip()}" if token['content'] else ""
+        return f"{token['content'].strip()}" if token['content'] else ""
 
     elif token['type'] in ['unordered_list', 'ordered_list']:
         if not token['meta'] or 'items' not in token['meta']:
