@@ -12,7 +12,7 @@ from jet.code.markdown_types import (
 )
 import uuid
 
-from jet.code.markdown_utils import parse_markdown
+from jet.code.markdown_utils import derive_text, parse_markdown
 
 # Type definitions for MarkdownToken and meta data
 
@@ -41,7 +41,7 @@ class TextNode(Node):
 
 class HeaderNode(Node):
     type: ContentType = "header"
-    title: str
+    content: str
     level: int
     children: List[Union['HeaderNode', TextNode]] = Field(default_factory=list)
 
@@ -53,54 +53,6 @@ Nodes = List[Union[HeaderNode, TextNode]]
 
 class HeaderDocs(BaseModel):
     root: Nodes = Field(default_factory=list)
-
-    @staticmethod
-    def derive_text(token: MarkdownToken) -> str:
-        """
-        Derives the Markdown text representation for a given token based on its type.
-        """
-        if token['type'] == 'header' and token['level'] is not None:
-            return f"{'#' * token['level']} {token['content'].strip()}" if token['content'] else ""
-
-        elif token['type'] in ['unordered_list', 'ordered_list']:
-            if not token['meta'] or 'items' not in token['meta']:
-                return ""
-            items = token['meta']['items']
-            prefix = '*' if token['type'] == 'unordered_list' else lambda i: f"{i+1}."
-            lines = []
-            for i, item in enumerate(items):
-                checkbox = '[x]' if item.get('checked', False) else '[ ]' if item.get(
-                    'task_item', False) else ''
-                prefix_str = prefix(
-                    i) if token['type'] == 'ordered_list' else prefix
-                line = f"{prefix_str} {checkbox}{' ' if checkbox else ''}{item['text']}".strip(
-                )
-                lines.append(line)
-            return '\n'.join(lines)
-
-        elif token['type'] == 'table':
-            if not token['meta'] or 'header' not in token['meta'] or 'rows' not in token['meta']:
-                return ""
-            header = token['meta']['header']
-            rows = token['meta']['rows']
-            widths = [max(len(str(cell)) for row in [header] +
-                          rows for cell in row[i:i+1]) for i in range(len(header))]
-            lines = ['| ' + ' | '.join(cell.ljust(widths[i])
-                                       for i, cell in enumerate(header)) + ' |']
-            lines.append(
-                '| ' + ' | '.join('-' * width for width in widths) + ' |')
-            for row in rows:
-                lines.append(
-                    '| ' + ' | '.join(str(cell).ljust(widths[i]) for i, cell in enumerate(row)) + ' |')
-            return '\n'.join(lines)
-
-        elif token['type'] == 'code':
-            language = token['meta'].get(
-                'language', '') if token['meta'] else ''
-            return f"```{' ' + language if language else ''}\n{token['content']}\n```"
-
-        else:  # paragraph, blockquote, html_block
-            return token['content']
 
     @staticmethod
     def from_tokens(tokens: List[MarkdownToken]) -> 'HeaderDocs':
@@ -123,7 +75,7 @@ class HeaderDocs(BaseModel):
                 header_id = generate_unique_id()
                 parent_id = parent_stack[-1].id if parent_stack else None
                 new_header = HeaderNode(
-                    title=token['content'],
+                    content=token['content'],
                     level=token['level'],
                     line=token['line'],
                     parent_id=parent_id,
@@ -144,7 +96,7 @@ class HeaderDocs(BaseModel):
                 text_id = generate_unique_id()
                 text_node = TextNode(
                     type=token['type'],
-                    content=HeaderDocs.derive_text(token),
+                    content=derive_text(token),
                     meta=token['meta'],
                     line=token['line'],
                     parent_id=parent_stack[-1].id if parent_stack else None,
@@ -172,7 +124,7 @@ class HeaderDocs(BaseModel):
         def traverse(node: Union[HeaderNode, TextNode]) -> None:
             if isinstance(node, HeaderNode):
                 texts.append(
-                    f"{'#' * node.level} {node.title.strip()}" if node.title else "")
+                    f"{'#' * node.level} {node.content.strip()}" if node.content else "")
                 for child in node.children:
                     traverse(child)
             else:
@@ -211,7 +163,7 @@ class HeaderDocs(BaseModel):
             if isinstance(node, HeaderNode):
                 base.update({
                     "type": "header",
-                    "title": node.title,
+                    "content": node.content,
                     "level": node.level,
                     "children": [node_to_dict(child) for child in node.children]
                 })
