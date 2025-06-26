@@ -1,6 +1,7 @@
 from typing import List, Optional, Union, Literal, TypedDict, Dict, Any
 from pydantic import BaseModel
 import pytest
+from jet.code.markdown_utils import derive_text
 from jet.data.header_docs import HeaderDocs, HeaderNode, TextNode, MarkdownToken, ListItem, ListMeta, CodeMeta, TableMeta, Node
 
 
@@ -706,7 +707,7 @@ class TestHeaderDocs:
         }
 
         # When: Deriving text
-        result = HeaderDocs.derive_text(token)
+        result = derive_text(token)
 
         # Then: The text should have correct header prefix
         assert result == "## Title"
@@ -722,7 +723,7 @@ class TestHeaderDocs:
         }
 
         # When: Deriving text
-        result = HeaderDocs.derive_text(token)
+        result = derive_text(token)
 
         # Then: The text should be empty with prefix
         assert result == ""
@@ -743,7 +744,7 @@ class TestHeaderDocs:
         }
 
         # When: Deriving text
-        result = HeaderDocs.derive_text(token)
+        result = derive_text(token)
 
         # Then: The text should have correct list format
         assert result == "* [x] Item 1\n* Item 2"
@@ -764,7 +765,7 @@ class TestHeaderDocs:
         }
 
         # When: Deriving text
-        result = HeaderDocs.derive_text(token)
+        result = derive_text(token)
 
         # Then: The text should have correct ordered list format
         assert result == "1. Step 1\n2. Step 2"
@@ -783,7 +784,7 @@ class TestHeaderDocs:
         }
 
         # When: Deriving text
-        result = HeaderDocs.derive_text(token)
+        result = derive_text(token)
 
         # Then: The text should have correct table format
         assert result == "| ID | Name  |\n| -- | ----- |\n| 1  | Alice |\n| 2  | Bob   |"
@@ -799,7 +800,7 @@ class TestHeaderDocs:
         }
 
         # When: Deriving text
-        result = HeaderDocs.derive_text(token)
+        result = derive_text(token)
 
         # Then: The text should have correct code block format
         assert result == "``` python\nx = 1\n```"
@@ -815,7 +816,7 @@ class TestHeaderDocs:
         }
 
         # When: Deriving text
-        result = HeaderDocs.derive_text(token)
+        result = derive_text(token)
 
         # Then: The text should match the content
         assert result == "Hello world"
@@ -831,7 +832,7 @@ class TestHeaderDocs:
         }
 
         # When: Deriving text
-        result = HeaderDocs.derive_text(token)
+        result = derive_text(token)
 
         # Then: The text should be empty
         assert result == ""

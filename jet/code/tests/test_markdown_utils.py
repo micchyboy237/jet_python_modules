@@ -2,8 +2,8 @@ import pytest
 from pathlib import Path
 from typing import List, Optional, Union
 import os
-from jet.code.markdown_types import MarkdownToken, MarkdownAnalysis
-from jet.code.markdown_utils import clean_markdown_text, convert_html_to_markdown, parse_markdown, analyze_markdown
+from jet.code.markdown_types import MarkdownToken, MarkdownAnalysis, SummaryDict
+from jet.code.markdown_utils import clean_markdown_text, convert_html_to_markdown, get_summary, parse_markdown, analyze_markdown
 
 
 class TestCleanMarkdownText:
@@ -97,7 +97,7 @@ class TestParseMarkdown:
         expected: List[MarkdownToken] = [
             {
                 "type": "header",
-                "content": "10. The Water Magician",
+                "content": "### 10. The Water Magician",
                 "level": 3,
                 "meta": {},
                 "line": 1
@@ -417,3 +417,89 @@ class TestAnalyzeMarkdown:
             os.environ["TMPDIR"] = original_tempdir
         else:
             del os.environ["TMPDIR"]
+
+
+class TestGetSummary:
+    def test_header_counts(self, tmp_path: Path):
+        # Given: A markdown file with various header levels
+        md_content = """
+        # Header 1
+        ## Header 2
+        ### Header 3
+        # Another Header 1
+        ## Another Header 2
+        """
+        md_file = tmp_path / "test.md"
+        md_file.write_text(md_content, encoding="utf-8")
+
+        # When: Analyzing the markdown content
+        result: SummaryDict = get_summary(md_file)
+
+        # Then: Verify header counts
+        expected = {
+            "h1": 2,
+            "h2": 2,
+            "h3": 1,
+            "h4": 0,
+            "h5": 0,
+            "h6": 0,
+        }
+        for key, value in expected.items():
+            assert result["header_counts"][
+                key] == value, f"Expected header_counts[{key}] to be {value}, but got {result['header_counts'][key]}"
+
+    def test_empty_markdown(self, tmp_path: Path):
+        # Given: An empty markdown file
+        md_file = tmp_path / "test.md"
+        md_file.write_text("", encoding="utf-8")
+
+        # When: Analyzing the empty markdown
+        result: SummaryDict = get_summary(md_file)
+
+        # Then: Verify all header counts are zero
+        expected = {
+            "h1": 0,
+            "h2": 0,
+            "h3": 0,
+            "h4": 0,
+            "h5": 0,
+            "h6": 0,
+        }
+        for key, value in expected.items():
+            assert result["header_counts"][
+                key] == value, f"Expected header_counts[{key}] to be {value}, but got {result['header_counts'][key]}"
+        assert result["headers"] == 0, f"Expected headers to be 0, but got {result['headers']}"
+
+    def test_mixed_content(self, tmp_path: Path):
+        # Given: A markdown file with headers, paragraphs, and lists
+        md_content = """
+        # Header 1
+        Some paragraph text.
+        ## Header 2
+        - List item 1
+        - List item 2
+        ### Header 3
+        """
+        md_file = tmp_path / "test.md"
+        md_file.write_text(md_content, encoding="utf-8")
+
+        # When: Analyzing the markdown content
+        result: SummaryDict = get_summary(md_file)
+
+        # Then: Verify header counts and other summary fields
+        expected = {
+            "h1": 1,
+            "h2": 1,
+            "h3": 1,
+            "h4": 0,
+            "h5": 0,
+            "h6": 0,
+        }
+        for key, value in expected.items():
+            assert result["header_counts"][
+                key] == value, f"Expected header_counts[{key}] to be {value}, but got {result['header_counts'][key]}"
+        assert result["headers"] == 3, f"Expected headers to be 3, but got {result['headers']}"
+        assert result[
+            "paragraphs"] == 1, f"Expected paragraphs to be 1, but got {result['paragraphs']}"
+        assert result[
+            "unordered_lists"] == 1, f"Expected unordered_lists to be 1, but got {result['unordered_lists']}"

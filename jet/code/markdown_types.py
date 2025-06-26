@@ -2,13 +2,10 @@ from typing import List, Optional, TypedDict, Literal
 from typing import TypedDict, List, Optional, Literal, Union
 from pathlib import Path
 
-# Reuse MarkdownToken from previous response
-
 
 class ListItem(TypedDict, total=False):
     text: str
     task_item: bool
-    # checked is optional as not all list items have it
     checked: Optional[bool]
 
 
@@ -42,16 +39,24 @@ ContentType = Literal[
 
 class MarkdownToken(TypedDict):
     type: ContentType
-    content: str  # content is always present in the JSON, can be empty string
+    content: str
     level: Optional[int]
     meta: MetaType
     line: int
 
-# Typed dicts for analyze_markdown components
+
+class HeaderCountsDict(TypedDict):
+    h1: int
+    h2: int
+    h3: int
+    h4: int
+    h5: int
+    h6: int
 
 
 class SummaryDict(TypedDict):
     headers: int
+    header_counts: HeaderCountsDict
     paragraphs: int
     blockquotes: int
     code_blocks: int

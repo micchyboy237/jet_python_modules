@@ -7,8 +7,8 @@ from typing import List, Dict, Any, Optional, Union, TypedDict
 import html2text
 from markdownify import MarkdownConverter
 from markitdown import MarkItDown
-from jet.code.html_utils import is_html
-from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken
+from jet.code.html_utils import valid_html
+from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
 from jet.decorators.timer import timeout
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 
@@ -48,6 +48,7 @@ def preprocess_markdown(md_content: str) -> str:
     Returns:
         Normalized markdown content.
     """
+    logger.debug("Original markdown content: %s", md_content[:100])
     # Remove bold markdown syntax (e.g., **text** or __text__ to text)
     md_content = re.sub(r'\*\*(.*?)\*\*', r'\1', md_content)
     md_content = re.sub(r'__(.*?)__', r'\1', md_content)
@@ -58,9 +59,48 @@ def preprocess_markdown(md_content: str) -> str:
     # Ensure proper spacing around headers with links
     md_content = re.sub(r'^(#+)\s*\[([^\]]+)\]\(([^)]+)\)',
                         r'\1 [\2](\3)', md_content, flags=re.MULTILINE)
+
+    # Remove bold markers but preserve headers
+    md_content = re.sub(r'\*\*(.*?)\*\*', r'\1', md_content)
+    md_content = re.sub(r'__(.*?)__', r'\1', md_content)
+    # Fix incomplete regex for blockquotes
+    md_content = re.sub(r'^\s*(>+)\s*', r'\1 ', md_content, flags=re.MULTILINE)
+    # Fix task list regex to avoid affecting headers
+    md_content = re.sub(r'^\s*([-*+])\s*\[([ xX])\]\s*(.*)',
+                        r'\1 [\2] \3', md_content, flags=re.MULTILINE)
+
     # Process separator lines
     md_content = process_separator_lines(md_content)
+
+    md_content = clean_markdown_text(md_content)
+    logger.debug("Preprocessed markdown content: %s", md_content[:100])
     return md_content
+
+
+def preprocess_html(html: str) -> str:
+    """
+    Preprocess HTML content by removing unwanted elements, comments, and adding spacing.
+
+    Args:
+        html: Input HTML string to preprocess.
+
+    Returns:
+        Preprocessed HTML string.
+    """
+    # Remove unwanted elements (button, script, style, form, input, select, textarea)
+    unwanted_elements = r'button|script|style|form|input|select|textarea'
+    pattern_unwanted = rf'<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>'
+    html = re.sub(pattern_unwanted, '', html, flags=re.DOTALL)
+
+    # Remove HTML comments
+    html = re.sub(r'<!--[\s\S]*?-->', '', html, flags=re.DOTALL)
+
+    # Add space between consecutive inline elements
+    inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
+    pattern_inline = rf'</({inline_elements})><({inline_elements})'
+    html = re.sub(pattern_inline, r'</\1> <\2', html)
+
+    return html
 
 
 def process_separator_lines(md_content: str) -> str:
@@ -103,7 +143,7 @@ def process_separator_lines(md_content: str) -> str:
     return "\n".join(result)
 
 
-def clean_markdown_text(text: Optional[str]) -> Optional[str]:
+def clean_markdown_text(text: str) -> str:
     """
     Clean markdown text by removing unnecessary escape characters.
 
@@ -113,8 +153,6 @@ def clean_markdown_text(text: Optional[str]) -> Optional[str]:
     Returns:
         The cleaned text with unnecessary escapes removed, or None if input is None.
     """
-    if text is None:
-        return None
     # Remove escaped periods (e.g., "\." -> ".")
     cleaned_text = re.sub(r'\\([.])', r'\1', text)
     return cleaned_text
@@ -164,45 +202,23 @@ def convert_html_to_markitdown(html_input: Union[str, Path], **options) -> str:
     try:
         md_converter = MarkItDown(enable_plugins=False, **options)
 
-        # Pre-process HTML to remove unwanted elements
-        def remove_unwanted_elements(html: str) -> str:
-            unwanted_elements = r'button|script|style|form|input|select|textarea'
-            pattern = rf'<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>'
-            return re.sub(pattern, '', html, flags=re.DOTALL)
-
-        # Pre-process HTML to add whitespace between consecutive inline elements
-        def add_space_between_inline_elements(html: str) -> str:
-            inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
-            pattern = rf'</({inline_elements})><({inline_elements})'
-            return re.sub(pattern, r'</\1> <\2', html)
-
         if isinstance(html_input, Path):
-            # Read HTML file content and pre-process
+            # Read HTML file content and preprocess
             with open(html_input, 'r', encoding='utf-8') as file:
-                html_content = file.read()
-                html_content = remove_unwanted_elements(html_content)
-                html_content = add_space_between_inline_elements(html_content)
-            # Write pre-processed content to a temporary file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
-                temp_file.write(html_content)
-                temp_file_path = temp_file.name
-            try:
-                result = md_converter.convert(temp_file_path)
-            finally:
-                if os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
+                html_content = preprocess_html(file.read())
         else:
-            # Pre-process HTML string and write to temporary file
-            html_content = remove_unwanted_elements(html_input)
-            html_content = add_space_between_inline_elements(html_content)
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
-                temp_file.write(html_content)
-                temp_file_path = temp_file.name
-            try:
-                result = md_converter.convert(temp_file_path)
-            finally:
-                if os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
+            # Preprocess HTML string
+            html_content = preprocess_html(html_input)
+
+        # Write preprocessed content to a temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
+            temp_file.write(html_content)
+            temp_file_path = temp_file.name
+        try:
+            result = md_converter.convert(temp_file_path)
+        finally:
+            if os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
 
         markdown_content = result.text_content
         logger.debug("Markdown content generated: %s", markdown_content[:100])
@@ -215,24 +231,11 @@ def convert_html_to_markitdown(html_input: Union[str, Path], **options) -> str:
 
 def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = True) -> str:
     """Convert HTML to Markdown with enhanced noise removal."""
-    def remove_unwanted_elements(html: str) -> str:
-        unwanted_elements = r'button|script|style|form|input|select|textarea'
-        pattern = rf'<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>'
-        return re.sub(pattern, '', html, flags=re.DOTALL)
-
-    def add_space_between_inline_elements(html: str) -> str:
-        inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
-        pattern = rf'</({inline_elements})><({inline_elements})'
-        return re.sub(pattern, r'</\1> <\2', html)
-
     if isinstance(html_input, Path):
         with html_input.open('r', encoding='utf-8') as f:
-            html_content = f.read()
+            html_content = preprocess_html(f.read())
     else:
-        html_content = html_input
-
-    html_content = remove_unwanted_elements(html_content)
-    html_content = add_space_between_inline_elements(html_content)
+        html_content = preprocess_html(html_input)
 
     converter = html2text.HTML2Text()
     converter.ignore_links = ignore_links
@@ -245,37 +248,54 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     return markdown_content.strip()
 
 
-def parse_markdown(input: Union[str, Path]) -> List[MarkdownToken]:
-    def read_file(file_path: Path) -> str:
-        if not file_path.is_file():
-            raise OSError(f"File {file_path} does not exist")
-        with file_path.open('r', encoding='utf-8') as file:
-            return file.read()
-
-    def parse_with_timeout(content: str) -> List[MarkdownToken]:
-        parser = MarkdownParser(content)
-        return parser.parse()
-
+def read_md_content(input) -> str:
     try:
-        input_str = str(input)
-        input_path = Path(input_str)
+        if Path(str(input)).is_file():
+            with open(input, 'r', encoding='utf-8') as file:
+                md_content = file.read()
 
-        if is_html(input_str) or input_str.endswith('.html'):
-            md_content = convert_html_to_markdown(input)
-        elif input_str.endswith('.md'):
-            md_content = read_file(input_path)
-        else:
-            md_content = input_str
+            if str(input).endswith('.html'):
+                md_content = convert_html_to_markdown(md_content)
+    except OSError:
+        md_content = str(input)
 
+        if valid_html(md_content):
+            md_content = convert_html_to_markdown(md_content)
+    return md_content
+
+
+def parse_markdown(input: Union[str, Path]) -> List[MarkdownToken]:
+    """
+    Parse markdown content into a list of structured tokens using MarkdownParser.
+
+    Args:
+        input: Either a string containing markdown content or a Path to a markdown file.
+
+    Returns:
+        A list of dictionaries representing parsed markdown tokens with their type, content, and metadata.
+
+    Raises:
+        OSError: If the input file does not exist.
+        TimeoutError: If parsing takes too long.
+    """
+    try:
+        md_content = read_md_content(input)
+
+        # Preprocess markdown
         logger.debug("Preprocessing markdown content")
         md_content = preprocess_markdown(md_content)
 
+        # @timeout(3)
+        def parse_with_timeout(content: str) -> List[MarkdownToken]:
+            parser = MarkdownParser(content)
+            return parser.parse()
+
         logger.debug("Starting markdown parsing")
         tokens = parse_with_timeout(md_content)
-
         parsed_tokens = [
             {
                 "type": token.type,
+                # "content": clean_markdown_text(token.content),
                 "content": derive_text({
                     "type": token.type,
                     "content": token.content,
@@ -289,7 +309,6 @@ def parse_markdown(input: Union[str, Path]) -> List[MarkdownToken]:
             }
             for token in tokens
         ]
-
         logger.debug(f"Parsed {len(parsed_tokens)} markdown tokens")
         return parsed_tokens
 
@@ -315,50 +334,57 @@ def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
         OSError: If the input file does not exist.
         TimeoutError: If analysis takes too long.
     """
-    def read_file(file_path: Path) -> str:
-        if not file_path.is_file():
-            raise OSError(f"File {file_path} does not exist")
-        return file_path.read_text(encoding='utf-8')
-
-    def analyze_with_timeout(temp_file_path: str) -> tuple:
-        analyzer = MarkdownAnalyzer(temp_file_path)
-        return (
-            convert_dict_keys_to_snake_case(get_summary(md_content)),
-            convert_dict_keys_to_snake_case(analyzer.identify_headers()),
-            convert_dict_keys_to_snake_case(analyzer.identify_paragraphs()),
-            convert_dict_keys_to_snake_case(analyzer.identify_blockquotes()),
-            convert_dict_keys_to_snake_case(analyzer.identify_code_blocks()),
-            convert_dict_keys_to_snake_case(analyzer.identify_lists()),
-            convert_dict_keys_to_snake_case(analyzer.identify_tables()),
-            convert_dict_keys_to_snake_case(analyzer.identify_links()),
-            convert_dict_keys_to_snake_case(analyzer.identify_footnotes()),
-            convert_dict_keys_to_snake_case(analyzer.identify_inline_code()),
-            convert_dict_keys_to_snake_case(analyzer.identify_emphasis()),
-            convert_dict_keys_to_snake_case(analyzer.identify_task_items()),
-            convert_dict_keys_to_snake_case(analyzer.identify_html_blocks()),
-            convert_dict_keys_to_snake_case(analyzer.identify_html_inline()),
-            convert_dict_keys_to_snake_case(analyzer.get_tokens_sequential()),
-            analyzer.count_words(),
-            analyzer.count_characters()
-        )
-
     temp_md_path: Optional[Path] = None
-
     try:
-        input_str = str(input)
-        input_path = Path(input_str)
+        md_content = read_md_content(input)
 
-        if input_str.endswith('.md'):
-            md_content = read_file(input_path)
-        else:
-            md_content = input_str
-
+        # Preprocess markdown
         logger.debug("Preprocessing markdown content")
         md_content = preprocess_markdown(md_content)
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
             temp_file.write(md_content)
             temp_md_path = Path(temp_file.name)
+
+        # @timeout(3)
+        def analyze_with_timeout(temp_file_path: str) -> tuple:
+            analyzer = MarkdownAnalyzer(temp_file_path)
+            raw_headers = convert_dict_keys_to_snake_case(
+                analyzer.identify_headers())
+            raw_paragraphs = convert_dict_keys_to_snake_case(
+                analyzer.identify_paragraphs())
+            raw_blockquotes = convert_dict_keys_to_snake_case(
+                analyzer.identify_blockquotes())
+            raw_code_blocks = convert_dict_keys_to_snake_case(
+                analyzer.identify_code_blocks())
+            raw_lists = convert_dict_keys_to_snake_case(
+                analyzer.identify_lists())
+            raw_tables = convert_dict_keys_to_snake_case(
+                analyzer.identify_tables())
+            raw_links = convert_dict_keys_to_snake_case(
+                analyzer.identify_links())
+            raw_footnotes = convert_dict_keys_to_snake_case(
+                analyzer.identify_footnotes())
+            raw_inline_code = convert_dict_keys_to_snake_case(
+                analyzer.identify_inline_code())
+            raw_emphasis = convert_dict_keys_to_snake_case(
+                analyzer.identify_emphasis())
+            raw_task_items = convert_dict_keys_to_snake_case(
+                analyzer.identify_task_items())
+            raw_html_blocks = convert_dict_keys_to_snake_case(
+                analyzer.identify_html_blocks())
+            raw_html_inline = convert_dict_keys_to_snake_case(
+                analyzer.identify_html_inline())
+            raw_tokens_sequential = convert_dict_keys_to_snake_case(
+                analyzer.get_tokens_sequential())
+            raw_summary = convert_dict_keys_to_snake_case(
+                get_summary(md_content))
+            return (
+                raw_summary, raw_headers, raw_paragraphs, raw_blockquotes, raw_code_blocks,
+                raw_lists, raw_tables, raw_links, raw_footnotes, raw_inline_code,
+                raw_emphasis, raw_task_items, raw_html_blocks, raw_html_inline,
+                raw_tokens_sequential, analyzer.count_words(), analyzer.count_characters()
+            )
 
         logger.debug("Starting markdown analysis")
         (
@@ -368,7 +394,7 @@ def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
             raw_tokens_sequential, word_count, char_count
         ) = analyze_with_timeout(str(temp_md_path))
 
-        return {
+        analysis_results: MarkdownAnalysis = {
             "summary": raw_summary,
             "headers": {
                 "header": [
@@ -456,6 +482,8 @@ def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
             "char_count": {"char": char_count}
         }
 
+        return analysis_results
+
     except TimeoutError as e:
         logger.error(f"Analysis timed out: {str(e)}")
         raise
@@ -471,42 +499,42 @@ def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
                     f"Warning: Could not delete temporary file {temp_md_path}")
 
 
-def get_summary(input: Union[str, Path]) -> MarkdownAnalysis:
-    """
-    Get summary analysis of markdown content using MarkdownAnalyzer.
-
-    Args:
-        input: Either a string containing markdown content or a Path to a markdown file.
-
-    Returns:
-        A dictionary containing summary analysis of markdown elements.
-
-    Raises:
-        OSError: If the input file does not exist.
-    """
-    def read_file(file_path: Path) -> str:
-        if not file_path.is_file():
-            raise OSError(f"File {file_path} does not exist")
-        return file_path.read_text(encoding='utf-8')
-
+def get_summary(input: Union[str, Path]) -> SummaryDict:
     temp_md_path: Optional[Path] = None
-
     try:
-        input_str = str(input)
-        input_path = Path(input_str)
-
-        if input_str.endswith('.md'):
-            md_content = read_file(input_path)
-        else:
-            md_content = input_str
-
+        md_content = read_md_content(input)
+        logger.debug("Raw markdown content: %s", md_content[:100])
+        md_content = preprocess_markdown(md_content)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
             temp_file.write(md_content)
             temp_md_path = Path(temp_file.name)
-
         analyzer = MarkdownAnalyzer(str(temp_md_path))
-        return analyzer.analyse()
 
+        # Get headers for counting individual levels
+        headers = convert_dict_keys_to_snake_case(
+            analyzer.identify_headers()).get("header", [])
+        logger.debug("Headers retrieved: %s", headers)
+        header_counts = {f"h{i}": 0 for i in range(1, 7)}
+        for header in headers:
+            level = header.get("level")
+            logger.debug("Processing header: %s, level: %s", header, level)
+            if level in range(1, 7):
+                header_counts[f"h{level}"] += 1
+            else:
+                logger.warning("Invalid header level detected: %s", level)
+
+        # Get existing analysis
+        raw_summary = convert_dict_keys_to_snake_case(analyzer.analyse())
+        logger.debug("Raw summary: %s", raw_summary)
+
+        # Update summary with header counts
+        summary = {
+            **raw_summary,
+            "header_counts": header_counts,
+        }
+
+        logger.debug("Final summary: %s", summary)
+        return summary
     finally:
         if temp_md_path and temp_md_path.exists():
             try:
@@ -517,8 +545,12 @@ def get_summary(input: Union[str, Path]) -> MarkdownAnalysis:
 
 
 def derive_text(token: MarkdownToken) -> str:
+    """
+    Derives the Markdown text representation for a given token based on its type.
+    """
     if token['type'] == 'header' and token['level'] is not None:
-        return f"{'#' * token['level']} {token['content']}"
+        return f"{'#' * token['level']} {token['content'].strip()}" if token['content'] else ""
+
     elif token['type'] in ['unordered_list', 'ordered_list']:
         if not token['meta'] or 'items' not in token['meta']:
             return ""
@@ -534,6 +566,7 @@ def derive_text(token: MarkdownToken) -> str:
             )
             lines.append(line)
         return '\n'.join(lines)
+
     elif token['type'] == 'table':
         if not token['meta'] or 'header' not in token['meta'] or 'rows' not in token['meta']:
             return ""
@@ -549,9 +582,11 @@ def derive_text(token: MarkdownToken) -> str:
             lines.append(
                 '| ' + ' | '.join(str(cell).ljust(widths[i]) for i, cell in enumerate(row)) + ' |')
         return '\n'.join(lines)
+
     elif token['type'] == 'code':
         language = token['meta'].get(
             'language', '') if token['meta'] else ''
         return f"```{' ' + language if language else ''}\n{token['content']}\n```"
-    else:
+
+    else:  # paragraph, blockquote, html_block
         return token['content']
