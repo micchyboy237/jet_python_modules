@@ -117,7 +117,8 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "allenai-specter": "sentence-transformers/allenai-specter",
     "distilbert-base-nli-stsb-mean-tokens": "sentence-transformers/distilbert-base-nli-stsb-mean-tokens",
     "paraphrase-multilingual": "sentence-transformers/paraphrase-MiniLM-L12-v2",
-    "static-retrieval-mrl-en-v1": "sentence-transformers/static-retrieval-mrl-en-v1"
+    "multi-qa-MiniLM-L6-cos-v1": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
+    "static-retrieval-mrl-en-v1": "sentence-transformers/static-retrieval-mrl-en-v1",
 }
 
 

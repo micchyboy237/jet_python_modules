@@ -17,7 +17,7 @@ from jet.utils.object import max_getattr
 from jet.logger import logger
 from transformers import AutoConfig
 from jet.models.model_types import ModelKey, ModelType, ModelValue
-from jet.models.constants import ALL_MODEL_VALUES, ALL_MODELS, ALL_MODELS_REVERSED, MODEL_CONTEXTS, MODEL_EMBEDDING_TOKENS, MODEL_VALUES_LIST
+from jet.models.constants import ALL_MODEL_VALUES, ALL_MODELS, ALL_MODELS_REVERSED, AVAILABLE_EMBED_MODELS, MODEL_CONTEXTS, MODEL_EMBEDDING_TOKENS, MODEL_VALUES_LIST
 
 
 def resolve_model_key(model: ModelType) -> ModelKey:
@@ -321,7 +321,7 @@ def download_model_readmes(output_dir: str = "hf_readmes", overwrite: bool = Fal
     filtered_model_values = [
         model_value for model_value in model_values if model_value]
     model_keys = [resolve_model_key(
-        model_path) for model_path in model_values if model_path in MODEL_VALUES_LIST]
+        model_path) for model_path in model_values if model_path in AVAILABLE_EMBED_MODELS.values()]
     for model_key, model_value in zip(model_keys, filtered_model_values):
         print(f"Processing {model_key} ({model_value})...")
         download_readme(model_value, model_key, output_dir_path, overwrite)

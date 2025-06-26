@@ -5,12 +5,15 @@ from sentence_transformers import SentenceTransformer, SimilarityFunction, model
 import numpy as np
 from transformers import AutoModel, AutoTokenizer, AutoConfig
 from jet.file.utils import save_file
-from jet.models.model_types import ModelType
+from jet.models.model_types import EmbedModelType, ModelType
 from jet.models.config import HF_TOKEN, MODELS_CACHE_DIR
 
 from jet.logger import logger
 from jet.models.tokenizer.base import count_tokens, get_max_token_count
 from jet.models.utils import resolve_model_value
+
+
+EMBED_MODEL: EmbedModelType = "all-MiniLM-L6-v2"
 
 
 class SimilarityResult(TypedDict):
@@ -104,7 +107,7 @@ def load_pretrained_model_with_default_settings() -> List[SimilarityResult]:
     """
     # Initialize model with a pre-trained model name and device
     model = SentenceTransformer(
-        model_name_or_path="static-retrieval-mrl-en-v1",
+        model_name_or_path=EMBED_MODEL,
         backend="onnx",
         device="cpu",
     )
@@ -195,7 +198,7 @@ def load_private_model_with_auth() -> List[SimilarityResult]:
     """
     # Initialize model with authentication
     model = SentenceTransformer(
-        model_name_or_path="static-retrieval-mrl-en-v1",
+        model_name_or_path=EMBED_MODEL,
         token=HF_TOKEN,
         cache_folder=MODELS_CACHE_DIR,
         backend="onnx",
@@ -225,7 +228,7 @@ def use_optimized_backend_with_truncation() -> List[SimilarityResult]:
     sentences = ["Fast inference test.", "Optimized model performance."]
 
     # Compute dynamic truncate_dim
-    truncate_dim = get_max_token_count("static-retrieval-mrl-en-v1", sentences)
+    truncate_dim = get_max_token_count(EMBED_MODEL, sentences)
 
     # Define model kwargs for ONNX
     model_kwargs = {
@@ -235,7 +238,7 @@ def use_optimized_backend_with_truncation() -> List[SimilarityResult]:
 
     # Initialize model with ONNX backend
     model = SentenceTransformer(
-        model_name_or_path="static-retrieval-mrl-en-v1",
+        model_name_or_path=EMBED_MODEL,
         backend="onnx",
         truncate_dim=truncate_dim,
         model_kwargs=model_kwargs,
@@ -266,7 +269,7 @@ def load_specific_revision_with_custom_config() -> List[SimilarityResult]:
 
     # Initialize model with specific revision
     model = SentenceTransformer(
-        model_name_or_path="static-retrieval-mrl-en-v1",
+        model_name_or_path=EMBED_MODEL,
         revision="main",
         config_kwargs=config_kwargs,
         tokenizer_kwargs=tokenizer_kwargs,

@@ -156,6 +156,7 @@ LLMModelKey = Literal[
     "allenai-specter",
     "distilbert-base-nli-stsb-mean-tokens",
     "paraphrase-multilingual",
+    "multi-qa-MiniLM-L6-cos-v1",
     "static-retrieval-mrl-en-v1",
 ]
 
@@ -224,7 +225,8 @@ LLMModelValue = Literal[
     "sentence-transformers/allenai-specter",
     "sentence-transformers/distilbert-base-nli-stsb-mean-tokens",
     "sentence-transformers/paraphrase-MiniLM-L12-v2",
-    "sentence-transformers/static-retrieval-mrl-en-v1"
+    "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
+    "sentence-transformers/static-retrieval-mrl-en-v1",
 ]
 
 
@@ -308,6 +310,7 @@ EmbedModelKey = Literal[
     "allenai-specter",
     "distilbert-base-nli-stsb-mean-tokens",
     "paraphrase-multilingual",
+    "multi-qa-MiniLM-L6-cos-v1",
     "static-retrieval-mrl-en-v1",
 ]
 EmbedModelKey = Union[EmbedModelKey, LLMModelKey]
@@ -377,6 +380,7 @@ EmbedModelValue = Literal[
     "sentence-transformers/allenai-specter",
     "sentence-transformers/distilbert-base-nli-stsb-mean-tokens",
     "sentence-transformers/paraphrase-MiniLM-L12-v2",
+    "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
     "sentence-transformers/static-retrieval-mrl-en-v1"
 ]
 EmbedModelValue = Union[EmbedModelValue, LLMModelValue]

@@ -3,7 +3,7 @@
     "id": "doc_0",
     "rank": 1,
     "doc_index": 0,
-    "score": 0.9999997615814209,
+    "score": 0.9899223446846008,
     "text": "I enjoy coding.",
     "tokens": 6,
     "matched": {
@@ -16,7 +16,7 @@
     "id": "doc_1",
     "rank": 2,
     "doc_index": 1,
-    "score": 0.2312455177307129,
+    "score": 0.7054065465927124,
     "text": "Programming is fun!",
     "tokens": 6,
     "matched": {
@@ -27,7 +27,7 @@
     "id": "doc_2",
     "rank": 3,
     "doc_index": 2,
-    "score": 0.20053032040596008,
+    "score": 0.43293583393096924,
     "text": "I like to read books.",
     "tokens": 8,
     "matched": {
