@@ -218,7 +218,7 @@ def add_list_table_placeholders(html: str) -> str:
     Returns:
         HTML string with <h6> placeholders added after specified tags.
     """
-    return re.sub(r'</(ol|ul|table)>', r'</\1><h6>placeholder</h6>', html, flags=re.IGNORECASE)
+    return re.sub(r'</(ol|ul|table)>', r'</\1><h1>placeholder</h1>', html, flags=re.IGNORECASE)
 
 
 def read_md_content(input) -> str:
@@ -333,6 +333,53 @@ def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
     return result
 
 
+def remove_list_table_placeholders(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
+    """Remove header tokens with placeholder content and all succeeding non-header tokens until the next non-placeholder header."""
+    filtered_tokens = []
+    skip_mode = False
+
+    for token in markdown_tokens:
+        # Derive content for tokens that lack it (e.g., unordered_list)
+        content = token.get('content')
+        if content is None and token['type'] == 'unordered_list':
+            items = token.get('meta', {}).get('items', [])
+            content = '\n'.join(f"- {item['text']}" for item in items)
+            token['content'] = content  # Add content to token for consistency
+            logger.debug(f"Generated content for unordered_list: {content}")
+
+        logger.debug(
+            f"Processing token: type={token['type']}, content={content or 'None'}, line={token['line']}, skip_mode={skip_mode}")
+
+        # Check if the token is a placeholder header
+        is_placeholder = token['type'] == 'header' and content and 'placeholder' in content
+
+        if is_placeholder:
+            skip_mode = True
+            logger.debug(
+                f"Found placeholder header 'placeholder', entering skip_mode")
+            continue
+
+        if skip_mode:
+            if token['type'] == 'header':
+                skip_mode = False
+                logger.debug(
+                    f"Encountered header token, exiting skip_mode: {content or 'None'}")
+                logger.debug(
+                    f"Appending non-placeholder header: {content or 'None'}")
+                filtered_tokens.append(token)
+            else:
+                logger.debug(
+                    f"Skipping non-header token in skip_mode: {content or 'None'}")
+            continue
+
+        logger.debug(f"Appending token: {content or 'None'}")
+        filtered_tokens.append(token)
+
+    logger.debug(
+        f"Final filtered tokens: {[t.get('content', 'None') for t in filtered_tokens]}")
+    return filtered_tokens
+
+
 def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
@@ -358,14 +405,6 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> Lis
         def parse_with_timeout(content: str) -> List[MarkdownToken]:
             parser = MarkdownParser(content)
             return make_serializable(parser.parse())
-
-        def remove_list_table_placeholders(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
-            """Remove header tokens with placeholder content from markdown tokens."""
-            filtered_tokens = []
-            for token in markdown_tokens:
-                if not (token['type'] == 'header' and token['content'].strip() == 'placeholder'):
-                    filtered_tokens.append(token)
-            return filtered_tokens
 
         def prepend_hashtags_to_headers(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
             """Prepend hashtags to header tokens based on their level."""
