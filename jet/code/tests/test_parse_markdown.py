@@ -28,7 +28,7 @@ class TestParseMarkdownMergeParagraphs:
                 {"type": "paragraph", "content": "This is a single paragraph.",
                     "level": None, "meta": {}, "line": 1}
             ]):
-                result = parse_markdown("dummy_input", merge_contents=True)
+                result = parse_markdown("dummy_input")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
@@ -55,7 +55,7 @@ class TestParseMarkdownMergeParagraphs:
                 {"type": "paragraph", "content": "Second paragraph.",
                     "level": None, "meta": {}, "line": 2}
             ]):
-                result = parse_markdown("dummy_input", merge_contents=True)
+                result = parse_markdown("dummy_input")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
@@ -91,7 +91,7 @@ class TestParseMarkdownMergeParagraphs:
                 {"type": "header", "content": "Header",
                     "level": 1, "meta": {}, "line": 3}
             ]):
-                result = parse_markdown("dummy_input", merge_contents=True)
+                result = parse_markdown("dummy_input")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
@@ -125,7 +125,7 @@ class TestParseMarkdownMergeParagraphs:
                 {"type": "code", "content": "print('hello')", "level": None, "meta": {
                     "language": None, "code_type": "indented"}, "line": 2}
             ]):
-                result = parse_markdown("dummy_input", merge_contents=True)
+                result = parse_markdown("dummy_input")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
@@ -139,7 +139,7 @@ class TestParseMarkdownMergeParagraphs:
         # When
         with patch("jet.code.markdown_utils.read_md_content", return_value=input_md):
             with patch("jet.code.markdown_utils.MarkdownParser.parse", return_value=[]):
-                result = parse_markdown("dummy_input", merge_contents=True)
+                result = parse_markdown("dummy_input")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
@@ -175,7 +175,7 @@ class TestParseMarkdownMergeParagraphs:
                 {"type": "header", "content": "Header",
                     "level": 1, "meta": {}, "line": 3}
             ]):
-                result = parse_markdown("dummy.html", merge_contents=True)
+                result = parse_markdown("dummy.html")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
@@ -202,7 +202,7 @@ class TestParseMarkdownMergeParagraphs:
                 {"type": "paragraph", "content": "Normal content",
                     "level": None, "meta": {}, "line": 2}
             ]):
-                result = parse_markdown("dummy_input", merge_contents=True)
+                result = parse_markdown("dummy_input")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
@@ -217,7 +217,7 @@ class TestParseMarkdownMergeParagraphs:
             with patch("jet.code.markdown_utils.MarkdownParser.parse", side_effect=TimeoutError("Parsing timed out")):
                 # Then
                 with pytest.raises(TimeoutError, match="Parsing timed out"):
-                    parse_markdown("dummy_input", merge_contents=True)
+                    parse_markdown("dummy_input")
 
     def test_general_exception_handling(self):
         """Test handling of general exceptions during parsing."""
@@ -229,7 +229,7 @@ class TestParseMarkdownMergeParagraphs:
             with patch("jet.code.markdown_utils.MarkdownParser.parse", side_effect=Exception("Unexpected error")):
                 # Then
                 with pytest.raises(Exception, match="Unexpected error"):
-                    parse_markdown("dummy_input", merge_contents=True)
+                    parse_markdown("dummy_input")
 
     def test_multi_level_headers(self):
         """Test parsing multiple headers with varying levels."""
@@ -269,7 +269,7 @@ class TestParseMarkdownMergeParagraphs:
                 {"type": "header", "content": "Sub Sub Header",
                     "level": 3, "meta": {}, "line": 3}
             ]):
-                result = parse_markdown("dummy_input", merge_contents=True)
+                result = parse_markdown("dummy_input")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
@@ -362,7 +362,7 @@ class TestParseMarkdownMergeParagraphs:
                 {"type": "ordered_list", "content": "1. Ordered item 1", "level": None,
                     "meta": {"items": [{"text": "Ordered item 1", "task_item": False}]}, "line": 12}
             ]):
-                result = parse_markdown("dummy_input", merge_contents=True)
+                result = parse_markdown("dummy_input")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
@@ -402,7 +402,7 @@ class TestParseMarkdownMergeParagraphs:
                     "line": 1
                 }
             ]):
-                result = parse_markdown("dummy_input", merge_contents=True)
+                result = parse_markdown("dummy_input")
 
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"

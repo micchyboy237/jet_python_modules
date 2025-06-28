@@ -248,19 +248,13 @@ def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
     current_line: int = 1
 
     for token in tokens:
-        logger.debug(
-            f"Processing token: type={token['type']}, line={token.get('line', 1)}, content={token.get('content', '')}")
         if token['type'] == 'paragraph':
             if not paragraph_buffer:  # First paragraph in sequence
                 current_line = token.get('line', 1)
-                logger.debug(
-                    f"Setting current_line to {current_line} for first paragraph")
             paragraph_buffer.append(token['content'].strip())
         elif token['type'] == 'unordered_list':
             if not list_buffer:  # First unordered list in sequence
                 current_line = token.get('line', 1)
-                logger.debug(
-                    f"Setting current_line to {current_line} for first unordered list")
             items = token.get('meta', {}).get('items', [])
             list_buffer.extend(items)
             # Generate content directly from items to ensure correct format
@@ -269,8 +263,6 @@ def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
         else:
             if paragraph_buffer:
                 merged_content = '\n'.join(paragraph_buffer)
-                logger.debug(
-                    f"Merging paragraphs, content={merged_content}, line={current_line}")
                 result.append({
                     'type': 'paragraph',
                     'content': merged_content,
@@ -280,12 +272,8 @@ def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
                 })
                 paragraph_buffer = []
                 current_line = 1
-                logger.debug(
-                    f"Reset current_line to {current_line} after paragraph merge")
             if list_buffer:
                 merged_content = '\n'.join(list_content_buffer)
-                logger.debug(
-                    f"Merging unordered lists, content={merged_content}, line={current_line}")
                 result.append({
                     'type': 'unordered_list',
                     'content': merged_content,
@@ -296,19 +284,12 @@ def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
                 list_buffer = []
                 list_content_buffer = []
                 current_line = 1
-                logger.debug(
-                    f"Reset current_line to {current_line} after list merge")
-            logger.debug(f"Appending non-mergeable token: {token}")
             result.append(token)
             current_line = 1  # Reset for next sequence
-            logger.debug(
-                f"Reset current_line to {current_line} after non-mergeable token")
 
     # Handle remaining buffers
     if paragraph_buffer:
         merged_content = '\n'.join(paragraph_buffer)
-        logger.debug(
-            f"Final paragraph merge, content={merged_content}, line={current_line}")
         result.append({
             'type': 'paragraph',
             'content': merged_content,
@@ -318,8 +299,6 @@ def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
         })
     if list_buffer:
         merged_content = '\n'.join(list_content_buffer)
-        logger.debug(
-            f"Final unordered list merge, content={merged_content}, line={current_line}")
         result.append({
             'type': 'unordered_list',
             'content': merged_content,
@@ -328,8 +307,6 @@ def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
             'line': current_line
         })
 
-    logger.debug(
-        f"Returning result: {[t['type'] + ':' + str(t['line']) + ':' + t.get('content', '') for t in result]}")
     return result
 
 
@@ -345,69 +322,94 @@ def remove_header_placeholders(markdown_tokens: List[MarkdownToken]) -> List[Mar
             items = token.get('meta', {}).get('items', [])
             content = '\n'.join(f"- {item['text']}" for item in items)
             token['content'] = content  # Add content to token for consistency
-            logger.debug(f"Generated content for unordered_list: {content}")
-
-        logger.debug(
-            f"Processing token: type={token['type']}, content={content or 'None'}, line={token['line']}, skip_mode={skip_mode}")
 
         # Check if the token is a placeholder header
         is_placeholder = token['type'] == 'header' and content and 'placeholder' in content
 
         if is_placeholder:
             skip_mode = True
-            logger.debug(
-                f"Found placeholder header 'placeholder', entering skip_mode")
             continue
 
         if skip_mode:
             if token['type'] == 'header':
                 skip_mode = False
-                logger.debug(
-                    f"Encountered header token, exiting skip_mode: {content or 'None'}")
-                logger.debug(
-                    f"Appending non-placeholder header: {content or 'None'}")
                 filtered_tokens.append(token)
-            else:
-                logger.debug(
-                    f"Skipping non-header token in skip_mode: {content or 'None'}")
             continue
 
-        logger.debug(f"Appending token: {content or 'None'}")
         filtered_tokens.append(token)
 
-    logger.debug(
-        f"Final filtered tokens: {[t.get('content', 'None') for t in filtered_tokens]}")
     return filtered_tokens
 
 
 def remove_leading_non_headers(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
     """Remove all tokens at the start until the first header token is encountered."""
-    logger.debug(
-        f"Starting remove_leading_non_headers with tokens: {[t.get('content', 'None') for t in markdown_tokens]}")
 
     for i, token in enumerate(markdown_tokens):
-        logger.debug(
-            f"Checking token: type={token['type']}, content={token.get('content', 'None')}, line={token['line']}")
         if token['type'] == 'header':
-            logger.debug(
-                f"Found first header at index {i}: {token.get('content', 'None')}")
             filtered_tokens = markdown_tokens[i:]
-            logger.debug(
-                f"Returning tokens from first header: {[t.get('content', 'None') for t in filtered_tokens]}")
             return filtered_tokens
 
     # If no header is found, return empty list
-    logger.debug("No header found, returning empty list")
     return []
 
 
-def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> List[MarkdownToken]:
+def merge_headers_with_content(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
+    """Merge headers with their succeeding non-header tokens into a single header token with content joined by newlines."""
+    merged_tokens: List[MarkdownToken] = []
+    current_header: MarkdownToken | None = None
+    content_buffer: List[str] = []
+
+    for token in markdown_tokens:
+        if token['type'] == 'header':
+            if current_header:
+                # Finalize previous header
+                merged_content = '\n'.join(content_buffer)
+                merged_tokens.append({
+                    'type': 'header',
+                    'content': merged_content,
+                    'level': current_header['level'],
+                    'meta': current_header.get('meta', {}),
+                    'line': current_header['line']
+                })
+                content_buffer = []
+            current_header = token
+            content_buffer.append(token['content'])
+        else:
+            if current_header:
+                content = token.get('content')
+                if content is None and token['type'] == 'unordered_list':
+                    items = token.get('meta', {}).get('items', [])
+                    content = '\n'.join(f"- {item['text']}" for item in items)
+                # Add debug log for ordered_list
+                if content is None and token['type'] == 'ordered_list':
+                    items = token.get('meta', {}).get('items', [])
+                    content = '\n'.join(
+                        f"{i+1}. {item['text']}" for i, item in enumerate(items))
+                if content:
+                    content_buffer.append(content)
+
+    # Finalize the last header
+    if current_header and content_buffer:
+        merged_content = '\n'.join(content_buffer)
+        merged_tokens.append({
+            'type': 'header',
+            'content': merged_content,
+            'level': current_header['level'],
+            'meta': current_header.get('meta', {}),
+            'line': current_header['line']
+        })
+
+    return merged_tokens
+
+
+def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_headers: bool = True) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
 
     Args:
         input: Either a string containing markdown content or a Path to a markdown file.
-        merge_contents: If True, merge consecutive paragraph and unordered list tokens into single tokens. Defaults to False.
+        merge_contents: If True, merge consecutive paragraph and unordered list tokens into single tokens. Defaults to True.
+        merge_headers: If True, merge headers with their succeeding non-header tokens into single header tokens. Defaults to True.
 
     Returns:
         A list of dictionaries representing parsed markdown tokens with their type, content, and metadata.
@@ -440,6 +442,8 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> Lis
         tokens = parse_with_timeout(md_content)
         tokens = remove_leading_non_headers(tokens)
         tokens = remove_header_placeholders(tokens)
+        if merge_headers:
+            tokens = merge_headers_with_content(tokens)
         tokens = prepend_hashtags_to_headers(tokens)
         if merge_contents:
             tokens = merge_tokens(tokens)
@@ -453,8 +457,6 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> Lis
             }
             for token in tokens
         ]
-        logger.debug(
-            f"Returning parsed tokens: {[t['content'] for t in parsed_tokens]}")
         return parsed_tokens
 
     except TimeoutError as e:
