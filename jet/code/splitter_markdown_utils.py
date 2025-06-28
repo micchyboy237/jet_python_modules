@@ -511,6 +511,7 @@ def get_md_header_docs(
     md_text: str,
     headers_to_split_on: List[Tuple[str, str]] = [],
     ignore_links: bool = False,
+    base_url: Optional[str] = None,
     metadata: Optional[HeaderMetadataDoc] = None
 ) -> List[HeaderDocument]:
     """
@@ -526,8 +527,7 @@ def get_md_header_docs(
         List[HeaderDocument]: List of HeaderDocument objects, one for each header chunk.
     """
     # Extract base_url from metadata if available
-    base_url = None
-    if metadata and "source_url" in metadata:
+    if not base_url and metadata and "source_url" in metadata:
         parsed_url = urlparse(metadata["source_url"])
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
 

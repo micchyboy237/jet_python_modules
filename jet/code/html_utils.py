@@ -241,3 +241,29 @@ def format_html(html_string: str, parser: str = "html.parser", encoding: Optiona
         return pretty_html.decode(encoding or 'utf-8') if isinstance(pretty_html, bytes) else pretty_html
     except Exception as e:
         raise ValueError(f"Failed to beautify HTML: {str(e)}")
+
+
+def preprocess_html(html: str) -> str:
+    """
+    Preprocess HTML content by removing unwanted elements, comments, and adding spacing.
+
+    Args:
+        html: Input HTML string to preprocess.
+
+    Returns:
+        Preprocessed HTML string.
+    """
+    # Remove unwanted elements (button, script, style, form, input, select, textarea)
+    unwanted_elements = r'button|script|style|form|input|select|textarea'
+    pattern_unwanted = rf'<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>'
+    html = re.sub(pattern_unwanted, '', html, flags=re.DOTALL)
+
+    # Remove HTML comments
+    html = re.sub(r'<!--[\s\S]*?-->', '', html, flags=re.DOTALL)
+
+    # Add space between consecutive inline elements
+    inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
+    pattern_inline = rf'</({inline_elements})><({inline_elements})'
+    html = re.sub(pattern_inline, r'</\1> <\2', html)
+
+    return html

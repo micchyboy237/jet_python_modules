@@ -64,6 +64,7 @@ def extract_query_candidates(query: str, nlp=None) -> List[str]:
 def extract_single_doc_keywords(
     doc: str,
     model: KeyBERT,
+    seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5,
     use_mmr: bool = False,
     diversity: float = 0.5,
@@ -74,6 +75,7 @@ def extract_single_doc_keywords(
         f"Extracting keywords from single document (length: {len(doc)} chars)")
     keywords = model.extract_keywords(
         docs=doc,
+        seed_keywords=seed_keywords,
         top_n=top_n,
         use_mmr=use_mmr,
         diversity=diversity,
@@ -113,14 +115,20 @@ def extract_keywords_with_candidates(
     docs: Union[str, List[str]],
     model: KeyBERT,
     candidates: List[str],
-    top_n: int = 5
+    seed_keywords: Union[List[str], List[List[str]]] = None,
+    top_n: int = 5,
+    keyphrase_ngram_range: Tuple[int, int] = (1, 2),
+    stop_words: str = "english"
 ) -> Union[List[KeywordResult], List[List[KeywordResult]]]:
     logger.info(f"Extracting keywords with {len(candidates)} candidates")
     try:
         keywords = model.extract_keywords(
             docs=docs,
             candidates=candidates,
-            top_n=top_n
+            seed_keywords=seed_keywords,
+            top_n=top_n,
+            keyphrase_ngram_range=keyphrase_ngram_range,
+            stop_words=stop_words,
         )
         logger.debug(f"Extracted keywords: {keywords}")
         if isinstance(docs, str):
@@ -175,6 +183,7 @@ def extract_keywords_with_custom_vectorizer(
 def extract_keywords_with_embeddings(
     docs: Union[str, List[str]],
     model: KeyBERT,
+    seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2)
 ) -> Union[List[KeywordResult], List[List[KeywordResult]]]:
@@ -208,6 +217,7 @@ def extract_keywords_with_embeddings(
     try:
         keywords = model.extract_keywords(
             docs=docs,
+            seed_keywords=seed_keywords,
             doc_embeddings=doc_embeddings,
             word_embeddings=word_embeddings,
             vectorizer=vectorizer,

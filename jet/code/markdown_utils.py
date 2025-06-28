@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Union, TypedDict
 import html2text
 from markdownify import MarkdownConverter
 from markitdown import MarkItDown
-from jet.code.html_utils import valid_html
+from jet.code.html_utils import preprocess_html, valid_html
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
 from jet.decorators.timer import timeout
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
@@ -75,32 +75,6 @@ def preprocess_markdown(md_content: str) -> str:
     md_content = clean_markdown_text(md_content)
     logger.debug("Preprocessed markdown content: %s", md_content[:100])
     return md_content
-
-
-def preprocess_html(html: str) -> str:
-    """
-    Preprocess HTML content by removing unwanted elements, comments, and adding spacing.
-
-    Args:
-        html: Input HTML string to preprocess.
-
-    Returns:
-        Preprocessed HTML string.
-    """
-    # Remove unwanted elements (button, script, style, form, input, select, textarea)
-    unwanted_elements = r'button|script|style|form|input|select|textarea'
-    pattern_unwanted = rf'<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>'
-    html = re.sub(pattern_unwanted, '', html, flags=re.DOTALL)
-
-    # Remove HTML comments
-    html = re.sub(r'<!--[\s\S]*?-->', '', html, flags=re.DOTALL)
-
-    # Add space between consecutive inline elements
-    inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
-    pattern_inline = rf'</({inline_elements})><({inline_elements})'
-    html = re.sub(pattern_inline, r'</\1> <\2', html)
-
-    return html
 
 
 def process_separator_lines(md_content: str) -> str:
@@ -243,6 +217,8 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     else:
         html_content = preprocess_html(html_input)
 
+    html_content = add_list_table_placeholders(html_content)
+
     converter = html2text.HTML2Text()
     converter.ignore_links = ignore_links
     converter.ignore_images = True
@@ -251,7 +227,21 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     converter.body_width = 0
 
     markdown_content = converter.handle(html_content)
+
     return markdown_content.strip()
+
+
+def add_list_table_placeholders(html: str) -> str:
+    """
+    Add <h6> placeholders after </ol>, </ul>, and </table> tags to prevent markdown parser issues.
+
+    Args:
+        html: Input HTML string to process.
+
+    Returns:
+        HTML string with <h6> placeholders added after specified tags.
+    """
+    return re.sub(r'</(ol|ul|table)>', r'</\1><h6>placeholder</h6>', html, flags=re.IGNORECASE)
 
 
 def read_md_content(input) -> str:
@@ -299,8 +289,27 @@ def parse_markdown(input: Union[str, Path]) -> List[MarkdownToken]:
             parser = MarkdownParser(content)
             return parser.parse()
 
+        def remove_list_table_placeholders(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
+            """Remove header tokens with placeholder content from markdown tokens."""
+            return [
+                token for token in markdown_tokens
+                if not (token.type == 'header' and token.content.strip() == 'placeholder')
+            ]
+
+        def prepend_hashtags_to_headers(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
+            """Prepend hashtags to header tokens based on their level."""
+            for token in markdown_tokens:
+                if token.type == 'header' and token.level:
+                    # Add the appropriate number of hashtags based on header level
+                    hashtags = '#' * token.level
+                    if not token.content.startswith(hashtags):
+                        token.content = f"{hashtags} {token.content}"
+            return markdown_tokens
+
         logger.debug("Starting markdown parsing")
         tokens = parse_with_timeout(md_content)
+        tokens = remove_list_table_placeholders(tokens)
+        tokens = prepend_hashtags_to_headers(tokens)
         parsed_tokens = [
             {
                 "type": token.type,
