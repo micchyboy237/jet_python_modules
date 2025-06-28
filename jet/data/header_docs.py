@@ -10,49 +10,48 @@ from jet.code.markdown_types import (
     MetaType,
     ContentType
 )
-import uuid
-
 from jet.code.markdown_utils import derive_text, parse_markdown
-
-# Type definitions for MarkdownToken and meta data
+import uuid
 
 
 # Base Node class for shared attributes
-
-
 class Node(BaseModel):
     id: str = Field(default_factory=lambda: f"auto_{uuid.uuid4().hex[:8]}")
-    parent_id: Optional[str] = None
     line: int
+    parent_id: Optional[str] = None
+    parent_header: Optional[str] = None
+    type: ContentType
+    content: str
+    _parent_node: Optional['NodeType'] = None
+
+    def get_parent_node(self) -> Optional['NodeType']:
+        """Returns the parent node of the current node."""
+        return self._parent_node
 
     class Config:
         arbitrary_types_allowed = True
 
+
 # Text Node for non-header content
-
-
 class TextNode(Node):
-    type: ContentType
-    content: str
     meta: Optional[MetaType]
 
+
 # Header Node for header content
-
-
 class HeaderNode(Node):
     type: ContentType = "header"
-    content: str
     level: int
-    children: List[Union['HeaderNode', TextNode]] = Field(default_factory=list)
+    children: List['NodeType'] = Field(default_factory=list)
 
 
-Nodes = List[Union[HeaderNode, TextNode]]
+NodeType = Union[HeaderNode, TextNode]
+Nodes = List[NodeType]
+
 
 # Header Tree to manage the hierarchy
-
-
 class HeaderDocs(BaseModel):
     root: Nodes = Field(default_factory=list)
+    tokens: List[MarkdownToken] = Field(default_factory=list)
 
     @staticmethod
     def from_tokens(tokens: List[MarkdownToken]) -> 'HeaderDocs':
@@ -62,11 +61,13 @@ class HeaderDocs(BaseModel):
         root: Nodes = []
         parent_stack: List[HeaderNode] = []
         seen_ids: set = set()
+        # Map IDs to nodes
+        id_to_node: Dict[str, Union[HeaderNode, TextNode]] = {}
 
         def generate_unique_id() -> str:
-            new_id = f"auto_{uuid.uuid4().hex[:8]}"
+            new_id = str(uuid.uuid4())
             while new_id in seen_ids:
-                new_id = f"auto_{uuid.uuid4().hex[:8]}"
+                new_id = str(uuid.uuid4())
             seen_ids.add(new_id)
             return new_id
 
@@ -79,8 +80,15 @@ class HeaderDocs(BaseModel):
                     level=token['level'],
                     line=token['line'],
                     parent_id=parent_id,
-                    id=header_id
+                    id=header_id,
                 )
+                id_to_node[header_id] = new_header  # Store node in map
+
+                # Set _parent_node
+                if parent_id and parent_id in id_to_node:
+                    new_header._parent_node = id_to_node[parent_id]
+                    new_header.parent_header = new_header._parent_node.content.splitlines()[
+                        0].strip()
 
                 while parent_stack and parent_stack[-1].level >= new_header.level:
                     parent_stack.pop()
@@ -88,7 +96,6 @@ class HeaderDocs(BaseModel):
                 if parent_stack:
                     parent_stack[-1].children.append(new_header)
                 else:
-                    new_header.parent_id = None
                     root.append(new_header)
 
                 parent_stack.append(new_header)
@@ -102,13 +109,20 @@ class HeaderDocs(BaseModel):
                     parent_id=parent_stack[-1].id if parent_stack else None,
                     id=text_id
                 )
+                id_to_node[text_id] = text_node  # Store node in map
+
+                # Set _parent_node
+                if text_node.parent_id and text_node.parent_id in id_to_node:
+                    text_node._parent_node = id_to_node[text_node.parent_id]
+                    new_header.parent_header = new_header._parent_node.content.splitlines()[
+                        0].strip()
 
                 if parent_stack:
                     parent_stack[-1].children.append(text_node)
                 else:
                     root.append(text_node)
 
-        return HeaderDocs(root=root)
+        return HeaderDocs(root=root, tokens=tokens)
 
     @staticmethod
     def from_string(input: Union[str, Path]) -> 'HeaderDocs':
@@ -123,8 +137,7 @@ class HeaderDocs(BaseModel):
 
         def traverse(node: Union[HeaderNode, TextNode]) -> None:
             if isinstance(node, HeaderNode):
-                texts.append(
-                    f"{node.content.strip()}" if node.content else "")
+                texts.append(f"{node.content.strip()}" if node.content else "")
                 for child in node.children:
                     traverse(child)
             else:
@@ -147,9 +160,10 @@ class HeaderDocs(BaseModel):
                     id=node.id,
                     parent_id=node.parent_id,
                     line=node.line,
-                    content=f"{node.content.strip()}" if node.content else "",
+                    content=f"{'#' * node.level} {node.content.strip()}" if node.content else "",
                     level=node.level,
-                    children=node.children
+                    children=node.children,
+                    _parent_node=node._parent_node
                 )
                 nodes.append(modified_node)
                 for child in node.children:
