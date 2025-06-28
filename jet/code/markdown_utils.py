@@ -240,13 +240,13 @@ def read_md_content(input) -> str:
     return md_content
 
 
-def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> List[MarkdownToken]:
+def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
 
     Args:
         input: Either a string containing markdown content or a Path to a markdown file.
-        merge_paragraphs: If True, merge consecutive paragraph tokens into a single token. Defaults to False.
+        merge_contents: If True, merge consecutive paragraph and unordered list tokens into single tokens. Defaults to False.
 
     Returns:
         A list of dictionaries representing parsed markdown tokens with their type, content, and metadata.
@@ -255,22 +255,25 @@ def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> L
         OSError: If the input file does not exist.
         TimeoutError: If parsing takes too long.
     """
-    def split_markdown_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
-        """Merge consecutive paragraph tokens into a single paragraph token until a non-paragraph token is encountered."""
+    def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
         result: List[MarkdownToken] = []
         paragraph_buffer: List[str] = []
+        list_buffer: List[Dict[str, Any]] = []
+        list_content_buffer: List[str] = []
         current_line: Optional[int] = None
 
         for token in tokens:
             if token['type'] == 'paragraph':
-                # Start or continue collecting paragraph content
                 if current_line is None:
                     current_line = token['line']
                 paragraph_buffer.append(token['content'].strip())
+            elif token['type'] == 'unordered_list' and token.get('meta', {}).get('items'):
+                if current_line is None:
+                    current_line = token['line']
+                list_buffer.extend(token['meta']['items'])
+                list_content_buffer.append(derive_text(token))
             else:
-                # Non-paragraph token encountered
                 if paragraph_buffer:
-                    # Merge collected paragraphs into a single token
                     merged_content = '\n'.join(paragraph_buffer)
                     result.append({
                         'type': 'paragraph',
@@ -281,10 +284,21 @@ def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> L
                     })
                     paragraph_buffer = []
                     current_line = None
-                # Append the non-paragraph token
+                if list_buffer:
+                    merged_content = '\n'.join(list_content_buffer)
+                    result.append({
+                        'type': 'unordered_list',
+                        'content': merged_content,
+                        'level': None,
+                        'meta': {'items': list_buffer},
+                        'line': current_line
+                    })
+                    list_buffer = []
+                    list_content_buffer = []
+                    current_line = None
                 result.append(token)
 
-        # Handle any remaining paragraphs
+        # Handle remaining buffers
         if paragraph_buffer:
             merged_content = '\n'.join(paragraph_buffer)
             result.append({
@@ -294,9 +308,17 @@ def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> L
                 'meta': {},
                 'line': current_line
             })
+        if list_buffer:
+            merged_content = '\n'.join(list_content_buffer)
+            result.append({
+                'type': 'unordered_list',
+                'content': merged_content,
+                'level': None,
+                'meta': {'items': list_buffer},
+                'line': current_line
+            })
 
         return result
-
     try:
         md_content = read_md_content(input)
 
@@ -329,8 +351,8 @@ def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> L
         tokens = parse_with_timeout(md_content)
         tokens = remove_list_table_placeholders(tokens)
         tokens = prepend_hashtags_to_headers(tokens)
-        if merge_paragraphs:
-            tokens = split_markdown_tokens(tokens)
+        if merge_contents:
+            tokens = merge_tokens(tokens)
         parsed_tokens = [
             {
                 "type": token['type'],
