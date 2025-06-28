@@ -1,19 +1,32 @@
-from typing import List, Optional, Tuple, Union, TypedDict
+from typing import List, Optional, Tuple, Union, TypedDict, Literal
 import os
 import re
 import spacy
 import numpy as np
 from keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
-from jet.models.model_types import EmbedModelType
-from jet.logger import logger
+from jet.code.markdown_utils import parse_markdown
+from jet.file.utils import load_file, save_file
+from jet.models.model_types import EmbedModelType, LLMModelType
+from jet.vectors.document_types import HeaderDocument
 from jet.models.embeddings.base import generate_embeddings, load_embed_model
+from jet.logger import logger
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+# Updated TypedDict for keyword results
+
+
+class RankedKeywordResult(TypedDict):
+    rank: int
+    score: float
+    keywords: List[dict[str, Union[str, float]]]
+    text: str
 
 
 class KeywordResult(TypedDict):
     doc_index: int
+    rank: int
     score: float
     text: str
     document: str
@@ -70,7 +83,7 @@ def extract_single_doc_keywords(
     diversity: float = 0.5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
     stop_words: str = "english"
-) -> List[KeywordResult]:
+) -> List[RankedKeywordResult]:
     logger.info(
         f"Extracting keywords from single document (length: {len(doc)} chars)")
     keywords = model.extract_keywords(
@@ -83,7 +96,13 @@ def extract_single_doc_keywords(
         stop_words=stop_words,
     )
     logger.debug(f"Extracted keywords: {keywords}")
-    return [{"doc_index": 0, "score": score, "text": kw, "document": doc} for kw, score in keywords]
+    max_score = max((score for _, score in keywords), default=0.0)
+    return [{
+        "rank": 1,
+        "score": max_score,
+        "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
+        "text": doc
+    }]
 
 
 def extract_multi_doc_keywords(
@@ -95,7 +114,7 @@ def extract_multi_doc_keywords(
     diversity: float = 0.5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
     stop_words: str = "english"
-) -> List[List[KeywordResult]]:
+) -> List[RankedKeywordResult]:
     logger.info(f"Extracting keywords from {len(docs)} documents")
     keywords = model.extract_keywords(
         docs=docs,
@@ -107,8 +126,17 @@ def extract_multi_doc_keywords(
         stop_words=stop_words,
     )
     logger.debug(f"Extracted keywords for {len(keywords)} documents")
-    return [[{"doc_index": i, "score": score, "text": kw, "document": docs[i]} for kw, score in doc_keywords]
-            for i, doc_keywords in enumerate(keywords)]
+    result = []
+    for i, doc_keywords in enumerate(keywords):
+        max_score = max((score for _, score in doc_keywords),
+                        default=0.0) if doc_keywords else 0.0
+        result.append({
+            "rank": i + 1,
+            "score": max_score,
+            "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
+            "text": docs[i]
+        })
+    return result
 
 
 def extract_keywords_with_candidates(
@@ -119,7 +147,7 @@ def extract_keywords_with_candidates(
     top_n: int = 5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
     stop_words: str = "english"
-) -> Union[List[KeywordResult], List[List[KeywordResult]]]:
+) -> List[RankedKeywordResult]:
     logger.info(f"Extracting keywords with {len(candidates)} candidates")
     try:
         keywords = model.extract_keywords(
@@ -132,30 +160,50 @@ def extract_keywords_with_candidates(
         )
         logger.debug(f"Extracted keywords: {keywords}")
         if isinstance(docs, str):
-            # Handle single document case
-            if all(isinstance(kw, tuple) for kw in keywords):
-                return [{"doc_index": 0, "score": score, "text": kw, "document": docs} for kw, score in keywords]
-            else:
-                # Fallback for when KeyBERT returns only keywords without scores
-                return [{"doc_index": 0, "score": 1.0, "text": kw, "document": docs} for kw in keywords]
+            max_score = max((score for _, score in keywords),
+                            default=0.0) if keywords else 0.0
+            return [{
+                "rank": 1,
+                "score": max_score,
+                "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
+                "text": docs
+            }]
         else:
-            # Handle multi-document case
-            if all(isinstance(doc_kws, list) and all(isinstance(kw, tuple) for kw in doc_kws) for doc_kws in keywords):
-                return [[{"doc_index": i, "score": score, "text": kw, "document": docs[i]} for kw, score in doc_keywords]
-                        for i, doc_keywords in enumerate(keywords)]
-            else:
-                # Fallback for when KeyBERT returns only keywords without scores
-                return [[{"doc_index": i, "score": 1.0, "text": kw, "document": docs[i]} for kw in doc_keywords]
-                        for i, doc_keywords in enumerate(keywords)]
+            result = []
+            for i, doc_keywords in enumerate(keywords):
+                max_score = max((score for _, score in doc_keywords),
+                                default=0.0) if doc_keywords else 0.0
+                result.append({
+                    "rank": i + 1,
+                    "score": max_score,
+                    "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
+                    "text": docs[i]
+                })
+            return result
     except Exception as e:
         logger.error(f"Error extracting keywords with candidates: {e}")
-        # Fallback to standard extraction without candidates
         keywords = model.extract_keywords(docs=docs, top_n=top_n)
         logger.debug(f"Fallback extracted keywords: {keywords}")
         if isinstance(docs, str):
-            return [{"doc_index": 0, "score": score, "text": kw, "document": docs} for kw, score in keywords]
-        return [[{"doc_index": i, "score": score, "text": kw, "document": docs[i]} for kw, score in doc_keywords]
-                for i, doc_keywords in enumerate(keywords)]
+            max_score = max((score for _, score in keywords),
+                            default=0.0) if keywords else 0.0
+            return [{
+                "rank": 1,
+                "score": max_score,
+                "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
+                "text": docs
+            }]
+        result = []
+        for i, doc_keywords in enumerate(keywords):
+            max_score = max((score for _, score in doc_keywords),
+                            default=0.0) if doc_keywords else 0.0
+            result.append({
+                "rank": i + 1,
+                "score": max_score,
+                "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
+                "text": docs[i]
+            })
+        return result
 
 
 def extract_keywords_with_custom_vectorizer(
@@ -164,7 +212,7 @@ def extract_keywords_with_custom_vectorizer(
     vectorizer: CountVectorizer,
     seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5
-) -> Union[List[KeywordResult], List[List[KeywordResult]]]:
+) -> List[RankedKeywordResult]:
     logger.info(
         f"Extracting keywords with custom vectorizer for {1 if isinstance(docs, str) else len(docs)} document(s)")
     keywords = model.extract_keywords(
@@ -175,9 +223,25 @@ def extract_keywords_with_custom_vectorizer(
     )
     logger.debug(f"Extracted keywords: {keywords}")
     if isinstance(docs, str):
-        return [{"doc_index": 0, "score": score, "text": kw, "document": docs} for kw, score in keywords]
-    return [[{"doc_index": i, "score": score, "text": kw, "document": docs[i]} for kw, score in doc_keywords]
-            for i, doc_keywords in enumerate(keywords)]
+        max_score = max((score for _, score in keywords),
+                        default=0.0) if keywords else 0.0
+        return [{
+            "rank": 1,
+            "score": max_score,
+            "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
+            "text": docs
+        }]
+    result = []
+    for i, doc_keywords in enumerate(keywords):
+        max_score = max((score for _, score in doc_keywords),
+                        default=0.0) if doc_keywords else 0.0
+        result.append({
+            "rank": i + 1,
+            "score": max_score,
+            "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
+            "text": docs[i]
+        })
+    return result
 
 
 def extract_keywords_with_embeddings(
@@ -186,7 +250,7 @@ def extract_keywords_with_embeddings(
     seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2)
-) -> Union[List[KeywordResult], List[List[KeywordResult]]]:
+) -> List[RankedKeywordResult]:
     logger.info(
         f"Extracting keywords with precomputed embeddings for {1 if isinstance(docs, str) else len(docs)} document(s)")
     if not isinstance(docs, (str, list)):
@@ -197,7 +261,7 @@ def extract_keywords_with_embeddings(
         logger.error("All elements in docs must be strings.")
         raise ValueError("All elements in docs must be strings")
     if not docs:
-        return [] if isinstance(docs, list) else []
+        return [] if isinstance(docs, str) else []
     model_name = 'static-retrieval-mrl-en-v1'
     doc_embeddings = generate_embeddings(
         docs, model=model_name, return_format="numpy")
@@ -233,6 +297,22 @@ def extract_keywords_with_embeddings(
             top_n=top_n
         )
     if isinstance(docs, str):
-        return [{"doc_index": 0, "score": score, "text": kw, "document": docs} for kw, score in keywords]
-    return [[{"doc_index": i, "score": score, "text": kw, "document": docs[i]} for kw, score in doc_keywords]
-            for i, doc_keywords in enumerate(keywords)]
+        max_score = max((score for _, score in keywords),
+                        default=0.0) if keywords else 0.0
+        return [{
+            "rank": 1,
+            "score": max_score,
+            "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
+            "text": docs
+        }]
+    result = []
+    for i, doc_keywords in enumerate(keywords):
+        max_score = max((score for _, score in doc_keywords),
+                        default=0.0) if doc_keywords else 0.0
+        result.append({
+            "rank": i + 1,
+            "score": max_score,
+            "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
+            "text": docs[i]
+        })
+    return result

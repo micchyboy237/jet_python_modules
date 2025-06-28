@@ -339,26 +339,7 @@ def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> L
         parsed_tokens = [
             {
                 "type": token['type'],
-                "content": (
-                    cleaned_content := derive_text({
-                        "type": token.get('type'),
-                        "content": token.get('content'),
-                        "level": token.get("level"),
-                        "meta": token.get("meta"),
-                        "line": token.get('line')
-                    }),
-                    logger.debug(
-                        "Processing token: type=%s, content_before=%s", token.get('type'), token.get('content')),
-                    logger.debug("After derive_text: content=%s",
-                                 cleaned_content),
-                    (
-                        re.sub(r'^```[\w]*\n|\n```$', '',
-                               cleaned_content).strip()
-                        if token.get('type') == 'code'
-                        else cleaned_content.replace('* ', '- ') if token.get('type') == 'unordered_list' and cleaned_content.startswith('* ')
-                        else cleaned_content
-                    )
-                )[-1],
+                "content": derive_text(token),
                 "level": token.get("level"),
                 "meta": token.get("meta"),
                 "line": token.get('line')
@@ -625,6 +606,7 @@ def get_summary(input: Union[str, Path]) -> SummaryDict:
 def derive_text(token: MarkdownToken) -> str:
     """
     Derives the Markdown text representation for a given token based on its type.
+    Applies specific content transformations for code and unordered list tokens.
     """
     result = ""
 
@@ -645,6 +627,9 @@ def derive_text(token: MarkdownToken) -> str:
                     i) if token['type'] == 'ordered_list' else prefix
                 line = f"{prefix_str} {checkbox}{' ' if checkbox else ''}{item['text']}".strip(
                 )
+                if token['type'] == 'unordered_list' and prefix_str == '*':
+                    # Replace asterisk with dash for unordered lists
+                    line = line.replace('* ', '- ')
                 lines.append(line)
             result = '\n'.join(lines)
 
@@ -666,9 +651,9 @@ def derive_text(token: MarkdownToken) -> str:
             result = '\n'.join(lines)
 
     elif token['type'] == 'code':
-        language = token['meta'].get(
-            'language', '') if token['meta'] else ''
-        result = f"```{' ' + language if language else ''}\n{token['content']}\n```"
+        content = token['content']
+        # Remove code block delimiters and strip whitespace
+        result = re.sub(r'^```[\w]*\n|\n```$', '', content).strip()
 
     else:  # paragraph, blockquote, html_block
         result = token['content']

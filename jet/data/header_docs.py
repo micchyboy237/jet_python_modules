@@ -34,7 +34,7 @@ class Node(BaseModel):
 class TextNode(Node):
     type: ContentType
     content: str
-    meta: MetaType
+    meta: Optional[MetaType]
 
 # Header Node for header content
 
