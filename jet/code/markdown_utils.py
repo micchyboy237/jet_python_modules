@@ -240,6 +240,99 @@ def read_md_content(input) -> str:
     return md_content
 
 
+def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
+    result: List[MarkdownToken] = []
+    paragraph_buffer: List[str] = []
+    list_buffer: List[Dict[str, Any]] = []
+    list_content_buffer: List[str] = []
+    current_line: int = 1
+
+    for token in tokens:
+        logger.debug(
+            f"Processing token: type={token['type']}, line={token.get('line', 1)}, content={token.get('content', '')}")
+        if token['type'] == 'paragraph':
+            if not paragraph_buffer:  # First paragraph in sequence
+                current_line = token.get('line', 1)
+                logger.debug(
+                    f"Setting current_line to {current_line} for first paragraph")
+            paragraph_buffer.append(token['content'].strip())
+        elif token['type'] == 'unordered_list':
+            if not list_buffer:  # First unordered list in sequence
+                current_line = token.get('line', 1)
+                logger.debug(
+                    f"Setting current_line to {current_line} for first unordered list")
+            items = token.get('meta', {}).get('items', [])
+            list_buffer.extend(items)
+            # Generate content directly from items to ensure correct format
+            list_content_buffer.append(
+                '\n'.join(f"- {item['text']}" for item in items))
+        else:
+            if paragraph_buffer:
+                merged_content = '\n'.join(paragraph_buffer)
+                logger.debug(
+                    f"Merging paragraphs, content={merged_content}, line={current_line}")
+                result.append({
+                    'type': 'paragraph',
+                    'content': merged_content,
+                    'level': None,
+                    'meta': {},
+                    'line': current_line
+                })
+                paragraph_buffer = []
+                current_line = 1
+                logger.debug(
+                    f"Reset current_line to {current_line} after paragraph merge")
+            if list_buffer:
+                merged_content = '\n'.join(list_content_buffer)
+                logger.debug(
+                    f"Merging unordered lists, content={merged_content}, line={current_line}")
+                result.append({
+                    'type': 'unordered_list',
+                    'content': merged_content,
+                    'level': None,
+                    'meta': {'items': list_buffer},
+                    'line': current_line
+                })
+                list_buffer = []
+                list_content_buffer = []
+                current_line = 1
+                logger.debug(
+                    f"Reset current_line to {current_line} after list merge")
+            logger.debug(f"Appending non-mergeable token: {token}")
+            result.append(token)
+            current_line = 1  # Reset for next sequence
+            logger.debug(
+                f"Reset current_line to {current_line} after non-mergeable token")
+
+    # Handle remaining buffers
+    if paragraph_buffer:
+        merged_content = '\n'.join(paragraph_buffer)
+        logger.debug(
+            f"Final paragraph merge, content={merged_content}, line={current_line}")
+        result.append({
+            'type': 'paragraph',
+            'content': merged_content,
+            'level': None,
+            'meta': {},
+            'line': current_line
+        })
+    if list_buffer:
+        merged_content = '\n'.join(list_content_buffer)
+        logger.debug(
+            f"Final unordered list merge, content={merged_content}, line={current_line}")
+        result.append({
+            'type': 'unordered_list',
+            'content': merged_content,
+            'level': None,
+            'meta': {'items': list_buffer},
+            'line': current_line
+        })
+
+    logger.debug(
+        f"Returning result: {[t['type'] + ':' + str(t['line']) + ':' + t.get('content', '') for t in result]}")
+    return result
+
+
 def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
@@ -255,70 +348,6 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> Lis
         OSError: If the input file does not exist.
         TimeoutError: If parsing takes too long.
     """
-    def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
-        result: List[MarkdownToken] = []
-        paragraph_buffer: List[str] = []
-        list_buffer: List[Dict[str, Any]] = []
-        list_content_buffer: List[str] = []
-        current_line: Optional[int] = None
-
-        for token in tokens:
-            if token['type'] == 'paragraph':
-                if current_line is None:
-                    current_line = token['line']
-                paragraph_buffer.append(token['content'].strip())
-            elif token['type'] == 'unordered_list' and token.get('meta', {}).get('items'):
-                if current_line is None:
-                    current_line = token['line']
-                list_buffer.extend(token['meta']['items'])
-                list_content_buffer.append(derive_text(token))
-            else:
-                if paragraph_buffer:
-                    merged_content = '\n'.join(paragraph_buffer)
-                    result.append({
-                        'type': 'paragraph',
-                        'content': merged_content,
-                        'level': None,
-                        'meta': {},
-                        'line': current_line
-                    })
-                    paragraph_buffer = []
-                    current_line = None
-                if list_buffer:
-                    merged_content = '\n'.join(list_content_buffer)
-                    result.append({
-                        'type': 'unordered_list',
-                        'content': merged_content,
-                        'level': None,
-                        'meta': {'items': list_buffer},
-                        'line': current_line
-                    })
-                    list_buffer = []
-                    list_content_buffer = []
-                    current_line = None
-                result.append(token)
-
-        # Handle remaining buffers
-        if paragraph_buffer:
-            merged_content = '\n'.join(paragraph_buffer)
-            result.append({
-                'type': 'paragraph',
-                'content': merged_content,
-                'level': None,
-                'meta': {},
-                'line': current_line
-            })
-        if list_buffer:
-            merged_content = '\n'.join(list_content_buffer)
-            result.append({
-                'type': 'unordered_list',
-                'content': merged_content,
-                'level': None,
-                'meta': {'items': list_buffer},
-                'line': current_line
-            })
-
-        return result
     try:
         md_content = read_md_content(input)
 

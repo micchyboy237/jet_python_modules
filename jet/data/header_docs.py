@@ -124,7 +124,7 @@ class HeaderDocs(BaseModel):
         def traverse(node: Union[HeaderNode, TextNode]) -> None:
             if isinstance(node, HeaderNode):
                 texts.append(
-                    f"{'#' * node.level} {node.content.strip()}" if node.content else "")
+                    f"{node.content.strip()}" if node.content else "")
                 for child in node.children:
                     traverse(child)
             else:
