@@ -5,7 +5,7 @@ import pytest
 from typing import TypedDict
 
 from jet.code.markdown_types import MarkdownToken
-from jet.code.markdown_utils import remove_list_table_placeholders
+from jet.code.markdown_utils import remove_header_placeholders
 
 
 class TestRemoveListTablePlaceholders:
@@ -39,7 +39,7 @@ class TestRemoveListTablePlaceholders:
         ]
 
         # When: The function is called to remove placeholder headers and their following non-header tokens
-        result = remove_list_table_placeholders(given_tokens)
+        result = remove_header_placeholders(given_tokens)
 
         # Then: The result should match the expected tokens, excluding the placeholder header and its non-header tokens
         assert result == expected
@@ -57,7 +57,7 @@ class TestRemoveListTablePlaceholders:
         expected: List[MarkdownToken] = given_tokens  # No changes expected
 
         # When: The function is called
-        result = remove_list_table_placeholders(given_tokens)
+        result = remove_header_placeholders(given_tokens)
 
         # Then: The result should match the input tokens exactly
         assert result == expected
@@ -86,7 +86,7 @@ class TestRemoveListTablePlaceholders:
         ]
 
         # When: The function is called
-        result = remove_list_table_placeholders(given_tokens)
+        result = remove_header_placeholders(given_tokens)
 
         # Then: The result should exclude all placeholder headers and their following non-header tokens
         assert result == expected
@@ -111,7 +111,7 @@ class TestRemoveListTablePlaceholders:
         ]
 
         # When: The function is called
-        result = remove_list_table_placeholders(given_tokens)
+        result = remove_header_placeholders(given_tokens)
 
         # Then: The result should exclude the placeholder header and its following non-header tokens
         assert result == expected

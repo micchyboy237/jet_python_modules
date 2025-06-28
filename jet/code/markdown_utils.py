@@ -333,7 +333,7 @@ def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
     return result
 
 
-def remove_list_table_placeholders(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
+def remove_header_placeholders(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
     """Remove header tokens with placeholder content and all succeeding non-header tokens until the next non-placeholder header."""
     filtered_tokens = []
     skip_mode = False
@@ -380,6 +380,27 @@ def remove_list_table_placeholders(markdown_tokens: List[MarkdownToken]) -> List
     return filtered_tokens
 
 
+def remove_leading_non_headers(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
+    """Remove all tokens at the start until the first header token is encountered."""
+    logger.debug(
+        f"Starting remove_leading_non_headers with tokens: {[t.get('content', 'None') for t in markdown_tokens]}")
+
+    for i, token in enumerate(markdown_tokens):
+        logger.debug(
+            f"Checking token: type={token['type']}, content={token.get('content', 'None')}, line={token['line']}")
+        if token['type'] == 'header':
+            logger.debug(
+                f"Found first header at index {i}: {token.get('content', 'None')}")
+            filtered_tokens = markdown_tokens[i:]
+            logger.debug(
+                f"Returning tokens from first header: {[t.get('content', 'None') for t in filtered_tokens]}")
+            return filtered_tokens
+
+    # If no header is found, return empty list
+    logger.debug("No header found, returning empty list")
+    return []
+
+
 def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
@@ -417,7 +438,8 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> Lis
             return markdown_tokens
 
         tokens = parse_with_timeout(md_content)
-        tokens = remove_list_table_placeholders(tokens)
+        tokens = remove_leading_non_headers(tokens)
+        tokens = remove_header_placeholders(tokens)
         tokens = prepend_hashtags_to_headers(tokens)
         if merge_contents:
             tokens = merge_tokens(tokens)
@@ -431,6 +453,8 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = False) -> Lis
             }
             for token in tokens
         ]
+        logger.debug(
+            f"Returning parsed tokens: {[t['content'] for t in parsed_tokens]}")
         return parsed_tokens
 
     except TimeoutError as e:
