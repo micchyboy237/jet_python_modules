@@ -1005,15 +1005,14 @@ def extract_tree_with_text(
 
         for child in el_pq.children():
             child_pq = pq(child)
+            # Skip comment nodes
             if child.tag is Comment or str(child.tag).startswith('<cyfunction Comment'):
                 continue
 
             tag = child.tag if isinstance(child.tag, str) else str(child.tag)
-            text = decode_text_with_unidecode(child.text)
             class_names = [cls for cls in (child_pq.attr(
                 "class") or "").split() if not cls.startswith("css-")]
-            element_id = child_piselement_id = child_pq.attr("id")
-
+            element_id = child_pq.attr("id")
             link = (child_pq.attr("href") or
                     child_pq.attr("data-href") or
                     child_pq.attr("action") or
@@ -1021,6 +1020,20 @@ def extract_tree_with_text(
 
             if not element_id or not re.match(r'^[a-zA-Z_-]+$', element_id):
                 element_id = f"auto_{uuid.uuid4().hex[:8]}"
+
+            # Handle <p> tags by combining all child text into a single string
+            if tag.lower() == "p":
+                # Extract all text from child elements, joining without extra spaces
+                text_parts = []
+                for item in child_pq.contents():
+                    if isinstance(item, str):
+                        text_parts.append(item.strip())
+                    else:
+                        text_parts.append(decode_text_with_unidecode(
+                            pq(item).text().strip()))
+                text = " ".join(part for part in text_parts if part)
+            else:
+                text = decode_text_with_unidecode(child_pq.text().strip())
 
             child_node = TreeNode(
                 tag=tag,
@@ -1033,9 +1046,14 @@ def extract_tree_with_text(
                 children=[]
             )
 
+            # Check if child text is a substring of parent text and empty parent text if true
+            if parent_node.text and child_node.text and child_node.text in parent_node.text:
+                parent_node.text = ""
+
             parent_node.children.append(child_node)
 
-            if child_pq.children():
+            # Only traverse deeper if the tag is not <p>
+            if tag.lower() != "p" and child_pq.children():
                 stack.append((child, child_node, depth + 1))
 
     return root_node
@@ -1147,12 +1165,7 @@ def extract_texts_by_hierarchy(
         ("######", "h6"),
     ],
     ignore_links: bool = True,
-    excludes: list[str] = [
-        "nav", "footer", "script", "style", "noscript", "template",
-        "svg", "canvas", "iframe", "form", "input", "button",
-        "select", "option", "label", "aside", "meta", "link",
-        "figure", "figcaption", "object", "embed"
-    ]
+    excludes: list[str] = ["nav", "footer", "script", "style"],
 ) -> List[TextHierarchyResult]:
     """
     Extracts a list of dictionaries from HTML, each containing the combined text of a heading
@@ -1237,12 +1250,7 @@ def merge_texts_by_hierarchy(
         ("######", "h6"),
     ],
     ignore_links: bool = True,
-    excludes: list[str] = [
-        "nav", "footer", "script", "style", "noscript", "template",
-        "svg", "canvas", "iframe", "form", "input", "button",
-        "select", "option", "label", "aside", "meta", "link",
-        "figure", "figcaption", "object", "embed"
-    ],
+    excludes: list[str] = ["nav", "footer", "script", "style"],
     split_fn: Optional[Callable[[str], List[str]]] = None
 ) -> List[MergedTextsResult]:
     from jet.code.splitter_markdown_utils import get_md_header_contents
