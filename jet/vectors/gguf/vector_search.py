@@ -1,9 +1,17 @@
-from typing import List, Optional
+from typing import List, Optional, TypedDict
 import numpy as np
 from numpy.typing import NDArray
 from llama_cpp import Llama
 from sklearn.preprocessing import normalize
 from tqdm import tqdm
+
+
+class SearchResult(TypedDict):
+    id: str
+    doc_index: int
+    rank: int
+    score: float
+    text: str
 
 
 class VectorSearch:
@@ -62,7 +70,6 @@ class VectorSearch:
                 tokens = tokens + [0] * (max_length - len(tokens))
             embedding = np.array(self.model.embed(text), dtype=np.float32)
             if len(embedding.shape) > 1:
-                # Use last token if multi-dimensional
                 embedding = embedding[-1]
             embeddings.append(embedding)
 
@@ -84,8 +91,8 @@ class VectorSearch:
         """
         return normalize(embeddings, norm='l2', axis=1)
 
-    def compute_similarity_matrix(self, query_embeddings: NDArray[np.float32],
-                                  doc_embeddings: NDArray[np.float32]) -> NDArray[np.float32]:
+    def compute_similarity(self, query_embeddings: NDArray[np.float32],
+                           doc_embeddings: NDArray[np.float32]) -> NDArray[np.float32]:
         """
         Compute cosine similarity between query and document embeddings.
 
@@ -97,6 +104,48 @@ class VectorSearch:
             Similarity matrix (num_queries, num_docs)
         """
         return query_embeddings @ doc_embeddings.T
+
+    def search(self, queries: List[str], documents: List[dict], top_k: int = 3) -> List[List[SearchResult]]:
+        """
+        Perform vector search and return structured results.
+
+        Args:
+            queries: List of query strings
+            documents: List of dictionaries with 'id' and 'text' keys
+            top_k: Number of top results to return per query
+
+        Returns:
+            List of SearchResult lists, one per query
+        """
+        # Encode and normalize
+        query_embeddings = self.encode_texts(queries)
+        doc_texts = [doc['text'] for doc in documents]
+        doc_ids = [doc['id'] for doc in documents]
+        doc_embeddings = self.encode_texts(doc_texts)
+        query_embeddings = self.normalize_embeddings(query_embeddings)
+        doc_embeddings = self.normalize_embeddings(doc_embeddings)
+
+        # Compute similarities
+        scores = self.compute_similarity(query_embeddings, doc_embeddings)
+
+        # Format results
+        results = []
+        for query_idx, query_scores in enumerate(scores):
+            # Sort by score in descending order
+            top_indices = np.argsort(query_scores)[
+                ::-1][:min(top_k, len(documents))]
+            query_results = []
+            for rank, doc_idx in enumerate(top_indices, 1):
+                text = documents[doc_idx]['text']
+                query_results.append({
+                    'id': doc_ids[doc_idx],
+                    'doc_index': doc_idx,
+                    'rank': rank,
+                    'score': float(query_scores[doc_idx]),
+                    'text': text
+                })
+            results.append(query_results)
+        return results
 
 
 def get_detailed_instruct(task_description: str, query: str) -> str:
