@@ -10,6 +10,7 @@ from markitdown import MarkItDown
 from jet.code.html_utils import preprocess_html, valid_html
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
 from jet.decorators.timer import timeout
+from jet.transformers.object import make_serializable
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 
 from jet.logger import logger
@@ -209,28 +210,6 @@ def convert_html_to_markitdown(html_input: Union[str, Path], **options) -> str:
         raise
 
 
-def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = True) -> str:
-    """Convert HTML to Markdown with enhanced noise removal."""
-    if isinstance(html_input, Path):
-        with html_input.open('r', encoding='utf-8') as f:
-            html_content = preprocess_html(f.read())
-    else:
-        html_content = preprocess_html(html_input)
-
-    html_content = add_list_table_placeholders(html_content)
-
-    converter = html2text.HTML2Text()
-    converter.ignore_links = ignore_links
-    converter.ignore_images = True
-    converter.ignore_emphasis = True
-    converter.mark_code = False
-    converter.body_width = 0
-
-    markdown_content = converter.handle(html_content)
-
-    return markdown_content.strip()
-
-
 def add_list_table_placeholders(html: str) -> str:
     """
     Add <h6> placeholders after </ol>, </ul>, and </table> tags to prevent markdown parser issues.
@@ -263,12 +242,13 @@ def read_md_content(input) -> str:
     return md_content
 
 
-def parse_markdown(input: Union[str, Path]) -> List[MarkdownToken]:
+def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
 
     Args:
         input: Either a string containing markdown content or a Path to a markdown file.
+        merge_paragraphs: If True, merge consecutive paragraph tokens into a single token. Defaults to False.
 
     Returns:
         A list of dictionaries representing parsed markdown tokens with their type, content, and metadata.
@@ -277,53 +257,111 @@ def parse_markdown(input: Union[str, Path]) -> List[MarkdownToken]:
         OSError: If the input file does not exist.
         TimeoutError: If parsing takes too long.
     """
+    def split_markdown_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
+        """Merge consecutive paragraph tokens into a single paragraph token until a non-paragraph token is encountered."""
+        result: List[MarkdownToken] = []
+        paragraph_buffer: List[str] = []
+        current_line: Optional[int] = None
+
+        for token in tokens:
+            if token['type'] == 'paragraph':
+                # Start or continue collecting paragraph content
+                if current_line is None:
+                    current_line = token['line']
+                paragraph_buffer.append(token['content'].strip())
+            else:
+                # Non-paragraph token encountered
+                if paragraph_buffer:
+                    # Merge collected paragraphs into a single token
+                    merged_content = '\n'.join(paragraph_buffer)
+                    result.append({
+                        'type': 'paragraph',
+                        'content': merged_content,
+                        'level': None,
+                        'meta': {},
+                        'line': current_line
+                    })
+                    paragraph_buffer = []
+                    current_line = None
+                # Append the non-paragraph token
+                result.append(token)
+
+        # Handle any remaining paragraphs
+        if paragraph_buffer:
+            merged_content = '\n'.join(paragraph_buffer)
+            result.append({
+                'type': 'paragraph',
+                'content': merged_content,
+                'level': None,
+                'meta': {},
+                'line': current_line
+            })
+
+        return result
+
     try:
         md_content = read_md_content(input)
 
         # Preprocess markdown
-        logger.debug("Preprocessing markdown content")
+        logger.debug("Preprocessing markdown content: %s", md_content)
         md_content = preprocess_markdown(md_content)
 
         # @timeout(3)
         def parse_with_timeout(content: str) -> List[MarkdownToken]:
             parser = MarkdownParser(content)
-            return parser.parse()
+            return make_serializable(parser.parse())
 
         def remove_list_table_placeholders(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
             """Remove header tokens with placeholder content from markdown tokens."""
-            return [
-                token for token in markdown_tokens
-                if not (token.type == 'header' and token.content.strip() == 'placeholder')
-            ]
+            filtered_tokens = []
+            for token in markdown_tokens:
+                if not (token['type'] == 'header' and token['content'].strip() == 'placeholder'):
+                    filtered_tokens.append(token)
+            return filtered_tokens
 
         def prepend_hashtags_to_headers(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
             """Prepend hashtags to header tokens based on their level."""
             for token in markdown_tokens:
-                if token.type == 'header' and token.level:
+                if token['type'] == 'header' and token['level']:
                     # Add the appropriate number of hashtags based on header level
-                    hashtags = '#' * token.level
-                    if not token.content.startswith(hashtags):
-                        token.content = f"{hashtags} {token.content}"
+                    hashtags = '#' * token['level']
+                    if not token['content'].startswith(hashtags):
+                        token['content'] = f"{hashtags} {token['content']}"
             return markdown_tokens
 
         logger.debug("Starting markdown parsing")
         tokens = parse_with_timeout(md_content)
         tokens = remove_list_table_placeholders(tokens)
         tokens = prepend_hashtags_to_headers(tokens)
+        if merge_paragraphs:
+            tokens = split_markdown_tokens(tokens)
+        logger.debug("Tokens before derive_text: %s", tokens)
         parsed_tokens = [
             {
-                "type": token.type,
-                # "content": clean_markdown_text(token.content),
-                "content": derive_text({
-                    "type": token.type,
-                    "content": token.content,
-                    "level": token.level,
-                    "meta": token.meta,
-                    "line": token.line
-                }),
-                "level": token.level,
-                "meta": token.meta,
-                "line": token.line
+                "type": token['type'],
+                "content": (
+                    cleaned_content := derive_text({
+                        "type": token.get('type'),
+                        "content": token.get('content'),
+                        "level": token.get("level"),
+                        "meta": token.get("meta"),
+                        "line": token.get('line')
+                    }),
+                    logger.debug(
+                        "Processing token: type=%s, content_before=%s", token.get('type'), token.get('content')),
+                    logger.debug("After derive_text: content=%s",
+                                 cleaned_content),
+                    (
+                        re.sub(r'^```[\w]*\n|\n```$', '',
+                               cleaned_content).strip()
+                        if token.get('type') == 'code'
+                        else cleaned_content.replace('* ', '- ') if token.get('type') == 'unordered_list' and cleaned_content.startswith('* ')
+                        else cleaned_content
+                    )
+                )[-1],
+                "level": token.get("level"),
+                "meta": token.get("meta"),
+                "line": token.get('line')
             }
             for token in tokens
         ]
@@ -336,6 +374,28 @@ def parse_markdown(input: Union[str, Path]) -> List[MarkdownToken]:
     except Exception as e:
         logger.error(f"Error parsing markdown: {str(e)}")
         raise
+
+
+def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = True) -> str:
+    """Convert HTML to Markdown with enhanced noise removal."""
+    if isinstance(html_input, Path):
+        with html_input.open('r', encoding='utf-8') as f:
+            html_content = preprocess_html(f.read())
+    else:
+        html_content = preprocess_html(html_input)
+
+    html_content = add_list_table_placeholders(html_content)
+
+    converter = html2text.HTML2Text()
+    converter.ignore_links = ignore_links
+    converter.ignore_images = True
+    converter.ignore_emphasis = True
+    converter.mark_code = False
+    converter.body_width = 0
+
+    markdown_content = converter.handle(html_content)
+
+    return markdown_content.strip()
 
 
 def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
@@ -566,45 +626,51 @@ def derive_text(token: MarkdownToken) -> str:
     """
     Derives the Markdown text representation for a given token based on its type.
     """
+    result = ""
+
     if token['type'] == 'header' and token['level'] is not None:
-        return f"{token['content'].strip()}" if token['content'] else ""
+        result = f"{token['content'].strip()}" if token['content'] else ""
 
     elif token['type'] in ['unordered_list', 'ordered_list']:
         if not token['meta'] or 'items' not in token['meta']:
-            return ""
-        items = token['meta']['items']
-        prefix = '*' if token['type'] == 'unordered_list' else lambda i: f"{i+1}."
-        lines = []
-        for i, item in enumerate(items):
-            checkbox = '[x]' if item.get('checked', False) else '[ ]' if item.get(
-                'task_item', False) else ''
-            prefix_str = prefix(
-                i) if token['type'] == 'ordered_list' else prefix
-            line = f"{prefix_str} {checkbox}{' ' if checkbox else ''}{item['text']}".strip(
-            )
-            lines.append(line)
-        return '\n'.join(lines)
+            result = ""
+        else:
+            items = token['meta']['items']
+            prefix = '*' if token['type'] == 'unordered_list' else lambda i: f"{i+1}."
+            lines = []
+            for i, item in enumerate(items):
+                checkbox = '[x]' if item.get('checked', False) else '[ ]' if item.get(
+                    'task_item', False) else ''
+                prefix_str = prefix(
+                    i) if token['type'] == 'ordered_list' else prefix
+                line = f"{prefix_str} {checkbox}{' ' if checkbox else ''}{item['text']}".strip(
+                )
+                lines.append(line)
+            result = '\n'.join(lines)
 
     elif token['type'] == 'table':
         if not token['meta'] or 'header' not in token['meta'] or 'rows' not in token['meta']:
-            return ""
-        header = token['meta']['header']
-        rows = token['meta']['rows']
-        widths = [max(len(str(cell)) for row in [header] +
-                      rows for cell in row[i:i+1]) for i in range(len(header))]
-        lines = ['| ' + ' | '.join(cell.ljust(widths[i])
-                                   for i, cell in enumerate(header)) + ' |']
-        lines.append(
-            '| ' + ' | '.join('-' * width for width in widths) + ' |')
-        for row in rows:
+            result = ""
+        else:
+            header = token['meta']['header']
+            rows = token['meta']['rows']
+            widths = [max(len(str(cell)) for row in [header] +
+                          rows for cell in row[i:i+1]) for i in range(len(header))]
+            lines = ['| ' + ' | '.join(cell.ljust(widths[i])
+                                       for i, cell in enumerate(header)) + ' |']
             lines.append(
-                '| ' + ' | '.join(str(cell).ljust(widths[i]) for i, cell in enumerate(row)) + ' |')
-        return '\n'.join(lines)
+                '| ' + ' | '.join('-' * width for width in widths) + ' |')
+            for row in rows:
+                lines.append(
+                    '| ' + ' | '.join(str(cell).ljust(widths[i]) for i, cell in enumerate(row)) + ' |')
+            result = '\n'.join(lines)
 
     elif token['type'] == 'code':
         language = token['meta'].get(
             'language', '') if token['meta'] else ''
-        return f"```{' ' + language if language else ''}\n{token['content']}\n```"
+        result = f"```{' ' + language if language else ''}\n{token['content']}\n```"
 
     else:  # paragraph, blockquote, html_block
-        return token['content']
+        result = token['content']
+
+    return result.strip()

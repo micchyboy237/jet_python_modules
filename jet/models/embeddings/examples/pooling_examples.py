@@ -11,22 +11,39 @@ from jet.logger import logger
 from jet.models.embeddings.sentence_transformer_pooling import AttentionMode, PoolingMode, load_sentence_transformer
 
 
+# Global model cache for pooling examples
+_MODEL_CACHE: Dict[str, SentenceTransformer] = {}
+
+
+def _get_cache_key(pooling_mode: PoolingMode, attn_implementation: AttentionMode) -> str:
+    """Generate a unique cache key for model configuration."""
+    return f"pooling_examples_{pooling_mode}_{attn_implementation}"
+
+
 def initialize_model(
     pooling_mode: PoolingMode,
     attn_implementation: AttentionMode = "eager"
 ) -> SentenceTransformer:
     """Initialize SentenceTransformer with specified pooling mode and attention implementation."""
+    cache_key = _get_cache_key(pooling_mode, attn_implementation)
 
-    model_kwargs = {
-        "torch_dtype": torch.float16,
-        "attn_implementation": attn_implementation
-    }
-    return load_sentence_transformer(
+    # Check if model is already in cache
+    if cache_key in _MODEL_CACHE:
+        logger.debug(f"Using cached model for key: {cache_key}")
+        return _MODEL_CACHE[cache_key]
+
+    # Clear cache to ensure only one model is in memory
+    _MODEL_CACHE.clear()
+    logger.debug(f"Loading new model for key: {cache_key}")
+    model = load_sentence_transformer(
         "sentence-transformers/all-MiniLM-L6-v2",
         pooling_mode=pooling_mode,
         attn_implementation=attn_implementation,
-        model_kwargs=model_kwargs,
+        model_kwargs={"torch_dtype": torch.float16,
+                      "attn_implementation": attn_implementation},
     )
+    _MODEL_CACHE[cache_key] = model
+    return model
 
 
 def compute_sentence_embeddings(
@@ -187,9 +204,18 @@ def main():
         "Delivery was late by two days.",
         "Great customer service."
     ]
+
+    # Eager implementation
     print("Semantic Search Example (Mean Pooling, Eager):")
     ranked_indices = semantic_search(
         query, support_tickets, "mean_tokens", attn_implementation="eager")
+    print(f"Query: {query}")
+    print("Ranked tickets:", [support_tickets[i] for i in ranked_indices])
+
+    # SDPA implementation
+    print("\nSemantic Search Example (Mean Pooling, SDPA):")
+    ranked_indices = semantic_search(
+        query, support_tickets, "mean_tokens", attn_implementation="sdpa")
     print(f"Query: {query}")
     print("Ranked tickets:", [support_tickets[i] for i in ranked_indices])
 
@@ -201,9 +227,18 @@ def main():
         "The item broke after one use."
     ]
     sentiment_labels = ["positive", "negative", "positive", "negative"]
+
+    # Eager implementation
     print("\nSentiment Analysis Example (Max Pooling, Eager):")
     predicted_sentiments = classify_sentiment(
         reviews, sentiment_labels, "max_tokens", attn_implementation="eager")
+    for review, sentiment in zip(reviews, predicted_sentiments):
+        print(f"Review: {review} -> Sentiment: {sentiment}")
+
+    # SDPA implementation
+    print("\nSentiment Analysis Example (Max Pooling, SDPA):")
+    predicted_sentiments = classify_sentiment(
+        reviews, sentiment_labels, "max_tokens", attn_implementation="sdpa")
     for review, sentiment in zip(reviews, predicted_sentiments):
         print(f"Review: {review} -> Sentiment: {sentiment}")
 
@@ -215,18 +250,38 @@ def main():
         "I need to cancel my subscription."
     ]
     intents = ["book", "cancel", "book", "cancel"]
+
+    # Eager implementation
     print("\nIntent Detection Example (CLS Pooling, Eager):")
     predicted_intents = detect_intent(
         user_inputs, intents, "cls_token", attn_implementation="eager")
     for input_text, intent in zip(user_inputs, predicted_intents):
         print(f"Input: {input_text} -> Intent: {intent}")
 
-    # Use Case 4: Document Similarity with Mean Sqrt Len Pooling and SDPA
+    # SDPA implementation
+    print("\nIntent Detection Example (CLS Pooling, SDPA):")
+    predicted_intents = detect_intent(
+        user_inputs, intents, "cls_token", attn_implementation="sdpa")
+    for input_text, intent in zip(user_inputs, predicted_intents):
+        print(f"Input: {input_text} -> Intent: {intent}")
+
+    # Use Case 4: Document Similarity with Mean Sqrt Len Pooling
     documents = [
         "This smartphone has a great camera and long battery life.",
         "The phone features an excellent camera and lasts all day.",
         "This laptop is lightweight and has a fast processor."
     ]
+
+    # Eager implementation
+    print("\nDocument Similarity Example (Mean Sqrt Len Pooling, Eager):")
+    similarities = document_similarity(
+        documents, "mean_sqrt_len_tokens", attn_implementation="eager")
+    print("Pairwise similarities:")
+    pairs = [(0, 1), (0, 2), (1, 2)]
+    for (i, j), sim in zip(pairs, similarities):
+        print(f"Doc {i} vs Doc {j}: {sim:.4f}")
+
+    # SDPA implementation
     print("\nDocument Similarity Example (Mean Sqrt Len Pooling, SDPA):")
     similarities = document_similarity(
         documents, "mean_sqrt_len_tokens", attn_implementation="sdpa")

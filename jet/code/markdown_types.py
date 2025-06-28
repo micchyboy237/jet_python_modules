@@ -2,6 +2,8 @@ from typing import List, Optional, TypedDict, Literal
 from typing import TypedDict, List, Optional, Literal, Union
 from pathlib import Path
 
+# For parse_markdown
+
 
 class ListItem(TypedDict, total=False):
     text: str
@@ -44,6 +46,8 @@ class MarkdownToken(TypedDict):
     meta: MetaType
     line: int
 
+
+# For analyze_markdown
 
 class HeaderCountsDict(TypedDict):
     h1: int

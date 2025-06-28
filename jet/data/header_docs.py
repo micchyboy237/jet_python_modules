@@ -147,7 +147,7 @@ class HeaderDocs(BaseModel):
                     id=node.id,
                     parent_id=node.parent_id,
                     line=node.line,
-                    content=f"{'#' * node.level} {node.content.strip()}" if node.content else "",
+                    content=f"{node.content.strip()}" if node.content else "",
                     level=node.level,
                     children=node.children
                 )

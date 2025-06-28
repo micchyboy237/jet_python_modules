@@ -94,7 +94,9 @@ def load_sentence_transformer(
         model = SentenceTransformer(
             modules=[transformer, pooling_layer], device=device, model_kwargs=model_kwargs)
 
-        # Cache the model
+        # Clear cache to ensure only one model is in memory
+        _MODEL_CACHE.clear()
+        # Cache the new model
         _MODEL_CACHE[cache_key] = model
 
         logger.info(
