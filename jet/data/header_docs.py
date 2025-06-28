@@ -21,6 +21,7 @@ class Node(BaseModel):
     parent_id: Optional[str] = None
     parent_header: Optional[str] = None
     type: ContentType
+    header: str
     content: str
     _parent_node: Optional['NodeType'] = None
 
@@ -74,26 +75,27 @@ class HeaderDocs(BaseModel):
         for token in tokens:
             if token['type'] == 'header' and token['level'] is not None:
                 header_id = generate_unique_id()
-                parent_id = parent_stack[-1].id if parent_stack else None
+                text = derive_text(token)
+                header = text.splitlines()[0].strip()
+                content = "\n".join(text.splitlines()[1:]).strip()
                 new_header = HeaderNode(
-                    content=token['content'],
+                    header=header,
+                    content=content,
                     level=token['level'],
                     line=token['line'],
-                    parent_id=parent_id,
                     id=header_id,
                 )
                 id_to_node[header_id] = new_header  # Store node in map
 
-                # Set _parent_node
-                if parent_id and parent_id in id_to_node:
-                    new_header._parent_node = id_to_node[parent_id]
-                    new_header.parent_header = new_header._parent_node.content.splitlines()[
-                        0].strip()
-
+                # Pop parents with equal or higher level (lower or equal number)
                 while parent_stack and parent_stack[-1].level >= new_header.level:
                     parent_stack.pop()
 
+                # Set parent_id and _parent_node
                 if parent_stack:
+                    new_header.parent_id = parent_stack[-1].id
+                    new_header._parent_node = id_to_node[new_header.parent_id]
+                    new_header.parent_header = new_header._parent_node.header
                     parent_stack[-1].children.append(new_header)
                 else:
                     root.append(new_header)
@@ -101,9 +103,13 @@ class HeaderDocs(BaseModel):
                 parent_stack.append(new_header)
             else:
                 text_id = generate_unique_id()
+                text = derive_text(token)
+                header = text.splitlines()[0].strip()
+                content = "\n".join(text.splitlines()[1:]).strip()
                 text_node = TextNode(
                     type=token['type'],
-                    content=derive_text(token),
+                    header=header,
+                    content=content,
                     meta=token['meta'],
                     line=token['line'],
                     parent_id=parent_stack[-1].id if parent_stack else None,
@@ -114,8 +120,7 @@ class HeaderDocs(BaseModel):
                 # Set _parent_node
                 if text_node.parent_id and text_node.parent_id in id_to_node:
                     text_node._parent_node = id_to_node[text_node.parent_id]
-                    new_header.parent_header = new_header._parent_node.content.splitlines()[
-                        0].strip()
+                    text_node.parent_header = text_node._parent_node.header
 
                 if parent_stack:
                     parent_stack[-1].children.append(text_node)
@@ -157,10 +162,11 @@ class HeaderDocs(BaseModel):
             if isinstance(node, HeaderNode):
                 # Create a new HeaderNode with hashtags prepended to content
                 modified_node = HeaderNode(
+                    header=node.header,
+                    content=node.content,
                     id=node.id,
                     parent_id=node.parent_id,
                     line=node.line,
-                    content=f"{'#' * node.level} {node.content.strip()}" if node.content else "",
                     level=node.level,
                     children=node.children,
                     _parent_node=node._parent_node
