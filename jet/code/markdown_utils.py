@@ -11,6 +11,7 @@ from jet.code.html_utils import preprocess_html, valid_html
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
 from jet.decorators.timer import timeout
 from jet.transformers.object import make_serializable
+from jet.utils.text import fix_and_unidecode
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 
 from jet.logger import logger
@@ -49,7 +50,6 @@ def preprocess_markdown(md_content: str) -> str:
     Returns:
         Normalized markdown content.
     """
-    logger.debug("Original markdown content: %s", md_content[:100])
     # Remove bold markdown syntax (e.g., **text** or __text__ to text)
     md_content = re.sub(r'\*\*(.*?)\*\*', r'\1', md_content)
     md_content = re.sub(r'__(.*?)__', r'\1', md_content)
@@ -74,7 +74,6 @@ def preprocess_markdown(md_content: str) -> str:
     md_content = process_separator_lines(md_content)
 
     md_content = clean_markdown_text(md_content)
-    logger.debug("Preprocessed markdown content: %s", md_content[:100])
     return md_content
 
 
@@ -129,8 +128,9 @@ def clean_markdown_text(text: str) -> str:
         The cleaned text with unnecessary escapes removed, or None if input is None.
     """
     # Remove escaped periods (e.g., "\." -> ".")
-    cleaned_text = re.sub(r'\\([.])', r'\1', text)
-    return cleaned_text
+    text = re.sub(r'\\([.])', r'\1', text)
+    text = fix_and_unidecode(text)
+    return text
 
 
 def convert_html_to_markdownify(html_input: Union[str, Path], **options) -> str:
@@ -160,7 +160,6 @@ def convert_html_to_markdownify(html_input: Union[str, Path], **options) -> str:
             r'(?<!\n)\n(?=[#*-]|\w)', '\n\n', markdown_content.strip())
         markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)
 
-        logger.debug("Markdown content generated: %s", markdown_content[:100])
         return markdown_content
 
     except Exception as e:
@@ -202,7 +201,6 @@ def convert_html_to_markitdown(html_input: Union[str, Path], **options) -> str:
                 os.unlink(temp_file_path)
 
         markdown_content = result.text_content
-        logger.debug("Markdown content generated: %s", markdown_content[:100])
         return markdown_content
 
     except Exception as e:
@@ -303,7 +301,6 @@ def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> L
         md_content = read_md_content(input)
 
         # Preprocess markdown
-        logger.debug("Preprocessing markdown content: %s", md_content)
         md_content = preprocess_markdown(md_content)
 
         # @timeout(3)
@@ -329,13 +326,11 @@ def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> L
                         token['content'] = f"{hashtags} {token['content']}"
             return markdown_tokens
 
-        logger.debug("Starting markdown parsing")
         tokens = parse_with_timeout(md_content)
         tokens = remove_list_table_placeholders(tokens)
         tokens = prepend_hashtags_to_headers(tokens)
         if merge_paragraphs:
             tokens = split_markdown_tokens(tokens)
-        logger.debug("Tokens before derive_text: %s", tokens)
         parsed_tokens = [
             {
                 "type": token['type'],
@@ -346,7 +341,6 @@ def parse_markdown(input: Union[str, Path], merge_paragraphs: bool = False) -> L
             }
             for token in tokens
         ]
-        logger.debug(f"Parsed {len(parsed_tokens)} markdown tokens")
         return parsed_tokens
 
     except TimeoutError as e:
@@ -398,7 +392,6 @@ def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
         md_content = read_md_content(input)
 
         # Preprocess markdown
-        logger.debug("Preprocessing markdown content")
         md_content = preprocess_markdown(md_content)
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
@@ -445,7 +438,6 @@ def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
                 raw_tokens_sequential, analyzer.count_words(), analyzer.count_characters()
             )
 
-        logger.debug("Starting markdown analysis")
         (
             raw_summary, raw_headers, raw_paragraphs, raw_blockquotes, raw_code_blocks,
             raw_lists, raw_tables, raw_links, raw_footnotes, raw_inline_code,
@@ -562,7 +554,6 @@ def get_summary(input: Union[str, Path]) -> SummaryDict:
     temp_md_path: Optional[Path] = None
     try:
         md_content = read_md_content(input)
-        logger.debug("Raw markdown content: %s", md_content[:100])
         md_content = preprocess_markdown(md_content)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
             temp_file.write(md_content)
@@ -572,11 +563,9 @@ def get_summary(input: Union[str, Path]) -> SummaryDict:
         # Get headers for counting individual levels
         headers = convert_dict_keys_to_snake_case(
             analyzer.identify_headers()).get("header", [])
-        logger.debug("Headers retrieved: %s", headers)
         header_counts = {f"h{i}": 0 for i in range(1, 7)}
         for header in headers:
             level = header.get("level")
-            logger.debug("Processing header: %s, level: %s", header, level)
             if level in range(1, 7):
                 header_counts[f"h{level}"] += 1
             else:
@@ -584,7 +573,6 @@ def get_summary(input: Union[str, Path]) -> SummaryDict:
 
         # Get existing analysis
         raw_summary = convert_dict_keys_to_snake_case(analyzer.analyse())
-        logger.debug("Raw summary: %s", raw_summary)
 
         # Update summary with header counts
         summary = {
@@ -592,7 +580,6 @@ def get_summary(input: Union[str, Path]) -> SummaryDict:
             "header_counts": header_counts,
         }
 
-        logger.debug("Final summary: %s", summary)
         return summary
     finally:
         if temp_md_path and temp_md_path.exists():
