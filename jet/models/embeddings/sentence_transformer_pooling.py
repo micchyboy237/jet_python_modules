@@ -1,11 +1,12 @@
 # sentence_transformer_pooling.py
 
 import logging
+import uuid
 import torch
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.models import Pooling, Transformer
-from typing import Any, Dict, List, Literal, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict
 
 from jet.logger import logger
 
@@ -13,6 +14,27 @@ from jet.logger import logger
 PoolingMode = Literal["cls_token", "mean_tokens",
                       "max_tokens", "mean_sqrt_len_tokens"]
 AttentionMode = Literal["eager", "sdpa"]
+
+
+class SimilarityResult(TypedDict):
+    """
+    Represents a single similarity result for a text.
+
+    Fields:
+        id: Identifier for the text. (Use uuid if ids are not provided)
+        rank: Rank based on score (1 for highest).
+        doc_index: Original index of the text in the input list.
+        score: Normalized similarity score.
+        text: The compared text (or chunk if long).
+        tokens: Number of tokens from text.
+    """
+    id: str
+    rank: int
+    doc_index: int
+    score: float
+    text: str
+    tokens: int
+
 
 # Global model cache
 _MODEL_CACHE: Dict[str, SentenceTransformer] = {}
@@ -104,57 +126,40 @@ def encode_sentences(model: SentenceTransformer, sentences: List[str], batch_siz
 
 def search_docs(
     model: SentenceTransformer,
-    corpus: List[str],
+    documents: List[str],
     query: str,
-    top_k: int = 3
-) -> List[Tuple[int, float, str]]:
-    """Search corpus using cosine similarity and return top_k results with scores."""
+    top_k: int = 3,
+    ids: Optional[List[str]] = None
+) -> List[SimilarityResult]:
+    """Search documents using cosine similarity and return top_k results as SimilarityResult."""
     try:
+        if ids is not None and len(ids) != len(documents):
+            raise ValueError("Length of ids must match length of documents")
+
         logger.debug(f"Searching top {top_k} results for query: {query}")
-        corpus_embeddings = encode_sentences(model, corpus)
+        document_embeddings = encode_sentences(model, documents)
         query_embedding = encode_sentences(model, [query])[0]
 
-        cosine_scores = np.dot(corpus_embeddings, query_embedding) / (
-            np.linalg.norm(corpus_embeddings, axis=1) *
+        cosine_scores = np.dot(document_embeddings, query_embedding) / (
+            np.linalg.norm(document_embeddings, axis=1) *
             np.linalg.norm(query_embedding) + 1e-8
         )
 
         top_indices = np.argsort(cosine_scores)[::-1][:top_k]
-        results = [(i, float(cosine_scores[i]), corpus[i])
-                   for i in top_indices]
+        results: List[SimilarityResult] = []
+        for rank, idx in enumerate(top_indices, start=1):
+            text = documents[idx]
+            tokens = len(model.tokenize([text])['input_ids'][0])
+            result: SimilarityResult = {
+                'id': ids[idx] if ids is not None else str(uuid.uuid4()),
+                'rank': rank,
+                'doc_index': idx,
+                'score': float(cosine_scores[idx]),
+                'text': text,
+                'tokens': tokens
+            }
+            results.append(result)
         return results
     except Exception as e:
         logger.error(f"Search failed: {str(e)}")
         raise
-
-
-if __name__ == "__main__":
-    sample_corpus = [
-        "Our AI-powered analytics platform helps you understand customer behavior at scale, offering dashboards, anomaly detection, and churn prediction.",
-        "This device complies with part 15 of the FCC Rules. Operation is subject to the following two conditions...",
-        "A long time ago in a galaxy far, far away, a young farm boy discovers his destiny amidst intergalactic war and rebellion.",
-        "At our law firm, we specialize in cross-border intellectual property litigation, patent prosecution, and trademark enforcement.",
-        "We help ecommerce brands scale by building omnichannel marketing funnels using automation, audience segmentation, and real-time analytics.",
-        "The software supports event-driven microservice architecture, written in TypeScript, deployable on AWS Lambda with DynamoDB and SQS integration."
-    ]
-
-    user_query = "How can I use data analytics to improve my ecommerce marketing strategy?"
-
-    model_name = "sentence-transformers/all-MiniLM-L6-v2"
-    pooling_strategies: List[PoolingMode] = [
-        "cls_token",
-        "mean_tokens",
-        "max_tokens",
-        "mean_sqrt_len_tokens"
-    ]
-
-    for strategy in pooling_strategies:
-        print("=" * 80)
-        model = load_sentence_transformer(model_name, pooling_mode=strategy)
-        results = search_docs(model, sample_corpus, user_query)
-
-        print(f"🔍 Pooling strategy: {strategy}")
-        print(f"📌 Top results for query:\n'{user_query}'\n")
-        for rank, (idx, score, text) in enumerate(results, 1):
-            print(f"[{rank}] Score: {score:.4f}")
-            print(f"{text}\n")
