@@ -313,29 +313,63 @@ def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
 
 
 def remove_header_placeholders(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
-    """Remove header tokens with placeholder content and all succeeding non-header tokens until the next non-placeholder header."""
+    """Remove placeholder header tokens and their succeeding non-header tokens at the end of the list by removing all tokens
+    with indices >= the first consecutive placeholder header index. For placeholder headers in the middle, retain only if
+    content has a value, then remove the first line of content."""
+    # If the input list is empty, return empty list
+    if not markdown_tokens:
+        return []
+
+    # Find all header token indices and their placeholder status
+    all_header_token_indices = [
+        {
+            "index": i,
+            "is_placeholder": token['type'] == 'header' and token.get('content', '') and 'placeholder' in token['content']
+        }
+        for i, token in enumerate(markdown_tokens)
+        if token['type'] == 'header'
+    ]
+
+    # If no headers exist, return all tokens (no placeholder headers to process)
+    if not all_header_token_indices:
+        return markdown_tokens.copy()
+
+    # Find the last non-placeholder header index
+    last_header_non_placeholder_index = -1
+    for header_info in reversed(all_header_token_indices):
+        if not header_info["is_placeholder"]:
+            last_header_non_placeholder_index = header_info["index"]
+            break
+
+    # Determine the first index of consecutive placeholder headers at the end
+    if last_header_non_placeholder_index + 1 < len(all_header_token_indices):
+        consecutive_placeholder_header_first_index = all_header_token_indices[
+            last_header_non_placeholder_index + 1]["index"]
+    else:
+        # If all headers are placeholders or no placeholders follow, keep all tokens up to the last one
+        consecutive_placeholder_header_first_index = len(markdown_tokens)
+
+    # Process tokens up to the first consecutive placeholder header index
     filtered_tokens = []
-    skip_mode = False
-
-    for token in markdown_tokens:
-        # Derive content for tokens that lack it (e.g., unordered_list)
-        content = token.get('content')
-        if content is None and token['type'] == 'unordered_list':
-            items = token.get('meta', {}).get('items', [])
-            content = '\n'.join(f"- {item['text']}" for item in items)
-            token['content'] = content  # Add content to token for consistency
-
-        # Check if the token is a placeholder header
+    for index, token in enumerate(markdown_tokens[:consecutive_placeholder_header_first_index]):
+        content = token.get('content', '')
         is_placeholder = token['type'] == 'header' and content and 'placeholder' in content
 
         if is_placeholder:
-            skip_mode = True
-            continue
-
-        if skip_mode:
-            if token['type'] == 'header':
-                skip_mode = False
-                filtered_tokens.append(token)
+            # Check if content has a value (non-empty after stripping)
+            if content.strip():
+                # Split content by lines and remove the first line
+                lines = content.split('\n')
+                new_content = '\n'.join(lines[1:]) if len(lines) > 1 else ''
+                # Only append if the remaining content is non-empty
+                if new_content.strip():
+                    filtered_tokens.append({
+                        'type': 'header',
+                        'content': new_content,
+                        'level': token.get('level', 1),
+                        'meta': token.get('meta', {}),
+                        'line': token.get('line', 0)
+                    })
             continue
 
         filtered_tokens.append(token)
@@ -444,12 +478,14 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
 
         tokens = parse_with_timeout(md_content)
         tokens = remove_leading_non_headers(tokens)
-        tokens = remove_header_placeholders(tokens)
-        if merge_headers:
-            tokens = merge_headers_with_content(tokens)
-        tokens = prepend_hashtags_to_headers(tokens)
         if merge_contents:
             tokens = merge_tokens(tokens)
+        tokens = prepend_hashtags_to_headers(tokens)
+        tokens = remove_header_placeholders(tokens)
+        if merge_contents:
+            tokens = merge_tokens(tokens)
+        if merge_headers:
+            tokens = merge_headers_with_content(tokens)
         parsed_tokens = [
             {
                 "type": token['type'],
