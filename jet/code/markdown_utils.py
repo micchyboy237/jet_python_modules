@@ -221,7 +221,7 @@ def add_list_table_placeholders(html: str) -> str:
     return re.sub(r'</(ol|ul|table)>', r'</\1><h1>placeholder</h1>', html, flags=re.IGNORECASE)
 
 
-def read_md_content(input) -> str:
+def read_md_content(input, ignore_links: bool = False) -> str:
     md_content = ""
     try:
         if Path(str(input)).is_file():
@@ -229,12 +229,14 @@ def read_md_content(input) -> str:
                 md_content = file.read()
 
             if str(input).endswith('.html'):
-                md_content = convert_html_to_markdown(md_content)
+                md_content = convert_html_to_markdown(
+                    md_content, ignore_links=ignore_links)
     except OSError:
         md_content = str(input)
 
         if valid_html(md_content):
-            md_content = convert_html_to_markdown(md_content)
+            md_content = convert_html_to_markdown(
+                md_content, ignore_links=ignore_links)
     except Exception:
         raise
     return md_content
@@ -402,7 +404,7 @@ def merge_headers_with_content(markdown_tokens: List[MarkdownToken]) -> List[Mar
     return merged_tokens
 
 
-def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_headers: bool = True) -> List[MarkdownToken]:
+def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_headers: bool = True, ignore_links: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
 
@@ -410,6 +412,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         input: Either a string containing markdown content or a Path to a markdown file.
         merge_contents: If True, merge consecutive paragraph and unordered list tokens into single tokens. Defaults to True.
         merge_headers: If True, merge headers with their succeeding non-header tokens into single header tokens. Defaults to True.
+        ignore_links: If True, remove or ignore links during HTML to Markdown conversion. Defaults to False.
 
     Returns:
         A list of dictionaries representing parsed markdown tokens with their type, content, and metadata.
@@ -419,7 +422,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         TimeoutError: If parsing takes too long.
     """
     try:
-        md_content = read_md_content(input)
+        md_content = read_md_content(input, ignore_links=ignore_links)
 
         # Preprocess markdown
         md_content = preprocess_markdown(md_content)
@@ -467,7 +470,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         raise
 
 
-def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = True) -> str:
+def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = False) -> str:
     """Convert HTML to Markdown with enhanced noise removal."""
     if isinstance(html_input, Path):
         with html_input.open('r', encoding='utf-8') as f:
@@ -489,7 +492,7 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     return markdown_content.strip()
 
 
-def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
+def analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> MarkdownAnalysis:
     """
     Analyze markdown content and return structured analysis results.
 
@@ -505,7 +508,7 @@ def analyze_markdown(input: Union[str, Path]) -> MarkdownAnalysis:
     """
     temp_md_path: Optional[Path] = None
     try:
-        md_content = read_md_content(input)
+        md_content = read_md_content(input, ignore_links=ignore_links)
 
         # Preprocess markdown
         md_content = preprocess_markdown(md_content)
@@ -687,13 +690,20 @@ def get_summary(input: Union[str, Path]) -> SummaryDict:
             else:
                 logger.warning("Invalid header level detected: %s", level)
 
+        # Get links for counting
+        links = convert_dict_keys_to_snake_case(analyzer.identify_links())
+        text_link_count = len(links.get("text_link", []))
+        image_link_count = len(links.get("image_link", []))
+
         # Get existing analysis
         raw_summary = convert_dict_keys_to_snake_case(analyzer.analyse())
 
-        # Update summary with header counts
+        # Update summary with header counts and link counts
         summary = {
             **raw_summary,
             "header_counts": header_counts,
+            "text_links": text_link_count,
+            "image_links": image_link_count,
         }
 
         return summary

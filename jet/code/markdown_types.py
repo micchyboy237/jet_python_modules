@@ -71,6 +71,8 @@ class SummaryDict(TypedDict):
     html_inline_count: int
     words: int
     characters: int
+    text_links: int
+    image_links: int
 
 
 class HeaderItemDict(TypedDict):
