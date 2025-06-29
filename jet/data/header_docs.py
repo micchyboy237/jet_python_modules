@@ -166,6 +166,7 @@ class HeaderDocs(BaseModel):
                     content=node.content,
                     id=node.id,
                     parent_id=node.parent_id,
+                    parent_header=node.parent_header,
                     line=node.line,
                     level=node.level,
                     children=node.children,
