@@ -36,7 +36,8 @@ def load_embed_model(model: EmbedModelType, truncate_dim: Optional[int] = None) 
     try:
         logger.info(f"Loading embedding model on CPU (onnx): {model_id}")
         model_instance = SentenceTransformer(
-            model_id, device="cpu", backend="onnx", truncate_dim=truncate_dim)
+            model_id, device="cpu", backend="onnx", truncate_dim=truncate_dim,
+            model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'})
     except Exception as e:
         logger.warning(f"Falling back to MPS for embed model due to: {e}")
         model_instance = SentenceTransformer(model_id, device="mps")

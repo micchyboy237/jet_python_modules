@@ -1,48 +1,4 @@
-from typing import TypedDict, List, Optional, Literal, Union
-
-# For parse_markdown
-
-
-class ListItem(TypedDict, total=False):
-    text: str
-    task_item: bool
-    checked: Optional[bool]
-
-
-class CodeMeta(TypedDict, total=False):
-    language: Optional[str]
-    code_type: Optional[Literal["indented"]]
-
-
-class TableMeta(TypedDict):
-    header: List[str]
-    rows: List[List[str]]
-
-
-class ListMeta(TypedDict):
-    items: List[ListItem]
-
-
-MetaType = Union[ListMeta, CodeMeta, TableMeta, dict]
-
-ContentType = Literal[
-    "header",
-    "paragraph",
-    "blockquote",
-    "code",
-    "table",
-    "unordered_list",
-    "ordered_list",
-    "html_block"
-]
-
-
-class MarkdownToken(TypedDict):
-    type: ContentType
-    content: str
-    level: Optional[int]
-    meta: Optional[MetaType]  # Allow None for meta
-    line: int
+from typing import TypedDict, List, Optional, Literal
 
 # For analyze_markdown
 
@@ -209,3 +165,31 @@ class MarkdownAnalysis(TypedDict):
     tokens_sequential: List[TokenSequentialItemDict]
     word_count: WordCountDict
     char_count: CharCountDict
+
+
+__all__ = [
+    "HeaderCountsDict",
+    "SummaryDict",
+    "HeaderItemDict",
+    "HeadersDict",
+    "ParagraphsDict",
+    "BlockquotesDict",
+    "CodeBlockItemDict",
+    "CodeBlocksDict",
+    "ListItemDict",
+    "ListsDict",
+    "TableItemDict",
+    "TablesDict",
+    "LinkItemDict",
+    "LinksDict",
+    "FootnoteItemDict",
+    "InlineCodeItemDict",
+    "EmphasisItemDict",
+    "TaskItemDict",
+    "HtmlBlockItemDict",
+    "HtmlInlineItemDict",
+    "TokenSequentialItemDict",
+    "WordCountDict",
+    "CharCountDict",
+    "MarkdownAnalysis",
+]
