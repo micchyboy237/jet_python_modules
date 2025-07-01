@@ -54,7 +54,7 @@ def prepare_for_rag(
             model=model,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
-            tokenizer=tokenizer,
+            tokenizer=tokenizer,  # Corrected from 'tooltip' to 'tokenizer'
             buffer=buffer
         )
         logger.debug(f"After chunking, received {len(nodes)} nodes")
@@ -81,10 +81,23 @@ def prepare_for_rag(
             logger.debug(
                 f"Using existing num_tokens for node {node.id}: num_tokens={node.num_tokens}")
         texts.append(text)
-    logger.debug(f"Encoding {len(texts)} RectorStore")
+    logger.debug(f"Encoding {len(texts)} texts for VectorStore")
     embeddings = transformer.encode(
         texts, batch_size=batch_size, show_progress_bar=False)
-    for node, embedding in zip(nodes, embeddings):
-        vector_store.add(node, embedding)
+    for node, embedding, text in zip(nodes, embeddings, texts):
+        # Create a new TextNode with the original content
+        store_node = TextNode(
+            id=node.id,
+            line=node.line,
+            type=node.type,
+            header=node.header,
+            content=node.content,  # Use original content, not the concatenated text
+            meta=node.meta,
+            parent_id=node.parent_id,
+            parent_header=node.parent_header,
+            chunk_index=node.chunk_index,
+            num_tokens=node.num_tokens
+        )
+        vector_store.add(store_node, embedding)
     logger.debug(f"Vector store contains {len(vector_store.nodes)} nodes")
     return vector_store

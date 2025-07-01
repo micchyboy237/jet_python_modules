@@ -47,7 +47,7 @@ class TestSearchHeaders:
         assert len(results) == 1
         result_node, similarity = results[0]
         assert result_node.id == expected_node_id
-        assert result_node.content == "Test Header\nTest Content"
+        assert result_node.content == "Test Content"
         assert similarity > expected_min_similarity
 
     def test_search_with_chunked_nodes(self, tokenizer: Tokenizer, default_params: dict) -> None:
@@ -83,7 +83,6 @@ class TestSearchHeaders:
         assert len(results) >= expected_min_chunks
         for result_node, similarity in results:
             assert result_node.header == "Long Header"
-            assert result_node.content.startswith("Long Header\n")
             assert result_node.num_tokens <= default_params["chunk_size"]
             assert result_node.num_tokens > 0
             assert similarity > expected_min_similarity
