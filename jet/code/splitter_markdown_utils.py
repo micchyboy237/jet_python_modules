@@ -526,27 +526,23 @@ def get_md_header_docs(
     Returns:
         List[HeaderDocument]: List of HeaderDocument objects, one for each header chunk.
     """
-    md_tokens = parse_markdown(md_text, ignore_links=ignore_links)
+    # Extract base_url from metadata if available
+    if not base_url and metadata and "source_url" in metadata:
+        parsed_url = urlparse(metadata["source_url"])
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
 
-    md_dicts = [
-        {
-            "text": f"{token['header']}\n{token['content']}",
-            "metadata": {
-                "id": token["id"],
-                "doc_index": idx,
-                "chunk_index": 0,
-                "header_level": token["level"],
-                "parent_header": token["parent_header"],
-                "source_url": base_url,
-                "tokens": None,
-                "header": token["header"],
-                "content": token["content"],
-            }
-        }
-        for idx, token in enumerate(md_tokens)
-    ]
+    headers = get_md_header_contents(
+        md_text, headers_to_split_on, ignore_links, base_url)
 
-    return HeaderDocument.from_list(md_dicts)
+    # Update each HeaderDocument with doc_index and metadata
+    for i, header_doc in enumerate(headers):
+        current_metadata = dict(header_doc.metadata)
+        current_metadata["doc_index"] = i
+        if metadata:
+            current_metadata.update(metadata)
+        header_doc.metadata = current_metadata
+
+    return headers
 
 
 def merge_md_header_contents(

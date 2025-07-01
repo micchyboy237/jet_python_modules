@@ -2,7 +2,8 @@ from typing import List, Optional, Union, Literal, TypedDict, Dict, Any
 from pydantic import BaseModel
 import pytest
 from jet.code.markdown_utils import derive_text
-from jet.data.header_docs import HeaderDocs, HeaderNode, TextNode, MarkdownToken, ListItem, ListMeta, CodeMeta, TableMeta, Node
+from jet.data.header_docs import HeaderDocs
+from jet.data.header_types import HeaderNode, TextNode, MarkdownToken, Node
 
 
 class TestHeaderDocs:

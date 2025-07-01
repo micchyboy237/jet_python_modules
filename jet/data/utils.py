@@ -4,6 +4,11 @@ import hashlib
 from typing import Any
 
 
+def generate_unique_id() -> str:
+    """Generate a unique UUID v4 string."""
+    return str(uuid.uuid4())
+
+
 def generate_unique_hash() -> str:
     """Generate a unique UUID v4 string."""
     return str(uuid.uuid4())

@@ -17,13 +17,9 @@ class HeaderDocs(BaseModel):
 
     @staticmethod
     def from_tokens(tokens: List[MarkdownToken]) -> 'HeaderDocs':
-        """
-        Converts a list of MarkdownToken into a HeaderDocs with parent-child relationships.
-        """
         root: Nodes = []
         parent_stack: List[HeaderNode] = []
         seen_ids: set = set()
-        # Map IDs to nodes
         id_to_node: Dict[str, Union[HeaderNode, TextNode]] = {}
 
         def generate_unique_id() -> str:
@@ -46,13 +42,9 @@ class HeaderDocs(BaseModel):
                     line=token['line'],
                     id=header_id,
                 )
-                id_to_node[header_id] = new_header  # Store node in map
-
-                # Pop parents with equal or higher level (lower or equal number)
+                id_to_node[header_id] = new_header
                 while parent_stack and parent_stack[-1].level >= new_header.level:
                     parent_stack.pop()
-
-                # Set parent_id and _parent_node
                 if parent_stack:
                     new_header.parent_id = parent_stack[-1].id
                     new_header._parent_node = id_to_node[new_header.parent_id]
@@ -60,34 +52,31 @@ class HeaderDocs(BaseModel):
                     parent_stack[-1].children.append(new_header)
                 else:
                     root.append(new_header)
-
                 parent_stack.append(new_header)
             else:
                 text_id = generate_unique_id()
                 text = derive_text(token)
                 header = text.splitlines()[0].strip()
                 content = "\n".join(text.splitlines()[1:]).strip()
+                # Handle None meta by converting to empty dict
+                meta = token['meta'] if token['meta'] is not None else {}
                 text_node = TextNode(
                     type=token['type'],
                     header=header,
                     content=content,
-                    meta=token['meta'],
+                    meta=meta,
                     line=token['line'],
                     parent_id=parent_stack[-1].id if parent_stack else None,
                     id=text_id
                 )
-                id_to_node[text_id] = text_node  # Store node in map
-
-                # Set _parent_node
+                id_to_node[text_id] = text_node
                 if text_node.parent_id and text_node.parent_id in id_to_node:
                     text_node._parent_node = id_to_node[text_node.parent_id]
                     text_node.parent_header = text_node._parent_node.header
-
                 if parent_stack:
                     parent_stack[-1].children.append(text_node)
                 else:
                     root.append(text_node)
-
         return HeaderDocs(root=root, tokens=tokens)
 
     @staticmethod

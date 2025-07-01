@@ -1,6 +1,4 @@
-from typing import List, Optional, TypedDict, Literal
 from typing import TypedDict, List, Optional, Literal, Union
-from pathlib import Path
 
 # For parse_markdown
 
@@ -43,11 +41,11 @@ class MarkdownToken(TypedDict):
     type: ContentType
     content: str
     level: Optional[int]
-    meta: MetaType
+    meta: Optional[MetaType]  # Allow None for meta
     line: int
 
-
 # For analyze_markdown
+
 
 class HeaderCountsDict(TypedDict):
     h1: int

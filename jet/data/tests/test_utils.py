@@ -1,8 +1,37 @@
 import json
+import uuid
 import pytest
 import hashlib
 import time
-from jet.data.utils import generate_key, generate_unique_hash, hash_text
+from jet.data.utils import generate_unique_id, generate_key, generate_unique_hash, hash_text
+
+
+class TestGenerateUniqueId:
+    def test_generate_unique_id_format(self) -> None:
+        """Test that generate_unique_id produces a correctly formatted UUID v4 string."""
+        # Given
+        expected_length = 36  # Standard UUID v4 length (8-4-4-4-12)
+
+        # When
+        result = generate_unique_id()
+
+        # Then
+        assert len(result) == expected_length
+        assert uuid.UUID(result, version=4)  # Validates UUID v4 format
+
+    def test_generate_unique_id_uniqueness(self) -> None:
+        """Test that multiple calls to generate_unique_id produce unique UUIDs."""
+        # Given
+        num_ids = 10
+        expected_unique_ids = set()
+
+        # When
+        result_ids = [generate_unique_id() for _ in range(num_ids)]
+
+        # Then
+        assert len(set(result_ids)) == num_ids
+        for id_ in result_ids:
+            assert len(id_) == 36  # Ensure each ID is a valid UUID length
 
 
 class TestGenerateKey:

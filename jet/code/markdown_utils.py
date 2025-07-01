@@ -438,13 +438,13 @@ def merge_headers_with_content(markdown_tokens: List[MarkdownToken]) -> List[Mar
     return merged_tokens
 
 
-def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_headers: bool = True, ignore_links: bool = False) -> List[MarkdownToken]:
+def parse_markdown(input: Union[str, Path], merge_contents: bool = False, merge_headers: bool = True, ignore_links: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
 
     Args:
         input: Either a string containing markdown content or a Path to a markdown file.
-        merge_contents: If True, merge consecutive paragraph and unordered list tokens into single tokens. Defaults to True.
+        merge_contents: If True, merge consecutive paragraph and unordered list tokens into single tokens. Defaults to False.
         merge_headers: If True, merge headers with their succeeding non-header tokens into single header tokens. Defaults to True.
         ignore_links: If True, remove or ignore links during HTML to Markdown conversion. Defaults to False.
 

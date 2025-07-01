@@ -1,7 +1,7 @@
-import uuid
 from typing import List, Optional, Union
 from pydantic import BaseModel, Field
 from jet.code.markdown_types import MarkdownToken, ContentType, MetaType
+import uuid
 
 # Base Node class for shared attributes
 
@@ -28,7 +28,8 @@ class Node(BaseModel):
 
 
 class TextNode(Node):
-    meta: Optional[MetaType]
+    # Default to empty dict, allow None
+    meta: Optional[MetaType] = Field(default_factory=dict)
 
 # Header Node for header content
 
