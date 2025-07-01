@@ -15,6 +15,66 @@ from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 from jet.logger import logger
 
 
+def clean_markdown_text(text: str) -> str:
+    """
+    Clean markdown text by removing unnecessary escape characters.
+
+    Args:
+        text: The markdown text to clean, or None.
+
+    Returns:
+        The cleaned text with unnecessary escapes removed, or None if input is None.
+    """
+    # Remove escaped periods (e.g., "\." -> ".")
+    text = re.sub(r'\\([.])', r'\1', text)
+    text = fix_and_unidecode(text)
+    return text
+
+
+def clean_markdown_links(text: str) -> str:
+    """
+    Cleans markdown links in text, converting text links to their display text and removing image links.
+
+    Args:
+        text (str): Input markdown text, possibly multiline, containing text links [text](url) 
+                   and/or image links ![alt](url).
+
+    Returns:
+        str: Text with markdown text links replaced by their display text and image links removed.
+    """
+    logger.debug(f"Input text: {text}")
+
+    # Remove image links: ![alt](url) -> ''
+    text = re.sub(r'!\[[^\]]*]\([^\)]*\)', '', text)
+    logger.debug(f"After removing image links: {text}")
+
+    # Replace text links: [text](url) -> text
+    # Match well-formed links, capturing text with possible nested brackets
+    text = re.sub(
+        r'\[([^\[\]]*?(?:\[[^\[\]]*?\])*?[^\[\]]*?)]\(([^)]*?)(?=\s|\)|$)\)', r'\1', text)
+    logger.debug(f"After replacing text links: {text}")
+
+    # Preserve newlines and collapse multiple spaces within lines
+    parts = re.split(r'(\n+)', text)
+    for i, part in enumerate(parts):
+        if re.match(r'\n+', part):  # Skip newline parts
+            continue
+        if part:  # Process non-empty parts
+            # Replace multiple spaces/tabs with a single space, preserving leading/trailing spaces
+            leading_match = re.match(r'^\s*', part)
+            trailing_match = re.match(r'\s*$', part)
+            leading = leading_match.group(0) if leading_match else ''
+            trailing = trailing_match.group(0) if trailing_match else ''
+            content = re.sub(r'[ \t]+', ' ', part.strip())
+            parts[i] = leading + content + trailing
+        else:  # Handle empty parts
+            parts[i] = ''
+    text = ''.join(parts)
+    logger.debug(f"Final cleaned text: {text}")
+
+    return text
+
+
 def preprocess_markdown(md_content: str) -> str:
     """
     Preprocess markdown to normalize non-standard structures.
@@ -92,24 +152,9 @@ def process_separator_lines(md_content: str) -> str:
     return "\n".join(result)
 
 
-def clean_markdown_text(text: str) -> str:
-    """
-    Clean markdown text by removing unnecessary escape characters.
-
-    Args:
-        text: The markdown text to clean, or None.
-
-    Returns:
-        The cleaned text with unnecessary escapes removed, or None if input is None.
-    """
-    # Remove escaped periods (e.g., "\." -> ".")
-    text = re.sub(r'\\([.])', r'\1', text)
-    text = fix_and_unidecode(text)
-    return text
-
-
 __all__ = [
+    "clean_markdown_text",
+    "clean_markdown_links",
     "preprocess_markdown",
     "process_separator_lines",
-    "clean_markdown_text",
 ]

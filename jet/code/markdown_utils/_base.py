@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Union, TypedDict
 import html2text
 from jet.code.html_utils import preprocess_html, valid_html
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
-from jet.code.markdown_utils import convert_html_to_markdown
+from jet.code.markdown_utils import convert_html_to_markdown, clean_markdown_links
 from jet.decorators.timer import timeout
 from jet.transformers.object import convert_dict_keys_to_snake_case, make_serializable
 from jet.utils.text import fix_and_unidecode
@@ -34,4 +34,8 @@ def read_md_content(input, ignore_links: bool = False) -> str:
                 md_content, ignore_links=ignore_links)
     except Exception:
         raise
+
+    if not ignore_links:
+        md_content = clean_markdown_links(md_content)
+
     return md_content
