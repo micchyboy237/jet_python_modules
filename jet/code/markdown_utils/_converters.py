@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, TypedDict
 
 import html2text
-from jet.code.html_utils import preprocess_html, valid_html
+from jet.code.html_utils import format_html, preprocess_html, valid_html
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
 from jet.code.markdown_types.converter_types import MarkdownExtensions
 from jet.code.markdown_utils._preprocessors import clean_markdown_links
@@ -25,7 +25,7 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     else:
         html_content = preprocess_html(html_input)
 
-    html_content = add_list_table_header_placeholders(html_content)
+    html_content = format_html(html_content)
 
     converter = html2text.HTML2Text()
     converter.ignore_links = ignore_links
@@ -41,19 +41,26 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     return md_content.strip()
 
 
-def convert_markdown_to_html(md_content: str, exts: MarkdownExtensions = {"extensions": [
-    "extra", "fenced_code", "tables", "sane_lists", "toc"
-]}) -> str:
+def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtensions = {"extensions": [
+    "fenced_code", "tables", "sane_lists", "toc", "attr_list", "def_list"
+]}, ignore_links: bool = False) -> str:
     """
     Convert markdown to HTML with supported extensions enabled.
 
     Args:
-        md_content (str): Markdown content to convert.
+        md_input (Union[str, Path]): Markdown content or path to convert.
         exts (MarkdownExtensions): Dictionary containing a list of extension names.
 
     Returns:
         str: Rendered HTML output.
     """
+
+    if isinstance(md_input, Path):
+        with md_input.open('r', encoding='utf-8') as f:
+            md_content = preprocess_html(f.read())
+    else:
+        md_content = preprocess_html(md_input)
+
     # Map extension names to their corresponding markdown extension paths
     extension_map = {
         "extra": "markdown.extensions.extra",
@@ -89,26 +96,18 @@ def convert_markdown_to_html(md_content: str, exts: MarkdownExtensions = {"exten
 
     md_content = fix_and_unidecode(md_content)
 
+    if ignore_links:
+        md_content = clean_markdown_links(md_content)
+
     # Render markdown with specified extensions
-    html = markdown.markdown(md_content, extensions=valid_extensions)
+    html_content = markdown.markdown(md_content, extensions=valid_extensions)
+
+    html_content = format_html(html_content)
 
     # Debug log: Log the rendered HTML
-    logger.debug(f"Rendered HTML: {html}")
+    logger.debug(f"Rendered HTML: {html_content}")
 
-    return html
-
-
-def add_list_table_header_placeholders(html: str) -> str:
-    """
-    Add <h6> placeholders after </ol>, </ul>, and </table> tags to prevent markdown parser issues.
-
-    Args:
-        html: Input HTML string to process.
-
-    Returns:
-        HTML string with <h6> placeholders added after specified tags.
-    """
-    return re.sub(r'</(ol|ul|table)>', r'</\1><h1>placeholder</h1>', html, flags=re.IGNORECASE)
+    return html_content
 
 
 __all__ = [

@@ -3,6 +3,9 @@ import tempfile
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, TypedDict
+from jet.code.html_utils import valid_html
+from jet.code.markdown_utils._base import read_html_content
+from jet.code.markdown_utils._converters import convert_html_to_markdown
 from jet.transformers.object import make_serializable
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 
@@ -215,14 +218,14 @@ def merge_headers_with_content(markdown_tokens: List[MarkdownToken]) -> List[Mar
     return merged_tokens
 
 
-def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_headers: bool = True, ignore_links: bool = False) -> List[MarkdownToken]:
+def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_headers: bool = False, ignore_links: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
 
     Args:
         input: Either a string containing markdown content or a Path to a markdown file.
         merge_contents: If True, merge consecutive paragraph and unordered list tokens into single tokens. Defaults to True.
-        merge_headers: If True, merge headers with their succeeding non-header tokens into single header tokens. Defaults to True.
+        merge_headers: If True, merge headers with their succeeding non-header tokens into single header tokens. Defaults to False.
         ignore_links: If True, remove or ignore links during HTML to Markdown conversion. Defaults to False.
 
     Returns:
@@ -233,7 +236,12 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         TimeoutError: If parsing takes too long.
     """
     try:
-        md_content = read_md_content(input, ignore_links=ignore_links)
+        try:
+            html = read_html_content(input)
+            md_content = convert_html_to_markdown(
+                html, ignore_links=ignore_links)
+        except ValueError:
+            md_content = read_md_content(input, ignore_links=ignore_links)
 
         # Preprocess markdown
         md_content = preprocess_markdown(md_content)
@@ -334,6 +342,19 @@ def derive_text(token: MarkdownToken) -> str:
         result = token['content']
 
     return result.strip()
+
+
+def add_list_table_header_placeholders(html: str) -> str:
+    """
+    Add <h6> placeholders after </ol>, </ul>, and </table> tags to prevent markdown parser issues.
+
+    Args:
+        html: Input HTML string to process.
+
+    Returns:
+        HTML string with <h6> placeholders added after specified tags.
+    """
+    return re.sub(r'</(ol|ul|table)>', r'</\1><h1>placeholder</h1>', html, flags=re.IGNORECASE)
 
 
 __all__ = [
