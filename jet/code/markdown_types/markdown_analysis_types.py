@@ -1,7 +1,5 @@
 from typing import TypedDict, List, Optional, Literal
 
-# For analyze_markdown
-
 
 class HeaderCountsDict(TypedDict):
     h1: int
@@ -35,26 +33,10 @@ class HeaderItemDict(TypedDict):
     text: str
 
 
-class HeadersDict(TypedDict):
-    header: List[HeaderItemDict]
-
-
-class ParagraphsDict(TypedDict):
-    paragraph: List[str]
-
-
-class BlockquotesDict(TypedDict):
-    blockquote: List[str]
-
-
 class CodeBlockItemDict(TypedDict):
     start_line: int
     content: str
     language: str
-
-
-class CodeBlocksDict(TypedDict):
-    code_block: List[CodeBlockItemDict]
 
 
 class ListItemDict(TypedDict):
@@ -63,18 +45,9 @@ class ListItemDict(TypedDict):
     checked: Optional[bool]
 
 
-class ListsDict(TypedDict):
-    unordered_list: List[List[ListItemDict]]
-    ordered_list: List[List[ListItemDict]]
-
-
 class TableItemDict(TypedDict):
     header: List[str]
     rows: List[List[str]]
-
-
-class TablesDict(TypedDict):
-    table: List[TableItemDict]
 
 
 class LinkItemDict(TypedDict):
@@ -82,11 +55,6 @@ class LinkItemDict(TypedDict):
     text: Optional[str]
     url: str
     alt_text: Optional[str]
-
-
-class LinksDict(TypedDict):
-    text_link: List[LinkItemDict]
-    image_link: List[LinkItemDict]
 
 
 class FootnoteItemDict(TypedDict):
@@ -100,13 +68,8 @@ class InlineCodeItemDict(TypedDict):
     code: str
 
 
-class EmphasisInnerDict(TypedDict):
-    line: int
-    text: str
-
-
 class EmphasisItemDict(TypedDict):
-    emphasis: EmphasisInnerDict
+    line: int
     text: str
 
 
@@ -139,23 +102,17 @@ class TokenSequentialItemDict(TypedDict):
     checked: Optional[bool]
 
 
-class WordCountDict(TypedDict):
-    word_count: int
-
-
-class CharCountDict(TypedDict):
-    char: int
-
-
 class MarkdownAnalysis(TypedDict):
     summary: SummaryDict
-    headers: HeadersDict
-    paragraphs: ParagraphsDict
-    blockquotes: BlockquotesDict
-    code_blocks: CodeBlocksDict
-    lists: ListsDict
-    tables: TablesDict
-    links: LinksDict
+    headers: List[HeaderItemDict]
+    paragraphs: List[str]
+    blockquotes: List[str]
+    code_blocks: List[CodeBlockItemDict]
+    unordered_lists: List[List[ListItemDict]]
+    ordered_lists: List[List[ListItemDict]]
+    tables: List[TableItemDict]
+    text_links: List[LinkItemDict]
+    image_links: List[LinkItemDict]
     footnotes: List[FootnoteItemDict]
     inline_code: List[InlineCodeItemDict]
     emphasis: List[EmphasisItemDict]
@@ -163,25 +120,18 @@ class MarkdownAnalysis(TypedDict):
     html_blocks: List[HtmlBlockItemDict]
     html_inline: List[HtmlInlineItemDict]
     tokens_sequential: List[TokenSequentialItemDict]
-    word_count: WordCountDict
-    char_count: CharCountDict
+    word_count: int
+    char_count: int
 
 
 __all__ = [
     "HeaderCountsDict",
     "SummaryDict",
     "HeaderItemDict",
-    "HeadersDict",
-    "ParagraphsDict",
-    "BlockquotesDict",
     "CodeBlockItemDict",
-    "CodeBlocksDict",
     "ListItemDict",
-    "ListsDict",
     "TableItemDict",
-    "TablesDict",
     "LinkItemDict",
-    "LinksDict",
     "FootnoteItemDict",
     "InlineCodeItemDict",
     "EmphasisItemDict",
@@ -189,7 +139,5 @@ __all__ = [
     "HtmlBlockItemDict",
     "HtmlInlineItemDict",
     "TokenSequentialItemDict",
-    "WordCountDict",
-    "CharCountDict",
     "MarkdownAnalysis",
 ]

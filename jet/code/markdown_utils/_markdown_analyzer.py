@@ -16,6 +16,107 @@ from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 from jet.logger import logger
 
 
+# @timeout(3)
+def base_analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> dict:
+    import tempfile
+    import os
+    from jet.logger import logger
+    from jet.transformers.object import convert_dict_keys_to_snake_case, make_serializable
+
+    md_content = read_md_content(input, ignore_links=ignore_links)
+    temp_md_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".md", mode="w", encoding="utf-8") as tmpfile:
+            tmpfile.write(md_content)
+            temp_md_path = tmpfile.name
+        analyzer = MarkdownAnalyzer(temp_md_path)
+
+        # Flatten dictionaries by extracting nested lists
+        raw_headers = convert_dict_keys_to_snake_case(
+            analyzer.identify_headers()).get("header", [])
+        raw_paragraphs = convert_dict_keys_to_snake_case(
+            analyzer.identify_paragraphs()).get("paragraph", [])
+        raw_blockquotes = convert_dict_keys_to_snake_case(
+            analyzer.identify_blockquotes()).get("blockquote", [])
+        raw_code_blocks = convert_dict_keys_to_snake_case(
+            analyzer.identify_code_blocks()).get("code_block", [])
+        raw_lists = convert_dict_keys_to_snake_case(analyzer.identify_lists())
+        raw_tables = convert_dict_keys_to_snake_case(
+            analyzer.identify_tables()).get("table", [])
+        raw_links = convert_dict_keys_to_snake_case(analyzer.identify_links())
+        raw_footnotes = convert_dict_keys_to_snake_case(
+            analyzer.identify_footnotes())
+        raw_inline_code = convert_dict_keys_to_snake_case(
+            analyzer.identify_inline_code())
+        raw_emphasis = convert_dict_keys_to_snake_case(
+            analyzer.identify_emphasis())
+        raw_task_items = convert_dict_keys_to_snake_case(
+            analyzer.identify_task_items())
+        raw_html_blocks = convert_dict_keys_to_snake_case(
+            analyzer.identify_html_blocks())
+        raw_html_inline = convert_dict_keys_to_snake_case(
+            analyzer.identify_html_inline())
+        raw_tokens_sequential = convert_dict_keys_to_snake_case(
+            analyzer.get_tokens_sequential())
+        raw_word_count = analyzer.count_words()
+        raw_char_count = analyzer.count_characters()
+
+        # Extract unordered_list and ordered_list from raw_lists
+        unordered_lists = raw_lists.get("unordered_list", [])
+        ordered_lists = raw_lists.get("ordered_list", [])
+
+        # Extract text_link and image_link from raw_links
+        text_links = raw_links.get("text_link", [])
+        image_links = raw_links.get("image_link", [])
+        text_link_count = len(text_links)
+        image_link_count = len(image_links)
+
+        header_counts = {f"h{i}": 0 for i in range(1, 7)}
+        for header in raw_headers:
+            level = header.get("level")
+            if level in range(1, 7):
+                header_counts[f"h{level}"] += 1
+            else:
+                logger.warning("Invalid header level detected: %s", level)
+
+        raw_summary = convert_dict_keys_to_snake_case(analyzer.analyse())
+        raw_summary = {
+            **raw_summary,
+            "header_counts": header_counts,
+            "text_links": text_link_count,
+            "image_links": image_link_count,
+        }
+
+        return {
+            "summary": raw_summary,
+            "word_count": raw_word_count,
+            "char_count": raw_char_count,
+            "headers": raw_headers,
+            "paragraphs": raw_paragraphs,
+            "blockquotes": raw_blockquotes,
+            "code_blocks": raw_code_blocks,
+            "unordered_lists": unordered_lists,
+            "ordered_lists": ordered_lists,
+            "tables": raw_tables,
+            "text_links": text_links,
+            "image_links": image_links,
+            "footnotes": raw_footnotes,
+            "inline_code": raw_inline_code,
+            "emphasis": raw_emphasis,
+            "task_items": raw_task_items,
+            "html_blocks": raw_html_blocks,
+            "html_inline": raw_html_inline,
+            "tokens_sequential": raw_tokens_sequential,
+        }
+    finally:
+        if temp_md_path and os.path.exists(temp_md_path):
+            try:
+                os.remove(temp_md_path)
+            except Exception as e:
+                logger.warning(
+                    f"Could not remove temporary file {temp_md_path}: {e}")
+
+
 def analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> MarkdownAnalysis:
     """
     Analyze markdown content and return structured analysis results.
@@ -201,6 +302,7 @@ def get_summary(input: Union[str, Path]) -> SummaryDict:
 
 
 __all__ = [
+    "base_analyze_markdown",
     "analyze_markdown",
     "get_summary",
 ]

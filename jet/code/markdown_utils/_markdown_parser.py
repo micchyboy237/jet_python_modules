@@ -3,12 +3,20 @@ import tempfile
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, TypedDict
+from jet.transformers.object import make_serializable
+from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
 from jet.code.markdown_utils import read_md_content, preprocess_markdown
 
-from jet.code.markdown_utils._base import base_parse_markdown
 from jet.logger import logger
+
+
+# @timeout(3)
+def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> List[MarkdownToken]:
+    md_content = read_md_content(input, ignore_links=ignore_links)
+    parser = MarkdownParser(md_content)
+    return make_serializable(parser.parse())
 
 
 def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
@@ -329,6 +337,7 @@ def derive_text(token: MarkdownToken) -> str:
 
 
 __all__ = [
+    "base_parse_markdown",
     "merge_tokens",
     "remove_header_placeholders",
     "remove_leading_non_headers",
