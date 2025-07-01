@@ -118,7 +118,8 @@ def get_tokenizer_fn(
 
 def tokenize(
     texts: Union[str, List[str]],
-    tokenizer: Union[ModelType, Tokenizer]
+    tokenizer: Union[ModelType, Tokenizer],
+    add_special_tokens=True
 ) -> Union[List[int], List[List[int]]]:
     tokenizer = (
         get_tokenizer(tokenizer)
@@ -126,9 +127,11 @@ def tokenize(
         else tokenizer
     )
     if isinstance(texts, str):
-        encoding = tokenizer.encode(texts, add_special_tokens=True)
+        encoding = tokenizer.encode(
+            texts, add_special_tokens=add_special_tokens)
         return encoding.ids
-    encodings = tokenizer.encode_batch(texts, add_special_tokens=True)
+    encodings = tokenizer.encode_batch(
+        texts, add_special_tokens=add_special_tokens)
     return [encoding.ids for encoding in encodings]
 
 
