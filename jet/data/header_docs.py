@@ -27,7 +27,6 @@ class HeaderDocs(BaseModel):
                 new_id = str(uuid.uuid4())
             seen_ids.add(new_id)
             return new_id
-
         logger.debug(f"Processing {len(tokens)} tokens")
         for token in tokens:
             logger.debug(
@@ -36,8 +35,10 @@ class HeaderDocs(BaseModel):
                 header_id = generate_unique_id()
                 text = derive_text(token)
                 header_lines = text.splitlines()
-                header = header_lines[0].lstrip('#').strip()
+                # Preserve hashtags in header by using the original content with level
+                header = f"{'#' * token['level']} {header_lines[0].lstrip('#').strip()}"
                 content = "\n".join(header_lines[1:]).strip()
+
                 logger.debug(
                     f"Creating HeaderNode: header={header}, content={content}, level={token['level']}")
                 new_header = HeaderNode(

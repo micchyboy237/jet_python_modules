@@ -77,10 +77,10 @@ class TestHeaderDocsFromTokens:
 
         # Then
         assert len(result.root) == 1
-        assert result.root[0].header == "Main Header"
+        assert result.root[0].header == "# Main Header"
         assert result.root[0].content == "Main content"
         assert len(result.root[0].children) == 1
-        assert result.root[0].children[0].header == "Sub Header"
+        assert result.root[0].children[0].header == "## Sub Header"
         assert result.root[0].children[0].children[0].header == "Paragraph content"
         assert result.tokens == sample_tokens
 
@@ -130,7 +130,7 @@ class TestHeaderDocsFromString:
     def test_from_string_valid_markdown(self, sample_markdown: str) -> None:
         """Test creating HeaderDocs from valid markdown string."""
         # Given
-        expected_headers = ["Main Header", "Sub Header"]
+        expected_headers = ["# Main Header", "## Sub Header"]
         expected_content = ["Main content", "Sub content", "Paragraph content"]
 
         # When
@@ -138,11 +138,11 @@ class TestHeaderDocsFromString:
 
         # Then
         assert len(result.root) == 1
-        assert result.root[0].header == "Main Header"
+        assert result.root[0].header == "# Main Header"
         assert result.root[0].content == "Main content"
         assert len(result.root[0].children) == 1
-        assert result.root[0].children[0].header == "Sub Header"
-        assert result.root[0].children[0].children[0].header == "Paragraph content"
+        assert result.root[0].children[0].header == "## Sub Header"
+        assert result.root[0].children[0].content == "Sub content\nParagraph content"
 
     def test_from_string_empty_markdown(self) -> None:
         """Test creating HeaderDocs from empty markdown string."""
@@ -162,7 +162,7 @@ class TestHeaderDocsFromString:
         # Given
         markdown_file = tmp_path / "test.md"
         markdown_file.write_text("# Header\nContent")
-        expected_header = "Header"
+        expected_header = "# Header"
         expected_content = "Content"
 
         # When
@@ -179,7 +179,7 @@ class TestHeaderDocsAsMethods:
         """Test as_texts method with hierarchical content."""
         # Given
         docs = HeaderDocs.from_tokens(sample_tokens)
-        expected = ["Main Header\nMain content", "Sub Header\nSub content",
+        expected = ["# Main Header\nMain content", "## Sub Header\nSub content",
                     "Paragraph content\nParagraph content"]
 
         # When
@@ -199,8 +199,8 @@ class TestHeaderDocsAsMethods:
 
         # Then
         assert len(result) == expected_node_count
-        assert any(n.header == "Main Header" for n in result)
-        assert any(n.header == "Sub Header" for n in result)
+        assert any(n.header == "# Main Header" for n in result)
+        assert any(n.header == "## Sub Header" for n in result)
         assert any(n.header == "Paragraph content" for n in result)
 
     def test_as_tree(self, sample_tokens: List[MarkdownToken]) -> None:
@@ -221,3 +221,112 @@ class TestHeaderDocsAsMethods:
         assert len(result["root"][0]["children"]) == expected_child_count
         assert len(result["root"][0]["children"][0]
                    ["children"]) == expected_grandchild_count
+
+
+class TestHeaderDocsHeaderPreservation:
+    def test_from_tokens_preserves_hashtags(self) -> None:
+        """Test that header nodes preserve hashtag prefixes in header field."""
+        # Given: A list of tokens with headers of different levels
+        tokens = [
+            {
+                "type": "header",
+                "content": "# Main Header\nMain content",
+                "level": 1,
+                "meta": {},
+                "line": 1
+            },
+            {
+                "type": "header",
+                "content": "## Sub Header\nSub content",
+                "level": 2,
+                "meta": {},
+                "line": 4
+            },
+            {
+                "type": "paragraph",
+                "content": "Paragraph content",
+                "level": None,
+                "meta": {},
+                "line": 7
+            }
+        ]
+        expected_headers = ["# Main Header",
+                            "## Sub Header", "Paragraph content"]
+
+        # When: HeaderDocs is created from tokens
+        result = HeaderDocs.from_tokens(tokens)
+
+        # Then: Headers in nodes should retain their hashtag prefixes
+        result_headers = [node.header for node in result.as_nodes()]
+        assert result_headers == expected_headers, (
+            f"Expected headers {expected_headers}, but got {result_headers}"
+        )
+
+    def test_from_tokens_multiple_header_levels(self) -> None:
+        """Test header preservation with multiple header levels and edge cases."""
+        # Given: Tokens with various header levels and edge cases
+        tokens = [
+            {
+                "type": "header",
+                "content": "# Top Level\nContent",
+                "level": 1,
+                "meta": {},
+                "line": 1
+            },
+            {
+                "type": "header",
+                "content": "### Deep Header\nDeep content",
+                "level": 3,
+                "meta": {},
+                "line": 4
+            },
+            {
+                "type": "header",
+                "content": "#### Empty Content\n",
+                "level": 4,
+                "meta": {},
+                "line": 7
+            }
+        ]
+        expected_headers = ["# Top Level",
+                            "### Deep Header", "#### Empty Content"]
+
+        # When: HeaderDocs is created from tokens
+        result = HeaderDocs.from_tokens(tokens)
+
+        # Then: All headers should retain their hashtag prefixes
+        result_headers = [node.header for node in result.as_nodes()]
+        assert result_headers == expected_headers, (
+            f"Expected headers {expected_headers}, but got {result_headers}"
+        )
+
+    def test_as_texts_preserves_hashtags(self) -> None:
+        """Test that as_texts method preserves hashtag prefixes in headers."""
+        # Given: Tokens with headers
+        tokens = [
+            {
+                "type": "header",
+                "content": "# Main Header\nMain content",
+                "level": 1,
+                "meta": {},
+                "line": 1
+            },
+            {
+                "type": "header",
+                "content": "## Sub Header\nSub content",
+                "level": 2,
+                "meta": {},
+                "line": 4
+            }
+        ]
+        expected_texts = ["# Main Header\nMain content",
+                          "## Sub Header\nSub content"]
+
+        # When: HeaderDocs is created and as_texts is called
+        docs = HeaderDocs.from_tokens(tokens)
+        result = docs.as_texts()
+
+        # Then: Texts should include headers with hashtags
+        assert result == expected_texts, (
+            f"Expected texts {expected_texts}, but got {result}"
+        )
