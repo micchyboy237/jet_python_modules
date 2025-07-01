@@ -10,8 +10,8 @@ from tokenizers import Tokenizer
 
 @pytest.fixture
 def tokenizer() -> Tokenizer:
-    """Provide a BERT tokenizer for tests."""
-    return get_tokenizer("bert-base-uncased")
+    """Provide a tokenizer for tests."""
+    return get_tokenizer("all-MiniLM-L6-v2")
 
 
 @pytest.fixture
@@ -31,7 +31,8 @@ class TestCreateTextNode:
             header="Test Header",
             content="Test Content",
             meta={"key": "value"},
-            chunk_index=0
+            chunk_index=0,
+            num_tokens=0
         )
         expected = TextNode(
             id=generate_unique_id(),
@@ -42,7 +43,8 @@ class TestCreateTextNode:
             meta={"key": "value"},
             parent_id="parent1",
             parent_header="Parent Header",
-            chunk_index=1
+            chunk_index=1,
+            num_tokens=0
         )
 
         # When
@@ -75,7 +77,8 @@ class TestCreateTextNode:
             content="Header Content",
             level=1,
             children=[],
-            chunk_index=0
+            chunk_index=0,
+            num_tokens=0
         )
         expected = TextNode(
             id=generate_unique_id(),
@@ -86,7 +89,8 @@ class TestCreateTextNode:
             meta=None,
             parent_id="parent1",
             parent_header="Parent Header",
-            chunk_index=0
+            chunk_index=0,
+            num_tokens=0
         )
 
         # When
@@ -136,14 +140,15 @@ class TestChunkContent:
         # Then
         assert len(result) >= expected_chunk_count
         for chunk in result:
-            tokens = tokenizer.encode(chunk, add_special_tokens=False).ids
-            assert len(tokens) <= params["chunk_size"] - params["buffer"]
+            token_ids = tokenizer.encode(chunk, add_special_tokens=False).ids
+            token_ids = [tid for tid in token_ids if tid != 0]
+            assert len(token_ids) <= params["chunk_size"] - params["buffer"]
 
     def test_chunk_content_empty(self, tokenizer: Tokenizer, default_params: dict) -> None:
         """Test chunk_content with empty content."""
         # Given
         content = ""
-        expected = [content]
+        expected = []
 
         # When
         result = chunk_content(content, tokenizer, **default_params)
@@ -163,16 +168,21 @@ class TestProcessNode:
             header="Test Header",
             content="Short content.",
             meta=None,
-            chunk_index=0
+            chunk_index=0,
+            num_tokens=0
         )
+        content = "Test Header\nShort content."
+        token_ids = tokenizer.encode(content, add_special_tokens=False).ids
+        token_ids = [tid for tid in token_ids if tid != 0]
         expected = [TextNode(
             id=generate_unique_id(),
             line=1,
             type="paragraph",
             header="Test Header",
-            content="Test Header\nShort content.",
+            content=content,
             meta=None,
-            chunk_index=0
+            chunk_index=0,
+            num_tokens=len(token_ids)
         )]
 
         # When
@@ -186,6 +196,7 @@ class TestProcessNode:
         assert result[0].line == expected[0].line
         assert result[0].meta == expected[0].meta
         assert result[0].chunk_index == expected[0].chunk_index
+        assert result[0].num_tokens == expected[0].num_tokens
 
     def test_process_header_node_with_children(self, tokenizer: Tokenizer, default_params: dict) -> None:
         """Test processing a header node with children."""
@@ -207,10 +218,12 @@ class TestProcessNode:
                     meta=None,
                     parent_id="header1",
                     parent_header="Main Header",
-                    chunk_index=0
+                    chunk_index=0,
+                    num_tokens=0
                 )
             ],
-            chunk_index=0
+            chunk_index=0,
+            num_tokens=0
         )
         expected = [
             TextNode(
@@ -220,7 +233,9 @@ class TestProcessNode:
                 header="Main Header",
                 content="Main Header\nHeader content",
                 meta=None,
-                chunk_index=0
+                chunk_index=0,
+                num_tokens=len([tid for tid in tokenizer.encode(
+                    "Main Header\nHeader content", add_special_tokens=False).ids if tid != 0])
             ),
             TextNode(
                 id=generate_unique_id(),
@@ -231,7 +246,9 @@ class TestProcessNode:
                 meta=None,
                 parent_id="header1",
                 parent_header="Main Header",
-                chunk_index=0
+                chunk_index=0,
+                num_tokens=len([tid for tid in tokenizer.encode(
+                    "Child Header\nChild content.", add_special_tokens=False).ids if tid != 0])
             )
         ]
 
@@ -249,6 +266,7 @@ class TestProcessNode:
             assert res.parent_id == exp.parent_id
             assert res.parent_header == exp.parent_header
             assert res.chunk_index == exp.chunk_index
+            assert res.num_tokens == exp.num_tokens
 
     def test_process_empty_content_node(self, tokenizer: Tokenizer, default_params: dict) -> None:
         """Test processing a text node with empty content."""
@@ -260,7 +278,8 @@ class TestProcessNode:
             header="Empty Header",
             content="",
             meta=None,
-            chunk_index=0
+            chunk_index=0,
+            num_tokens=0
         )
         expected = [node]
 
@@ -275,3 +294,41 @@ class TestProcessNode:
         assert result[0].line == expected[0].line
         assert result[0].meta == expected[0].meta
         assert result[0].chunk_index == expected[0].chunk_index
+        assert result[0].num_tokens == 0
+
+    def test_process_header_node_with_chunking(self, tokenizer: Tokenizer, default_params: dict) -> None:
+        """Test processing a header node with content requiring chunking."""
+        # Given
+        content = "This is a long sentence. " * 20
+        node = HeaderNode(
+            id="header1",
+            line=1,
+            type="header",
+            header="Main Header",
+            content=content,
+            level=1,
+            children=[],
+            chunk_index=0,
+            num_tokens=0
+        )
+        params = default_params | {"chunk_size": 50,
+                                   "chunk_overlap": 10, "buffer": 5}
+        expected_chunk_count = 3
+
+        # When
+        result = process_node(node, tokenizer, **params)
+
+        # Then
+        assert len(result) >= expected_chunk_count
+        for i, node in enumerate(result):
+            assert node.header == "Main Header"
+            assert node.content.startswith("Main Header\n")
+            assert node.type == "paragraph"
+            assert node.line == 1
+            assert node.chunk_index == i
+            token_ids = tokenizer.encode(
+                node.content, add_special_tokens=False).ids
+            token_ids = [tid for tid in token_ids if tid != 0]
+            assert node.num_tokens == len(token_ids)
+            assert node.num_tokens <= params["chunk_size"] - params["buffer"]
+            assert node.num_tokens > 0

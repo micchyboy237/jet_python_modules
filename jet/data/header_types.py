@@ -3,8 +3,6 @@ from pydantic import BaseModel, Field
 from jet.code.markdown_types import MarkdownToken, ContentType, MetaType
 import uuid
 
-# Base Node class for shared attributes
-
 
 class Node(BaseModel):
     id: str = Field(default_factory=lambda: f"auto_{uuid.uuid4().hex[:8]}")
@@ -15,6 +13,7 @@ class Node(BaseModel):
     header: str
     content: str
     chunk_index: int = 0
+    num_tokens: Optional[int] = 0  # Added num_tokens field
     _parent_node: Optional['NodeType'] = None
 
     def get_parent_node(self) -> Optional['NodeType']:
@@ -24,14 +23,9 @@ class Node(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-# Text Node for non-header content
-
 
 class TextNode(Node):
-    # Default to empty dict, allow None
     meta: Optional[MetaType] = Field(default_factory=dict)
-
-# Header Node for header content
 
 
 class HeaderNode(Node):

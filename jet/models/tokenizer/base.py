@@ -347,3 +347,14 @@ def merge_texts(
         "decoded_tokens": grouped_decoded_tokens,
         "metadata": metadata
     }
+
+
+__all__ = [
+    "_tokenizer_cache",
+    "get_tokenizer",
+    "get_tokenizer_fn",
+    "tokenize",
+    "detokenize",
+    "count_tokens",
+    "get_max_token_count",
+]
