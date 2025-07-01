@@ -18,6 +18,8 @@ from jet.logger import logger
 # @timeout(3)
 def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> List[MarkdownToken]:
     md_content = read_md_content(input, ignore_links=ignore_links)
+    # Preprocess markdown
+    md_content = preprocess_markdown(md_content)
     parser = MarkdownParser(md_content)
     return make_serializable(parser.parse())
 
@@ -242,9 +244,6 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
                 html, ignore_links=ignore_links)
         except ValueError:
             md_content = read_md_content(input, ignore_links=ignore_links)
-
-        # Preprocess markdown
-        md_content = preprocess_markdown(md_content)
 
         def prepend_hashtags_to_headers(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
             """Prepend hashtags to header tokens based on their level."""

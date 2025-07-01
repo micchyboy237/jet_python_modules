@@ -30,6 +30,7 @@ def base_analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -
                  md_content[:100] + "..." if len(md_content) > 100 else md_content)
     temp_md_path = None
     try:
+        md_content = preprocess_markdown(md_content)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".md", mode="w", encoding="utf-8") as tmpfile:
             tmpfile.write(md_content)
             temp_md_path = tmpfile.name
