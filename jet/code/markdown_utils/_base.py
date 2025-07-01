@@ -35,7 +35,7 @@ def read_md_content(input, ignore_links: bool = False) -> str:
     except Exception:
         raise
 
-    if not ignore_links:
+    if ignore_links:
         md_content = clean_markdown_links(md_content)
 
     return md_content
