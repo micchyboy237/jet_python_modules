@@ -7,24 +7,23 @@ from tokenizers import Tokenizer
 
 
 def split_and_merge_headers(
-    docs: NodeType | Nodes,
+    nodes: NodeType | Nodes,
     model: ModelType = "all-MiniLM-L6-v2",
     chunk_size: Optional[int] = None,
     chunk_overlap: int = 0,
     *,
     tokenizer: Optional[Tokenizer] = None,
-    tokens: Optional[list[int] | list[list[int]]] = None,
     buffer: int = 0
 ) -> Nodes:
     """Split and merge headers in documents, handling both single nodes and lists."""
-    if isinstance(docs, (HeaderNode, TextNode)):
-        docs = [docs]
+    if isinstance(nodes, (HeaderNode, TextNode)):
+        nodes = [nodes]
 
     if not tokenizer and model:
         tokenizer = get_tokenizer(model)
 
     result_nodes: Nodes = []
-    for node in docs:
+    for node in nodes:
         result_nodes.extend(
             process_node(node, tokenizer, chunk_size, chunk_overlap, buffer)
         )
