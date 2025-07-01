@@ -168,6 +168,8 @@ Sample title
 # Project Overview
 Welcome to our **project**! This is an `introduction` to our work, featuring a website.
 
+
+
 > **Note**: Always check the docs for updates.
 
 ## Features
@@ -182,10 +184,10 @@ def greet(name: str) -> str:
 ```
 
 #### API Endpoints
-| Endpoint       | Method | Description           |
+| Endpoint | Method | Description |
 |----------------|--------|-----------------------|
-| /api/users     | GET    | Fetch all users       |
-| /api/users/{id}| POST   | Create a new user     |
+| /api/users | GET | Fetch all users |
+| /api/users/{id}| POST | Create a new user |
 
 ##### Inline Code
 Use `print("Hello")` for quick debugging.
