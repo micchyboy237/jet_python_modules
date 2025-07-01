@@ -1,0 +1,206 @@
+import os
+import tempfile
+import re
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Union, TypedDict
+
+import html2text
+from jet.code.html_utils import preprocess_html, valid_html
+from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
+from jet.code.markdown_utils import read_md_content, preprocess_markdown
+from jet.decorators.timer import timeout
+from jet.transformers.object import convert_dict_keys_to_snake_case, make_serializable
+from jet.utils.text import fix_and_unidecode
+from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
+
+from jet.logger import logger
+
+
+def analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> MarkdownAnalysis:
+    """
+    Analyze markdown content and return structured analysis results.
+
+    Args:
+        input: Either a string containing markdown content or a Path to a markdown file.
+
+    Returns:
+        A dictionary containing detailed analysis of markdown elements.
+
+    Raises:
+        OSError: If the input file does not exist.
+        TimeoutError: If analysis takes too long.
+    """
+    temp_md_path: Optional[Path] = None
+    try:
+        md_content = read_md_content(input, ignore_links=ignore_links)
+
+        # Preprocess markdown
+        md_content = preprocess_markdown(md_content)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
+            temp_file.write(md_content)
+            temp_md_path = Path(temp_file.name)
+
+        (
+            raw_summary, raw_headers, raw_paragraphs, raw_blockquotes, raw_code_blocks,
+            raw_lists, raw_tables, raw_links, raw_footnotes, raw_inline_code,
+            raw_emphasis, raw_task_items, raw_html_blocks, raw_html_inline,
+            raw_tokens_sequential, word_count, char_count
+        ) = analyze_with_timeout(str(temp_md_path))
+
+        analysis_results: MarkdownAnalysis = {
+            "summary": raw_summary,
+            "headers": {
+                "header": [
+                    {**header, "text": clean_markdown_text(header["text"])}
+                    for header in raw_headers.get("header", [])
+                ]
+            },
+            "paragraphs": {
+                "paragraph": [clean_markdown_text(p) for p in raw_paragraphs.get("paragraph", [])]
+            },
+            "blockquotes": {
+                "blockquote": [clean_markdown_text(b) for b in raw_blockquotes.get("blockquote", [])]
+            },
+            "code_blocks": {
+                "code_block": [
+                    {**cb, "content": clean_markdown_text(cb["content"])}
+                    for cb in raw_code_blocks.get("code_block", [])
+                ]
+            },
+            "lists": {
+                key: [
+                    [{**item, "text": clean_markdown_text(item["text"])}
+                     for item in sublist]
+                    for sublist in v
+                ]
+                for key, v in raw_lists.items()
+            },
+            "tables": {
+                "table": [
+                    {
+                        "header": [clean_markdown_text(h) for h in table["header"]],
+                        "rows": [
+                            [clean_markdown_text(cell) for cell in row]
+                            for row in table["rows"]
+                        ]
+                    }
+                    for table in raw_tables.get("table", [])
+                ]
+            },
+            "links": {
+                key: [
+                    {
+                        **link,
+                        "text": clean_markdown_text(link.get("text")) if link.get("text") is not None else None,
+                        "alt_text": clean_markdown_text(link.get("alt_text")) if link.get("alt_text") is not None else None,
+                        "line": link["line"],
+                        "url": link["url"]
+                    }
+                    for link in v
+                ]
+                for key, v in raw_links.items()
+            },
+            "footnotes": [
+                {**fn, "content": clean_markdown_text(fn["content"])}
+                for fn in raw_footnotes
+            ],
+            "inline_code": [
+                {**ic, "code": clean_markdown_text(ic["code"])}
+                for ic in raw_inline_code
+            ],
+            "emphasis": [
+                {
+                    "emphasis": {**em, "text": clean_markdown_text(em["text"])},
+                    "text": clean_markdown_text(em["text"])
+                }
+                for em in raw_emphasis
+            ],
+            "task_items": [
+                {**ti, "text": clean_markdown_text(ti["text"])}
+                for ti in raw_task_items
+            ],
+            "html_blocks": [
+                {**hb, "content": clean_markdown_text(hb["content"])}
+                for hb in raw_html_blocks
+            ],
+            "html_inline": [
+                {**hi, "html": clean_markdown_text(hi["html"])}
+                for hi in raw_html_inline
+            ],
+            "tokens_sequential": [
+                {**token, "content": clean_markdown_text(token["content"])}
+                for token in raw_tokens_sequential
+            ],
+            "word_count": {"word_count": word_count},
+            "char_count": {"char": char_count}
+        }
+
+        return analysis_results
+
+    except TimeoutError as e:
+        logger.error(f"Analysis timed out: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error analyzing markdown: {str(e)}")
+        raise
+    finally:
+        if temp_md_path and temp_md_path.exists():
+            try:
+                temp_md_path.unlink()
+            except OSError:
+                logger.warning(
+                    f"Warning: Could not delete temporary file {temp_md_path}")
+
+
+def get_summary(input: Union[str, Path]) -> SummaryDict:
+    temp_md_path: Optional[Path] = None
+    try:
+        md_content = read_md_content(input)
+        md_content = preprocess_markdown(md_content)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as temp_file:
+            temp_file.write(md_content)
+            temp_md_path = Path(temp_file.name)
+        analyzer = MarkdownAnalyzer(str(temp_md_path))
+
+        # Get headers for counting individual levels
+        headers = convert_dict_keys_to_snake_case(
+            analyzer.identify_headers()).get("header", [])
+        header_counts = {f"h{i}": 0 for i in range(1, 7)}
+        for header in headers:
+            level = header.get("level")
+            if level in range(1, 7):
+                header_counts[f"h{level}"] += 1
+            else:
+                logger.warning("Invalid header level detected: %s", level)
+
+        # Get links for counting
+        links = convert_dict_keys_to_snake_case(analyzer.identify_links())
+        text_link_count = len(links.get("text_link", []))
+        image_link_count = len(links.get("image_link", []))
+
+        # Get existing analysis
+        raw_summary = convert_dict_keys_to_snake_case(analyzer.analyse())
+
+        # Update summary with header counts and link counts
+        summary = {
+            **raw_summary,
+            "header_counts": header_counts,
+            "text_links": text_link_count,
+            "image_links": image_link_count,
+        }
+
+        return summary
+    finally:
+        if temp_md_path and temp_md_path.exists():
+            try:
+                temp_md_path.unlink()
+            except OSError:
+                logger.warning(
+                    f"Warning: Could not delete temporary file {temp_md_path}")
+
+
+__all__ = [
+    "analyze_markdown",
+    "get_summary",
+]

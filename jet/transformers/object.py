@@ -1,6 +1,8 @@
 from enum import Enum
 import json
 import base64
+from typing import Any, Dict
+from jet.transformers.text import to_snake_case
 from jet.utils.class_utils import get_non_empty_attributes, is_class_instance
 import numpy as np
 import json
@@ -9,6 +11,18 @@ import numpy as np
 from pydantic.main import BaseModel
 # from jet.validation.object import is_iterable_but_not_primitive
 from jet.logger import logger
+
+
+def convert_dict_keys_to_snake_case(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively convert dictionary keys to snake_case."""
+    if not isinstance(d, dict):
+        return d
+    return {
+        to_snake_case(k): [convert_dict_keys_to_snake_case(item) for item in v]
+        if isinstance(v, list) else convert_dict_keys_to_snake_case(v)
+        if isinstance(v, dict) else v
+        for k, v in d.items()
+    }
 
 
 def make_serializable(obj):

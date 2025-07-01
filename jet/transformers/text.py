@@ -1,7 +1,18 @@
 import re
 
 
-def to_snake_case(url: str) -> str:
+def to_snake_case(s: str) -> str:
+    """Convert a string to lowercase and underscore-separated, replacing spaces and normalizing underscores."""
+    # Replace all whitespace with a single underscore
+    s = re.sub(r'\s+', '_', s.strip())
+    # Insert underscore before uppercase letters (except at start), then lowercase
+    s = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s)
+    # Convert to lowercase and normalize multiple underscores to one
+    s = re.sub(r'_+', '_', s.lower())
+    return s
+
+
+def to_snake_case_url(url: str) -> str:
     url = url.replace("https://", "").replace("http://", "")
 
     url_segments = url.split("/")
