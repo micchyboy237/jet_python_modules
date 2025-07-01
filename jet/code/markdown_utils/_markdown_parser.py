@@ -218,7 +218,7 @@ def merge_headers_with_content(markdown_tokens: List[MarkdownToken]) -> List[Mar
     return merged_tokens
 
 
-def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_headers: bool = False, ignore_links: bool = False) -> List[MarkdownToken]:
+def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_headers: bool = True, ignore_links: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
 

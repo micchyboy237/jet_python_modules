@@ -40,7 +40,7 @@ def search_headers(
         # Remove header prefix from content if present
         header_prefix = f"{node.header}\n" if node.header else ""
         content = node.content
-        if header_prefix and content.startswith(header_prefix):
+        if header_prefix and content.startswith(header_prefix.strip()):
             content = content[len(header_prefix):].strip()
 
         # Create a new TextNode with the adjusted content
