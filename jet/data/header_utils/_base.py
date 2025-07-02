@@ -173,6 +173,11 @@ def process_node(
                 f"Created single node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}, type={new_node.type}, get_text='{text_for_tokens}'"
             )
             result_nodes.append(new_node)
+        # for child in node.children:
+        #     result_nodes.extend(
+        #         process_node(child, model_name_or_tokenizer, chunk_size,
+        #                      chunk_overlap, buffer, max_length, parent_id=node.id, parent_header=node.header)
+        #     )
     else:
         chunks = chunk_content(
             content, model_name_or_tokenizer, chunk_size, chunk_overlap, buffer, node.header +
@@ -203,8 +208,56 @@ def process_node(
     return result_nodes
 
 
+def process_nodes(
+    nodes: List[NodeType],
+    model_name_or_tokenizer: Optional[Union[ModelType, Tokenizer]],
+    chunk_size: Optional[int],
+    chunk_overlap: int,
+    buffer: int,
+    max_length: Optional[int] = None
+) -> List[TextNode]:
+    """Process a list of nodes, applying chunking and maintaining parent relationships."""
+    result_nodes: List[TextNode] = []
+    for node in nodes:
+        node.children = []
+        # Determine parent_id and parent_header for the current node
+        parent_id = node.id if isinstance(node, HeaderNode) else None
+        parent_header = node.header if isinstance(node, HeaderNode) else None
+
+        # Process the current node
+        processed_nodes = process_node(
+            node=node,
+            model_name_or_tokenizer=model_name_or_tokenizer,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            buffer=buffer,
+            max_length=max_length,
+            parent_id=parent_id,
+            parent_header=parent_header
+        )
+        result_nodes.extend(processed_nodes)
+
+        # Process child nodes if any
+        if isinstance(node, HeaderNode) and hasattr(node, 'children') and node.children:
+            child_nodes = process_nodes(
+                nodes=node.children,
+                model_name_or_tokenizer=model_name_or_tokenizer,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                buffer=buffer,
+                max_length=max_length
+            )
+            for child in child_nodes:
+                child.parent_id = node.id
+                child.parent_header = node.header
+            result_nodes.extend(child_nodes)
+
+    return result_nodes
+
+
 __all__ = [
     "process_node",
+    "process_nodes",
     "chunk_content",
     "create_text_node",
 ]
