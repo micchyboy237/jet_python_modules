@@ -214,18 +214,24 @@ def process_nodes(
     chunk_size: Optional[int],
     chunk_overlap: int,
     buffer: int,
-    max_length: Optional[int] = None
+    max_length: Optional[int] = None,
+    parent_id: Optional[str] = None,
+    parent_header: Optional[str] = None,
+    processed_ids: Optional[set[str]] = None
 ) -> List[TextNode]:
-    """Process a list of nodes, applying chunking and maintaining parent relationships."""
+    """Process a list of nodes, applying chunking and maintaining parent relationships, avoiding duplicate processing."""
+    if processed_ids is None:
+        processed_ids = set()
+
     result_nodes: List[TextNode] = []
     for node in nodes:
-        node.children = []
+        if node.id in processed_ids:
+            logger.warning(f"Skipping duplicate node {node.id}")
+            continue
 
-        # Determine parent_id and parent_header for the current node
-        parent_id = node.id if isinstance(node, HeaderNode) else None
-        parent_header = node.header if isinstance(node, HeaderNode) else None
+        processed_ids.add(node.id)
 
-        # Process the current node
+        # Process the current node with the provided parent_id and parent_header
         processed_nodes = process_node(
             node=node,
             model_name_or_tokenizer=model_name_or_tokenizer,
@@ -238,7 +244,7 @@ def process_nodes(
         )
         result_nodes.extend(processed_nodes)
 
-        # Process child nodes if any
+        # Process child nodes if any, passing the current HeaderNode's id and header as parent context
         if isinstance(node, HeaderNode) and hasattr(node, 'children') and node.children:
             child_nodes = process_nodes(
                 nodes=node.children,
@@ -246,11 +252,11 @@ def process_nodes(
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
                 buffer=buffer,
-                max_length=max_length
+                max_length=max_length,
+                parent_id=node.id,
+                parent_header=node.header,
+                processed_ids=processed_ids
             )
-            for child in child_nodes:
-                child.parent_id = node.id
-                child.parent_header = node.header
             result_nodes.extend(child_nodes)
 
     return result_nodes
