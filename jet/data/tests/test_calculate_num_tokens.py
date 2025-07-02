@@ -5,14 +5,16 @@ from jet.data.header_docs import HeaderDocs
 from jet.data.header_types import HeaderNode, TextNode, Nodes
 from jet.models.model_types import ModelType
 from jet.models.tokenizer.base import get_tokenizer, TokenizerWrapper
+from jet.models.tokenizer.helpers.word_tokenizer import WordTokenizer
 
 
 @pytest.fixture
 def tokenizer():
-    """Fixture to create a tokenizer for sentence-transformers/all-MiniLM-L6-v2."""
+    """Fixture to create a tokenizer that is an instance of TokenizerWrapper."""
     model_name = "sentence-transformers/all-MiniLM-L6-v2"
     tokenizer = get_tokenizer(model_name)
     return TokenizerWrapper(tokenizer, remove_pad_tokens=True, add_special_tokens=False)
+    # return WordTokenizer()
 
 
 class TestCalculateNumTokens:

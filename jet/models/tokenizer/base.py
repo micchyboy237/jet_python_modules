@@ -1,8 +1,8 @@
-from typing import Callable, Dict, Optional, TypedDict, Union, List
+from typing import Any, Callable, Dict, Iterator, Optional, TypedDict, Union, List
 from pathlib import Path
 import numpy as np
 import logging
-from tokenizers import Tokenizer
+from tokenizers import Encoding, Tokenizer
 from transformers import PreTrainedTokenizerBase
 from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR
@@ -12,6 +12,50 @@ from jet.wordnet.sentence import split_sentences
 
 # Cache for storing loaded tokenizers
 _tokenizer_cache: Dict[str, Tokenizer] = {}
+
+
+class EncodingWrapper:
+    """Wraps encoding results to make .ids the default iterable while preserving other attributes."""
+
+    def __init__(
+        self,
+        encoding: Union[Encoding, List[int], List[List[int]]],
+        tokenizer: Union[Tokenizer, PreTrainedTokenizerBase]
+    ):
+        self._tokenizer = tokenizer
+        if isinstance(encoding, Encoding):
+            self._encoding = encoding
+            self._ids = encoding.ids
+        else:
+            self._encoding = None
+            self._ids = encoding
+
+    def __iter__(self) -> Iterator[int]:
+        """Make .ids the default iterable for single encodings."""
+        if isinstance(self._ids[0], list):
+            raise TypeError(
+                "Cannot iterate over batch encoding directly; iterate over individual encodings")
+        return iter(self._ids)
+
+    def __len__(self) -> int:
+        """Return length of .ids for single encodings."""
+        if isinstance(self._ids[0], list):
+            raise TypeError(
+                "Cannot get length of batch encoding directly; access individual encodings")
+        return len(self._ids)
+
+    def __getitem__(self, index: int) -> Union[int, 'EncodingWrapper']:
+        """Access token IDs or individual encodings for batch results."""
+        if isinstance(self._ids[0], list):
+            return EncodingWrapper(self._ids[index], self._tokenizer)
+        return self._ids[index]
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to the underlying _encoding if it exists."""
+        if self._encoding is not None:
+            return getattr(self._encoding, name)
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
 
 class TokenizerWrapper:
@@ -54,9 +98,11 @@ class TokenizerWrapper:
         if 'add_special_tokens' not in encode_kwargs:
             encode_kwargs['add_special_tokens'] = self.add_special_tokens
 
-        if isinstance(self.tokenizer, Tokenizer):
+        if isinstance(self.tokenizer, (Tokenizer, TokenizerWrapper)):
             encoding = self.tokenizer.encode(text, **encode_kwargs)
-            token_ids = encoding.ids
+            encoding = EncodingWrapper(
+                encoding=encoding, tokenizer=self.tokenizer)
+            token_ids = encoding
         else:
             token_ids = self.tokenizer.encode(text, **encode_kwargs)
 
@@ -132,7 +178,7 @@ class TokenizerWrapper:
             ]
 
 
-def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) -> Tokenizer:
+def get_tokenizer(model_name_or_tokenizer: Union[ModelType, Tokenizer], local_cache_dir: Optional[str] = None) -> Tokenizer:
     """
     Initialize and return a tokenizer for the specified model, using a cache to prevent reloading.
 
@@ -146,6 +192,10 @@ def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) 
     Raises:
         ValueError: If the tokenizer cannot be loaded from remote or local sources.
         """
+    if isinstance(model_name_or_tokenizer, Tokenizer):
+        return model_name_or_tokenizer
+
+    model_name = model_name_or_tokenizer
     # Resolve model_name to full path if it's a key
     model_path = resolve_model_value(model_name)
     logger.info(
@@ -211,14 +261,14 @@ def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) 
 
 
 def get_tokenizer_fn(
-    model_name_or_tokenizer: Union[ModelType, Tokenizer, PreTrainedTokenizerBase],
+    model_name_or_tokenizer: Union[ModelType, Tokenizer, PreTrainedTokenizerBase, TokenizerWrapper],
     remove_pad_tokens: bool = False,
     add_special_tokens: bool = True,
 ) -> TokenizerWrapper:
     """Return a TokenizerWrapper instance from a model name or tokenizer instance."""
     tokenizer = (
         get_tokenizer(model_name_or_tokenizer)
-        if isinstance(model_name_or_tokenizer, str)
+        if isinstance(model_name_or_tokenizer, (str, Tokenizer, PreTrainedTokenizerBase))
         else model_name_or_tokenizer
     )
     return TokenizerWrapper(tokenizer, remove_pad_tokens, add_special_tokens)

@@ -3,7 +3,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from jet.code.markdown_types import MarkdownToken, ContentType, MetaType
 from jet.data.utils import generate_unique_id
-from jet.models.tokenizer.base import get_tokenizer, tokenize, detokenize
+from jet.models.tokenizer.base import get_tokenizer_fn, tokenize, detokenize
 from jet.models.model_types import ModelType
 from jet.data.header_types import Node, HeaderNode, TextNode, NodeType, Nodes
 from tokenizers import Tokenizer
@@ -50,20 +50,20 @@ def chunk_content(
             f"No chunking: content_empty={not content}, chunk_size={chunk_size}, model_name_or_tokenizer={model_name_or_tokenizer}")
         return [content] if content else []
 
-    tokenizer = get_tokenizer(model_name_or_tokenizer) if isinstance(
-        model_name_or_tokenizer, str) else model_name_or_tokenizer
+    tokenizer = get_tokenizer_fn(model_name_or_tokenizer) if isinstance(
+        model_name_or_tokenizer, (str, Tokenizer)) else model_name_or_tokenizer
     if not tokenizer:
         logger.debug(
             "No valid tokenizer provided, returning content as single chunk")
         return [content] if content else []
 
     encoding = tokenizer.encode(content, add_special_tokens=False)
-    token_ids = [tid for tid in encoding.ids if tid != 0]
+    token_ids = [tid for tid in encoding if tid != 0]
     offsets = encoding.offsets
     header_encoding = tokenizer.encode(
         header_prefix, add_special_tokens=False) if header_prefix else None
     header_tokens = len(
-        [tid for tid in header_encoding.ids if tid != 0]) if header_encoding else 0
+        [tid for tid in header_encoding if tid != 0]) if header_encoding else 0
     effective_chunk_size = max(1, chunk_size - buffer - header_tokens)
     logger.debug(
         f"Chunking with header_tokens={header_tokens}, effective_chunk_size={effective_chunk_size}")
@@ -98,6 +98,7 @@ def process_node(
     chunk_size: Optional[int],
     chunk_overlap: int,
     buffer: int,
+    max_length: Optional[int] = None,
     parent_id: Optional[str] = None,
     parent_header: Optional[str] = None
 ) -> List[TextNode]:
@@ -106,13 +107,14 @@ def process_node(
         f"Processing node {node.id}: type={node.type}, header={node.header}, content_length={len(node.content)}, doc_id={node.doc_id}"
     )
     result_nodes: List[TextNode] = []
+    node.calculate_num_tokens(model_name_or_tokenizer)
     content = node.content.strip()
 
     # Resolve tokenizer
     tokenizer = None
     if model_name_or_tokenizer:
-        tokenizer = get_tokenizer(model_name_or_tokenizer) if isinstance(
-            model_name_or_tokenizer, str) else model_name_or_tokenizer
+        tokenizer = get_tokenizer_fn(model_name_or_tokenizer) if isinstance(
+            model_name_or_tokenizer, (str, Tokenizer)) else model_name_or_tokenizer
 
     # Handle empty content for TextNode
     if not content and isinstance(node, TextNode):
@@ -127,18 +129,13 @@ def process_node(
 
     if isinstance(node, HeaderNode):
         # Calculate tokens for logging
-        token_ids = (
-            tokenizer.encode(full_content, add_special_tokens=False).ids
-            if tokenizer
-            else []
-        )
-        token_ids = [tid for tid in token_ids if tid != 0] if token_ids else []
+        current_num_tokens = node.num_tokens
         logger.debug(
-            f"Token count for node {node.id}: {len(token_ids)} tokens, get_text='{full_content}'")
+            f"Token count for node {node.id}: {current_num_tokens} tokens, get_text='{full_content}'")
 
-        if chunk_size and tokenizer and len(token_ids) > chunk_size - buffer:
+        if chunk_size and tokenizer and current_num_tokens > chunk_size - buffer:
             logger.debug(
-                f"Chunking HeaderNode {node.id} with {len(token_ids)} tokens"
+                f"Chunking HeaderNode {node.id} with {current_num_tokens} tokens"
             )
             chunks = chunk_content(
                 content, model_name_or_tokenizer, chunk_size, chunk_overlap, buffer, node.header +
@@ -149,24 +146,18 @@ def process_node(
                 new_node = create_text_node(
                     node, chunk_text, i, parent_id, parent_header, doc_id=shared_doc_id
                 )
+                new_node.calculate_num_tokens(model_name_or_tokenizer)
                 # Calculate num_tokens based on get_text()
                 text_for_tokens = new_node.get_text()
-                chunk_token_ids = (
-                    tokenizer.encode(
-                        text_for_tokens, add_special_tokens=False).ids
-                    if tokenizer
-                    else []
-                )
-                chunk_token_ids = [tid for tid in chunk_token_ids if tid != 0]
-                num_tokens = len(chunk_token_ids)
+                num_tokens = new_node.num_tokens
                 logger.debug(
                     f"Chunk {i} token count: {num_tokens}, get_text='{text_for_tokens}'")
-                if num_tokens > chunk_size - buffer:
+                if max_length and num_tokens > max_length - buffer:
                     logger.warning(
                         f"Chunk {i} for node {node.id} exceeds token limit: {num_tokens} > {chunk_size - buffer}"
                     )
                     continue
-                new_node.num_tokens = num_tokens
+
                 logger.debug(
                     f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}, type={new_node.type}"
                 )
@@ -175,16 +166,9 @@ def process_node(
             new_node = create_text_node(
                 node, full_content, 0, parent_id, parent_header, doc_id=shared_doc_id
             )
+            new_node.calculate_num_tokens(model_name_or_tokenizer)
             # Calculate num_tokens based on get_text()
             text_for_tokens = new_node.get_text()
-            token_ids = (
-                tokenizer.encode(text_for_tokens, add_special_tokens=False).ids
-                if tokenizer
-                else []
-            )
-            token_ids = [tid for tid in token_ids if tid !=
-                         0] if token_ids else []
-            new_node.num_tokens = len(token_ids)
             logger.debug(
                 f"Created single node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}, type={new_node.type}, get_text='{text_for_tokens}'"
             )
@@ -192,7 +176,7 @@ def process_node(
         for child in node.children:
             result_nodes.extend(
                 process_node(child, model_name_or_tokenizer, chunk_size,
-                             chunk_overlap, buffer, node.id, node.header)
+                             chunk_overlap, buffer, max_length, parent_id=node.id, parent_header=node.header)
             )
     else:
         chunks = chunk_content(
@@ -204,15 +188,10 @@ def process_node(
             new_node = create_text_node(
                 node, chunk_text, i, parent_id, parent_header, doc_id=shared_doc_id
             )
+            new_node.calculate_num_tokens(model_name_or_tokenizer)
             # Calculate num_tokens based on get_text()
             text_for_tokens = new_node.get_text()
-            token_ids = (
-                tokenizer.encode(text_for_tokens, add_special_tokens=False).ids
-                if tokenizer
-                else []
-            )
-            token_ids = [tid for tid in token_ids if tid != 0]
-            num_tokens = len(token_ids)
+            num_tokens = new_node.num_tokens
             logger.debug(
                 f"TextNode chunk {i} token count: {num_tokens}, get_text='{text_for_tokens}'")
             if chunk_size and num_tokens > chunk_size - buffer:
@@ -220,7 +199,7 @@ def process_node(
                     f"Chunk {i} for node {node.id} exceeds token limit: {num_tokens} > {chunk_size - buffer}"
                 )
                 continue
-            new_node.num_tokens = num_tokens
+
             logger.debug(
                 f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}, type={new_node.type}"
             )

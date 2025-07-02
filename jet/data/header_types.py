@@ -1,9 +1,11 @@
 from typing import List, Optional, Union
 from pydantic import BaseModel, Field
+from tokenizers import Tokenizer
 from jet.code.markdown_types import MarkdownToken, ContentType, MetaType
 import uuid
 from jet.data.utils import generate_unique_id
 from jet.logger import logger
+from jet.models.model_types import ModelType
 
 
 class Node(BaseModel):
@@ -56,6 +58,21 @@ class Node(BaseModel):
         logger.debug(
             f"Finished get_parent_headers for node {self.id}, headers: {headers}")
         return headers[::-1]
+
+    def calculate_num_tokens(self, model_name_or_tokenizer: Union[ModelType, Tokenizer]) -> int:
+        """Calculate the number of tokens for this node's text using the provided model or tokenizer."""
+        from jet.models.tokenizer.base import count_tokens
+
+        text = self.get_text()
+        if not text:
+            self.num_tokens = 0
+            return
+
+        token_count: int = count_tokens(model_name_or_tokenizer, text)
+
+        self.num_tokens = token_count
+
+        return token_count
 
     class Config:
         arbitrary_types_allowed = True

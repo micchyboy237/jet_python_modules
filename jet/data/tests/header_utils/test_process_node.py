@@ -1,16 +1,23 @@
+from llguidance import TokenizerWrapper
 import pytest
 from typing import List, Optional
 from jet.data.header_types import HeaderNode, TextNode, NodeType
 from jet.data.header_utils._base import process_node, chunk_content, create_text_node
-from jet.models.tokenizer.base import get_tokenizer, count_tokens
+from jet.models.tokenizer.base import get_tokenizer_fn, count_tokens
 from jet.code.markdown_types import ContentType
 from tokenizers import Tokenizer
 from jet.models.model_types import ModelType
+from jet.models.tokenizer.helpers.word_tokenizer import WordTokenizer
 
+
+# @pytest.fixture
+# def model_name_or_tokenizer() -> TokenizerWrapper:
+#     """Fixture to create a tokenizer that is an instance of TokenizerWrapper."""
+#     return WordTokenizer()
 
 @pytest.fixture
-def model_name_or_tokenizer() -> str:
-    """Provide a model name for tests."""
+def model_name_or_tokenizer() -> ModelType:
+    """Fixture to create a tokenizer that is an instance of TokenizerWrapper."""
     return "sentence-transformers/all-MiniLM-L6-v2"
 
 
@@ -38,9 +45,11 @@ class TestProcessNode:
                 header="Test Header",
                 content="Test Header\nShort content",
                 chunk_index=0,
-                num_tokens=5  # Expected tokens based on tokenizer output
+                num_tokens=None  # Populate later
             )
         ]
+        expected[0].num_tokens = expected[0].calculate_num_tokens(
+            model_name_or_tokenizer)
 
         # When: Processing the node
         result = process_node(node, model_name_or_tokenizer,
@@ -57,7 +66,7 @@ class TestProcessNode:
 
     def test_header_node_with_chunking(self, model_name_or_tokenizer):
         # Given: A HeaderNode with content requiring chunking
-        long_content = "Word " * 200  # Approx 200 tokens
+        long_content = "Word " * 400  # Approx 200 tokens
         node = HeaderNode(
             id="header2",
             doc_id="doc2",
@@ -65,15 +74,16 @@ class TestProcessNode:
             type="header",
             header="Long Header",
             content=long_content,
-            level=1
+            level=1,
         )
+
         chunk_size = 50
         chunk_overlap = 10
         buffer = 5
-        tokenizer = get_tokenizer(model_name_or_tokenizer)
+        tokenizer = get_tokenizer_fn(model_name_or_tokenizer)
         full_text = f"Long Header\n{long_content}"
         expected_token_count = len(tokenizer.encode(
-            full_text, add_special_tokens=False).ids)
+            full_text, add_special_tokens=False))
         expected_chunks = max(1, (expected_token_count + chunk_size - buffer - 1) //
                               # Account for header tokens
                               (chunk_size - buffer - 10))
@@ -108,10 +118,10 @@ class TestProcessNode:
         chunk_size = 50
         chunk_overlap = 10
         buffer = 5
-        tokenizer = get_tokenizer(model_name_or_tokenizer)
+        tokenizer = get_tokenizer_fn(model_name_or_tokenizer)
         full_text = f"Text Header\n{long_content}"
         expected_token_count = len(tokenizer.encode(
-            full_text, add_special_tokens=False).ids)
+            full_text, add_special_tokens=False))
         expected_chunks = max(
             1, (expected_token_count + chunk_size - buffer - 1) // (chunk_size - buffer - 10))
 

@@ -140,7 +140,7 @@ class TestChunkContent:
         # Then
         assert len(result) >= expected_chunk_count
         for chunk in result:
-            token_ids = tokenizer.encode(chunk, add_special_tokens=False).ids
+            token_ids = tokenizer.encode(chunk, add_special_tokens=False)
             token_ids = [tid for tid in token_ids if tid != 0]
             assert len(token_ids) <= params["chunk_size"] - params["buffer"]
 
@@ -172,7 +172,7 @@ class TestProcessNode:
             num_tokens=0
         )
         content = "Test Header\nShort content."
-        token_ids = tokenizer.encode(content, add_special_tokens=False).ids
+        token_ids = tokenizer.encode(content, add_special_tokens=False)
         token_ids = [tid for tid in token_ids if tid != 0]
         expected = [TextNode(
             id=generate_unique_id(),
@@ -235,7 +235,7 @@ class TestProcessNode:
                 meta=None,
                 chunk_index=0,
                 num_tokens=len([tid for tid in tokenizer.encode(
-                    "Main Header\nHeader content", add_special_tokens=False).ids if tid != 0])
+                    "Main Header\nHeader content", add_special_tokens=False) if tid != 0])
             ),
             TextNode(
                 id=generate_unique_id(),
@@ -248,7 +248,7 @@ class TestProcessNode:
                 parent_header="Main Header",
                 chunk_index=0,
                 num_tokens=len([tid for tid in tokenizer.encode(
-                    "Child Header\nChild content.", add_special_tokens=False).ids if tid != 0])
+                    "Child Header\nChild content.", add_special_tokens=False) if tid != 0])
             )
         ]
 
@@ -327,7 +327,7 @@ class TestProcessNode:
             assert node.line == 1
             assert node.chunk_index == i
             token_ids = tokenizer.encode(
-                node.content, add_special_tokens=False).ids
+                node.content, add_special_tokens=False)
             token_ids = [tid for tid in token_ids if tid != 0]
             assert node.num_tokens == len(token_ids)
             assert node.num_tokens <= params["chunk_size"] - params["buffer"]

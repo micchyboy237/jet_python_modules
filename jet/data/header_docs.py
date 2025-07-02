@@ -114,7 +114,7 @@ class HeaderDocs(BaseModel):
             return HeaderDocs(root=[], tokens=[])
         return HeaderDocs.from_tokens(tokens)
 
-    def calculate_num_tokens(self, model_name_or_tokenizer: Union[ModelType, Tokenizer]):
+    def calculate_num_tokens(self, model_name_or_tokenizer: Union[ModelType, Tokenizer]) -> List[int]:
         nodes = self.as_nodes()
         texts = [node.get_text() for node in nodes]
         logger.debug(f"Calculating token counts for texts: {texts}")
@@ -123,7 +123,7 @@ class HeaderDocs(BaseModel):
         logger.debug(f"Token counts returned: {token_counts}")
         if isinstance(token_counts, int):
             logger.debug("No tokens to process, token_counts is an integer")
-            return
+            return []
 
         def update_node_tokens(node: Union[HeaderNode, TextNode], index: List[int]) -> None:
             if index[0] >= len(token_counts):
@@ -142,6 +142,7 @@ class HeaderDocs(BaseModel):
             update_node_tokens(node, index)
         logger.debug(
             f"Finished updating token counts, processed {index[0]} nodes")
+        return token_counts
 
     def as_texts(self) -> List[str]:
         texts: List[str] = []
