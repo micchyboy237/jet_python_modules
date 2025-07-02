@@ -82,10 +82,11 @@ def search_headers(
     query: str,
     vector_store: 'VectorStore',
     model: EmbedModelType = "all-MiniLM-L6-v2",
-    top_k: Optional[int] = 10
+    top_k: Optional[int] = 10,
+    threshold: float = 0.0
 ) -> List[NodeWithScore]:
-    """Search for top-k relevant nodes based on query embedding."""
-    logger.debug(f"Searching for query: {query}")
+    """Search for top-k relevant nodes based on query embedding, filtering by similarity threshold."""
+    logger.debug(f"Searching for query: {query} with threshold: {threshold}")
     embeddings = vector_store.get_embeddings()
     nodes = vector_store.get_nodes()
     if not top_k:
@@ -97,7 +98,7 @@ def search_headers(
     top_k_indices = np.argsort(similarities)[-top_k:][::-1]
     results = []
     for rank, i in enumerate(top_k_indices, 1):
-        if similarities[i] <= 0:
+        if similarities[i] <= threshold:
             continue
         node = nodes[i]
         header_prefix = f"{node.header}\n" if node.header else ""
@@ -115,11 +116,12 @@ def search_headers(
             parent_header=None if not node.parent_header else node.parent_header,
             chunk_index=node.chunk_index,
             num_tokens=node.num_tokens,
-            doc_id=node.doc_id,  # Propagate required doc_id
+            doc_id=node.doc_id,
             metadata=node.metadata,
             rank=rank,
             score=similarities[i],
         )
         results.append(adjusted_node)
-    logger.debug(f"Found {len(results)} relevant nodes for query")
+    logger.debug(
+        f"Found {len(results)} relevant nodes for query after threshold {threshold}")
     return results
