@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from lxml import etree, html
 
 from jet.logger import logger
+from jet.utils.text import fix_and_unidecode
 
 
 def is_html(text: str) -> bool:
@@ -265,5 +266,7 @@ def preprocess_html(html: str) -> str:
     inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
     pattern_inline = rf'</({inline_elements})><({inline_elements})'
     html = re.sub(pattern_inline, r'</\1> <\2', html)
+
+    html = fix_and_unidecode(html)
 
     return html

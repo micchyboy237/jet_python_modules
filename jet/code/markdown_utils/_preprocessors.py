@@ -104,6 +104,8 @@ def preprocess_markdown(md_content: str) -> str:
     # Fix task list regex to avoid affecting headers
     md_content = re.sub(r'^\s*([-*+])\s*\[([ xX])\]\s*(.*)',
                         r'\1 [\2] \3', md_content, flags=re.MULTILINE)
+    # Remove consecutive spaces
+    md_content = re.sub(r' +', ' ', md_content).strip()
 
     # Process separator lines
     md_content = process_separator_lines(md_content)

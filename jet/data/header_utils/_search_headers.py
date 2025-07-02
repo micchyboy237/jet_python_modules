@@ -24,7 +24,7 @@ def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedM
         [query], return_format="numpy")[0]
 
     header_texts = [
-        f"{node.parent_header}\n{node.header}" if node.parent_header else node.header for node in nodes]
+        f"{"\n".join(node.get_parent_headers())}\n{node.header}" if node.parent_header else node.header for node in nodes]
     content_texts = []
     header_prefixes = []
     for node in nodes:

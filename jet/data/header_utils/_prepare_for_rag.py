@@ -81,8 +81,6 @@ def prepare_for_rag(
                 f"Using existing num_tokens for node {node.id}: num_tokens={node.num_tokens}")
         texts.append(text)
     logger.debug(f"Encoding {len(texts)} texts for VectorStore")
-    # embeddings = transformer.encode(
-    #     texts, batch_size=batch_size, show_progress_bar=False)
     embeddings = generate_embeddings(
         texts, model, batch_size=batch_size, show_progress=True, return_format="numpy")
     for node, embedding, text in zip(nodes, embeddings, texts):
@@ -98,8 +96,10 @@ def prepare_for_rag(
             parent_header=node.parent_header,
             chunk_index=node.chunk_index,
             num_tokens=node.num_tokens,
-            doc_id=node.doc_id,  # Propagate required doc_id
+            doc_id=node.doc_id,
         )
+        if node.parent_id:
+            store_node._parent_node = node.get_parent_node()
         vector_store.add(store_node, embedding)
     logger.debug(f"Vector store contains {len(vector_store.nodes)} nodes")
     return vector_store
