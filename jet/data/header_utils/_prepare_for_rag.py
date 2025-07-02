@@ -20,7 +20,7 @@ class VectorStore:
     def add(self, node: TextNode, embedding: np.ndarray) -> None:
         """Add a node and its embedding to the store."""
         logger.debug(
-            f"Adding node {node.id} with content length {len(node.content)} and num_tokens {node.num_tokens}")
+            f"Adding node {node.id} with content length {len(node.content)}, num_tokens {node.num_tokens}, doc_id={node.doc_id}")
         self.embeddings.append(embedding)
         self.nodes.append(node)
 
@@ -54,13 +54,13 @@ def prepare_for_rag(
             model=model,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
-            tokenizer=tokenizer,  # Corrected from 'tooltip' to 'tokenizer'
+            tokenizer=tokenizer,
             buffer=buffer
         )
         logger.debug(f"After chunking, received {len(nodes)} nodes")
         for node in nodes:
             logger.debug(
-                f"Chunked node {node.id}: header={node.header}, content_length={len(node.content)}, num_tokens={node.num_tokens}")
+                f"Chunked node {node.id}: header={node.header}, content_length={len(node.content)}, num_tokens={node.num_tokens}, doc_id={node.doc_id}")
     vector_store = VectorStore()
     transformer = load_embed_model(model)
     texts = []
@@ -85,18 +85,18 @@ def prepare_for_rag(
     embeddings = transformer.encode(
         texts, batch_size=batch_size, show_progress_bar=False)
     for node, embedding, text in zip(nodes, embeddings, texts):
-        # Create a new TextNode with the original content
         store_node = TextNode(
             id=node.id,
             line=node.line,
             type=node.type,
             header=node.header,
-            content=node.content,  # Use original content, not the concatenated text
+            content=node.content,
             meta=node.meta,
             parent_id=node.parent_id,
             parent_header=node.parent_header,
             chunk_index=node.chunk_index,
-            num_tokens=node.num_tokens
+            num_tokens=node.num_tokens,
+            doc_id=node.doc_id,  # Propagate required doc_id
         )
         vector_store.add(store_node, embedding)
     logger.debug(f"Vector store contains {len(vector_store.nodes)} nodes")

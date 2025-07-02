@@ -2,11 +2,12 @@ from typing import List, Optional, Union
 from pydantic import BaseModel, Field
 from jet.code.markdown_types import MarkdownToken, ContentType, MetaType
 import uuid
-from jet.logger import logger  # Added import for logging
+from jet.logger import logger
 
 
 class Node(BaseModel):
     id: str = Field(default_factory=lambda: f"auto_{uuid.uuid4().hex[:8]}")
+    doc_id: str  # Changed to required field
     line: int
     parent_id: Optional[str] = None
     parent_header: Optional[str] = None
@@ -34,7 +35,7 @@ class Node(BaseModel):
         """Returns a list of parent headers up to the root."""
         headers = []
         current = self
-        seen_ids = set()  # Track visited node IDs to detect cycles
+        seen_ids = set()
         logger.debug(f"Starting get_parent_headers for node {self.id}")
         while current.parent_header:
             if current.id in seen_ids:
@@ -53,7 +54,7 @@ class Node(BaseModel):
             current = next_node
         logger.debug(
             f"Finished get_parent_headers for node {self.id}, headers: {headers}")
-        return headers[::-1]  # Reverse to get root-to-current order
+        return headers[::-1]
 
     class Config:
         arbitrary_types_allowed = True

@@ -28,7 +28,8 @@ def create_text_node(
         header=node.header,
         content=content.strip(),
         meta=node.meta if isinstance(node, TextNode) else None,
-        chunk_index=chunk_index
+        chunk_index=chunk_index,
+        doc_id=node.doc_id  # Propagate required doc_id
     )
     if parent_id:
         new_node._parent_node = node.get_parent_node()
@@ -100,7 +101,7 @@ def process_node(
 ) -> List[TextNode]:
     """Process a single node and return a list of resulting TextNodes."""
     logger.debug(
-        f"Processing node {node.id}: type={node.type}, header={node.header}, content_length={len(node.content)}")
+        f"Processing node {node.id}: type={node.type}, header={node.header}, content_length={len(node.content)}, doc_id={node.doc_id}")
     result_nodes: List[TextNode] = []
     content = node.content.strip()
 
@@ -140,7 +141,7 @@ def process_node(
                     node, full_content, i, parent_id, parent_header)
                 new_node.num_tokens = num_tokens
                 logger.debug(
-                    f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}")
+                    f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}")
                 result_nodes.append(new_node)
         else:
             new_node = create_text_node(
@@ -151,7 +152,7 @@ def process_node(
                          0] if token_ids else []
             new_node.num_tokens = len(token_ids)
             logger.debug(
-                f"Created single node {node.id}: num_tokens={new_node.num_tokens}")
+                f"Created single node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}")
             result_nodes.append(new_node)
 
         # Process children
@@ -179,7 +180,7 @@ def process_node(
                 node, full_content, i, parent_id, parent_header)
             new_node.num_tokens = num_tokens
             logger.debug(
-                f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}")
+                f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}")
             result_nodes.append(new_node)
 
     return result_nodes
