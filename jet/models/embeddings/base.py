@@ -144,7 +144,8 @@ def embed_chunks_parallel(chunk_texts: Union[str, List[str]], embed_model: Union
 
 def generate_embeddings(
     input_data: Union[str, List[str]],
-    model: EmbedModelType = "static-retrieval-mrl-en-v1",
+    model: Union[SentenceTransformer,
+                 EmbedModelType] = "static-retrieval-mrl-en-v1",
     batch_size: int = 32,
     show_progress: bool = False,
     return_format: Literal["list", "numpy"] = "list"
@@ -154,7 +155,7 @@ def generate_embeddings(
 
     Args:
         input_data: A single string or list of strings to embed.
-        model: Name of the SentenceTransformer model to use.
+        model: Model name (EmbedModelType), SentenceTransformer instance to use for embedding.
         batch_size: Batch size for embedding multiple strings.
         show_progress: Whether to display a progress bar for batch processing.
         return_format: Format of the returned embeddings ("list" or "numpy").
@@ -163,15 +164,15 @@ def generate_embeddings(
         List[float] or np.ndarray for a single string input, or List[List[float]] or np.ndarray
         for a list of strings, based on return_format.
     """
-    logger.info("Generating embeddings for input type: %s, model: %s, show_progress: %s, return_format: %s",
-                type(input_data), model, show_progress, return_format)
+    logger.info("Generating embeddings for input type: %s, show_progress: %s, return_format: %s",
+                type(input_data), show_progress, return_format)
 
     if return_format not in ["list", "numpy"]:
         raise ValueError("return_format must be 'list' or 'numpy'")
 
     try:
         # Initialize SentenceTransformer
-        embedder = load_embed_model(model)
+        embedder = load_embed_model(model) if isinstance(model, str) else model
         logger.debug(
             "Embedding model initialized with device: %s", embedder.device)
 
