@@ -38,12 +38,9 @@ def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedM
         final_sim = sum([content_sim, header_sim]) / max(sim_count, 1)
         similarities.append(final_sim)
         node.metadata = {
-            "scores": {
-                "sim_count": sim_count,
-                "header_sim": header_sim,
-                "content_sim": content_sim,
-                "final_sim": final_sim
-            }
+            "sim_count": sim_count,
+            "header_similarity": header_sim,
+            "content_similarity": content_sim,
         }
     return similarities
 
