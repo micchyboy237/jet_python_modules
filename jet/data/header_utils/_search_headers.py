@@ -53,7 +53,7 @@ def search_headers(
     vector_store: 'VectorStore',
     model: EmbedModelType = "all-MiniLM-L6-v2",
     top_k: Optional[int] = 10
-) -> List[Tuple[TextNode, float]]:
+) -> List[NodeWithScore]:
     """Search for top-k relevant nodes based on query embedding."""
     logger.debug(f"Searching for query: {query}")
     embeddings = vector_store.get_embeddings()
@@ -66,7 +66,7 @@ def search_headers(
     similarities = calculate_similarity_scores(query, nodes, model)
     top_k_indices = np.argsort(similarities)[-top_k:][::-1]
     results = []
-    for i in top_k_indices:
+    for rank, i in enumerate(top_k_indices, 1):
         if similarities[i] <= 0:
             continue
         node = nodes[i]
@@ -87,8 +87,9 @@ def search_headers(
             num_tokens=node.num_tokens,
             doc_id=node.doc_id,  # Propagate required doc_id
             metadata=node.metadata,
+            rank=rank,
             score=similarities[i],
         )
-        results.append((adjusted_node, similarities[i]))
+        results.append(adjusted_node)
     logger.debug(f"Found {len(results)} relevant nodes for query")
     return results

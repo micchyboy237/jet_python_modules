@@ -106,4 +106,5 @@ Nodes = List[NodeType]
 
 
 class NodeWithScore(TextNode):
+    rank: int
     score: float

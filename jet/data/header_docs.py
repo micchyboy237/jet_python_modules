@@ -162,7 +162,16 @@ class HeaderDocs(BaseModel):
         return texts
 
     def as_nodes(self) -> Nodes:
-        return self.root
+        nodes: Nodes = []
+
+        def traverse(node: Union[HeaderNode, TextNode]) -> None:
+            nodes.append(node)  # Reference original node
+            if isinstance(node, HeaderNode):
+                for child in node.children:
+                    traverse(child)
+        for node in self.root:
+            traverse(node)
+        return nodes
 
     def as_tree(self) -> Dict[str, Any]:
         def node_to_dict(node: Union[HeaderNode, TextNode]) -> Dict[str, Any]:
@@ -189,15 +198,3 @@ class HeaderDocs(BaseModel):
         return {
             "root": [node_to_dict(node) for node in self.root]
         }
-
-    # def as_tree(self) -> Nodes:
-    #     nodes: Nodes = []
-
-    #     def traverse(node: Union[HeaderNode, TextNode]) -> None:
-    #         nodes.append(node)  # Reference original node
-    #         if isinstance(node, HeaderNode):
-    #             for child in node.children:
-    #                 traverse(child)
-    #     for node in self.root:
-    #         traverse(node)
-    #     return nodes

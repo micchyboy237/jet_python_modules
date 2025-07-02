@@ -173,11 +173,6 @@ def process_node(
                 f"Created single node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}, type={new_node.type}, get_text='{text_for_tokens}'"
             )
             result_nodes.append(new_node)
-        for child in node.children:
-            result_nodes.extend(
-                process_node(child, model_name_or_tokenizer, chunk_size,
-                             chunk_overlap, buffer, max_length, parent_id=node.id, parent_header=node.header)
-            )
     else:
         chunks = chunk_content(
             content, model_name_or_tokenizer, chunk_size, chunk_overlap, buffer, node.header +
