@@ -64,8 +64,11 @@ def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedM
             sim_count += 1
             content_idx += 1
 
-        # Compute final similarity
+        # Compute final similarity with penalty for single-component matches
         final_sim = sum([content_sim, header_sim]) / max(sim_count, 1)
+        # Only one component contributed (other is 0.0 or empty)
+        if sim_count == 1:
+            final_sim *= 0.5  # Apply penalty to reduce score
         similarities.append(final_sim)
 
         # Update node metadata
