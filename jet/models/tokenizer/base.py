@@ -274,11 +274,13 @@ def get_tokenizer_fn(
     disable_cache: bool = False,
 ) -> TokenizerWrapper:
     """Return a TokenizerWrapper instance from a model name or tokenizer instance."""
-    tokenizer = (
-        get_tokenizer(model_name_or_tokenizer, disable_cache=disable_cache)
-        if isinstance(model_name_or_tokenizer, (str, Tokenizer, PreTrainedTokenizerBase))
-        else model_name_or_tokenizer
-    )
+    if isinstance(model_name_or_tokenizer, TokenizerWrapper):
+        return model_name_or_tokenizer
+    elif isinstance(model_name_or_tokenizer, str):
+        tokenizer = get_tokenizer(
+            model_name_or_tokenizer, disable_cache=disable_cache)
+    else:
+        tokenizer = model_name_or_tokenizer
     return TokenizerWrapper(tokenizer, remove_pad_tokens, add_special_tokens)
 
 
@@ -315,6 +317,7 @@ def count_tokens(
     prevent_total: bool = False,
     remove_pad_tokens: bool = True,
     add_special_tokens: bool = False,
+    disable_cache: bool = False
 ) -> Union[int, List[int]]:
     if not messages:
         return 0
@@ -323,7 +326,7 @@ def count_tokens(
         messages = [str(t) for t in messages]
 
     tokenize = get_tokenizer_fn(
-        model_name_or_tokenizer, remove_pad_tokens=remove_pad_tokens, add_special_tokens=add_special_tokens)
+        model_name_or_tokenizer, remove_pad_tokens=remove_pad_tokens, add_special_tokens=add_special_tokens, disable_cache=disable_cache)
     tokenized = tokenize(messages)
     if isinstance(messages, str):
         return len(tokenized)
@@ -356,7 +359,7 @@ def get_max_token_count(
     model_name_or_tokenizer: Union[ModelType, Tokenizer],
     messages: Union[str, List[str], List[Dict]],
     buffer: int = 10,
-    remove_pad_tokens: bool = False
+    remove_pad_tokens: bool = True
 ) -> int:
     """
     Calculate the maximum number of tokens in the provided messages, adding a buffer and capping at 512.
@@ -365,7 +368,7 @@ def get_max_token_count(
         model_name_or_tokenizer: The model name or tokenizer instance to use.
         messages: A string, list of strings, or list of dicts representing the input messages.
         buffer: Number of extra tokens to add as a safety margin (default: 10).
-        remove_pad_tokens: Whether to remove padding tokens from the count (default: False).
+        remove_pad_tokens: Whether to remove padding tokens from the count (default: True).
 
     Returns:
         int: The maximum token count plus buffer, capped at 512.

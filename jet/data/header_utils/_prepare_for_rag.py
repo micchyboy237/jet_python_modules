@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional
 from jet.data.header_types import NodeType, Nodes, TextNode
 from jet.models.embeddings.base import generate_embeddings, load_embed_model
+from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 from jet.models.tokenizer.base import get_tokenizer
 from sentence_transformers import SentenceTransformer
@@ -32,6 +33,10 @@ class VectorStore:
         """Return all embeddings as a NumPy array."""
         return np.array(self.embeddings)
 
+    def get_embeddings_shape(self) -> tuple[int, int]:
+        """Return the dimension of the embeddings."""
+        return self.embeddings[0].shape
+
 
 def prepare_for_rag(
     nodes: Nodes,
@@ -40,13 +45,13 @@ def prepare_for_rag(
     chunk_size: Optional[int] = None,
     chunk_overlap: int = 0,
     buffer: int = 0,
-    tokenizer: Optional[Tokenizer] = None
+    tokenizer: Optional[Tokenizer] = None,
 ) -> VectorStore:
     """Prepare nodes for RAG by generating embeddings for their content, with optional chunking."""
     logger.debug(
         f"Preparing {len(nodes)} nodes for RAG with model {model}, chunk_size={chunk_size}, chunk_overlap={chunk_overlap}, buffer={buffer}")
     if not tokenizer:
-        tokenizer = get_tokenizer(model)
+        tokenizer = SentenceTransformerRegistry.get_tokenizer()
     if chunk_size is not None:
         logger.debug(f"Applying chunking with chunk_size={chunk_size}")
         nodes = split_and_merge_headers(
@@ -81,8 +86,8 @@ def prepare_for_rag(
                 f"Using existing num_tokens for node {node.id}: num_tokens={node.num_tokens}")
         texts.append(text)
     logger.debug(f"Encoding {len(texts)} texts for VectorStore")
-    embeddings = generate_embeddings(
-        texts, model, batch_size=batch_size, show_progress=True, return_format="numpy")
+    embeddings = SentenceTransformerRegistry.generate_embeddings(
+        texts, batch_size=batch_size, show_progress=True, return_format="numpy")
     for node, embedding, text in zip(nodes, embeddings, texts):
         store_node = TextNode(
             id=node.id,

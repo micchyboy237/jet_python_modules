@@ -51,8 +51,7 @@ def chunk_content(
             f"No chunking: content_empty={not content}, chunk_size={chunk_size}, model_name_or_tokenizer={model_name_or_tokenizer}")
         return [content] if content else []
 
-    tokenizer = get_tokenizer_fn(model_name_or_tokenizer) if isinstance(
-        model_name_or_tokenizer, (str, Tokenizer)) else model_name_or_tokenizer
+    tokenizer = get_tokenizer_fn(model_name_or_tokenizer)
     if not tokenizer:
         logger.debug(
             "No valid tokenizer provided, returning content as single chunk")
@@ -114,8 +113,7 @@ def process_node(
     # Resolve tokenizer
     tokenizer = None
     if model_name_or_tokenizer:
-        tokenizer = get_tokenizer_fn(model_name_or_tokenizer) if isinstance(
-            model_name_or_tokenizer, (str, Tokenizer)) else model_name_or_tokenizer
+        tokenizer = get_tokenizer_fn(model_name_or_tokenizer)
 
     # Handle empty content for TextNode
     if not content and isinstance(node, TextNode):

@@ -18,9 +18,7 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedModelType, batch_size: int = 32) -> List[float]:
     # transformer = load_embed_model(model)
     # query_embedding = transformer.encode([query], show_progress_bar=False)[0]
-    registry = SentenceTransformerRegistry()
-    registry.load_model(model)
-    query_embedding = registry.generate_embeddings(
+    query_embedding = SentenceTransformerRegistry.generate_embeddings(
         [query], return_format="numpy")[0]
 
     header_texts = [
@@ -36,7 +34,7 @@ def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedM
         header_prefixes.append(header_prefix)
 
     all_texts = [text for text in header_texts + content_texts if text.strip()]
-    all_embeddings = registry.generate_embeddings(
+    all_embeddings = SentenceTransformerRegistry.generate_embeddings(
         all_texts, batch_size=batch_size, show_progress=True, return_format="numpy")
 
     # Split embeddings back into headers and content

@@ -45,8 +45,7 @@ def load_embed_model(model: EmbedModelType, truncate_dim: Optional[int] = None) 
     #     model_instance = SentenceTransformer(model_id, device="mps")
     # _embed_model_cache[_cache_key] = model_instance
     # return model_instance
-    instance = SentenceTransformerRegistry()
-    return instance.load_model(model, truncate_dim)
+    return SentenceTransformerRegistry.load_model(model, truncate_dim)
 
 
 def load_rerank_model(model: EmbedModelType) -> CrossEncoder:
@@ -147,35 +146,42 @@ def embed_chunks_parallel(chunk_texts: Union[str, List[str]], embed_model: Union
 
 def generate_embeddings(
     input_data: Union[str, List[str]],
-    model: Union[SentenceTransformer,
-                 EmbedModelType] = "static-retrieval-mrl-en-v1",
+    model: Union[SentenceTransformer, str] = "static-retrieval-mrl-en-v1",
     batch_size: int = 32,
     show_progress: bool = False,
-    return_format: Literal["list", "numpy"] = "list"
+    return_format: Literal["list", "numpy"] = "list",
+    truncate_dim: Optional[int] = None,
 ) -> Union[List[float], List[List[float]], np.ndarray]:
     """
     Generate embeddings for a single string or list of strings using SentenceTransformer.
 
     Args:
         input_data: A single string or list of strings to embed.
-        model: Model name (EmbedModelType), SentenceTransformer instance to use for embedding.
+        model: Model name (str), SentenceTransformer instance to use for embedding.
         batch_size: Batch size for embedding multiple strings.
         show_progress: Whether to display a progress bar for batch processing.
         return_format: Format of the returned embeddings ("list" or "numpy").
+        truncate_dim: Optional dimension to truncate embeddings to.
 
     Returns:
         List[float] or np.ndarray for a single string input, or List[List[float]] or np.ndarray
         for a list of strings, based on return_format.
     """
-    logger.info("Generating embeddings for input type: %s, show_progress: %s, return_format: %s",
-                type(input_data), show_progress, return_format)
+    logger.info(
+        "Generating embeddings for input type: %s, show_progress: %s, return_format: %s, truncate_dim: %s",
+        type(input_data), show_progress, return_format, truncate_dim
+    )
 
     if return_format not in ["list", "numpy"]:
         raise ValueError("return_format must be 'list' or 'numpy'")
 
     try:
         # Initialize SentenceTransformer
-        embedder = load_embed_model(model) if isinstance(model, str) else model
+        embedder = (
+            SentenceTransformerRegistry.load_model(model)
+            if isinstance(model, str)
+            else model
+        )
         logger.debug(
             "Embedding model initialized with device: %s", embedder.device)
 
@@ -184,6 +190,12 @@ def generate_embeddings(
             logger.debug("Processing single string input: %s", input_data[:50])
             embedding = embedder.encode(input_data, convert_to_numpy=True)
             embedding = np.ascontiguousarray(embedding.astype(np.float32))
+            # Apply truncation if specified
+            if truncate_dim is not None and embedding.shape[-1] > truncate_dim:
+                logger.info(
+                    f"Truncating embedding from {embedding.shape[-1]} to {truncate_dim} dimensions"
+                )
+                embedding = embedding[:truncate_dim]
             logger.debug("Generated embedding shape: %s", embedding.shape)
             return embedding if return_format == "numpy" else embedding.tolist()
 
@@ -214,6 +226,12 @@ def generate_embeddings(
                 )
                 batch_embeddings = np.ascontiguousarray(
                     batch_embeddings.astype(np.float32))
+                # Apply truncation if specified
+                if truncate_dim is not None and batch_embeddings.shape[-1] > truncate_dim:
+                    logger.info(
+                        f"Truncating batch embeddings from {batch_embeddings.shape[-1]} to {truncate_dim} dimensions"
+                    )
+                    batch_embeddings = batch_embeddings[:, :truncate_dim]
                 embeddings.extend(batch_embeddings.tolist())
 
             embeddings = np.array(embeddings, dtype=np.float32)

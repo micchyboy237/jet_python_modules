@@ -32,27 +32,33 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         return cls._instance
 
     def __init__(self):
-        self.model_id: Optional[EmbedModelType] = None
+        if not hasattr(self, 'model_id'):
+            self.model_id = None
+        if not hasattr(self, 'truncate_dim'):
+            self.truncate_dim = None
 
     @staticmethod
     def load_model(
         model_id: EmbedModelType = "static-retrieval-mrl-en-v1",
         truncate_dim: Optional[int] = None,
+        prompts: Optional[dict[str, str]] = None
     ) -> SentenceTransformer:
         """Load or retrieve a SentenceTransformer model statically."""
         instance = SentenceTransformerRegistry()
 
         resolved_model_id = resolve_model_value(model_id)
         _cache_key = generate_key(resolved_model_id, truncate_dim)
-        instance.model_id = resolved_model_id  # Set instance model_id
+        instance.model_id = resolved_model_id
+        instance.truncate_dim = truncate_dim
         if _cache_key in instance._models:
             logger.info(
-                f"Reusing existing SentenceTransformer model for model_id: {resolved_model_id}")
+                f"Reusing existing SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")
             return instance._models[_cache_key]
         logger.info(
-            f"Loading SentenceTransformer model for model_id: {resolved_model_id}")
+            f"Loading SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")
         try:
-            model = instance._load_model(resolved_model_id)
+            model = instance._load_model(
+                resolved_model_id, truncate_dim, prompts)
             instance._models[_cache_key] = model
             return model
         except Exception as e:
@@ -61,41 +67,48 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             raise ValueError(
                 f"Could not load SentenceTransformer model {resolved_model_id}: {str(e)}")
 
-    def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None) -> Optional[SentenceTransformer]:
+    def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None, prompts: Optional[dict[str, str]] = None) -> Optional[SentenceTransformer]:
         try:
             logger.info(f"Loading embedding model on CPU (onnx): {model_id}")
             model_instance = SentenceTransformer(
-                model_id, device="cpu", backend="onnx", truncate_dim=truncate_dim,
+                model_id, device="cpu", backend="onnx", truncate_dim=truncate_dim, prompts=prompts,
                 model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'})
         except Exception as e:
             logger.warning(f"Falling back to MPS for embed model due to: {e}")
             model_instance = SentenceTransformer(model_id, device="mps")
         return model_instance
 
-    def get_tokenizer(self, model_id: EmbedModelType) -> TokenizerWrapper:
-        resolved_model_id = resolve_model_value(model_id)
+    @staticmethod
+    def get_tokenizer() -> TokenizerWrapper:
+        instance = SentenceTransformerRegistry()
+
+        resolved_model_id = resolve_model_value(instance.model_id)
         if resolved_model_id in SentenceTransformerRegistry._tokenizers:
             logger.info(
                 f"Reusing tokenizer for model_id: {resolved_model_id}")
             return SentenceTransformerRegistry._tokenizers[resolved_model_id]
 
         logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
-        tokenizer = get_tokenizer_fn(model_id, disable_cache=True)
+        tokenizer = get_tokenizer_fn(
+            instance.model_id, disable_cache=True, remove_pad_tokens=True)
         SentenceTransformerRegistry._tokenizers[resolved_model_id] = tokenizer
         return tokenizer
 
-    def get_config(self, model_id: EmbedModelType) -> Optional[PretrainedConfig]:
-        resolved_model_id = resolve_model_value(model_id)
-        if resolved_model_id in self._configs:
+    @staticmethod
+    def get_config() -> Optional[PretrainedConfig]:
+        instance = SentenceTransformerRegistry()
+
+        resolved_model_id = resolve_model_value(instance.model_id)
+        if resolved_model_id in instance._configs:
             logger.info(f"Reusing config for model_id: {resolved_model_id}")
-            return self._configs[resolved_model_id]
+            return instance._configs[resolved_model_id]
         logger.info(f"Loading config for model_id: {resolved_model_id}")
         try:
             model = SentenceTransformer(resolved_model_id)
             first_module = model._first_module()
             if hasattr(first_module, 'auto_model') and hasattr(first_module.auto_model, 'config'):
                 config = first_module.auto_model.config
-                self._configs[resolved_model_id] = config
+                instance._configs[resolved_model_id] = config
                 return config
             else:
                 from transformers import PretrainedConfig
@@ -106,14 +119,14 @@ class SentenceTransformerRegistry(BaseModelRegistry):
                     "tokenizer_class": model.tokenizer.__class__.__name__,
                 }
                 config = PretrainedConfig(**config_dict)
-                self._configs[resolved_model_id] = config
+                instance._configs[resolved_model_id] = config
                 return config
         except Exception as e:
             logger.error(
                 f"Failed to load SentenceTransformer config {resolved_model_id}: {str(e)}")
             try:
                 config = AutoConfig.from_pretrained(resolved_model_id)
-                self._configs[resolved_model_id] = config
+                instance._configs[resolved_model_id] = config
                 return config
             except Exception as e2:
                 logger.error(
@@ -125,19 +138,22 @@ class SentenceTransformerRegistry(BaseModelRegistry):
                     "max_seq_length": 512,
                 }
                 config = PretrainedConfig(**config_dict)
-                self._configs[resolved_model_id] = config
+                instance._configs[resolved_model_id] = config
                 return config
 
-    def clear(self) -> None:
+    @staticmethod
+    def clear() -> None:
         """Clear all cached models, tokenizers, and configs."""
-        self._models.clear()
-        self._tokenizers.clear()
-        self._configs.clear()
-        self._onnx_sessions.clear()
+        instance = SentenceTransformerRegistry()
+
+        instance._models.clear()
+        instance._tokenizers.clear()
+        instance._configs.clear()
+        instance._onnx_sessions.clear()
         logger.info("SentenceTransformer registry cleared")
 
+    @staticmethod
     def generate_embeddings(
-        self,
         input_data: Union[str, List[str]],
         batch_size: int = 32,
         show_progress: bool = False,
@@ -146,10 +162,20 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         """Generate embeddings for input text using a SentenceTransformer model."""
         from jet.models.embeddings.base import generate_embeddings
 
-        if self.model_id is None:
+        instance = SentenceTransformerRegistry()
+
+        if instance.model_id is None:
             raise ValueError(
                 "No model_id set. Please load a model using load_model first.")
-        model = self.load_model(
-            model_id=self.model_id,
+        model = instance.load_model(
+            model_id=instance.model_id,
+            truncate_dim=instance.truncate_dim,
         )
-        return generate_embeddings(input_data, model, batch_size, show_progress, return_format)
+        return generate_embeddings(
+            input_data,
+            model,
+            batch_size,
+            show_progress,
+            return_format,
+            truncate_dim=instance.truncate_dim,  # Explicitly pass truncate_dim
+        )
