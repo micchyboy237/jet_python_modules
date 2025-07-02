@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 from tokenizers import Tokenizer
 from jet.code.markdown_types import MarkdownToken, ContentType, MetaType
@@ -6,6 +6,8 @@ import uuid
 from jet.data.utils import generate_unique_id
 from jet.logger import logger
 from jet.models.model_types import ModelType
+
+Metadata = Dict[str, Any]
 
 
 class Node(BaseModel):
@@ -19,6 +21,7 @@ class Node(BaseModel):
     content: str
     chunk_index: int = 0
     num_tokens: Optional[int] = 0
+    metadata: Metadata = Field(default_factory=dict)  # New metadata field
     _parent_node: Optional['NodeType'] = None
 
     def get_parent_node(self) -> Optional['NodeType']:
@@ -100,3 +103,7 @@ class HeaderNode(Node):
 
 NodeType = Union[HeaderNode, TextNode]
 Nodes = List[NodeType]
+
+
+class NodeWithScore(TextNode):
+    score: float

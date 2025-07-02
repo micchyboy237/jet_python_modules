@@ -1,7 +1,7 @@
 from typing import List, Optional, Tuple
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from jet.data.header_types import TextNode
+from jet.data.header_types import NodeWithScore, TextNode
 from jet.data.header_utils import VectorStore
 from jet.models.embeddings.base import load_embed_model
 from jet.models.model_types import EmbedModelType
@@ -14,23 +14,9 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(similarity)
 
 
-def search_headers(
-    query: str,
-    vector_store: 'VectorStore',
-    model: EmbedModelType = "all-MiniLM-L6-v2",
-    top_k: Optional[int] = 10
-) -> List[Tuple[TextNode, float]]:
-    """Search for top-k relevant nodes based on query embedding."""
-    logger.debug(f"Searching for query: {query}")
+def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedModelType) -> List[float]:
     transformer = load_embed_model(model)
     query_embedding = transformer.encode([query], show_progress_bar=False)[0]
-    embeddings = vector_store.get_embeddings()
-    nodes = vector_store.get_nodes()
-    if not top_k:
-        top_k = len(nodes)
-    if not embeddings.size:
-        logger.warning("Empty vector store, returning empty results")
-        return []
     similarities = []
     for node in nodes:
         header_prefix = f"{node.header}\n" if node.header else ""
@@ -51,6 +37,33 @@ def search_headers(
         sim_count = sum(1 for sim in [content_sim, header_sim] if sim > 0)
         final_sim = sum([content_sim, header_sim]) / max(sim_count, 1)
         similarities.append(final_sim)
+        node.metadata = {
+            "scores": {
+                "sim_count": sim_count,
+                "header_sim": header_sim,
+                "content_sim": content_sim,
+                "final_sim": final_sim
+            }
+        }
+    return similarities
+
+
+def search_headers(
+    query: str,
+    vector_store: 'VectorStore',
+    model: EmbedModelType = "all-MiniLM-L6-v2",
+    top_k: Optional[int] = 10
+) -> List[Tuple[TextNode, float]]:
+    """Search for top-k relevant nodes based on query embedding."""
+    logger.debug(f"Searching for query: {query}")
+    embeddings = vector_store.get_embeddings()
+    nodes = vector_store.get_nodes()
+    if not top_k:
+        top_k = len(nodes)
+    if not embeddings.size:
+        logger.warning("Empty vector store, returning empty results")
+        return []
+    similarities = calculate_similarity_scores(query, nodes, model)
     top_k_indices = np.argsort(similarities)[-top_k:][::-1]
     results = []
     for i in top_k_indices:
@@ -61,7 +74,7 @@ def search_headers(
         content = node.content
         if header_prefix and content.startswith(header_prefix.strip()):
             content = content[len(header_prefix):].strip()
-        adjusted_node = TextNode(
+        adjusted_node = NodeWithScore(
             id=node.id,
             line=node.line,
             type=node.type,
@@ -73,6 +86,8 @@ def search_headers(
             chunk_index=node.chunk_index,
             num_tokens=node.num_tokens,
             doc_id=node.doc_id,  # Propagate required doc_id
+            metadata=node.metadata,
+            score=similarities[i],
         )
         results.append((adjusted_node, similarities[i]))
     logger.debug(f"Found {len(results)} relevant nodes for query")
