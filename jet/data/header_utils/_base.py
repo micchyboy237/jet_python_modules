@@ -38,20 +38,27 @@ def create_text_node(
 
 def chunk_content(
     content: str,
-    tokenizer: Optional[Tokenizer],
+    model_name_or_tokenizer: Optional[Union[ModelType, Tokenizer]],
     chunk_size: Optional[int],
     chunk_overlap: int,
     buffer: int,
     header_prefix: str = ""
 ) -> List[str]:
     """Split content into chunks based on token count, preserving original case."""
-    if not content or not chunk_size or not tokenizer:
+    if not content or not chunk_size or not model_name_or_tokenizer:
         logger.debug(
-            f"No chunking: content_empty={not content}, chunk_size={chunk_size}, tokenizer={tokenizer}")
+            f"No chunking: content_empty={not content}, chunk_size={chunk_size}, model_name_or_tokenizer={model_name_or_tokenizer}")
         return [content] if content else []
+
+    tokenizer = get_tokenizer(model_name_or_tokenizer) if isinstance(
+        model_name_or_tokenizer, str) else model_name_or_tokenizer
+    if not tokenizer:
+        logger.debug(
+            "No valid tokenizer provided, returning content as single chunk")
+        return [content] if content else []
+
     encoding = tokenizer.encode(content, add_special_tokens=False)
-    token_ids = encoding.ids
-    token_ids = [tid for tid in token_ids if tid != 0]
+    token_ids = [tid for tid in encoding.ids if tid != 0]
     offsets = encoding.offsets
     header_encoding = tokenizer.encode(
         header_prefix, add_special_tokens=False) if header_prefix else None
@@ -60,9 +67,11 @@ def chunk_content(
     effective_chunk_size = max(1, chunk_size - buffer - header_tokens)
     logger.debug(
         f"Chunking with header_tokens={header_tokens}, effective_chunk_size={effective_chunk_size}")
+
     if len(token_ids) <= effective_chunk_size:
         logger.debug(f"Content fits in one chunk: {len(token_ids)} tokens")
         return [content]
+
     chunks = []
     start = 0
     step = effective_chunk_size - chunk_overlap
@@ -85,7 +94,7 @@ def chunk_content(
 
 def process_node(
     node: NodeType,
-    tokenizer: Optional[Tokenizer],
+    model_name_or_tokenizer: Optional[Union[ModelType, Tokenizer]],
     chunk_size: Optional[int],
     chunk_overlap: int,
     buffer: int,
@@ -98,6 +107,12 @@ def process_node(
     )
     result_nodes: List[TextNode] = []
     content = node.content.strip()
+
+    # Resolve tokenizer
+    tokenizer = None
+    if model_name_or_tokenizer:
+        tokenizer = get_tokenizer(model_name_or_tokenizer) if isinstance(
+            model_name_or_tokenizer, str) else model_name_or_tokenizer
 
     # Handle empty content for TextNode
     if not content and isinstance(node, TextNode):
@@ -126,7 +141,7 @@ def process_node(
                 f"Chunking HeaderNode {node.id} with {len(token_ids)} tokens"
             )
             chunks = chunk_content(
-                content, tokenizer, chunk_size, chunk_overlap, buffer, node.header +
+                content, model_name_or_tokenizer, chunk_size, chunk_overlap, buffer, node.header +
                 "\n" if node.header else ""
             )
             for i, chunk in enumerate(chunks):
@@ -176,12 +191,12 @@ def process_node(
             result_nodes.append(new_node)
         for child in node.children:
             result_nodes.extend(
-                process_node(child, tokenizer, chunk_size,
+                process_node(child, model_name_or_tokenizer, chunk_size,
                              chunk_overlap, buffer, node.id, node.header)
             )
     else:
         chunks = chunk_content(
-            content, tokenizer, chunk_size, chunk_overlap, buffer, node.header +
+            content, model_name_or_tokenizer, chunk_size, chunk_overlap, buffer, node.header +
             "\n" if node.header else ""
         )
         for i, chunk in enumerate(chunks):

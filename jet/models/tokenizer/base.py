@@ -21,12 +21,13 @@ class TokenizerWrapper:
         self,
         tokenizer: Union[Tokenizer, PreTrainedTokenizerBase],
         remove_pad_tokens: bool = False,
-        add_special_tokens: bool = True
+        add_special_tokens: bool = True,
+        pad_token_id: Optional[int] = None
     ):
         self.tokenizer = tokenizer
         self.remove_pad_tokens = remove_pad_tokens
         self.add_special_tokens = add_special_tokens
-        self.pad_token_id = (
+        self.pad_token_id = pad_token_id or (
             tokenizer.pad_token_id
             if hasattr(tokenizer, "pad_token_id") and tokenizer.pad_token_id is not None
             else 0

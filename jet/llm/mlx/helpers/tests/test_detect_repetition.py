@@ -1,5 +1,5 @@
 from typing import Dict, List
-from jet.llm.helpers.char_tokenizer import CharTokenizer
+from jet.models.tokenizer.helpers.char_tokenizer import CharTokenizer
 import pytest
 from jet.llm.mlx.helpers.detect_repetition import clean_repeated_ngrams, find_repeated_consecutive_ngrams, NgramRepeat
 from transformers import AutoTokenizer, PreTrainedTokenizer
