@@ -178,20 +178,25 @@ class TokenizerWrapper:
             ]
 
 
-def get_tokenizer(model_name_or_tokenizer: Union[ModelType, Tokenizer], local_cache_dir: Optional[str] = None) -> Tokenizer:
+def get_tokenizer(
+    model_name_or_tokenizer: Union[ModelType, Tokenizer],
+    local_cache_dir: Optional[str] = None,
+    disable_cache: bool = False
+) -> Tokenizer:
     """
-    Initialize and return a tokenizer for the specified model, using a cache to prevent reloading.
+    Initialize and return a tokenizer for the specified model, with option to disable cache.
 
     Args:
-        model_name: The model key (e.g., 'bge-large') or repository ID (e.g., 'BAAI/bge-large-en-v1.5').
+        model_name_or_tokenizer: The model key (e.g., 'bge-large') or repository ID (e.g., 'BAAI/bge-large-en-v1.5').
         local_cache_dir: Optional local directory to load tokenizer from (defaults to Hugging Face cache).
+        disable_cache: If True, bypasses the tokenizer cache and always loads fresh.
 
     Returns:
         Tokenizer: The loaded tokenizer.
 
     Raises:
         ValueError: If the tokenizer cannot be loaded from remote or local sources.
-        """
+    """
     if isinstance(model_name_or_tokenizer, Tokenizer):
         return model_name_or_tokenizer
 
@@ -201,8 +206,8 @@ def get_tokenizer(model_name_or_tokenizer: Union[ModelType, Tokenizer], local_ca
     logger.info(
         f"Attempting to load tokenizer for model_name: {model_name}, resolved to: {model_path}")
 
-    # Check cache first
-    if model_path in _tokenizer_cache:
+    # Check cache first if not disabled
+    if not disable_cache and model_path in _tokenizer_cache:
         logger.info(f"Using cached tokenizer for: {model_path}")
         return _tokenizer_cache[model_path]
 
@@ -210,7 +215,8 @@ def get_tokenizer(model_name_or_tokenizer: Union[ModelType, Tokenizer], local_ca
         # Attempt to load from remote
         tokenizer = Tokenizer.from_pretrained(model_path)
         logger.info(f"Successfully loaded tokenizer from remote: {model_path}")
-        _tokenizer_cache[model_path] = tokenizer
+        if not disable_cache:
+            _tokenizer_cache[model_path] = tokenizer
         return tokenizer
     except Exception as e:
         logger.warning(f"Failed to load tokenizer from remote: {str(e)}")
@@ -247,7 +253,8 @@ def get_tokenizer(model_name_or_tokenizer: Union[ModelType, Tokenizer], local_ca
                 tokenizer = Tokenizer.from_file(str(resolved_path))
                 logger.info(
                     f"Successfully loaded tokenizer from local cache: {resolved_path}")
-                _tokenizer_cache[model_path] = tokenizer
+                if not disable_cache:
+                    _tokenizer_cache[model_path] = tokenizer
                 return tokenizer
             except Exception as local_e:
                 logger.error(
@@ -264,10 +271,11 @@ def get_tokenizer_fn(
     model_name_or_tokenizer: Union[ModelType, Tokenizer, PreTrainedTokenizerBase, TokenizerWrapper],
     remove_pad_tokens: bool = False,
     add_special_tokens: bool = True,
+    disable_cache: bool = False,
 ) -> TokenizerWrapper:
     """Return a TokenizerWrapper instance from a model name or tokenizer instance."""
     tokenizer = (
-        get_tokenizer(model_name_or_tokenizer)
+        get_tokenizer(model_name_or_tokenizer, disable_cache=disable_cache)
         if isinstance(model_name_or_tokenizer, (str, Tokenizer, PreTrainedTokenizerBase))
         else model_name_or_tokenizer
     )

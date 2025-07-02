@@ -9,6 +9,7 @@ import math
 from tqdm import tqdm
 import torch
 from jet.data.utils import generate_key
+from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.utils import resolve_model_value
 from jet.models.model_types import EmbedModelType
 from jet.logger import logger
@@ -28,22 +29,24 @@ _rerank_model_cache: dict[str, CrossEncoder] = {}
 
 
 def load_embed_model(model: EmbedModelType, truncate_dim: Optional[int] = None) -> SentenceTransformer:
-    _cache_key = generate_key(model, truncate_dim)
-    model_id = resolve_model_value(model)
-    if _cache_key in _embed_model_cache:
-        logger.info(
-            f"Reusing cached embedding model: {model_id} (cache key: {_cache_key})")
-        return _embed_model_cache[_cache_key]
-    try:
-        logger.info(f"Loading embedding model on CPU (onnx): {model_id}")
-        model_instance = SentenceTransformer(
-            model_id, device="cpu", backend="onnx", truncate_dim=truncate_dim,
-            model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'})
-    except Exception as e:
-        logger.warning(f"Falling back to MPS for embed model due to: {e}")
-        model_instance = SentenceTransformer(model_id, device="mps")
-    _embed_model_cache[_cache_key] = model_instance
-    return model_instance
+    # _cache_key = generate_key(model, truncate_dim)
+    # model_id = resolve_model_value(model)
+    # if _cache_key in _embed_model_cache:
+    #     logger.info(
+    #         f"Reusing cached embedding model: {model_id} (cache key: {_cache_key})")
+    #     return _embed_model_cache[_cache_key]
+    # try:
+    #     logger.info(f"Loading embedding model on CPU (onnx): {model_id}")
+    #     model_instance = SentenceTransformer(
+    #         model_id, device="cpu", backend="onnx", truncate_dim=truncate_dim,
+    #         model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'})
+    # except Exception as e:
+    #     logger.warning(f"Falling back to MPS for embed model due to: {e}")
+    #     model_instance = SentenceTransformer(model_id, device="mps")
+    # _embed_model_cache[_cache_key] = model_instance
+    # return model_instance
+    instance = SentenceTransformerRegistry()
+    return instance.load_model(model, truncate_dim)
 
 
 def load_rerank_model(model: EmbedModelType) -> CrossEncoder:

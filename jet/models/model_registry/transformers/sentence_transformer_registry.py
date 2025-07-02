@@ -8,12 +8,12 @@ import logging
 import os
 import torch
 
+from jet.data.utils import generate_key
 from jet.logger import logger
 from jet.models.tokenizer.base import get_tokenizer_fn
 from .base import BaseModelRegistry, ModelFeatures
 from jet.models.onnx_model_checker import has_onnx_model_in_repo, get_onnx_model_paths
 from jet.models.utils import resolve_model_value
-from jet.models.embeddings.base import generate_embeddings, load_embed_model
 from jet.models.model_types import EmbedModelType
 
 
@@ -21,7 +21,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
     """Registry for SentenceTransformer models."""
     _instance = None
     _models: Dict[str, SentenceTransformer] = {}
-    _tokenizers: Dict[str, PreTrainedTokenizer] = {}
+    _tokenizers: Dict[str, TokenizerWrapper] = {}
     _configs: Dict[str, PretrainedConfig] = {}
     _onnx_sessions: Dict[Tuple[str, str], ort.InferenceSession] = {}
 
@@ -37,21 +37,23 @@ class SentenceTransformerRegistry(BaseModelRegistry):
     @staticmethod
     def load_model(
         model_id: EmbedModelType = "static-retrieval-mrl-en-v1",
+        truncate_dim: Optional[int] = None,
     ) -> SentenceTransformer:
         """Load or retrieve a SentenceTransformer model statically."""
         instance = SentenceTransformerRegistry()
 
         resolved_model_id = resolve_model_value(model_id)
+        _cache_key = generate_key(resolved_model_id, truncate_dim)
         instance.model_id = resolved_model_id  # Set instance model_id
-        if resolved_model_id in instance._models:
+        if _cache_key in instance._models:
             logger.info(
                 f"Reusing existing SentenceTransformer model for model_id: {resolved_model_id}")
-            return instance._models[resolved_model_id]
+            return instance._models[_cache_key]
         logger.info(
             f"Loading SentenceTransformer model for model_id: {resolved_model_id}")
         try:
             model = instance._load_model(resolved_model_id)
-            instance._models[resolved_model_id] = model
+            instance._models[_cache_key] = model
             return model
         except Exception as e:
             logger.error(
@@ -71,7 +73,16 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         return model_instance
 
     def get_tokenizer(self, model_id: EmbedModelType) -> TokenizerWrapper:
-        return get_tokenizer_fn(model_id)
+        resolved_model_id = resolve_model_value(model_id)
+        if resolved_model_id in SentenceTransformerRegistry._tokenizers:
+            logger.info(
+                f"Reusing tokenizer for model_id: {resolved_model_id}")
+            return SentenceTransformerRegistry._tokenizers[resolved_model_id]
+
+        logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
+        tokenizer = get_tokenizer_fn(model_id, disable_cache=True)
+        SentenceTransformerRegistry._tokenizers[resolved_model_id] = tokenizer
+        return tokenizer
 
     def get_config(self, model_id: EmbedModelType) -> Optional[PretrainedConfig]:
         resolved_model_id = resolve_model_value(model_id)
@@ -133,6 +144,8 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         return_format: Literal["list", "numpy"] = "list",
     ) -> Union[List[float], List[List[float]], np.ndarray, torch.Tensor]:
         """Generate embeddings for input text using a SentenceTransformer model."""
+        from jet.models.embeddings.base import generate_embeddings
+
         if self.model_id is None:
             raise ValueError(
                 "No model_id set. Please load a model using load_model first.")

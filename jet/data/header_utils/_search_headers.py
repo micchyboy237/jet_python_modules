@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer
 from jet.data.header_types import NodeWithScore, TextNode
 from jet.data.header_utils import VectorStore
 from jet.models.embeddings.base import generate_embeddings, load_embed_model
+from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 from jet.logger import logger
 
@@ -15,8 +16,13 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedModelType, batch_size: int = 32) -> List[float]:
-    transformer = load_embed_model(model)
-    query_embedding = transformer.encode([query], show_progress_bar=False)[0]
+    # transformer = load_embed_model(model)
+    # query_embedding = transformer.encode([query], show_progress_bar=False)[0]
+    registry = SentenceTransformerRegistry()
+    registry.load_model(model)
+    query_embedding = registry.generate_embeddings(
+        [query], return_format="numpy")[0]
+
     header_texts = [
         f"{node.parent_header}\n{node.header}" if node.parent_header else node.header for node in nodes]
     content_texts = []
@@ -30,8 +36,8 @@ def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedM
         header_prefixes.append(header_prefix)
 
     all_texts = [text for text in header_texts + content_texts if text.strip()]
-    all_embeddings = generate_embeddings(
-        all_texts, model, batch_size=batch_size, show_progress=True, return_format="numpy")
+    all_embeddings = registry.generate_embeddings(
+        all_texts, batch_size=batch_size, show_progress=True, return_format="numpy")
 
     # Split embeddings back into headers and content
     header_embeddings = all_embeddings[:len(header_texts)]
