@@ -1,20 +1,134 @@
-import numpy as np
-import logging
-
 from typing import Callable, Dict, Optional, TypedDict, Union, List
 from pathlib import Path
+import numpy as np
+import logging
 from tokenizers import Tokenizer
 from transformers import PreTrainedTokenizerBase
-
 from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR
 from jet.models.utils import resolve_model_value
 from jet.models.model_types import ModelType
 from jet.wordnet.sentence import split_sentences
 
-
 # Cache for storing loaded tokenizers
 _tokenizer_cache: Dict[str, Tokenizer] = {}
+
+
+class TokenizerWrapper:
+    """A callable wrapper for tokenizers supporting both tokenizers.Tokenizer and PreTrainedTokenizerBase."""
+
+    def __init__(
+        self,
+        tokenizer: Union[Tokenizer, PreTrainedTokenizerBase],
+        remove_pad_tokens: bool = False,
+        add_special_tokens: bool = True
+    ):
+        self.tokenizer = tokenizer
+        self.remove_pad_tokens = remove_pad_tokens
+        self.add_special_tokens = add_special_tokens
+        self.pad_token_id = (
+            tokenizer.pad_token_id
+            if hasattr(tokenizer, "pad_token_id") and tokenizer.pad_token_id is not None
+            else 0
+        )
+
+    def __call__(self, texts: Union[str, List[str]], **kwargs) -> Union[List[int], List[List[int]]]:
+        """Tokenize input texts, supporting single string or list of strings."""
+        logger.debug(
+            f"TokenizerWrapper called with texts: {texts}, kwargs: {kwargs}")
+        if isinstance(texts, str):
+            return self.encode(texts, **kwargs)
+        return self.encode_batch(texts, **kwargs)
+
+    def encode(self, text: str, **kwargs) -> List[int]:
+        """Encode a single text string into token IDs."""
+        logger.debug(f"Encoding text: {text}, kwargs: {kwargs}")
+        if not isinstance(text, str):
+            logger.error(
+                f"Invalid input type for encode: {type(text)}, expected str")
+            raise TypeError("TextInputSequence must be str")
+
+        # Use kwargs' add_special_tokens if provided, else self.add_special_tokens
+        encode_kwargs = kwargs.copy()
+        if 'add_special_tokens' not in encode_kwargs:
+            encode_kwargs['add_special_tokens'] = self.add_special_tokens
+
+        if isinstance(self.tokenizer, Tokenizer):
+            encoding = self.tokenizer.encode(text, **encode_kwargs)
+            token_ids = encoding.ids
+        else:
+            token_ids = self.tokenizer.encode(text, **encode_kwargs)
+
+        if self.remove_pad_tokens:
+            token_ids = [tid for tid in token_ids if tid != self.pad_token_id]
+        logger.debug(f"Encoded token IDs: {token_ids}")
+        return token_ids
+
+    def encode_batch(self, texts: List[str], **kwargs) -> List[List[int]]:
+        """Encode a batch of texts into token IDs."""
+        logger.debug(f"Encoding batch texts: {texts}, kwargs: {kwargs}")
+        for text in texts:
+            if not isinstance(text, str):
+                logger.error(
+                    f"Invalid input type in batch: {type(text)}, expected str")
+                raise TypeError("TextInputSequence must be str")
+
+        # Use kwargs' add_special_tokens if provided, else self.add_special_tokens
+        encode_kwargs = kwargs.copy()
+        if 'add_special_tokens' not in encode_kwargs:
+            encode_kwargs['add_special_tokens'] = self.add_special_tokens
+
+        if isinstance(self.tokenizer, Tokenizer):
+            encodings = self.tokenizer.encode_batch(texts, **encode_kwargs)
+            token_ids = [encoding.ids for encoding in encodings]
+        else:
+            token_ids = [
+                self.tokenizer.encode(text, **encode_kwargs)
+                for text in texts
+            ]
+
+        if self.remove_pad_tokens:
+            token_ids = [
+                [tid for tid in ids if tid != self.pad_token_id]
+                for ids in token_ids
+            ]
+        logger.debug(f"Encoded batch token IDs: {token_ids}")
+        return token_ids
+
+    def decode(self, token_ids: Union[List[int], List[List[int]]], **kwargs) -> Union[str, List[str]]:
+        """Decode token IDs back to text."""
+        logger.debug(f"Decoding token IDs: {token_ids}, kwargs: {kwargs}")
+        decode_kwargs = kwargs.copy()
+        if 'skip_special_tokens' not in decode_kwargs:
+            decode_kwargs['skip_special_tokens'] = self.add_special_tokens
+
+        if isinstance(token_ids[0], int):
+            return self.tokenizer.decode(token_ids, **decode_kwargs)
+        return [
+            self.tokenizer.decode(ids, **decode_kwargs)
+            for ids in token_ids
+        ]
+
+    def convert_ids_to_tokens(
+        self, token_ids: Union[List[int], List[List[int]]], **kwargs
+    ) -> Union[List[str], List[List[str]]]:
+        """Convert token IDs to their string representations."""
+        logger.debug(
+            f"Converting token IDs to tokens: {token_ids}, kwargs: {kwargs}")
+        convert_kwargs = kwargs.copy()
+        if isinstance(self.tokenizer, Tokenizer):
+            if isinstance(token_ids[0], int):
+                return self.tokenizer.convert_ids_to_tokens(token_ids, **convert_kwargs)
+            return [self.tokenizer.convert_ids_to_tokens(ids, **convert_kwargs) for ids in token_ids]
+        else:
+            if 'skip_special_tokens' not in convert_kwargs:
+                convert_kwargs['skip_special_tokens'] = self.add_special_tokens
+            if isinstance(token_ids[0], int):
+                return self.tokenizer.convert_ids_to_tokens(token_ids, **convert_kwargs)
+            return [
+                self.tokenizer.convert_ids_to_tokens(ids, **convert_kwargs)
+                for ids in token_ids
+            ]
 
 
 def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) -> Tokenizer:
@@ -30,7 +144,7 @@ def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) 
 
     Raises:
         ValueError: If the tokenizer cannot be loaded from remote or local sources.
-    """
+        """
     # Resolve model_name to full path if it's a key
     model_path = resolve_model_value(model_name)
     logger.info(
@@ -96,43 +210,30 @@ def get_tokenizer(model_name: ModelType, local_cache_dir: Optional[str] = None) 
 
 
 def get_tokenizer_fn(
-    model_name_or_tokenizer: Union[ModelType, Tokenizer]
-) -> Callable[[Union[str, List[str]]], Union[List[int], List[List[int]]]]:
-    """Return a tokenizer function from a model name or a Tokenizer instance."""
+    model_name_or_tokenizer: Union[ModelType, Tokenizer, PreTrainedTokenizerBase],
+    remove_pad_tokens: bool = False,
+    add_special_tokens: bool = True,
+) -> TokenizerWrapper:
+    """Return a TokenizerWrapper instance from a model name or tokenizer instance."""
     tokenizer = (
         get_tokenizer(model_name_or_tokenizer)
         if isinstance(model_name_or_tokenizer, str)
         else model_name_or_tokenizer
     )
-
-    def tokenize_fn(texts: Union[str, List[str]]) -> Union[List[int], List[List[int]]]:
-        is_single = isinstance(texts, str)
-        texts_list = [texts] if is_single else texts
-        encodings = tokenizer.encode_batch(texts_list, add_special_tokens=True)
-        token_ids = [np.array(encoding.ids, dtype=np.int32).tolist()
-                     for encoding in encodings]
-        return token_ids[0] if is_single else token_ids
-
-    return tokenize_fn
+    return TokenizerWrapper(tokenizer, remove_pad_tokens, add_special_tokens)
 
 
 def tokenize(
     texts: Union[str, List[str]],
-    tokenizer: Union[ModelType, Tokenizer],
-    add_special_tokens=True
+    tokenizer: Union[ModelType, Tokenizer, PreTrainedTokenizerBase],
+    add_special_tokens: bool = True,
+    remove_pad_tokens: bool = False
 ) -> Union[List[int], List[List[int]]]:
-    tokenizer = (
-        get_tokenizer(tokenizer)
-        if isinstance(tokenizer, str)
-        else tokenizer
+    """Tokenize texts using a TokenizerWrapper."""
+    tokenizer_wrapper = get_tokenizer_fn(
+        tokenizer, remove_pad_tokens=remove_pad_tokens, add_special_tokens=add_special_tokens
     )
-    if isinstance(texts, str):
-        encoding = tokenizer.encode(
-            texts, add_special_tokens=add_special_tokens)
-        return encoding.ids
-    encodings = tokenizer.encode_batch(
-        texts, add_special_tokens=add_special_tokens)
-    return [encoding.ids for encoding in encodings]
+    return tokenizer_wrapper(texts)
 
 
 def detokenize(
@@ -149,14 +250,21 @@ def detokenize(
     return [tokenizer.decode(ids) for ids in token_ids]
 
 
-def count_tokens(model_name_or_tokenizer: Union[ModelType, Tokenizer], messages: str | List[str] | List[Dict], prevent_total: bool = False) -> int | list[int]:
+def count_tokens(
+    model_name_or_tokenizer: Union[ModelType, Tokenizer],
+    messages: Union[str, List[str], List[Dict]],
+    prevent_total: bool = False,
+    remove_pad_tokens: bool = True,
+    add_special_tokens: bool = False,
+) -> Union[int, List[int]]:
     if not messages:
         return 0
 
     if isinstance(messages, list):
         messages = [str(t) for t in messages]
 
-    tokenize = get_tokenizer_fn(model_name_or_tokenizer)
+    tokenize = get_tokenizer_fn(
+        model_name_or_tokenizer, remove_pad_tokens=remove_pad_tokens, add_special_tokens=add_special_tokens)
     tokenized = tokenize(messages)
     if isinstance(messages, str):
         return len(tokenized)
@@ -165,7 +273,32 @@ def count_tokens(model_name_or_tokenizer: Union[ModelType, Tokenizer], messages:
         return sum(token_counts) if not prevent_total else token_counts
 
 
-def get_max_token_count(model_name_or_tokenizer: Union[ModelType, Tokenizer], messages: str | List[str] | List[Dict], buffer: int = 10) -> int:
+def count_tokens_dim(
+    model_name_or_tokenizer: Union[ModelType, Tokenizer],
+    messages: Union[str, List[str], List[Dict]],
+) -> Union[int, List[int]]:
+    if not messages:
+        return 0
+
+    if isinstance(messages, list):
+        messages = [str(t) for t in messages]
+
+    tokenize = get_tokenizer_fn(
+        model_name_or_tokenizer, remove_pad_tokens=False, add_special_tokens=True)
+    tokenized = tokenize(messages)
+    if isinstance(messages, str):
+        return len(tokenized)
+    else:
+        token_counts = [len(item) for item in tokenized]
+        return token_counts[0]
+
+
+def get_max_token_count(
+    model_name_or_tokenizer: Union[ModelType, Tokenizer],
+    messages: Union[str, List[str], List[Dict]],
+    buffer: int = 10,
+    remove_pad_tokens: bool = False
+) -> int:
     """
     Calculate the maximum number of tokens in the provided messages, adding a buffer and capping at 512.
 
@@ -173,12 +306,14 @@ def get_max_token_count(model_name_or_tokenizer: Union[ModelType, Tokenizer], me
         model_name_or_tokenizer: The model name or tokenizer instance to use.
         messages: A string, list of strings, or list of dicts representing the input messages.
         buffer: Number of extra tokens to add as a safety margin (default: 10).
+        remove_pad_tokens: Whether to remove padding tokens from the count (default: False).
 
     Returns:
         int: The maximum token count plus buffer, capped at 512.
     """
     token_counts: List[int] = count_tokens(
-        model_name_or_tokenizer, messages, prevent_total=True)
+        model_name_or_tokenizer, messages, prevent_total=True, remove_pad_tokens=remove_pad_tokens
+    )
     max_tokens = min(max(token_counts) + buffer, 512)  # Cap at 512
     logger.info(f"Max token count for {len(messages)} documents: {max_tokens}")
     return max_tokens
@@ -207,10 +342,15 @@ def merge_texts(
     tokenizer: PreTrainedTokenizerBase,
     skip_special_tokens: bool = True,
     max_length: Optional[int] = None,
-    split_fn: Optional[Callable[[str], List[str]]] = None
+    split_fn: Optional[Callable[[str], List[str]]] = None,
+    remove_pad_tokens: bool = False
 ) -> MergeResult:
     # Encode the text into token IDs
     token_ids: List[int] = tokenizer.encode(text, add_special_tokens=False)
+    pad_token_id = tokenizer.pad_token_id if hasattr(
+        tokenizer, "pad_token_id") and tokenizer.pad_token_id is not None else 0
+    if remove_pad_tokens:
+        token_ids = [tid for tid in token_ids if tid != pad_token_id]
     total_tokens: int = len(token_ids)
 
     # If max_length is None or greater than total tokens, no truncation needed
@@ -261,6 +401,9 @@ def merge_texts(
         sentence_token_ids: List[int] = tokenizer.encode(
             sentence, add_special_tokens=False
         )
+        if remove_pad_tokens:
+            sentence_token_ids = [
+                tid for tid in sentence_token_ids if tid != pad_token_id]
         sentence_token_count: int = len(sentence_token_ids)
 
         # If sentence token count > max_length, just add it
@@ -289,6 +432,9 @@ def merge_texts(
                 merged_token_ids: List[int] = tokenizer.encode(
                     merged_sentence, add_special_tokens=False
                 )
+                if remove_pad_tokens:
+                    merged_token_ids = [
+                        tid for tid in merged_token_ids if tid != pad_token_id]
 
                 if len(merged_token_ids) <= max_length - current_token_count:
                     selected_token_ids.extend(merged_token_ids)
@@ -334,8 +480,8 @@ def merge_texts(
         "texts_count": len(grouped_texts),
         "is_truncated": len(grouped_texts) > 1,
         "total_tokens": total_tokens,
-        "min_tokens": min(token_counts),
-        "max_tokens": max(token_counts),
+        "min_tokens": min(token_counts) if token_counts else 0,
+        "max_tokens": max(token_counts) if token_counts else 0,
         "ave_tokens": sum(token_counts) / len(token_counts) if token_counts else 0,
     }
 
@@ -357,4 +503,5 @@ __all__ = [
     "detokenize",
     "count_tokens",
     "get_max_token_count",
+    "TokenizerWrapper",
 ]

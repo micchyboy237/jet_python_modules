@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, Optional, Union, Literal, Dict, Any
 from pydantic import BaseModel, Field
+from tokenizers import Tokenizer
 from jet.code.markdown_types import (
     MarkdownToken,
 )
@@ -8,17 +9,16 @@ from jet.code.markdown_utils import derive_text, parse_markdown
 import uuid
 from jet.data.header_types import Nodes, TextNode, HeaderNode
 from jet.logger import logger
+from jet.models.model_types import ModelType
+from jet.models.tokenizer.base import get_tokenizer, count_tokens
 
 
 class HeaderDocs(BaseModel):
     root: Nodes = Field(default_factory=list)
     tokens: List[MarkdownToken] = Field(default_factory=list)
-    doc_id: str = Field(default_factory=lambda: str(
-        uuid.uuid4()))  # Already required
 
     @staticmethod
     def from_tokens(tokens: List[MarkdownToken]) -> 'HeaderDocs':
-        doc_id = str(uuid.uuid4())  # Generate doc_id for this document
         root: Nodes = []
         parent_stack: List[HeaderNode] = []
         seen_ids: set = set()
@@ -50,7 +50,6 @@ class HeaderDocs(BaseModel):
                     level=token['level'],
                     line=token['line'],
                     id=header_id,
-                    doc_id=doc_id,  # Assign doc_id
                 )
                 id_to_node[header_id] = new_header
                 while parent_stack and parent_stack[-1].level >= new_header.level:
@@ -84,7 +83,6 @@ class HeaderDocs(BaseModel):
                     line=token['line'],
                     parent_id=parent_stack[-1].id if parent_stack else None,
                     id=text_id,
-                    doc_id=doc_id,  # Assign doc_id
                 )
                 id_to_node[text_id] = text_node
                 if text_node.parent_id and text_node.parent_id in id_to_node:
@@ -100,7 +98,7 @@ class HeaderDocs(BaseModel):
                     root.append(text_node)
                     logger.debug(f"Added text node {text_id} to root")
         logger.debug(f"Finished processing tokens, root nodes: {len(root)}")
-        return HeaderDocs(root=root, tokens=tokens, doc_id=doc_id)
+        return HeaderDocs(root=root, tokens=tokens)
 
     @staticmethod
     def from_string(input: Union[str, Path]) -> 'HeaderDocs':
@@ -113,8 +111,37 @@ class HeaderDocs(BaseModel):
             logger.warning(
                 "No tokens parsed from input, returning empty HeaderDocs")
             # Ensure doc_id is set
-            return HeaderDocs(root=[], tokens=[], doc_id=str(uuid.uuid4()))
+            return HeaderDocs(root=[], tokens=[])
         return HeaderDocs.from_tokens(tokens)
+
+    def calculate_num_tokens(self, model_name_or_tokenizer: Union[ModelType, Tokenizer]):
+        nodes = self.as_nodes()
+        texts = [node.get_text() for node in nodes]
+        logger.debug(f"Calculating token counts for texts: {texts}")
+        token_counts = count_tokens(
+            model_name_or_tokenizer, texts, prevent_total=True)
+        logger.debug(f"Token counts returned: {token_counts}")
+        if isinstance(token_counts, int):
+            logger.debug("No tokens to process, token_counts is an integer")
+            return
+
+        def update_node_tokens(node: Union[HeaderNode, TextNode], index: List[int]) -> None:
+            if index[0] >= len(token_counts):
+                logger.error(
+                    f"Index out of range: {index[0]} >= {len(token_counts)} for node {node.id}")
+                return
+            node.num_tokens = token_counts[index[0]]
+            logger.debug(
+                f"Updated node {node.id} with {node.num_tokens} tokens")
+            index[0] += 1
+            if isinstance(node, HeaderNode):
+                for child in node.children:
+                    update_node_tokens(child, index)
+        index = [0]
+        for node in self.root:  # Use self.root directly to update original nodes
+            update_node_tokens(node, index)
+        logger.debug(
+            f"Finished updating token counts, processed {index[0]} nodes")
 
     def as_texts(self) -> List[str]:
         texts: List[str] = []
@@ -137,36 +164,10 @@ class HeaderDocs(BaseModel):
         nodes: Nodes = []
 
         def traverse(node: Union[HeaderNode, TextNode]) -> None:
+            nodes.append(node)  # Reference original node
             if isinstance(node, HeaderNode):
-                modified_node = HeaderNode(
-                    header=node.header,
-                    content=node.content,
-                    id=node.id,
-                    parent_id=node.parent_id,
-                    parent_header=node.parent_header,
-                    line=node.line,
-                    level=node.level,
-                    children=node.children,
-                    _parent_node=node._parent_node,
-                    doc_id=node.doc_id,  # Propagate doc_id
-                )
-                nodes.append(modified_node)
                 for child in node.children:
                     traverse(child)
-            else:
-                nodes.append(TextNode(
-                    id=node.id,
-                    line=node.line,
-                    type=node.type,
-                    header=node.header,
-                    content=node.content,
-                    meta=node.meta,
-                    parent_id=node.parent_id,
-                    parent_header=node.parent_header,
-                    chunk_index=node.chunk_index,
-                    num_tokens=node.num_tokens,
-                    doc_id=node.doc_id,  # Propagate doc_id
-                ))
         for node in self.root:
             traverse(node)
         return nodes

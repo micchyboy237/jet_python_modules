@@ -1,4 +1,3 @@
-import uuid
 from typing import List, Optional, Union, Literal
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -16,7 +15,8 @@ def create_text_node(
     content: str,
     chunk_index: int,
     parent_id: Optional[str] = None,
-    parent_header: Optional[str] = None
+    parent_header: Optional[str] = None,
+    doc_id: Optional[str] = None
 ) -> TextNode:
     """Create a new TextNode with the given parameters."""
     new_node = TextNode(
@@ -29,7 +29,7 @@ def create_text_node(
         content=content.strip(),
         meta=node.meta if isinstance(node, TextNode) else None,
         chunk_index=chunk_index,
-        doc_id=node.doc_id  # Propagate required doc_id
+        doc_id=doc_id or node.doc_id
     )
     if parent_id:
         new_node._parent_node = node.get_parent_node()
@@ -49,13 +49,10 @@ def chunk_content(
         logger.debug(
             f"No chunking: content_empty={not content}, chunk_size={chunk_size}, tokenizer={tokenizer}")
         return [content] if content else []
-
-    # Tokenize with offsets to preserve original text
     encoding = tokenizer.encode(content, add_special_tokens=False)
     token_ids = encoding.ids
-    token_ids = [tid for tid in token_ids if tid != 0]  # Remove padding
+    token_ids = [tid for tid in token_ids if tid != 0]
     offsets = encoding.offsets
-
     header_encoding = tokenizer.encode(
         header_prefix, add_special_tokens=False) if header_prefix else None
     header_tokens = len(
@@ -63,17 +60,14 @@ def chunk_content(
     effective_chunk_size = max(1, chunk_size - buffer - header_tokens)
     logger.debug(
         f"Chunking with header_tokens={header_tokens}, effective_chunk_size={effective_chunk_size}")
-
     if len(token_ids) <= effective_chunk_size:
         logger.debug(f"Content fits in one chunk: {len(token_ids)} tokens")
         return [content]
-
     chunks = []
     start = 0
     step = effective_chunk_size - chunk_overlap
     while start < len(token_ids):
         end = min(start + effective_chunk_size, len(token_ids))
-        # Extract substring using offsets
         start_offset = offsets[start][0] if start < len(
             offsets) else len(content)
         end_offset = offsets[end -
@@ -86,7 +80,6 @@ def chunk_content(
         start += step
         if start >= len(token_ids) or (end == len(token_ids) and start + chunk_overlap >= len(token_ids)):
             break
-
     return chunks if chunks else [content]
 
 
@@ -101,7 +94,8 @@ def process_node(
 ) -> List[TextNode]:
     """Process a single node and return a list of resulting TextNodes."""
     logger.debug(
-        f"Processing node {node.id}: type={node.type}, header={node.header}, content_length={len(node.content)}, doc_id={node.doc_id}")
+        f"Processing node {node.id}: type={node.type}, header={node.header}, content_length={len(node.content)}, doc_id={node.doc_id}"
+    )
     result_nodes: List[TextNode] = []
     content = node.content.strip()
 
@@ -109,78 +103,112 @@ def process_node(
     if not content and isinstance(node, TextNode):
         logger.debug(f"Node {node.id} has empty content, returning unchanged")
         node.num_tokens = 0
+        node.content = ""
+        node.header = ""  # Ensure header is empty to match get_text()
         return [node]
 
-    header_prefix = f"{node.header}\n" if node.header else ""
+    shared_doc_id = node.doc_id
+    full_content = node.get_text()  # Use get_text() for full_content
 
-    # For HeaderNode, check if content needs chunking
     if isinstance(node, HeaderNode):
-        full_content = f"{header_prefix}{content}" if content else header_prefix
-        token_ids = tokenizer.encode(
-            full_content, add_special_tokens=False).ids if tokenizer else []
+        # Calculate tokens for logging
+        token_ids = (
+            tokenizer.encode(full_content, add_special_tokens=False).ids
+            if tokenizer
+            else []
+        )
         token_ids = [tid for tid in token_ids if tid != 0] if token_ids else []
+        logger.debug(
+            f"Token count for node {node.id}: {len(token_ids)} tokens, get_text='{full_content}'")
 
-        # Only chunk if content exceeds chunk_size
         if chunk_size and tokenizer and len(token_ids) > chunk_size - buffer:
             logger.debug(
-                f"Chunking HeaderNode {node.id} with {len(token_ids)} tokens")
+                f"Chunking HeaderNode {node.id} with {len(token_ids)} tokens"
+            )
             chunks = chunk_content(
-                content, tokenizer, chunk_size, chunk_overlap, buffer, header_prefix)
+                content, tokenizer, chunk_size, chunk_overlap, buffer, node.header +
+                "\n" if node.header else ""
+            )
             for i, chunk in enumerate(chunks):
-                full_content = f"{header_prefix}{chunk}" if chunk else header_prefix
-                token_ids = tokenizer.encode(
-                    full_content, add_special_tokens=False).ids
-                token_ids = [tid for tid in token_ids if tid !=
-                             0] if token_ids else []
-                num_tokens = len(token_ids)
+                chunk_text = f"{node.header}\n{chunk}" if node.header and chunk else chunk
+                new_node = create_text_node(
+                    node, chunk_text, i, parent_id, parent_header, doc_id=shared_doc_id
+                )
+                # Calculate num_tokens based on get_text()
+                text_for_tokens = new_node.get_text()
+                chunk_token_ids = (
+                    tokenizer.encode(
+                        text_for_tokens, add_special_tokens=False).ids
+                    if tokenizer
+                    else []
+                )
+                chunk_token_ids = [tid for tid in chunk_token_ids if tid != 0]
+                num_tokens = len(chunk_token_ids)
+                logger.debug(
+                    f"Chunk {i} token count: {num_tokens}, get_text='{text_for_tokens}'")
                 if num_tokens > chunk_size - buffer:
                     logger.warning(
-                        f"Chunk {i} for node {node.id} exceeds token limit: {num_tokens} > {chunk_size - buffer}")
+                        f"Chunk {i} for node {node.id} exceeds token limit: {num_tokens} > {chunk_size - buffer}"
+                    )
                     continue
-                new_node = create_text_node(
-                    node, full_content, i, parent_id, parent_header)
                 new_node.num_tokens = num_tokens
                 logger.debug(
-                    f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}")
+                    f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}, type={new_node.type}"
+                )
                 result_nodes.append(new_node)
         else:
             new_node = create_text_node(
-                node, full_content, 0, parent_id, parent_header)
-            token_ids = tokenizer.encode(
-                full_content, add_special_tokens=False).ids if tokenizer else []
+                node, full_content, 0, parent_id, parent_header, doc_id=shared_doc_id
+            )
+            # Calculate num_tokens based on get_text()
+            text_for_tokens = new_node.get_text()
+            token_ids = (
+                tokenizer.encode(text_for_tokens, add_special_tokens=False).ids
+                if tokenizer
+                else []
+            )
             token_ids = [tid for tid in token_ids if tid !=
                          0] if token_ids else []
             new_node.num_tokens = len(token_ids)
             logger.debug(
-                f"Created single node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}")
+                f"Created single node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}, type={new_node.type}, get_text='{text_for_tokens}'"
+            )
             result_nodes.append(new_node)
-
-        # Process children
         for child in node.children:
             result_nodes.extend(
                 process_node(child, tokenizer, chunk_size,
                              chunk_overlap, buffer, node.id, node.header)
             )
     else:
-        # Handle TextNode with chunking
         chunks = chunk_content(
-            content, tokenizer, chunk_size, chunk_overlap, buffer, header_prefix)
+            content, tokenizer, chunk_size, chunk_overlap, buffer, node.header +
+            "\n" if node.header else ""
+        )
         for i, chunk in enumerate(chunks):
-            full_content = f"{header_prefix}{chunk}" if chunk else header_prefix
-            token_ids = tokenizer.encode(
-                full_content, add_special_tokens=False).ids if tokenizer else []
-            token_ids = [tid for tid in token_ids if tid !=
-                         0] if token_ids else []
+            chunk_text = f"{node.header}\n{chunk}" if node.header and chunk else chunk
+            new_node = create_text_node(
+                node, chunk_text, i, parent_id, parent_header, doc_id=shared_doc_id
+            )
+            # Calculate num_tokens based on get_text()
+            text_for_tokens = new_node.get_text()
+            token_ids = (
+                tokenizer.encode(text_for_tokens, add_special_tokens=False).ids
+                if tokenizer
+                else []
+            )
+            token_ids = [tid for tid in token_ids if tid != 0]
             num_tokens = len(token_ids)
+            logger.debug(
+                f"TextNode chunk {i} token count: {num_tokens}, get_text='{text_for_tokens}'")
             if chunk_size and num_tokens > chunk_size - buffer:
                 logger.warning(
-                    f"Chunk {i} for node {node.id} exceeds token limit: {num_tokens} > {chunk_size - buffer}")
+                    f"Chunk {i} for node {node.id} exceeds token limit: {num_tokens} > {chunk_size - buffer}"
+                )
                 continue
-            new_node = create_text_node(
-                node, full_content, i, parent_id, parent_header)
             new_node.num_tokens = num_tokens
             logger.debug(
-                f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}")
+                f"Created chunk {i} for node {node.id}: num_tokens={new_node.num_tokens}, doc_id={new_node.doc_id}, type={new_node.type}"
+            )
             result_nodes.append(new_node)
 
     return result_nodes

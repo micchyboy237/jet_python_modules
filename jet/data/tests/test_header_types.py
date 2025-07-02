@@ -3,6 +3,8 @@ from typing import List, Optional
 from jet.code.markdown_types import ContentType
 from jet.data.header_types import Node, TextNode, HeaderNode, NodeType
 from jet.data.utils import generate_unique_id
+from jet.data.header_utils._base import process_node, create_text_node
+from jet.models.tokenizer.base import get_tokenizer
 from jet.logger import logger
 
 
@@ -16,7 +18,8 @@ def sample_nodes() -> List[NodeType]:
         header="Main Header",
         content="Main content",
         level=1,
-        children=[]
+        children=[],
+        doc_id="doc1"
     )
     text1 = TextNode(
         id="text1",
@@ -27,7 +30,8 @@ def sample_nodes() -> List[NodeType]:
         meta={},
         parent_id="header1",
         parent_header="Main Header",
-        _parent_node=header1
+        _parent_node=header1,
+        doc_id="doc1"
     )
     header2 = HeaderNode(
         id="header2",
@@ -39,7 +43,8 @@ def sample_nodes() -> List[NodeType]:
         parent_id="header1",
         parent_header="Main Header",
         children=[],
-        _parent_node=header1
+        _parent_node=header1,
+        doc_id="doc1"
     )
     header1.children.extend([text1, header2])
     return [header1, text1, header2]
@@ -48,7 +53,6 @@ def sample_nodes() -> List[NodeType]:
 class TestNodeGetText:
     def test_get_text_with_header_and_content(self) -> None:
         """Test get_text with both header and content."""
-        # Given
         node = TextNode(
             id="node1",
             line=1,
@@ -58,16 +62,11 @@ class TestNodeGetText:
             meta={}
         )
         expected = "Test Header\nTest Content"
-
-        # When
         result = node.get_text()
-
-        # Then
         assert result == expected
 
     def test_get_text_empty_header(self) -> None:
         """Test get_text with empty header."""
-        # Given
         node = TextNode(
             id="node1",
             line=1,
@@ -77,16 +76,11 @@ class TestNodeGetText:
             meta={}
         )
         expected = "Test Content"
-
-        # When
         result = node.get_text()
-
-        # Then
         assert result == expected
 
     def test_get_text_empty_content(self) -> None:
         """Test get_text with empty content."""
-        # Given
         node = TextNode(
             id="node1",
             line=1,
@@ -96,16 +90,11 @@ class TestNodeGetText:
             meta={}
         )
         expected = "Test Header"
-
-        # When
         result = node.get_text()
-
-        # Then
         assert result == expected
 
     def test_get_text_empty_both(self) -> None:
         """Test get_text with both header and content empty."""
-        # Given
         node = TextNode(
             id="node1",
             line=1,
@@ -115,30 +104,20 @@ class TestNodeGetText:
             meta={}
         )
         expected = ""
-
-        # When
         result = node.get_text()
-
-        # Then
         assert result == expected
 
 
 class TestNodeGetParentHeaders:
     def test_get_parent_headers_with_parents(self, sample_nodes: List[NodeType]) -> None:
         """Test get_parent_headers with multiple parent levels."""
-        # Given
         node = sample_nodes[2]
         expected = ["Main Header"]
-
-        # When
         result = node.get_parent_headers()
-
-        # Then
         assert result == expected
 
     def test_get_parent_headers_no_parent(self) -> None:
         """Test get_parent_headers with no parent."""
-        # Given
         node = TextNode(
             id="node1",
             line=1,
@@ -148,16 +127,11 @@ class TestNodeGetParentHeaders:
             meta={}
         )
         expected = []
-
-        # When
         result = node.get_parent_headers()
-
-        # Then
         assert result == expected
 
     def test_get_parent_headers_multiple_levels(self) -> None:
         """Test get_parent_headers with multiple hierarchy levels."""
-        # Given
         header1 = HeaderNode(
             id="header1",
             line=1,
@@ -195,18 +169,13 @@ class TestNodeGetParentHeaders:
         logger.debug(
             f"header2._parent_node.id={header2._parent_node.id if header2._parent_node else None}")
         expected = ["Root Header", "Level 2 Header"]
-
-        # When
         result = text_node.get_parent_headers()
-
-        # Then
         assert result == expected
 
 
 class TestHeaderNodeGetRecursiveText:
     def test_get_recursive_text_single_header(self) -> None:
         """Test get_recursive_text with single header node."""
-        # Given
         node = HeaderNode(
             id="header1",
             line=1,
@@ -216,32 +185,22 @@ class TestHeaderNodeGetRecursiveText:
             level=1
         )
         expected = "Main Header\nMain content"
-
-        # When
         result = node.get_recursive_text()
-
-        # Then
         assert result == expected
 
     def test_get_recursive_text_with_children(self, sample_nodes: List[NodeType]) -> None:
         """Test get_recursive_text with header and children."""
-        # Given
         node = sample_nodes[0]
         expected = (
             "Main Header\nMain content\n\n"
             "Text Header\nText content\n\n"
             "Sub Header\nSub content"
         )
-
-        # When
         result = node.get_recursive_text()
-
-        # Then
         assert result == expected
 
     def test_get_recursive_text_empty_content(self) -> None:
         """Test get_recursive_text with empty content nodes."""
-        # Given
         header = HeaderNode(
             id="header1",
             line=1,
@@ -261,16 +220,11 @@ class TestHeaderNodeGetRecursiveText:
             ]
         )
         expected = "Main Header"
-
-        # When
         result = header.get_recursive_text()
-
-        # Then
         assert result == expected
 
     def test_get_recursive_text_nested_headers(self) -> None:
         """Test get_recursive_text with nested headers."""
-        # Given
         header1 = HeaderNode(
             id="header1",
             line=1,
@@ -308,9 +262,106 @@ class TestHeaderNodeGetRecursiveText:
             "Level 2 Header\nLevel 2 content\n\n"
             "Text Header\nText content"
         )
-
-        # When
         result = header1.get_recursive_text()
-
-        # Then
         assert result == expected
+
+
+class TestProcessNodeDocId:
+    def test_process_node_single_chunk_preserve_doc_id(self, sample_nodes: List[NodeType]) -> None:
+        """Test that process_node preserves doc_id for single chunk."""
+        # Given a node with a specific doc_id
+        node = sample_nodes[1]  # TextNode with doc_id="doc1"
+        tokenizer = get_tokenizer("sentencepiece")
+        chunk_size = 1000  # Large enough to avoid chunking
+        chunk_overlap = 50
+        buffer = 10
+
+        # When processing the node
+        result = process_node(node, tokenizer, chunk_size,
+                              chunk_overlap, buffer)
+
+        # Then the resulting node should have the same doc_id
+        expected = ["doc1"]
+        result_doc_ids = [n.doc_id for n in result]
+        assert result_doc_ids == expected, (
+            f"Expected doc_ids {expected}, but got {result_doc_ids}"
+        )
+
+    def test_process_node_multiple_chunks_preserve_doc_id(self, sample_nodes: List[NodeType]) -> None:
+        """Test that process_node preserves doc_id across multiple chunks."""
+        # Given a node with a specific doc_id and content that will be chunked
+        node = TextNode(
+            id="text1",
+            line=1,
+            type="paragraph",
+            header="Test Header",
+            content=" ".join(["word"] * 200),  # Long content to force chunking
+            meta={},
+            doc_id="doc1"
+        )
+        tokenizer = get_tokenizer("sentencepiece")
+        chunk_size = 50  # Small enough to force multiple chunks
+        chunk_overlap = 10
+        buffer = 5
+
+        # When processing the node
+        result = process_node(node, tokenizer, chunk_size,
+                              chunk_overlap, buffer)
+
+        # Then all resulting nodes should have the same doc_id
+        expected = ["doc1"] * len(result)
+        result_doc_ids = [n.doc_id for n in result]
+        assert result_doc_ids == expected, (
+            f"Expected doc_ids {expected}, but got {result_doc_ids}"
+        )
+        assert len(result) > 1, "Expected multiple chunks"
+
+    def test_process_header_node_with_children_preserve_doc_id(self, sample_nodes: List[NodeType]) -> None:
+        """Test that process_node preserves doc_id for header node and its children."""
+        # Given a header node with children, all with the same doc_id
+        node = sample_nodes[0]  # HeaderNode with children and doc_id="doc1"
+        tokenizer = get_tokenizer("sentencepiece")
+        chunk_size = 1000
+        chunk_overlap = 50
+        buffer = 10
+
+        # When processing the node
+        result = process_node(node, tokenizer, chunk_size,
+                              chunk_overlap, buffer)
+
+        # Then all resulting nodes should have the same doc_id
+        expected = ["doc1"] * len(result)
+        result_doc_ids = [n.doc_id for n in result]
+        assert result_doc_ids == expected, (
+            f"Expected doc_ids {expected}, but got {result_doc_ids}"
+        )
+
+    def test_process_node_chunked_header_preserve_doc_id(self) -> None:
+        """Test that process_node preserves doc_id when header node is chunked."""
+        # Given a header node with long content that will be chunked
+        node = HeaderNode(
+            id="header1",
+            line=1,
+            type="header",
+            header="Main Header",
+            content=" ".join(["word"] * 200),  # Long content to force chunking
+            level=1,
+            children=[],
+            doc_id="doc1"
+        )
+        tokenizer = get_tokenizer("sentencepiece")
+        chunk_size = 50  # Small enough to force multiple chunks
+        chunk_overlap = 10
+        buffer = 5
+
+        # When processing the node
+        result = process_node(node, tokenizer, chunk_size,
+                              chunk_overlap, buffer)
+
+        # Then all resulting nodes should have the same doc_id
+        expected = ["doc1"] * len(result)
+        result_doc_ids = [n.doc_id for n in result]
+        assert result_doc_ids == expected, (
+            f"Expected doc_ids {expected}, but got {result_doc_ids}"
+        )
+        assert len(result) > 1, "Expected multiple chunks"
