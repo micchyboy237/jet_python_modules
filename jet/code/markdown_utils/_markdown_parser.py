@@ -240,6 +240,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
     try:
         try:
             html = read_html_content(input)
+            html = add_list_table_header_placeholders(html)
             md_content = convert_html_to_markdown(
                 html, ignore_links=ignore_links)
         except ValueError:

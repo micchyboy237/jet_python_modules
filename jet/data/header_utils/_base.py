@@ -220,6 +220,7 @@ def process_nodes(
     result_nodes: List[TextNode] = []
     for node in nodes:
         node.children = []
+
         # Determine parent_id and parent_header for the current node
         parent_id = node.id if isinstance(node, HeaderNode) else None
         parent_header = node.header if isinstance(node, HeaderNode) else None
