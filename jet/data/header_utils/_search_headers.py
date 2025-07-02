@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from jet.data.header_types import TextNode
@@ -18,7 +18,7 @@ def search_headers(
     query: str,
     vector_store: 'VectorStore',
     model: EmbedModelType = "all-MiniLM-L6-v2",
-    top_k: int = 5
+    top_k: Optional[int] = 10
 ) -> List[Tuple[TextNode, float]]:
     """Search for top-k relevant nodes based on query embedding."""
     logger.debug(f"Searching for query: {query}")
@@ -26,6 +26,8 @@ def search_headers(
     query_embedding = transformer.encode([query], show_progress_bar=False)[0]
     embeddings = vector_store.get_embeddings()
     nodes = vector_store.get_nodes()
+    if not top_k:
+        top_k = len(nodes)
     if not embeddings.size:
         logger.warning("Empty vector store, returning empty results")
         return []
@@ -41,12 +43,11 @@ def search_headers(
         content_embedding = transformer.encode(
             [content], show_progress_bar=False)[0]
         content_sim = cosine_similarity(query_embedding, content_embedding)
-        header_text = f"{node.parent_header}\n{node.header}" if node.parent_header and node.header else node.header or ""
+        header_text = f"{node.parent_header}\n{node.header}" if node.parent_header else node.header
         header_sim = 0.0
-        if header_text:
-            header_embedding = transformer.encode(
-                [header_text], show_progress_bar=False)[0]
-            header_sim = cosine_similarity(query_embedding, header_embedding)
+        header_embedding = transformer.encode(
+            [header_text], show_progress_bar=False)[0]
+        header_sim = cosine_similarity(query_embedding, header_embedding)
         sim_count = sum(1 for sim in [content_sim, header_sim] if sim > 0)
         final_sim = sum([content_sim, header_sim]) / max(sim_count, 1)
         similarities.append(final_sim)
