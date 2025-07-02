@@ -13,6 +13,7 @@ Metadata = Dict[str, Any]
 class Node(BaseModel):
     id: str = Field(default_factory=lambda: f"auto_{uuid.uuid4().hex[:8]}")
     doc_id: str = Field(default_factory=lambda: generate_unique_id())
+    doc_index: int
     line: int
     parent_id: Optional[str] = None
     parent_header: Optional[str] = None

@@ -21,6 +21,7 @@ def create_text_node(
     """Create a new TextNode with the given parameters."""
     new_node = TextNode(
         id=generate_unique_id(),
+        doc_index=node.doc_index,
         line=node.line,
         parent_id=parent_id,
         parent_header=parent_header,

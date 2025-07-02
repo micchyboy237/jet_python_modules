@@ -32,7 +32,7 @@ class HeaderDocs(BaseModel):
             return new_id
 
         logger.debug(f"Processing {len(tokens)} tokens")
-        for token in tokens:
+        for doc_index, token in enumerate(tokens):
             logger.debug(
                 f"Processing token type: {token['type']}, content: {token['content'][:50]}...")
             if token['type'] == 'header' and token['level'] is not None:
@@ -45,6 +45,7 @@ class HeaderDocs(BaseModel):
                 logger.debug(
                     f"Creating HeaderNode: header={header}, content={content}, level={token['level']}")
                 new_header = HeaderNode(
+                    doc_index=doc_index,
                     header=header,
                     content=content,
                     level=token['level'],
@@ -76,6 +77,7 @@ class HeaderDocs(BaseModel):
                 logger.debug(
                     f"Creating TextNode: header={header}, content={content}, type={token['type']}")
                 text_node = TextNode(
+                    doc_index=doc_index,
                     type=token['type'],
                     header=header,
                     content=content,

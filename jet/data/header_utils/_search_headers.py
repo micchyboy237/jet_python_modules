@@ -76,6 +76,8 @@ def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedM
             "sim_count": sim_count,
             "header_similarity": header_sim,
             "content_similarity": content_sim,
+            "header_text": header_text,
+            "content": content,
         }
 
     return similarities
@@ -110,6 +112,7 @@ def search_headers(
             content = content[len(header_prefix):].strip()
         adjusted_node = NodeWithScore(
             id=node.id,
+            doc_index=node.doc_index,
             line=node.line,
             type=node.type,
             header=node.header,

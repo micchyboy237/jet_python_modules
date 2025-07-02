@@ -88,6 +88,7 @@ def prepare_for_rag(
     for node, embedding, text in zip(nodes, embeddings, texts):
         store_node = TextNode(
             id=node.id,
+            doc_index=node.doc_index,
             line=node.line,
             type=node.type,
             header=node.header,
