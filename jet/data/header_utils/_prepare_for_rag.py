@@ -1,6 +1,6 @@
 from typing import List, Dict, Optional
 from jet.data.header_types import NodeType, Nodes, TextNode
-from jet.models.embeddings.base import load_embed_model
+from jet.models.embeddings.base import generate_embeddings, load_embed_model
 from jet.models.model_types import EmbedModelType
 from jet.models.tokenizer.base import get_tokenizer
 from sentence_transformers import SentenceTransformer
@@ -62,7 +62,6 @@ def prepare_for_rag(
             logger.debug(
                 f"Chunked node {node.id}: header={node.header}, content_length={len(node.content)}, num_tokens={node.num_tokens}, doc_id={node.doc_id}")
     vector_store = VectorStore()
-    transformer = load_embed_model(model)
     texts = []
     for node in nodes:
         text_parts = []
@@ -82,8 +81,10 @@ def prepare_for_rag(
                 f"Using existing num_tokens for node {node.id}: num_tokens={node.num_tokens}")
         texts.append(text)
     logger.debug(f"Encoding {len(texts)} texts for VectorStore")
-    embeddings = transformer.encode(
-        texts, batch_size=batch_size, show_progress_bar=False)
+    # embeddings = transformer.encode(
+    #     texts, batch_size=batch_size, show_progress_bar=False)
+    embeddings = generate_embeddings(
+        texts, model, batch_size=batch_size, show_progress=True, return_format="numpy")
     for node, embedding, text in zip(nodes, embeddings, texts):
         store_node = TextNode(
             id=node.id,

@@ -3,7 +3,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from jet.data.header_types import NodeWithScore, TextNode
 from jet.data.header_utils import VectorStore
-from jet.models.embeddings.base import load_embed_model
+from jet.models.embeddings.base import generate_embeddings, load_embed_model
 from jet.models.model_types import EmbedModelType
 from jet.logger import logger
 
@@ -14,34 +14,67 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(similarity)
 
 
-def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedModelType) -> List[float]:
+def calculate_similarity_scores(query: str, nodes: List[TextNode], model: EmbedModelType, batch_size: int = 32) -> List[float]:
     transformer = load_embed_model(model)
     query_embedding = transformer.encode([query], show_progress_bar=False)[0]
-    similarities = []
+    header_texts = [
+        f"{node.parent_header}\n{node.header}" if node.parent_header else node.header for node in nodes]
+    content_texts = []
+    header_prefixes = []
     for node in nodes:
         header_prefix = f"{node.header}\n" if node.header else ""
         content = node.content
         if header_prefix and content.startswith(header_prefix.strip()):
             content = content[len(header_prefix):].strip()
-        if not content.strip():
-            similarities.append(0.0)
-            continue
-        content_embedding = transformer.encode(
-            [content], show_progress_bar=False)[0]
-        content_sim = cosine_similarity(query_embedding, content_embedding)
-        header_text = f"{node.parent_header}\n{node.header}" if node.parent_header else node.header
+        content_texts.append(content)
+        header_prefixes.append(header_prefix)
+
+    all_texts = [text for text in header_texts + content_texts if text.strip()]
+    all_embeddings = generate_embeddings(
+        all_texts, model, batch_size=batch_size, show_progress=True, return_format="numpy")
+
+    # Split embeddings back into headers and content
+    header_embeddings = all_embeddings[:len(header_texts)]
+    content_embeddings = all_embeddings[len(header_texts):]
+
+    similarities = []
+    header_idx = 0
+    content_idx = 0
+
+    for i, node in enumerate(nodes):
+        header_text = header_texts[i]
+        content = content_texts[i]
+
+        # Initialize similarities
         header_sim = 0.0
-        header_embedding = transformer.encode(
-            [header_text], show_progress_bar=False)[0]
-        header_sim = cosine_similarity(query_embedding, header_embedding)
-        sim_count = sum(1 for sim in [content_sim, header_sim] if sim > 0)
+        content_sim = 0.0
+        sim_count = 0
+
+        # Calculate header similarity if header exists
+        if header_text.strip():
+            header_embedding = header_embeddings[header_idx]
+            header_sim = cosine_similarity(query_embedding, header_embedding)
+            sim_count += 1
+            header_idx += 1
+
+        # Calculate content similarity if content exists
+        if content.strip():
+            content_embedding = content_embeddings[content_idx]
+            content_sim = cosine_similarity(query_embedding, content_embedding)
+            sim_count += 1
+            content_idx += 1
+
+        # Compute final similarity
         final_sim = sum([content_sim, header_sim]) / max(sim_count, 1)
         similarities.append(final_sim)
+
+        # Update node metadata
         node.metadata = {
             "sim_count": sim_count,
             "header_similarity": header_sim,
             "content_similarity": content_sim,
         }
+
     return similarities
 
 

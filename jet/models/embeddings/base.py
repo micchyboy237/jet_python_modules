@@ -1,4 +1,5 @@
 from functools import lru_cache
+import time
 import numpy as np
 from sentence_transformers import CrossEncoder, SentenceTransformer
 from tokenizers import Tokenizer
@@ -101,6 +102,44 @@ def generate_multiple(
         elif return_format == "mlx":
             return mx.array(result, dtype=mx.float32)
         return result
+
+
+def embed_chunks_parallel(chunk_texts: Union[str, List[str]], embed_model: Union[EmbedModelType, SentenceTransformer], batch_size: int = 32, show_progress: bool = False, return_format: Literal["list", "numpy"] = "list") -> Union[List[List[float]], np.ndarray]:
+    """Embed chunks in batches to optimize performance."""
+    start_time = time.time()
+    if isinstance(chunk_texts, str):
+        chunk_texts = [chunk_texts]
+    logger.info("Embedding %d chunks in batches", len(chunk_texts))
+    embedder = load_embed_model(embed_model) if isinstance(
+        embed_model, str) else embed_model
+    if not chunk_texts:
+        logger.info("No chunks to embed, returning empty array")
+        return [] if return_format == "list" else np.zeros((0, embedder.get_sentence_embedding_dimension()), dtype=np.float32)
+    embeddings = []
+    embed_chunks_iter = range(0, len(chunk_texts), batch_size)
+    if show_progress:
+        embed_chunks_iter = tqdm(embed_chunks_iter, desc="Embedding chunks")
+    for i in embed_chunks_iter:
+        batch = chunk_texts[i:i + batch_size]
+        try:
+            batch_embeddings = embedder.encode(
+                batch, convert_to_numpy=True, batch_size=batch_size)
+            batch_embeddings = np.ascontiguousarray(
+                batch_embeddings.astype(np.float32))
+            if return_format == "list":
+                embeddings.extend([embedding.tolist()
+                                  for embedding in batch_embeddings])
+            else:
+                embeddings.extend(batch_embeddings)
+        except Exception as e:
+            logger.error("Error embedding batch: %s", e)
+            for _ in batch:
+                embeddings.append(
+                    [0.0] * embedder.get_sentence_embedding_dimension() if return_format == "list"
+                    else np.zeros(embedder.get_sentence_embedding_dimension(), dtype=np.float32))
+    duration = time.time() - start_time
+    logger.info("Embedding completed in %.3f seconds", duration)
+    return embeddings if return_format == "list" else np.vstack(embeddings)
 
 
 def generate_embeddings(

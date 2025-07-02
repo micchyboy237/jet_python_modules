@@ -8,7 +8,7 @@ import faiss
 from rank_bm25 import BM25Okapi
 from jet.file.utils import load_file
 from jet.models.model_types import EmbedModelType
-from jet.models.embeddings.base import load_embed_model
+from jet.models.embeddings.base import embed_chunks_parallel, load_embed_model
 from jet.logger import logger
 import re
 from tqdm import tqdm
@@ -302,34 +302,6 @@ def embed_chunk(chunk: str, embedder: SentenceTransformer) -> np.ndarray:
     """Embed a single chunk using SentenceTransformer."""
     embedding = embedder.encode(chunk, convert_to_numpy=True)
     return np.ascontiguousarray(embedding.astype(np.float32))
-
-
-def embed_chunks_parallel(chunk_texts: List[str], embedder: SentenceTransformer) -> np.ndarray:
-    """Embed chunks in batches to optimize performance."""
-    start_time = time.time()
-    logger.info("Embedding %d chunks in batches", len(chunk_texts))
-    if not chunk_texts:
-        logger.info("No chunks to embed, returning empty array")
-        return np.zeros((0, embedder.get_sentence_embedding_dimension()), dtype=np.float32)
-    batch_size = 32
-    embeddings = []
-    for i in tqdm(range(0, len(chunk_texts), batch_size), desc="Embedding chunks"):
-        batch = chunk_texts[i:i + batch_size]
-        try:
-            batch_embeddings = embedder.encode(
-                batch, convert_to_numpy=True, batch_size=batch_size)
-            batch_embeddings = np.ascontiguousarray(
-                batch_embeddings.astype(np.float32))
-            embeddings.extend(batch_embeddings)
-        except Exception as e:
-            logger.error("Error embedding batch: %s", e)
-            for _ in batch:
-                embeddings.append(
-                    np.zeros(embedder.get_sentence_embedding_dimension(), dtype=np.float32))
-    duration = time.time() - start_time
-    logger.info("Embedding completed in %.3f seconds", duration)
-    result = np.vstack(embeddings)
-    return result
 
 
 def get_original_document(
