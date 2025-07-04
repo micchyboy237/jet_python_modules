@@ -261,9 +261,129 @@ def process_nodes(
     return result_nodes
 
 
+def merge_nodes(
+    nodes: Nodes,
+    tokenizer: Tokenizer,
+    max_tokens: int,
+    buffer: int = 0
+) -> List[TextNode]:
+    """Merge nodes hierarchically while respecting max token limits."""
+    logger.debug(
+        f"Starting merge_nodes with {len(nodes)} nodes, max_tokens={max_tokens}, buffer={buffer}")
+    if not nodes:
+        logger.debug("No nodes provided, returning empty list")
+        return []
+
+    result_nodes: List[TextNode] = []
+    current_group: List[NodeType] = []
+    current_token_count: int = 0
+    current_chunk_index: int = 0
+
+    def create_merged_node(group: List[NodeType], chunk_index: int) -> TextNode:
+        logger.debug(
+            f"Creating merged node for group of {len(group)} nodes, chunk_index={chunk_index}")
+        texts = []
+        for node in group:
+            if node.get_text().strip():
+                texts.append(node.get_text())
+                logger.debug(f"Adding text: {node.get_text()}")
+        combined_text = "\n".join(texts)
+
+        parent_headers = list(
+            set(node.parent_header for node in group if node.parent_header))
+        parent_header = parent_headers[0] if parent_headers else None
+        doc_ids = list(set(node.doc_id for node in group))
+        doc_id = doc_ids[0] if doc_ids else group[0].doc_id
+        parent_ids = list(
+            set(node.parent_id for node in group if node.parent_id))
+        parent_id = parent_ids[0] if parent_ids else None
+
+        new_node = create_text_node(
+            node=group[0],
+            content=combined_text,
+            chunk_index=chunk_index,
+            parent_id=parent_id,
+            parent_header=parent_header,
+            doc_id=doc_id
+        )
+        token_ids = tokenizer.encode(
+            combined_text, add_special_tokens=False).ids
+        new_node.num_tokens = len(token_ids)
+        logger.debug(
+            f"Merged node created: text='{combined_text}', num_tokens={new_node.num_tokens}")
+        return new_node
+
+    for i, node in enumerate(nodes):
+        if not node.get_text().strip():
+            logger.debug(f"Skipping empty node {node.id}")
+            continue
+
+        token_ids = tokenizer.encode(
+            node.get_text(), add_special_tokens=False).ids
+        token_count = len(token_ids)
+        logger.debug(
+            f"Node {node.id}: text='{node.get_text()}', token_count={token_count}")
+
+        if token_count > max_tokens - buffer:
+            logger.debug(
+                f"Node {node.id} exceeds token limit: {token_count} > {max_tokens - buffer}")
+            chunks = chunk_content(
+                content=node.content,
+                model_name_or_tokenizer=tokenizer,
+                chunk_size=max_tokens,
+                chunk_overlap=0,
+                buffer=buffer,
+                header_prefix=node.header + "\n" if node.header else ""
+            )
+            for j, chunk in enumerate(chunks):
+                chunk_text = f"{node.header}\n{chunk}" if node.header and chunk else chunk
+                new_node = create_text_node(
+                    node=node,
+                    content=chunk_text,
+                    chunk_index=current_chunk_index,
+                    parent_id=node.parent_id,
+                    parent_header=node.parent_header,
+                    doc_id=node.doc_id
+                )
+                token_ids = tokenizer.encode(
+                    chunk_text, add_special_tokens=False).ids
+                new_node.num_tokens = len(token_ids)
+                logger.debug(
+                    f"Chunk {j} created: text='{chunk_text}', num_tokens={new_node.num_tokens}")
+                result_nodes.append(new_node)
+                current_chunk_index += 1
+            continue
+
+        if current_token_count + token_count <= max_tokens - buffer:
+            current_group.append(node)
+            current_token_count += token_count
+            logger.debug(
+                f"Added node {node.id} to current group, total_tokens={current_token_count}")
+        else:
+            if current_group:
+                result_nodes.append(create_merged_node(
+                    current_group, current_chunk_index))
+                current_chunk_index += 1
+                logger.debug(
+                    f"Flushed group, new chunk_index={current_chunk_index}")
+            current_group = [node]
+            current_token_count = token_count
+            logger.debug(
+                f"Started new group with node {node.id}, token_count={token_count}")
+
+    if current_group:
+        result_nodes.append(create_merged_node(
+            current_group, current_chunk_index))
+        logger.debug("Flushed final group")
+
+    logger.debug(f"Merge completed, returning {len(result_nodes)} nodes")
+    return result_nodes
+
+
 __all__ = [
+    "create_text_node",
+    "chunk_content",
     "process_node",
     "process_nodes",
-    "chunk_content",
-    "create_text_node",
+    "merge_nodes",
 ]

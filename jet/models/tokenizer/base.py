@@ -331,6 +331,7 @@ def count_tokens(
     tokenize = get_tokenizer_fn(
         model_name_or_tokenizer, remove_pad_tokens=remove_pad_tokens, add_special_tokens=add_special_tokens, disable_cache=disable_cache)
     tokenized = tokenize(messages)
+    tokenized = [t for t in tokenized if t != 0]
     if isinstance(messages, str):
         return len(tokenized)
     else:
