@@ -19,7 +19,7 @@ from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import load
 from jet.llm.mlx.utils.logit_bias import convert_logit_bias
 from jet.llm.mlx.logger_utils import ChatLogger
-from jet.llm.mlx.mlx_types import (
+from jet.models.model_types import (
     MLXTokenizer,
     Message,
     Tool,
@@ -31,7 +31,7 @@ from jet.llm.mlx.mlx_types import (
     LLMModelKey,
     LLMModelValue,
 )
-from jet.llm.mlx.models import AVAILABLE_MODELS, resolve_model_value
+from jet.models.utils import resolve_model_value
 from jet.utils.inspect_utils import get_entry_file_name
 
 DEFAULT_LOG_DIR = os.path.expanduser(
@@ -40,24 +40,6 @@ DEFAULT_LOG_DIR = os.path.expanduser(
 
 class MLXLMClient:
     """A client for interacting with MLX-LM models directly in Python."""
-
-    @staticmethod
-    def _get_model_value(model: LLMModelType) -> LLMModelValue:
-        """Convert a model key to its full value if it exists in AVAILABLE_MODELS."""
-        if not isinstance(model, str):
-            raise ValueError(
-                "Model must be a string (LLMModelKey or LLMModelValue)")
-
-        # Check if the model is a valid LLMModelValue (full path)
-        if model in AVAILABLE_MODELS.values():
-            return model  # type: ignore
-
-        # Check if the model is a valid LLMModelKey (short name)
-        if model in AVAILABLE_MODELS:
-            return AVAILABLE_MODELS[model]
-
-        # If not found, return the input as is (assuming it's a valid LLMModelValue)
-        return model  # type: ignore
 
     @dataclass
     class Config:
@@ -178,8 +160,8 @@ class MLXLMClient:
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion."""
         # Convert model keys to values
-        model_value = self._get_model_value(model)
-        draft_model_value = self._get_model_value(
+        model_value = resolve_model_value(model)
+        draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
 
         # Validate parameters
@@ -289,8 +271,8 @@ class MLXLMClient:
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions as they are generated."""
         # Convert model keys to values
-        model_value = self._get_model_value(model)
-        draft_model_value = self._get_model_value(
+        model_value = resolve_model_value(model)
+        draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
 
         # Validate parameters
@@ -398,8 +380,8 @@ class MLXLMClient:
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a text completion."""
         # Convert model keys to values
-        model_value = self._get_model_value(model)
-        draft_model_value = self._get_model_value(
+        model_value = resolve_model_value(model)
+        draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
 
         # Validate parameters
@@ -496,8 +478,8 @@ class MLXLMClient:
     ) -> Iterator[CompletionResponse]:
         """Stream text completions as they are generated."""
         # Convert model keys to values
-        model_value = self._get_model_value(model)
-        draft_model_value = self._get_model_value(
+        model_value = resolve_model_value(model)
+        draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
 
         # Validate parameters
