@@ -1,4 +1,5 @@
 from datetime import datetime
+from jet.scrapers.config import TEXT_ELEMENTS
 from jet.utils.url_utils import clean_url
 from jet.wordnet.sentence import split_sentences
 from lxml.etree import Comment
@@ -917,7 +918,8 @@ def extract_search_inputs(source: str, timeout_ms: int = 1000) -> List[str]:
 class TreeNode:
     def __init__(self, tag: str, text: Optional[str], depth: int, id: str,
                  parent: Optional[str], class_names: List[str] = [],
-                 link: Optional[str] = None, children: Optional[List['TreeNode']] = None):
+                 link: Optional[str] = None, children: Optional[List['TreeNode']] = None,
+                 line: int = 0):
         self.tag = tag
         self.text = text
         self.depth = depth
@@ -927,6 +929,7 @@ class TreeNode:
         self.link = link
         self.children: List['TreeNode'] = children if children is not None else [
         ]
+        self.line = line
 
     def get_content(self) -> str:
         content = self.text or ""
@@ -953,7 +956,7 @@ def extract_tree_with_text(
     timeout_ms: int = 1000
 ) -> Optional[TreeNode]:
     """
-    Extracts a tree structure from HTML with id, parent, and link attributes on each node.
+    Extracts a tree structure from HTML with id, parent, link attributes, and line numbers on each node.
     """
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
@@ -994,16 +997,19 @@ def extract_tree_with_text(
         parent=None,
         class_names=[],
         link=None,
-        children=[]
+        children=[],
+        line=1  # Root node starts at line 1
     )
 
-    stack = [(root_el, root_node, 0)]
+    stack = [(root_el, root_node, 0, 1)]  # Added line number to stack
 
+    line_counter = 1
     while stack:
-        el, parent_node, depth = stack.pop()
+        el, parent_node, depth, parent_line = stack.pop()
         el_pq = pq(el)
 
         for child in el_pq.children():
+            line_counter += 1  # Increment line counter for each new element
             child_pq = pq(child)
             # Skip comment nodes
             if child.tag is Comment or str(child.tag).startswith('<cyfunction Comment'):
@@ -1023,7 +1029,6 @@ def extract_tree_with_text(
 
             # Handle <p> tags by combining all child text into a single string
             if tag.lower() == "p":
-                # Extract all text from child elements, joining without extra spaces
                 text_parts = []
                 for item in child_pq.contents():
                     if isinstance(item, str):
@@ -1043,7 +1048,8 @@ def extract_tree_with_text(
                 parent=parent_node.id,
                 class_names=class_names,
                 link=link,
-                children=[]
+                children=[],
+                line=line_counter
             )
 
             # Check if child text is a substring of parent text and empty parent text if true
@@ -1052,16 +1058,16 @@ def extract_tree_with_text(
 
             parent_node.children.append(child_node)
 
-            # Only traverse deeper if the tag is not <p>
-            if tag.lower() != "p" and child_pq.children():
-                stack.append((child, child_node, depth + 1))
+            # Only traverse deeper if the tag is not in TEXT_ELEMENTS
+            if tag.lower() not in TEXT_ELEMENTS and child_pq.children():
+                stack.append((child, child_node, depth + 1, line_counter))
 
     return root_node
 
 
 def extract_by_heading_hierarchy(
     source: str,
-    tags_to_split_on: list[tuple[str, str]] = [
+    tags_to_split_on: List[Tuple[str, str]] = [
         ("#", "h1"),
         ("##", "h2"),
         ("###", "h3"),
@@ -1069,7 +1075,7 @@ def extract_by_heading_hierarchy(
         ("#####", "h5"),
         ("######", "h6"),
     ],
-    excludes: list[str] = ["nav", "footer", "script", "style"]
+    excludes: List[str] = ["nav", "footer", "script", "style"]
 ) -> List[TreeNode]:
     """
     Extracts a list of TreeNode hierarchies split by heading tags, avoiding duplicates,
@@ -1077,7 +1083,7 @@ def extract_by_heading_hierarchy(
     """
     results: List[TreeNode] = []
     parent_stack: List[Tuple[int, TreeNode]] = []
-    seen_ids: set = set()
+    seen_ids: Set[str] = set()
 
     def clone_node(node: TreeNode, new_parent_id: Optional[str] = None, new_depth: int = 0) -> TreeNode:
         """
@@ -1101,7 +1107,8 @@ def extract_by_heading_hierarchy(
             parent=new_parent_id,
             class_names=node.class_names,
             link=node.link,
-            children=[]
+            children=[],
+            line=node.line
         )
         return cloned
 
@@ -1152,11 +1159,12 @@ class TextHierarchyResult(TypedDict):
     id: str
     parent: Optional[str]
     parent_text: Optional[str]
+    line: int
 
 
 def extract_texts_by_hierarchy(
     source: str,
-    tags_to_split_on: list[tuple[str, str]] = [
+    tags_to_split_on: List[Tuple[str, str]] = [
         ("#", "h1"),
         ("##", "h2"),
         ("###", "h3"),
@@ -1165,26 +1173,15 @@ def extract_texts_by_hierarchy(
         ("######", "h6"),
     ],
     ignore_links: bool = True,
-    excludes: list[str] = ["nav", "footer", "script", "style"],
+    excludes: List[str] = ["nav", "footer", "script", "style"],
 ) -> List[TextHierarchyResult]:
     """
     Extracts a list of dictionaries from HTML, each containing the combined text of a heading
-    and its descendants, a list of unique links, depth, id, parent, and parent_text attributes.
-
-    Args:
-        source: HTML string, URL, or file path to process.
-        tags_to_split_on: List of tuples with (prefix, tag) to split the hierarchy (e.g., [("#", "h1"), ("##", "h2")]).
-        ignore_links: If True, excludes text from nodes with 'a' tags but includes their links.
-        excludes: List of HTML tags whose text and links should be excluded (e.g., ["footer", "nav"]).
-
-    Returns:
-        List of dictionaries, each with 'text' (combined text of heading and descendants),
-        'links' (list of unique links), 'depth' (node depth), 'id' (node ID), 
-        'parent' (parent node ID or None), and 'parent_text' (combined text of parent and its descendants or None).
+    and its descendants, a list of unique links, depth, id, parent, parent_text, and line attributes.
     """
     def collect_text_and_links(node: TreeNode) -> Tuple[TextHierarchyResult, str]:
         """
-        Recursively collects text, unique links, depth, id, parent, and parent_text from a node and its children,
+        Recursively collects text, unique links, depth, id, parent, parent_text, and line from a node and its children,
         and returns the combined text for the node.
         """
         texts = []
@@ -1210,7 +1207,8 @@ def extract_texts_by_hierarchy(
             "depth": node.depth,
             "id": node.id,
             "parent": node.parent,
-            "parent_text": None  # Will be populated later using id_to_text
+            "parent_text": None,  # Will be populated later using id_to_text
+            "line": node.line
         }, combined_text
 
     heading_nodes = extract_by_heading_hierarchy(
