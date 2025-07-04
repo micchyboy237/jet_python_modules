@@ -77,7 +77,7 @@ class TokenizerWrapper:
             else 0
         )
 
-    def __call__(self, texts: Union[str, List[str]], **kwargs) -> Union[List[int], List[List[int]]]:
+    def __call__(self, texts: Union[str, List[str]], **kwargs) -> Union[EncodingWrapper, List[EncodingWrapper]]:
         """Tokenize input texts, supporting single string or list of strings."""
         logger.debug(
             f"TokenizerWrapper called with texts: {texts}, kwargs: {kwargs}")
@@ -85,8 +85,8 @@ class TokenizerWrapper:
             return self.encode(texts, **kwargs)
         return self.encode_batch(texts, **kwargs)
 
-    def encode(self, text: str, **kwargs) -> List[int]:
-        """Encode a single text string into token IDs."""
+    def encode(self, text: str, **kwargs) -> EncodingWrapper:
+        """Encode a single text string into an EncodingWrapper."""
         logger.debug(f"Encoding text: {text}, kwargs: {kwargs}")
         if not isinstance(text, str):
             logger.error(
@@ -98,21 +98,21 @@ class TokenizerWrapper:
         if 'add_special_tokens' not in encode_kwargs:
             encode_kwargs['add_special_tokens'] = self.add_special_tokens
 
-        if isinstance(self.tokenizer, (Tokenizer, TokenizerWrapper)):
+        if isinstance(self.tokenizer, Tokenizer):
             encoding = self.tokenizer.encode(text, **encode_kwargs)
-            encoding = EncodingWrapper(
-                encoding=encoding, tokenizer=self.tokenizer)
-            token_ids = encoding
+            wrapped_encoding = EncodingWrapper(encoding, self.tokenizer)
         else:
             token_ids = self.tokenizer.encode(text, **encode_kwargs)
+            wrapped_encoding = EncodingWrapper(token_ids, self.tokenizer)
 
         if self.remove_pad_tokens:
-            token_ids = [tid for tid in token_ids if tid != self.pad_token_id]
-        logger.debug(f"Encoded token IDs: {token_ids}")
-        return token_ids
+            wrapped_encoding._ids = [
+                tid for tid in wrapped_encoding._ids if tid != self.pad_token_id]
+        logger.debug(f"Encoded token IDs: {wrapped_encoding._ids}")
+        return wrapped_encoding
 
-    def encode_batch(self, texts: List[str], **kwargs) -> List[List[int]]:
-        """Encode a batch of texts into token IDs."""
+    def encode_batch(self, texts: List[str], **kwargs) -> List[EncodingWrapper]:
+        """Encode a batch of texts into a list of EncodingWrapper objects."""
         logger.debug(f"Encoding batch texts: {texts}, kwargs: {kwargs}")
         for text in texts:
             if not isinstance(text, str):
@@ -127,20 +127,23 @@ class TokenizerWrapper:
 
         if isinstance(self.tokenizer, Tokenizer):
             encodings = self.tokenizer.encode_batch(texts, **encode_kwargs)
-            token_ids = [encoding.ids for encoding in encodings]
+            wrapped_encodings = [EncodingWrapper(
+                enc, self.tokenizer) for enc in encodings]
         else:
-            token_ids = [
+            token_ids_list = [
                 self.tokenizer.encode(text, **encode_kwargs)
                 for text in texts
             ]
+            wrapped_encodings = [EncodingWrapper(
+                ids, self.tokenizer) for ids in token_ids_list]
 
         if self.remove_pad_tokens:
-            token_ids = [
-                [tid for tid in ids if tid != self.pad_token_id]
-                for ids in token_ids
-            ]
-        logger.debug(f"Encoded batch token IDs: {token_ids}")
-        return token_ids
+            for wrapped in wrapped_encodings:
+                wrapped._ids = [
+                    tid for tid in wrapped._ids if tid != self.pad_token_id]
+        logger.debug(
+            f"Encoded batch token IDs: {[w._ids for w in wrapped_encodings]}")
+        return wrapped_encodings
 
     def decode(self, token_ids: Union[List[int], List[List[int]]], **kwargs) -> Union[str, List[str]]:
         """Decode token IDs back to text."""
