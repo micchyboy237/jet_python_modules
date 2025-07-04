@@ -1038,7 +1038,7 @@ def extract_tree_with_text(
             if tag.lower() == "meta":
                 text = child_pq.attr("content") or ""
                 text = decode_text_with_unidecode(text.strip())
-            elif tag.lower() == "p":
+            elif tag.lower() in TEXT_ELEMENTS:
                 text_parts = []
                 for item in child_pq.contents():
                     if isinstance(item, str):
