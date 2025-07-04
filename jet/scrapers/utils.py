@@ -1,4 +1,5 @@
 from datetime import datetime
+from jet.code.html_utils import format_html
 from jet.scrapers.config import TEXT_ELEMENTS
 from jet.utils.url_utils import clean_url
 from jet.wordnet.sentence import split_sentences
@@ -956,7 +957,7 @@ def extract_tree_with_text(
     timeout_ms: int = 1000
 ) -> Optional[TreeNode]:
     """
-    Extracts a tree structure from HTML with id, parent, link attributes, and line numbers on each node.
+    Extracts a tree structure from HTML with id, parent, link attributes, and actual line numbers from formatted HTML.
     """
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
@@ -981,13 +982,21 @@ def extract_tree_with_text(
         page_content = page.content()
         browser.close()
 
-    doc = pq(page_content)
+    # Format the HTML content using format_html
+    formatted_html = format_html(page_content)
+    doc = pq(formatted_html)
     exclude_elements(doc, excludes)
+
+    # Split formatted HTML into lines for line number tracking
+    html_lines = formatted_html.splitlines()
 
     root_el = doc[0]
     root_id = f"auto_{uuid.uuid4().hex[:8]}"
     tag_name = root_el.tag if isinstance(
         root_el.tag, str) else str(root_el.tag)
+
+    # Use sourceline if available, otherwise default to 1
+    root_line = getattr(root_el, 'sourceline', 1)
 
     root_node = TreeNode(
         tag=tag_name,
@@ -998,18 +1007,16 @@ def extract_tree_with_text(
         class_names=[],
         link=None,
         children=[],
-        line=1  # Root node starts at line 1
+        line=root_line
     )
 
-    stack = [(root_el, root_node, 0, 1)]  # Added line number to stack
+    stack = [(root_el, root_node, 0)]  # (element, parent_node, depth)
 
-    line_counter = 1
     while stack:
-        el, parent_node, depth, parent_line = stack.pop()
+        el, parent_node, depth = stack.pop()
         el_pq = pq(el)
 
         for child in el_pq.children():
-            line_counter += 1  # Increment line counter for each new element
             child_pq = pq(child)
             # Skip comment nodes
             if child.tag is Comment or str(child.tag).startswith('<cyfunction Comment'):
@@ -1031,7 +1038,7 @@ def extract_tree_with_text(
             if tag.lower() == "meta":
                 text = child_pq.attr("content") or ""
                 text = decode_text_with_unidecode(text.strip())
-            elif tag.lower() in TEXT_ELEMENTS:
+            elif tag.lower() == "p":
                 text_parts = []
                 for item in child_pq.contents():
                     if isinstance(item, str):
@@ -1043,16 +1050,28 @@ def extract_tree_with_text(
             else:
                 text = decode_text_with_unidecode(child_pq.text().strip())
 
+            # Get the actual line number from lxml's sourceline if available
+            line_number = getattr(child, 'sourceline', None)
+            if line_number is None:
+                # Fallback: Approximate line number by searching for the element's tag in the formatted HTML
+                element_str = f"<{tag}"
+                for i, line in enumerate(html_lines, 1):
+                    if element_str in line:
+                        line_number = i
+                        break
+                else:
+                    line_number = parent_node.line + 1  # Fallback to parent line + 1 if not found
+
             child_node = TreeNode(
                 tag=tag,
-                text=text or "",
+                text=text,
                 depth=depth + 1,
                 id=element_id,
                 parent=parent_node.id,
                 class_names=class_names,
                 link=link,
                 children=[],
-                line=line_counter
+                line=line_number
             )
 
             # Check if child text is a substring of parent text and empty parent text if true
@@ -1063,7 +1082,7 @@ def extract_tree_with_text(
 
             # Only traverse deeper if the tag is not in TEXT_ELEMENTS
             if tag.lower() not in TEXT_ELEMENTS and child_pq.children():
-                stack.append((child, child_node, depth + 1, line_counter))
+                stack.append((child, child_node, depth + 1))
 
     return root_node
 
