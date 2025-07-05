@@ -134,8 +134,10 @@ class VectorSearchWeb:
             logger.error("No chunks generated for indexing")
             return
         chunk_texts = [chunk[1] for chunk in all_chunks]
-        embeddings = generate_embeddings(
-            chunk_texts, show_progress=True, return_format="numpy")
+        embeddings = self.embed_model.encode(
+            chunk_texts, show_progress_bar=True, batch_size=16, device=self.device)
+        # embeddings = generate_embeddings(
+        #     chunk_texts, show_progress=True, return_format="numpy")
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
         faiss.normalize_L2(embeddings)
@@ -146,7 +148,9 @@ class VectorSearchWeb:
     def search(self, query: str, k: int = 5, use_cross_encoder: bool = True, query_type: str = "short") -> List[Tuple[str, str, int, str, float]]:
         """Search with deduplication to reduce redundant neighbors."""
         chunk_size_preference = 150 if query_type == "short" else 250
-        query_embedding = generate_embeddings([query], return_format="numpy")
+        query_embedding = self.embed_model.encode(
+            [query], show_progress_bar=False)[0]
+        # query_embedding = generate_embeddings([query], return_format="numpy")
         faiss.normalize_L2(query_embedding.reshape(1, -1))
         if not self.index or not self.chunk_metadata:
             logger.error("Index or metadata not initialized")
