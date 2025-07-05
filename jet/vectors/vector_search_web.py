@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 import re
 from urllib.robotparser import RobotFileParser
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from scipy.special import expit  # For sigmoid
+from scipy.special import expit
 
 # Set up logging
 logging.basicConfig(level=logging.INFO,
@@ -23,7 +23,6 @@ nltk.download('punkt', quiet=True)
 def check_robots_txt(url):
     """
     Check if scraping is allowed by robots.txt.
-    Returns True if allowed, False otherwise.
     """
     try:
         rp = RobotFileParser()
@@ -78,7 +77,8 @@ def is_valid_header(header):
     """
     if not header:
         return True
-    generic_keywords = {'planet', 'articles', 'tutorials', 'jobs', 'topic'}
+    generic_keywords = {'planet', 'articles', 'tutorials',
+                        'jobs', 'topic', 'further', 'why', 'looking'}
     date_pattern = r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b'
     if any(keyword in header.lower() for keyword in generic_keywords) or re.match(date_pattern, header):
         return False
@@ -88,7 +88,6 @@ def is_valid_header(header):
 def separate_by_headers(paragraphs):
     """
     Group paragraphs into sections based on headers (h1-h6).
-    Returns a list of sections with header, content, and xpath.
     """
     sections = []
     current_section = {"header": None, "content": [], "xpath": None}
@@ -115,7 +114,7 @@ def separate_by_headers(paragraphs):
 
 def chunk_with_overlap(section, max_tokens=200, overlap_tokens=50, model=None):
     """
-    Split section into chunks with overlap, filtering by header-content similarity.
+    Split section into chunks with overlap, filtering by header-content similarity and minimum length.
     """
     text = (section["header"] + "\n" + " ".join(section["content"])
             if section["header"] else " ".join(section["content"]))
@@ -125,7 +124,6 @@ def chunk_with_overlap(section, max_tokens=200, overlap_tokens=50, model=None):
     current_tokens = 0
     chunk_id = 0
 
-    # Compute header embedding if available
     header_embedding = model.encode(
         section["header"], convert_to_tensor=False, show_progress_bar=False) if section["header"] else None
 
@@ -136,13 +134,19 @@ def chunk_with_overlap(section, max_tokens=200, overlap_tokens=50, model=None):
             current_tokens += sentence_tokens
         else:
             chunk_text = " ".join(current_chunk)
-            # Filter by header-content similarity
+            token_count = len(word_tokenize(chunk_text))
+            if token_count < 20:  # Relaxed minimum length
+                logging.debug(
+                    f"Skipping chunk under header '{section['header']}' due to short length ({token_count} tokens)")
+                current_chunk = []
+                current_tokens = 0
+                continue
             if header_embedding is not None:
                 chunk_embedding = model.encode(
                     chunk_text, convert_to_tensor=False, show_progress_bar=False)
                 similarity = np.dot(header_embedding, chunk_embedding) / (
                     np.linalg.norm(header_embedding) * np.linalg.norm(chunk_embedding))
-                if similarity < 0.5:  # Threshold for relevance
+                if similarity < 0.5:  # Relaxed threshold
                     logging.debug(
                         f"Skipping chunk under header '{section['header']}' due to low similarity ({similarity:.2f})")
                     current_chunk = []
@@ -151,7 +155,7 @@ def chunk_with_overlap(section, max_tokens=200, overlap_tokens=50, model=None):
             chunks.append({
                 "chunk_id": chunk_id,
                 "text": chunk_text,
-                "token_count": current_tokens,
+                "token_count": token_count,
                 "header": section["header"],
                 "xpath": section["xpath"]
             })
@@ -170,30 +174,32 @@ def chunk_with_overlap(section, max_tokens=200, overlap_tokens=50, model=None):
 
     if current_chunk:
         chunk_text = " ".join(current_chunk)
-        if header_embedding is not None:
-            chunk_embedding = model.encode(
-                chunk_text, convert_to_tensor=False, show_progress_bar=False)
-            similarity = np.dot(header_embedding, chunk_embedding) / (
-                np.linalg.norm(header_embedding) * np.linalg.norm(chunk_embedding))
-            if similarity < 0.5:
-                logging.debug(
-                    f"Skipping chunk under header '{section['header']}' due to low similarity ({similarity:.2f})")
+        token_count = len(word_tokenize(chunk_text))
+        if token_count >= 20:
+            if header_embedding is not None:
+                chunk_embedding = model.encode(
+                    chunk_text, convert_to_tensor=False, show_progress_bar=False)
+                similarity = np.dot(header_embedding, chunk_embedding) / (
+                    np.linalg.norm(header_embedding) * np.linalg.norm(chunk_embedding))
+                if similarity < 0.5:
+                    logging.debug(
+                        f"Skipping chunk under header '{section['header']}' due to low similarity ({similarity:.2f})")
+                else:
+                    chunks.append({
+                        "chunk_id": chunk_id,
+                        "text": chunk_text,
+                        "token_count": token_count,
+                        "header": section["header"],
+                        "xpath": section["xpath"]
+                    })
             else:
                 chunks.append({
                     "chunk_id": chunk_id,
                     "text": chunk_text,
-                    "token_count": current_tokens,
+                    "token_count": token_count,
                     "header": section["header"],
                     "xpath": section["xpath"]
                 })
-        else:
-            chunks.append({
-                "chunk_id": chunk_id,
-                "text": chunk_text,
-                "token_count": current_tokens,
-                "header": section["header"],
-                "xpath": section["xpath"]
-            })
 
     logging.info(
         f"Created {len(chunks)} chunks for section: {section['header'] or 'No header'}")
@@ -207,7 +213,6 @@ def prepare_for_rag(urls, model_name='all-MiniLM-L6-v2', batch_size=32):
     model = SentenceTransformer(model_name)
     chunked_documents = []
 
-    # Process URLs in parallel with progress bar
     with ThreadPoolExecutor() as executor:
         results = list(tqdm(
             executor.map(lambda url: clean_html(
@@ -232,14 +237,25 @@ def prepare_for_rag(urls, model_name='all-MiniLM-L6-v2', batch_size=32):
         logging.warning("No chunks generated, cannot create FAISS index")
         return None, [], model
 
-    # Deduplicate chunks by header and content
+    # Deduplicate by header and text
     unique_chunks = []
-    seen = set()
+    seen_texts = set()
+    header_to_chunks = {}
     for chunk in chunked_documents:
-        key = (chunk["header"], chunk["text"])
-        if key not in seen:
-            seen.add(key)
-            unique_chunks.append(chunk)
+        header = chunk["header"] or "No header"
+        if header not in header_to_chunks:
+            header_to_chunks[header] = []
+        header_to_chunks[header].append(chunk)
+
+    for header, chunks in header_to_chunks.items():
+        # Deduplicate identical texts
+        text_to_chunk = {}
+        for chunk in chunks:
+            text = chunk["text"]
+            if text not in seen_texts:
+                seen_texts.add(text)
+                text_to_chunk[text] = chunk
+        unique_chunks.extend(text_to_chunk.values())
 
     chunked_documents = unique_chunks
     logging.info(f"Deduplicated to {len(chunked_documents)} unique chunks")
@@ -279,9 +295,9 @@ def prepare_for_rag(urls, model_name='all-MiniLM-L6-v2', batch_size=32):
     return index, embeddings, model
 
 
-def query_rag(index, embeddings, model, query_text, k=20, cross_encoder_model='cross-encoder/ms-marco-MiniLM-L-12-v2'):
+def query_rag(index, embeddings, model, query_text, k=30, cross_encoder_model='cross-encoder/ms-marco-MiniLM-L-12-v2'):
     """
-    Query the RAG system and return top-10 results sorted by cross-encoder score.
+    Query the RAG system with MMR for diversity and return top-10 results.
     """
     if index is None or not embeddings:
         logging.error("No index or embeddings available for querying")
@@ -293,23 +309,45 @@ def query_rag(index, embeddings, model, query_text, k=20, cross_encoder_model='c
     D, I = index.search(np.array([query_embedding]), k)
     results = []
 
-    # Prepare pairs for cross-encoder re-ranking
+    # Cross-encoder re-ranking
     pairs = [[query_text, embeddings[idx]["text"]] for idx in I[0]]
-    cross_scores = cross_encoder.predict(pairs)
+    cross_scores = cross_encoder.predict(pairs, show_progress_bar=False)
 
-    for idx, cross_score in zip(I[0], cross_scores):
-        # Apply sigmoid to normalize scores to [0, 1]
-        normalized_score = expit(cross_score)
-        results.append({
-            "header": embeddings[idx]["header"],
-            "text": embeddings[idx]["text"],
-            "url": embeddings[idx]["url"],
-            "score": float(normalized_score)
-        })
+    # Apply MMR for diversity
+    lambda_param = 0.5  # Balance relevance and diversity
+    selected_indices = []
+    selected_embeddings = []
 
-    # Sort results by cross-encoder score in descending order
-    results = sorted(results, key=lambda x: x["score"], reverse=True)[:10]
-    return results
+    for _ in range(min(10, len(I[0]))):
+        best_score = -float('inf')
+        best_idx = None
+        for i, idx in enumerate(I[0]):
+            if i in selected_indices:
+                continue
+            relevance_score = expit(cross_scores[i]) * 1.5  # Scale scores
+            diversity_score = 0
+            if selected_embeddings:
+                chunk_embedding = embeddings[idx]["embedding"]
+                similarities = [np.dot(chunk_embedding, se) / (np.linalg.norm(
+                    chunk_embedding) * np.linalg.norm(se)) for se in selected_embeddings]
+                diversity_score = min(similarities) if similarities else 0
+            mmr_score = lambda_param * relevance_score - \
+                (1 - lambda_param) * diversity_score
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = i
+
+        if best_idx is not None:
+            selected_indices.append(best_idx)
+            selected_embeddings.append(embeddings[I[0][best_idx]]["embedding"])
+            results.append({
+                "header": embeddings[I[0][best_idx]]["header"],
+                "text": embeddings[I[0][best_idx]]["text"],
+                "url": embeddings[I[0][best_idx]]["url"],
+                "score": float(expit(cross_scores[best_idx]) * 1.5)
+            })
+
+    return results[:10]
 
 
 def main():
@@ -323,9 +361,8 @@ def main():
         print("No data indexed, exiting.")
         return
 
-    # Example query
     query_text = "What is Python programming?"
-    results = query_rag(index, embeddings, model, query_text, k=20)
+    results = query_rag(index, embeddings, model, query_text, k=30)
 
     print("\nQuery Results:")
     for i, result in enumerate(results, 1):
@@ -338,7 +375,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# if __name__ == "__main__":
-#     query_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/features/generated/run_search_and_rerank/top_isekai_anime_2025/query.md"
-#     html_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/features/generated/run_search_and_rerank/top_isekai_anime_2025/pages/animebytes_in_15_best_upcoming_isekai_anime_in_2025/page.html"
