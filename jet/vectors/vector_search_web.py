@@ -15,8 +15,9 @@ import json
 from jet.file.utils import save_file
 from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
-from jet.models.model_types import LLMModelType
+from jet.models.model_types import LLMModelType, EmbedModelType
 from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
+from jet.models.utils import resolve_model_value
 nltk.download('punkt', quiet=True)
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(
@@ -122,7 +123,7 @@ class VectorSearchWeb:
             i += chunk_size - overlap
         return chunks
 
-    def index_documents(self, documents: List[Tuple[str, str]], chunk_sizes: List[int], overlap_ratio: float = 0.2):
+    def index_documents(self, documents: List[Tuple[str, str]], embed_model: EmbedModelType, chunk_sizes: List[int], overlap_ratio: float = 0.2):
         """Index documents with multiple chunk sizes."""
         all_chunks = []
         for doc_id, text in documents:
@@ -134,10 +135,8 @@ class VectorSearchWeb:
             logger.error("No chunks generated for indexing")
             return
         chunk_texts = [chunk[1] for chunk in all_chunks]
-        # embeddings = self.embed_model.encode(
-        #     chunk_texts, show_progress_bar=True, batch_size=16, device=self.device)
         embeddings = generate_embeddings(
-            chunk_texts, show_progress=True, return_format="numpy")
+            chunk_texts, embed_model, show_progress=True, return_format="numpy")
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
         faiss.normalize_L2(embeddings)
@@ -148,7 +147,8 @@ class VectorSearchWeb:
     def search(self, query: str, k: int = 5, use_cross_encoder: bool = True, query_type: str = "short") -> List[Tuple[str, str, int, str, float]]:
         """Search with deduplication to reduce redundant neighbors."""
         chunk_size_preference = 150 if query_type == "short" else 250
-        query_embedding = generate_embeddings([query], return_format="numpy")
+        query_embedding = generate_embeddings(
+            [query], embed_model, return_format="numpy")
         faiss.normalize_L2(query_embedding.reshape(1, -1))
         if not self.index or not self.chunk_metadata:
             logger.error("Index or metadata not initialized")
@@ -184,16 +184,18 @@ class VectorSearchWeb:
 
     def evaluate_models(self, documents: List[Tuple[str, str]],
                         validation_set: List[Tuple[str, List[Tuple[str, int]]]],
-                        model_names: List[str], chunk_sizes: List[int],
-                        overlap_ratio: float = 0.2, k: int = 5) -> Dict[str, Dict[str, float]]:
-        """Evaluate multiple models and return performance metrics."""
+                        model_names: List[EmbedModelType], chunk_sizes: List[int],
+                        overlap_ratio: float = 0.2, k: int = 5) -> Dict[str, Dict[str, Dict[str, float]]]:
+        """Evaluate multiple models and return performance metrics for each model and chunk size."""
         results = {}
         original_model = self.embed_model.model_card_data.get(
             'model_name', 'sentence-transformers/all-MiniLM-L6-v2')
         original_tokenizer = self.tokenizer
         original_context_size = self.max_context_size
         for model_name in model_names:
+            model_name = resolve_model_value(model_name)
             logger.info("Evaluating model: %s", model_name)
+            results[model_name] = {}
             try:
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
                 if torch.backends.mps.is_available():
@@ -205,52 +207,54 @@ class VectorSearchWeb:
                     model_name, device=self.device)
                 self.tokenizer = AutoTokenizer.from_pretrained(model_name)
                 self.max_context_size = 512
-                self.index_documents(
-                    documents, chunk_sizes=chunk_sizes, overlap_ratio=overlap_ratio)
-                if not self.index:
-                    logger.error(
-                        "Failed to index documents for model %s", model_name)
-                    results[model_name] = {
-                        'precision': 0.0, 'recall': 0.0, 'mrr': 0.0}
-                    continue
-                precision_sum = 0.0
-                recall_sum = 0.0
-                mrr_sum = 0.0
-                total_queries = len(validation_set)
-                for query, relevant_chunks in validation_set:
-                    query_type = "short" if len(self.tokenizer.encode(
-                        query, add_special_tokens=False, truncation=True, max_length=self.max_context_size)) < 50 else "long"
-                    search_results = self.search(
-                        query, k=k, query_type=query_type)
-                    relevant_set = set((doc_id, chunk_idx)
-                                       for doc_id, chunk_idx in relevant_chunks)
-                    retrieved_set = set((doc_id, chunk_idx)
-                                        for doc_id, _, chunk_idx, _, _ in search_results)
-                    precision = len(
-                        relevant_set & retrieved_set) / k if k > 0 else 0.0
-                    precision_sum += precision
-                    recall = len(relevant_set & retrieved_set) / \
-                        len(relevant_set) if relevant_set else 0.0
-                    recall_sum += recall
-                    mrr = 0.0
-                    for rank, (doc_id, _, chunk_idx, _, _) in enumerate(search_results, 1):
-                        if (doc_id, chunk_idx) in relevant_set:
-                            mrr = 1.0 / rank
-                            break
-                    mrr_sum += mrr
-                results[model_name] = {
-                    'precision': precision_sum / total_queries if total_queries else 0.0,
-                    'recall': recall_sum / total_queries if total_queries else 0.0,
-                    'mrr': mrr_sum / total_queries if total_queries else 0.0
-                }
-                logger.info("Model %s: Precision@%d=%.4f, Recall@%d=%.4f, MRR=%.4f",
-                            model_name, k, results[model_name]['precision'],
-                            k, results[model_name]['recall'], results[model_name]['mrr'])
+                for chunk_size in chunk_sizes:
+                    self.index_documents(
+                        documents, model_name, chunk_sizes=[chunk_size], overlap_ratio=overlap_ratio)
+                    if not self.index:
+                        logger.error(
+                            "Failed to index documents for model %s, chunk size %d", model_name, chunk_size)
+                        results[model_name][chunk_size] = {
+                            'precision': 0.0, 'recall': 0.0, 'mrr': 0.0}
+                        continue
+                    precision_sum = 0.0
+                    recall_sum = 0.0
+                    mrr_sum = 0.0
+                    total_queries = len(validation_set)
+                    for query, relevant_chunks in validation_set:
+                        query_type = "short" if len(self.tokenizer.encode(
+                            query, add_special_tokens=False, truncation=True, max_length=self.max_context_size)) < 50 else "long"
+                        search_results = self.search(
+                            query, k=k, query_type=query_type)
+                        relevant_set = set((doc_id, chunk_idx)
+                                           for doc_id, chunk_idx in relevant_chunks)
+                        retrieved_set = set((doc_id, chunk_idx)
+                                            for doc_id, _, chunk_idx, _, _ in search_results)
+                        precision = len(
+                            relevant_set & retrieved_set) / k if k > 0 else 0.0
+                        precision_sum += precision
+                        recall = len(relevant_set & retrieved_set) / \
+                            len(relevant_set) if relevant_set else 0.0
+                        recall_sum += recall
+                        mrr = 0.0
+                        for rank, (doc_id, _, chunk_idx, _, _) in enumerate(search_results, 1):
+                            if (doc_id, chunk_idx) in relevant_set:
+                                mrr = 1.0 / rank
+                                break
+                        mrr_sum += mrr
+                    results[model_name][chunk_size] = {
+                        'precision': precision_sum / total_queries if total_queries else 0.0,
+                        'recall': recall_sum / total_queries if total_queries else 0.0,
+                        'mrr': mrr_sum / total_queries if total_queries else 0.0
+                    }
+                    logger.info("Model %s, Chunk Size %d: Precision@%d=%.4f, Recall@%d=%.4f, MRR=%.4f",
+                                model_name, chunk_size, k, results[model_name][chunk_size]['precision'],
+                                k, results[model_name][chunk_size]['recall'], results[model_name][chunk_size]['mrr'])
             except Exception as e:
                 logger.error("Error evaluating model %s: %s",
                              model_name, str(e))
-                results[model_name] = {
-                    'precision': 0.0, 'recall': 0.0, 'mrr': 0.0}
+                for chunk_size in chunk_sizes:
+                    results[model_name][chunk_size] = {
+                        'precision': 0.0, 'recall': 0.0, 'mrr': 0.0}
             finally:
                 self.embed_model = None
                 self.tokenizer = None
@@ -295,48 +299,95 @@ class VectorSearchWeb:
             results[query] = result_list
         return results
 
-    def generate_summary(self, model_scores: Dict[str, Dict[str, float]],
+    def generate_summary(self, model_scores: Dict[str, Dict[str, Dict[str, float]]],
                          example_results: Dict[str, List[Dict]],
                          chunk_sizes: List[int], k: int,
                          validation_set: List[Tuple[str, List[Tuple[str, int]]]] = None) -> str:
         """Generate a markdown summary and HTML charts with detailed insights for vector search performance."""
+        # Find best model based on average precision across chunk sizes
         best_model = max(
-            model_scores, key=lambda x: model_scores[x]['precision'])
-        best_metrics = model_scores[best_model]
+            model_scores, key=lambda x: sum(model_scores[x][cs]['precision'] for cs in chunk_sizes) / len(chunk_sizes))
+        best_chunk_size = max(
+            chunk_sizes, key=lambda cs: model_scores[best_model][cs]['precision'])
+        best_metrics = model_scores[best_model][best_chunk_size]
         markdown_content = ""  # Initialize as empty string
         markdown_content += "# Evaluation Summary\n\n"
-        markdown_content += "This summary evaluates embedding models for semantic search in a Retrieval-Augmented Generation (RAG) context, analyzing precision, recall, and MRR, along with query-type and chunk-size impacts.\n\n"
+        markdown_content += "This summary evaluates embedding models for semantic search in a Retrieval-Augmented Generation (RAG) context, analyzing precision, recall, and MRR across different models and chunk sizes, with detailed comparisons to highlight optimal configurations.\n\n"
         markdown_content += f"- **Chunk Sizes Used**: {', '.join(map(str, chunk_sizes))}\n"
         markdown_content += f"- **Top-K Results Evaluated**: {k}\n"
-        markdown_content += f"- **Best Model (by Precision)**: {best_model}\n"
+        markdown_content += f"- **Best Model (by Average Precision)**: {best_model} (at chunk size {best_chunk_size})\n"
         markdown_content += f"  - Precision@{k}: {best_metrics['precision']:.4f}\n"
         markdown_content += f"  - Recall@{k}: {best_metrics['recall']:.4f}\n"
         markdown_content += f"  - MRR: {best_metrics['mrr']:.4f}\n\n"
 
-        # Model Performance Table
-        markdown_content += "## Model Performance\n\n"
+        # Model Performance Table (Averaged Across Chunk Sizes)
+        markdown_content += "## Model Performance (Averaged Across Chunk Sizes)\n\n"
         markdown_content += "| Model | Precision | Recall | MRR | Strengths | Weaknesses |\n"
         markdown_content += "|-------|-----------|--------|-----|-----------|------------|\n"
-        for model, metrics in model_scores.items():
+        for model, chunk_metrics in model_scores.items():
+            avg_precision = sum(chunk_metrics[cs]['precision']
+                                for cs in chunk_sizes) / len(chunk_sizes)
+            avg_recall = sum(chunk_metrics[cs]['recall']
+                             for cs in chunk_sizes) / len(chunk_sizes)
+            avg_mrr = sum(chunk_metrics[cs]['mrr']
+                          for cs in chunk_sizes) / len(chunk_sizes)
             strengths = []
             weaknesses = []
-            if metrics['precision'] == max(m['precision'] for m in model_scores.values()):
+            all_precisions = [
+                chunk_metrics[cs]['precision'] for cs in chunk_sizes for chunk_metrics in model_scores.values()]
+            all_recalls = [
+                chunk_metrics[cs]['recall'] for cs in chunk_sizes for chunk_metrics in model_scores.values()]
+            all_mrrs = [
+                chunk_metrics[cs]['mrr'] for cs in chunk_sizes for chunk_metrics in model_scores.values()]
+            if avg_precision >= max(all_precisions) * 0.9:
                 strengths.append(
                     "High precision: Retrieves highly relevant chunks.")
-            elif metrics['precision'] < min(m['precision'] for m in model_scores.values()) * 1.2:
+            elif avg_precision <= min(all_precisions) * 1.2:
                 weaknesses.append(
                     "Low precision: Includes more irrelevant chunks.")
-            if metrics['recall'] == max(m['recall'] for m in model_scores.values()):
+            if avg_recall >= max(all_recalls) * 0.9:
                 strengths.append("High recall: Captures most relevant chunks.")
-            elif metrics['recall'] < min(m['recall'] for m in model_scores.values()) * 1.2:
+            elif avg_recall <= min(all_recalls) * 1.2:
                 weaknesses.append("Low recall: Misses relevant chunks.")
-            if metrics['mrr'] == max(m['mrr'] for m in model_scores.values()):
+            if avg_mrr >= max(all_mrrs) * 0.9:
                 strengths.append("High MRR: Ranks relevant chunks higher.")
-            elif metrics['mrr'] < min(m['mrr'] for m in model_scores.values()) * 1.2:
+            elif avg_mrr <= min(all_mrrs) * 1.2:
                 weaknesses.append("Low MRR: Poor ranking of relevant chunks.")
             strengths_str = "; ".join(strengths) or "Balanced performance"
             weaknesses_str = "; ".join(weaknesses) or "No major weaknesses"
-            markdown_content += f"| {model} | {metrics['precision']:.4f} | {metrics['recall']:.4f} | {metrics['mrr']:.4f} | {strengths_str} | {weaknesses_str} |\n"
+            markdown_content += f"| {model} | {avg_precision:.4f} | {avg_recall:.4f} | {avg_mrr:.4f} | {strengths_str} | {weaknesses_str} |\n"
+        markdown_content += "\n"
+
+        # Performance by Chunk Size and Model
+        markdown_content += "## Performance by Chunk Size and Model\n\n"
+        markdown_content += "This section compares precision, recall, and MRR for each model at different chunk sizes to identify optimal configurations for RAG.\n\n"
+        markdown_content += "| Model | Chunk Size | Precision | Recall | MRR |\n"
+        markdown_content += "|-------|------------|-----------|--------|-----|\n"
+        for model, chunk_metrics in model_scores.items():
+            for chunk_size in chunk_sizes:
+                metrics = chunk_metrics[chunk_size]
+                markdown_content += f"| {model} | {chunk_size} | {metrics['precision']:.4f} | {metrics['recall']:.4f} | {metrics['mrr']:.4f} |\n"
+        markdown_content += "\n"
+
+        # Comparative Analysis
+        markdown_content += "## Comparative Analysis\n\n"
+        markdown_content += "The following comparisons highlight key differences in model and chunk size performance:\n\n"
+        for metric in ['precision', 'recall', 'mrr']:
+            markdown_content += f"### {metric.capitalize()}\n"
+            best_chunk_per_model = {
+                model: max(chunk_sizes, key=lambda cs: chunk_metrics[cs][metric]) for model, chunk_metrics in model_scores.items()}
+            best_value_per_model = {
+                model: model_scores[model][best_chunk_per_model[model]][metric] for model in model_scores}
+            best_model = max(best_value_per_model,
+                             key=best_value_per_model.get)
+            markdown_content += f"- **Best Model for {metric.capitalize()}**: {best_model} at chunk size {best_chunk_per_model[best_model]} ({metric}={best_value_per_model[best_model]:.4f})\n"
+            for model, chunk_metrics in model_scores.items():
+                markdown_content += f"- **{model}**:\n"
+                for chunk_size in chunk_sizes:
+                    markdown_content += f"  - Chunk Size {chunk_size}: {metric.capitalize()}={chunk_metrics[chunk_size][metric]:.4f}\n"
+                trend = "increases" if chunk_metrics[chunk_sizes[-1]][metric] > chunk_metrics[chunk_sizes[0]
+                                                                                              ][metric] else "decreases" if chunk_metrics[chunk_sizes[-1]][metric] < chunk_metrics[chunk_sizes[0]][metric] else "remains stable"
+                markdown_content += f"  - **Trend**: {metric.capitalize()} {trend} with larger chunk sizes.\n"
         markdown_content += "\n"
 
         # Query-Type Performance Analysis
@@ -452,32 +503,23 @@ class VectorSearchWeb:
                 markdown_content += f"| {result['doc_id']} | {result['chunk_idx']} | {result['header']} | {result['score']:.4f} | {result['is_relevant']} | {result['text']} |\n"
             markdown_content += "\n"
 
-        # Recommendations for RAG Optimization
-        markdown_content += "## Recommendations for RAG Optimization\n\n"
-        markdown_content += "Based on the evaluation, consider the following to improve vector search performance:\n"
-        if failed_queries:
-            markdown_content += "- **Fine-Tune Embeddings**: Failed queries suggest domain mismatch. Consider fine-tuning the embedding model on domain-specific data.\n"
-        if max(model_scores[model]['recall'] for model in model_scores) < 0.8:
-            markdown_content += "- **Increase Recall**: Low recall indicates missed relevant chunks. Try larger chunk sizes or hybrid search (e.g., combining keyword and semantic search).\n"
-        if max(model_scores[model]['precision'] for model in model_scores) < 0.8:
-            markdown_content += "- **Improve Precision**: Low precision suggests irrelevant chunks. Use a more discriminative cross-encoder or adjust chunk overlap.\n"
-        if query_type_results[best_model]['short']['recall'] < query_type_results[best_model]['long']['recall']:
-            markdown_content += "- **Optimize for Short Queries**: The best model struggles with short queries. Consider a model trained on concise question-answering datasets.\n"
-        markdown_content += "- **Experiment with Chunk Sizes**: Vary chunk sizes further or use dynamic chunking based on document structure.\n"
-        markdown_content += "- **Domain-Specific Models**: If documents are domain-specific (e.g., technical, medical), try models like `sentence-transformers/all-mpnet-base-v2` for better semantic alignment.\n"
-        markdown_content += "\n"
-
         with open(f"{OUTPUT_DIR}/evaluation_summary.md", "w", encoding="utf-8") as f:
             f.write(markdown_content)
         logger.success(
             f"Generated markdown summary at {OUTPUT_DIR}/evaluation_summary.md")
 
-        # HTML Chart for Model Performance
+        # HTML Charts for Model and Chunk Size Performance
         chart_data = {
             "labels": list(model_scores.keys()),
-            "precision": [model_scores[model]["precision"] for model in model_scores],
-            "recall": [model_scores[model]["recall"] for model in model_scores],
-            "mrr": [model_scores[model]["mrr"] for model in model_scores]
+            "precision": [sum(model_scores[model][cs]['precision'] for cs in chunk_sizes) / len(chunk_sizes) for model in model_scores],
+            "recall": [sum(model_scores[model][cs]['recall'] for cs in chunk_sizes) / len(chunk_sizes) for model in model_scores],
+            "mrr": [sum(model_scores[model][cs]['mrr'] for cs in chunk_sizes) / len(chunk_sizes) for model in model_scores]
+        }
+        chunk_chart_data = {
+            "labels": [f"{model} (Chunk {cs})" for model in model_scores for cs in chunk_sizes],
+            "precision": [model_scores[model][cs]['precision'] for model in model_scores for cs in chunk_sizes],
+            "recall": [model_scores[model][cs]['recall'] for model in model_scores for cs in chunk_sizes],
+            "mrr": [model_scores[model][cs]['mrr'] for model in model_scores for cs in chunk_sizes]
         }
         html_content = """
 <!DOCTYPE html>
@@ -485,13 +527,13 @@ class VectorSearchWeb:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Model Performance Chart</title>
+    <title>Performance Charts</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <h2>Model Performance Comparison</h2>
+    <h2>Model Performance Comparison (Averaged Across Chunk Sizes)</h2>
     <canvas id="performanceChart" width="800" height="400"></canvas>
-    <h2>Performance by Chunk Size</h2>
+    <h2>Performance by Model and Chunk Size</h2>
     <canvas id="chunkSizeChart" width="800" height="400"></canvas>
     <script>
         const ctx1 = document.getElementById('performanceChart').getContext('2d');
@@ -524,11 +566,42 @@ class VectorSearchWeb:
                 ]
             },
             options: {
-                scales: {
-                    y: { beginAtZero: true, max: 1, title: { display: true, text: 'Score' } },
-                    x: { title: { display: true, text: 'Model' } }
-                },
-                plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Model Performance Metrics' } }
+                scales: { y: { beginAtZero: true, max: 1, title: { display: true, text: 'Score' } }, x: { title: { display: true, text: 'Model' } } },
+                plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Model Performance Metrics (Averaged)' } }
+            }
+        });
+        const ctx2 = document.getElementById('chunkSizeChart').getContext('2d');
+        new Chart(ctx2, {
+            type: 'bar',
+            data: {
+                labels: """ + json.dumps(chunk_chart_data["labels"]) + """,
+                datasets: [
+                    {
+                        label: 'Precision',
+                        data: """ + json.dumps(chunk_chart_data["precision"]) + """,
+                        backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Recall',
+                        data: """ + json.dumps(chunk_chart_data["recall"]) + """,
+                        backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'MRR',
+                        data: """ + json.dumps(chunk_chart_data["mrr"]) + """,
+                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                scales: { y: { beginAtZero: true, max: 1, title: { display: true, text: 'Score' } }, x: { title: { display: true, text: 'Model and Chunk Size' } } },
+                plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Performance by Model and Chunk Size' } }
             }
         });
     </script>
@@ -538,7 +611,7 @@ class VectorSearchWeb:
         with open(f"{OUTPUT_DIR}/performance_chart.html", "w", encoding="utf-8") as f:
             f.write(html_content)
         logger.success(
-            f"Generated HTML chart at {OUTPUT_DIR}/performance_chart.html")
+            f"Generated HTML charts at {OUTPUT_DIR}/performance_chart.html")
 
         return markdown_content
 
@@ -546,16 +619,14 @@ class VectorSearchWeb:
 if __name__ == "__main__":
     import json
     data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/mocks/vector_search/top-isekai-anime-2025"
-    # Load documents.json (list of strings)
     with open(f"{data_dir}/documents.json", "r", encoding="utf-8") as f:
         doc_texts = json.load(f)
         documents = [(f"doc_{i}", text) for i, text in enumerate(doc_texts)]
-    # Load validation.json (list of dicts with query and answer)
     with open(f"{data_dir}/validation.json", "r", encoding="utf-8") as f:
         validation_data = json.load(f)
         validation_set = [(item["query"], [
                            (f"doc_{idx}", 0) for idx in item["answer"]]) for item in validation_data]
-        example_queries = validation_set  # Use validation set as example queries
+        example_queries = validation_set
     searcher = VectorSearchWeb(max_context_size=512)
     chunk_sizes = [150, 250, 350]
     model_names = [
@@ -565,10 +636,16 @@ if __name__ == "__main__":
     ]
     model_scores = searcher.evaluate_models(
         documents, validation_set, model_names, chunk_sizes, overlap_ratio=0.2, k=3)
-    best_model = max(model_scores, key=lambda x: model_scores[x]['precision'])
-    logger.info("Best model: %s with Precision@3=%.4f, Recall@3=%.4f, MRR=%.4f",
-                best_model, model_scores[best_model]['precision'],
-                model_scores[best_model]['recall'], model_scores[best_model]['mrr'])
+    best_model = max(model_scores, key=lambda x: sum(
+        model_scores[x][cs]['precision'] for cs in chunk_sizes) / len(chunk_sizes))
+    logger.info("Best model: %s with Precision@3=%.4f, Recall@3=%.4f, MRR=%.4f at chunk size %d",
+                best_model, model_scores[best_model][max(
+                    chunk_sizes, key=lambda cs: model_scores[best_model][cs]['precision'])]['precision'],
+                model_scores[best_model][max(
+                    chunk_sizes, key=lambda cs: model_scores[best_model][cs]['recall'])]['recall'],
+                model_scores[best_model][max(
+                    chunk_sizes, key=lambda cs: model_scores[best_model][cs]['mrr'])]['mrr'],
+                max(chunk_sizes, key=lambda cs: model_scores[best_model][cs]['precision']))
     searcher = VectorSearchWeb(
         embed_model_name=best_model, max_context_size=512)
     example_results = searcher.evaluate_retrieval_examples(
@@ -576,7 +653,6 @@ if __name__ == "__main__":
     evaluation_report = searcher.generate_summary(
         model_scores, example_results, chunk_sizes, k=3, validation_set=validation_set)
 
-    # Generate insights on evaluation summary report
     llm_model: LLMModelType = "qwen3-1.7b-4bit-dwq-053125"
     seed = 44
     mlx = MLXModelRegistry.load_model(llm_model, seed=seed)

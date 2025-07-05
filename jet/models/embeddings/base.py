@@ -146,7 +146,8 @@ def embed_chunks_parallel(chunk_texts: Union[str, List[str]], embed_model: Union
 
 def generate_embeddings(
     input_data: Union[EmbedModelType, List[str]],
-    model: Union[SentenceTransformer, str] = "static-retrieval-mrl-en-v1",
+    model: Union[SentenceTransformer,
+                 EmbedModelType] = "static-retrieval-mrl-en-v1",
     batch_size: int = 32,
     show_progress: bool = False,
     return_format: Literal["list", "numpy"] = "list",
