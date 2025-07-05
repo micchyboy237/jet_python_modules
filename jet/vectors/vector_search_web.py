@@ -275,29 +275,59 @@ class VectorSearchWeb:
 
     def evaluate_retrieval_examples(self, documents: List[Tuple[str, str]],
                                     example_queries: List[Tuple[str, List[Tuple[str, int]]]],
-                                    chunk_sizes: List[int], overlap_ratio: float = 0.2, k: int = 5) -> Dict[str, List[Dict]]:
-        """Evaluate example queries and return detailed results."""
-        self.index_documents(
-            documents, chunk_sizes=chunk_sizes, overlap_ratio=overlap_ratio)
+                                    chunk_sizes: List[int], model_names: List[str], overlap_ratio: float = 0.2, k: int = 5) -> Dict[str, List[Dict]]:
+        """Evaluate example queries across all models and return the highest-scoring results."""
         results = {}
+        original_model = self.embed_model.model_card_data.get(
+            'model_name', 'sentence-transformers/all-MiniLM-L6-v2')
+        original_tokenizer = self.tokenizer
+        original_context_size = self.max_context_size
+
         for query, relevant_chunks in example_queries:
             query_type = "short" if len(self.tokenizer.encode(
                 query, add_special_tokens=False)) < 50 else "long"
-            search_results = self.search(query, k=k, query_type=query_type)
-            relevant_set = set((doc_id, chunk_idx)
-                               for doc_id, chunk_idx in relevant_chunks)
-            result_list = []
-            for doc_id, chunk_text, chunk_idx, header, score in search_results:
-                is_relevant = (doc_id, chunk_idx) in relevant_set
-                result_list.append({
-                    'doc_id': doc_id,
-                    'chunk_idx': chunk_idx,
-                    'header': header,
-                    'score': score,
-                    'text': chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
-                    'is_relevant': is_relevant
-                })
-            results[query] = result_list
+            best_results = []
+            for model_name in model_names:
+                try:
+                    self.embed_model = SentenceTransformer(
+                        model_name, device=self.device)
+                    self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                    self.max_context_size = 512
+                    self.index_documents(
+                        documents, chunk_sizes=chunk_sizes, overlap_ratio=overlap_ratio)
+                    search_results = self.search(
+                        query, k=k, query_type=query_type)
+                    relevant_set = set((doc_id, chunk_idx)
+                                       for doc_id, chunk_idx in relevant_chunks)
+                    for doc_id, chunk_text, chunk_idx, header, score in search_results:
+                        is_relevant = (doc_id, chunk_idx) in relevant_set
+                        best_results.append({
+                            'doc_id': doc_id,
+                            'chunk_idx': chunk_idx,
+                            'header': header,
+                            'score': score,
+                            'text': chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                            'is_relevant': is_relevant,
+                            'model': model_name
+                        })
+                finally:
+                    self.embed_model = None
+                    self.tokenizer = None
+                    self.index = None
+                    self.chunk_metadata = []
+                    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                    if torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
+                    gc.collect()
+            # Select top k results based on score
+            best_results = sorted(
+                best_results, key=lambda x: x['score'], reverse=True)[:k]
+            results[query] = best_results
+
+        self.embed_model = SentenceTransformer(
+            original_model, device=self.device)
+        self.tokenizer = original_tokenizer
+        self.max_context_size = original_context_size
         return results
 
     def generate_summary(self, model_scores: Dict[str, Dict[str, Dict[str, float]]],
@@ -474,34 +504,52 @@ class VectorSearchWeb:
 
         # Top Results per Query
         markdown_content += "## Top Results per Query\n\n"
-        markdown_content += "The highest-scoring chunk for each query.\n"
-        markdown_content += "| Query | Doc ID | Chunk ID | Header | Score | Relevant | Text Preview |\n"
-        markdown_content += "|-------|--------|----------|--------|-------|----------|--------------|\n"
+        markdown_content += "The highest-scoring chunk for each query, with the model that produced it.\n"
+        markdown_content += "| Query | Model | Doc ID | Chunk ID | Header | Score | Relevant | Text Preview |\n"
+        markdown_content += "|-------|-------|--------|----------|--------|-------|----------|--------------|\n"
         for query, results in example_results.items():
             if results:
                 top_result = max(results, key=lambda x: x['score'])
-                markdown_content += f"| {query} | {top_result['doc_id']} | {top_result['chunk_idx']} | {top_result['header']} | {top_result['score']:.4f} | {top_result['is_relevant']} | {top_result['text']} |\n"
+                markdown_content += f"| {query} | {top_result['model']} | {top_result['doc_id']} | {top_result['chunk_idx']} | {top_result['header']} | {top_result['score']:.4f} | {top_result['is_relevant']} | {top_result['text']} |\n"
         if validation_set:
             for query, _ in validation_set:
                 if query not in example_results:
                     query_type = "short" if len(self.tokenizer.encode(
                         query, add_special_tokens=False)) < 50 else "long"
-                    search_results = self.search(
-                        query, k=k, query_type=query_type)
-                    if search_results:
-                        top_result = max(search_results, key=lambda x: x[4])
-                        doc_id, chunk_text, chunk_idx, header, score = top_result
-                        markdown_content += f"| {query} | {doc_id} | {chunk_idx} | {header} | {score:.4f} | N/A | {chunk_text[:200] + '...' if len(chunk_text) > 200 else chunk_text} |\n"
+                    best_results = []
+                    for model_name in model_scores.keys():
+                        self.embed_model = SentenceTransformer(
+                            model_name, device=self.device)
+                        self.tokenizer = AutoTokenizer.from_pretrained(
+                            model_name)
+                        self.index_documents([(f"doc_{i}", text) for i, text in enumerate(
+                            doc_texts)], chunk_sizes, overlap_ratio=0.2)
+                        search_results = self.search(
+                            query, k=k, query_type=query_type)
+                        for doc_id, chunk_text, chunk_idx, header, score in search_results:
+                            best_results.append({
+                                'doc_id': doc_id,
+                                'chunk_idx': chunk_idx,
+                                'header': header,
+                                'score': score,
+                                'text': chunk_text[:200] + '...' if len(chunk_text) > 200 else chunk_text,
+                                'is_relevant': 'N/A',
+                                'model': model_name
+                            })
+                    if best_results:
+                        top_result = max(
+                            best_results, key=lambda x: x['score'])
+                        markdown_content += f"| {query} | {top_result['model']} | {top_result['doc_id']} | {top_result['chunk_idx']} | {top_result['header']} | {top_result['score']:.4f} | {top_result['is_relevant']} | {top_result['text']} |\n"
         markdown_content += "\n"
 
         # Detailed Results per Query
         markdown_content += "## Detailed Results per Query\n\n"
         for query, results in example_results.items():
             markdown_content += f"### Query: {query}\n\n"
-            markdown_content += "| Doc ID | Chunk ID | Header | Score | Relevant | Text Preview |\n"
-            markdown_content += "|--------|----------|--------|-------|----------|--------------|\n"
+            markdown_content += "| Model | Doc ID | Chunk ID | Header | Score | Relevant | Text Preview |\n"
+            markdown_content += "|-------|--------|----------|--------|-------|----------|--------------|\n"
             for result in results:
-                markdown_content += f"| {result['doc_id']} | {result['chunk_idx']} | {result['header']} | {result['score']:.4f} | {result['is_relevant']} | {result['text']} |\n"
+                markdown_content += f"| {result['model']} | {result['doc_id']} | {result['chunk_idx']} | {result['header']} | {result['score']:.4f} | {result['is_relevant']} | {result['text']} |\n"
             markdown_content += "\n"
 
         with open(f"{OUTPUT_DIR}/evaluation_summary.md", "w", encoding="utf-8") as f:
@@ -650,7 +698,7 @@ if __name__ == "__main__":
     searcher = VectorSearchWeb(
         embed_model_name=best_model, max_context_size=512)
     example_results = searcher.evaluate_retrieval_examples(
-        documents, example_queries, chunk_sizes, overlap_ratio=0.2, k=3)
+        documents, example_queries, chunk_sizes, model_names, overlap_ratio=0.2, k=3)
     evaluation_report = searcher.generate_summary(
         model_scores, example_results, chunk_sizes, k=3, validation_set=validation_set)
 

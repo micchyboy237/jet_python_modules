@@ -4,7 +4,7 @@ import nltk
 
 
 class ChunkResult(TypedDict):
-    markdown: str
+    content: str
     num_tokens: int
     header: str
     parent_header: str
