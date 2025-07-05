@@ -15,9 +15,8 @@ import json
 from jet.file.utils import save_file
 from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
-from jet.models.model_types import LLMModelType, EmbedModelType
+from jet.models.model_types import LLMModelType
 from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
-from jet.models.utils import resolve_model_value
 nltk.download('punkt', quiet=True)
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(
@@ -123,7 +122,7 @@ class VectorSearchWeb:
             i += chunk_size - overlap
         return chunks
 
-    def index_documents(self, documents: List[Tuple[str, str]], embed_model: EmbedModelType, chunk_sizes: List[int], overlap_ratio: float = 0.2):
+    def index_documents(self, documents: List[Tuple[str, str]], chunk_sizes: List[int], overlap_ratio: float = 0.2):
         """Index documents with multiple chunk sizes."""
         all_chunks = []
         for doc_id, text in documents:
@@ -136,7 +135,7 @@ class VectorSearchWeb:
             return
         chunk_texts = [chunk[1] for chunk in all_chunks]
         embeddings = generate_embeddings(
-            chunk_texts, embed_model, show_progress=True, return_format="numpy")
+            chunk_texts, show_progress=True, return_format="numpy")
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
         faiss.normalize_L2(embeddings)
@@ -147,8 +146,7 @@ class VectorSearchWeb:
     def search(self, query: str, k: int = 5, use_cross_encoder: bool = True, query_type: str = "short") -> List[Tuple[str, str, int, str, float]]:
         """Search with deduplication to reduce redundant neighbors."""
         chunk_size_preference = 150 if query_type == "short" else 250
-        query_embedding = generate_embeddings(
-            [query], embed_model, return_format="numpy")
+        query_embedding = generate_embeddings([query], return_format="numpy")
         faiss.normalize_L2(query_embedding.reshape(1, -1))
         if not self.index or not self.chunk_metadata:
             logger.error("Index or metadata not initialized")
@@ -184,7 +182,7 @@ class VectorSearchWeb:
 
     def evaluate_models(self, documents: List[Tuple[str, str]],
                         validation_set: List[Tuple[str, List[Tuple[str, int]]]],
-                        model_names: List[EmbedModelType], chunk_sizes: List[int],
+                        model_names: List[str], chunk_sizes: List[int],
                         overlap_ratio: float = 0.2, k: int = 5) -> Dict[str, Dict[str, Dict[str, float]]]:
         """Evaluate multiple models and return performance metrics for each model and chunk size."""
         results = {}
@@ -193,7 +191,6 @@ class VectorSearchWeb:
         original_tokenizer = self.tokenizer
         original_context_size = self.max_context_size
         for model_name in model_names:
-            model_name = resolve_model_value(model_name)
             logger.info("Evaluating model: %s", model_name)
             results[model_name] = {}
             try:
@@ -209,7 +206,7 @@ class VectorSearchWeb:
                 self.max_context_size = 512
                 for chunk_size in chunk_sizes:
                     self.index_documents(
-                        documents, model_name, chunk_sizes=[chunk_size], overlap_ratio=overlap_ratio)
+                        documents, chunk_sizes=[chunk_size], overlap_ratio=overlap_ratio)
                     if not self.index:
                         logger.error(
                             "Failed to index documents for model %s, chunk size %d", model_name, chunk_size)
