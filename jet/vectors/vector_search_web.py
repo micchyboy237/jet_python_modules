@@ -600,4 +600,4 @@ Query: {query}
         verbose=True,
         max_tokens=10000
     )
-    save_file(response, f"{OUTPUT_DIR}/evaluation_insights.md")
+    save_file(response["content"], f"{OUTPUT_DIR}/evaluation_insights.md")
