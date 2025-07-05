@@ -352,6 +352,69 @@ class VectorSearchWeb:
             "recall": [model_scores[model]["recall"] for model in model_scores],
             "mrr": [model_scores[model]["mrr"] for model in model_scores]
         }
+        html_content = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Performance Chart</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h2>Model Performance Comparison</h2>
+    <canvas id="performanceChart" width="800" height="400"></canvas>
+    <script>
+        const ctx = document.getElementById('performanceChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: """ + json.dumps(chart_data["labels"]) + """,
+                datasets: [
+                    {
+                        label: 'Precision',
+                        data: """ + json.dumps(chart_data["precision"]) + """,
+                        backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Recall',
+                        data: """ + json.dumps(chart_data["recall"]) + """,
+                        backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'MRR',
+                        data: """ + json.dumps(chart_data["mrr"]) + """,
+                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 1,
+                        title: { display: true, text: 'Score' }
+                    },
+                    x: {
+                        title: { display: true, text: 'Model' }
+                    }
+                },
+                plugins: {
+                    legend: { display: true, position: 'top' },
+                    title: { display: true, text: 'Model Performance Metrics' }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+"""
         with open(f"{OUTPUT_DIR}/performance_chart.html", "w", encoding="utf-8") as f:
             f.write(html_content)
         logger.success(
