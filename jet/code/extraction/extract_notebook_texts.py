@@ -7,6 +7,7 @@ from pathlib import Path
 from jet.file.utils import save_file
 from jet.code.utils import remove_single_line_comments_preserving_triple_quotes
 from jet.code.markdown_code_extractor import MarkdownCodeExtractor, CodeBlock
+from jet.logger import logger
 
 
 def extract_text_from_ipynb(notebook_path, include_outputs=True, include_code=False, include_comments=False, save_as: Literal['md', 'py'] = 'md'):
@@ -214,7 +215,7 @@ def process_file(input_path, output_dir=None, include_outputs=True, include_code
         save_file(content, str(output_path))
 
 
-def run_text_extraction(input_path: str, output_dir: str):
+def run_text_extraction(input_path: str, output_dir: str, save_as: Literal['md', 'py'] = 'md'):
     """Main function to process notebook, markdown, and python files."""
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
@@ -222,7 +223,6 @@ def run_text_extraction(input_path: str, output_dir: str):
     include_outputs = False
     include_code = False
     include_comments = True
-    save_as: Literal['md', 'py'] = 'md'  # Change to 'md' for markdown output
 
     if os.path.isdir(input_path):
         for ext in ['*.ipynb', '*.md', '*.py']:
@@ -247,7 +247,11 @@ def run_text_extraction(input_path: str, output_dir: str):
 
 
 if __name__ == "__main__":
-    input_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/converted_doc_scripts/all-rag-techniques/notebooks"
-    output_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/converted_doc_scripts/all-rag-techniques/docs_text_only"
+    input_path = "/Users/jethroestrada/Desktop/External_Projects/AI/rag_05_2025/RAG_Techniques/all_rag_techniques"
+    output_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/converted_doc_scripts/RAG_Techniques/all_rag_techniques"
 
-    run_text_extraction(input_path, output_dir)
+    logger.info("Extracting code...")
+    run_text_extraction(input_path, output_dir, save_as="py")
+
+    # logger.info("Extracting documentation markdown...")
+    # run_text_extraction(input_path, output_dir, save_as="md")

@@ -1,81 +1,69 @@
 ### **Overall Insights on the Evaluation Report**
 
-The evaluation report provides a comprehensive analysis of embedding models' performance in a Retrieval-Augmented Generation (RAG) context, focusing on **precision, recall, and MRR** across different **chunk sizes**. The key findings are as follows:
+The evaluation report provides a comprehensive analysis of the performance of various embedding models in a Retrieval-Augmented Generation (RAG) context, focusing on **precision, recall, and MRR** across different **chunk sizes** (150, 250, 350). The findings highlight the following key observations:
 
 ---
 
 #### **1. Model Performance Overview**
-- **Snowflake/snowflake-arctic-embed-s** emerges as the **best-performing model** across all chunk sizes, particularly in terms of **precision** and **recall**.
-  - **Precision@3**: 0.2000 (best among all models)
-  - **Recall@3**: 0.0154
-  - **MRR**: 0.3667
-- **sentence-transformers/all-MiniLM-L6-v2** and **sentence-transformers/multi-qa-MiniLM-L6-cos-v1** show **lower precision** but **similar recall** and **MRR**.
-  - These models are **less effective** in retrieving relevant chunks, especially for **short queries**.
-- **Snowflake/snowflake-arctic-embed-s** is **stronger in precision** but has **lower MRR** compared to the other models, which may be due to **lower ranking of relevant chunks**.
+- **Snowflake/snowflake-arctic-embed-s** stands out as the **best performer** in terms of **precision** (0.2000) and **recall** (0.0154), with **MRR** of 0.3667. It excels in **retrieving highly relevant chunks** and **capturing most relevant chunks**.
+- **sentence-transformers/all-MiniLM-L6-v2** and **sentence-transformers/multi-qa-MiniLM-L6-cos-v1** show **moderate performance**, with **precision** and **recall** being relatively low (around 0.1556 and 0.0127, respectively).
+- **Snowflake/snowflake-arctic-embed-s** has **lower MRR** compared to the other models, but it **outperforms** in **precision** and **recall**.
 
 ---
 
 #### **2. Chunk Size Impact**
-- **Chunk size** significantly affects performance:
-  - **Smaller chunks (150)**: Better precision and recall, but **lower MRR**.
-  - **Larger chunks (250, 350)**: Maintain similar precision and recall but **lower MRR** due to **less effective ranking** of relevant chunks.
-- **Snowflake/snowflake-arctic-embed-s** performs **best at 150** chunk size, balancing **precision** and **recall**.
+- **Chunk size 150** is the **optimal configuration** for **precision** and **recall**, with **Snowflake/snowflake-arctic-embed-s** achieving the highest precision (0.2000) and recall (0.0154).
+- As chunk size increases to **250** and **350**, the **precision and recall** of all models remain **stable**, but **MRR** decreases slightly.
+- This suggests that **chunk size** has a **minimal impact** on **recall** and **MRR**, but **precision** is **most sensitive** to chunk size.
 
 ---
 
 #### **3. Strengths and Weaknesses**
-- **Strengths**:
-  - **Snowflake/snowflake-arctic-embed-s**:
-    - High **precision** for relevant chunks.
-    - High **recall** for relevant chunks.
-    - **Good MRR** for relevant chunks.
-  - **Other models**:
-    - High **MRR** for relevant chunks, but **lower precision** and **recall**.
-- **Weaknesses**:
-  - **Snowflake/snowflake-arctic-embed-s**:
-    - **Low MRR** for relevant chunks.
-    - **Lower precision** for some queries.
-  - **Other models**:
-    - **Low precision** and **recall** for relevant chunks.
-    - **Lower MRR** for relevant chunks.
+- **Snowflake/snowflake-arctic-embed-s**:
+  - **Strengths**: High precision, high recall, and good MRR.
+  - **Weaknesses**: Low MRR due to poor ranking of relevant chunks.
+- **sentence-transformers/all-MiniLM-L6-v2**:
+  - **Strengths**: High MRR (0.4333).
+  - **Weaknesses**: Low precision (0.1556) and low recall (0.0127).
+- **sentence-transformers/multi-qa-MiniLM-L6-cos-v1**:
+  - **Strengths**: High MRR (0.4000).
+  - **Weaknesses**: Low precision (0.1333) and low recall (0.0108).
 
 ---
 
 ### **Recommendations for Improving RAG Context**
 
 #### **1. Model Selection**
-- **Recommendation**: Use **Snowflake/snowflake-arctic-embed-s** for **precision** and **recall** in RAG, especially with **smaller chunk sizes** (150).
-- **Alternative**: Consider **sentence-transformers/multi-qa-MiniLM-L6-cos-v1** for **MRR** if the focus is on ranking relevant chunks.
+- **Use Snowflake/snowflake-arctic-embed-s** for **precision** and **recall** in RAG, especially when **chunk size is 150**.
+- **Avoid sentence-transformers/all-MiniLM-L6-v2** and **sentence-transformers/multi-qa-MiniLM-L6-cos-v1** for high-precision retrieval tasks, as they suffer from **low precision** and **low recall**.
 
 #### **2. Chunk Size Optimization**
-- **Recommendation**: Use **150** chunk size for **precision** and **recall**.
-- **Alternative**: Use **250** or **350** chunk sizes if **MRR** is the primary concern, but be aware of **lower precision** and **recall**.
+- **Use chunk size 150** for **precision** and **recall**.
+- **Increase chunk size** beyond 150 only if **MRR** can be improved through **ranking** or **re-ranking**.
+- **Consider hybrid approaches** (e.g., combining multiple models) for **better recall** and **precision**.
 
-#### **3. Query Refinement**
-- **Recommendation**: Use **short queries** with **specific keywords** to improve **precision** and **recall**.
-- **Alternative**: Use **longer, more specific queries** to improve **MRR** and **relevance**.
+#### **3. Ranking and Filtering**
+- **Implement a ranking mechanism** to prioritize relevant chunks in the retrieval phase.
+- **Use **re-ranking** or **post-processing** to filter out irrelevant chunks and improve MRR.
 
 #### **4. Data Quality and Preprocessing**
-- **Recommendation**: Ensure **high-quality, relevant data** is used for training the embedding model.
-- **Alternative**: Use **domain-specific training data** to improve relevance and reduce irrelevant chunks.
+- **Ensure high-quality, relevant data** for training the embedding model.
+- **Preprocess data** to include **relevant metadata** (e.g., genres, studios, episode counts) to improve **recall** and **precision**.
 
 #### **5. Evaluation Metrics**
-- **Recommendation**: Evaluate **precision@3**, **recall@3**, and **MRR** across all queries to identify **optimal chunk sizes** and **models**.
-- **Alternative**: Use **AUC-ROC** or **F1-score** for more robust evaluation.
+- **Use **MRR** as the primary metric** for evaluating RAG performance, as it reflects **relevance** and **relevance ranking**.
+- **Consider **precision** and **recall** for **specific tasks** (e.g., top-k retrieval).
 
-#### **6. Integration with RAG Framework**
-- **Recommendation**: Integrate **chunking** and **ranking** mechanisms in the RAG pipeline to **optimize retrieval**.
-- **Alternative**: Use **re-ranking** techniques to improve **MRR** and **recall**.
+#### **6. Model Tuning**
+- **Fine-tune the model** for the specific **query types** (e.g., short vs. long queries).
+- **Use **prompt engineering** or **query conditioning** to improve **relevance** and **ranking**.
 
 ---
 
-### **Conclusion**
+### **Final Recommendations**
+- **Opt for Snowflake/snowflake-arctic-embed-s** with **chunk size 150** for **high precision** and **recall**.
+- **Use chunk size 150** for **RAG** to balance **precision** and **recall**.
+- **Implement ranking and filtering** to improve **MRR** and **relevance**.
+- **Preprocess data** and **fine-tune models** for better performance on specific query types.
 
-The evaluation report highlights that **Snowflake/snowflake-arctic-embed-s** is the **best model** for RAG in terms of **precision** and **recall**, especially with **smaller chunk sizes**. However, it has **lower MRR** compared to other models. To improve RAG performance, consider:
-
-- Using **Snowflake/snowflake-arctic-embed-s** with **150** chunk size.
-- Optimizing **chunk size** and **query specificity**.
-- Improving **data quality** and **domain-specific training**.
-- Evaluating **MRR** and **relevance** through **AUC-ROC** or **F1-score**.
-
-These recommendations will help enhance **precision**, **recall**, and **MRR** in RAG systems.
+By following these recommendations, you can significantly improve the **relevance**, **precision**, and **recall** of your RAG system.

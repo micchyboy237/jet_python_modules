@@ -14,7 +14,6 @@ from typing import List, Tuple, Dict
 import json
 from jet.file.utils import save_file
 from jet.logger import logger
-from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import LLMModelType
 from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
 nltk.download('punkt', quiet=True)
@@ -136,8 +135,6 @@ class VectorSearchWeb:
         chunk_texts = [chunk[1] for chunk in all_chunks]
         embeddings = self.embed_model.encode(
             chunk_texts, show_progress_bar=True, batch_size=16, device=self.device)
-        # embeddings = generate_embeddings(
-        #     chunk_texts, show_progress=True, return_format="numpy")
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
         faiss.normalize_L2(embeddings)
@@ -149,8 +146,7 @@ class VectorSearchWeb:
         """Search with deduplication to reduce redundant neighbors."""
         chunk_size_preference = 150 if query_type == "short" else 250
         query_embedding = self.embed_model.encode(
-            [query], show_progress_bar=False)[0]
-        # query_embedding = generate_embeddings([query], return_format="numpy")
+            [query], show_progress_bar=False, device=self.device)[0]
         faiss.normalize_L2(query_embedding.reshape(1, -1))
         if not self.index or not self.chunk_metadata:
             logger.error("Index or metadata not initialized")
@@ -284,21 +280,22 @@ class VectorSearchWeb:
         original_context_size = self.max_context_size
 
         for query, relevant_chunks in example_queries:
-            query_type = "short" if len(self.tokenizer.encode(
-                query, add_special_tokens=False)) < 50 else "long"
             best_results = []
+            relevant_set = set((doc_id, chunk_idx)
+                               for doc_id, chunk_idx in relevant_chunks)
             for model_name in model_names:
                 try:
                     self.embed_model = SentenceTransformer(
                         model_name, device=self.device)
                     self.tokenizer = AutoTokenizer.from_pretrained(model_name)
                     self.max_context_size = 512
+                    # Determine query type within model loop to avoid NoneType error
+                    query_type = "short" if len(self.tokenizer.encode(
+                        query, add_special_tokens=False)) < 50 else "long"
                     self.index_documents(
                         documents, chunk_sizes=chunk_sizes, overlap_ratio=overlap_ratio)
                     search_results = self.search(
                         query, k=k, query_type=query_type)
-                    relevant_set = set((doc_id, chunk_idx)
-                                       for doc_id, chunk_idx in relevant_chunks)
                     for doc_id, chunk_text, chunk_idx, header, score in search_results:
                         is_relevant = (doc_id, chunk_idx) in relevant_set
                         best_results.append({
