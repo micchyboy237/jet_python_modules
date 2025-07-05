@@ -86,12 +86,12 @@ class VectorSearchWeb:
             section_tokens = len(self.tokenizer.encode(
                 section_text, add_special_tokens=False, truncation=True, max_length=self.max_context_size))
 
-            if section_tokens <= chunk_size and section_tokens <= self.max_context_size:
+            if section_tokens <= self.max_context_size:  # Use section as-is if within max_context_size
                 chunks.append((doc_id, section_text, chunk_idx, header))
                 chunk_idx += 1
             else:
-                logger.info("Section '%s' in doc %s has %d tokens, exceeds chunk size %d; splitting",
-                            header, doc_id, section_tokens, chunk_size)
+                logger.info("Section '%s' in doc %s has %d tokens, exceeds context size %d; splitting",
+                            header, doc_id, section_tokens, self.max_context_size)
                 token_chunks = self._chunk_by_tokens(
                     section_text, doc_id, chunk_size, overlap, chunk_idx, header)
                 chunks.extend(token_chunks)
@@ -142,15 +142,16 @@ class VectorSearchWeb:
             return
 
         chunk_texts = [chunk[1] for chunk in all_chunks]
+        device = 'cpu' if 'all-mpnet-base-v2' in self.embed_model._target_device else 'mps'
         embeddings = self.embed_model.encode(
-            chunk_texts, show_progress_bar=True, batch_size=16, device='mps', force=True)
+            chunk_texts, show_progress_bar=True, batch_size=16, device=device, force=True)
 
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
         faiss.normalize_L2(embeddings)
         self.index.add(embeddings)
         self.chunk_metadata = all_chunks
-        logger.info(f"Indexed {len(all_chunks)} chunks with dimension {dim}")
+        logger.info(f"Indexed {len(all_chunks)} chunks with dimension %d", dim)
 
     def search(self, query: str, k: int = 5, use_cross_encoder: bool = True, query_type: str = "short") -> List[Tuple[str, str, int, str, float]]:
         """Search with deduplication to reduce redundant neighbors."""
@@ -215,22 +216,13 @@ class VectorSearchWeb:
         for model_name in model_names:
             logger.info("Evaluating model: %s", model_name)
             try:
-                # Attempt to clear cache, but skip if permission denied
-                cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-                for model_cache in cache_dir.glob(f"*{model_name.replace('/', '--')}*"):
-                    try:
-                        logger.info("Clearing cache for %s", model_cache)
-                        for item in model_cache.glob("*"):
-                            item.unlink(missing_ok=True)
-                        model_cache.rmdir()
-                    except PermissionError as e:
-                        logger.warning(
-                            "Permission denied clearing cache for %s: %s", model_cache, str(e))
+                # Clear memory before loading new model
                 torch.mps.empty_cache() if torch.backends.mps.is_available() else torch.cuda.empty_cache()
                 gc.collect()
 
+                device = 'cpu' if 'all-mpnet-base-v2' in model_name else 'mps'
                 self.embed_model = SentenceTransformer(
-                    model_name, device='mps')
+                    model_name, device=device)
                 self.tokenizer = AutoTokenizer.from_pretrained(model_name)
                 self.max_context_size = 512 if 'MiniLM' in model_name else 512  # Adjust if known
 
