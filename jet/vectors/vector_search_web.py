@@ -1,3 +1,4 @@
+import os
 import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import List, Tuple, Dict
 import logging
 import json
+
+from jet.file.utils import save_file
 
 nltk.download('punkt', quiet=True)
 logging.basicConfig(level=logging.INFO)
@@ -290,7 +293,7 @@ class VectorSearchWeb:
 
     def generate_summary(self, model_scores: Dict[str, Dict[str, float]],
                          example_results: Dict[str, List[Dict]],
-                         chunk_sizes: List[int], k: int) -> None:
+                         chunk_sizes: List[int], k: int, output_dir: str = "generated") -> None:
         """Generate a markdown summary and HTML chart of evaluation results."""
         # Find the best model based on precision
         best_model = max(
@@ -327,9 +330,9 @@ class VectorSearchWeb:
             markdown_content += "\n"
 
         # Save markdown summary
-        with open("evaluation_summary.md", "w", encoding="utf-8") as f:
-            f.write(markdown_content)
-        logger.info("Generated markdown summary at evaluation_summary.md")
+        save_file(markdown_content, f"{output_dir}/evaluation_summary.md")
+        logger.info(
+            f"Generated markdown summary at {output_dir}/evaluation_summary.md")
 
         # Generate HTML chart
         chart_data = {
@@ -401,12 +404,16 @@ class VectorSearchWeb:
 </body>
 </html>
 """
-        with open("performance_chart.html", "w", encoding="utf-8") as f:
-            f.write(html_content)
-        logger.info("Generated HTML chart at performance_chart.html")
+        save_file(html_content, f"{output_dir}/performance_chart.html")
+        logger.info(
+            f"Generated HTML chart at {output_dir}/performance_chart.html")
 
 
 if __name__ == "__main__":
+    output_dir = os.path.join(
+        os.path.dirname(__file__), "generated", os.path.splitext(
+            os.path.basename(__file__))[0]
+    )
     documents = [
         ("doc1", "<h1>Introduction</h1>\nThis is a short introduction to AI.\n<h2>Details</h2>\nAI involves machine learning and neural networks."),
         ("doc2", "<h1>Main Topic</h1>\n" + "Content about machine learning. " *
