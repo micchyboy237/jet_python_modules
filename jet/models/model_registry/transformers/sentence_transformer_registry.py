@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union, Literal, TypedDict
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoConfig, PreTrainedTokenizer, PretrainedConfig
@@ -48,6 +49,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         truncate_dim: Optional[int] = None,
         prompts: Optional[dict[str, str]] = None,
         max_length: Optional[int] = None,
+        device: Optional[Literal["cpu", "mps"]] = None
     ) -> SentenceTransformer:
         """Load or retrieve a SentenceTransformer model statically."""
         instance = SentenceTransformerRegistry()
@@ -70,7 +72,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             f"Loading SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")
         try:
             model = instance._load_model(
-                resolved_model_id, truncate_dim, prompts)
+                resolved_model_id, truncate_dim=truncate_dim, prompts=prompts, device=device)
             instance._models[_cache_key] = model
             return model
         except Exception as e:
@@ -79,7 +81,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             raise ValueError(
                 f"Could not load SentenceTransformer model {resolved_model_id}: {str(e)}")
 
-    def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None, prompts: Optional[dict[str, str]] = None) -> Optional[SentenceTransformer]:
+    def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None, prompts: Optional[dict[str, str]] = None, **kwargs) -> Optional[SentenceTransformer]:
         try:
             logger.info(f"Loading embedding model on CPU (onnx): {model_id}")
             model_instance = SentenceTransformer(
@@ -89,6 +91,70 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             logger.warning(f"Falling back to MPS for embed model due to: {e}")
             model_instance = SentenceTransformer(model_id, device="mps")
         return model_instance
+
+    # def _load_model(self, model_id: EmbedModelType, device: Optional[Literal["cpu", "mps"]] = None, **kwargs) -> SentenceTransformer:
+    #     resolved_model_id = resolve_model_value(model_id)
+    #     effective_device = device or "mps"
+    #     has_onnx = has_onnx_model_in_repo(resolved_model_id)
+
+    #     logger.info(
+    #         f"Loading model {resolved_model_id} on device {effective_device}")
+
+    #     if has_onnx:
+    #         onnx_paths = get_onnx_model_paths(resolved_model_id)
+    #         if not onnx_paths:
+    #             raise ValueError(
+    #                 f"No ONNX model paths found for {resolved_model_id}")
+
+    #         # Extract file name and subfolder from the first ONNX path
+    #         onnx_path = Path(onnx_paths[0])
+    #         file_name = onnx_path.name
+    #         subfolder = onnx_path.parent.name if onnx_path.parent.name != "" else "onnx"
+
+    #         logger.info(
+    #             f"ONNX model found for {resolved_model_id} in {onnx_paths}")
+    #         logger.debug(
+    #             f"ONNX file_name: {file_name} | subfolder: {subfolder}")
+
+    #         # ONNX typically requires CPU; warn if MPS is requested
+    #         if effective_device == "mps":
+    #             logger.warning(
+    #                 f"ONNX backend does not support MPS for {resolved_model_id}. Falling back to CPU."
+    #             )
+    #             effective_device = "cpu"
+
+    #         model_kwargs = {
+    #             "file_name": file_name,
+    #             "subfolder": subfolder,
+    #             "export": False,
+    #             **kwargs.get("model_kwargs", {})
+    #         }
+    #         model = SentenceTransformer(
+    #             resolved_model_id,
+    #             device=effective_device,
+    #             backend="onnx",
+    #             model_kwargs=model_kwargs,
+    #             **kwargs
+    #         )
+    #     else:
+    #         model = SentenceTransformer(
+    #             resolved_model_id,
+    #             device=effective_device,
+    #             **kwargs
+    #         )
+
+    #     # Ensure tokenizer is on the same device
+    #     if hasattr(model, "tokenizer") and model.tokenizer is not None:
+    #         logger.debug(
+    #             f"Ensuring tokenizer for {resolved_model_id} is on {effective_device}")
+    #         model._first_module().auto_model.to(effective_device)
+    #         model.tokenizer.model_max_length = self.max_length or model.max_seq_length
+    #         logger.debug(
+    #             f"Tokenizer max_length set to {model.tokenizer.model_max_length}")
+
+    #     logger.info(
+    #         f"Loaded model {resolved_model_id} on device {effective_device}")
+    #     return model
 
     @staticmethod
     def get_tokenizer() -> TokenizerWrapper:

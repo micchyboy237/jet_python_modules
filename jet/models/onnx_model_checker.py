@@ -1,12 +1,13 @@
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 import os
 from huggingface_hub import HfApi, list_repo_files
 from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR
+from jet.models.model_types import ModelType
 
 
-def has_onnx_model_in_repo(repo_id: str, token: Optional[str] = None) -> bool:
+def has_onnx_model_in_repo(repo_id: Union[str, ModelType], token: Optional[str] = None) -> bool:
     """
     Check if any ONNX model (standard model.onnx, model_*_arm64.onnx, or model*quantized*onnx) exists in a Hugging Face model repository.
     Checks the local cache first, then falls back to the remote repository if no local models are found.
@@ -53,7 +54,7 @@ def has_onnx_model_in_repo(repo_id: str, token: Optional[str] = None) -> bool:
         return False
 
 
-def get_onnx_model_paths(repo_id: str, cache_dir: str = MODELS_CACHE_DIR, token: Optional[str] = None) -> List[str]:
+def get_onnx_model_paths(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CACHE_DIR, token: Optional[str] = None) -> List[str]:
     """
     Retrieve a list of ONNX model file paths (standard, ARM64, or quantized) in the local Hugging Face cache for a repository.
 

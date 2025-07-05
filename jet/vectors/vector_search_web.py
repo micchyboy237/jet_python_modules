@@ -25,7 +25,9 @@ class VectorSearchWeb:
                  cross_encoder_name: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
                  max_context_size: int = 512):
         """Initialize with embedding model, cross-encoder, and context size."""
-        self.embed_model = SentenceTransformer(embed_model_name)
+        self.device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+        self.embed_model = SentenceTransformer(
+            embed_model_name, device=self.device)
         self.cross_encoder = CrossEncoder(cross_encoder_name)
         self.tokenizer = AutoTokenizer.from_pretrained(embed_model_name)
         self.max_context_size = max_context_size
@@ -142,10 +144,9 @@ class VectorSearchWeb:
             return
 
         chunk_texts = [chunk[1] for chunk in all_chunks]
-        device = 'cpu' if 'all-mpnet-base-v2' in str(
-            self.embed_model.device) else 'mps'
         embeddings = self.embed_model.encode(
-            chunk_texts, show_progress_bar=True, batch_size=16, device=device, force=True)
+            chunk_texts, show_progress_bar=True, batch_size=16,
+            device=self.device, force=True)
 
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
@@ -218,13 +219,10 @@ class VectorSearchWeb:
                     torch.mps.empty_cache()
                 gc.collect()
 
-                # Force CPU for all-mpnet-base-v2 to avoid MPS issues
-                device = 'cpu' if 'all-mpnet-base-v2' in model_name else (
-                    'mps' if torch.backends.mps.is_available() else 'cpu')
                 logger.info("Using device: %s for model %s",
-                            device, model_name)
+                            self.device, model_name)
                 self.embed_model = SentenceTransformer(
-                    model_name, device=device)
+                    model_name, device=self.device)
                 self.tokenizer = AutoTokenizer.from_pretrained(model_name)
                 self.max_context_size = 512  # Consistent context size
 
@@ -294,7 +292,7 @@ class VectorSearchWeb:
                 gc.collect()
 
         self.embed_model = SentenceTransformer(
-            original_model, device='mps' if torch.backends.mps.is_available() else 'cpu')
+            original_model, device=self.device)
         self.tokenizer = original_tokenizer
         self.max_context_size = original_context_size
         self.index = None
@@ -363,8 +361,9 @@ if __name__ == "__main__":
     # Evaluate models
     model_names = [
         "sentence-transformers/all-MiniLM-L6-v2",
-        "sentence-transformers/all-MiniLM-L12-v2",
-        # "sentence-transformers/all-mpnet-base-v2",
+        "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
+        # "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+        # "Snowflake/snowflake-arctic-embed-s",
     ]
     model_scores = searcher.evaluate_models(
         documents, validation_set, model_names, chunk_sizes, overlap_ratio=0.2, k=3)
