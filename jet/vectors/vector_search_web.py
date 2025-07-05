@@ -203,11 +203,6 @@ class VectorSearchWeb:
                         validation_set: List[Tuple[str, List[Tuple[str, int]]]],
                         model_names: List[str], chunk_sizes: List[int],
                         overlap_ratio: float = 0.2, k: int = 5) -> Dict[str, Dict[str, float]]:
-        """
-        Evaluate embedding models using precision@k, recall@k, and MRR.
-        validation_set: List of (query, [(doc_id, chunk_idx), ...]) pairs.
-        Returns model_name -> {'precision': float, 'recall': float, 'mrr': float}.
-        """
         results = {}
         original_model = self.embed_model.model_card_data.get(
             'model_name', 'sentence-transformers/all-MiniLM-L6-v2')
@@ -218,14 +213,20 @@ class VectorSearchWeb:
             logger.info("Evaluating model: %s", model_name)
             try:
                 # Clear memory before loading new model
-                torch.mps.empty_cache() if torch.backends.mps.is_available() else torch.cuda.empty_cache()
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
                 gc.collect()
 
-                device = 'cpu' if 'all-mpnet-base-v2' in model_name else 'mps'
+                # Force CPU for all-mpnet-base-v2 to avoid MPS issues
+                device = 'cpu' if 'all-mpnet-base-v2' in model_name else (
+                    'mps' if torch.backends.mps.is_available() else 'cpu')
+                logger.info("Using device: %s for model %s",
+                            device, model_name)
                 self.embed_model = SentenceTransformer(
                     model_name, device=device)
                 self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-                self.max_context_size = 512 if 'MiniLM' in model_name else 512  # Adjust if known
+                self.max_context_size = 512  # Consistent context size
 
                 self.index_documents(
                     documents, chunk_sizes=chunk_sizes, overlap_ratio=overlap_ratio)
@@ -287,10 +288,13 @@ class VectorSearchWeb:
                 self.tokenizer = None
                 self.index = None
                 self.chunk_metadata = []
-                torch.mps.empty_cache() if torch.backends.mps.is_available() else torch.cuda.empty_cache()
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
                 gc.collect()
 
-        self.embed_model = SentenceTransformer(original_model, device='mps')
+        self.embed_model = SentenceTransformer(
+            original_model, device='mps' if torch.backends.mps.is_available() else 'cpu')
         self.tokenizer = original_tokenizer
         self.max_context_size = original_context_size
         self.index = None
@@ -359,7 +363,8 @@ if __name__ == "__main__":
     # Evaluate models
     model_names = [
         "sentence-transformers/all-MiniLM-L6-v2",
-        "sentence-transformers/all-mpnet-base-v2",
+        "sentence-transformers/all-MiniLM-L12-v2",
+        # "sentence-transformers/all-mpnet-base-v2",
     ]
     model_scores = searcher.evaluate_models(
         documents, validation_set, model_names, chunk_sizes, overlap_ratio=0.2, k=3)
