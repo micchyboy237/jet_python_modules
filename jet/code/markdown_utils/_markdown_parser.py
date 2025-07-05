@@ -21,7 +21,29 @@ def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> 
     # Preprocess markdown
     md_content = preprocess_markdown(md_content)
     parser = MarkdownParser(md_content)
-    return make_serializable(parser.parse())
+    md_tokens = make_serializable(parser.parse())
+    # Ensure all tokens have required attributes with defaults
+    for token in md_tokens:
+        # Ensure type is present
+        if 'type' not in token:
+            token['type'] = 'paragraph'
+
+        # Ensure content is present
+        if 'content' not in token:
+            token['content'] = ''
+
+        # Ensure level is present (can be None for non-header tokens)
+        if 'level' not in token:
+            token['level'] = None
+
+        # Ensure meta is present
+        if 'meta' not in token:
+            token['meta'] = {}
+
+        # Ensure line is present
+        if 'line' not in token:
+            token['line'] = 1
+    return md_tokens
 
 
 def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:

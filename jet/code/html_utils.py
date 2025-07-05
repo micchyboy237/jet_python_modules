@@ -1,5 +1,6 @@
 import re
-from typing import Optional
+import justext
+from typing import List, Optional
 from bs4 import BeautifulSoup
 from lxml import etree, html
 
@@ -270,3 +271,27 @@ def preprocess_html(html: str) -> str:
     html = fix_and_unidecode(html)
 
     return html
+
+
+def remove_noisy_elements(html_string):
+    """
+    Removes noisy elements (links, scripts, styles, etc.) from an HTML string,
+    preserving the remaining HTML structure and textual content.
+
+    Args:
+        html_string (str): Input HTML string
+
+    Returns:
+        str: Cleaned HTML string with noisy elements removed
+    """
+    # Create BeautifulSoup object for parsing HTML
+    soup = BeautifulSoup(html_string, 'html.parser')
+
+    # Remove noisy elements
+    for element in soup(['script', 'style', 'a', 'iframe', 'img', 'video',
+                        'audio', 'button', 'form', 'input', 'nav', 'header',
+                         'footer', 'aside']):
+        element.decompose()
+
+    # Return the cleaned HTML string
+    return str(soup)
