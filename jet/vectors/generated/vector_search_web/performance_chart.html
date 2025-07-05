@@ -10,9 +10,11 @@
 <body>
     <h2>Model Performance Comparison</h2>
     <canvas id="performanceChart" width="800" height="400"></canvas>
+    <h2>Performance by Chunk Size</h2>
+    <canvas id="chunkSizeChart" width="800" height="400"></canvas>
     <script>
-        const ctx = document.getElementById('performanceChart').getContext('2d');
-        new Chart(ctx, {
+        const ctx1 = document.getElementById('performanceChart').getContext('2d');
+        new Chart(ctx1, {
             type: 'bar',
             data: {
                 labels: ["sentence-transformers/all-MiniLM-L6-v2", "sentence-transformers/multi-qa-MiniLM-L6-cos-v1", "Snowflake/snowflake-arctic-embed-s"],
@@ -42,19 +44,10 @@
             },
             options: {
                 scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 1,
-                        title: { display: true, text: 'Score' }
-                    },
-                    x: {
-                        title: { display: true, text: 'Model' }
-                    }
+                    y: { beginAtZero: true, max: 1, title: { display: true, text: 'Score' } },
+                    x: { title: { display: true, text: 'Model' } }
                 },
-                plugins: {
-                    legend: { display: true, position: 'top' },
-                    title: { display: true, text: 'Model Performance Metrics' }
-                }
+                plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Model Performance Metrics' } }
             }
         });
     </script>

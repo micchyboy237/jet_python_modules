@@ -14,6 +14,9 @@ from typing import List, Tuple, Dict
 import json
 from jet.file.utils import save_file
 from jet.logger import logger
+from jet.models.embeddings.base import generate_embeddings
+from jet.models.model_types import LLMModelType
+from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
 nltk.download('punkt', quiet=True)
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(
@@ -131,8 +134,10 @@ class VectorSearchWeb:
             logger.error("No chunks generated for indexing")
             return
         chunk_texts = [chunk[1] for chunk in all_chunks]
-        embeddings = self.embed_model.encode(
-            chunk_texts, show_progress_bar=True, batch_size=16, device=self.device)
+        # embeddings = self.embed_model.encode(
+        #     chunk_texts, show_progress_bar=True, batch_size=16, device=self.device)
+        embeddings = generate_embeddings(
+            chunk_texts, show_progress=True, return_format="numpy")
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
         faiss.normalize_L2(embeddings)
@@ -143,8 +148,7 @@ class VectorSearchWeb:
     def search(self, query: str, k: int = 5, use_cross_encoder: bool = True, query_type: str = "short") -> List[Tuple[str, str, int, str, float]]:
         """Search with deduplication to reduce redundant neighbors."""
         chunk_size_preference = 150 if query_type == "short" else 250
-        query_embedding = self.embed_model.encode(
-            [query], show_progress_bar=False)[0]
+        query_embedding = generate_embeddings([query], return_format="numpy")
         faiss.normalize_L2(query_embedding.reshape(1, -1))
         if not self.index or not self.chunk_metadata:
             logger.error("Index or metadata not initialized")
@@ -294,26 +298,129 @@ class VectorSearchWeb:
     def generate_summary(self, model_scores: Dict[str, Dict[str, float]],
                          example_results: Dict[str, List[Dict]],
                          chunk_sizes: List[int], k: int,
-                         validation_set: List[Tuple[str, List[Tuple[str, int]]]] = None) -> None:
-        """Generate a markdown summary and HTML chart of evaluation results, including top results."""
+                         validation_set: List[Tuple[str, List[Tuple[str, int]]]] = None) -> str:
+        """Generate a markdown summary and HTML charts with detailed insights for vector search performance."""
         best_model = max(
             model_scores, key=lambda x: model_scores[x]['precision'])
         best_metrics = model_scores[best_model]
         markdown_content = ""  # Initialize as empty string
         markdown_content += "# Evaluation Summary\n\n"
-        markdown_content += "This summary presents the evaluation results of different embedding models for semantic search.\n"
+        markdown_content += "This summary evaluates embedding models for semantic search in a Retrieval-Augmented Generation (RAG) context, analyzing precision, recall, and MRR, along with query-type and chunk-size impacts.\n\n"
         markdown_content += f"- **Chunk Sizes Used**: {', '.join(map(str, chunk_sizes))}\n"
         markdown_content += f"- **Top-K Results Evaluated**: {k}\n"
-        markdown_content += f"- **Best Model**: {best_model}\n"
+        markdown_content += f"- **Best Model (by Precision)**: {best_model}\n"
         markdown_content += f"  - Precision@{k}: {best_metrics['precision']:.4f}\n"
         markdown_content += f"  - Recall@{k}: {best_metrics['recall']:.4f}\n"
         markdown_content += f"  - MRR: {best_metrics['mrr']:.4f}\n\n"
+
+        # Model Performance Table
         markdown_content += "## Model Performance\n\n"
-        markdown_content += "| Model | Precision | Recall | MRR |\n"
-        markdown_content += "|-------|-----------|--------|-----|\n"
+        markdown_content += "| Model | Precision | Recall | MRR | Strengths | Weaknesses |\n"
+        markdown_content += "|-------|-----------|--------|-----|-----------|------------|\n"
         for model, metrics in model_scores.items():
-            markdown_content += f"| {model} | {metrics['precision']:.4f} | {metrics['recall']:.4f} | {metrics['mrr']:.4f} |\n"
+            strengths = []
+            weaknesses = []
+            if metrics['precision'] == max(m['precision'] for m in model_scores.values()):
+                strengths.append(
+                    "High precision: Retrieves highly relevant chunks.")
+            elif metrics['precision'] < min(m['precision'] for m in model_scores.values()) * 1.2:
+                weaknesses.append(
+                    "Low precision: Includes more irrelevant chunks.")
+            if metrics['recall'] == max(m['recall'] for m in model_scores.values()):
+                strengths.append("High recall: Captures most relevant chunks.")
+            elif metrics['recall'] < min(m['recall'] for m in model_scores.values()) * 1.2:
+                weaknesses.append("Low recall: Misses relevant chunks.")
+            if metrics['mrr'] == max(m['mrr'] for m in model_scores.values()):
+                strengths.append("High MRR: Ranks relevant chunks higher.")
+            elif metrics['mrr'] < min(m['mrr'] for m in model_scores.values()) * 1.2:
+                weaknesses.append("Low MRR: Poor ranking of relevant chunks.")
+            strengths_str = "; ".join(strengths) or "Balanced performance"
+            weaknesses_str = "; ".join(weaknesses) or "No major weaknesses"
+            markdown_content += f"| {model} | {metrics['precision']:.4f} | {metrics['recall']:.4f} | {metrics['mrr']:.4f} | {strengths_str} | {weaknesses_str} |\n"
         markdown_content += "\n"
+
+        # Query-Type Performance Analysis
+        markdown_content += "## Performance by Query Type\n\n"
+        short_queries = [(q, r) for q, r in validation_set if len(
+            self.tokenizer.encode(q, add_special_tokens=False)) < 50]
+        long_queries = [(q, r) for q, r in validation_set if len(
+            self.tokenizer.encode(q, add_special_tokens=False)) >= 50]
+        query_type_results = {}
+        for model_name in model_scores.keys():
+            self.embed_model = SentenceTransformer(
+                model_name, device=self.device)
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.index_documents([(f"doc_{i}", text) for i, text in enumerate(
+                doc_texts)], chunk_sizes, overlap_ratio=0.2)
+            short_precision, short_recall, short_mrr = 0.0, 0.0, 0.0
+            long_precision, long_recall, long_mrr = 0.0, 0.0, 0.0
+            for query, relevant_chunks in short_queries:
+                search_results = self.search(query, k=k, query_type="short")
+                relevant_set = set((doc_id, chunk_idx)
+                                   for doc_id, chunk_idx in relevant_chunks)
+                retrieved_set = set((doc_id, chunk_idx)
+                                    for doc_id, _, chunk_idx, _, _ in search_results)
+                short_precision += len(relevant_set &
+                                       retrieved_set) / k if k > 0 else 0.0
+                short_recall += len(relevant_set & retrieved_set) / \
+                    len(relevant_set) if relevant_set else 0.0
+                for rank, (doc_id, _, chunk_idx, _, _) in enumerate(search_results, 1):
+                    if (doc_id, chunk_idx) in relevant_set:
+                        short_mrr += 1.0 / rank
+                        break
+            for query, relevant_chunks in long_queries:
+                search_results = self.search(query, k=k, query_type="long")
+                relevant_set = set((doc_id, chunk_idx)
+                                   for doc_id, chunk_idx in relevant_chunks)
+                retrieved_set = set((doc_id, chunk_idx)
+                                    for doc_id, _, chunk_idx, _, _ in search_results)
+                long_precision += len(relevant_set &
+                                      retrieved_set) / k if k > 0 else 0.0
+                long_recall += len(relevant_set & retrieved_set) / \
+                    len(relevant_set) if relevant_set else 0.0
+                for rank, (doc_id, _, chunk_idx, _, _) in enumerate(search_results, 1):
+                    if (doc_id, chunk_idx) in relevant_set:
+                        long_mrr += 1.0 / rank
+                        break
+            query_type_results[model_name] = {
+                'short': {
+                    'precision': short_precision / len(short_queries) if short_queries else 0.0,
+                    'recall': short_recall / len(short_queries) if short_queries else 0.0,
+                    'mrr': short_mrr / len(short_queries) if short_queries else 0.0
+                },
+                'long': {
+                    'precision': long_precision / len(long_queries) if long_queries else 0.0,
+                    'recall': long_recall / len(long_queries) if long_queries else 0.0,
+                    'mrr': long_mrr / len(long_queries) if long_queries else 0.0
+                }
+            }
+        markdown_content += "| Model | Short Query Precision | Short Query Recall | Short Query MRR | Long Query Precision | Long Query Recall | Long Query MRR |\n"
+        markdown_content += "|-------|----------------------|--------------------|-----------------|---------------------|-------------------|----------------|\n"
+        for model, metrics in query_type_results.items():
+            markdown_content += f"| {model} | {metrics['short']['precision']:.4f} | {metrics['short']['recall']:.4f} | {metrics['short']['mrr']:.4f} | {metrics['long']['precision']:.4f} | {metrics['long']['recall']:.4f} | {metrics['long']['mrr']:.4f} |\n"
+        markdown_content += "\n"
+
+        # Error Analysis
+        markdown_content += "## Error Analysis\n\n"
+        failed_queries = []
+        for query, relevant_chunks in validation_set:
+            search_results = self.search(query, k=k, query_type="short" if len(
+                self.tokenizer.encode(query, add_special_tokens=False)) < 50 else "long")
+            relevant_set = set((doc_id, chunk_idx)
+                               for doc_id, chunk_idx in relevant_chunks)
+            retrieved_set = set((doc_id, chunk_idx)
+                                for doc_id, _, chunk_idx, _, _ in search_results)
+            if not (relevant_set & retrieved_set):
+                failed_queries.append(query)
+        if failed_queries:
+            markdown_content += f"**Failed Queries**: {len(failed_queries)} queries retrieved no relevant chunks:\n"
+            for query in failed_queries[:5]:  # Limit to 5 for brevity
+                markdown_content += f"- {query}\n"
+        else:
+            markdown_content += "No queries failed to retrieve relevant chunks.\n"
+        markdown_content += "\n"
+
+        # Top Results per Query
         markdown_content += "## Top Results per Query\n\n"
         markdown_content += "The highest-scoring chunk for each query.\n"
         markdown_content += "| Query | Doc ID | Chunk ID | Header | Score | Relevant | Text Preview |\n"
@@ -334,6 +441,8 @@ class VectorSearchWeb:
                         doc_id, chunk_text, chunk_idx, header, score = top_result
                         markdown_content += f"| {query} | {doc_id} | {chunk_idx} | {header} | {score:.4f} | N/A | {chunk_text[:100] + '...' if len(chunk_text) > 100 else chunk_text} |\n"
         markdown_content += "\n"
+
+        # Detailed Results per Query
         markdown_content += "## Detailed Results per Query\n\n"
         for query, results in example_results.items():
             markdown_content += f"### Query: {query}\n\n"
@@ -342,10 +451,28 @@ class VectorSearchWeb:
             for result in results:
                 markdown_content += f"| {result['doc_id']} | {result['chunk_idx']} | {result['header']} | {result['score']:.4f} | {result['is_relevant']} | {result['text']} |\n"
             markdown_content += "\n"
+
+        # Recommendations for RAG Optimization
+        markdown_content += "## Recommendations for RAG Optimization\n\n"
+        markdown_content += "Based on the evaluation, consider the following to improve vector search performance:\n"
+        if failed_queries:
+            markdown_content += "- **Fine-Tune Embeddings**: Failed queries suggest domain mismatch. Consider fine-tuning the embedding model on domain-specific data.\n"
+        if max(model_scores[model]['recall'] for model in model_scores) < 0.8:
+            markdown_content += "- **Increase Recall**: Low recall indicates missed relevant chunks. Try larger chunk sizes or hybrid search (e.g., combining keyword and semantic search).\n"
+        if max(model_scores[model]['precision'] for model in model_scores) < 0.8:
+            markdown_content += "- **Improve Precision**: Low precision suggests irrelevant chunks. Use a more discriminative cross-encoder or adjust chunk overlap.\n"
+        if query_type_results[best_model]['short']['recall'] < query_type_results[best_model]['long']['recall']:
+            markdown_content += "- **Optimize for Short Queries**: The best model struggles with short queries. Consider a model trained on concise question-answering datasets.\n"
+        markdown_content += "- **Experiment with Chunk Sizes**: Vary chunk sizes further or use dynamic chunking based on document structure.\n"
+        markdown_content += "- **Domain-Specific Models**: If documents are domain-specific (e.g., technical, medical), try models like `sentence-transformers/all-mpnet-base-v2` for better semantic alignment.\n"
+        markdown_content += "\n"
+
         with open(f"{OUTPUT_DIR}/evaluation_summary.md", "w", encoding="utf-8") as f:
             f.write(markdown_content)
         logger.success(
             f"Generated markdown summary at {OUTPUT_DIR}/evaluation_summary.md")
+
+        # HTML Chart for Model Performance
         chart_data = {
             "labels": list(model_scores.keys()),
             "precision": [model_scores[model]["precision"] for model in model_scores],
@@ -364,9 +491,11 @@ class VectorSearchWeb:
 <body>
     <h2>Model Performance Comparison</h2>
     <canvas id="performanceChart" width="800" height="400"></canvas>
+    <h2>Performance by Chunk Size</h2>
+    <canvas id="chunkSizeChart" width="800" height="400"></canvas>
     <script>
-        const ctx = document.getElementById('performanceChart').getContext('2d');
-        new Chart(ctx, {
+        const ctx1 = document.getElementById('performanceChart').getContext('2d');
+        new Chart(ctx1, {
             type: 'bar',
             data: {
                 labels: """ + json.dumps(chart_data["labels"]) + """,
@@ -396,19 +525,10 @@ class VectorSearchWeb:
             },
             options: {
                 scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 1,
-                        title: { display: true, text: 'Score' }
-                    },
-                    x: {
-                        title: { display: true, text: 'Model' }
-                    }
+                    y: { beginAtZero: true, max: 1, title: { display: true, text: 'Score' } },
+                    x: { title: { display: true, text: 'Model' } }
                 },
-                plugins: {
-                    legend: { display: true, position: 'top' },
-                    title: { display: true, text: 'Model Performance Metrics' }
-                }
+                plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Model Performance Metrics' } }
             }
         });
     </script>
@@ -419,6 +539,8 @@ class VectorSearchWeb:
             f.write(html_content)
         logger.success(
             f"Generated HTML chart at {OUTPUT_DIR}/performance_chart.html")
+
+        return markdown_content
 
 
 if __name__ == "__main__":
@@ -451,5 +573,31 @@ if __name__ == "__main__":
         embed_model_name=best_model, max_context_size=512)
     example_results = searcher.evaluate_retrieval_examples(
         documents, example_queries, chunk_sizes, overlap_ratio=0.2, k=3)
-    searcher.generate_summary(
+    evaluation_report = searcher.generate_summary(
         model_scores, example_results, chunk_sizes, k=3, validation_set=validation_set)
+
+    # Generate insights on evaluation summary report
+    llm_model: LLMModelType = "qwen3-1.7b-4bit-dwq-053125"
+    seed = 44
+    mlx = MLXModelRegistry.load_model(llm_model, seed=seed)
+
+    PROMPT_TEMPLATE = """\
+Context information is below.
+---------------------
+{context}
+---------------------
+
+Given the context information, answer the query.
+
+Query: {query}
+"""
+    query = "Provide overall insights on the provided evaluation report then write recommendations to improve for better RAG context."
+    context = evaluation_report
+    prompt = PROMPT_TEMPLATE.format(query=query, context=context)
+    response = mlx.chat(
+        prompt,
+        temperature=0.3,
+        verbose=True,
+        max_tokens=10000
+    )
+    save_file(response, f"{OUTPUT_DIR}/evaluation_insights.md")

@@ -1,20 +1,38 @@
 # Evaluation Summary
 
-This summary presents the evaluation results of different embedding models for semantic search.
+This summary evaluates embedding models for semantic search in a Retrieval-Augmented Generation (RAG) context, analyzing precision, recall, and MRR, along with query-type and chunk-size impacts.
+
 - **Chunk Sizes Used**: 150, 250, 350
 - **Top-K Results Evaluated**: 3
-- **Best Model**: sentence-transformers/all-MiniLM-L6-v2
+- **Best Model (by Precision)**: sentence-transformers/all-MiniLM-L6-v2
   - Precision@3: 0.1111
   - Recall@3: 0.0086
   - MRR: 0.3333
 
 ## Model Performance
 
-| Model | Precision | Recall | MRR |
-|-------|-----------|--------|-----|
-| sentence-transformers/all-MiniLM-L6-v2 | 0.1111 | 0.0086 | 0.3333 |
-| sentence-transformers/multi-qa-MiniLM-L6-cos-v1 | 0.1111 | 0.0086 | 0.3333 |
-| Snowflake/snowflake-arctic-embed-s | 0.1111 | 0.0090 | 0.3000 |
+| Model | Precision | Recall | MRR | Strengths | Weaknesses |
+|-------|-----------|--------|-----|-----------|------------|
+| sentence-transformers/all-MiniLM-L6-v2 | 0.1111 | 0.0086 | 0.3333 | High precision: Retrieves highly relevant chunks.; High MRR: Ranks relevant chunks higher. | Low recall: Misses relevant chunks. |
+| sentence-transformers/multi-qa-MiniLM-L6-cos-v1 | 0.1111 | 0.0086 | 0.3333 | High precision: Retrieves highly relevant chunks.; High MRR: Ranks relevant chunks higher. | Low recall: Misses relevant chunks. |
+| Snowflake/snowflake-arctic-embed-s | 0.1111 | 0.0090 | 0.3000 | High precision: Retrieves highly relevant chunks.; High recall: Captures most relevant chunks. | Low MRR: Poor ranking of relevant chunks. |
+
+## Performance by Query Type
+
+| Model | Short Query Precision | Short Query Recall | Short Query MRR | Long Query Precision | Long Query Recall | Long Query MRR |
+|-------|----------------------|--------------------|-----------------|---------------------|-------------------|----------------|
+| sentence-transformers/all-MiniLM-L6-v2 | 0.1111 | 0.0086 | 0.3333 | 0.0000 | 0.0000 | 0.0000 |
+| sentence-transformers/multi-qa-MiniLM-L6-cos-v1 | 0.1111 | 0.0086 | 0.3333 | 0.0000 | 0.0000 | 0.0000 |
+| Snowflake/snowflake-arctic-embed-s | 0.1111 | 0.0090 | 0.3000 | 0.0000 | 0.0000 | 0.0000 |
+
+## Error Analysis
+
+**Failed Queries**: 10 queries retrieved no relevant chunks:
+- What is the premise of 'The Daily Life of a Middle-Aged Online Shopper in Another World'?
+- Which 2025 isekai anime features a character reincarnated as a villainess from an otome game?
+- What are the genres and studio for 'Magic Maker: How to Create Magic in Another World'?
+- What is the unique skill of the protagonist in 'Campfire Cooking in Another World with My Absurd Skill Season 2'?
+- What challenges does the protagonist face in 'Promise of Wizard'?
 
 ## Top Results per Query
 
@@ -143,4 +161,13 @@ The highest-scoring chunk for each query.
 |--------|----------|--------|-------|----------|--------------|
 | doc_20 | 0 | No Header | 0.0000 | False | ###### Start & End Date: Jan 1 to Mar 19, 2025 Genres: Adventure, Fantasy, Isekai Episodes: 12 Studi... |
 | doc_10 | 0 | No Header | 1.0000 | False | ###### Start & End Date: April 2025 to Spring 2025 Genres: Action, Adventure, Fantasy, Isekai Episod... |
+
+## Recommendations for RAG Optimization
+
+Based on the evaluation, consider the following to improve vector search performance:
+- **Fine-Tune Embeddings**: Failed queries suggest domain mismatch. Consider fine-tuning the embedding model on domain-specific data.
+- **Increase Recall**: Low recall indicates missed relevant chunks. Try larger chunk sizes or hybrid search (e.g., combining keyword and semantic search).
+- **Improve Precision**: Low precision suggests irrelevant chunks. Use a more discriminative cross-encoder or adjust chunk overlap.
+- **Experiment with Chunk Sizes**: Vary chunk sizes further or use dynamic chunking based on document structure.
+- **Domain-Specific Models**: If documents are domain-specific (e.g., technical, medical), try models like `sentence-transformers/all-mpnet-base-v2` for better semantic alignment.
 
