@@ -11,13 +11,11 @@ from huggingface_hub import snapshot_download
 from pathlib import Path
 from typing import List, Tuple, Dict
 import logging
+import json
 
-# Set up logging
+nltk.download('punkt', quiet=True)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Download NLTK data
-nltk.download('punkt', quiet=True)
 
 
 class VectorSearchWeb:
@@ -32,7 +30,7 @@ class VectorSearchWeb:
         self.tokenizer = AutoTokenizer.from_pretrained(embed_model_name)
         self.max_context_size = max_context_size
         self.index = None
-        self.chunk_metadata = []  # (doc_id, chunk_text, chunk_idx, header)
+        self.chunk_metadata = []
         logger.info("Initialized with model %s, context size %d",
                     embed_model_name, max_context_size)
 
@@ -41,16 +39,13 @@ class VectorSearchWeb:
         if not text or not isinstance(text, str):
             logger.warning("Empty or invalid document text")
             return []
-
         text = re.sub(r'(<script.*?</script>|<style.*?</style>|<!--.*?-->)',
                       '', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'\s+', ' ', text).strip()
-
-        header_pattern = r'(<h[1-6]>.*?</h[1-6]>|\#\#+\s+[^\n]+)'
+        header_pattern = r'(<h[1-6]>.*?</h[1-6]>)'
         sections = []
         current_header = "No Header"
         current_content = []
-
         parts = re.split(header_pattern, text, flags=re.IGNORECASE)
         for i in range(0, len(parts), 2):
             content = parts[i].strip()
@@ -62,12 +57,9 @@ class VectorSearchWeb:
                     sections.append(
                         (current_header, '\n'.join(current_content)))
                     current_content = []
-                current_header = re.sub(
-                    r'<[^>]+>|\#+', '', next_header).strip()
-
+                current_header = re.sub(r'<[^>]+>', '', next_header)
         if current_content:
             sections.append((current_header, '\n'.join(current_content)))
-
         sections = [(h, c) for h, c in sections if len(c.strip()) > 50 and not re.match(
             r'^(Navigation|Footer|Copyright|Login|Advertisement|Sidebar)', h, re.IGNORECASE)]
         return sections
@@ -78,17 +70,14 @@ class VectorSearchWeb:
             logger.warning("Chunk size %d exceeds context size %d; capping at %d",
                            chunk_size, self.max_context_size, self.max_context_size)
             chunk_size = self.max_context_size
-
         sections = self.preprocess_web_document(text)
         chunks = []
         chunk_idx = 0
-
         for header, content in sections:
             section_text = f"{header}\n{content}" if header != "No Header" else content
             section_tokens = len(self.tokenizer.encode(
                 section_text, add_special_tokens=False, truncation=True, max_length=self.max_context_size))
-
-            if section_tokens <= self.max_context_size:  # Use section as-is if within max_context_size
+            if section_tokens <= self.max_context_size:
                 chunks.append((doc_id, section_text, chunk_idx, header))
                 chunk_idx += 1
             else:
@@ -98,7 +87,6 @@ class VectorSearchWeb:
                     section_text, doc_id, chunk_size, overlap, chunk_idx, header)
                 chunks.extend(token_chunks)
                 chunk_idx += len(token_chunks)
-
         return chunks
 
     def _chunk_by_tokens(self, text: str, doc_id: str, chunk_size: int, overlap: int,
@@ -109,7 +97,6 @@ class VectorSearchWeb:
         chunks = []
         i = 0
         chunk_idx = start_idx
-
         while i < len(tokens):
             end_idx = min(i + chunk_size, len(tokens))
             chunk_tokens = tokens[i:end_idx]
@@ -123,11 +110,10 @@ class VectorSearchWeb:
                 i += chunk_size - overlap
                 chunk_idx += 1
                 continue
-            if chunk_text.strip():  # Skip empty chunks
+            if chunk_text.strip():
                 chunks.append((doc_id, chunk_text, chunk_idx, header))
             chunk_idx += 1
             i += chunk_size - overlap
-
         return chunks
 
     def index_documents(self, documents: List[Tuple[str, str]], chunk_sizes: List[int], overlap_ratio: float = 0.2):
@@ -138,16 +124,12 @@ class VectorSearchWeb:
                 overlap = int(chunk_size * overlap_ratio)
                 chunks = self.chunk_document(text, doc_id, chunk_size, overlap)
                 all_chunks.extend(chunks)
-
         if not all_chunks:
             logger.error("No chunks generated for indexing")
             return
-
         chunk_texts = [chunk[1] for chunk in all_chunks]
         embeddings = self.embed_model.encode(
-            chunk_texts, show_progress_bar=True, batch_size=16,
-            device=self.device, force=True)
-
+            chunk_texts, show_progress_bar=True, batch_size=16, device=self.device)
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
         faiss.normalize_L2(embeddings)
@@ -161,28 +143,23 @@ class VectorSearchWeb:
         query_embedding = self.embed_model.encode(
             [query], show_progress_bar=False)[0]
         faiss.normalize_L2(query_embedding.reshape(1, -1))
-
         if not self.index or not self.chunk_metadata:
             logger.error("Index or metadata not initialized")
             return []
-
         distances, indices = self.index.search(
             query_embedding.reshape(1, -1), k * 2)
         candidates = []
         for idx, score in zip(indices[0], distances[0]):
             if idx < len(self.chunk_metadata):
                 candidates.append(self.chunk_metadata[idx] + (score,))
-
         if use_cross_encoder:
             pairs = [[query, chunk[1]] for chunk in candidates]
             scores = self.cross_encoder.predict(pairs, convert_to_numpy=True)
-            # Normalize cross-encoder scores to [0, 1] if negative
             scores = (scores - scores.min()) / \
                 (scores.max() - scores.min() + 1e-8)
             candidates = [(c[0], c[1], c[2], c[3], s)
                           for c, s in zip(candidates, scores)]
             candidates = sorted(candidates, key=lambda x: x[4], reverse=True)
-
         seen_headers = {}
         deduped = []
         for candidate in candidates:
@@ -190,83 +167,70 @@ class VectorSearchWeb:
             key = (doc_id, header)
             if key not in seen_headers or score > seen_headers[key][4]:
                 seen_headers[key] = candidate
-
         candidates = list(seen_headers.values())
         candidates = sorted(candidates, key=lambda x: (
             abs(len(self.tokenizer.encode(
                 x[1], add_special_tokens=False, truncation=True, max_length=self.max_context_size)) - chunk_size_preference),
             -x[4]
         ))[:k]
-
         return candidates
 
     def evaluate_models(self, documents: List[Tuple[str, str]],
                         validation_set: List[Tuple[str, List[Tuple[str, int]]]],
                         model_names: List[str], chunk_sizes: List[int],
                         overlap_ratio: float = 0.2, k: int = 5) -> Dict[str, Dict[str, float]]:
+        """Evaluate multiple models and return performance metrics."""
         results = {}
         original_model = self.embed_model.model_card_data.get(
             'model_name', 'sentence-transformers/all-MiniLM-L6-v2')
         original_tokenizer = self.tokenizer
         original_context_size = self.max_context_size
-
         for model_name in model_names:
             logger.info("Evaluating model: %s", model_name)
             try:
-                # Clear memory before loading new model
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
                 if torch.backends.mps.is_available():
                     torch.mps.empty_cache()
                 gc.collect()
-
                 logger.info("Using device: %s for model %s",
                             self.device, model_name)
                 self.embed_model = SentenceTransformer(
                     model_name, device=self.device)
                 self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-                self.max_context_size = 512  # Consistent context size
-
+                self.max_context_size = 512
                 self.index_documents(
                     documents, chunk_sizes=chunk_sizes, overlap_ratio=overlap_ratio)
-
                 if not self.index:
                     logger.error(
                         "Failed to index documents for model %s", model_name)
                     results[model_name] = {
                         'precision': 0.0, 'recall': 0.0, 'mrr': 0.0}
                     continue
-
                 precision_sum = 0.0
                 recall_sum = 0.0
                 mrr_sum = 0.0
                 total_queries = len(validation_set)
-
                 for query, relevant_chunks in validation_set:
                     query_type = "short" if len(self.tokenizer.encode(
                         query, add_special_tokens=False, truncation=True, max_length=self.max_context_size)) < 50 else "long"
                     search_results = self.search(
                         query, k=k, query_type=query_type)
-
                     relevant_set = set((doc_id, chunk_idx)
                                        for doc_id, chunk_idx in relevant_chunks)
                     retrieved_set = set((doc_id, chunk_idx)
                                         for doc_id, _, chunk_idx, _, _ in search_results)
-
                     precision = len(
                         relevant_set & retrieved_set) / k if k > 0 else 0.0
                     precision_sum += precision
-
                     recall = len(relevant_set & retrieved_set) / \
                         len(relevant_set) if relevant_set else 0.0
                     recall_sum += recall
-
                     mrr = 0.0
                     for rank, (doc_id, _, chunk_idx, _, _) in enumerate(search_results, 1):
                         if (doc_id, chunk_idx) in relevant_set:
                             mrr = 1.0 / rank
                             break
                     mrr_sum += mrr
-
                 results[model_name] = {
                     'precision': precision_sum / total_queries if total_queries else 0.0,
                     'recall': recall_sum / total_queries if total_queries else 0.0,
@@ -281,7 +245,6 @@ class VectorSearchWeb:
                 results[model_name] = {
                     'precision': 0.0, 'recall': 0.0, 'mrr': 0.0}
             finally:
-                # Cleanup to prevent resource leaks
                 self.embed_model = None
                 self.tokenizer = None
                 self.index = None
@@ -290,7 +253,6 @@ class VectorSearchWeb:
                 if torch.backends.mps.is_available():
                     torch.mps.empty_cache()
                 gc.collect()
-
         self.embed_model = SentenceTransformer(
             original_model, device=self.device)
         self.tokenizer = original_tokenizer
@@ -302,22 +264,16 @@ class VectorSearchWeb:
     def evaluate_retrieval_examples(self, documents: List[Tuple[str, str]],
                                     example_queries: List[Tuple[str, List[Tuple[str, int]]]],
                                     chunk_sizes: List[int], overlap_ratio: float = 0.2, k: int = 5) -> Dict[str, List[Dict]]:
-        """
-        Evaluate retrieval performance for example queries.
-        example_queries: List of (query, [(doc_id, chunk_idx), ...]) pairs.
-        Returns query -> [{'doc_id': str, 'chunk_idx': int, 'header': str, 'score': float, 'text': str, 'is_relevant': bool}, ...].
-        """
+        """Evaluate example queries and return detailed results."""
         self.index_documents(
             documents, chunk_sizes=chunk_sizes, overlap_ratio=overlap_ratio)
         results = {}
-
         for query, relevant_chunks in example_queries:
             query_type = "short" if len(self.tokenizer.encode(
                 query, add_special_tokens=False)) < 50 else "long"
             search_results = self.search(query, k=k, query_type=query_type)
             relevant_set = set((doc_id, chunk_idx)
                                for doc_id, chunk_idx in relevant_chunks)
-
             result_list = []
             for doc_id, chunk_text, chunk_idx, header, score in search_results:
                 is_relevant = (doc_id, chunk_idx) in relevant_set
@@ -329,13 +285,127 @@ class VectorSearchWeb:
                     'text': chunk_text[:100] + "..." if len(chunk_text) > 100 else chunk_text,
                     'is_relevant': is_relevant
                 })
-
             results[query] = result_list
-
         return results
 
+    def generate_summary(self, model_scores: Dict[str, Dict[str, float]],
+                         example_results: Dict[str, List[Dict]],
+                         chunk_sizes: List[int], k: int) -> None:
+        """Generate a markdown summary and HTML chart of evaluation results."""
+        # Find the best model based on precision
+        best_model = max(
+            model_scores, key=lambda x: model_scores[x]['precision'])
+        best_metrics = model_scores[best_model]
 
-# Example Usage
+        # Generate markdown summary
+        markdown_content = "# Vector Search Evaluation Summary\n\n"
+        markdown_content += "## Overview\n"
+        markdown_content += "This summary presents the evaluation results of different embedding models for semantic search.\n"
+        markdown_content += f"- **Chunk Sizes Used**: {', '.join(map(str, chunk_sizes))}\n"
+        markdown_content += f"- **Top-K Results Evaluated**: {k}\n"
+        markdown_content += f"- **Best Model**: {best_model}\n"
+        markdown_content += f"  - Precision@{k}: {best_metrics['precision']:.4f}\n"
+        markdown_content += f"  - Recall@{k}: {best_metrics['recall']:.4f}\n"
+        markdown_content += f"  - MRR: {best_metrics['mrr']:.4f}\n\n"
+
+        # Model Performance Table
+        markdown_content += "## Model Performance\n"
+        markdown_content += "| Model | Precision | Recall | MRR |\n"
+        markdown_content += "|-------|-----------|--------|-----|\n"
+        for model, metrics in model_scores.items():
+            markdown_content += f"| {model} | {metrics['precision']:.4f} | {metrics['recall']:.4f} | {metrics['mrr']:.4f} |\n"
+        markdown_content += "\n"
+
+        # Example Query Results
+        markdown_content += "## Example Query Results\n"
+        for query, results in example_results.items():
+            markdown_content += f"### Query: {query}\n"
+            markdown_content += "| Doc ID | Chunk ID | Header | Score | Relevant | Text Preview |\n"
+            markdown_content += "|--------|----------|--------|-------|----------|--------------|\n"
+            for result in results:
+                markdown_content += f"| {result['doc_id']} | {result['chunk_idx']} | {result['header']} | {result['score']:.4f} | {result['is_relevant']} | {result['text']} |\n"
+            markdown_content += "\n"
+
+        # Save markdown summary
+        with open("evaluation_summary.md", "w", encoding="utf-8") as f:
+            f.write(markdown_content)
+        logger.info("Generated markdown summary at evaluation_summary.md")
+
+        # Generate HTML chart
+        chart_data = {
+            "labels": list(model_scores.keys()),
+            "precision": [model_scores[model]["precision"] for model in model_scores],
+            "recall": [model_scores[model]["recall"] for model in model_scores],
+            "mrr": [model_scores[model]["mrr"] for model in model_scores]
+        }
+
+        html_content = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Model Performance Chart</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Model Performance Comparison</h1>
+    <canvas id="performanceChart" width="800" height="400"></canvas>
+    <script>
+        const ctx = document.getElementById('performanceChart').getContext('2d');
+        new Chart(ctx, {{
+            type: 'bar',
+            data: {{
+                labels: {json.dumps(chart_data["labels"])},
+                datasets: [
+                    {{
+                        label: 'Precision',
+                        data: {json.dumps(chart_data["precision"])},
+                        backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    }},
+                    {{
+                        label: 'Recall',
+                        data: {json.dumps(chart_data["recall"])},
+                        backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1
+                    }},
+                    {{
+                        label: 'MRR',
+                        data: {json.dumps(chart_data["mrr"])},
+                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }}
+                ]
+            }},
+            options: {{
+                scales: {{
+                    y: {{
+                        beginAtZero: true,
+                        max: 1,
+                        title: {{ display: true, text: 'Metric Value' }}
+                    }},
+                    x: {{
+                        title: {{ display: true, text: 'Model' }}
+                    }}
+                }},
+                plugins: {{
+                    legend: {{ display: true, position: 'top' }},
+                    title: {{ display: true, text: 'Model Performance Metrics' }}
+                }}
+            }}
+        }});
+    </script>
+</body>
+</html>
+"""
+        with open("performance_chart.html", "w", encoding="utf-8") as f:
+            f.write(html_content)
+        logger.info("Generated HTML chart at performance_chart.html")
+
+
 if __name__ == "__main__":
     documents = [
         ("doc1", "<h1>Introduction</h1>\nThis is a short introduction to AI.\n<h2>Details</h2>\nAI involves machine learning and neural networks."),
@@ -344,21 +414,16 @@ if __name__ == "__main__":
         ("doc3", "<h1>Overview</h1>\n" + "Overview of AI technologies. " *
          500 + "\n<h2>Conclusion</h2>\n" + "AI is transformative. " * 100)
     ]
-
     validation_set = [
         ("What is the main topic of AI?", [("doc2", 0), ("doc2", 1)]),
         ("Explain AI technologies in detail.", [("doc3", 0), ("doc3", 1)])
     ]
-
     example_queries = [
         ("What is the main topic of AI?", [("doc2", 0), ("doc2", 1)]),
         ("Explain AI technologies in detail.", [("doc3", 0), ("doc3", 1)])
     ]
-
     searcher = VectorSearchWeb(max_context_size=512)
     chunk_sizes = [150, 250, 350]
-
-    # Evaluate models
     model_names = [
         "sentence-transformers/all-MiniLM-L6-v2",
         "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
@@ -370,18 +435,8 @@ if __name__ == "__main__":
     logger.info("Best model: %s with Precision@3=%.4f, Recall@3=%.4f, MRR=%.4f",
                 best_model, model_scores[best_model]['precision'],
                 model_scores[best_model]['recall'], model_scores[best_model]['mrr'])
-
-    # Re-initialize with best model
     searcher = VectorSearchWeb(
         embed_model_name=best_model, max_context_size=512)
-
-    # Evaluate retrieval performance examples
     example_results = searcher.evaluate_retrieval_examples(
         documents, example_queries, chunk_sizes, overlap_ratio=0.2, k=3)
-
-    print("\nRetrieval Performance Examples:")
-    for query, results in example_results.items():
-        print(f"\nQuery: {query}")
-        for result in results:
-            print(f"Doc: {result['doc_id']}, Chunk: {result['chunk_idx']}, Header: {result['header']}, "
-                  f"Score: {result['score']:.4f}, Relevant: {result['is_relevant']}, Text: {result['text']}")
+    searcher.generate_summary(model_scores, example_results, chunk_sizes, k=3)
