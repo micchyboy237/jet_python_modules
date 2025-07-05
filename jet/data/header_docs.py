@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Optional, Union, Literal, Dict, Any
+from typing import List, Optional, TypedDict, Union, Literal, Dict, Any
 from pydantic import BaseModel, Field
 from tokenizers import Tokenizer
 from jet.code.markdown_types import (
@@ -11,6 +11,12 @@ from jet.data.header_types import Nodes, TextNode, HeaderNode
 from jet.logger import logger
 from jet.models.model_types import ModelType
 from jet.models.tokenizer.base import get_tokenizer, count_tokens
+
+
+class HeaderDict(TypedDict):
+    parent_header: Optional[str]
+    header: str
+    text: str
 
 
 class HeaderDocs(BaseModel):
@@ -100,6 +106,144 @@ class HeaderDocs(BaseModel):
                     root.append(text_node)
                     logger.debug(f"Added text node {text_id} to root")
         logger.debug(f"Finished processing tokens, root nodes: {len(root)}")
+        return HeaderDocs(root=root, tokens=tokens)
+
+    @staticmethod
+    def from_texts(texts: List[str]) -> 'HeaderDocs':
+        """
+        Create a HeaderDocs instance from a list of text strings, each parsed as markdown.
+
+        Args:
+            texts: List of strings to parse as markdown.
+
+        Returns:
+            HeaderDocs instance with parsed tokens and node structure.
+        """
+        logger.debug(f"Processing {len(texts)} text inputs")
+        all_tokens: List[MarkdownToken] = []
+
+        for idx, text in enumerate(texts):
+            logger.debug(
+                f"Parsing text {idx + 1}/{len(texts)}, content: {text[:100]}...")
+            tokens = parse_markdown(text)
+            if not tokens:
+                logger.warning(f"No tokens parsed from text {idx + 1}")
+                continue
+            all_tokens.extend(tokens)
+            logger.debug(f"Parsed {len(tokens)} tokens from text {idx + 1}")
+
+        if not all_tokens:
+            logger.warning(
+                "No valid tokens parsed from any input texts, returning empty HeaderDocs")
+            return HeaderDocs(root=[], tokens=[])
+
+        logger.debug(f"Total {len(all_tokens)} tokens parsed from all texts")
+        return HeaderDocs.from_tokens(all_tokens)
+
+    @staticmethod
+    def from_dicts(dict_list: List[HeaderDict]) -> 'HeaderDocs':
+        logger.debug(f"Processing {len(dict_list)} dictionary inputs")
+        root: Nodes = []
+        parent_stack: List[HeaderNode] = []
+        seen_ids: set = set()
+        id_to_node: Dict[str, Union[HeaderNode, TextNode]] = {}
+
+        def generate_unique_id() -> str:
+            new_id = str(uuid.uuid4())
+            while new_id in seen_ids:
+                new_id = str(uuid.uuid4())
+            seen_ids.add(new_id)
+            return new_id
+
+        # Track headers to find parents
+        header_to_id: Dict[str, str] = {}
+
+        for idx, item in enumerate(dict_list):
+            logger.debug(
+                f"Processing dictionary {idx + 1}/{len(dict_list)}: header={item['header']}")
+
+            # Create HeaderNode
+            header_id = generate_unique_id()
+            header_node = HeaderNode(
+                doc_index=idx,
+                header=item['header'],
+                content="",
+                level=len(parent_stack) + 1,
+                line=idx * 2,
+                id=header_id,
+            )
+            id_to_node[header_id] = header_node
+            header_to_id[item['header']] = header_id
+
+            # Handle parent relationship
+            if item['parent_header']:
+                parent_id = header_to_id.get(item['parent_header'])
+                if parent_id and parent_id in id_to_node:
+                    header_node.parent_id = parent_id
+                    header_node._parent_node = id_to_node[parent_id]
+                    header_node.parent_header = item['parent_header']
+                    id_to_node[parent_id].children.append(header_node)
+                    logger.debug(
+                        f"Linked header {header_id} to parent {parent_id}")
+
+                    # Adjust parent stack to maintain correct hierarchy
+                    while parent_stack and parent_stack[-1].level >= header_node.level:
+                        parent_stack.pop()
+                    if parent_stack and parent_stack[-1].id != parent_id:
+                        parent_stack.append(id_to_node[parent_id])
+                else:
+                    logger.warning(
+                        f"Parent header '{item['parent_header']}' not found for header '{item['header']}'")
+                    root.append(header_node)
+            else:
+                root.append(header_node)
+
+            parent_stack.append(header_node)
+            logger.debug(
+                f"Added header {header_id} to {'root' if not item['parent_header'] else f'parent {parent_id}'}")
+
+            # Create TextNode
+            if item['text']:
+                text_id = generate_unique_id()
+                text_node = TextNode(
+                    doc_index=idx,
+                    type="paragraph",
+                    header=item['header'],
+                    content=item['text'],
+                    meta={},
+                    line=idx * 2 + 1,
+                    parent_id=header_id,
+                    id=text_id,
+                    level=header_node.level,  # Set TextNode level to match parent HeaderNode
+                )
+                id_to_node[text_id] = text_node
+                text_node._parent_node = header_node
+                text_node.parent_header = header_node.header
+                header_node.children.append(text_node)
+                logger.debug(
+                    f"Added text node {text_id} as child of {header_id} with level {text_node.level}")
+
+        # Create tokens for compatibility
+        tokens: List[MarkdownToken] = []
+        for idx, item in enumerate(dict_list):
+            tokens.append({
+                "type": "header",
+                "content": item['header'],
+                "level": id_to_node[header_to_id[item['header']]].level,
+                "meta": {},
+                "line": idx * 2
+            })
+            if item['text']:
+                tokens.append({
+                    "type": "paragraph",
+                    "content": item['text'],
+                    "level": None,
+                    "meta": {},
+                    "line": idx * 2 + 1
+                })
+
+        logger.debug(
+            f"Created HeaderDocs with {len(root)} root nodes and {len(tokens)} tokens")
         return HeaderDocs(root=root, tokens=tokens)
 
     @staticmethod

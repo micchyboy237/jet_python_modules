@@ -84,6 +84,7 @@ class Node(BaseModel):
 
 class TextNode(Node):
     meta: Optional[MetaType] = Field(default_factory=dict)
+    level: Optional[int] = None
 
 
 class HeaderNode(Node):

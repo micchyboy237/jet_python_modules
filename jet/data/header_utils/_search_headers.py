@@ -32,8 +32,6 @@ def calculate_similarity_scores(query: str, vector_store: VectorStore) -> List[f
             similarity = cosine_similarity(query_embedding, embedding)
             sim_count += 1
         final_sim = similarity / max(sim_count, 1)
-        if sim_count == 1:
-            final_sim *= 0.5
         similarities.append(final_sim)
         node.metadata = {
             "sim_count": sim_count,

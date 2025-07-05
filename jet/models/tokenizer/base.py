@@ -66,7 +66,9 @@ class TokenizerWrapper:
         tokenizer: Union[Tokenizer, PreTrainedTokenizerBase],
         remove_pad_tokens: bool = False,
         add_special_tokens: bool = True,
-        pad_token_id: Optional[int] = None
+        pad_token_id: Optional[int] = None,
+        max_length: int = 128,
+        truncation_side: str = "right"
     ):
         self.tokenizer = tokenizer
         self.remove_pad_tokens = remove_pad_tokens
@@ -76,6 +78,15 @@ class TokenizerWrapper:
             if hasattr(tokenizer, "pad_token_id") and tokenizer.pad_token_id is not None
             else 0
         )
+        self.max_length = max_length
+        self.truncation_side = truncation_side
+
+        # Configure default truncation for tokenizers.Tokenizer
+        if isinstance(self.tokenizer, Tokenizer) and max_length is not None:
+            self.tokenizer.enable_truncation(
+                max_length=self.max_length,
+                direction=self.truncation_side
+            )
 
     def __call__(self, texts: Union[str, List[str]], **kwargs) -> Union[EncodingWrapper, List[EncodingWrapper]]:
         """Tokenize input texts, supporting single string or list of strings."""
@@ -184,7 +195,10 @@ class TokenizerWrapper:
 def get_tokenizer(
     model_name_or_tokenizer: Union[ModelType, Tokenizer],
     local_cache_dir: Optional[str] = None,
-    disable_cache: bool = False
+    disable_cache: bool = False,
+    pad_token_id: Optional[int] = None,
+    max_length: Optional[int] = None,
+    truncation_side: str = "right",
 ) -> Tokenizer:
     """
     Initialize and return a tokenizer for the specified model, with option to disable cache.
@@ -216,10 +230,21 @@ def get_tokenizer(
 
     try:
         # Attempt to load from remote
-        tokenizer = Tokenizer.from_pretrained(model_path)
+        tokenizer: Tokenizer = Tokenizer.from_pretrained(model_path)
         logger.info(f"Successfully loaded tokenizer from remote: {model_path}")
         if not disable_cache:
             _tokenizer_cache[model_path] = tokenizer
+
+        # Configure default truncation for tokenizers.Tokenizer
+        if max_length is not None:
+            tokenizer.enable_truncation(
+                max_length=max_length,
+                direction=truncation_side
+            )
+
+        if pad_token_id is not None:
+            tokenizer.enable_padding(pad_id=pad_token_id)
+
         return tokenizer
     except Exception as e:
         logger.warning(f"Failed to load tokenizer from remote: {str(e)}")
@@ -275,16 +300,17 @@ def get_tokenizer_fn(
     remove_pad_tokens: bool = False,
     add_special_tokens: bool = True,
     disable_cache: bool = False,
+    **kwargs,
 ) -> TokenizerWrapper:
     """Return a TokenizerWrapper instance from a model name or tokenizer instance."""
     if isinstance(model_name_or_tokenizer, TokenizerWrapper):
         return model_name_or_tokenizer
     elif isinstance(model_name_or_tokenizer, str):
         tokenizer = get_tokenizer(
-            model_name_or_tokenizer, disable_cache=disable_cache)
+            model_name_or_tokenizer, disable_cache=disable_cache, **kwargs)
     else:
         tokenizer = model_name_or_tokenizer
-    return TokenizerWrapper(tokenizer, remove_pad_tokens, add_special_tokens)
+    return TokenizerWrapper(tokenizer, remove_pad_tokens, add_special_tokens, **kwargs)
 
 
 def tokenize(

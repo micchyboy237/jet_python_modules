@@ -79,7 +79,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         return model_instance
 
     @staticmethod
-    def get_tokenizer() -> TokenizerWrapper:
+    def get_tokenizer(max_length: Optional[int] = None, **kwargs) -> TokenizerWrapper:
         instance = SentenceTransformerRegistry()
 
         resolved_model_id = resolve_model_value(instance.model_id)
@@ -89,8 +89,14 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             return SentenceTransformerRegistry._tokenizers[resolved_model_id]
 
         logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
-        tokenizer = get_tokenizer_fn(
-            instance.model_id, disable_cache=True, remove_pad_tokens=True)
+        kwargs = {
+            "model_name_or_tokenizer": instance.model_id,
+            "disable_cache": True,
+            "remove_pad_tokens": True,
+            "max_length": max_length or instance.truncate_dim,
+            **kwargs
+        }
+        tokenizer = get_tokenizer_fn(**kwargs)
         SentenceTransformerRegistry._tokenizers[resolved_model_id] = tokenizer
         return tokenizer
 

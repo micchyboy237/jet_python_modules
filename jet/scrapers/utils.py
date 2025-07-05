@@ -1,5 +1,7 @@
 from datetime import datetime
 from jet.code.html_utils import format_html
+from jet.code.markdown_utils._markdown_parser import parse_markdown
+from jet.data.header_docs import HeaderDocs
 from jet.scrapers.config import TEXT_ELEMENTS
 from jet.utils.url_utils import clean_url
 from jet.wordnet.sentence import split_sentences
@@ -1259,6 +1261,7 @@ class MergedTextsResult(TypedDict):
     token_count: int
     header: str
     parent_header: str
+    level: int
 
 
 def merge_texts_by_hierarchy(
@@ -1279,33 +1282,60 @@ def merge_texts_by_hierarchy(
 ) -> List[MergedTextsResult]:
     from jet.code.splitter_markdown_utils import get_md_header_contents
 
-    # Extract texts with hierarchy
-    results = get_md_header_contents(
-        source, headers_to_split_on=tags_to_split_on, ignore_links=ignore_links)
-    texts = [result["content"] for result in results]
+    tokens = parse_markdown(source, ignore_links=ignore_links)
+    header_docs = HeaderDocs.from_tokens(tokens)
+    results = header_docs.as_nodes()
+    texts = [result.content for result in results]
 
-    # Initialize variables for grouping
     grouped_texts: List[str] = []
     grouped_headers: List[str] = []
     grouped_parent_headers: List[str] = []
+    grouped_levels: List[int] = []
     current_group: List[str] = []
     current_headers: List[str] = []
     current_parent_headers: List[str] = []
+    current_levels: List[int] = []
     current_token_count: int = 0
+    # (header, parent_header, level)
+    pending_headers: List[tuple[str, str, int]] = []
+
+    def get_header_level(header: str) -> int:
+        if not header:
+            return 0
+        return len(header.split()[0]) if header.split()[0].startswith('#') else 0
 
     for i, (result, text) in enumerate(zip(results, texts)):
-        # Skip empty texts
+        # Handle empty texts by accumulating headers
         if not text.strip():
+            pending_headers.append(
+                (result.header, result.parent_header or "", get_header_level(result.header)))
             continue
 
-        # Tokenize the current text
-        tokenized_text = tokenizer(text) if isinstance(
-            tokenizer(text), list) else tokenizer(text)[0]
-        token_count = len(tokenized_text)
+        # Get header, parent header, and level for context
+        header = pending_headers[0][0] if pending_headers else result.header
+        parent_header = pending_headers[0][1] if pending_headers else result.parent_header or ""
+        level = pending_headers[0][2] if pending_headers else get_header_level(
+            result.header)
 
-        # Get header and parent header for context
-        header = result["header"]
-        parent_header = result.get("parent_header", "")
+        # Strip hashtags from current header in text and prepend accumulated headers
+        processed_text = text.lstrip('#').strip()
+        current_header_text = result.header.lstrip(
+            '#').strip() if result.header else ""
+        if pending_headers:
+            header_texts = [h[0].lstrip('#').strip()
+                            for h in pending_headers if h[0]]
+            if current_header_text:
+                header_texts.append(current_header_text)
+            if header_texts:
+                processed_text = f"\n".join(
+                    header_texts) + f"\n{processed_text}"
+            pending_headers = []  # Reset after use
+
+        # Tokenize the processed text
+        tokenized_texts = tokenizer(processed_text)
+        tokenized_text = tokenized_texts if isinstance(
+            tokenized_texts, list) else tokenized_texts[0]
+        token_count = len(tokenized_text)
 
         # If single text exceeds max_tokens, split and handle parts
         if token_count > max_tokens:
@@ -1320,6 +1350,7 @@ def merge_texts_by_hierarchy(
                     current_group.append(sentence)
                     current_headers.append(header)
                     current_parent_headers.append(parent_header)
+                    current_levels.append(level)
                     current_token_count += sentence_token_count
                 else:
                     if current_group:
@@ -1327,66 +1358,80 @@ def merge_texts_by_hierarchy(
                         grouped_headers.append(current_headers[-1])
                         grouped_parent_headers.append(
                             current_parent_headers[-1])
+                        grouped_levels.append(current_levels[-1])
                         current_group = []
                         current_headers = []
                         current_parent_headers = []
+                        current_levels = []
                         current_token_count = 0
                     if sentence_token_count <= max_tokens:
-                        # Prepend header with part number only when splitting
                         header_with_part = f"{header} - {split_n + 1}" if header else ""
                         current_group.append(
                             (header_with_part + " " + sentence) if header_with_part else sentence)
                         current_headers.append(header_with_part)
                         current_parent_headers.append(parent_header)
+                        current_levels.append(level)
                         current_token_count = sentence_token_count
         else:
             # If text fits within max_tokens, try to add to current group
             if current_token_count + token_count <= max_tokens:
-                current_group.append(text)
+                current_group.append(processed_text)
                 current_headers.append(header)
                 current_parent_headers.append(parent_header)
+                current_levels.append(level)
                 current_token_count += token_count
             else:
                 if current_group:
                     grouped_texts.append("\n".join(current_group))
                     grouped_headers.append(current_headers[-1])
                     grouped_parent_headers.append(current_parent_headers[-1])
-                    current_group = [text]
+                    grouped_levels.append(current_levels[-1])
+                    current_group = [processed_text]
                     current_headers = [header]
                     current_parent_headers = [parent_header]
+                    current_levels = [level]
                     current_token_count = token_count
                 else:
-                    current_group = [text]
+                    current_group = [processed_text]
                     current_headers = [header]
                     current_parent_headers = [parent_header]
+                    current_levels = [level]
                     current_token_count = token_count
 
-        # Try merging with next text if possible
+        # Try merging with next text if possible, respecting header hierarchy
         if i + 1 < len(texts) and current_token_count > 0:
             next_text = texts[i + 1]
             if not next_text.strip():
                 continue
-            next_tokenized = tokenizer(next_text) if isinstance(
-                tokenizer(next_text), list) else tokenizer(next_text)[0]
-            next_token_count = len(next_tokenized)
+            next_header_level = get_header_level(results[i + 1].header)
+            current_level = current_levels[-1] if current_levels else 0
 
-            if current_token_count + next_token_count <= max_tokens:
-                merged_text = " ".join(current_group) + " " + next_text
-                merged_tokens = tokenizer(merged_text) if isinstance(
-                    tokenizer(merged_text), list) else tokenizer(merged_text)[0]
-                if len(merged_tokens) <= max_tokens:
-                    current_group.append(next_text)
-                    current_headers.append(results[i + 1]["header"])
-                    current_parent_headers.append(
-                        results[i + 1].get("parent_header", ""))
-                    current_token_count += next_token_count
-                    texts[i + 1] = ""  # Mark as processed
+            # Only merge if next header level is >= current level
+            if next_header_level >= current_level:
+                next_tokenized = tokenizer(next_text) if isinstance(
+                    tokenizer(next_text), list) else tokenizer(next_text)[0]
+                next_token_count = len(next_tokenized)
+
+                if current_token_count + next_token_count <= max_tokens:
+                    merged_text = " ".join(
+                        current_group) + " " + next_text.lstrip('#').strip()
+                    merged_tokens = tokenizer(merged_text) if isinstance(
+                        tokenizer(merged_text), list) else tokenizer(merged_text)[0]
+                    if len(merged_tokens) <= max_tokens:
+                        current_group.append(next_text.lstrip('#').strip())
+                        current_headers.append(results[i + 1].header)
+                        current_parent_headers.append(
+                            results[i + 1].parent_header or "")
+                        current_levels.append(next_header_level)
+                        current_token_count += next_token_count
+                        texts[i + 1] = ""  # Mark as processed
 
     # Add final group if it exists
     if current_group:
         grouped_texts.append("\n".join(current_group))
         grouped_headers.append(current_headers[-1])
         grouped_parent_headers.append(current_parent_headers[-1])
+        grouped_levels.append(current_levels[-1])
 
     # Filter out empty strings
     filtered_texts = [text.strip() for text in grouped_texts if text.strip()]
@@ -1395,12 +1440,15 @@ def merge_texts_by_hierarchy(
                                for token_texts in batched_token_texts]
 
     merged_texts = []
-    for text, token_count, header, parent_header in zip(filtered_texts, token_counts, grouped_headers, grouped_parent_headers):
+    for text, token_count, header, parent_header, level in zip(
+        filtered_texts, token_counts, grouped_headers, grouped_parent_headers, grouped_levels
+    ):
         merged_texts.append({
             "text": text,
             "token_count": token_count,
             "header": header,
-            "parent_header": parent_header
+            "parent_header": parent_header,
+            "level": level
         })
 
     return merged_texts

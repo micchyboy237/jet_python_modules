@@ -145,7 +145,7 @@ def prepare_for_rag(
             type=node.type,
             header=node.header,
             content=node.content,
-            meta=node.meta,
+            meta=getattr(node, 'meta', None),
             parent_id=node.parent_id,
             parent_header=node.parent_header,
             chunk_index=node.chunk_index,

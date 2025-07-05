@@ -3,7 +3,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from jet.code.markdown_types import MarkdownToken, ContentType, MetaType
 from jet.data.utils import generate_unique_id
-from jet.models.tokenizer.base import get_tokenizer_fn, tokenize, detokenize
+from jet.models.tokenizer.base import get_tokenizer_fn, count_tokens
 from jet.models.model_types import ModelType
 from jet.data.header_types import Node, HeaderNode, TextNode, NodeType, Nodes
 from tokenizers import Tokenizer
@@ -267,7 +267,7 @@ def merge_nodes(
     max_tokens: int,
     buffer: int = 0
 ) -> List[TextNode]:
-    """Merge nodes hierarchically while respecting max token limits."""
+    """Merge nodes hierarchically while respecting max token limits and preventing higher-level nodes below lower-level nodes."""
     logger.debug(
         f"Starting merge_nodes with {len(nodes)} nodes, max_tokens={max_tokens}, buffer={buffer}")
     if not nodes:
@@ -278,6 +278,7 @@ def merge_nodes(
     current_group: List[NodeType] = []
     current_token_count: int = 0
     current_chunk_index: int = 0
+    current_level: Optional[int] = None  # Track the level of the current group
 
     def create_merged_node(group: List[NodeType], chunk_index: int) -> TextNode:
         logger.debug(
@@ -288,7 +289,6 @@ def merge_nodes(
                 texts.append(node.get_text())
                 logger.debug(f"Adding text: {node.get_text()}")
         combined_text = "\n".join(texts)
-
         parent_headers = list(
             set(node.parent_header for node in group if node.parent_header))
         parent_header = parent_headers[0] if parent_headers else None
@@ -297,7 +297,6 @@ def merge_nodes(
         parent_ids = list(
             set(node.parent_id for node in group if node.parent_id))
         parent_id = parent_ids[0] if parent_ids else None
-
         new_node = create_text_node(
             node=group[0],
             content=combined_text,
@@ -323,6 +322,9 @@ def merge_nodes(
         token_count = len(token_ids)
         logger.debug(
             f"Node {node.id}: text='{node.get_text()}', token_count={token_count}")
+
+        # Get node level (1 for highest level headers, higher numbers for lower levels, None for TextNode)
+        node_level = node.level if isinstance(node, HeaderNode) else None
 
         if token_count > max_tokens - buffer:
             logger.debug(
@@ -352,13 +354,29 @@ def merge_nodes(
                     f"Chunk {j} created: text='{chunk_text}', num_tokens={new_node.num_tokens}")
                 result_nodes.append(new_node)
                 current_chunk_index += 1
+            current_group = []
+            current_token_count = 0
+            current_level = None
             continue
 
-        if current_token_count + token_count <= max_tokens - buffer:
+        # Check if node can be added to current group based on level
+        can_merge = True
+        if current_group and isinstance(node, HeaderNode) and current_level is not None:
+            if node_level is not None and node_level < current_level:
+                # Prevent merging a higher-level header (lower level number) below a lower-level one
+                logger.debug(
+                    f"Cannot merge node {node.id} (level {node_level}) with group (current_level {current_level})")
+                can_merge = False
+
+        if current_token_count + token_count <= max_tokens - buffer and can_merge:
             current_group.append(node)
             current_token_count += token_count
+            # Update current_level to the highest level (lowest number) in the group
+            if isinstance(node, HeaderNode) and node_level is not None:
+                current_level = min(
+                    current_level, node_level) if current_level is not None else node_level
             logger.debug(
-                f"Added node {node.id} to current group, total_tokens={current_token_count}")
+                f"Added node {node.id} to current group, total_tokens={current_token_count}, current_level={current_level}")
         else:
             if current_group:
                 result_nodes.append(create_merged_node(
@@ -368,8 +386,9 @@ def merge_nodes(
                     f"Flushed group, new chunk_index={current_chunk_index}")
             current_group = [node]
             current_token_count = token_count
+            current_level = node_level
             logger.debug(
-                f"Started new group with node {node.id}, token_count={token_count}")
+                f"Started new group with node {node.id}, token_count={token_count}, level={current_level}")
 
     if current_group:
         result_nodes.append(create_merged_node(
