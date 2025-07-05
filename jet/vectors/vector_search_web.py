@@ -362,8 +362,7 @@ if __name__ == "__main__":
     model_names = [
         "sentence-transformers/all-MiniLM-L6-v2",
         "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
-        # "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-        # "Snowflake/snowflake-arctic-embed-s",
+        "Snowflake/snowflake-arctic-embed-s",
     ]
     model_scores = searcher.evaluate_models(
         documents, validation_set, model_names, chunk_sizes, overlap_ratio=0.2, k=3)
