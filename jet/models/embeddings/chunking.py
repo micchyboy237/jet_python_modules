@@ -5,7 +5,7 @@ import nltk
 
 class ChunkResult(TypedDict):
     markdown: str
-    token_count: int
+    num_tokens: int
     header: str
     parent_header: str
     level: int
@@ -27,7 +27,7 @@ def chunk_headers_by_hierarchy(
     current_level = 0
     results = []
     current_content = []
-    current_token_count = 0
+    current_num_tokens = 0
     chunk_counter = 0
     header_stack = []
     head1_chunk_count = 0
@@ -47,17 +47,17 @@ def chunk_headers_by_hierarchy(
                     header_to_use = f"## Head 1 - {head1_chunk_count}"
                 header_tokens = tokenizer(
                     header_to_use) if header_to_use else []
-                header_token_count = len(header_tokens) if isinstance(
+                header_num_tokens = len(header_tokens) if isinstance(
                     header_tokens, list) else 0
                 results.append({
                     "content": "\n".join(current_content).strip(),
-                    "token_count": current_token_count + header_token_count,
+                    "num_tokens": current_num_tokens + header_num_tokens,
                     "header": header_to_use,
                     "parent_header": parent_header,
                     "level": level
                 })
                 current_content = []
-                current_token_count = 0
+                current_num_tokens = 0
                 chunk_counter += 1
                 if not current_header.startswith("## Head 1"):
                     head1_chunk_count = 0
@@ -82,17 +82,17 @@ def chunk_headers_by_hierarchy(
             if not sentence:
                 continue
             tokens = tokenizer(sentence)
-            token_count = len(tokens) if isinstance(
+            num_tokens = len(tokens) if isinstance(
                 tokens, list) else sum(len(t) for t in tokens)
             header_to_use = current_header
             if current_header.startswith("## Head 1"):
                 header_to_use = f"## Head 1 - {head1_chunk_count + 1}"
             header_tokens = tokenizer(header_to_use) if header_to_use else []
-            header_token_count = len(header_tokens) if isinstance(
+            header_num_tokens = len(header_tokens) if isinstance(
                 header_tokens, list) else 0
-            if current_token_count + token_count + header_token_count <= chunk_size:
+            if current_num_tokens + num_tokens + header_num_tokens <= chunk_size:
                 current_content.append(sentence)
-                current_token_count += token_count
+                current_num_tokens += num_tokens
             else:
                 if current_content:
                     # Use the header's actual level
@@ -103,11 +103,11 @@ def chunk_headers_by_hierarchy(
                         header_to_use = f"## Head 1 - {head1_chunk_count}"
                     header_tokens = tokenizer(
                         header_to_use) if header_to_use else []
-                    header_token_count = len(header_tokens) if isinstance(
+                    header_num_tokens = len(header_tokens) if isinstance(
                         header_tokens, list) else 0
                     results.append({
                         "content": "\n".join(current_content).strip(),
-                        "token_count": current_token_count + header_token_count,
+                        "num_tokens": current_num_tokens + header_num_tokens,
                         "header": header_to_use,
                         "parent_header": parent_header,
                         "level": level
@@ -116,7 +116,7 @@ def chunk_headers_by_hierarchy(
                     if not current_header.startswith("## Head 1"):
                         head1_chunk_count = 0
                 current_content = [sentence]
-                current_token_count = token_count
+                current_num_tokens = num_tokens
     if current_content:
         # Use the header's actual level
         level = current_level
@@ -125,11 +125,11 @@ def chunk_headers_by_hierarchy(
             head1_chunk_count += 1
             header_to_use = f"## Head 1 - {head1_chunk_count}"
         header_tokens = tokenizer(header_to_use) if header_to_use else []
-        header_token_count = len(header_tokens) if isinstance(
+        header_num_tokens = len(header_tokens) if isinstance(
             header_tokens, list) else 0
         results.append({
             "content": "\n".join(current_content).strip(),
-            "token_count": current_token_count + header_token_count,
+            "num_tokens": current_num_tokens + header_num_tokens,
             "header": header_to_use,
             "parent_header": parent_header,
             "level": level

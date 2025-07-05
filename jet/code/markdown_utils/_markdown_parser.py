@@ -238,13 +238,24 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         TimeoutError: If parsing takes too long.
     """
     try:
-        try:
+        # Check if input ends with .html or .md
+        input_str = str(input)
+        if input_str.endswith('.html'):
             html = read_html_content(input)
             html = add_list_table_header_placeholders(html)
             md_content = convert_html_to_markdown(
                 html, ignore_links=ignore_links)
-        except ValueError:
+        elif input_str.endswith('.md'):
             md_content = read_md_content(input, ignore_links=ignore_links)
+        else:
+            # Try HTML first, fallback to markdown
+            try:
+                html = read_html_content(input)
+                html = add_list_table_header_placeholders(html)
+                md_content = convert_html_to_markdown(
+                    html, ignore_links=ignore_links)
+            except ValueError:
+                md_content = read_md_content(input, ignore_links=ignore_links)
 
         def prepend_hashtags_to_headers(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
             """Prepend hashtags to header tokens based on their level."""

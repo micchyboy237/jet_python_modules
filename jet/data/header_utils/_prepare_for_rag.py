@@ -89,24 +89,25 @@ def prepare_for_rag(
     if not tokenizer:
         tokenizer = SentenceTransformerRegistry.get_tokenizer()
 
-    if chunk_size is not None:
-        logger.debug(f"Applying chunking with chunk_size={chunk_size}")
-        nodes = merge_nodes(
-            nodes=nodes,
-            tokenizer=tokenizer,
-            max_tokens=chunk_size,
-            buffer=buffer
-        )
-        logger.debug(f"After merging, received {len(nodes)} nodes")
-        for node in nodes:
-            logger.debug(
-                f"Merged node {node.id}: header={node.header}, content_length={len(node.content)}, num_tokens={node.num_tokens}, doc_id={node.doc_id}")
+    # if chunk_size is not None:
+    #     logger.debug(f"Applying chunking with chunk_size={chunk_size}")
+    #     nodes = merge_nodes(
+    #         nodes=nodes,
+    #         tokenizer=tokenizer,
+    #         max_tokens=chunk_size,
+    #         buffer=buffer
+    #     )
+    #     logger.debug(f"After merging, received {len(nodes)} nodes")
+    #     for node in nodes:
+    #         logger.debug(
+    #             f"Merged node {node.id}: header={node.header}, content_length={len(node.content)}, num_tokens={node.num_tokens}, doc_id={node.doc_id}")
 
     vector_store = VectorStore()
     texts = []
     processed_texts = []
     for node in nodes:
         text_parts = []
+        # text_parts.extend(node.get_parent_headers())
         if node.parent_header and node.parent_header != node.header:
             text_parts.append(node.parent_header)
         text_parts.append(node.header)
@@ -145,7 +146,7 @@ def prepare_for_rag(
             type=node.type,
             header=node.header,
             content=node.content,
-            meta=getattr(node, 'meta', None),
+            meta=getattr(node, 'meta', {}),
             parent_id=node.parent_id,
             parent_header=node.parent_header,
             chunk_index=node.chunk_index,

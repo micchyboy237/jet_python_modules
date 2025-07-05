@@ -37,7 +37,7 @@ def calculate_similarity_scores(query: str, vector_store: VectorStore) -> List[f
             "sim_count": sim_count,
             "similarity": similarity,
             "processed_text": processed_text,
-            "header_text": f"{' '.join(node.get_parent_headers())}\n{node.header}" if node.parent_header else node.header,
+            "header_text": f"{'\n'.join(node.get_parent_headers())}\n{node.header}" if node.parent_header else node.header,
             "content": node.content,
         }
     return similarities

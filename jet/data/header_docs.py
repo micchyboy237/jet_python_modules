@@ -16,7 +16,8 @@ from jet.models.tokenizer.base import get_tokenizer, count_tokens
 class HeaderDict(TypedDict):
     parent_header: Optional[str]
     header: str
-    text: str
+    content: str
+    level: int
 
 
 class HeaderDocs(BaseModel):
@@ -166,9 +167,10 @@ class HeaderDocs(BaseModel):
             header_id = generate_unique_id()
             header_node = HeaderNode(
                 doc_index=idx,
+                parent_header=item['parent_header'],
                 header=item['header'],
-                content="",
-                level=len(parent_stack) + 1,
+                content=item["content"],
+                level=item["level"],
                 line=idx * 2,
                 id=header_id,
             )
@@ -202,26 +204,27 @@ class HeaderDocs(BaseModel):
             logger.debug(
                 f"Added header {header_id} to {'root' if not item['parent_header'] else f'parent {parent_id}'}")
 
-            # Create TextNode
-            if item['text']:
-                text_id = generate_unique_id()
-                text_node = TextNode(
-                    doc_index=idx,
-                    type="paragraph",
-                    header=item['header'],
-                    content=item['text'],
-                    meta={},
-                    line=idx * 2 + 1,
-                    parent_id=header_id,
-                    id=text_id,
-                    level=header_node.level,  # Set TextNode level to match parent HeaderNode
-                )
-                id_to_node[text_id] = text_node
-                text_node._parent_node = header_node
-                text_node.parent_header = header_node.header
-                header_node.children.append(text_node)
-                logger.debug(
-                    f"Added text node {text_id} as child of {header_id} with level {text_node.level}")
+            # # Create TextNode
+            # if item['content']:
+            #     text_id = generate_unique_id()
+            #     text_node = TextNode(
+            #         doc_index=idx,
+            #         type="paragraph",
+            #         header=item['header'],
+            #         parent_header=item['parent_header'],
+            #         parent_id=header_id,
+            #         content=item['content'],
+            #         meta={},
+            #         line=idx * 2 + 1,
+            #         id=text_id,
+            #         level=header_node.level,  # Set TextNode level to match parent HeaderNode
+            #     )
+            #     id_to_node[text_id] = text_node
+            #     text_node._parent_node = header_node
+            #     text_node.parent_header = header_node.header
+            #     header_node.children.append(text_node)
+            #     logger.debug(
+            #         f"Added text node {text_id} as child of {header_id} with level {text_node.level}")
 
         # Create tokens for compatibility
         tokens: List[MarkdownToken] = []
@@ -233,14 +236,14 @@ class HeaderDocs(BaseModel):
                 "meta": {},
                 "line": idx * 2
             })
-            if item['text']:
-                tokens.append({
-                    "type": "paragraph",
-                    "content": item['text'],
-                    "level": None,
-                    "meta": {},
-                    "line": idx * 2 + 1
-                })
+            # if item['text']:
+            #     tokens.append({
+            #         "type": "paragraph",
+            #         "content": item['text'],
+            #         "level": None,
+            #         "meta": {},
+            #         "line": idx * 2 + 1
+            #     })
 
         logger.debug(
             f"Created HeaderDocs with {len(root)} root nodes and {len(tokens)} tokens")

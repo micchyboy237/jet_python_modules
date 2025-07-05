@@ -1,5 +1,4 @@
 from typing import Dict, List, Optional, Tuple, Union, Literal, TypedDict
-from llguidance import TokenizerWrapper
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoConfig, PreTrainedTokenizer, PretrainedConfig
 import onnxruntime as ort
@@ -10,10 +9,10 @@ import torch
 
 from jet.data.utils import generate_key
 from jet.logger import logger
-from jet.models.tokenizer.base import get_tokenizer_fn
+from jet.models.tokenizer.base import TokenizerWrapper, get_tokenizer_fn
 from .base import BaseModelRegistry, ModelFeatures
 from jet.models.onnx_model_checker import has_onnx_model_in_repo, get_onnx_model_paths
-from jet.models.utils import resolve_model_value
+from jet.models.utils import get_context_size, get_embedding_size, resolve_model_value
 from jet.models.model_types import EmbedModelType
 
 
@@ -34,14 +33,21 @@ class SentenceTransformerRegistry(BaseModelRegistry):
     def __init__(self):
         if not hasattr(self, 'model_id'):
             self.model_id = None
+        if not hasattr(self, 'context_window'):
+            self.context_window = None
+        if not hasattr(self, 'dimensions'):
+            self.dimensions = None
         if not hasattr(self, 'truncate_dim'):
             self.truncate_dim = None
+        if not hasattr(self, 'max_length'):
+            self.max_length = None
 
     @staticmethod
     def load_model(
         model_id: EmbedModelType = "static-retrieval-mrl-en-v1",
         truncate_dim: Optional[int] = None,
-        prompts: Optional[dict[str, str]] = None
+        prompts: Optional[dict[str, str]] = None,
+        max_length: Optional[int] = None,
     ) -> SentenceTransformer:
         """Load or retrieve a SentenceTransformer model statically."""
         instance = SentenceTransformerRegistry()
@@ -49,7 +55,13 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         resolved_model_id = resolve_model_value(model_id)
         _cache_key = generate_key(resolved_model_id, truncate_dim)
         instance.model_id = resolved_model_id
+        instance.context_window = get_context_size(resolved_model_id)
+        instance.dimensions = get_embedding_size(resolved_model_id)
         instance.truncate_dim = truncate_dim
+        instance.max_length = max_length or truncate_dim or instance.context_window
+        if instance.max_length > instance.context_window:
+            raise ValueError(
+                f"max_length (f{instance.max_length}) cannot be greater than context window ({instance.context_window})")
         if _cache_key in instance._models:
             logger.info(
                 f"Reusing existing SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")
@@ -79,7 +91,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         return model_instance
 
     @staticmethod
-    def get_tokenizer(max_length: Optional[int] = None, **kwargs) -> TokenizerWrapper:
+    def get_tokenizer() -> TokenizerWrapper:
         instance = SentenceTransformerRegistry()
 
         resolved_model_id = resolve_model_value(instance.model_id)
@@ -89,15 +101,20 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             return SentenceTransformerRegistry._tokenizers[resolved_model_id]
 
         logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
+
+        tokenizer = instance._load_tokenizer()
+        SentenceTransformerRegistry._tokenizers[resolved_model_id] = tokenizer
+        return tokenizer
+
+    def _load_tokenizer(self, **kwargs) -> TokenizerWrapper:
         kwargs = {
-            "model_name_or_tokenizer": instance.model_id,
+            "model_name_or_tokenizer": self.model_id,
             "disable_cache": True,
             "remove_pad_tokens": True,
-            "max_length": max_length or instance.truncate_dim,
+            "max_length": self.max_length,
             **kwargs
         }
         tokenizer = get_tokenizer_fn(**kwargs)
-        SentenceTransformerRegistry._tokenizers[resolved_model_id] = tokenizer
         return tokenizer
 
     @staticmethod

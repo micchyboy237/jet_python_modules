@@ -15,7 +15,7 @@ class Node(BaseModel):
     doc_id: str = Field(default_factory=lambda: generate_unique_id())
     doc_index: int
     line: int
-    parent_id: Optional[str] = None
+    parent_id: str = Field(default_factory=lambda: generate_unique_id())
     parent_header: Optional[str] = None
     type: ContentType
     header: str

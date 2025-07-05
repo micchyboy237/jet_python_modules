@@ -6,7 +6,7 @@ from tokenizers import Encoding, Tokenizer
 from transformers import PreTrainedTokenizerBase
 from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR
-from jet.models.utils import resolve_model_value
+from jet.models.utils import get_context_size, resolve_model_value
 from jet.models.model_types import ModelType
 from jet.wordnet.sentence import split_sentences
 
@@ -222,6 +222,9 @@ def get_tokenizer(
     model_path = resolve_model_value(model_name)
     logger.info(
         f"Attempting to load tokenizer for model_name: {model_name}, resolved to: {model_path}")
+
+    if not max_length:
+        max_length = get_context_size(model_path)
 
     # Check cache first if not disabled
     if not disable_cache and model_path in _tokenizer_cache:
