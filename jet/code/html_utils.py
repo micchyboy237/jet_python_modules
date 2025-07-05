@@ -276,7 +276,7 @@ def preprocess_html(html: str) -> str:
 def remove_noisy_elements(html_string):
     """
     Removes noisy elements (links, scripts, styles, etc.) from an HTML string,
-    preserving the remaining HTML structure and textual content.
+    preserving the remaining HTML structure, textual content, and anchor tags within headings.
 
     Args:
         html_string (str): Input HTML string
@@ -287,11 +287,20 @@ def remove_noisy_elements(html_string):
     # Create BeautifulSoup object for parsing HTML
     soup = BeautifulSoup(html_string, 'html.parser')
 
-    # Remove noisy elements
-    for element in soup(['script', 'style', 'a', 'iframe', 'img', 'video',
-                        'audio', 'button', 'form', 'input', 'nav', 'header',
-                         'footer', 'aside']):
+    # Define noisy elements to remove, excluding 'a' initially
+    noisy_tags = ['script', 'style', 'iframe', 'img', 'video', 'audio',
+                  'button', 'form', 'input', 'nav', 'header', 'footer', 'aside']
+
+    # Remove noisy elements except anchor tags
+    for element in soup(noisy_tags):
         element.decompose()
+
+    # Remove anchor tags that are not inside h1-h6
+    for anchor in soup.find_all('a'):
+        # Check if the anchor has any ancestor that is a heading tag
+        if not any(ancestor.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+                   for ancestor in anchor.find_parents()):
+            anchor.decompose()
 
     # Return the cleaned HTML string
     return str(soup)
