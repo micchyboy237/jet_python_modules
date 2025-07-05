@@ -223,8 +223,8 @@ def get_tokenizer(
     logger.info(
         f"Attempting to load tokenizer for model_name: {model_name}, resolved to: {model_path}")
 
-    if not max_length:
-        max_length = get_context_size(model_path)
+    # if not max_length:
+    #     max_length = get_context_size(model_path)
 
     # Check cache first if not disabled
     if not disable_cache and model_path in _tokenizer_cache:
