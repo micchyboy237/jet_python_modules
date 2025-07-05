@@ -12,13 +12,9 @@ from huggingface_hub import snapshot_download
 from pathlib import Path
 from typing import List, Tuple, Dict
 import json
-
 from jet.file.utils import save_file
 from jet.logger import logger
-
 nltk.download('punkt', quiet=True)
-
-
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(
         os.path.basename(__file__))[0]
@@ -300,14 +296,11 @@ class VectorSearchWeb:
                          chunk_sizes: List[int], k: int,
                          validation_set: List[Tuple[str, List[Tuple[str, int]]]] = None) -> None:
         """Generate a markdown summary and HTML chart of evaluation results, including top results."""
-        # Find the best model based on precision
         best_model = max(
             model_scores, key=lambda x: model_scores[x]['precision'])
         best_metrics = model_scores[best_model]
-
-        # Generate markdown summary
-        markdown_content = "# Vector Search Evaluation Summary\n\n"
-        markdown_content += "## Overview\n"
+        markdown_content = ""  # Initialize as empty string
+        markdown_content += "# Evaluation Summary\n\n"
         markdown_content += "This summary presents the evaluation results of different embedding models for semantic search.\n"
         markdown_content += f"- **Chunk Sizes Used**: {', '.join(map(str, chunk_sizes))}\n"
         markdown_content += f"- **Top-K Results Evaluated**: {k}\n"
@@ -315,28 +308,20 @@ class VectorSearchWeb:
         markdown_content += f"  - Precision@{k}: {best_metrics['precision']:.4f}\n"
         markdown_content += f"  - Recall@{k}: {best_metrics['recall']:.4f}\n"
         markdown_content += f"  - MRR: {best_metrics['mrr']:.4f}\n\n"
-
-        # Model Performance Table
-        markdown_content += "## Model Performance\n"
+        markdown_content += "## Model Performance\n\n"
         markdown_content += "| Model | Precision | Recall | MRR |\n"
         markdown_content += "|-------|-----------|--------|-----|\n"
         for model, metrics in model_scores.items():
             markdown_content += f"| {model} | {metrics['precision']:.4f} | {metrics['recall']:.4f} | {metrics['mrr']:.4f} |\n"
         markdown_content += "\n"
-
-        # Top Results (highest-scoring chunk per query)
-        markdown_content += "## Top Results\n"
+        markdown_content += "## Top Results per Query\n\n"
         markdown_content += "The highest-scoring chunk for each query.\n"
         markdown_content += "| Query | Doc ID | Chunk ID | Header | Score | Relevant | Text Preview |\n"
         markdown_content += "|-------|--------|----------|--------|-------|----------|--------------|\n"
-
-        # Process example queries
         for query, results in example_results.items():
-            if results:  # Get the highest-scoring result
+            if results:
                 top_result = max(results, key=lambda x: x['score'])
                 markdown_content += f"| {query} | {top_result['doc_id']} | {top_result['chunk_idx']} | {top_result['header']} | {top_result['score']:.4f} | {top_result['is_relevant']} | {top_result['text']} |\n"
-
-        # Process validation set queries (if provided and not in example_queries)
         if validation_set:
             for query, _ in validation_set:
                 if query not in example_results:
@@ -349,93 +334,24 @@ class VectorSearchWeb:
                         doc_id, chunk_text, chunk_idx, header, score = top_result
                         markdown_content += f"| {query} | {doc_id} | {chunk_idx} | {header} | {score:.4f} | N/A | {chunk_text[:100] + '...' if len(chunk_text) > 100 else chunk_text} |\n"
         markdown_content += "\n"
-
-        # Example Query Results (all top-k results)
-        markdown_content += "## Example Query Results\n"
+        markdown_content += "## Detailed Results per Query\n\n"
         for query, results in example_results.items():
-            markdown_content += f"### Query: {query}\n"
+            markdown_content += f"### Query: {query}\n\n"
             markdown_content += "| Doc ID | Chunk ID | Header | Score | Relevant | Text Preview |\n"
             markdown_content += "|--------|----------|--------|-------|----------|--------------|\n"
             for result in results:
                 markdown_content += f"| {result['doc_id']} | {result['chunk_idx']} | {result['header']} | {result['score']:.4f} | {result['is_relevant']} | {result['text']} |\n"
             markdown_content += "\n"
-
-        # Save markdown summary
         with open(f"{OUTPUT_DIR}/evaluation_summary.md", "w", encoding="utf-8") as f:
             f.write(markdown_content)
         logger.success(
             f"Generated markdown summary at {OUTPUT_DIR}/evaluation_summary.md")
-
-        # Generate HTML chart
         chart_data = {
             "labels": list(model_scores.keys()),
             "precision": [model_scores[model]["precision"] for model in model_scores],
             "recall": [model_scores[model]["recall"] for model in model_scores],
             "mrr": [model_scores[model]["mrr"] for model in model_scores]
         }
-
-        html_content = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Model Performance Chart</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-    <h1>Model Performance Comparison</h1>
-    <canvas id="performanceChart" width="800" height="400"></canvas>
-    <script>
-        const ctx = document.getElementById('performanceChart').getContext('2d');
-        new Chart(ctx, {{
-            type: 'bar',
-            data: {{
-                labels: {json.dumps(chart_data["labels"])},
-                datasets: [
-                    {{
-                        label: 'Precision',
-                        data: {json.dumps(chart_data["precision"])},
-                        backgroundColor: 'rgba(75, 192, 192, 0.5)',
-                        borderColor: 'rgba(75, 192, 192, 1)',
-                        borderWidth: 1
-                    }},
-                    {{
-                        label: 'Recall',
-                        data: {json.dumps(chart_data["recall"])},
-                        backgroundColor: 'rgba(255, 99, 132, 0.5)',
-                        borderColor: 'rgba(255, 99, 132, 1)',
-                        borderWidth: 1
-                    }},
-                    {{
-                        label: 'MRR',
-                        data: {json.dumps(chart_data["mrr"])},
-                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
-                        borderColor: 'rgba(54, 162, 235, 1)',
-                        borderWidth: 1
-                    }}
-                ]
-            }},
-            options: {{
-                scales: {{
-                    y: {{
-                        beginAtZero: true,
-                        max: 1,
-                        title: {{ display: true, text: 'Metric Value' }}
-                    }},
-                    x: {{
-                        title: {{ display: true, text: 'Model' }}
-                    }}
-                }},
-                plugins: {{
-                    legend: {{ display: true, position: 'top' }},
-                    title: {{ display: true, text: 'Model Performance Metrics' }}
-                }}
-            }}
-        }});
-    </script>
-</body>
-</html>
-"""
         with open(f"{OUTPUT_DIR}/performance_chart.html", "w", encoding="utf-8") as f:
             f.write(html_content)
         logger.success(
@@ -444,18 +360,17 @@ class VectorSearchWeb:
 
 if __name__ == "__main__":
     import json
-
-    data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/mocks/vector_search"
-
-    # Load data from JSON file (or define directly)
-    with open(f"{data_dir}/data.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-        documents = [(doc["doc_id"], doc["text"]) for doc in data["documents"]]
-        validation_set = [(item["query"], [(chunk["doc_id"], chunk["chunk_idx"]) for chunk in item["relevant_chunks"]])
-                          for item in data["validation_set"]]
-        example_queries = [(item["query"], [(chunk["doc_id"], chunk["chunk_idx"]) for chunk in item["relevant_chunks"]])
-                           for item in data["example_queries"]]
-
+    data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/mocks/vector_search/top-isekai-anime-2025"
+    # Load documents.json (list of strings)
+    with open(f"{data_dir}/documents.json", "r", encoding="utf-8") as f:
+        doc_texts = json.load(f)
+        documents = [(f"doc_{i}", text) for i, text in enumerate(doc_texts)]
+    # Load validation.json (list of dicts with query and answer)
+    with open(f"{data_dir}/validation.json", "r", encoding="utf-8") as f:
+        validation_data = json.load(f)
+        validation_set = [(item["query"], [
+                           (f"doc_{idx}", 0) for idx in item["answer"]]) for item in validation_data]
+        example_queries = validation_set  # Use validation set as example queries
     searcher = VectorSearchWeb(max_context_size=512)
     chunk_sizes = [150, 250, 350]
     model_names = [
