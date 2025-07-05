@@ -5,6 +5,10 @@ from transformers import AutoTokenizer
 from nltk.tokenize import sent_tokenize
 import nltk
 import re
+import gc
+import torch
+from huggingface_hub import snapshot_download
+from pathlib import Path
 from typing import List, Tuple, Dict
 import logging
 
@@ -80,19 +84,14 @@ class VectorSearchWeb:
         for header, content in sections:
             section_text = f"{header}\n{content}" if header != "No Header" else content
             section_tokens = len(self.tokenizer.encode(
-                section_text, add_special_tokens=False))
+                section_text, add_special_tokens=False, truncation=True, max_length=self.max_context_size))
 
-            if section_tokens > self.max_context_size:
-                logger.warning("Section '%s' in doc %s has %d tokens, exceeds context size %d; splitting",
-                               header, doc_id, section_tokens, self.max_context_size)
-                token_chunks = self._chunk_by_tokens(
-                    section_text, doc_id, chunk_size, overlap, chunk_idx, header)
-                chunks.extend(token_chunks)
-                chunk_idx += len(token_chunks)
-            elif section_tokens <= chunk_size:
+            if section_tokens <= chunk_size and section_tokens <= self.max_context_size:
                 chunks.append((doc_id, section_text, chunk_idx, header))
                 chunk_idx += 1
             else:
+                logger.info("Section '%s' in doc %s has %d tokens, exceeds chunk size %d; splitting",
+                            header, doc_id, section_tokens, chunk_size)
                 token_chunks = self._chunk_by_tokens(
                     section_text, doc_id, chunk_size, overlap, chunk_idx, header)
                 chunks.extend(token_chunks)
@@ -103,7 +102,8 @@ class VectorSearchWeb:
     def _chunk_by_tokens(self, text: str, doc_id: str, chunk_size: int, overlap: int,
                          start_idx: int, header: str) -> List[Tuple[str, str, int, str]]:
         """Chunk text by tokens with overlap."""
-        tokens = self.tokenizer.encode(text, add_special_tokens=False)
+        tokens = self.tokenizer.encode(
+            text, add_special_tokens=False, truncation=True, max_length=self.max_context_size)
         chunks = []
         i = 0
         chunk_idx = start_idx
@@ -114,12 +114,15 @@ class VectorSearchWeb:
             chunk_text = self.tokenizer.decode(
                 chunk_tokens, skip_special_tokens=True)
             chunk_token_count = len(self.tokenizer.encode(
-                chunk_text, add_special_tokens=False))
+                chunk_text, add_special_tokens=False, truncation=True, max_length=self.max_context_size))
             if chunk_token_count > self.max_context_size:
-                logger.warning("Chunk %d in doc %s has %d tokens, exceeds context size %d",
+                logger.warning("Chunk %d in doc %s has %d tokens, exceeds context size %d; skipping",
                                chunk_idx, doc_id, chunk_token_count, self.max_context_size)
-                continue  # Skip oversized chunks
-            chunks.append((doc_id, chunk_text, chunk_idx, header))
+                i += chunk_size - overlap
+                chunk_idx += 1
+                continue
+            if chunk_text.strip():  # Skip empty chunks
+                chunks.append((doc_id, chunk_text, chunk_idx, header))
             chunk_idx += 1
             i += chunk_size - overlap
 
@@ -140,7 +143,7 @@ class VectorSearchWeb:
 
         chunk_texts = [chunk[1] for chunk in all_chunks]
         embeddings = self.embed_model.encode(
-            chunk_texts, show_progress_bar=True)
+            chunk_texts, show_progress_bar=True, batch_size=16, device='mps', force=True)
 
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
@@ -169,9 +172,12 @@ class VectorSearchWeb:
 
         if use_cross_encoder:
             pairs = [[query, chunk[1]] for chunk in candidates]
-            scores = self.cross_encoder.predict(pairs)
-            candidates = [(c[0], c[1], c[2], c[3], s) for c, s in zip(
-                candidates, scores)]  # Fixed: Removed c[2_clause
+            scores = self.cross_encoder.predict(pairs, convert_to_numpy=True)
+            # Normalize cross-encoder scores to [0, 1] if negative
+            scores = (scores - scores.min()) / \
+                (scores.max() - scores.min() + 1e-8)
+            candidates = [(c[0], c[1], c[2], c[3], s)
+                          for c, s in zip(candidates, scores)]
             candidates = sorted(candidates, key=lambda x: x[4], reverse=True)
 
         seen_headers = {}
@@ -185,7 +191,7 @@ class VectorSearchWeb:
         candidates = list(seen_headers.values())
         candidates = sorted(candidates, key=lambda x: (
             abs(len(self.tokenizer.encode(
-                x[1], add_special_tokens=False)) - chunk_size_preference),
+                x[1], add_special_tokens=False, truncation=True, max_length=self.max_context_size)) - chunk_size_preference),
             -x[4]
         ))[:k]
 
@@ -200,7 +206,7 @@ class VectorSearchWeb:
         validation_set: List of (query, [(doc_id, chunk_idx), ...]) pairs.
         Returns model_name -> {'precision': float, 'recall': float, 'mrr': float}.
         """
-        results = {}  # Fixed: Initialize as dictionary
+        results = {}
         original_model = self.embed_model.model_card_data.get(
             'model_name', 'sentence-transformers/all-MiniLM-L6-v2')
         original_tokenizer = self.tokenizer
@@ -208,60 +214,90 @@ class VectorSearchWeb:
 
         for model_name in model_names:
             logger.info("Evaluating model: %s", model_name)
-            self.embed_model = SentenceTransformer(model_name)
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self.max_context_size = 512 if 'MiniLM' in model_name else 512  # Adjust if known
+            try:
+                # Attempt to clear cache, but skip if permission denied
+                cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+                for model_cache in cache_dir.glob(f"*{model_name.replace('/', '--')}*"):
+                    try:
+                        logger.info("Clearing cache for %s", model_cache)
+                        for item in model_cache.glob("*"):
+                            item.unlink(missing_ok=True)
+                        model_cache.rmdir()
+                    except PermissionError as e:
+                        logger.warning(
+                            "Permission denied clearing cache for %s: %s", model_cache, str(e))
+                torch.mps.empty_cache() if torch.backends.mps.is_available() else torch.cuda.empty_cache()
+                gc.collect()
 
-            self.index_documents(
-                documents, chunk_sizes=chunk_sizes, overlap_ratio=overlap_ratio)
+                self.embed_model = SentenceTransformer(
+                    model_name, device='mps')
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                self.max_context_size = 512 if 'MiniLM' in model_name else 512  # Adjust if known
 
-            if not self.index:
-                logger.error(
-                    "Failed to index documents for model %s", model_name)
+                self.index_documents(
+                    documents, chunk_sizes=chunk_sizes, overlap_ratio=overlap_ratio)
+
+                if not self.index:
+                    logger.error(
+                        "Failed to index documents for model %s", model_name)
+                    results[model_name] = {
+                        'precision': 0.0, 'recall': 0.0, 'mrr': 0.0}
+                    continue
+
+                precision_sum = 0.0
+                recall_sum = 0.0
+                mrr_sum = 0.0
+                total_queries = len(validation_set)
+
+                for query, relevant_chunks in validation_set:
+                    query_type = "short" if len(self.tokenizer.encode(
+                        query, add_special_tokens=False, truncation=True, max_length=self.max_context_size)) < 50 else "long"
+                    search_results = self.search(
+                        query, k=k, query_type=query_type)
+
+                    relevant_set = set((doc_id, chunk_idx)
+                                       for doc_id, chunk_idx in relevant_chunks)
+                    retrieved_set = set((doc_id, chunk_idx)
+                                        for doc_id, _, chunk_idx, _, _ in search_results)
+
+                    precision = len(
+                        relevant_set & retrieved_set) / k if k > 0 else 0.0
+                    precision_sum += precision
+
+                    recall = len(relevant_set & retrieved_set) / \
+                        len(relevant_set) if relevant_set else 0.0
+                    recall_sum += recall
+
+                    mrr = 0.0
+                    for rank, (doc_id, _, chunk_idx, _, _) in enumerate(search_results, 1):
+                        if (doc_id, chunk_idx) in relevant_set:
+                            mrr = 1.0 / rank
+                            break
+                    mrr_sum += mrr
+
+                results[model_name] = {
+                    'precision': precision_sum / total_queries if total_queries else 0.0,
+                    'recall': recall_sum / total_queries if total_queries else 0.0,
+                    'mrr': mrr_sum / total_queries if total_queries else 0.0
+                }
+                logger.info("Model %s: Precision@%d=%.4f, Recall@%d=%.4f, MRR=%.4f",
+                            model_name, k, results[model_name]['precision'],
+                            k, results[model_name]['recall'], results[model_name]['mrr'])
+            except Exception as e:
+                logger.error("Error evaluating model %s: %s",
+                             model_name, str(e))
                 results[model_name] = {
                     'precision': 0.0, 'recall': 0.0, 'mrr': 0.0}
-                continue
+            finally:
+                # Cleanup to prevent resource leaks
+                self.embed_model = None
+                self.tokenizer = None
+                self.index = None
+                self.chunk_metadata = []
+                torch.mps.empty_cache() if torch.backends.mps.is_available() else torch.cuda.empty_cache()
+                gc.collect()
 
-            precision_sum = 0.0
-            recall_sum = 0.0
-            mrr_sum = 0.0
-            total_queries = len(validation_set)
-
-            for query, relevant_chunks in validation_set:
-                query_type = "short" if len(self.tokenizer.encode(
-                    query, add_special_tokens=False)) < 50 else "long"
-                search_results = self.search(query, k=k, query_type=query_type)
-
-                relevant_set = set((doc_id, chunk_idx)
-                                   for doc_id, chunk_idx in relevant_chunks)
-                retrieved_set = set((doc_id, chunk_idx)
-                                    for doc_id, _, chunk_idx, _, _ in search_results)
-
-                precision = len(relevant_set & retrieved_set) / \
-                    k if k > 0 else 0.0
-                precision_sum += precision
-
-                recall = len(relevant_set & retrieved_set) / \
-                    len(relevant_set) if relevant_set else 0.0
-                recall_sum += recall
-
-                mrr = 0.0
-                for rank, (doc_id, _, chunk_idx, _, _) in enumerate(search_results, 1):
-                    if (doc_id, chunk_idx) in relevant_set:
-                        mrr = 1.0 / rank
-                        break
-                mrr_sum += mrr
-
-            results[model_name] = {
-                'precision': precision_sum / total_queries if total_queries else 0.0,
-                'recall': recall_sum / total_queries if total_queries else 0.0,
-                'mrr': mrr_sum / total_queries if total_queries else 0.0
-            }
-            logger.info("Model %s: Precision@%d=%.4f, Recall@%d=%.4f, MRR=%.4f",
-                        model_name, k, results[model_name]['precision'],
-                        k, results[model_name]['recall'], results[model_name]['mrr'])
-
-        self.embed_model = SentenceTransformer(original_model)
+        self.embed_model = SentenceTransformer(original_model, device='mps')
         self.tokenizer = original_tokenizer
         self.max_context_size = original_context_size
         self.index = None
