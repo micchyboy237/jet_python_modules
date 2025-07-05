@@ -1,0 +1,34 @@
+{
+  "documents": [
+    {
+      "doc_id": "article1",
+      "text": "Artificial Intelligence (AI) is a field..."
+    },
+    { "doc_id": "article2", "text": "Machine learning, a subset of AI..." },
+    { "doc_id": "article3", "text": "Deep learning is a specialized area..." }
+  ],
+  "validation_set": [
+    {
+      "query": "What are the applications of AI?",
+      "relevant_chunks": [{ "doc_id": "article1", "chunk_idx": 0 }]
+    },
+    {
+      "query": "What is machine learning?",
+      "relevant_chunks": [{ "doc_id": "article2", "chunk_idx": 0 }]
+    },
+    {
+      "query": "What is deep learning?",
+      "relevant_chunks": [{ "doc_id": "article3", "chunk_idx": 0 }]
+    }
+  ],
+  "example_queries": [
+    {
+      "query": "What are the applications of AI?",
+      "relevant_chunks": [{ "doc_id": "article1", "chunk_idx": 0 }]
+    },
+    {
+      "query": "What is deep learning?",
+      "relevant_chunks": [{ "doc_id": "article3", "chunk_idx": 0 }]
+    }
+  ]
+}

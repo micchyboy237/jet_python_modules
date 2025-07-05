@@ -11,14 +11,18 @@ import torch
 from huggingface_hub import snapshot_download
 from pathlib import Path
 from typing import List, Tuple, Dict
-import logging
 import json
 
 from jet.file.utils import save_file
+from jet.logger import logger
 
 nltk.download('punkt', quiet=True)
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(
+        os.path.basename(__file__))[0]
+)
 
 
 class VectorSearchWeb:
@@ -293,8 +297,9 @@ class VectorSearchWeb:
 
     def generate_summary(self, model_scores: Dict[str, Dict[str, float]],
                          example_results: Dict[str, List[Dict]],
-                         chunk_sizes: List[int], k: int, output_dir: str = "generated") -> None:
-        """Generate a markdown summary and HTML chart of evaluation results."""
+                         chunk_sizes: List[int], k: int,
+                         validation_set: List[Tuple[str, List[Tuple[str, int]]]] = None) -> None:
+        """Generate a markdown summary and HTML chart of evaluation results, including top results."""
         # Find the best model based on precision
         best_model = max(
             model_scores, key=lambda x: model_scores[x]['precision'])
@@ -319,7 +324,33 @@ class VectorSearchWeb:
             markdown_content += f"| {model} | {metrics['precision']:.4f} | {metrics['recall']:.4f} | {metrics['mrr']:.4f} |\n"
         markdown_content += "\n"
 
-        # Example Query Results
+        # Top Results (highest-scoring chunk per query)
+        markdown_content += "## Top Results\n"
+        markdown_content += "The highest-scoring chunk for each query.\n"
+        markdown_content += "| Query | Doc ID | Chunk ID | Header | Score | Relevant | Text Preview |\n"
+        markdown_content += "|-------|--------|----------|--------|-------|----------|--------------|\n"
+
+        # Process example queries
+        for query, results in example_results.items():
+            if results:  # Get the highest-scoring result
+                top_result = max(results, key=lambda x: x['score'])
+                markdown_content += f"| {query} | {top_result['doc_id']} | {top_result['chunk_idx']} | {top_result['header']} | {top_result['score']:.4f} | {top_result['is_relevant']} | {top_result['text']} |\n"
+
+        # Process validation set queries (if provided and not in example_queries)
+        if validation_set:
+            for query, _ in validation_set:
+                if query not in example_results:
+                    query_type = "short" if len(self.tokenizer.encode(
+                        query, add_special_tokens=False)) < 50 else "long"
+                    search_results = self.search(
+                        query, k=k, query_type=query_type)
+                    if search_results:
+                        top_result = max(search_results, key=lambda x: x[4])
+                        doc_id, chunk_text, chunk_idx, header, score = top_result
+                        markdown_content += f"| {query} | {doc_id} | {chunk_idx} | {header} | {score:.4f} | N/A | {chunk_text[:100] + '...' if len(chunk_text) > 100 else chunk_text} |\n"
+        markdown_content += "\n"
+
+        # Example Query Results (all top-k results)
         markdown_content += "## Example Query Results\n"
         for query, results in example_results.items():
             markdown_content += f"### Query: {query}\n"
@@ -330,9 +361,10 @@ class VectorSearchWeb:
             markdown_content += "\n"
 
         # Save markdown summary
-        save_file(markdown_content, f"{output_dir}/evaluation_summary.md")
-        logger.info(
-            f"Generated markdown summary at {output_dir}/evaluation_summary.md")
+        with open(f"{OUTPUT_DIR}/evaluation_summary.md", "w", encoding="utf-8") as f:
+            f.write(markdown_content)
+        logger.success(
+            f"Generated markdown summary at {OUTPUT_DIR}/evaluation_summary.md")
 
         # Generate HTML chart
         chart_data = {
@@ -404,31 +436,26 @@ class VectorSearchWeb:
 </body>
 </html>
 """
-        save_file(html_content, f"{output_dir}/performance_chart.html")
-        logger.info(
-            f"Generated HTML chart at {output_dir}/performance_chart.html")
+        with open(f"{OUTPUT_DIR}/performance_chart.html", "w", encoding="utf-8") as f:
+            f.write(html_content)
+        logger.success(
+            f"Generated HTML chart at {OUTPUT_DIR}/performance_chart.html")
 
 
 if __name__ == "__main__":
-    output_dir = os.path.join(
-        os.path.dirname(__file__), "generated", os.path.splitext(
-            os.path.basename(__file__))[0]
-    )
-    documents = [
-        ("doc1", "<h1>Introduction</h1>\nThis is a short introduction to AI.\n<h2>Details</h2>\nAI involves machine learning and neural networks."),
-        ("doc2", "<h1>Main Topic</h1>\n" + "Content about machine learning. " *
-         200 + "\n<h2>Subtopic</h2>\n" + "Deep learning details. " * 50),
-        ("doc3", "<h1>Overview</h1>\n" + "Overview of AI technologies. " *
-         500 + "\n<h2>Conclusion</h2>\n" + "AI is transformative. " * 100)
-    ]
-    validation_set = [
-        ("What is the main topic of AI?", [("doc2", 0), ("doc2", 1)]),
-        ("Explain AI technologies in detail.", [("doc3", 0), ("doc3", 1)])
-    ]
-    example_queries = [
-        ("What is the main topic of AI?", [("doc2", 0), ("doc2", 1)]),
-        ("Explain AI technologies in detail.", [("doc3", 0), ("doc3", 1)])
-    ]
+    import json
+
+    data_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/mocks/vector_search"
+
+    # Load data from JSON file (or define directly)
+    with open(f"{data_dir}/data.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+        documents = [(doc["doc_id"], doc["text"]) for doc in data["documents"]]
+        validation_set = [(item["query"], [(chunk["doc_id"], chunk["chunk_idx"]) for chunk in item["relevant_chunks"]])
+                          for item in data["validation_set"]]
+        example_queries = [(item["query"], [(chunk["doc_id"], chunk["chunk_idx"]) for chunk in item["relevant_chunks"]])
+                           for item in data["example_queries"]]
+
     searcher = VectorSearchWeb(max_context_size=512)
     chunk_sizes = [150, 250, 350]
     model_names = [
@@ -446,4 +473,5 @@ if __name__ == "__main__":
         embed_model_name=best_model, max_context_size=512)
     example_results = searcher.evaluate_retrieval_examples(
         documents, example_queries, chunk_sizes, overlap_ratio=0.2, k=3)
-    searcher.generate_summary(model_scores, example_results, chunk_sizes, k=3)
+    searcher.generate_summary(
+        model_scores, example_results, chunk_sizes, k=3, validation_set=validation_set)

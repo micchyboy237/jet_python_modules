@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="utf-8"/>
+  <title>
+   Model Performance Chart
+  </title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js">
+  </script>
+ </head>
+ <body>
+  <h1>
+   Model Performance Comparison
+  </h1>
+  <canvas height="400" id="performanceChart" width="800">
+  </canvas>
+  <script>
+   const ctx = document.getElementById('performanceChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ["sentence-transformers/all-MiniLM-L6-v2", "sentence-transformers/multi-qa-MiniLM-L6-cos-v1", "Snowflake/snowflake-arctic-embed-s"],
+                datasets: [
+                    {
+                        label: 'Precision',
+                        data: [0.3333333333333333, 0.5, 0.16666666666666666],
+                        backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Recall',
+                        data: [0.5, 0.75, 0.25],
+                        backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'MRR',
+                        data: [0.75, 0.75, 0.5],
+                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 1,
+                        title: { display: true, text: 'Metric Value' }
+                    },
+                    x: {
+                        title: { display: true, text: 'Model' }
+                    }
+                },
+                plugins: {
+                    legend: { display: true, position: 'top' },
+                    title: { display: true, text: 'Model Performance Metrics' }
+                }
+            }
+        });
+  </script>
+ </body>
+</html>
