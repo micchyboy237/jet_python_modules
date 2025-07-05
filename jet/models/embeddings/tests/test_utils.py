@@ -1,5 +1,5 @@
 import nltk
-from jet.models.embeddings.utils import (
+from jet.models.embeddings.chunking import (
     chunk_headers_by_hierarchy,
 )
 
