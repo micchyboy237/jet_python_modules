@@ -142,7 +142,8 @@ class VectorSearchWeb:
             return
 
         chunk_texts = [chunk[1] for chunk in all_chunks]
-        device = 'cpu' if 'all-mpnet-base-v2' in self.embed_model._target_device else 'mps'
+        device = 'cpu' if 'all-mpnet-base-v2' in str(
+            self.embed_model.device) else 'mps'
         embeddings = self.embed_model.encode(
             chunk_texts, show_progress_bar=True, batch_size=16, device=device, force=True)
 
@@ -357,7 +358,9 @@ if __name__ == "__main__":
 
     # Evaluate models
     model_names = [
-        "sentence-transformers/all-MiniLM-L6-v2", "sentence-transformers/all-mpnet-base-v2"]
+        "sentence-transformers/all-MiniLM-L6-v2",
+        "sentence-transformers/all-mpnet-base-v2",
+    ]
     model_scores = searcher.evaluate_models(
         documents, validation_set, model_names, chunk_sizes, overlap_ratio=0.2, k=3)
     best_model = max(model_scores, key=lambda x: model_scores[x]['precision'])
