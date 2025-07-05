@@ -4,13 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Model Performance Chart</title>
+    <title>Performance Charts</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <h2>Model Performance Comparison</h2>
+    <h2>Model Performance Comparison (Averaged Across Chunk Sizes)</h2>
     <canvas id="performanceChart" width="800" height="400"></canvas>
-    <h2>Performance by Chunk Size</h2>
+    <h2>Performance by Model and Chunk Size</h2>
     <canvas id="chunkSizeChart" width="800" height="400"></canvas>
     <script>
         const ctx1 = document.getElementById('performanceChart').getContext('2d');
@@ -21,21 +21,21 @@
                 datasets: [
                     {
                         label: 'Precision',
-                        data: [0.1111111111111111, 0.1111111111111111, 0.1111111111111111],
+                        data: [0.15555555555555553, 0.13333333333333333, 0.19999999999999998],
                         backgroundColor: 'rgba(75, 192, 192, 0.5)',
                         borderColor: 'rgba(75, 192, 192, 1)',
                         borderWidth: 1
                     },
                     {
                         label: 'Recall',
-                        data: [0.008619626743196536, 0.008619626743196536, 0.009040047163616956],
+                        data: [0.012746610870180664, 0.01084184896541876, 0.015437451684591272],
                         backgroundColor: 'rgba(255, 99, 132, 0.5)',
                         borderColor: 'rgba(255, 99, 132, 1)',
                         borderWidth: 1
                     },
                     {
                         label: 'MRR',
-                        data: [0.3333333333333333, 0.3333333333333333, 0.3],
+                        data: [0.43333333333333335, 0.4000000000000001, 0.36666666666666664],
                         backgroundColor: 'rgba(54, 162, 235, 0.5)',
                         borderColor: 'rgba(54, 162, 235, 1)',
                         borderWidth: 1
@@ -43,11 +43,42 @@
                 ]
             },
             options: {
-                scales: {
-                    y: { beginAtZero: true, max: 1, title: { display: true, text: 'Score' } },
-                    x: { title: { display: true, text: 'Model' } }
-                },
-                plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Model Performance Metrics' } }
+                scales: { y: { beginAtZero: true, max: 1, title: { display: true, text: 'Score' } }, x: { title: { display: true, text: 'Model' } } },
+                plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Model Performance Metrics (Averaged)' } }
+            }
+        });
+        const ctx2 = document.getElementById('chunkSizeChart').getContext('2d');
+        new Chart(ctx2, {
+            type: 'bar',
+            data: {
+                labels: ["sentence-transformers/all-MiniLM-L6-v2 (Chunk 150)", "sentence-transformers/all-MiniLM-L6-v2 (Chunk 250)", "sentence-transformers/all-MiniLM-L6-v2 (Chunk 350)", "sentence-transformers/multi-qa-MiniLM-L6-cos-v1 (Chunk 150)", "sentence-transformers/multi-qa-MiniLM-L6-cos-v1 (Chunk 250)", "sentence-transformers/multi-qa-MiniLM-L6-cos-v1 (Chunk 350)", "Snowflake/snowflake-arctic-embed-s (Chunk 150)", "Snowflake/snowflake-arctic-embed-s (Chunk 250)", "Snowflake/snowflake-arctic-embed-s (Chunk 350)"],
+                datasets: [
+                    {
+                        label: 'Precision',
+                        data: [0.15555555555555553, 0.15555555555555553, 0.15555555555555553, 0.13333333333333333, 0.13333333333333333, 0.13333333333333333, 0.19999999999999998, 0.19999999999999998, 0.19999999999999998],
+                        backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Recall',
+                        data: [0.012746610870180666, 0.012746610870180666, 0.012746610870180666, 0.01084184896541876, 0.01084184896541876, 0.01084184896541876, 0.015437451684591272, 0.015437451684591272, 0.015437451684591272],
+                        backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'MRR',
+                        data: [0.43333333333333335, 0.43333333333333335, 0.43333333333333335, 0.4, 0.4, 0.4, 0.36666666666666664, 0.36666666666666664, 0.36666666666666664],
+                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                scales: { y: { beginAtZero: true, max: 1, title: { display: true, text: 'Score' } }, x: { title: { display: true, text: 'Model and Chunk Size' } } },
+                plugins: { legend: { display: true, position: 'top' }, title: { display: true, text: 'Performance by Model and Chunk Size' } }
             }
         });
     </script>

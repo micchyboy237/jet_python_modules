@@ -294,7 +294,7 @@ class VectorSearchWeb:
                     'chunk_idx': chunk_idx,
                     'header': header,
                     'score': score,
-                    'text': chunk_text[:100] + "..." if len(chunk_text) > 100 else chunk_text,
+                    'text': chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
                     'is_relevant': is_relevant
                 })
             results[query] = result_list
@@ -491,7 +491,7 @@ class VectorSearchWeb:
                     if search_results:
                         top_result = max(search_results, key=lambda x: x[4])
                         doc_id, chunk_text, chunk_idx, header, score = top_result
-                        markdown_content += f"| {query} | {doc_id} | {chunk_idx} | {header} | {score:.4f} | N/A | {chunk_text[:100] + '...' if len(chunk_text) > 100 else chunk_text} |\n"
+                        markdown_content += f"| {query} | {doc_id} | {chunk_idx} | {header} | {score:.4f} | N/A | {chunk_text[:200] + '...' if len(chunk_text) > 200 else chunk_text} |\n"
         markdown_content += "\n"
 
         # Detailed Results per Query
