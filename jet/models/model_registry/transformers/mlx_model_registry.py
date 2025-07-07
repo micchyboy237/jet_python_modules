@@ -105,7 +105,7 @@ class MLXModelRegistry(TransformersModelRegistry):
                 f"Could not load MLX model {resolved_model_id}: {str(e)}")
 
     @staticmethod
-    def get_tokenizer(model_id: str) -> Optional[PreTrainedTokenizerBase]:
+    def get_tokenizer(model_id: LLMModelType) -> Optional[PreTrainedTokenizerBase]:
         """Load or retrieve a tokenizer for the MLX model."""
         resolved_model_id = resolve_model_value(model_id)
         with MLXModelRegistry._tokenizer_lock:
@@ -130,7 +130,7 @@ class MLXModelRegistry(TransformersModelRegistry):
                 f"Could not load tokenizer for {resolved_model_id}: {str(e)}")
 
     @staticmethod
-    def get_config(model_id: str) -> Optional[PretrainedConfig]:
+    def get_config(model_id: LLMModelType) -> Optional[PretrainedConfig]:
         """Load or retrieve a config for the MLX model."""
         resolved_model_id = resolve_model_value(model_id)
         with MLXModelRegistry._config_lock:
