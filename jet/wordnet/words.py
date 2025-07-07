@@ -1,3 +1,4 @@
+from itertools import chain
 from pydantic import BaseModel
 import nltk
 import re
@@ -91,20 +92,22 @@ def get_words(
 
 def get_unique_words(data: List[str]) -> List[str]:
     """
-    Get unique words from a list of strings using get_words.
+    Get unique words from a list of strings using get_words,
+    preserving original order.
 
     Args:
         data: List of strings to process
 
     Returns:
-        List of unique words
+        List of unique words in the order they first appear
     """
     all_words = []
     for text in data:
         words = get_words(text)
+        words = list(chain.from_iterable(words))
         all_words.extend(words)
 
-    return list(set(all_words))
+    return list(dict.fromkeys(all_words))
 
 
 def get_non_words(text):
