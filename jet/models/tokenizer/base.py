@@ -2,8 +2,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, TypedDict, Union, Li
 from pathlib import Path
 import numpy as np
 import logging
-from tokenizers import Encoding, Tokenizer
-from transformers import PreTrainedTokenizerBase
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR
 from jet.models.utils import get_context_size, resolve_model_value
@@ -11,7 +10,7 @@ from jet.models.model_types import ModelType
 from jet.wordnet.sentence import split_sentences
 
 # Cache for storing loaded tokenizers
-_tokenizer_cache: Dict[str, Tokenizer] = {}
+_tokenizer_cache: Dict[str, PreTrainedTokenizerBase] = {}
 
 
 class EncodingWrapper:
@@ -19,16 +18,11 @@ class EncodingWrapper:
 
     def __init__(
         self,
-        encoding: Union[Encoding, List[int], List[List[int]]],
-        tokenizer: Union[Tokenizer, PreTrainedTokenizerBase]
+        encoding: Union[List[int], List[List[int]]],
+        tokenizer: PreTrainedTokenizerBase
     ):
         self._tokenizer = tokenizer
-        if isinstance(encoding, Encoding):
-            self._encoding = encoding
-            self._ids = encoding.ids
-        else:
-            self._encoding = None
-            self._ids = encoding
+        self._ids = encoding
 
     def __iter__(self) -> Iterator[int]:
         """Make .ids the default iterable for single encodings."""
@@ -51,23 +45,23 @@ class EncodingWrapper:
         return self._ids[index]
 
     def __getattr__(self, name: str) -> Any:
-        """Delegate attribute access to the underlying _encoding if it exists."""
-        if self._encoding is not None:
-            return getattr(self._encoding, name)
+        """Delegate attribute access to the tokenizer if applicable."""
+        if hasattr(self._tokenizer, name):
+            return getattr(self._tokenizer, name)
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
 
 class TokenizerWrapper:
-    """A callable wrapper for tokenizers supporting both tokenizers.Tokenizer and PreTrainedTokenizerBase."""
+    """A callable wrapper for PreTrainedTokenizerBase, leveraging built-in encode features."""
 
     def __init__(
         self,
-        tokenizer: Union[Tokenizer, PreTrainedTokenizerBase],
+        tokenizer: PreTrainedTokenizerBase,
         remove_pad_tokens: bool = False,
         add_special_tokens: bool = True,
         pad_token_id: Optional[int] = None,
-        max_length: int = 128,
+        max_length: Optional[int] = None,
         truncation_side: str = "right"
     ):
         self.tokenizer = tokenizer
@@ -75,18 +69,10 @@ class TokenizerWrapper:
         self.add_special_tokens = add_special_tokens
         self.pad_token_id = pad_token_id or (
             tokenizer.pad_token_id
-            if hasattr(tokenizer, "pad_token_id") and tokenizer.pad_token_id is not None
+            if tokenizer.pad_token_id is not None
             else 0
         )
-        self.max_length = max_length
-        self.truncation_side = truncation_side
-
-        # Configure default truncation for tokenizers.Tokenizer
-        if isinstance(self.tokenizer, Tokenizer) and max_length is not None:
-            self.tokenizer.enable_truncation(
-                max_length=self.max_length,
-                direction=self.truncation_side
-            )
+        self.max_length = max_length or tokenizer.model_max_length
 
     def __call__(self, texts: Union[str, List[str]], **kwargs) -> Union[EncodingWrapper, List[EncodingWrapper]]:
         """Tokenize input texts, supporting single string or list of strings."""
@@ -97,25 +83,23 @@ class TokenizerWrapper:
         return self.encode_batch(texts, **kwargs)
 
     def encode(self, text: str, **kwargs) -> EncodingWrapper:
-        """Encode a single text string into an EncodingWrapper."""
+        """Encode a single text string into an EncodingWrapper using tokenizer's encode."""
         logger.debug(f"Encoding text: {text}, kwargs: {kwargs}")
         if not isinstance(text, str):
             logger.error(
                 f"Invalid input type for encode: {type(text)}, expected str")
             raise TypeError("TextInputSequence must be str")
 
-        # Use kwargs' add_special_tokens if provided, else self.add_special_tokens
-        encode_kwargs = kwargs.copy()
-        if 'add_special_tokens' not in encode_kwargs:
-            encode_kwargs['add_special_tokens'] = self.add_special_tokens
+        encode_kwargs = {
+            'add_special_tokens': self.add_special_tokens,
+            'max_length': self.max_length,
+            'truncation': True if self.max_length is not None else False,
+            'return_tensors': None  # Ensure we get a list of token IDs
+        }
+        encode_kwargs.update(kwargs)
 
-        if isinstance(self.tokenizer, Tokenizer):
-            encoding = self.tokenizer.encode(text, **encode_kwargs)
-            wrapped_encoding = EncodingWrapper(encoding, self.tokenizer)
-        else:
-            token_ids = self.tokenizer.encode(text, **encode_kwargs)
-            wrapped_encoding = EncodingWrapper(token_ids, self.tokenizer)
-
+        token_ids = self.tokenizer.encode(text, **encode_kwargs)
+        wrapped_encoding = EncodingWrapper(token_ids, self.tokenizer)
         if self.remove_pad_tokens:
             wrapped_encoding._ids = [
                 tid for tid in wrapped_encoding._ids if tid != self.pad_token_id]
@@ -131,23 +115,20 @@ class TokenizerWrapper:
                     f"Invalid input type in batch: {type(text)}, expected str")
                 raise TypeError("TextInputSequence must be str")
 
-        # Use kwargs' add_special_tokens if provided, else self.add_special_tokens
-        encode_kwargs = kwargs.copy()
-        if 'add_special_tokens' not in encode_kwargs:
-            encode_kwargs['add_special_tokens'] = self.add_special_tokens
+        encode_kwargs = {
+            'add_special_tokens': self.add_special_tokens,
+            'max_length': self.max_length,
+            'truncation': True if self.max_length is not None else False,
+            'return_tensors': None
+        }
+        encode_kwargs.update(kwargs)
 
-        if isinstance(self.tokenizer, Tokenizer):
-            encodings = self.tokenizer.encode_batch(texts, **encode_kwargs)
-            wrapped_encodings = [EncodingWrapper(
-                enc, self.tokenizer) for enc in encodings]
-        else:
-            token_ids_list = [
-                self.tokenizer.encode(text, **encode_kwargs)
-                for text in texts
-            ]
-            wrapped_encodings = [EncodingWrapper(
-                ids, self.tokenizer) for ids in token_ids_list]
-
+        token_ids_list = [
+            self.tokenizer.encode(text, **encode_kwargs)
+            for text in texts
+        ]
+        wrapped_encodings = [EncodingWrapper(
+            ids, self.tokenizer) for ids in token_ids_list]
         if self.remove_pad_tokens:
             for wrapped in wrapped_encodings:
                 wrapped._ids = [
@@ -159,9 +140,8 @@ class TokenizerWrapper:
     def decode(self, token_ids: Union[List[int], List[List[int]]], **kwargs) -> Union[str, List[str]]:
         """Decode token IDs back to text."""
         logger.debug(f"Decoding token IDs: {token_ids}, kwargs: {kwargs}")
-        decode_kwargs = kwargs.copy()
-        if 'skip_special_tokens' not in decode_kwargs:
-            decode_kwargs['skip_special_tokens'] = self.add_special_tokens
+        decode_kwargs = {'skip_special_tokens': self.add_special_tokens}
+        decode_kwargs.update(kwargs)
 
         if isinstance(token_ids[0], int):
             return self.tokenizer.decode(token_ids, **decode_kwargs)
@@ -176,14 +156,17 @@ class TokenizerWrapper:
         """Convert token IDs to their string representations."""
         logger.debug(
             f"Converting token IDs to tokens: {token_ids}, kwargs: {kwargs}")
-        convert_kwargs = kwargs.copy()
-        if isinstance(self.tokenizer, Tokenizer):
+        convert_kwargs = {'skip_special_tokens': self.add_special_tokens}
+        convert_kwargs.update(kwargs)
+
+        if self.tokenizer.is_fast:
             if isinstance(token_ids[0], int):
                 return self.tokenizer.convert_ids_to_tokens(token_ids, **convert_kwargs)
-            return [self.tokenizer.convert_ids_to_tokens(ids, **convert_kwargs) for ids in token_ids]
+            return [
+                self.tokenizer.convert_ids_to_tokens(ids, **convert_kwargs)
+                for ids in token_ids
+            ]
         else:
-            if 'skip_special_tokens' not in convert_kwargs:
-                convert_kwargs['skip_special_tokens'] = self.add_special_tokens
             if isinstance(token_ids[0], int):
                 return self.tokenizer.convert_ids_to_tokens(token_ids, **convert_kwargs)
             return [
@@ -193,13 +176,14 @@ class TokenizerWrapper:
 
 
 def get_tokenizer(
-    model_name_or_tokenizer: Union[ModelType, Tokenizer],
+    model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase],
     local_cache_dir: Optional[str] = None,
     disable_cache: bool = False,
     pad_token_id: Optional[int] = None,
     max_length: Optional[int] = None,
     truncation_side: str = "right",
-) -> Tokenizer:
+    documents: Optional[Union[str, List[str]]] = None,
+) -> PreTrainedTokenizerBase:
     """
     Initialize and return a tokenizer for the specified model, with option to disable cache.
 
@@ -207,102 +191,77 @@ def get_tokenizer(
         model_name_or_tokenizer: The model key (e.g., 'bge-large') or repository ID (e.g., 'BAAI/bge-large-en-v1.5').
         local_cache_dir: Optional local directory to load tokenizer from (defaults to Hugging Face cache).
         disable_cache: If True, bypasses the tokenizer cache and always loads fresh.
+        pad_token_id: Optional padding token ID to set.
+        max_length: Optional maximum length; if None and documents provided, set to max token count.
+        truncation_side: Truncation side ("right" or "left").
+        documents: Optional input texts to compute max_length dynamically.
 
     Returns:
-        Tokenizer: The loaded tokenizer.
+        PreTrainedTokenizerBase: The loaded tokenizer.
 
     Raises:
         ValueError: If the tokenizer cannot be loaded from remote or local sources.
     """
-    if isinstance(model_name_or_tokenizer, Tokenizer):
+    if isinstance(model_name_or_tokenizer, PreTrainedTokenizerBase):
         return model_name_or_tokenizer
 
     model_name = model_name_or_tokenizer
-    # Resolve model_name to full path if it's a key
     model_path = resolve_model_value(model_name)
     logger.info(
         f"Attempting to load tokenizer for model_name: {model_name}, resolved to: {model_path}")
 
-    # if not max_length:
-    #     max_length = get_context_size(model_path)
-
-    # Check cache first if not disabled
     if not disable_cache and model_path in _tokenizer_cache:
         logger.info(f"Using cached tokenizer for: {model_path}")
-        return _tokenizer_cache[model_path]
+        tokenizer = _tokenizer_cache[model_path]
+    else:
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_path, cache_dir=local_cache_dir)
+            logger.info(
+                f"Successfully loaded tokenizer from remote: {model_path}")
+            if not disable_cache:
+                _tokenizer_cache[model_path] = tokenizer
+        except Exception as e:
+            logger.error(
+                f"Failed to load tokenizer for {model_path}: {str(e)}")
+            raise ValueError(
+                f"Could not load tokenizer for {model_path} from remote or local cache.")
 
-    try:
-        # Attempt to load from remote
-        tokenizer: Tokenizer = Tokenizer.from_pretrained(model_path)
-        logger.info(f"Successfully loaded tokenizer from remote: {model_path}")
-        if not disable_cache:
-            _tokenizer_cache[model_path] = tokenizer
+    if pad_token_id is not None and tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = pad_token_id
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.convert_ids_to_tokens(pad_token_id)
 
-        # Configure default truncation for tokenizers.Tokenizer
-        if max_length is not None:
-            tokenizer.enable_truncation(
-                max_length=max_length,
-                direction=truncation_side
-            )
+    tokenizer.truncation_side = truncation_side
 
-        if pad_token_id is not None:
-            tokenizer.enable_padding(pad_id=pad_token_id)
+    if max_length is None and documents is not None:
+        tokenizer_wrapper = TokenizerWrapper(
+            tokenizer,
+            remove_pad_tokens=False,
+            add_special_tokens=True,
+            pad_token_id=pad_token_id,
+            max_length=None  # Temporarily set to None to get raw token counts
+        )
+        token_counts = [
+            len(tokenizer_wrapper.encode(text, truncation=False)._ids)
+            for text in ([documents] if isinstance(documents, str) else documents)
+        ]
+        max_length = max(
+            token_counts) if token_counts else tokenizer.model_max_length
+        logger.info(f"Computed max_length from documents: {max_length}")
 
-        return tokenizer
-    except Exception as e:
-        logger.warning(f"Failed to load tokenizer from remote: {str(e)}")
+    if max_length is not None:
+        tokenizer.model_max_length = max_length
 
-        # Fallback to local cache
-        if local_cache_dir is None:
-            local_cache_dir = Path(MODELS_CACHE_DIR)
-        else:
-            local_cache_dir = Path(local_cache_dir)
-
-        # Construct snapshot directory path
-        snapshot_dir = local_cache_dir / \
-            f"models--{model_path.replace('/', '--')}" / "snapshots"
-        if not snapshot_dir.exists():
-            error_msg = f"Snapshot directory does not exist: {snapshot_dir}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        # Recursively search for tokenizer.json in snapshot directory
-        tokenizer_files = list(snapshot_dir.rglob("tokenizer.json"))
-        logger.debug(
-            f"Found {len(tokenizer_files)} tokenizer.json files in {snapshot_dir}")
-
-        for tokenizer_path in tokenizer_files:
-            try:
-                # Resolve symlinks to real path
-                resolved_path = tokenizer_path.resolve()
-                logger.debug(f"Resolved {tokenizer_path} to {resolved_path}")
-                if not resolved_path.is_file():
-                    logger.warning(
-                        f"Resolved path is not a file: {resolved_path}")
-                    continue
-
-                tokenizer = Tokenizer.from_file(str(resolved_path))
-                logger.info(
-                    f"Successfully loaded tokenizer from local cache: {resolved_path}")
-                if not disable_cache:
-                    _tokenizer_cache[model_path] = tokenizer
-                return tokenizer
-            except Exception as local_e:
-                logger.error(
-                    f"Failed to load tokenizer from {resolved_path}: {str(local_e)}")
-                continue
-
-        # If no valid tokenizer is found, raise an error
-        error_msg = f"Could not load tokenizer for {model_path} from remote or local cache."
-        logger.error(error_msg)
-        raise ValueError(error_msg)
+    return tokenizer
 
 
 def get_tokenizer_fn(
-    model_name_or_tokenizer: Union[ModelType, Tokenizer, PreTrainedTokenizerBase, TokenizerWrapper],
+    model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase, TokenizerWrapper],
     remove_pad_tokens: bool = False,
     add_special_tokens: bool = True,
     disable_cache: bool = False,
+    documents: Optional[Union[str, List[str]]] = None,
     **kwargs,
 ) -> TokenizerWrapper:
     """Return a TokenizerWrapper instance from a model name or tokenizer instance."""
@@ -310,15 +269,45 @@ def get_tokenizer_fn(
         return model_name_or_tokenizer
     elif isinstance(model_name_or_tokenizer, str):
         tokenizer = get_tokenizer(
-            model_name_or_tokenizer, disable_cache=disable_cache, **kwargs)
+            model_name_or_tokenizer,
+            disable_cache=disable_cache,
+            documents=documents,
+            **kwargs
+        )
     else:
         tokenizer = model_name_or_tokenizer
-    return TokenizerWrapper(tokenizer, remove_pad_tokens, add_special_tokens, **kwargs)
+        # Default unset value
+        if documents is not None and tokenizer.model_max_length == int(1e30):
+            tokenizer_wrapper = TokenizerWrapper(
+                tokenizer,
+                remove_pad_tokens=False,
+                add_special_tokens=True,
+                pad_token_id=tokenizer.pad_token_id,
+                max_length=None
+            )
+            token_counts = [
+                len(tokenizer_wrapper.encode(text, truncation=False)._ids)
+                for text in ([documents] if isinstance(documents, str) else documents)
+            ]
+            max_length = max(
+                token_counts) if token_counts else tokenizer.model_max_length
+            tokenizer.model_max_length = max_length
+            logger.info(f"Set tokenizer max_length to: {max_length}")
+
+    return TokenizerWrapper(
+        tokenizer,
+        remove_pad_tokens=remove_pad_tokens,
+        add_special_tokens=add_special_tokens,
+        pad_token_id=kwargs.get('pad_token_id', tokenizer.pad_token_id),
+        max_length=kwargs.get('max_length', tokenizer.model_max_length),
+        truncation_side=kwargs.get(
+            'truncation_side', tokenizer.truncation_side)
+    )
 
 
 def tokenize(
     texts: Union[str, List[str]],
-    tokenizer: Union[ModelType, Tokenizer, PreTrainedTokenizerBase],
+    tokenizer: Union[ModelType, PreTrainedTokenizerBase],
     add_special_tokens: bool = True,
     remove_pad_tokens: bool = False
 ) -> Union[List[int], List[List[int]]]:
@@ -326,12 +315,15 @@ def tokenize(
     tokenizer_wrapper = get_tokenizer_fn(
         tokenizer, remove_pad_tokens=remove_pad_tokens, add_special_tokens=add_special_tokens
     )
-    return tokenizer_wrapper(texts)
+    result = tokenizer_wrapper(texts)
+    if isinstance(texts, str):
+        return result._ids
+    return [wrapper._ids for wrapper in result]
 
 
 def detokenize(
     token_ids: Union[List[int], List[List[int]]],
-    tokenizer: Union[ModelType, Tokenizer]
+    tokenizer: Union[ModelType, PreTrainedTokenizerBase]
 ) -> Union[str, List[str]]:
     tokenizer = (
         get_tokenizer(tokenizer)
@@ -344,7 +336,7 @@ def detokenize(
 
 
 def count_tokens(
-    model_name_or_tokenizer: Union[ModelType, Tokenizer],
+    model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase],
     messages: Union[str, List[str], List[Dict]],
     prevent_total: bool = False,
     remove_pad_tokens: bool = True,
@@ -360,7 +352,6 @@ def count_tokens(
     tokenize = get_tokenizer_fn(
         model_name_or_tokenizer, remove_pad_tokens=remove_pad_tokens, add_special_tokens=add_special_tokens, disable_cache=disable_cache)
     tokenized = tokenize(messages)
-    tokenized = [t for t in tokenized if t != 0]
     if isinstance(messages, str):
         return len(tokenized)
     else:
@@ -369,7 +360,7 @@ def count_tokens(
 
 
 def count_tokens_dim(
-    model_name_or_tokenizer: Union[ModelType, Tokenizer],
+    model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase],
     messages: Union[str, List[str], List[Dict]],
 ) -> Union[int, List[int]]:
     if not messages:
@@ -389,7 +380,7 @@ def count_tokens_dim(
 
 
 def get_max_token_count(
-    model_name_or_tokenizer: Union[ModelType, Tokenizer],
+    model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase],
     messages: Union[str, List[str], List[Dict]],
     buffer: int = 10,
     remove_pad_tokens: bool = True
@@ -442,8 +433,7 @@ def merge_texts(
 ) -> MergeResult:
     # Encode the text into token IDs
     token_ids: List[int] = tokenizer.encode(text, add_special_tokens=False)
-    pad_token_id = tokenizer.pad_token_id if hasattr(
-        tokenizer, "pad_token_id") and tokenizer.pad_token_id is not None else 0
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
     if remove_pad_tokens:
         token_ids = [tid for tid in token_ids if tid != pad_token_id]
     total_tokens: int = len(token_ids)
@@ -453,7 +443,6 @@ def merge_texts(
         token_strings: List[str] = tokenizer.convert_ids_to_tokens(
             token_ids, skip_special_tokens=skip_special_tokens
         )
-        # Use batch_decode to decode all token IDs at once
         decoded_tokens: List[str] = [
             dt for dt in tokenizer.batch_decode(
                 [[tid] for tid in token_ids], skip_special_tokens=skip_special_tokens
@@ -557,12 +546,10 @@ def merge_texts(
     token_counts: List[int] = []
     for token_ids in grouped_token_ids:
         token_counts.append(len(token_ids))
-        # Convert selected token IDs to token strings and decoded tokens
         token_strings = tokenizer.convert_ids_to_tokens(
             token_ids, skip_special_tokens=skip_special_tokens
         )
         grouped_token_strings.append(token_strings)
-        # Use batch_decode to decode all selected token IDs at once
         decoded_tokens = [
             dt for dt in tokenizer.batch_decode(
                 [[tid] for tid in token_ids], skip_special_tokens=skip_special_tokens
