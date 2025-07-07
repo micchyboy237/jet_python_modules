@@ -76,36 +76,59 @@ async def scrape_urls(
 ) -> AsyncIterator[Tuple[str, str, Optional[str]]]:
     ua = UserAgent()
     semaphore = asyncio.Semaphore(num_parallel)
-    urls_to_process = urls[:limit] if limit else urls
+    completed_count = 0
 
-    async def sem_fetch_and_yield(url: str, session: aiohttp.ClientSession, pbar=None) -> AsyncIterator[Tuple[str, str, Optional[str]]]:
-        yield url, "started", None
+    async def sem_fetch_and_yield(url: str, session: aiohttp.ClientSession, pbar=None) -> List[Tuple[str, str, Optional[str]]]:
+        results = []
+        results.append((url, "started", None))
         async with semaphore:
             logger.debug(f"Starting to scrape URL: {url}")
-            html = await scrape_url(session, url, ua, timeout)
-            logger.debug(
-                f"Completed scraping URL: {url}, success: {html is not None}")
-            if pbar:
-                pbar.update(1)
-                active_tasks = min(num_parallel, len(
-                    urls_to_process)) - semaphore._value
-                pbar.set_description(f"Scraping URLs ({active_tasks} active)")
-            yield url, "completed", html
+            try:
+                html = await scrape_url(session, url, ua, timeout)
+                logger.debug(
+                    f"Completed scraping URL: {url}, success: {html is not None}")
+
+                if pbar:
+                    pbar.update(1)
+                    active_tasks = min(
+                        num_parallel, len(urls)) - semaphore._value
+                    pbar.set_description(
+                        f"Scraping URLs ({active_tasks} active)")
+
+                if html:
+                    results.append((url, "completed", html))
+                else:
+                    results.append((url, "no_html", None))
+            except Exception as e:
+                logger.error(f"Exception while scraping {url}: {str(e)}")
+                if pbar:
+                    pbar.update(1)
+                results.append((url, "error", None))
+        return results
 
     async with aiohttp.ClientSession() as session:
-        coroutines = [sem_fetch_and_yield(url, session)
-                      for url in urls_to_process]
+        coroutines = [sem_fetch_and_yield(url, session) for url in urls]
 
         if show_progress:
-            with tqdm_asyncio(total=len(urls_to_process), desc=f"Scraping URLs ({min(num_parallel, len(urls_to_process))} active)", file=sys.stdout, mininterval=0.1) as pbar:
+            with tqdm_asyncio(total=len(urls), desc=f"Scraping URLs ({min(num_parallel, len(urls))} active)", file=sys.stdout, mininterval=0.1) as pbar:
                 coroutines = [sem_fetch_and_yield(
-                    url, session, pbar) for url in urls_to_process]
+                    url, session, pbar) for url in urls]
 
-        # Consume async iterators using `asyncio.as_completed`
-        tasks = [consume_generator(coro) for coro in coroutines]
+        tasks = [asyncio.create_task(coro) for coro in coroutines]
+
         for task in asyncio.as_completed(tasks):
-            for item in await task:
+            result = await task
+            for item in result:
                 yield item
+                if item[1] == "completed":
+                    completed_count += 1
+                    if limit and completed_count >= limit:
+                        logger.info(
+                            f"Reached limit of {limit} completed URLs.")
+                        for t in tasks:
+                            if not t.done():
+                                t.cancel()
+                        return
 
 
 async def consume_generator(gen: AsyncIterator[Tuple[str, str, Optional[str]]]) -> List[Tuple[str, str, Optional[str]]]:
@@ -114,6 +137,7 @@ async def consume_generator(gen: AsyncIterator[Tuple[str, str, Optional[str]]]) 
 
 async def main():
     urls = [
+        "https://www.asfcxcvqawe.com",
         "https://www.imdb.com/list/ls505070747",
         "https://myanimelist.net/stacks/32507",
         "https://example.com",
@@ -122,7 +146,7 @@ async def main():
         "https://httpbin.org/html",
         "https://www.wikipedia.org/",
         "https://www.mozilla.org",
-        "https://www.stackoverflow.com"
+        "https://www.stackoverflow.com",
     ]
 
     html_list = []

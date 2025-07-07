@@ -15,9 +15,47 @@ from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 
 from jet.logger import logger
 
+DEFAULTS: MarkdownAnalysis = {
+    "summary": {
+        "headers": 0,
+        "header_counts": {"h1": 0, "h2": 0, "h3": 0, "h4": 0, "h5": 0, "h6": 0},
+        "paragraphs": 0,
+        "blockquotes": 0,
+        "code_blocks": 0,
+        "ordered_lists": 0,
+        "unordered_lists": 0,
+        "tables": 0,
+        "html_blocks": 0,
+        "html_inline_count": 0,
+        "words": 0,
+        "characters": 0,
+        "text_links": 0,
+        "image_links": 0,
+    },
+    "word_count": 0,
+    "char_count": 0,
+    "headers": [],
+    "paragraphs": [],
+    "blockquotes": [],
+    "code_blocks": [],
+    "unordered_lists": [],
+    "ordered_lists": [],
+    "tables": [],
+    "text_links": [],
+    "image_links": [],
+    "footnotes": [],
+    "inline_code": [],
+    "emphasis": [],
+    "task_items": [],
+    "html_blocks": [],
+    "html_inline": [],
+    "tokens_sequential": [],
+}
 
 # @timeout(3)
-def base_analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> dict:
+
+
+def base_analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> MarkdownAnalysis:
     import tempfile
     import os
     from jet.logger import logger
@@ -29,6 +67,7 @@ def base_analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -
     logger.debug("Markdown content after read_md_content: %s",
                  md_content[:100] + "..." if len(md_content) > 100 else md_content)
     temp_md_path = None
+    values: MarkdownAnalysis = DEFAULTS.copy()
     try:
         md_content = preprocess_markdown(md_content)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".md", mode="w", encoding="utf-8") as tmpfile:
@@ -89,42 +128,7 @@ def base_analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -
         except ValueError as e:
             logger.warning(
                 "Error in MarkdownAnalyzer: %s. Returning partial results.", e)
-            return {
-                "summary": {
-                    "headers": 0,
-                    "header_counts": {"h1": 0, "h2": 0, "h3": 0, "h4": 0, "h5": 0, "h6": 0},
-                    "paragraphs": len(raw_paragraphs) if 'raw_paragraphs' in locals() else 0,
-                    "blockquotes": len(raw_blockquotes) if 'raw_blockquotes' in locals() else 0,
-                    "code_blocks": len(raw_code_blocks) if 'raw_code_blocks' in locals() else 0,
-                    "ordered_lists": len(raw_lists.get("ordered_list", [])) if 'raw_lists' in locals() else 0,
-                    "unordered_lists": len(raw_lists.get("unordered_list", [])) if 'raw_lists' in locals() else 0,
-                    "tables": len(raw_tables) if 'raw_tables' in locals() else 0,
-                    "html_blocks": len(raw_html_blocks) if 'raw_html_blocks' in locals() else 0,
-                    "html_inline_count": len(raw_html_inline) if 'raw_html_inline' in locals() else 0,
-                    "words": raw_word_count if 'raw_word_count' in locals() else 0,
-                    "characters": raw_char_count if 'raw_char_count' in locals() else 0,
-                    "text_links": len(raw_links.get("text_link", [])) if 'raw_links' in locals() else 0,
-                    "image_links": len(raw_links.get("image_link", [])) if 'raw_links' in locals() else 0,
-                },
-                "word_count": raw_word_count if 'raw_word_count' in locals() else 0,
-                "char_count": raw_char_count if 'raw_char_count' in locals() else 0,
-                "headers": raw_headers if 'raw_headers' in locals() else [],
-                "paragraphs": raw_paragraphs if 'raw_paragraphs' in locals() else [],
-                "blockquotes": raw_blockquotes if 'raw_blockquotes' in locals() else [],
-                "code_blocks": raw_code_blocks if 'raw_code_blocks' in locals() else [],
-                "unordered_lists": raw_lists.get("unordered_list", []) if 'raw_lists' in locals() else [],
-                "ordered_lists": raw_lists.get("ordered_list", []) if 'raw_lists' in locals() else [],
-                "tables": raw_tables if 'raw_tables' in locals() else [],
-                "text_links": raw_links.get("text_link", []) if 'raw_links' in locals() else [],
-                "image_links": raw_links.get("image_link", []) if 'raw_links' in locals() else [],
-                "footnotes": raw_footnotes if 'raw_footnotes' in locals() else [],
-                "inline_code": raw_inline_code if 'raw_inline_code' in locals() else [],
-                "emphasis": raw_emphasis if 'raw_emphasis' in locals() else [],
-                "task_items": raw_task_items if 'raw_task_items' in locals() else [],
-                "html_blocks": raw_html_blocks if 'raw_html_blocks' in locals() else [],
-                "html_inline": raw_html_inline if 'raw_html_inline' in locals() else [],
-                "tokens_sequential": raw_tokens_sequential if 'raw_tokens_sequential' in locals() else [],
-            }
+            return values
 
         # Extract unordered_list and ordered_list from raw_lists
         unordered_lists = raw_lists.get("unordered_list", [])
@@ -146,12 +150,17 @@ def base_analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -
             else:
                 logger.warning("Invalid header level detected: %s", level)
 
-        raw_summary = convert_dict_keys_to_snake_case(analyzer.analyse())
-        raw_summary = {
-            **raw_summary,
+        raw_summary_unsorted = convert_dict_keys_to_snake_case(
+            analyzer.analyse())
+        raw_summary_unsorted.update({
             "header_counts": header_counts,
             "text_links": text_link_count,
             "image_links": image_link_count,
+        })
+        # Enforce key order from DEFAULTS["summary"]
+        raw_summary = {
+            key: raw_summary_unsorted.get(key, DEFAULTS["summary"][key])
+            for key in DEFAULTS["summary"].keys()
         }
         logger.debug("Summary: %s", raw_summary)
 
@@ -176,9 +185,10 @@ def base_analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -
             "html_inline": raw_html_inline,
             "tokens_sequential": raw_tokens_sequential,
         }
-        logger.debug("Final result: %s", {k: v for k, v in result.items(
+        values.update(result)
+        logger.debug("Final result: %s", {k: v for k, v in values.items(
         ) if k != "tokens_sequential"})  # Avoid logging large tokens
-        return result
+        return values
     finally:
         if temp_md_path and os.path.exists(temp_md_path):
             try:

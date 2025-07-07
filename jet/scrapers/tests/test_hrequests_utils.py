@@ -229,6 +229,50 @@ class TestHRequestsUtils(unittest.TestCase):
                         "Failed: https://invalid-url.com - Status Code: 404, Reason: Not Found"
                     )
 
+    @pytest.mark.asyncio
+    async def test_scrape_urls_limit_based_on_completed(self):
+        # Given: A mix of successful and failed URLs
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.text = AsyncMock(return_value="<html>Test</html>")
+
+        def get_side_effect(url, headers, timeout):
+            if url in ["https://invalid-url.com", "https://timeout.com"]:
+                return AsyncMock(status=404, reason="Not Found")
+            return mock_response
+
+        self.mock_session.get.side_effect = get_side_effect
+
+        expected_urls = [
+            "https://example.com",
+            "https://python.org",
+            "https://github.com",
+        ]
+        expected_results = [
+            (url, "started", None) for url in expected_urls
+        ] + [
+            (url, "completed", "<html>Test</html>") for url in expected_urls
+        ]
+
+        # When: Scraping URLs with a limit of 3 completed responses
+        with patch("aiohttp.ClientSession", return_value=self.mock_session):
+            with patch("jet.scrapers.hrequests_utils.cache.get", return_value=None):
+                with patch("jet.scrapers.hrequests_utils.cache.set"):
+                    with patch("jet.scrapers.hrequests_utils.logger"):
+                        results = []
+                        async for url, status, html in scrape_urls(self.urls, num_parallel=3, limit=3, show_progress=False):
+                            results.append((url, status, html))
+
+        # Then: Verify only 3 successful completions are processed
+        self.assertEqual(len(results), len(expected_results)
+                         )  # 3 started + 3 completed
+        completed = [r for r in results if r[1]
+                     == "completed" and r[2] is not None]
+        self.assertEqual(len(completed), 3)
+        self.assertEqual(results, expected_results)
+        processed_urls = {r[0] for r in results}
+        self.assertEqual(processed_urls, set(expected_urls))
+
 
 if __name__ == "__main__":
     unittest.main()
