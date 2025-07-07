@@ -50,7 +50,7 @@ def sync_scrape_urls(urls: List[str], num_parallel: int = 5) -> List[Optional[st
     return results
 
 
-async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent, timeout: Optional[float] = 10.0) -> Optional[str]:
+async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent, timeout: Optional[float] = 5.0) -> Optional[str]:
     """
     Scrape a single URL and return its HTML content, with caching and timeout handling.
 
@@ -58,7 +58,7 @@ async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent, ti
         session: aiohttp ClientSession for making HTTP requests.
         url: The URL to scrape.
         ua: UserAgent instance for generating random User-Agent headers.
-        timeout: Optional timeout in seconds for the HTTP request (default: 10.0, None for no timeout).
+        timeout: Optional timeout in seconds for the HTTP request (default: 5.0, None for no timeout).
 
     Returns:
         The HTML content as a string, or None if the request fails or times out.
@@ -90,7 +90,7 @@ async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent, ti
         return None
 
 
-async def scrape_urls(urls: List[str], num_parallel: int = 10, limit: Optional[int] = None, show_progress: bool = False, timeout: Optional[float] = 10.0) -> AsyncIterator[Tuple[str, str, Optional[str]]]:
+async def scrape_urls(urls: List[str], num_parallel: int = 10, limit: Optional[int] = None, show_progress: bool = False, timeout: Optional[float] = 5.0) -> AsyncIterator[Tuple[str, str, Optional[str]]]:
     ua = UserAgent()
     semaphore = asyncio.Semaphore(num_parallel)
 
@@ -141,7 +141,7 @@ async def main():
     ]
 
     html_list = []
-    async for url, status, html in scrape_urls(urls, num_parallel=5, limit=5, show_progress=True, timeout=10.0):
+    async for url, status, html in scrape_urls(urls, num_parallel=5, limit=5, show_progress=True, timeout=5.0):
         if status == "completed":
             if not html:
                 continue
