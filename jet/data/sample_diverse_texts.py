@@ -23,8 +23,6 @@ def sample_diverse_texts(
     Returns:
         List of sampled texts.
     """
-    word_counts_lemmatized = get_word_counts_lemmatized(
-        "\n\n".join(texts), min_count=2, as_score=False)
 
     if not texts:
         return []
