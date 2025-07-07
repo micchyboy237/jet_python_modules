@@ -1,123 +1,153 @@
+import pytest
 import nltk
 from jet.models.embeddings.chunking import (
     chunk_headers_by_hierarchy,
 )
 
 
+@pytest.fixture(scope="class")
+def chunking_shared():
+    def tokenizer(x):
+        return nltk.word_tokenize(x) if isinstance(x, str) else [nltk.word_tokenize(t) for t in x]
+    split_fn = nltk.sent_tokenize
+    chunk_size = 16
+    return tokenizer, split_fn, chunk_size
+
+
 class TestMergeTextsByHierarchy:
-    def test_chunk_headers_by_hierarchy_with_root(self):
-        # Given
-        markdown_text = "# Root1\nThis is a sentence in root.\n## Head 1\nThis is a very long sentence that fits chunksize. Short sentence.\nJoined short sentence for merging.\n### Head 2\nThis is another long sentence.\n### Head3\nThis is a long sibling sentence.\n# Root 2\n### Head3\nThis is the 5th long sentence."
-
-        def tokenizer(x): return nltk.word_tokenize(x) if isinstance(
-            x, str) else [nltk.word_tokenize(t) for t in x]
-        split_fn = nltk.sent_tokenize
-        chunk_size = 16
-
-        # num_tokens = length of tokenized header + length of tokenized content
+    def test_chunk_headers_by_hierarchy_with_root(self, chunking_shared):
+        markdown_text = """
+# Root Header
+This is a sentence in root.
+## Sub Header
+This is a very long sentence that fits chunksize.
+Short sentence.
+Joined short sentence for merging.
+### Sub Sub Header
+This is another long sentence.
+This is a long sibling sentence.
+This is the 5th long sentence.
+"""
+        tokenizer, split_fn, chunk_size = chunking_shared
         expected = [
             {
                 "content": "This is a sentence in root.",
-                "num_tokens": 9,
-                "header": "# Root1",
+                "num_tokens": 10,
+                "header": "# Root Header",
                 "parent_header": None,
-                "level": 1
+                "level": 1,
+                "doc_index": 0,
+                "chunk_index": 0
             },
             {
                 "content": "This is a very long sentence that fits chunksize.",
-                "num_tokens": 16,
-                "header": "## Head 1 - 1",
-                "parent_header": "# Root1",
-                "level": 2
+                "num_tokens": 14,
+                "header": "## Sub Header",
+                "parent_header": "# Root Header",
+                "level": 2,
+                "doc_index": 1,
+                "chunk_index": 0
             },
             {
                 "content": "Short sentence.\nJoined short sentence for merging.",
-                "num_tokens": 15,
-                "header": "## Head 1 - 2",
-                "parent_header": "# Root1",
-                "level": 2
+                "num_tokens": 13,
+                "header": "## Sub Header",
+                "parent_header": "# Root Header",
+                "level": 2,
+                "doc_index": 1,
+                "chunk_index": 1
             },
             {
                 "content": "This is another long sentence.",
-                "num_tokens": 11,
-                "header": "### Head 2",
-                "parent_header": "## Head 1",
-                "level": 3
+                "num_tokens": 12,
+                "header": "### Sub Sub Header",
+                "parent_header": "## Sub Header",
+                "level": 3,
+                "doc_index": 2,
+                "chunk_index": 0
             },
             {
                 "content": "This is a long sibling sentence.",
-                "num_tokens": 11,
-                "header": "### Head3",
-                "parent_header": "## Head 1",
-                "level": 3
+                "num_tokens": 13,
+                "header": "### Sub Sub Header",
+                "parent_header": "## Sub Header",
+                "level": 3,
+                "doc_index": 3,
+                "chunk_index": 0
             },
             {
                 "content": "This is the 5th long sentence.",
-                "num_tokens": 11,
-                "header": "### Head3",
-                "parent_header": "# Root 2",
-                "level": 3
-            },
+                "num_tokens": 13,
+                "header": "### Sub Sub Header",
+                "parent_header": "## Sub Header",
+                "level": 3,
+                "doc_index": 4,
+                "chunk_index": 0
+            }
         ]
-
-        # When
         results = chunk_headers_by_hierarchy(
             markdown_text, chunk_size, tokenizer, split_fn)
-
-        # Then
         assert results == expected
 
-    def test_chunk_headers_by_hierarchy_no_root(self):
-        # Given
-        markdown_text = "## Head 1\nThis is a very long sentence that fits chunksize. Short sentence.\nJoined short sentence for merging.\n### Head 2\nThis is another long sentence.\n### Head3\nThis is a long sibling sentence.\n# Root 2\n### Head3\nThis is the 5th long sentence."
-
-        def tokenizer(x): return nltk.word_tokenize(x) if isinstance(
-            x, str) else [nltk.word_tokenize(t) for t in x]
-        split_fn = nltk.sent_tokenize
-        chunk_size = 16
-
-        # num_tokens = length of tokenized header + length of tokenized content
+    def test_chunk_headers_by_hierarchy_no_root(self, chunking_shared):
+        markdown_text = """
+## Sub Header
+This is a very long sentence that fits chunksize.
+Short sentence.
+Joined short sentence for merging.
+### Sub Sub Header
+This is another long sentence.
+This is a long sibling sentence.
+This is the 5th long sentence.
+"""
+        tokenizer, split_fn, chunk_size = chunking_shared
         expected = [
             {
                 "content": "This is a very long sentence that fits chunksize.",
-                "num_tokens": 16,
-                "header": "## Head 1 - 1",
+                "num_tokens": 14,
+                "header": "## Sub Header",
                 "parent_header": None,
-                "level": 2
+                "level": 2,
+                "doc_index": 0,
+                "chunk_index": 0
             },
             {
                 "content": "Short sentence.\nJoined short sentence for merging.",
-                "num_tokens": 15,
-                "header": "## Head 1 - 2",
+                "num_tokens": 13,
+                "header": "## Sub Header",
                 "parent_header": None,
-                "level": 2
+                "level": 2,
+                "doc_index": 0,
+                "chunk_index": 1
             },
             {
                 "content": "This is another long sentence.",
-                "num_tokens": 11,
-                "header": "### Head 2",
-                "parent_header": "## Head 1",
-                "level": 3
+                "num_tokens": 12,
+                "header": "### Sub Sub Header",
+                "parent_header": "## Sub Header",
+                "level": 3,
+                "doc_index": 1,
+                "chunk_index": 0
             },
             {
                 "content": "This is a long sibling sentence.",
-                "num_tokens": 11,
-                "header": "### Head3",
-                "parent_header": "## Head 1",
-                "level": 3
+                "num_tokens": 13,
+                "header": "### Sub Sub Header",
+                "parent_header": "## Sub Header",
+                "level": 3,
+                "doc_index": 2,
+                "chunk_index": 0
             },
             {
                 "content": "This is the 5th long sentence.",
-                "num_tokens": 11,
-                "header": "### Head3",
-                "parent_header": "# Root 2",
-                "level": 3
-            },
+                "num_tokens": 13,
+                "header": "### Sub Sub Header",
+                "parent_header": "## Sub Header",
+                "level": 3,
+                "doc_index": 3,
+                "chunk_index": 0
+            }
         ]
-
-        # When
         results = chunk_headers_by_hierarchy(
             markdown_text, chunk_size, tokenizer, split_fn)
-
-        # Then
         assert results == expected

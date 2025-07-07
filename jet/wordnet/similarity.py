@@ -32,7 +32,7 @@ from difflib import SequenceMatcher, ndiff, get_close_matches, unified_diff
 from tqdm import tqdm
 # from instruction_generator.wordnet.SpellingCorrectorNorvig import SpellingCorrectorNorvig
 from jet.wordnet.wordnet_types import FilterResult, SimilarityResult
-from jet.models.embeddings.base import get_embedding_function
+from jet.models.embeddings.base import get_embedding_function, generate_embeddings
 
 DEFAULT_EMBED_MODEL: EmbedModelType = "all-MiniLM-L12-v2"
 
@@ -757,7 +757,8 @@ def plot_text_embeddings(texts: List[str], embeddings: List[List[float]], title:
 def group_similar_texts(
     texts: List[str],
     threshold: float = 0.7,
-    model_name: EmbedModelType = DEFAULT_EMBED_MODEL
+    model_name: str = "all-MiniLM-L6-v2",
+    embeddings: Optional[List[np.ndarray]] = None,
 ) -> List[List[str]]:
     """
     Groups similar texts based on cosine similarity score, with deduplicated input texts.
@@ -765,7 +766,8 @@ def group_similar_texts(
     Args:
         texts (List[str]): List of input texts to be grouped.
         threshold (float): Similarity threshold for clustering. Default is 0.7.
-        model_name (str): Sentence transformer model to use for embedding.
+        model_name (str): Sentence transformer model to use for embedding if embeddings not provided.
+        embeddings (Optional[List[np.ndarray]]): Precomputed embeddings as a list of NumPy arrays.
 
     Returns:
         List[List[str]]: List of grouped similar texts, with no duplicate texts.
@@ -783,14 +785,28 @@ def group_similar_texts(
             unique_texts.append(text.lower())
             original_texts.append(text)
 
-    # Load the embedding model
-    max_token_length = get_max_token_count(model_name, unique_texts)
-    model = load_embed_model(model_name, max_token_length)
-    embeddings = model.encode(unique_texts, convert_to_tensor=True)
+    # Load the embedding model if embeddings are not provided
+    if not embeddings:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer(model_name)
+        embeddings = model.encode(unique_texts, convert_to_numpy=True)
+        # embeddings = generate_embeddings(embeddings, return_format="numpy")
 
-    # Compute cosine similarity matrix
-    similarity_matrix = util.pytorch_cos_sim(
-        embeddings, embeddings).cpu().numpy()
+    # Ensure embeddings is a 2D NumPy array (n_texts, embedding_dim)
+    embeddings_array = np.array(embeddings)
+    if embeddings_array.ndim != 2:
+        raise ValueError(
+            "Embeddings must be a list of 1D NumPy arrays with consistent dimensions")
+
+    # Compute cosine similarity matrix using NumPy
+    # Normalize embeddings to unit vectors
+    norm = np.linalg.norm(embeddings_array, axis=1, keepdims=True)
+    normalized_embeddings = embeddings_array / \
+        np.maximum(norm, 1e-10)  # Avoid division by zero
+    similarity_matrix = np.dot(normalized_embeddings, normalized_embeddings.T)
+
+    # Ensure similarity matrix values are in [0, 1] (handle numerical precision issues)
+    similarity_matrix = np.clip(similarity_matrix, 0, 1)
 
     # Perform clustering using AgglomerativeClustering
     clustering = AgglomerativeClustering(
