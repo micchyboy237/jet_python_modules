@@ -759,6 +759,7 @@ def group_similar_texts(
     threshold: float = 0.7,
     model_name: str = "all-MiniLM-L6-v2",
     embeddings: Optional[List[np.ndarray]] = None,
+    ids: Optional[List[str]] = None,
 ) -> List[List[str]]:
     """
     Groups similar texts based on cosine similarity score, with deduplicated input texts.
@@ -768,29 +769,36 @@ def group_similar_texts(
         threshold (float): Similarity threshold for clustering. Default is 0.7.
         model_name (str): Sentence transformer model to use for embedding if embeddings not provided.
         embeddings (Optional[List[np.ndarray]]): Precomputed embeddings as a list of NumPy arrays.
+        ids (Optional[List[str]]): Optional list of IDs corresponding to texts. If provided, these will replace the text in the output.
 
     Returns:
-        List[List[str]]: List of grouped similar texts, with no duplicate texts.
+        List[List[str]]: List of grouped similar texts or their corresponding IDs, with no duplicate texts.
     """
     if not texts:
         return []
+
+    # Validate that ids, if provided, matches the length of texts
+    if ids is not None and len(ids) != len(texts):
+        raise ValueError("Length of ids must match length of texts")
 
     # Deduplicate texts while preserving order
     seen_texts = {}
     unique_texts = []
     original_texts = []
-    for text in texts:
+    original_ids = [] if ids is not None else None
+    for i, text in enumerate(texts):
         if text not in seen_texts:
             seen_texts[text] = True
             unique_texts.append(text.lower())
             original_texts.append(text)
+            if ids is not None:
+                original_ids.append(ids[i])
 
     # Load the embedding model if embeddings are not provided
-    if not embeddings:
+    if embeddings is None:
         from sentence_transformers import SentenceTransformer
         model = SentenceTransformer(model_name)
         embeddings = model.encode(unique_texts, convert_to_numpy=True)
-        # embeddings = generate_embeddings(embeddings, return_format="numpy")
 
     # Ensure embeddings is a 2D NumPy array (n_texts, embedding_dim)
     embeddings_array = np.array(embeddings)
@@ -816,10 +824,11 @@ def group_similar_texts(
         distance_threshold=1 - threshold
     ).fit(1 - similarity_matrix)
 
-    # Organize texts into clusters using original texts
+    # Organize texts or IDs into clusters
     clusters = {}
     for idx, label in enumerate(clustering.labels_):
-        clusters.setdefault(label, []).append(original_texts[idx])
+        output_text = original_ids[idx] if ids is not None else original_texts[idx]
+        clusters.setdefault(label, []).append(output_text)
 
     return list(clusters.values())
 
