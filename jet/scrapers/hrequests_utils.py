@@ -91,40 +91,49 @@ async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent, ti
 
 
 async def scrape_urls(urls: List[str], num_parallel: int = 10, limit: Optional[int] = None, show_progress: bool = False, timeout: Optional[float] = 5.0) -> AsyncIterator[Tuple[str, str, Optional[str]]]:
+    """
+    Asynchronously scrape a list of URLs with parallel processing, yielding results as they complete.
+
+    Args:
+        urls: List of URLs to scrape.
+        num_parallel: Maximum number of concurrent requests (default: 10).
+        limit: Optional limit on the number of URLs to process.
+        show_progress: Whether to show a progress bar (default: False).
+        timeout: Optional timeout in seconds for each HTTP request (default: 5.0).
+
+    Yields:
+        Tuple of (url, status, html_content), where status is "started" or "completed", and html_content is None for "started".
+    """
     ua = UserAgent()
     semaphore = asyncio.Semaphore(num_parallel)
+    urls_to_process = urls[:limit] if limit is not None else urls
 
-    async def sem_fetch(url: str, session: aiohttp.ClientSession, pbar: Optional[tqdm_asyncio] = None) -> List[Tuple[str, str, Optional[str]]]:
-        results = []
+    async def sem_fetch(url: str, session: aiohttp.ClientSession, pbar: Optional[tqdm_asyncio] = None) -> Tuple[str, Optional[str]]:
         async with semaphore:
             logger.debug(f"Starting to scrape URL: {url}")
-            results.append((url, "started", None))
             html = await scrape_url(session, url, ua, timeout)
             logger.debug(
                 f"Completed scraping URL: {url}, success: {html is not None}")
-            results.append((url, "completed", html))
             if pbar:
+                pbar.update(1)
                 active_tasks = min(num_parallel, len(
                     urls_to_process)) - semaphore._value
                 pbar.set_description(f"Scraping URLs ({active_tasks} active)")
-        return results
-    urls_to_process = urls[:limit] if limit is not None else urls
+            return url, html
+
     async with aiohttp.ClientSession() as session:
         tasks = [sem_fetch(url, session) for url in urls_to_process]
         if show_progress:
             with tqdm_asyncio(total=len(urls_to_process), desc=f"Scraping URLs ({min(num_parallel, len(urls_to_process))} active)", file=sys.stdout, mininterval=0.1) as pbar:
                 for task in asyncio.as_completed(tasks):
-                    task_results = await task
-                    for url, status, html in task_results:
-                        yield url, status, html
-                    # Update progress bar after task is fully processed
-                    pbar.update(1)
-                    pbar.refresh()  # Force refresh to ensure real-time update
+                    url, html = await task
+                    yield url, "started", None
+                    yield url, "completed", html
         else:
             for task in asyncio.as_completed(tasks):
-                task_results = await task
-                for url, status, html in task_results:
-                    yield url, status, html
+                url, html = await task
+                yield url, "started", None
+                yield url, "completed", html
 
 
 async def main():
