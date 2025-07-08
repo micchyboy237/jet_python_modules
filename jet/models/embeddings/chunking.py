@@ -9,6 +9,7 @@ class ChunkResult(TypedDict):
     header: str
     parent_header: Optional[str]
     level: int
+    parent_level: Optional[int]
     doc_index: int
     chunk_index: int
 
@@ -31,12 +32,12 @@ def chunk_headers_by_hierarchy(
         "header": "",
         "parent_header": None,
         "level": 0,
+        "parent_level": None,
         "doc_index": 0,
         "chunk_index": 0
     }
     header_stack = []
-    doc_index = -1  # Initialize to -1 so first header gets doc_index 0
-    # Track first sentence under level 3 header
+    doc_index = -1
     is_first_sentence_under_level3 = False
 
     def add_chunk():
@@ -49,6 +50,7 @@ def chunk_headers_by_hierarchy(
                 "header": current["header"],
                 "parent_header": current["parent_header"],
                 "level": current["level"],
+                "parent_level": current["parent_level"],
                 "doc_index": current["doc_index"],
                 "chunk_index": current["chunk_index"]
             })
@@ -74,10 +76,14 @@ def chunk_headers_by_hierarchy(
                 (h["text"] for h in header_stack[::-1]
                  if h["level"] < current["level"]), None
             ) if current["level"] > 1 else None
+            current["parent_level"] = next(
+                (h["level"] for h in header_stack[::-1]
+                 if h["level"] < current["level"]), None
+            ) if current["level"] > 1 else None
             current["doc_index"] = doc_index
             current["chunk_index"] = 0
             is_first_sentence_under_level3 = (
-                current["level"] >= 3)  # Set flag for level 3 header
+                current["level"] >= 3)
             continue
         sentences = split_fn(line) if split_fn else [line]
         for sentence in sentences:
@@ -94,13 +100,13 @@ def chunk_headers_by_hierarchy(
             if current["level"] >= 3:
                 add_chunk()
                 if not is_first_sentence_under_level3:
-                    doc_index += 1  # Increment for subsequent sentences only
+                    doc_index += 1
                 current["doc_index"] = doc_index
                 current["chunk_index"] = 0
                 current["content"] = [sentence]
                 current["num_tokens"] = num_tokens
                 add_chunk()
-                is_first_sentence_under_level3 = False  # Reset after first sentence
+                is_first_sentence_under_level3 = False
             elif current["num_tokens"] + num_tokens + header_num_tokens <= chunk_size:
                 current["content"].append(sentence)
                 current["num_tokens"] += num_tokens
@@ -108,6 +114,5 @@ def chunk_headers_by_hierarchy(
                 add_chunk()
                 current["content"] = [sentence]
                 current["num_tokens"] = num_tokens
-
     add_chunk()
     return results

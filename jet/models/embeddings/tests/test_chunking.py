@@ -36,6 +36,7 @@ This is the 5th long sentence.
                 "header": "# Root Header",
                 "parent_header": None,
                 "level": 1,
+                "parent_level": None,
                 "doc_index": 0,
                 "chunk_index": 0
             },
@@ -45,6 +46,7 @@ This is the 5th long sentence.
                 "header": "## Sub Header",
                 "parent_header": "# Root Header",
                 "level": 2,
+                "parent_level": 1,
                 "doc_index": 1,
                 "chunk_index": 0
             },
@@ -54,6 +56,7 @@ This is the 5th long sentence.
                 "header": "## Sub Header",
                 "parent_header": "# Root Header",
                 "level": 2,
+                "parent_level": 1,
                 "doc_index": 1,
                 "chunk_index": 1
             },
@@ -63,6 +66,7 @@ This is the 5th long sentence.
                 "header": "### Sub Sub Header",
                 "parent_header": "## Sub Header",
                 "level": 3,
+                "parent_level": 2,
                 "doc_index": 2,
                 "chunk_index": 0
             },
@@ -72,6 +76,7 @@ This is the 5th long sentence.
                 "header": "### Sub Sub Header",
                 "parent_header": "## Sub Header",
                 "level": 3,
+                "parent_level": 2,
                 "doc_index": 3,
                 "chunk_index": 0
             },
@@ -81,6 +86,7 @@ This is the 5th long sentence.
                 "header": "### Sub Sub Header",
                 "parent_header": "## Sub Header",
                 "level": 3,
+                "parent_level": 2,
                 "doc_index": 4,
                 "chunk_index": 0
             }
@@ -108,6 +114,7 @@ This is the 5th long sentence.
                 "header": "## Sub Header",
                 "parent_header": None,
                 "level": 2,
+                "parent_level": None,
                 "doc_index": 0,
                 "chunk_index": 0
             },
@@ -117,6 +124,7 @@ This is the 5th long sentence.
                 "header": "## Sub Header",
                 "parent_header": None,
                 "level": 2,
+                "parent_level": None,
                 "doc_index": 0,
                 "chunk_index": 1
             },
@@ -126,6 +134,7 @@ This is the 5th long sentence.
                 "header": "### Sub Sub Header",
                 "parent_header": "## Sub Header",
                 "level": 3,
+                "parent_level": 2,
                 "doc_index": 1,
                 "chunk_index": 0
             },
@@ -135,6 +144,7 @@ This is the 5th long sentence.
                 "header": "### Sub Sub Header",
                 "parent_header": "## Sub Header",
                 "level": 3,
+                "parent_level": 2,
                 "doc_index": 2,
                 "chunk_index": 0
             },
@@ -144,6 +154,7 @@ This is the 5th long sentence.
                 "header": "### Sub Sub Header",
                 "parent_header": "## Sub Header",
                 "level": 3,
+                "parent_level": 2,
                 "doc_index": 3,
                 "chunk_index": 0
             }
