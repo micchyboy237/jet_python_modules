@@ -76,15 +76,12 @@ class TokenizerWrapper:
 
     def __call__(self, texts: Union[str, List[str]], **kwargs) -> Union[EncodingWrapper, List[EncodingWrapper]]:
         """Tokenize input texts, supporting single string or list of strings."""
-        logger.debug(
-            f"TokenizerWrapper called with texts: {texts}, kwargs: {kwargs}")
         if isinstance(texts, str):
             return self.encode(texts, **kwargs)
         return self.encode_batch(texts, **kwargs)
 
     def encode(self, text: str, **kwargs) -> EncodingWrapper:
         """Encode a single text string into an EncodingWrapper using tokenizer's encode."""
-        logger.debug(f"Encoding text: {text}, kwargs: {kwargs}")
         if not isinstance(text, str):
             logger.error(
                 f"Invalid input type for encode: {type(text)}, expected str")
@@ -103,12 +100,10 @@ class TokenizerWrapper:
         if self.remove_pad_tokens:
             wrapped_encoding._ids = [
                 tid for tid in wrapped_encoding._ids if tid != self.pad_token_id]
-        logger.debug(f"Encoded token IDs: {wrapped_encoding._ids}")
         return wrapped_encoding
 
     def encode_batch(self, texts: List[str], **kwargs) -> List[EncodingWrapper]:
         """Encode a batch of texts into a list of EncodingWrapper objects."""
-        logger.debug(f"Encoding batch texts: {texts}, kwargs: {kwargs}")
         for text in texts:
             if not isinstance(text, str):
                 logger.error(
@@ -133,13 +128,10 @@ class TokenizerWrapper:
             for wrapped in wrapped_encodings:
                 wrapped._ids = [
                     tid for tid in wrapped._ids if tid != self.pad_token_id]
-        logger.debug(
-            f"Encoded batch token IDs: {[w._ids for w in wrapped_encodings]}")
         return wrapped_encodings
 
     def decode(self, token_ids: Union[List[int], List[List[int]]], **kwargs) -> Union[str, List[str]]:
         """Decode token IDs back to text."""
-        logger.debug(f"Decoding token IDs: {token_ids}, kwargs: {kwargs}")
         decode_kwargs = {'skip_special_tokens': self.add_special_tokens}
         decode_kwargs.update(kwargs)
 
@@ -154,8 +146,6 @@ class TokenizerWrapper:
         self, token_ids: Union[List[int], List[List[int]]], **kwargs
     ) -> Union[List[str], List[List[str]]]:
         """Convert token IDs to their string representations."""
-        logger.debug(
-            f"Converting token IDs to tokens: {token_ids}, kwargs: {kwargs}")
         convert_kwargs = {'skip_special_tokens': self.add_special_tokens}
         convert_kwargs.update(kwargs)
 
