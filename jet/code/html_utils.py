@@ -6,6 +6,7 @@ from lxml import etree, html
 
 from jet.logger import logger
 from jet.utils.text import fix_and_unidecode
+import justext.paragraph
 
 
 def is_html(text: str) -> bool:
@@ -271,3 +272,19 @@ def preprocess_html(html: str) -> str:
     html = fix_and_unidecode(html)
 
     return html
+
+
+def clean_html(html: str, max_link_density: float = 0.2, max_link_ratio: float = 0.3, language: str = "English") -> List[justext.paragraph.Paragraph]:
+    paragraphs = justext.justext(
+        html,
+        justext.get_stoplist(language),
+        max_link_density=max_link_density,
+        length_low=50,
+        length_high=150,
+        no_headings=False
+    )
+    filtered_paragraphs = [
+        p for p in paragraphs
+        if (p.is_heading or (not p.is_boilerplate and p.links_density() < max_link_ratio))
+    ]
+    return filtered_paragraphs

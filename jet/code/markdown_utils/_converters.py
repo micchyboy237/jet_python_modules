@@ -8,7 +8,7 @@ import html2text
 from jet.code.html_utils import format_html, preprocess_html, valid_html
 from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
 from jet.code.markdown_types.converter_types import MarkdownExtensions
-from jet.code.markdown_utils._preprocessors import clean_markdown_links
+from jet.code.markdown_utils._preprocessors import clean_markdown_links, preprocess_markdown
 from jet.decorators.timer import timeout
 from jet.transformers.object import convert_dict_keys_to_snake_case, make_serializable
 from jet.utils.text import fix_and_unidecode
@@ -36,7 +36,7 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
 
     md_content = converter.handle(html_content)
 
-    md_content = fix_and_unidecode(md_content)
+    md_content = preprocess_markdown(md_content)
 
     return md_content.strip()
 
@@ -94,7 +94,7 @@ def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtension
     # Debug log: Log the extensions being used
     logger.debug(f"Rendering markdown with extensions: {valid_extensions}")
 
-    md_content = fix_and_unidecode(md_content)
+    md_content = preprocess_markdown(md_content)
 
     if ignore_links:
         md_content = clean_markdown_links(md_content)

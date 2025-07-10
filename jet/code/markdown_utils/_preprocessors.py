@@ -17,16 +17,20 @@ from jet.logger import logger
 
 def clean_markdown_text(text: str) -> str:
     """
-    Clean markdown text by removing unnecessary escape characters.
+    Clean markdown text by removing unnecessary escape characters and trailing whitespace.
 
     Args:
         text: The markdown text to clean, or None.
 
     Returns:
-        The cleaned text with unnecessary escapes removed, or None if input is None.
+        The cleaned text with unnecessary escapes removed and trailing whitespace trimmed, or None if input is None.
     """
+    if text is None:
+        return None
     # Remove escaped periods (e.g., "\." -> ".")
     text = re.sub(r'\\([.])', r'\1', text)
+    # Trim trailing whitespace from each line
+    text = '\n'.join(line.rstrip() for line in text.splitlines())
     text = fix_and_unidecode(text)
     return text
 
