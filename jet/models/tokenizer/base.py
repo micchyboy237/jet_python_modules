@@ -295,6 +295,89 @@ def get_tokenizer_fn(
     )
 
 
+def get_detokenizer_fn(
+    model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase, TokenizerWrapper],
+    remove_pad_tokens: bool = False,
+    add_special_tokens: bool = True,
+    disable_cache: bool = False,
+    documents: Optional[Union[str, List[str]]] = None,
+    **kwargs,
+):
+    """Return a function that detokenizes token IDs or tokens back to text."""
+    # Retrieve the TokenizerWrapper instance (same as get_tokenizer_fn)
+    if isinstance(model_name_or_tokenizer, TokenizerWrapper):
+        tokenizer_wrapper = model_name_or_tokenizer
+    elif isinstance(model_name_or_tokenizer, str):
+        tokenizer_wrapper = get_tokenizer(
+            model_name_or_tokenizer,
+            disable_cache=disable_cache,
+            documents=documents,
+            **kwargs
+        )
+    else:
+        tokenizer = model_name_or_tokenizer
+        if documents is not None and tokenizer.model_max_length == int(1e30):
+            tokenizer_wrapper = TokenizerWrapper(
+                tokenizer,
+                remove_pad_tokens=False,
+                add_special_tokens=True,
+                pad_token_id=tokenizer.pad_token_id,
+                max_length=None
+            )
+            token_counts = [
+                len(tokenizer_wrapper.encode(text, truncation=False)._ids)
+                for text in ([documents] if isinstance(documents, str) else documents)
+            ]
+            max_length = max(
+                token_counts) if token_counts else tokenizer.model_max_length
+            tokenizer.model_max_length = max_length
+        else:
+            tokenizer_wrapper = TokenizerWrapper(
+                tokenizer,
+                remove_pad_tokens=remove_pad_tokens,
+                add_special_tokens=add_special_tokens,
+                pad_token_id=kwargs.get(
+                    'pad_token_id', tokenizer.pad_token_id),
+                max_length=kwargs.get(
+                    'max_length', tokenizer.model_max_length),
+                truncation_side=kwargs.get(
+                    'truncation_side', tokenizer.truncation_side)
+            )
+
+    def _detokenizer(
+        input_data: Union[List[int], List[List[int]],
+                          List[str], List[List[str]]]
+    ) -> Union[str, List[str]]:
+        """Detokenize token IDs or tokens back to text."""
+        tokenizer = tokenizer_wrapper.tokenizer  # Access underlying tokenizer
+
+        # Handle token strings (convert to IDs first)
+        if isinstance(input_data, list) and all(isinstance(x, str) for x in input_data):
+            token_ids = tokenizer.convert_tokens_to_ids(input_data)
+            return tokenizer.decode(token_ids, skip_special_tokens=not add_special_tokens)
+        elif isinstance(input_data, list) and all(isinstance(x, list) and all(isinstance(t, str) for t in x) for x in input_data):
+            return [
+                tokenizer.decode(tokenizer.convert_tokens_to_ids(
+                    tokens), skip_special_tokens=not add_special_tokens)
+                for tokens in input_data
+            ]
+
+        # Handle token IDs directly
+        if isinstance(input_data, list) and all(isinstance(x, int) for x in input_data):
+            return tokenizer.decode(input_data, skip_special_tokens=not add_special_tokens)
+        elif isinstance(input_data, list) and all(isinstance(x, list) and all(isinstance(t, int) for t in x) for x in input_data):
+            return [
+                tokenizer.decode(
+                    ids, skip_special_tokens=not add_special_tokens)
+                for ids in input_data
+            ]
+
+        raise ValueError(
+            "Input must be List[int], List[List[int]], List[str], or List[List[str]]")
+
+    return _detokenizer
+
+
 def get_string_tokenizer_fn(
     model_name: ModelType,
     disable_cache: bool = False,
@@ -318,6 +401,64 @@ def get_string_tokenizer_fn(
                 text, add_special_tokens=False)["input_ids"]
             return [tokenizer.convert_ids_to_tokens(ids) for ids in token_ids_list]
     return _tokenizer
+
+
+def get_string_detokenizer_fn(
+    model_name: ModelType,
+    disable_cache: bool = False,
+    documents: Optional[Union[str, List[str]]] = None,
+    **kwargs,
+):
+    # Retrieve the same tokenizer used for tokenization
+    tokenizer = get_tokenizer(
+        model_name,
+        disable_cache=disable_cache,
+        documents=documents,
+        **kwargs
+    )
+
+    def _detokenizer(tokens: Union[List[str], List[List[str]]]) -> Union[str, List[str]]:
+        if isinstance(tokens[0], str):  # Single list of tokens
+            # Convert tokens back to token IDs
+            token_ids = tokenizer.convert_tokens_to_ids(tokens)
+            # Decode token IDs to string
+            return tokenizer.decode(token_ids, skip_special_tokens=True)
+        else:  # List of lists of tokens
+            # Process each list of tokens
+            results = []
+            for token_list in tokens:
+                token_ids = tokenizer.convert_tokens_to_ids(token_list)
+                decoded_text = tokenizer.decode(
+                    token_ids, skip_special_tokens=True)
+                results.append(decoded_text)
+            return results
+
+    return _detokenizer
+
+
+# Example usage
+if __name__ == "__main__":
+    # Example tokenizer setup
+    model_name = "bert-base-uncased"  # Replace with your model
+    tokenizer_fn = get_string_tokenizer_fn(model_name)
+    detokenizer_fn = get_string_detokenizer_fn(model_name)
+
+    # Example text
+    text = "Hello, world!"
+    # Tokenize
+    tokens = tokenizer_fn(text)  # e.g., ['hello', ',', 'world', '!']
+    print("Tokens:", tokens)
+    # Detokenize
+    detokenized_text = detokenizer_fn(tokens)
+    print("Detokenized:", detokenized_text)
+
+    # Batch example
+    texts = ["Hello, world!", "How are you?"]
+    # e.g., [['hello', ',', 'world', '!'], ['how', 'are', 'you', '?']]
+    batch_tokens = tokenizer_fn(texts)
+    print("Batch Tokens:", batch_tokens)
+    detokenized_texts = detokenizer_fn(batch_tokens)
+    print("Detokenized Batch:", detokenized_texts)
 
 
 def tokenize(
