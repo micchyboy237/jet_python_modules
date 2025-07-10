@@ -17,10 +17,15 @@ class ChunkResult(TypedDict):
 def chunk_headers_by_hierarchy(
     markdown_text: str,
     chunk_size: int,
-    tokenizer: Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]] = lambda x: nltk.word_tokenize(
-        x) if isinstance(x, str) else [nltk.word_tokenize(t) for t in x],
-    split_fn: Optional[Callable[[str], List[str]]] = nltk.sent_tokenize
+    tokenizer: Optional[Callable[[Union[str, List[str]]],
+                                 Union[List[str], List[List[str]]]]] = None,
+    split_fn: Optional[Callable[[str], List[str]]] = None
 ) -> List[ChunkResult]:
+    # Set default tokenizer and split_fn if None
+    tokenizer = tokenizer or (lambda x: nltk.word_tokenize(
+        x) if isinstance(x, str) else [nltk.word_tokenize(t) for t in x])
+    split_fn = split_fn or nltk.sent_tokenize
+
     if not markdown_text.strip():
         return []
     lines = markdown_text.strip().split('\n')
@@ -133,22 +138,21 @@ class MergedChunkResult(TypedDict):
 def merge_same_level_chunks(
     chunks: List[ChunkResult],
     chunk_size: int,
-    tokenizer: Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]] = lambda x: nltk.word_tokenize(
-        x) if isinstance(x, str) else [nltk.word_tokenize(t) for t in x]
+    tokenizer: Optional[Callable[[Union[str, List[str]]],
+                                 Union[List[str], List[List[str]]]]] = None
 ) -> List[MergedChunkResult]:
+    # Set default tokenizer if None
+    tokenizer = tokenizer or (lambda x: nltk.word_tokenize(
+        x) if isinstance(x, str) else [nltk.word_tokenize(t) for t in x])
+
     if not chunks:
         return []
-
     results: List[MergedChunkResult] = []
     current: Optional[MergedChunkResult] = None
-
     for chunk in chunks:
-        # Include header in content for token counting
         content_with_header = f"{chunk['header']}\n{chunk['content']}" if chunk["header"] else chunk["content"]
         tokens = tokenizer(content_with_header)
-        # Adjust token count to exclude newlines and punctuation for consistency
         num_tokens = sum(1 for t in tokens if t.isalnum())
-
         if not current or current["level"] != chunk["level"]:
             if current:
                 results.append(current)
@@ -161,28 +165,24 @@ def merge_same_level_chunks(
                 "parent_level": chunk["parent_level"],
                 "num_tokens": num_tokens,
                 "doc_index": len(results),
-                "chunk_count": 1  # Count chunks merged (starts at 1)
+                "chunk_count": 1
             }
         else:
-            # Merge with same level, checking chunk_size
             combined_content = f"{current['content']}\n\n{chunk['header']}\n{chunk['content']}" if chunk[
                 "header"] else f"{current['content']}\n\n{chunk['content']}"
             combined_tokens = tokenizer(combined_content)
             combined_num_tokens = sum(
                 1 for t in combined_tokens if t.isalnum())
-
             if combined_num_tokens <= chunk_size:
                 current["content"] = combined_content
                 current["num_tokens"] = combined_num_tokens
-                current["chunk_count"] += 1  # Increment chunk count
+                current["chunk_count"] += 1
                 if chunk["header"]:
                     current["headers"].append(chunk["header"])
                     current["header"] = "\n".join(current["headers"])
-                # Update parent_header and parent_level to the latest chunk's
                 current["parent_header"] = chunk["parent_header"]
                 current["parent_level"] = chunk["parent_level"]
             else:
-                # Start new chunk if size exceeded
                 results.append(current)
                 current = {
                     "content": content_with_header,
@@ -193,14 +193,10 @@ def merge_same_level_chunks(
                     "parent_level": chunk["parent_level"],
                     "num_tokens": num_tokens,
                     "doc_index": len(results),
-                    "chunk_count": 1  # Reset chunk count
+                    "chunk_count": 1
                 }
-
     if current:
         results.append(current)
-
-    # Reassign doc_index to ensure sequential indices (0, 1, 2, ...)
     for i, result in enumerate(results):
         result["doc_index"] = i
-
     return results

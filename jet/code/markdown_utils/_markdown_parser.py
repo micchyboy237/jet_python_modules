@@ -319,7 +319,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         raise
 
 
-def derive_sections(tokens: List[MarkdownToken]):
+def derive_by_header_hierarchy(tokens: List[MarkdownToken]):
     # Group tokens into sections based on headers.
     # Each section is a dict: {"header": header_text, "content": [lines], "level": header_level, ...}
     sections = []

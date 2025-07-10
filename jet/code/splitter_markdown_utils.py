@@ -5,7 +5,7 @@ from jet.llm.mlx.helpers.detect_repetition import clean_repeated_ngrams
 from jet.logger import logger
 from jet.code.markdown_types import MarkdownAnalysis
 from jet.code.markdown_utils import analyze_markdown, convert_html_to_markdown, parse_markdown
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Set, Tuple
 import re
 from typing import Callable, Optional, List, Dict, Tuple, TypedDict, Union
 from urllib.parse import urljoin, urlparse

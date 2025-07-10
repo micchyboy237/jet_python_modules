@@ -295,15 +295,44 @@ def get_tokenizer_fn(
     )
 
 
+def get_string_tokenizer_fn(
+    model_name: ModelType,
+    disable_cache: bool = False,
+    documents: Optional[Union[str, List[str]]] = None,
+    **kwargs,
+):
+    tokenizer = get_tokenizer(
+        model_name,
+        disable_cache=disable_cache,
+        documents=documents,
+        **kwargs
+    )
+
+    def _tokenizer(text: Union[str, List[str]]) -> Union[List[str], List[List[str]]]:
+        if isinstance(text, str):
+            token_ids = tokenizer.encode(
+                text, add_special_tokens=False)
+            return tokenizer.convert_ids_to_tokens(token_ids)
+        else:
+            token_ids_list = tokenizer.batch_encode_plus(
+                text, add_special_tokens=False)["input_ids"]
+            return [tokenizer.convert_ids_to_tokens(ids) for ids in token_ids_list]
+    return _tokenizer
+
+
 def tokenize(
     texts: Union[str, List[str]],
     tokenizer: Union[ModelType, PreTrainedTokenizerBase],
+    remove_pad_tokens: bool = False,
     add_special_tokens: bool = True,
-    remove_pad_tokens: bool = False
+    disable_cache: bool = False,
 ) -> Union[List[int], List[List[int]]]:
     """Tokenize texts using a TokenizerWrapper."""
     tokenizer_wrapper = get_tokenizer_fn(
-        tokenizer, remove_pad_tokens=remove_pad_tokens, add_special_tokens=add_special_tokens
+        tokenizer,
+        remove_pad_tokens=remove_pad_tokens,
+        add_special_tokens=add_special_tokens,
+        disable_cache=disable_cache,
     )
     result = tokenizer_wrapper(texts)
     if isinstance(texts, str):
