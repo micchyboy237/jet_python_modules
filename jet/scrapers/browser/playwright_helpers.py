@@ -1,6 +1,7 @@
+import random
 from jet.cache.redis.types import RedisConfigParams
 from jet.cache.redis.utils import RedisCache
-from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
+from jet.scrapers.browser.config import EXTRA_HTTP_HEADERS, PLAYWRIGHT_CHROMIUM_EXECUTABLE, USER_AGENT_CONFIGS
 from tqdm.asyncio import tqdm
 import asyncio
 import os
@@ -43,25 +44,67 @@ def setup_browser_page(page: Optional[SyncPage] = None):
 
 
 def setup_sync_browser_session(*, headless: bool = True) -> SyncBrowser:
-    """Sets up a synchronous Playwright browser session and returns the browser instance."""
+    """Sets up a synchronous Playwright browser session with anti-detection settings."""
     playwright = sync_playwright().start()
-    browser = playwright.chromium.launch(
+    config = random.choice(USER_AGENT_CONFIGS)
+    context = playwright.chromium.launch_persistent_context(
+        user_data_dir=os.path.join(GENERATED_DIR, "browser_context"),
         headless=headless,
-        # Use custom Chromium executable path
-        executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE
+        executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+        user_agent=config["user_agent"],
+        # viewport=random.choice([
+        #     {"width": 1920, "height": 1080, "deviceScaleFactor": 1.0},
+        #     {"width": 1366, "height": 768, "deviceScaleFactor": 1.0},
+        #     {"width": 1440, "height": 900, "deviceScaleFactor": 1.0}
+        # ]),
+        locale="en-PH",
+        timezone_id="Asia/Manila",
+        java_script_enabled=True,
+        bypass_csp=True,
+        extra_http_headers={
+            **EXTRA_HTTP_HEADERS,
+            "Sec-Ch-Ua": config["sec_ch_ua"],
+            "Sec-Ch-Ua-Full-Version-List": config["sec_ch_ua_full_version_list"],
+            "Sec-Ch-Ua-Platform": config["sec_ch_ua_platform"],
+            "Sec-Ch-Ua-Platform-Version": config["sec_ch_ua_platform_version"],
+            "Sec-Ch-Ua-Arch": '"arm"',
+            "Sec-Ch-Ua-Bitness": '"64"',
+            "Sec-Ch-Ua-Mobile": "?0"
+        }
     )
-    return browser
+    return context
 
 
 async def setup_async_browser_session(*, headless: bool = True) -> AsyncBrowser:
-    """Sets up an asynchronous Playwright browser session and returns the browser instance."""
+    """Sets up an asynchronous Playwright browser session with anti-detection settings."""
     playwright = await async_playwright().start()
-    browser = await playwright.chromium.launch(
+    config = random.choice(USER_AGENT_CONFIGS)
+    context = await playwright.chromium.launch_persistent_context(
+        user_data_dir=os.path.join(GENERATED_DIR, "browser_context"),
         headless=headless,
-        # Use custom Chromium executable path
-        executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE
+        executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+        user_agent=config["user_agent"],
+        # viewport=random.choice([
+        #     {"width": 1920, "height": 1080, "deviceScaleFactor": 1.0},
+        #     {"width": 1366, "height": 768, "deviceScaleFactor": 1.0},
+        #     {"width": 1440, "height": 900, "deviceScaleFactor": 1.0}
+        # ]),
+        locale="en-PH",
+        timezone_id="Asia/Manila",
+        java_script_enabled=True,
+        bypass_csp=True,
+        extra_http_headers={
+            **EXTRA_HTTP_HEADERS,
+            "Sec-Ch-Ua": config["sec_ch_ua"],
+            "Sec-Ch-Ua-Full-Version-List": config["sec_ch_ua_full_version_list"],
+            "Sec-Ch-Ua-Platform": config["sec_ch_ua_platform"],
+            "Sec-Ch-Ua-Platform-Version": config["sec_ch_ua_platform_version"],
+            "Sec-Ch-Ua-Arch": '"arm"',
+            "Sec-Ch-Ua-Bitness": '"64"',
+            "Sec-Ch-Ua-Mobile": "?0"
+        }
     )
-    return browser
+    return context
 
 
 def setup_sync_browser_page(*, headless: bool = False) -> SyncPage:

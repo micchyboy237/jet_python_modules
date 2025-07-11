@@ -5,6 +5,14 @@ from jet.utils.print_utils import print_dict_types
 from jet.transformers.object import make_serializable
 from jet.utils.commands import copy_to_clipboard, copy_test_result
 from jet.transformers.formatters import format_json
+from jet.utils.inspect_utils import (
+    inspect_original_script_path,
+    print_inspect_original_script_path,
+    print_inspect_original_script_path_grouped,
+    get_stack_frames,
+    find_stack_frames,
+    get_current_running_function,
+)
 
 # from .import_modules import (
 #     fix_and_unidecode,
@@ -132,6 +140,18 @@ def inject_globals():
         builtins.copy_test_result = copy_test_result
     if not hasattr(builtins, "format_json"):
         builtins.format_json = format_json
+    if not hasattr(builtins, "inspect_original_script_path"):
+        builtins.inspect_original_script_path = inspect_original_script_path
+    if not hasattr(builtins, "print_inspect_original_script_path"):
+        builtins.print_inspect_original_script_path = print_inspect_original_script_path
+    if not hasattr(builtins, "print_inspect_original_script_path_grouped"):
+        builtins.print_inspect_original_script_path_grouped = print_inspect_original_script_path_grouped
+    if not hasattr(builtins, "get_stack_frames"):
+        builtins.get_stack_frames = get_stack_frames
+    if not hasattr(builtins, "find_stack_frames"):
+        builtins.find_stack_frames = find_stack_frames
+    if not hasattr(builtins, "get_current_running_function"):
+        builtins.get_current_running_function = get_current_running_function
 
 # def inject_globals():
 #     if not hasattr(builtins, "fix_and_unidecode"):

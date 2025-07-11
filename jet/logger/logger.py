@@ -10,7 +10,6 @@ from jet.logger.config import DEFAULT_LOGGER, COLORS, RESET, colorize_log
 from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
 from jet.utils.text import fix_and_unidecode
-from jet.utils.inspect_utils import log_filtered_stack_trace
 from jet.utils.class_utils import is_class_instance
 
 

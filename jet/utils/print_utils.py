@@ -2,39 +2,24 @@ from typing import Any, List, Optional
 from collections.abc import Mapping
 
 
-def _are_dicts_same_structure(dict1: Mapping, dict2: Mapping) -> bool:
-    """Check if two dictionaries have the same keys and value types, including nested structures."""
-    if dict1.keys() != dict2.keys():
-        return False
-    for key in dict1:
-        val1, val2 = dict1[key], dict2[key]
-        if type(val1).__name__ != type(val2).__name__:
-            return False
-        if isinstance(val1, Mapping):
-            if not _are_dicts_same_structure(val1, val2):
-                return False
-        elif isinstance(val1, list):
-            if not isinstance(val2, list) or len(val1) != len(val2):
-                return False
-            if val1 and val2:
-                # Check if all elements in both lists have the same types
-                if any(type(v1).__name__ != type(v2).__name__ for v1, v2 in zip(val1, val2)):
-                    return False
-                # Recursively check nested dictionaries in lists
-                if any(isinstance(v1, Mapping) and not _are_dicts4_same_structure(v1, v2)
-                       for v1, v2 in zip(val1, val2) if isinstance(v1, Mapping)):
-                    return False
-    return True
-
-
-def _get_common_dict_structure(data: List[Mapping]) -> Optional[Mapping]:
-    """Return a representative dictionary if all items in the list have the same structure."""
+def get_common_dict_structure(data: List[Any]) -> dict | None:
+    """
+    Helper function to extract a dictionary structure with all possible keys from a list of dictionaries.
+    Uses values from the first dictionary where available, otherwise from the first occurrence of the key.
+    Keys are sorted alphabetically for consistent ordering.
+    """
     if not data or not all(isinstance(item, Mapping) for item in data):
         return None
-    first_dict = data[0]
-    if all(_are_dicts_same_structure(first_dict, item) for item in data[1:]):
-        return first_dict
-    return None
+    all_keys = sorted(set.union(*(set(item.keys())
+                      for item in data)))  # Sort keys alphabetically
+    result = {}
+    for key in all_keys:
+        # Find the first dictionary that has this key
+        for item in data:
+            if key in item:
+                result[key] = item[key]
+                break
+    return result
 
 
 def print_dict_types(data: Any, prefix: str = "", indent: int = 0) -> List[str]:
@@ -42,6 +27,7 @@ def print_dict_types(data: Any, prefix: str = "", indent: int = 0) -> List[str]:
     Returns a list of strings describing the type of each value in a dictionary with full key paths,
     handling nested dictionaries and lists. Merges list items with identical dictionary structures
     into a single representation. Only uses numerical indices for tuples, not lists.
+    Sorts dictionaries by key count in descending order.
 
     Args:
         data: The input data to analyze (typically a dictionary)
@@ -53,10 +39,23 @@ def print_dict_types(data: Any, prefix: str = "", indent: int = 0) -> List[str]:
     """
     lines = []
     if isinstance(data, Mapping):
-        for key, value in data.items():
+        # Sort keys by the number of keys in nested dictionaries (if applicable)
+        sorted_keys = sorted(
+            data.keys(),
+            key=lambda k: len(data[k]) if isinstance(data[k], Mapping) else 0,
+            reverse=True
+        )
+        for key in sorted_keys:
+            value = data[key]
             new_prefix = f"{prefix}.{key}" if prefix else str(key)
             if isinstance(value, list):
-                common_dict = _get_common_dict_structure(
+                # Sort list items by key count if they are dictionaries
+                sorted_list = sorted(
+                    value,
+                    key=lambda x: len(x) if isinstance(x, Mapping) else 0,
+                    reverse=True
+                ) if value else []
+                common_dict = get_common_dict_structure(
                     value) if value else None
                 if common_dict:
                     lines.append(f"{'  ' * indent}{new_prefix}[]: list[dict]")
@@ -64,10 +63,9 @@ def print_dict_types(data: Any, prefix: str = "", indent: int = 0) -> List[str]:
                         common_dict, f"{new_prefix}[]", indent + 1))
                 else:
                     lines.append(f"{'  ' * indent}{new_prefix}: list")
-                    # Handle empty lists without recursion
                     if not value:
                         continue
-                    for item in value:
+                    for item in sorted_list:
                         new_item_prefix = new_prefix
                         if isinstance(item, (Mapping, tuple)):
                             lines.append(
@@ -97,17 +95,22 @@ def print_dict_types(data: Any, prefix: str = "", indent: int = 0) -> List[str]:
                 lines.append(
                     f"{'  ' * indent}{new_prefix}: {type(value).__name__}")
     elif isinstance(data, list):
-        common_dict = _get_common_dict_structure(data) if data else None
+        # Sort list items by key count if they are dictionaries
+        sorted_list = sorted(
+            data,
+            key=lambda x: len(x) if isinstance(x, Mapping) else 0,
+            reverse=True
+        ) if data else []
+        common_dict = get_common_dict_structure(data) if data else None
         if common_dict:
             lines.append(f"{'  ' * indent}{prefix}[]: list[dict]")
             lines.extend(print_dict_types(
                 common_dict, f"{prefix}[]", indent + 1))
         else:
             lines.append(f"{'  ' * indent}{prefix}: list")
-            # Handle empty lists without recursion
             if not data:
                 return lines
-            for item in data:
+            for item in sorted_list:
                 new_item_prefix = prefix
                 if isinstance(item, (Mapping, tuple)):
                     lines.append(
@@ -132,7 +135,8 @@ def print_dict_types(data: Any, prefix: str = "", indent: int = 0) -> List[str]:
     else:
         lines.append(f"{'  ' * indent}{prefix}: {type(data).__name__}")
 
-    for line in lines:
-        print(line)
+    if indent == 0:
+        for line in lines:
+            print(line)
 
     return lines

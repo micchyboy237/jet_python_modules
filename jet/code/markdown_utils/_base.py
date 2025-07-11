@@ -25,15 +25,15 @@ def read_md_content(input: Union[str, Path], ignore_links: bool = False) -> str:
             with open(input, 'r', encoding='utf-8') as file:
                 md_content = file.read()
 
-            if str(input).endswith('.html'):
-                md_content = convert_html_to_markdown(
-                    md_content, ignore_links=ignore_links)
+            # if str(input).endswith('.html'):
+            #     md_content = convert_html_to_markdown(
+            #         md_content, ignore_links=ignore_links)
     except OSError:
         md_content = str(input)
 
-        if valid_html(md_content):
-            md_content = convert_html_to_markdown(
-                md_content, ignore_links=ignore_links)
+        # if valid_html(md_content):
+        #     md_content = convert_html_to_markdown(
+        #         md_content, ignore_links=ignore_links)
     except Exception:
         raise
 
@@ -60,8 +60,8 @@ def read_html_content(input: Union[str, Path], ignore_links: bool = False) -> st
             with open(input, 'r', encoding='utf-8') as file:
                 html_content = file.read()
 
-            if str(input).endswith('.html'):
-                html_content = load_file(str(input))
+            # if str(input).endswith('.html'):
+            #     html_content = load_file(str(input))
         else:
             html_content = str(input)
     except Exception:
