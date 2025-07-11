@@ -122,6 +122,10 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "paraphrase-multilingual": "sentence-transformers/paraphrase-MiniLM-L12-v2",
     "multi-qa-MiniLM-L6-cos-v1": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
     "static-retrieval-mrl-en-v1": "sentence-transformers/static-retrieval-mrl-en-v1",
+    "ms-marco-MiniLM-L-6-v2": "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "ms-marco-MiniLM-L6-v2": "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "ms-marco-MiniLM-L-12-v2": "cross-encoder/ms-marco-MiniLM-L12-v2",
+    "ms-marco-MiniLM-L12-v2": "cross-encoder/ms-marco-MiniLM-L12-v2",
 }
 
 

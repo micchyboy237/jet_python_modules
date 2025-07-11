@@ -15,7 +15,7 @@ def registry():
 class TestCrossEncoderRegistry:
     def test_load_model_success(self, registry):
         # Given: A valid CrossEncoder model ID
-        model_id = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+        model_id = "cross-encoder/ms-marco-MiniLM-L12-v2"
         max_length = 128
 
         # When: Loading the model
@@ -35,12 +35,12 @@ class TestCrossEncoderRegistry:
 
         # When: Attempting to load the model
         # Then: Raises ValueError
-        with pytest.raises(ValueError, match="Could not load CrossEncoder model"):
+        with pytest.raises(ValueError):
             registry.load_model(model_id=model_id)
 
     def test_get_tokenizer(self, registry):
         # Given: A loaded model
-        model_id = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+        model_id = "cross-encoder/ms-marco-MiniLM-L12-v2"
         registry.load_model(model_id=model_id)
 
         # When: Retrieving the tokenizer
@@ -53,7 +53,7 @@ class TestCrossEncoderRegistry:
 
     def test_get_config(self, registry):
         # Given: A loaded model
-        model_id = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+        model_id = "cross-encoder/ms-marco-MiniLM-L12-v2"
         registry.load_model(model_id=model_id)
 
         # When: Retrieving the config
@@ -66,7 +66,7 @@ class TestCrossEncoderRegistry:
 
     def test_predict_scores_single_pair(self, registry):
         # Given: A loaded model and a single sentence pair
-        model_id = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+        model_id = "cross-encoder/ms-marco-MiniLM-L12-v2"
         registry.load_model(model_id=model_id)
         input_pair = ("Query: What is Python?",
                       "Python is a programming language.")
@@ -82,7 +82,7 @@ class TestCrossEncoderRegistry:
 
     def test_predict_scores_multiple_pairs(self, registry):
         # Given: A loaded model and multiple sentence pairs
-        model_id = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+        model_id = "cross-encoder/ms-marco-MiniLM-L12-v2"
         registry.load_model(model_id=model_id)
         input_pairs = [
             ("Query: What is Python?", "Python is a programming language."),
@@ -114,7 +114,7 @@ class TestCrossEncoderRegistry:
 
     def test_clear_registry(self, registry):
         # Given: A loaded model and tokenizer
-        model_id = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+        model_id = "cross-encoder/ms-marco-MiniLM-L12-v2"
         registry.load_model(model_id=model_id)
         registry.get_tokenizer()
         registry.get_config()

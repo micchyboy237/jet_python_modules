@@ -39,7 +39,7 @@ class CrossEncoderRegistry(BaseModelRegistry):
 
     @staticmethod
     def load_model(
-        model_id: EmbedModelType = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        model_id: EmbedModelType = "cross-encoder/ms-marco-MiniLM-L6-v2",
         max_length: Optional[int] = None,
         device: Optional[Literal["cpu", "mps"]] = None
     ) -> CrossEncoder:
