@@ -26,7 +26,8 @@ class TestRerankByKeywords(unittest.TestCase):
         ]
 
     def test_rerank_single_text(self):
-        self.mock_model.extract_keywords.return_value = self.mock_keywords[0]
+        self.mock_model.extract_keywords.return_value = [
+            self.mock_keywords[0]]  # Return list of list of tuples
         result = rerank_by_keywords(
             texts=[self.texts[0]],
             keybert_model=self.mock_model,
@@ -41,7 +42,9 @@ class TestRerankByKeywords(unittest.TestCase):
         self.assertEqual(result[0]["text"], self.texts[0])
         self.assertEqual(result[0]["tokens"], _count_tokens(self.texts[0]))
         self.assertEqual(result[0]["keywords"], [
-                         {"text": "isekai anime", "score": 0.8}, {"text": "anime", "score": 0.6}])
+            {"text": "isekai anime", "score": 0.8}, {
+                "text": "anime", "score": 0.6}
+        ])
 
     def test_rerank_multiple_texts_with_ids(self):
         self.mock_model.extract_keywords.return_value = self.mock_keywords

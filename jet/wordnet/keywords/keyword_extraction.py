@@ -57,6 +57,10 @@ def rerank_by_keywords(
     logger.info(f"Reranking {len(texts)} documents using KeyBERT")
     nlp = spacy.load("en_core_web_sm")
 
+    if use_mmr and not (0.0 <= diversity <= 1.0):
+        raise ValueError(
+            "Diversity must be between 0.0 and 1.0 when use_mmr is True")
+
     if not texts:
         logger.warning("Empty text list provided. Returning empty results.")
         return []
