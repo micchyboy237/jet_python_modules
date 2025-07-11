@@ -6,7 +6,7 @@ from jet.llm.mlx.client import MLXLMClient
 from jet.llm.mlx.mlx_types import LLMModelKey
 from jet.logger import logger
 from jet.transformers.formatters import format_json
-MODEL_PATH: LLMModelKey = "llama-3.2-3b-instruct-4bit"
+MODEL_PATH: LLMModelKey = "qwen3-1.7b-4bit"
 FEW_SHOT_EXAMPLES = [
     {
         "role": "user",
