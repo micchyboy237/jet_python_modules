@@ -30,74 +30,135 @@ import parsel
 import unidecode
 
 
-def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
-    # Target attributes to extract
-    attributes = ['href', 'data-href', 'action']
+# def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
+#     # Target attributes to extract
+#     attributes = ['href', 'data-href', 'action']
 
-    # Build the pattern dynamically to support quoted values (single or double)
-    attr_pattern = '|'.join(attributes)
-    quote_pattern = (
-        rf'(?:{attr_pattern})\s*=\s*'      # attribute and equal sign
-        r'(["\'])'                         # opening quote (capture group 1)
-        r'(.*?)'                           # value (capture group 2)
-        r'\1'                              # matching closing quote
-    )
+#     # Build the pattern dynamically to support quoted values (single or double)
+#     attr_pattern = '|'.join(attributes)
+#     quote_pattern = (
+#         rf'(?:{attr_pattern})\s*=\s*'      # attribute and equal sign
+#         r'(["\'])'                         # opening quote (capture group 1)
+#         r'(.*?)'                           # value (capture group 2)
+#         r'\1'                              # matching closing quote
+#     )
 
-    matches = re.findall(quote_pattern, html, flags=re.IGNORECASE)
+#     matches = re.findall(quote_pattern, html, flags=re.IGNORECASE)
 
-    # Define unwanted patterns
-    unwanted_extensions = (
-        r'\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|pdf|mp4|mp3|zip|rar|exe)$'
-    )
-    unwanted_paths = (
-        r'/(embed|api|static|assets|media|images|uploads)/'
-    )
+#     # Define unwanted patterns
+#     unwanted_extensions = (
+#         r'\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|pdf|mp4|mp3|zip|rar|exe)$'
+#     )
+#     unwanted_paths = (
+#         r'/(embed|api|static|assets|media|images|uploads)/'
+#     )
 
-    # Filter and process links
-    filtered = []
-    for match in matches:
-        link = match[1].strip()
+#     # Filter and process links
+#     filtered = []
+#     for match in matches:
+#         link = match[1].strip()
 
-        # Skip empty, javascript:, or mailto: links
-        if not link or link.lower().startswith(('javascript:', 'mailto:')):
+#         # Skip empty, javascript:, or mailto: links
+#         if not link or link.lower().startswith(('javascript:', 'mailto:')):
+#             continue
+
+#         # Skip links with unwanted extensions
+#         if re.search(unwanted_extensions, link, re.IGNORECASE):
+#             continue
+
+#         # Skip links with unwanted path patterns
+#         if re.search(unwanted_paths, link, re.IGNORECASE):
+#             continue
+
+#         if base_url:
+#             # Parse base_url to get scheme and netloc for filtering
+#             parsed_base = urlparse(base_url)
+#             base_scheme_netloc = f"{parsed_base.scheme}://{parsed_base.netloc}"
+
+#             # Resolve relative URLs and anchor links
+#             if link.startswith('#'):
+#                 # Prepend base_url's scheme, netloc, and path to anchor links
+#                 link = f"{base_scheme_netloc}{parsed_base.path}{link}"
+#             else:
+#                 # Resolve relative URLs against base_url
+#                 link = urljoin(base_url, link)
+
+#             # Filter links from the same domain (scheme and netloc)
+#             if urlparse(link).netloc != parsed_base.netloc:
+#                 continue
+#         else:
+#             # If no base_url, filter out fragment-only links and links without a host
+#             if link == '#' or link.startswith('#'):
+#                 continue
+#             parsed_link = urlparse(link)
+#             if not (parsed_link.scheme and parsed_link.netloc):
+#                 continue
+
+#         filtered.append(clean_url(link))
+
+#     # Return unique links only
+#     return list(dict.fromkeys(filtered))
+
+
+def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
+    """
+    Scrape all URLs from text, including absolute URLs and relative paths starting with '/'.
+    If base_url is provided, convert relative paths to absolute URLs using base_url's scheme and host.
+
+    Args:
+        text: Input text to scrape for links
+        base_url: Optional base URL to resolve relative paths
+
+    Returns:
+        List of unique URLs found in the text
+    """
+    # Regex pattern for URLs (absolute http(s) and relative paths starting with /)
+    url_pattern = r'(?:(?:http|https)://[\w\-\./?:=&%#]+)|(?:/[\w\-\./?:=&%#]+[\w\-\./?:=&%#])'
+
+    # Find all matches in text
+    links = re.findall(url_pattern, text)
+    print(f"Debug: Raw links found: {links}")  # Debug log
+
+    if not links:
+        return []
+
+    # Handle base_url for relative paths
+    if base_url:
+        # Ensure base_url ends with a slash for proper joining
+        if not base_url.endswith('/'):
+            base_url = base_url + '/'
+
+        # Convert relative paths to absolute URLs
+        links = [
+            urljoin(base_url, link) if link.startswith('/') else link
+            for link in links
+        ]
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_links = [
+        link for link in links
+        if not (link in seen or seen.add(link))
+    ]
+
+    # Validate URLs and filter out invalid ones
+    valid_links = []
+    parsed_base = urlparse(base_url) if base_url else None
+    for link in unique_links:
+        try:
+            parsed = urlparse(link)
+            # Only include http/https schemes with valid netloc
+            if parsed.scheme in ('http', 'https') and parsed.netloc:
+                # Exclude URLs that are just the base_url or base_url with slash
+                if not (parsed_base and parsed.netloc == parsed_base.netloc and parsed.path in ('', '/')):
+                    # Basic validation for path characters
+                    if all(c not in '<>"\'' for c in link):
+                        valid_links.append(link)
+        except ValueError:
             continue
+    print(f"Debug: Valid links: {valid_links}")  # Debug log
 
-        # Skip links with unwanted extensions
-        if re.search(unwanted_extensions, link, re.IGNORECASE):
-            continue
-
-        # Skip links with unwanted path patterns
-        if re.search(unwanted_paths, link, re.IGNORECASE):
-            continue
-
-        if base_url:
-            # Parse base_url to get scheme and netloc for filtering
-            parsed_base = urlparse(base_url)
-            base_scheme_netloc = f"{parsed_base.scheme}://{parsed_base.netloc}"
-
-            # Resolve relative URLs and anchor links
-            if link.startswith('#'):
-                # Prepend base_url's scheme, netloc, and path to anchor links
-                link = f"{base_scheme_netloc}{parsed_base.path}{link}"
-            else:
-                # Resolve relative URLs against base_url
-                link = urljoin(base_url, link)
-
-            # Filter links from the same domain (scheme and netloc)
-            if urlparse(link).netloc != parsed_base.netloc:
-                continue
-        else:
-            # If no base_url, filter out fragment-only links and links without a host
-            if link == '#' or link.startswith('#'):
-                continue
-            parsed_link = urlparse(link)
-            if not (parsed_link.scheme and parsed_link.netloc):
-                continue
-
-        filtered.append(clean_url(link))
-
-    # Return unique links only
-    return list(dict.fromkeys(filtered))
+    return valid_links
 
 
 class TitleMetadata(TypedDict):

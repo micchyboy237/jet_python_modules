@@ -46,35 +46,42 @@ def clean_markdown_links(text: str) -> str:
     Returns:
         str: Text with markdown text links replaced by their display text and image links removed.
     """
-    logger.debug(f"Input text: {text}")
+    logger.debug(f"Input text: {repr(text)}")
 
     # Remove image links: ![alt](url) -> ''
     text = re.sub(r'!\[[^\]]*]\([^\)]*\)', '', text)
-    logger.debug(f"After removing image links: {text}")
+    logger.debug(f"After removing image links: {repr(text)}")
 
-    # Replace text links: [text](url) -> text
-    # Match well-formed links, capturing text with possible nested brackets
+    # Replace text links: [text](url) or [text] (url) -> text or ' ' if text is empty/whitespace
+    def replace_link(match: re.Match[str]) -> str:
+        link_text = match.group(1)
+        logger.debug(
+            f"Matched link: {match.group(0)}, link_text: {repr(link_text)}")
+        return link_text.strip() if link_text.strip() else ' '
+
+    # Match links with optional nested brackets
     text = re.sub(
-        r'\[([^\[\]]*?(?:\[[^\[\]]*?\])*?[^\[\]]*?)]\(([^)]*?)(?=\s|\)|$)\)', r'\1', text)
-    logger.debug(f"After replacing text links: {text}")
+        r'\[([^\[\]]*?(?:\[[^\[\]]*?\])*?[^\[\]]*?)\]\s*\(([^)]*?)\)',
+        replace_link,
+        text
+    )
+    logger.debug(f"After replacing text links: {repr(text)}")
 
-    # Preserve newlines and collapse multiple spaces within lines
+    # Preserve newlines and normalize spaces within lines
     parts = re.split(r'(\n+)', text)
     for i, part in enumerate(parts):
         if re.match(r'\n+', part):  # Skip newline parts
             continue
-        if part:  # Process non-empty parts
-            # Replace multiple spaces/tabs with a single space, preserving leading/trailing spaces
+        if part.strip():  # Process non-empty parts after stripping
+            # Preserve leading spaces, normalize internal spaces
             leading_match = re.match(r'^\s*', part)
-            trailing_match = re.match(r'\s*$', part)
             leading = leading_match.group(0) if leading_match else ''
-            trailing = trailing_match.group(0) if trailing_match else ''
             content = re.sub(r'[ \t]+', ' ', part.strip())
-            parts[i] = leading + content + trailing
-        else:  # Handle empty parts
-            parts[i] = ''
+            parts[i] = leading + content
+        else:  # Handle empty or whitespace-only parts
+            parts[i] = ' ' if part else ''
     text = ''.join(parts)
-    logger.debug(f"Final cleaned text: {text}")
+    logger.debug(f"Final cleaned text: {repr(text)}")
 
     return text
 

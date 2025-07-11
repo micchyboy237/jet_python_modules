@@ -21,7 +21,7 @@ def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> 
     # Preprocess markdown
     md_content = preprocess_markdown(md_content)
     parser = MarkdownParser(md_content)
-    md_tokens = make_serializable(parser.parse())
+    md_tokens: List[MarkdownToken] = make_serializable(parser.parse())
     # Ensure all tokens have required attributes with defaults
     for token in md_tokens:
         # Ensure type is present
@@ -289,7 +289,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
                         token['content'] = f"{hashtags} {token['content']}"
             return markdown_tokens
 
-        tokens = base_parse_markdown(md_content)
+        tokens = base_parse_markdown(md_content, ignore_links=ignore_links)
         tokens = remove_leading_non_headers(tokens)
         if merge_contents:
             tokens = merge_tokens(tokens)

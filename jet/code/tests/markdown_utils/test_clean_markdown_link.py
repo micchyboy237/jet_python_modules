@@ -107,6 +107,36 @@ class TestCleanMarkdownLinks:
         # Then: The link should be replaced with the display text
         assert result == expected
 
+    def test_within_list_item(self):
+        input_text = "* [Go to twitter](https://twitter.com/animesoulking)"
+        expected = "* Go to twitter"
+
+        # When: We clean the markdown links
+        result = clean_markdown_links(input_text)
+
+        # Then: The link should be replaced with the display text
+        assert result == expected
+
+    def test_empty_alt(self):
+        input_text = "[ ](https://twitter.com/animesoulking)"
+        expected = " "
+
+        # When: We clean the markdown links
+        result = clean_markdown_links(input_text)
+
+        # Then: The link should be replaced with the display text
+        assert result == expected
+
+    def test_empty_alt_with_space_in_between_bracket_and_parenthesis(self):
+        input_text = "[ ] (https://twitter.com/animesoulking)"
+        expected = " "
+
+        # When: We clean the markdown links
+        result = clean_markdown_links(input_text)
+
+        # Then: The link should be replaced with the display text
+        assert result == expected
+
     def test_multiline_markdown_with_various_elements(self):
         # Given: Complex multiline markdown with various elements
         input_text = """
