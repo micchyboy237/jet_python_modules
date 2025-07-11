@@ -69,14 +69,57 @@ def resolve_model_value(model: ModelType) -> ModelValue:
     )
 
 
-def get_model_limits(model_id: str | ModelValue) -> Tuple[Optional[int], Optional[int]]:
-    config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+def get_model_limits(model_id: Union[str, 'ModelValue']) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Get the maximum context length and embedding size for a given model.
 
-    max_context = max_getattr(config, 'max_position_embeddings', None)
-    # or `config.hidden_dim`
-    max_embeddings = max_getattr(config, 'hidden_size', None)
+    Args:
+        model_id: The model identifier or ModelValue object.
 
-    return max_context, max_embeddings
+    Returns:
+        Tuple containing (max_context, max_embeddings).
+    """
+    try:
+        model_path = resolve_model_value(model_id)
+        # Check if model exists remotely
+        try:
+            HfApi().model_info(model_path)
+            logger.info(f"Model {model_path} found on Hugging Face Hub")
+        except Exception as e:
+            logger.error(
+                f"Model {model_path} not found on Hugging Face Hub: {str(e)}")
+            return None, None
+
+        # Try to load config from cache or remote
+        try:
+            config = AutoConfig.from_pretrained(
+                model_path,
+                trust_remote_code=True,
+                use_auth_token=False,  # Set to True if using private repos
+                cache_dir=None,  # Use default cache directory
+                force_download=False,  # Use cached if available
+                resume_download=False
+            )
+        except Exception as e:
+            logger.error(f"Failed to load config for {model_path}: {str(e)}")
+            return None, None
+
+        # Helper function to safely get attributes
+        def max_getattr(obj, attr, default=None):
+            return getattr(obj, attr, default) if hasattr(obj, attr) else default
+
+        max_context = max_getattr(config, 'max_position_embeddings', None)
+        max_embeddings = max_getattr(config, 'hidden_size', None)
+
+        if max_context is None and max_embeddings is None:
+            logger.warning(f"No model limits found for {model_path}")
+
+        return max_context, max_embeddings
+
+    except Exception as e:
+        logger.error(
+            f"Unexpected error while processing {model_path}: {str(e)}")
+        return None, None
 
 
 def generate_short_name(model_id: str) -> Optional[str]:

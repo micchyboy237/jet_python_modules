@@ -3,6 +3,7 @@ import os
 import re
 import spacy
 import numpy as np
+import uuid
 from keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
 from jet.code.markdown_utils import parse_markdown
@@ -13,26 +14,52 @@ from jet.models.embeddings.base import generate_embeddings, load_embed_model
 from jet.logger import logger
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+DEFAULT_EMBED_MODEL: EmbedModelType = "static-retrieval-mrl-en-v1"
 
-# Updated TypedDict for keyword results
 
+class Keyword(TypedDict):
+    """
+    Represents a single keyword and its score.
 
-class RankedKeywordResult(TypedDict):
-    rank: int
-    score: float
-    keywords: List[dict[str, Union[str, float]]]
+    Fields:
+        text: The keyword or phrase.
+        score: The similarity score of the keyword.
+    """
     text: str
+    score: float
 
 
-class KeywordResult(TypedDict):
+class SimilarityResult(TypedDict):
+    """
+    Represents a single keybert result for a text.
+
+    Fields:
+        id: Original document id
+        rank: Rank based on score (1 for highest, no skips).
+        doc_index: Original index of the text in the input list.
+        score: Normalized similarity score.
+        text: The compared text (or chunk if long).
+        tokens: Number of tokens from text.
+        keywords: List of top n keywords with their scores.
+    """
+    id: str
+    rank: int
     doc_index: int
-    rank: int
     score: float
     text: str
-    document: str
+    tokens: int
+    keywords: List[Keyword]
 
 
-def setup_keybert(model_name: EmbedModelType = "static-retrieval-mrl-en-v1") -> KeyBERT:
+def _count_tokens(text: str, nlp=None) -> int:
+    """Count the number of tokens in a text using spaCy."""
+    if nlp is None:
+        nlp = spacy.load("en_core_web_sm")
+    doc = nlp(text)
+    return len([token for token in doc if not token.is_space])
+
+
+def setup_keybert(model_name: EmbedModelType = DEFAULT_EMBED_MODEL) -> KeyBERT:
     logger.info(f"Initializing KeyBERT with model: {model_name}")
     embed_model = load_embed_model(model_name)
     return KeyBERT(model=embed_model)
@@ -75,19 +102,21 @@ def extract_query_candidates(query: str, nlp=None) -> List[str]:
 
 
 def extract_single_doc_keywords(
-    doc: str,
+    text: str,
     model: KeyBERT,
+    id: Optional[str] = None,
     seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5,
     use_mmr: bool = False,
     diversity: float = 0.5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
     stop_words: str = "english"
-) -> List[RankedKeywordResult]:
+) -> List[SimilarityResult]:
     logger.info(
-        f"Extracting keywords from single document (length: {len(doc)} chars)")
+        f"Extracting keywords from single document (length: {len(text)} chars)")
+    nlp = spacy.load("en_core_web_sm")
     keywords = model.extract_keywords(
-        docs=doc,
+        docs=text,
         seed_keywords=seed_keywords,
         top_n=top_n,
         use_mmr=use_mmr,
@@ -97,27 +126,33 @@ def extract_single_doc_keywords(
     )
     logger.debug(f"Extracted keywords: {keywords}")
     max_score = max((score for _, score in keywords), default=0.0)
+    doc_id = id if id is not None else str(uuid.uuid4())
     return [{
+        "id": doc_id,
         "rank": 1,
+        "doc_index": 0,
         "score": max_score,
-        "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
-        "text": doc
+        "text": text,
+        "tokens": _count_tokens(text, nlp),
+        "keywords": [{"text": kw, "score": score} for kw, score in keywords]
     }]
 
 
 def extract_multi_doc_keywords(
-    docs: List[str],
+    texts: List[str],
     model: KeyBERT,
+    ids: Optional[List[str]] = None,
     seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5,
     use_mmr: bool = False,
     diversity: float = 0.5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
     stop_words: str = "english"
-) -> List[RankedKeywordResult]:
-    logger.info(f"Extracting keywords from {len(docs)} documents")
+) -> List[SimilarityResult]:
+    logger.info(f"Extracting keywords from {len(texts)} documents")
+    nlp = spacy.load("en_core_web_sm")
     keywords = model.extract_keywords(
-        docs=docs,
+        docs=texts,
         seed_keywords=seed_keywords,
         top_n=top_n,
         use_mmr=use_mmr,
@@ -126,32 +161,45 @@ def extract_multi_doc_keywords(
         stop_words=stop_words,
     )
     logger.debug(f"Extracted keywords for {len(keywords)} documents")
+    # Generate IDs if not provided or length mismatch
+    doc_ids = ids if ids and len(ids) == len(texts) else [
+        str(uuid.uuid4()) for _ in texts]
     result = []
-    for i, doc_keywords in enumerate(keywords):
+    for i, (text, doc_keywords) in enumerate(zip(texts, keywords)):
         max_score = max((score for _, score in doc_keywords),
                         default=0.0) if doc_keywords else 0.0
         result.append({
-            "rank": i + 1,
+            "id": doc_ids[i],
+            "rank": 0,  # Will be updated after sorting
+            "doc_index": i,
             "score": max_score,
-            "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
-            "text": docs[i]
+            "text": text,
+            "tokens": _count_tokens(text, nlp),
+            "keywords": [{"text": kw, "score": score} for kw, score in doc_keywords]
         })
-    return result
+    # Assign ranks based on sorted scores (1 for highest, no skips)
+    sorted_results = sorted(result, key=lambda x: x['score'], reverse=True)
+    for rank, res in enumerate(sorted_results, 1):
+        res['rank'] = rank
+    return sorted_results
 
 
 def extract_keywords_with_candidates(
-    docs: Union[str, List[str]],
+    texts: List[str],
     model: KeyBERT,
     candidates: List[str],
+    ids: Optional[List[str]] = None,
     seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
     stop_words: str = "english"
-) -> List[RankedKeywordResult]:
-    logger.info(f"Extracting keywords with {len(candidates)} candidates")
+) -> List[SimilarityResult]:
+    logger.info(
+        f"Extracting keywords with {len(candidates)} candidates for {len(texts)} documents")
+    nlp = spacy.load("en_core_web_sm")
     try:
         keywords = model.extract_keywords(
-            docs=docs,
+            docs=texts,
             candidates=candidates,
             seed_keywords=seed_keywords,
             top_n=top_n,
@@ -159,128 +207,105 @@ def extract_keywords_with_candidates(
             stop_words=stop_words,
         )
         logger.debug(f"Extracted keywords: {keywords}")
-        if isinstance(docs, str):
-            max_score = max((score for _, score in keywords),
-                            default=0.0) if keywords else 0.0
-            return [{
-                "rank": 1,
-                "score": max_score,
-                "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
-                "text": docs
-            }]
-        else:
-            result = []
-            for i, doc_keywords in enumerate(keywords):
-                max_score = max((score for _, score in doc_keywords),
-                                default=0.0) if doc_keywords else 0.0
-                result.append({
-                    "rank": i + 1,
-                    "score": max_score,
-                    "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
-                    "text": docs[i]
-                })
-            return result
     except Exception as e:
         logger.error(f"Error extracting keywords with candidates: {e}")
-        keywords = model.extract_keywords(docs=docs, top_n=top_n)
+        keywords = model.extract_keywords(docs=texts, top_n=top_n)
         logger.debug(f"Fallback extracted keywords: {keywords}")
-        if isinstance(docs, str):
-            max_score = max((score for _, score in keywords),
-                            default=0.0) if keywords else 0.0
-            return [{
-                "rank": 1,
-                "score": max_score,
-                "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
-                "text": docs
-            }]
-        result = []
-        for i, doc_keywords in enumerate(keywords):
-            max_score = max((score for _, score in doc_keywords),
-                            default=0.0) if doc_keywords else 0.0
-            result.append({
-                "rank": i + 1,
-                "score": max_score,
-                "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
-                "text": docs[i]
-            })
-        return result
+    # Generate IDs if not provided or length mismatch
+    doc_ids = ids if ids and len(ids) == len(texts) else [
+        str(uuid.uuid4()) for _ in texts]
+    result = []
+    for i, (text, doc_keywords) in enumerate(zip(texts, keywords)):
+        max_score = max((score for _, score in doc_keywords),
+                        default=0.0) if doc_keywords else 0.0
+        result.append({
+            "id": doc_ids[i],
+            "rank": 0,  # Will be updated after sorting
+            "doc_index": i,
+            "score": max_score,
+            "text": text,
+            "tokens": _count_tokens(text, nlp),
+            "keywords": [{"text": kw, "score": score} for kw, score in doc_keywords]
+        })
+    # Assign ranks based on sorted scores (1 for highest, no skips)
+    sorted_results = sorted(result, key=lambda x: x['score'], reverse=True)
+    for rank, res in enumerate(sorted_results, 1):
+        res['rank'] = rank
+    return sorted_results
 
 
 def extract_keywords_with_custom_vectorizer(
-    docs: Union[str, List[str]],
+    texts: List[str],
     model: KeyBERT,
     vectorizer: CountVectorizer,
+    ids: Optional[List[str]] = None,
     seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5
-) -> List[RankedKeywordResult]:
+) -> List[SimilarityResult]:
     logger.info(
-        f"Extracting keywords with custom vectorizer for {1 if isinstance(docs, str) else len(docs)} document(s)")
+        f"Extracting keywords with custom vectorizer for {len(texts)} document(s)")
+    nlp = spacy.load("en_core_web_sm")
     keywords = model.extract_keywords(
-        docs=docs,
+        docs=texts,
         seed_keywords=seed_keywords,
         vectorizer=vectorizer,
         top_n=top_n
     )
     logger.debug(f"Extracted keywords: {keywords}")
-    if isinstance(docs, str):
-        max_score = max((score for _, score in keywords),
-                        default=0.0) if keywords else 0.0
-        return [{
-            "rank": 1,
-            "score": max_score,
-            "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
-            "text": docs
-        }]
+    # Generate IDs if not provided or length mismatch
+    doc_ids = ids if ids and len(ids) == len(texts) else [
+        str(uuid.uuid4()) for _ in texts]
     result = []
-    for i, doc_keywords in enumerate(keywords):
+    for i, (text, doc_keywords) in enumerate(zip(texts, keywords)):
         max_score = max((score for _, score in doc_keywords),
                         default=0.0) if doc_keywords else 0.0
         result.append({
-            "rank": i + 1,
+            "id": doc_ids[i],
+            "rank": 0,  # Will be updated after sorting
+            "doc_index": i,
             "score": max_score,
-            "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
-            "text": docs[i]
+            "text": text,
+            "tokens": _count_tokens(text, nlp),
+            "keywords": [{"text": kw, "score": score} for kw, score in doc_keywords]
         })
-    return result
+    # Assign ranks based on sorted scores (1 for highest, no skips)
+    sorted_results = sorted(result, key=lambda x: x['score'], reverse=True)
+    for rank, res in enumerate(sorted_results, 1):
+        res['rank'] = rank
+    return sorted_results
 
 
 def extract_keywords_with_embeddings(
-    docs: Union[str, List[str]],
+    texts: List[str],
     model: KeyBERT,
+    ids: Optional[List[str]] = None,
     seed_keywords: Union[List[str], List[List[str]]] = None,
     top_n: int = 5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2)
-) -> List[RankedKeywordResult]:
+) -> List[SimilarityResult]:
     logger.info(
-        f"Extracting keywords with precomputed embeddings for {1 if isinstance(docs, str) else len(docs)} document(s)")
-    if not isinstance(docs, (str, list)):
-        logger.error(
-            f"Invalid input type: {type(docs)}. Expected str or List[str].")
-        raise ValueError("Input must be a string or a list of strings")
-    if isinstance(docs, list) and not all(isinstance(doc, str) for doc in docs):
-        logger.error("All elements in docs must be strings.")
-        raise ValueError("All elements in docs must be strings")
-    if not docs:
-        return [] if isinstance(docs, str) else []
-    model_name = 'static-retrieval-mrl-en-v1'
+        f"Extracting keywords with precomputed embeddings for {len(texts)} document(s)")
+    nlp = spacy.load("en_core_web_sm")
+    if not texts:
+        return []
+    model_name = DEFAULT_EMBED_MODEL
     doc_embeddings = generate_embeddings(
-        docs, model=model_name, return_format="numpy")
+        texts, model=model_name, return_format="numpy")
     vectorizer = CountVectorizer(ngram_range=keyphrase_ngram_range)
     try:
-        vocab = vectorizer.fit([docs] if isinstance(
-            docs, str) else docs).get_feature_names_out()
+        vocab = vectorizer.fit(texts).get_feature_names_out()
     except ValueError as e:
         logger.warning(f"Vectorization failed: {e}. Returning empty keywords.")
-        return [] if isinstance(docs, str) else [[] for _ in docs]
+        return []
     if len(vocab) == 0:
         logger.warning(
-            f"Empty vocabulary after vectorization for {len(docs if isinstance(docs, list) else 1)} document(s). Returning empty keywords.")
-        return [] if isinstance(docs, str) else [[] for _ in docs]
+            f"Empty vocabulary after vectorization for {len(texts)} document(s). Returning empty keywords.")
+        return []
     word_embeddings = generate_embeddings(
         vocab.tolist(), model=model_name, return_format="numpy")
     try:
         keywords = model.extract_keywords(
-            docs=docs,
+            docs=texts,
             seed_keywords=seed_keywords,
             doc_embeddings=doc_embeddings,
             word_embeddings=word_embeddings,
@@ -289,30 +314,29 @@ def extract_keywords_with_embeddings(
         )
     except Exception as e:
         logger.error(f"Error in extract_keywords with embeddings: {e}")
-        keywords = []
-    if not keywords:
         keywords = model.extract_keywords(
-            docs=docs,
+            docs=texts,
             vectorizer=vectorizer,
             top_n=top_n
         )
-    if isinstance(docs, str):
-        max_score = max((score for _, score in keywords),
-                        default=0.0) if keywords else 0.0
-        return [{
-            "rank": 1,
-            "score": max_score,
-            "keywords": [{"keyword": kw, "score": score} for kw, score in keywords],
-            "text": docs
-        }]
+    # Generate IDs if not provided or length mismatch
+    doc_ids = ids if ids and len(ids) == len(texts) else [
+        str(uuid.uuid4()) for _ in texts]
     result = []
-    for i, doc_keywords in enumerate(keywords):
+    for i, (text, doc_keywords) in enumerate(zip(texts, keywords)):
         max_score = max((score for _, score in doc_keywords),
                         default=0.0) if doc_keywords else 0.0
         result.append({
-            "rank": i + 1,
+            "id": doc_ids[i],
+            "rank": 0,  # Will be updated after sorting
+            "doc_index": i,
             "score": max_score,
-            "keywords": [{"keyword": kw, "score": score} for kw, score in doc_keywords],
-            "text": docs[i]
+            "text": text,
+            "tokens": _count_tokens(text, nlp),
+            "keywords": [{"text": kw, "score": score} for kw, score in doc_keywords]
         })
-    return result
+    # Assign ranks based on sorted scores (1 for highest, no skips)
+    sorted_results = sorted(result, key=lambda x: x['score'], reverse=True)
+    for rank, res in enumerate(sorted_results, 1):
+        res['rank'] = rank
+    return sorted_results

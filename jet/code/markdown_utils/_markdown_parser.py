@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional, Union, TypedDict
 from jet.code.html_utils import valid_html
 from jet.code.markdown_utils._base import read_html_content
 from jet.code.markdown_utils._converters import convert_html_to_markdown
+from jet.data.utils import generate_unique_id
 from jet.transformers.object import make_serializable
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 
@@ -319,12 +320,23 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         raise
 
 
-def derive_by_header_hierarchy(tokens: List[MarkdownToken]):
-    # Group tokens into sections based on headers.
-    # Each section is a dict: {"header": header_text, "content": [lines], "level": header_level, ...}
-    sections = []
-    current_section = None
+class HeaderDpc(TypedDict):
+    doc_id: str
+    header: str
+    content: str
+    level: Optional[int]
+    parent_header: Optional[str]
+    parent_level: Optional[int]
+    tokens: List[MarkdownToken]
+
+
+def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> List[HeaderDpc]:
+    tokens = parse_markdown(
+        md_content, merge_headers=False, merge_contents=False, ignore_links=ignore_links)
+    sections: List[HeaderDpc] = []
+    current_section: Optional[HeaderDpc] = None
     header_stack = []  # Stack to track (header, level, section_idx)
+    current_tokens = []  # Track tokens for the current section
 
     for token in tokens:
         token_type = token.get("type")
@@ -334,46 +346,53 @@ def derive_by_header_hierarchy(tokens: List[MarkdownToken]):
         if token_type == "header":
             # Before starting a new section, finalize the current one
             if current_section:
+                current_section["content"] = "\n".join(
+                    current_section["content"])
+                current_section["tokens"] = current_tokens
                 sections.append(current_section)
+            # Reset tokens for the new section
+            current_tokens = [token]
             # Determine parent_header and parent_level using header_stack
             parent_header = None
             parent_level = None
-            # Pop stack until we find a header with lower level (higher up in hierarchy)
             while header_stack and header_stack[-1][1] >= token_level:
                 header_stack.pop()
             if header_stack:
                 parent_header = header_stack[-1][0]
                 parent_level = header_stack[-1][1]
-            else:
-                parent_header = None
-                parent_level = None
-            # Create new section
+            # Create new section with unique doc_id
             current_section = {
+                "doc_id": generate_unique_id(),
                 "header": token_content.splitlines()[0] if token_content else "",
-                "content": token_content.splitlines()[1:] if token_content else [],
+                "content": [],  # Start with empty list for content
                 "level": token_level,
                 "parent_header": parent_header,
                 "parent_level": parent_level,
+                "tokens": [],  # Will be populated when section is finalized
             }
             # Push this header onto the stack
             header_stack.append(
                 (current_section["header"], token_level, len(sections)))
         else:
-            # Non-header: add to current section's content
+            # Non-header: add to current section's content and tokens
             if current_section is None:
-                # If no header yet, create a dummy section
+                # If no header yet, create a dummy section with unique doc_id
                 current_section = {
+                    "doc_id": generate_unique_id(),
                     "header": "",
                     "content": [],
                     "level": 0,
                     "parent_header": None,
                     "parent_level": None,
+                    "tokens": [],
                 }
-            current_section["content"].extend(
-                token_content.splitlines())
+            current_section["content"].extend(token_content.splitlines())
+            current_tokens.append(token)
 
     # Add the last section if it exists
     if current_section:
+        current_section["content"] = "\n".join(current_section["content"])
+        current_section["tokens"] = current_tokens
         sections.append(current_section)
 
     return sections

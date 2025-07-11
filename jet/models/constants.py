@@ -66,6 +66,9 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "bert-base-multilingual-cased": "bert-base-multilingual-cased",
     "bert-base-uncased": "bert-base-uncased",
     "ms-marco-minilm-l-6-v2": "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "ms-marco-minilm-l6-v2": "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "ms-marco-minilm-l-12-v2": "cross-encoder/ms-marco-MiniLM-L12-v2",
+    "ms-marco-minilm-l12-v2": "cross-encoder/ms-marco-MiniLM-L12-v2",
     "deepseek-r1": "deepseek-ai/DeepSeek-R1",
     "deepseek-r1-distill-qwen-1.5b": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
     "distilbert-base-uncased": "distilbert-base-uncased",
@@ -200,7 +203,12 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "all-mpnet-base-v2": 514,
     "allenai-specter": 512,
     "distilbert-base-nli-stsb-mean-tokens": 512,
-    "paraphrase-multilingual": 512
+    "paraphrase-multilingual": 512,
+    "static-retrieval-mrl-en-v1": 1024,
+    "ms-marco-MiniLM-L-6-v2": 512,
+    "ms-marco-MiniLM-L6-v2": 512,
+    "ms-marco-MiniLM-L-12-v2": 512,
+    "ms-marco-MiniLM-L12-v2": 512,
 }
 
 MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
@@ -267,5 +275,9 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "allenai-specter": 768,
     "distilbert-base-nli-stsb-mean-tokens": 768,
     "paraphrase-multilingual": 384,
-    "static-retrieval-mrl-en-v1": 1024
+    "static-retrieval-mrl-en-v1": 1024,
+    "ms-marco-MiniLM-L-6-v2": 384,
+    "ms-marco-MiniLM-L6-v2": 384,
+    "ms-marco-MiniLM-L-12-v2": 384,
+    "ms-marco-MiniLM-L12-v2": 384,
 }

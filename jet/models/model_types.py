@@ -174,6 +174,7 @@ LLMModelValue = Literal[
     "bert-base-multilingual-cased",
     "bert-base-uncased",
     "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "cross-encoder/ms-marco-MiniLM-L12-v2",
     "deepseek-ai/DeepSeek-R1",
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
     "distilbert-base-uncased",
@@ -312,6 +313,10 @@ EmbedModelKey = Literal[
     "paraphrase-multilingual",
     "multi-qa-MiniLM-L6-cos-v1",
     "static-retrieval-mrl-en-v1",
+    "ms-marco-MiniLM-L-6-v2",
+    "ms-marco-MiniLM-L6-v2",
+    "ms-marco-MiniLM-L-12-v2",
+    "ms-marco-MiniLM-L12-v2",
 ]
 EmbedModelKey = Union[EmbedModelKey, LLMModelKey]
 
@@ -329,6 +334,7 @@ EmbedModelValue = Literal[
     "bert-base-multilingual-cased",
     "bert-base-uncased",
     "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "cross-encoder/ms-marco-MiniLM-L12-v2",
     "deepseek-ai/DeepSeek-R1",
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
     "distilbert-base-uncased",
@@ -381,7 +387,11 @@ EmbedModelValue = Literal[
     "sentence-transformers/distilbert-base-nli-stsb-mean-tokens",
     "sentence-transformers/paraphrase-MiniLM-L12-v2",
     "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
-    "sentence-transformers/static-retrieval-mrl-en-v1"
+    "sentence-transformers/static-retrieval-mrl-en-v1",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "cross-encoder/ms-marco-MiniLM-L-12-v2",
+    "cross-encoder/ms-marco-MiniLM-L12-v2",
 ]
 EmbedModelValue = Union[EmbedModelValue, LLMModelValue]
 
