@@ -1,6 +1,8 @@
+from nltk.corpus import stopwords
 from typing import List, Optional, Tuple, Union, TypedDict, Literal
 import os
 import re
+import sklearn
 import spacy
 import numpy as np
 import uuid
@@ -100,6 +102,113 @@ def extract_query_candidates(query: str, nlp=None) -> List[str]:
     final_candidates = {cand for cand in final_candidates if any(
         not nlp.vocab[word].is_stop for word in cand.split())}
     return list(final_candidates)
+
+
+def extract_keyword_candidates(
+    texts: List[str] | str,  # Allow single string or list of strings
+    ngram_range: Tuple[int, int] = (1, 2),
+    stop_words: str = "english",
+    min_df: int = 2,
+    top_n: Optional[int] = None,
+) -> List[str]:
+    """
+    Extract candidate keywords from a list of texts or a single text using CountVectorizer.
+
+    Args:
+        texts: List of input texts or a single text string.
+        ngram_range: Tuple specifying n-gram range for keyword extraction.
+        stop_words: Stop words for vectorizer, default is "english".
+        min_df: Minimum document frequency for candidate keywords (default: 2).
+        top_n: If specified, return only the top_n most frequent candidates.
+
+    Returns:
+        List of candidate keywords as strings.
+    """
+    logger.debug(f"scikit-learn version: {sklearn.__version__}")
+
+    # Convert single string to list if necessary
+    if isinstance(texts, str):
+        texts = [texts]
+    logger.debug(f"Input texts: {texts}")
+    logger.debug(
+        f"Parameters: ngram_range={ngram_range}, stop_words={stop_words}, min_df={min_df}, top_n={top_n}")
+
+    # Set effective_min_df: use 1 for single text, else respect min_df
+    effective_min_df = 1 if len(texts) == 1 else min(min_df, len(texts))
+    logger.debug(f"Effective min_df: {effective_min_df}")
+
+    # Use NLTK stop words to ensure consistency
+    stop_words_list = stopwords.words(
+        'english') if stop_words == "english" else stop_words
+    logger.debug(f"Stop words: {stop_words_list[:10]}...")
+
+    # Extended stop words for bigram filtering only
+    extended_stop_words = set(stop_words_list).union(
+        {'is', 'are', 'key', 'performance', 'improve'})
+    logger.debug(f"Extended stop words: {list(extended_stop_words)[:10]}...")
+
+    vectorizer = CountVectorizer(
+        ngram_range=ngram_range,
+        stop_words=list(stop_words_list),
+        min_df=effective_min_df,
+        token_pattern=r'(?u)\b\w+\b'
+    )
+    try:
+        X = vectorizer.fit_transform(texts)
+        logger.debug(f"X shape: {X.shape}")
+        vocab = vectorizer.get_feature_names_out()
+        logger.debug(f"Vocabulary: {list(vocab)}")
+
+        # Sum term frequencies across all documents
+        freqs = X.sum(axis=0).A1
+        logger.debug(f"Frequencies: {freqs.tolist()}")
+
+        # Create list of (term, frequency, ngram_length) tuples
+        term_freqs = [(vocab[i], freqs[i], len(vocab[i].split()))
+                      for i in range(len(vocab))]
+        logger.debug(f"Term-Frequency pairs: {term_freqs}")
+
+        # Filter and score terms
+        valid_term_freqs = []
+        unigram_freqs = {term: freq for term, freq,
+                         ngram_len in term_freqs if ngram_len == 1}
+        logger.debug(f"Unigram frequencies: {unigram_freqs}")
+
+        for term, freq, ngram_len in term_freqs:
+            words = term.split()
+            if ngram_len > 1:
+                is_significant = all(word not in extended_stop_words and
+                                     word in unigram_freqs and
+                                     unigram_freqs[word] >= effective_min_df
+                                     for word in words)
+                if not is_significant:
+                    logger.debug(f"Filtered out insignificant bigram: {term}")
+                    continue
+            score = freq * (3.0 if ngram_len == 2 else 1.0)
+            valid_term_freqs.append((term, score, ngram_len))
+            logger.debug(
+                f"Scored term: {term}, score: {score}, ngram_len: {ngram_len}")
+
+        logger.debug(
+            f"Valid term-frequency pairs before sorting: {valid_term_freqs}")
+
+        # Sort by score (descending), then ngram length (bigrams first), then alphabetically
+        valid_term_freqs.sort(key=lambda x: (-x[1], -x[2], x[0]))
+        logger.debug(f"Sorted term-frequency pairs: {valid_term_freqs}")
+
+        # Extract sorted terms
+        final_candidates = [term for term, _, _ in valid_term_freqs]
+        logger.debug(f"Final candidates before top_n: {final_candidates}")
+
+        # Apply top_n filter if specified
+        if top_n is not None and top_n > 0:
+            final_candidates = final_candidates[:top_n]
+        logger.debug(f"Final candidates after top_n: {final_candidates}")
+
+        return final_candidates
+    except ValueError as e:
+        logger.warning(f"Vectorization failed: {e}. Returning empty keywords.")
+        return []
 
 
 def extract_single_doc_keywords(

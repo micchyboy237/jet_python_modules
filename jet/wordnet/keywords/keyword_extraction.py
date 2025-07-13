@@ -1,10 +1,9 @@
 from typing import List, Optional, Tuple, Union, TypedDict, Literal
 import os
-import re
 import spacy
-import numpy as np
 import uuid
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
+from jet.wordnet.keywords.utils import preprocess_text
 from keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
 from jet.code.markdown_utils import parse_markdown
@@ -17,24 +16,6 @@ from jet.logger import logger
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 DEFAULT_EMBED_MODEL: EmbedModelType = "static-retrieval-mrl-en-v1"
-
-
-def preprocess_text(text: str) -> str:
-    """Preprocess text for keyword extraction while preserving original content."""
-    logger.debug(f"Preprocessing text: {text}")
-    # Remove excessive whitespace and normalize spaces
-    cleaned = re.sub(r'\s+', ' ', text.strip())
-    # Replace multiple punctuation marks with single (e.g., '!!!' -> '!')
-    cleaned = re.sub(r'([!?.]){2,}', r'\1', cleaned)
-    # Ensure consistent spacing around punctuation, but preserve decimal points
-    cleaned = re.sub(r'\s*([,!?;:])\s*', r' \1 ', cleaned)
-    cleaned = re.sub(r'(\d)\s*\.\s*(\d)', r'\1.\2',
-                     cleaned)  # Preserve decimal points
-    # Ensure space before final punctuation if it exists
-    if cleaned and cleaned[-1] in ',!?;.':
-        cleaned = cleaned[:-1] + ' ' + cleaned[-1]
-    logger.debug(f"Preprocessed text: {cleaned}")
-    return cleaned
 
 
 def rerank_by_keywords(
@@ -51,29 +32,10 @@ def rerank_by_keywords(
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
     stop_words: str = "english",
     keybert_model: Optional[KeyBERT] = None,
+    min_count: int = 1,
 ) -> List[SimilarityResult]:
-    """
-    Rerank a list of texts using KeyBERT keyword extraction.
-
-    Args:
-        texts: List of text documents to rerank.
-        embed_model: Embedding model to use for keyword extraction.
-        ids: Optional list of document IDs; if None or length mismatch, UUIDs are generated.
-        seed_keywords: Optional seed keywords to guide extraction.
-        candidates: Optional candidate keywords for constrained extraction.
-        vectorizer: Optional custom CountVectorizer for keyword extraction.
-        use_embeddings: If True, use precomputed embeddings for extraction.
-        top_n: Number of keywords to extract per document.
-        use_mmr: If True, use Maximal Marginal Relevance for keyword diversity.
-        diversity: Diversity parameter for MMR (0.0 to 1.0).
-        keyphrase_ngram_range: Tuple of (min, max) n-grams for keyphrases.
-        stop_words: Stop words for keyword extraction (default: "english").
-        keybert_model: Optional KeyBERT model instance.
-
-    Returns:
-        List of SimilarityResult objects, sorted by score with ranks assigned.
-    """
-    logger.info(f"Reranking {len(texts)} documents using KeyBERT")
+    logger.info(
+        f"Reranking {len(texts)} documents using KeyBERT with min_count={min_count}")
     nlp = spacy.load("en_core_web_sm")
     keybert_model = keybert_model or setup_keybert(embed_model)
     if use_mmr and not (0.0 <= diversity <= 1.0):
@@ -84,44 +46,96 @@ def rerank_by_keywords(
         return []
     doc_ids = ids if ids and len(ids) == len(texts) else [
         str(uuid.uuid4()) for _ in texts]
-    # Preprocess texts for keyword extraction, preserve original texts
     processed_texts = [preprocess_text(text) for text in texts]
     logger.debug(f"Processed texts: {processed_texts}")
     embed_model_obj = SentenceTransformerRegistry.load_model(embed_model)
-    if use_embeddings:
-        logger.info("Using embedding-based keyword extraction")
-        doc_embeddings = generate_embeddings(
-            processed_texts, model=embed_model_obj, return_format="numpy")
-        vectorizer = vectorizer or CountVectorizer(
-            ngram_range=keyphrase_ngram_range)
+
+    # Initialize vectorizer for counting keyword occurrences
+    count_vectorizer = vectorizer or CountVectorizer(
+        ngram_range=keyphrase_ngram_range, stop_words=stop_words)
+    logger.debug(
+        f"Initialized count_vectorizer with ngram_range={keyphrase_ngram_range}, stop_words={stop_words}")
+
+    # Count keyword occurrences across documents if min_count > 1
+    valid_keywords = None
+    if min_count > 1:
+        logger.debug(
+            "Fitting vectorizer to processed texts for keyword counting")
         try:
-            vocab = vectorizer.fit(processed_texts).get_feature_names_out()
+            count_matrix = count_vectorizer.fit_transform(processed_texts)
+            vocab = count_vectorizer.get_feature_names_out()
+            logger.debug(f"Vocabulary size: {len(vocab)}, Vocabulary: {vocab}")
         except ValueError as e:
             logger.warning(
                 f"Vectorization failed: {e}. Returning empty keywords.")
             return []
-        if len(vocab) == 0:
+
+        keyword_counts = count_matrix.sum(axis=0).A1
+        vocab_counts = {word: count for word,
+                        count in zip(vocab, keyword_counts)}
+        logger.debug(f"Keyword counts: {vocab_counts}")
+        valid_keywords = [word for word,
+                          count in vocab_counts.items() if count >= min_count]
+        logger.debug(
+            f"Valid keywords after min_count={min_count}: {valid_keywords}")
+
+        if not valid_keywords:
             logger.warning(
-                f"Empty vocabulary after vectorization for {len(processed_texts)} document(s).")
+                f"No keywords meet min_count={min_count}. Returning empty keywords.")
             return []
+
+        # If candidates are provided, filter them by min_count
+        if candidates:
+            candidates = [
+                cand for cand in candidates if cand in valid_keywords]
+            logger.debug(f"Filtered candidates: {candidates}")
+            if not candidates:
+                logger.warning(
+                    f"No candidates meet min_count={min_count}. Falling back to standard extraction.")
+                candidates = None
+    else:
+        logger.debug("min_count=1, no keyword filtering applied")
+        try:
+            count_vectorizer.fit(processed_texts)
+            vocab = count_vectorizer.get_feature_names_out()
+            logger.debug(f"Vocabulary size: {len(vocab)}, Vocabulary: {vocab}")
+        except ValueError as e:
+            logger.warning(
+                f"Vectorization failed: {e}. Returning empty keywords.")
+            return []
+
+    # Create a new vectorizer for keyword extraction if valid_keywords exists
+    extraction_vectorizer = CountVectorizer(
+        vocabulary=valid_keywords) if valid_keywords else count_vectorizer
+    logger.debug(
+        f"Using extraction_vectorizer with vocabulary size: {len(extraction_vectorizer.get_feature_names_out()) if hasattr(extraction_vectorizer, 'vocabulary_') else 'not fitted yet'}")
+
+    if use_embeddings:
+        logger.info("Using embedding-based keyword extraction")
+        doc_embeddings = generate_embeddings(
+            processed_texts, model=embed_model_obj, return_format="numpy")
         word_embeddings = generate_embeddings(
-            vocab.tolist(), model=embed_model_obj, return_format="numpy")
+            vocab, model=embed_model_obj, return_format="numpy") if len(vocab) > 0 else None
+        logger.debug(
+            f"Doc embeddings shape: {doc_embeddings.shape}, Word embeddings shape: {word_embeddings.shape if word_embeddings is not None else 'None'}")
         try:
             keywords = keybert_model.extract_keywords(
                 docs=processed_texts,
                 seed_keywords=seed_keywords,
                 doc_embeddings=doc_embeddings,
                 word_embeddings=word_embeddings,
-                vectorizer=vectorizer,
+                vectorizer=extraction_vectorizer,
                 top_n=top_n
             )
+            logger.debug(f"Keywords extracted with embeddings: {keywords}")
         except Exception as e:
             logger.error(f"Error in extract_keywords with embeddings: {e}")
             keywords = keybert_model.extract_keywords(
                 docs=processed_texts,
-                vectorizer=vectorizer,
+                vectorizer=extraction_vectorizer,
                 top_n=top_n
             )
+            logger.debug(f"Fallback keywords extracted: {keywords}")
     elif candidates:
         logger.info(
             f"Using candidate-based keyword extraction with {len(candidates)} candidates")
@@ -134,6 +148,7 @@ def rerank_by_keywords(
                 keyphrase_ngram_range=keyphrase_ngram_range,
                 stop_words=stop_words,
             )
+            logger.debug(f"Keywords extracted with candidates: {keywords}")
         except Exception as e:
             logger.error(f"Error extracting keywords with candidates: {e}")
             keywords = keybert_model.extract_keywords(
@@ -142,14 +157,16 @@ def rerank_by_keywords(
                 keyphrase_ngram_range=keyphrase_ngram_range,
                 stop_words=stop_words
             )
+            logger.debug(f"Fallback keywords extracted: {keywords}")
     elif vectorizer:
         logger.info("Using custom vectorizer for keyword extraction")
         keywords = keybert_model.extract_keywords(
             docs=processed_texts,
             seed_keywords=seed_keywords,
-            vectorizer=vectorizer,
+            vectorizer=extraction_vectorizer,
             top_n=top_n
         )
+        logger.debug(f"Keywords extracted with custom vectorizer: {keywords}")
     else:
         logger.info("Using standard KeyBERT keyword extraction")
         keywords = keybert_model.extract_keywords(
@@ -160,7 +177,10 @@ def rerank_by_keywords(
             diversity=diversity,
             keyphrase_ngram_range=keyphrase_ngram_range,
             stop_words=stop_words,
+            vectorizer=extraction_vectorizer,
         )
+        logger.debug(f"Keywords extracted with standard KeyBERT: {keywords}")
+
     logger.debug(
         f"Extracted keywords for {len(keywords)} documents: {keywords}")
     result = []
@@ -178,6 +198,7 @@ def rerank_by_keywords(
         }
         logger.debug(f"Result entry for document {i}: {result_entry}")
         result.append(result_entry)
+
     sorted_results = sorted(result, key=lambda x: x['score'], reverse=True)
     for rank, res in enumerate(sorted_results, 1):
         res['rank'] = rank

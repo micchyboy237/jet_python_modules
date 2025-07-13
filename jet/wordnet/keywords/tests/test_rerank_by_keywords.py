@@ -253,6 +253,121 @@ class TestRerankByKeywords(unittest.TestCase):
                 diversity=1.5
             )
 
+    def test_rerank_with_min_count(self):
+        # Given: A text with repeated keywords and a min_count requirement
+        self.mock_model.extract_keywords.return_value = [
+            [("AMOLED display", 0.85)],
+            [("AMOLED display", 0.85)]
+        ]
+        texts = [
+            "The smartphone has an AMOLED display and triple-camera.",
+            "The smartphone also features an AMOLED display."
+        ]
+        ids = ["product1", "product2"]
+        expected = [
+            {
+                "id": "product1",
+                "rank": 1,
+                "doc_index": 0,
+                "score": 0.85,
+                "text": texts[0],
+                "tokens": _count_tokens(texts[0]),
+                "keywords": [
+                    {"text": "AMOLED display", "score": 0.85}
+                ]
+            },
+            {
+                "id": "product2",
+                "rank": 2,
+                "doc_index": 1,
+                "score": 0.85,
+                "text": texts[1],
+                "tokens": _count_tokens(texts[1]),
+                "keywords": [
+                    {"text": "AMOLED display", "score": 0.85}
+                ]
+            }
+        ]
 
-if __name__ == "__main__":
-    unittest.main()
+        # When: Reranking with min_count=2 to filter out keywords appearing only once
+        mock_vectorizer = MagicMock()
+        mock_vectorizer.fit_transform.return_value = np.array(
+            [[2, 1, 0], [1, 0, 0]])
+        mock_vectorizer.get_feature_names_out.return_value = [
+            "AMOLED display", "triple-camera", "e-commerce"]
+        with patch('sklearn.feature_extraction.text.CountVectorizer', return_value=mock_vectorizer):
+            result = rerank_by_keywords(
+                texts=texts,
+                keybert_model=self.mock_model,
+                ids=ids,
+                top_n=2,
+                min_count=2
+            )
+
+        # Then: Only keywords with count >= 2 (e.g., AMOLED display) should appear
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["keywords"], [
+                         {"text": "AMOLED display", "score": 0.85}])
+        self.assertEqual(result[1]["keywords"], [
+                         {"text": "AMOLED display", "score": 0.85}])
+
+    def test_rerank_with_candidates_and_min_count(self):
+        # Given: Texts and candidates with some meeting min_count
+        self.mock_model.extract_keywords.return_value = [
+            [("AMOLED display", 0.85)],
+            [("AMOLED display", 0.75)]
+        ]
+        texts = [
+            "The smartphone has an AMOLED display and triple-camera.",
+            "Sustainable products are trending with AMOLED display."
+        ]
+        ids = ["product1", "report1"]
+        candidates = ["AMOLED display",
+                      "sustainable products", "triple-camera"]
+        expected = [
+            {
+                "id": "product1",
+                "rank": 1,
+                "doc_index": 0,
+                "score": 0.85,
+                "text": texts[0],
+                "tokens": _count_tokens(texts[0]),
+                "keywords": [
+                    {"text": "AMOLED display", "score": 0.85}
+                ]
+            },
+            {
+                "id": "report1",
+                "rank": 2,
+                "doc_index": 1,
+                "score": 0.75,
+                "text": texts[1],
+                "tokens": _count_tokens(texts[1]),
+                "keywords": [
+                    {"text": "AMOLED display", "score": 0.75}
+                ]
+            }
+        ]
+
+        # When: Reranking with candidates and min_count=2
+        mock_vectorizer = MagicMock()
+        mock_vectorizer.fit_transform.return_value = np.array(
+            [[2, 0, 1], [1, 1, 0]])
+        mock_vectorizer.get_feature_names_out.return_value = [
+            "AMOLED display", "sustainable products", "triple-camera"]
+        with patch('sklearn.feature_extraction.text.CountVectorizer', return_value=mock_vectorizer):
+            result = rerank_by_keywords(
+                texts=texts,
+                keybert_model=self.mock_model,
+                ids=ids,
+                candidates=candidates,
+                top_n=2,
+                min_count=2
+            )
+
+        # Then: Only AMOLED display should be used as a candidate
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["keywords"], [
+                         {"text": "AMOLED display", "score": 0.85}])
+        self.assertEqual(result[1]["keywords"], [
+                         {"text": "AMOLED display", "score": 0.75}])
