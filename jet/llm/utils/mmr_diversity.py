@@ -2,10 +2,8 @@ import time
 import logging
 import random
 from typing import List, Optional, TypedDict
-
 import numpy as np
 import torch
-
 
 logger = logging.getLogger(__name__)
 
@@ -23,24 +21,25 @@ def sort_by_mmr_diversity(
     num_results: int = 5,
     lambda_param: float = 0.5,
     text_diversity_weight: float = 0.4,
+    ids: Optional[List[str]] = None
 ) -> List[TextSimilarityResult]:
     start_time = time.time()
     logger.info(f"Applying MMR diversity to select {num_results} results")
 
-    # Convert string candidates to TextSimilarityResult format
+    if ids is not None and len(ids) != len(candidates):
+        raise ValueError("Length of ids must match length of candidates")
+
     candidates_dict = [
         {
-            "id": f"doc_{i}",
-            "rank": 0,  # Will be set later
+            "id": ids[i] if ids is not None else f"doc_{i}",
+            "rank": 0,
             "doc_index": i,
-            "score": random.uniform(0, 1),  # Placeholder scoring
+            "score": random.uniform(0, 1),
             "text": text
         }
         for i, text in enumerate(candidates)
     ]
-
     selected = []
-
     while len(selected) < num_results and candidates_dict:
         if not selected:
             best_candidate = candidates_dict.pop(0)
@@ -50,7 +49,6 @@ def sort_by_mmr_diversity(
         else:
             mmr_scores = []
             selected_texts = [c["text"] for c in selected]
-
             for i, candidate in enumerate(candidates_dict):
                 relevance = candidate["score"]
                 text_penalty = text_diversity_weight if candidate["text"] in selected_texts else 0.0
@@ -60,16 +58,13 @@ def sort_by_mmr_diversity(
                 mmr_scores.append(mmr_score)
                 logger.debug(
                     f"Candidate {candidate['text'][:30]}...: mmr_score={mmr_score:.4f}, text_penalty={text_penalty:.2f}")
-
             best_idx = np.argmax(mmr_scores)
             best_candidate = candidates_dict.pop(best_idx)
             selected.append(best_candidate)
             logger.debug(
                 f"Selected candidate {len(selected)}: {best_candidate['text'][:30]}... (score: {best_candidate['score']:.4f}, text_penalty: {text_penalty:.2f})")
-
     for rank, candidate in enumerate(selected, 1):
         candidate["rank"] = rank
-
     logger.info(
         f"MMR diversity selected {len(selected)} results: {', '.join([f'{r['text'][:30]}... (score: {r['score']:.4f})' for r in selected])}")
     logger.info(

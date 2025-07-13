@@ -2,7 +2,7 @@ import pytest
 from typing import List, Tuple, Union
 import spacy
 from keybert import KeyBERT
-from jet.wordnet.keywords.keyword_extraction import setup_keybert, extract_query_candidates, extract_keywords_with_embeddings, KeywordResult
+from jet.wordnet.keywords.helpers import setup_keybert, extract_query_candidates, extract_keywords_with_embeddings, KeywordResult
 
 
 class TestExtractQueryCandidates:
