@@ -1,23 +1,15 @@
 import pytest
-import logging
-from typing import List
 import random
 from jet.llm.utils.mmr_diversity import sort_by_mmr_diversity
-
-# Configure logging for tests
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 
 
 class TestSortByMMRDiversity:
     @pytest.fixture(autouse=True)
     def setup(self):
-        # Mock random.uniform for deterministic scores
         self.original_uniform = random.uniform
         self.score_index = 0
 
         def mock_uniform(a, b):
-            # Decreasing scores: 0.8, 0.7, 0.6, ...
             scores = [0.8 - 0.1 * i for i in range(100)]
             result = scores[self.score_index % len(scores)]
             self.score_index += 1
@@ -26,20 +18,25 @@ class TestSortByMMRDiversity:
 
     @pytest.fixture(autouse=True)
     def teardown(self):
-        # Restore original random.uniform after each test
         yield
         random.uniform = self.original_uniform
 
     def test_selects_correct_number_of_results(self):
-        candidates = ["text1", "text2", "text3", "text4", "text5"]
+        candidates = [
+            "A sci-fi adventure about a rogue AI taking over a spaceship.",
+            "A romantic comedy set in a bustling New York bakery.",
+            "A thriller about a detective solving a serial killer case.",
+            "A fantasy epic with dragons and ancient prophecies.",
+            "A drama about a family reuniting after a tragedy."
+        ]
         num_results = 3
         expected = [
-            {"id": "doc_0", "rank": 1, "doc_index": 0,
-                "score": 0.8, "text": "text1"},
-            {"id": "doc_1", "rank": 2, "doc_index": 1,
-                "score": 0.7, "text": "text2"},
-            {"id": "doc_2", "rank": 3, "doc_index": 2,
-                "score": 0.6, "text": "text3"},
+            {"id": "doc_0", "rank": 1, "doc_index": 0, "score": 0.8,
+             "text": "A sci-fi adventure about a rogue AI taking over a spaceship."},
+            {"id": "doc_1", "rank": 2, "doc_index": 1, "score": 0.7,
+             "text": "A romantic comedy set in a bustling New York bakery."},
+            {"id": "doc_2", "rank": 3, "doc_index": 2, "score": 0.6,
+             "text": "A thriller about a detective solving a serial killer case."},
         ]
         result = sort_by_mmr_diversity(
             candidates, num_results=num_results, lambda_param=0.5, text_diversity_weight=0.0)
@@ -62,13 +59,17 @@ class TestSortByMMRDiversity:
         assert result == expected, f"Expected empty list, got {result}"
 
     def test_applies_text_diversity_penalty(self):
-        candidates = ["text1", "text1", "text2"]  # Duplicate text1
+        candidates = [
+            "A sci-fi adventure about a rogue AI taking over a spaceship.",
+            "A sci-fi adventure about a rogue AI taking over a spaceship.",  # Duplicate
+            "A romantic comedy set in a bustling New York bakery."
+        ]
         num_results = 2
         expected = [
-            {"id": "doc_0", "rank": 1, "doc_index": 0,
-                "score": 0.8, "text": "text1"},
-            {"id": "doc_2", "rank": 2, "doc_index": 2,
-                "score": 0.6, "text": "text2"},
+            {"id": "doc_0", "rank": 1, "doc_index": 0, "score": 0.8,
+             "text": "A sci-fi adventure about a rogue AI taking over a spaceship."},
+            {"id": "doc_2", "rank": 2, "doc_index": 2, "score": 0.6,
+             "text": "A romantic comedy set in a bustling New York bakery."},
         ]
         result = sort_by_mmr_diversity(
             candidates, num_results=num_results, lambda_param=0.5, text_diversity_weight=0.4)
@@ -84,7 +85,11 @@ class TestSortByMMRDiversity:
             assert r["text"] == e["text"], f"Expected text {e['text']}, got {r['text']}"
 
     def test_assigns_correct_ranks(self):
-        candidates = ["text1", "text2", "text3"]
+        candidates = [
+            "A sci-fi adventure about a rogue AI taking over a spaceship.",
+            "A romantic comedy set in a bustling New York bakery.",
+            "A thriller about a detective solving a serial killer case."
+        ]
         num_results = 3
         expected_ranks = [1, 2, 3]
         result = sort_by_mmr_diversity(candidates, num_results=num_results)
@@ -92,13 +97,16 @@ class TestSortByMMRDiversity:
         assert result_ranks == expected_ranks, f"Expected ranks {expected_ranks}, got {result_ranks}"
 
     def test_handles_num_results_greater_than_candidates(self):
-        candidates = ["text1", "text2"]
+        candidates = [
+            "A sci-fi adventure about a rogue AI taking over a spaceship.",
+            "A romantic comedy set in a bustling New York bakery."
+        ]
         num_results = 5
         expected = [
-            {"id": "doc_0", "rank": 1, "doc_index": 0,
-                "score": 0.8, "text": "text1"},
-            {"id": "doc_1", "rank": 2, "doc_index": 1,
-                "score": 0.7, "text": "text2"},
+            {"id": "doc_0", "rank": 1, "doc_index": 0, "score": 0.8,
+             "text": "A sci-fi adventure about a rogue AI taking over a spaceship."},
+            {"id": "doc_1", "rank": 2, "doc_index": 1, "score": 0.7,
+             "text": "A romantic comedy set in a bustling New York bakery."},
         ]
         result = sort_by_mmr_diversity(candidates, num_results=num_results)
         assert len(result) == len(

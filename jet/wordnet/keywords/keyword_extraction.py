@@ -12,7 +12,7 @@ from jet.file.utils import load_file, save_file
 from jet.models.model_types import EmbedModelType, LLMModelType
 from jet.vectors.document_types import HeaderDocument
 from jet.models.embeddings.base import generate_embeddings, load_embed_model
-from jet.wordnet.keywords.helpers import SimilarityResult, _count_tokens
+from jet.wordnet.keywords.helpers import SimilarityResult, _count_tokens, setup_keybert
 from jet.logger import logger
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -21,7 +21,6 @@ DEFAULT_EMBED_MODEL: EmbedModelType = "static-retrieval-mrl-en-v1"
 
 def rerank_by_keywords(
     texts: List[str],
-    keybert_model: KeyBERT,
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
     ids: Optional[List[str]] = None,
     seed_keywords: Union[List[str], List[List[str]]] = None,
@@ -32,7 +31,8 @@ def rerank_by_keywords(
     use_mmr: bool = False,
     diversity: float = 0.5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
-    stop_words: str = "english"
+    stop_words: str = "english",
+    keybert_model: Optional[KeyBERT] = None,
 ) -> List[SimilarityResult]:
     """
     Rerank a list of texts using KeyBERT keyword extraction.
@@ -56,6 +56,7 @@ def rerank_by_keywords(
     """
     logger.info(f"Reranking {len(texts)} documents using KeyBERT")
     nlp = spacy.load("en_core_web_sm")
+    keybert_model = keybert_model or setup_keybert(embed_model)
 
     if use_mmr and not (0.0 <= diversity <= 1.0):
         raise ValueError(

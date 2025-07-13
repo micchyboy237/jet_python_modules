@@ -4,6 +4,7 @@ import re
 import spacy
 import numpy as np
 import uuid
+from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
 from jet.code.markdown_utils import parse_markdown
@@ -61,7 +62,7 @@ def _count_tokens(text: str, nlp=None) -> int:
 
 def setup_keybert(model_name: EmbedModelType = DEFAULT_EMBED_MODEL) -> KeyBERT:
     logger.info(f"Initializing KeyBERT with model: {model_name}")
-    embed_model = load_embed_model(model_name)
+    embed_model = SentenceTransformerRegistry.load_model(model_name)
     return KeyBERT(model=embed_model)
 
 
