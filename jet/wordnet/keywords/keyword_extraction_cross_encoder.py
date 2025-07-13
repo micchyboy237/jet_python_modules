@@ -23,6 +23,7 @@ def extract_keywords_cross_encoder(
     top_n: int = 5,
     keyphrase_ngram_range: Tuple[int, int] = (1, 2),
     stop_words: str = "english",
+    min_df: int = 2,
 ) -> List[SimilarityResult]:
     """
     Extract keywords from texts using a cross-encoder model to score document-keyword pairs.
@@ -36,6 +37,7 @@ def extract_keywords_cross_encoder(
         top_n: Number of top keywords to return per document.
         keyphrase_ngram_range: Tuple specifying n-gram range for keyword extraction.
         stop_words: Stop words for vectorizer, default is "english".
+        min_df: Minimum document frequency for candidate keywords (default: 2).
 
     Returns:
         List of SimilarityResult dictionaries containing ranked keywords with scores.
@@ -58,7 +60,11 @@ def extract_keywords_cross_encoder(
     final_candidates = candidates
     if final_candidates is None:
         vectorizer = vectorizer or CountVectorizer(
-            ngram_range=keyphrase_ngram_range, stop_words=stop_words)
+            ngram_range=keyphrase_ngram_range,
+            stop_words=stop_words,
+            # Adjust min_df for small text lists
+            min_df=min_df if len(texts) >= min_df else 1
+        )
         try:
             vocab = vectorizer.fit(processed_texts).get_feature_names_out()
             final_candidates = list(vocab)
