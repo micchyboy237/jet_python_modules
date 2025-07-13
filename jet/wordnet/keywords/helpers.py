@@ -7,6 +7,7 @@ import spacy
 import numpy as np
 import uuid
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
+from jet.wordnet.words import get_words
 from keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
 from jet.code.markdown_utils import parse_markdown
@@ -76,7 +77,7 @@ def extract_query_candidates(query: str, nlp=None) -> List[str]:
     candidates = set()
     for chunk in doc.noun_chunks:
         chunk_text = chunk.text.strip()
-        chunk_words = chunk_text.split()
+        chunk_words = get_words(chunk_text)
         if len(chunk_words) <= 3:
             if all(not token.is_stop and token.pos_ in ["NOUN", "PROPN", "ADJ", "NUM"] for token in chunk):
                 candidates.add(chunk_text)
@@ -100,8 +101,9 @@ def extract_query_candidates(query: str, nlp=None) -> List[str]:
         if not is_prefix:
             final_candidates.add(cand)
     final_candidates = {cand for cand in final_candidates if any(
-        not nlp.vocab[word].is_stop for word in cand.split())}
-    return list(final_candidates)
+        not nlp.vocab[word].is_stop for word in get_words(cand))}
+    final_candidates = list(final_candidates)
+    return final_candidates
 
 
 def extract_keyword_candidates(
@@ -164,7 +166,7 @@ def extract_keyword_candidates(
         logger.debug(f"Frequencies: {freqs.tolist()}")
 
         # Create list of (term, frequency, ngram_length) tuples
-        term_freqs = [(vocab[i], freqs[i], len(vocab[i].split()))
+        term_freqs = [(vocab[i], freqs[i], len(get_words(vocab[i])))
                       for i in range(len(vocab))]
         logger.debug(f"Term-Frequency pairs: {term_freqs}")
 
@@ -175,7 +177,7 @@ def extract_keyword_candidates(
         logger.debug(f"Unigram frequencies: {unigram_freqs}")
 
         for term, freq, ngram_len in term_freqs:
-            words = term.split()
+            words = get_words(term)
             if ngram_len > 1:
                 is_significant = all(word not in extended_stop_words and
                                      word in unigram_freqs and
