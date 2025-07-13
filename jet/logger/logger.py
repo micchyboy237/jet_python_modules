@@ -202,34 +202,42 @@ class CustomLogger:
             if level_map.get(level.upper(), 10) < level_map.get(self.console_level, 10):
                 return  # Skip logging if level is below console_level
 
-            if args:
-                try:
-                    message = message % args
-                except Exception:
-                    message = f"{message} {' '.join(map(str, args))}"
-
-            actual_level = f"BRIGHT_{level}" if bright else level
-
+            # Prepare colors list
             if colors is None:
-                colors = [actual_level]
+                colors = [f"BRIGHT_{level}" if bright else level]
             else:
-                colors = colors * ((1 + len(colors) - 1) // len(colors))
+                colors = [f"BRIGHT_{c}" if bright and c.upper(
+                ) in level_map else c for c in colors]
+                # Extend colors list to match number of arguments
+                colors = colors * \
+                    ((len(args) + 1 + len(colors) - 1) // len(colors))
 
-            if is_class_instance(message):
-                message = str(message)
-            else:
-                parsed_message = parse_json(message)
-                if isinstance(parsed_message, (dict, list)):
-                    message = format_json(parsed_message)
+            # Process message and arguments
+            messages = [message] + list(map(str, args))
+            processed_messages = []
 
-            message = fix_and_unidecode(message) if isinstance(
-                message, str) else message
+            for i, msg in enumerate(messages):
+                if is_class_instance(msg):
+                    msg = str(msg)
+                else:
+                    parsed_message = parse_json(msg)
+                    if isinstance(parsed_message, (dict, list)):
+                        msg = format_json(parsed_message)
 
-            # Apply colors only if stdout is a terminal
+                msg = fix_and_unidecode(msg) if isinstance(
+                    msg, str) else str(msg)
+                processed_messages.append(
+                    (msg, colors[i % len(colors)] if colors else level))
+
+            # Build colored output
+            colored_output = ""
             if os.isatty(sys.stdout.fileno()):
-                colored_output = f"{COLORS.get(colors[0], COLORS['LOG'])}{message}{RESET}"
+                colored_output = "".join(
+                    f"{COLORS.get(color, COLORS['LOG'])}{msg}{RESET}"
+                    for msg, color in processed_messages
+                )
             else:
-                colored_output = message
+                colored_output = " ".join(msg for msg, _ in processed_messages)
             final_output = colored_output
 
             if level.lower() == "error" and exc_info:
@@ -256,7 +264,8 @@ class CustomLogger:
                         file.write("\n\n")
                     if not flush or (flush and not self._last_message_flushed):
                         file.write(metadata + "\n")
-                    file.write(clean_ansi(str(message)) + end)
+                    file.write(clean_ansi(
+                        " ".join(msg for msg, _ in processed_messages)) + end)
 
                 self._last_message_flushed = flush
 
@@ -362,10 +371,11 @@ def logger_examples(logger: CustomLogger):
     logger.log("Word 1", flush=False)
     logger.log("Word 2", flush=False)
     logger.newline()
-    logger.log("multi-color default", "Message 2",
-               "Message 3", "Message 4", "Message 5")
+    logger.log("multi-color default", "Message 2")
     logger.log("2 multi-color with colors",
                "Message 2", colors=["DEBUG", "SUCCESS"])
+    logger.log("2 multi-color cycle", "Message 2",
+               "Message 3", "Message 4", "Message 5", colors=["DEBUG", "SUCCESS"])
     logger.log("2 multi-color with bright", "Message 2",
                colors=["GRAY", "BRIGHT_DEBUG"])
     logger.log("3 multi-color", "Message 2", "Message 3",

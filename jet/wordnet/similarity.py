@@ -2,6 +2,7 @@ from typing import List, Tuple
 from collections import defaultdict
 from typing import Any, List, Optional, Literal
 from jet.data.utils import generate_key
+from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 from jet.models.embeddings.base import load_embed_model
 from sentence_transformers import util
@@ -757,7 +758,7 @@ def plot_text_embeddings(texts: List[str], embeddings: List[List[float]], title:
 def group_similar_texts(
     texts: List[str],
     threshold: float = 0.7,
-    model_name: str = "all-MiniLM-L6-v2",
+    model_name: EmbedModelType = "all-MiniLM-L6-v2",
     embeddings: Optional[List[np.ndarray]] = None,
     ids: Optional[List[str]] = None,
 ) -> List[List[str]]:
@@ -767,7 +768,7 @@ def group_similar_texts(
     Args:
         texts (List[str]): List of input texts to be grouped.
         threshold (float): Similarity threshold for clustering. Default is 0.7.
-        model_name (str): Sentence transformer model to use for embedding if embeddings not provided.
+        model_name (EmbedModelType): Sentence transformer model to use for embedding if embeddings not provided.
         embeddings (Optional[List[np.ndarray]]): Precomputed embeddings as a list of NumPy arrays.
         ids (Optional[List[str]]): Optional list of IDs corresponding to texts. If provided, these will replace the text in the output.
 
@@ -796,8 +797,7 @@ def group_similar_texts(
 
     # Load the embedding model if embeddings are not provided
     if embeddings is None:
-        from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer(model_name)
+        model = SentenceTransformerRegistry.load_model(model_name)
         embeddings = model.encode(unique_texts, convert_to_numpy=True)
 
     # Ensure embeddings is a 2D NumPy array (n_texts, embedding_dim)
