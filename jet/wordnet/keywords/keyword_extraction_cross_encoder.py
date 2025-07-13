@@ -53,7 +53,6 @@ def extract_keywords_cross_encoder(
     doc_ids = ids if ids and len(ids) == len(texts) else [
         str(uuid.uuid4()) for _ in texts]
     processed_texts = [preprocess_text(text) for text in texts]
-    logger.debug(f"Processed texts: {processed_texts}")
 
     # Use provided candidates or generate new ones
     final_candidates = candidates
@@ -63,7 +62,6 @@ def extract_keywords_cross_encoder(
         try:
             vocab = vectorizer.fit(processed_texts).get_feature_names_out()
             final_candidates = list(vocab)
-            logger.debug(f"Generated candidates: {final_candidates}")
         except ValueError as e:
             logger.warning(
                 f"Vectorization failed: {e}. Returning empty keywords.")
@@ -76,8 +74,6 @@ def extract_keywords_cross_encoder(
 
     results = []
     for i, (text, doc_id) in enumerate(zip(processed_texts, doc_ids)):
-        logger.debug(f"Processing document {i} with ID {doc_id}")
-
         # Create document-keyword pairs for cross-encoder scoring
         pairs = [(text, candidate) for candidate in final_candidates]
         try:
@@ -91,19 +87,15 @@ def extract_keywords_cross_encoder(
                     scores = (raw_scores - min_score) / (max_score - min_score)
                 else:
                     scores = np.ones_like(raw_scores) * 0.5
-            logger.debug(
-                f"Raw scores: {raw_scores.tolist()}, Normalized scores: {scores.tolist()}")
         except Exception as e:
             logger.error(
                 f"Error in cross-encoder prediction for document {i}: {e}")
             scores = np.zeros(len(final_candidates))
-            logger.debug(f"Fallback scores: {scores.tolist()}")
 
         # Sort keywords by score
         keyword_scores = list(zip(final_candidates, scores))
         sorted_keywords = sorted(
             keyword_scores, key=lambda x: x[1], reverse=True)[:top_n]
-        logger.debug(f"Sorted keywords for document {i}: {sorted_keywords}")
 
         max_score = float(
             max((score for _, score in sorted_keywords), default=0.0))
@@ -116,7 +108,6 @@ def extract_keywords_cross_encoder(
             "tokens": _count_tokens(texts[i], nlp),
             "keywords": [{"text": kw, "score": float(score)} for kw, score in sorted_keywords]
         }
-        logger.debug(f"Result entry for document {i}: {result_entry}")
         results.append(result_entry)
 
     # Sort results by max keyword score
@@ -124,5 +115,4 @@ def extract_keywords_cross_encoder(
     for rank, res in enumerate(sorted_results, 1):
         res['rank'] = rank
 
-    logger.debug(f"Final sorted results: {sorted_results}")
     return sorted_results
