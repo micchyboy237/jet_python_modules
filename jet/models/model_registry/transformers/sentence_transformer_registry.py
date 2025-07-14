@@ -66,7 +66,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
                 f"max_length (f{instance.max_length}) cannot be greater than context window ({instance.context_window})")
         if _cache_key in instance._models:
             logger.info(
-                f"Reusing existing SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")
+                f"Reusing cached SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")
             return instance._models[_cache_key]
         logger.info(
             f"Loading SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")

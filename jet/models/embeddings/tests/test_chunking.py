@@ -1,6 +1,24 @@
 import pytest
 import nltk
 from jet.models.embeddings.chunking import chunk_headers_by_hierarchy
+from typing import Dict, TypedDict, Callable, Union, List, Optional
+
+
+class Metadata(TypedDict):
+    start_idx: int
+    end_idx: int
+
+
+class ChunkResult(TypedDict):
+    content: str
+    num_tokens: int
+    header: str
+    parent_header: Optional[str]
+    level: int
+    parent_level: Optional[int]
+    doc_index: int
+    chunk_index: int
+    metadata: Metadata
 
 
 @pytest.fixture(scope="class")
@@ -42,7 +60,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 1,
                 "parent_level": None,
                 "doc_index": 0,
-                "chunk_index": 0
+                "chunk_index": 0,
+                "metadata": {"start_idx": 14, "end_idx": 40}
             },
             {
                 "content": "This is a very long sentence that fits chunksize.",
@@ -52,7 +71,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 2,
                 "parent_level": 1,
                 "doc_index": 1,
-                "chunk_index": 0
+                "chunk_index": 0,
+                "metadata": {"start_idx": 59, "end_idx": 106}
             },
             {
                 "content": "Short sentence.\nJoined short sentence for merging.",
@@ -62,7 +82,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 2,
                 "parent_level": 1,
                 "doc_index": 1,
-                "chunk_index": 1
+                "chunk_index": 1,
+                "metadata": {"start_idx": 107, "end_idx": 162}
             },
             {
                 "content": "This is another long sentence.",
@@ -72,7 +93,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 3,
                 "parent_level": 2,
                 "doc_index": 2,
-                "chunk_index": 0
+                "chunk_index": 0,
+                "metadata": {"start_idx": 181, "end_idx": 210}
             },
             {
                 "content": "This is a long sibling sentence.",
@@ -82,7 +104,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 3,
                 "parent_level": 2,
                 "doc_index": 2,
-                "chunk_index": 1
+                "chunk_index": 1,
+                "metadata": {"start_idx": 211, "end_idx": 242}
             },
             {
                 "content": "This is the 5th long sentence.",
@@ -92,7 +115,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 3,
                 "parent_level": 2,
                 "doc_index": 2,
-                "chunk_index": 2
+                "chunk_index": 2,
+                "metadata": {"start_idx": 243, "end_idx": 272}
             }
         ]
         results = chunk_headers_by_hierarchy(
@@ -101,8 +125,8 @@ class TestChunkHeadersByHierarchy:
 
     def test_chunk_headers_by_hierarchy_no_root(self, chunking_shared, markdown_text):
         # Generate initial chunks with no root
-        markdown_text = "\n".join(line for line in markdown_text.splitlines(
-        ) if not line.startswith("# Root Header") and "This is a sentence in root." not in line)
+        markdown_text = "\n".join(line for line in markdown_text.splitlines()
+                                  if not line.startswith("# Root Header") and "This is a sentence in root." not in line)
         tokenizer, split_fn, chunk_size = chunking_shared
         expected = [
             {
@@ -113,7 +137,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 2,
                 "parent_level": None,
                 "doc_index": 0,
-                "chunk_index": 0
+                "chunk_index": 0,
+                "metadata": {"start_idx": 19, "end_idx": 66}
             },
             {
                 "content": "Short sentence.\nJoined short sentence for merging.",
@@ -123,7 +148,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 2,
                 "parent_level": None,
                 "doc_index": 0,
-                "chunk_index": 1
+                "chunk_index": 1,
+                "metadata": {"start_idx": 67, "end_idx": 122}
             },
             {
                 "content": "This is another long sentence.",
@@ -133,7 +159,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 3,
                 "parent_level": 2,
                 "doc_index": 1,
-                "chunk_index": 0
+                "chunk_index": 0,
+                "metadata": {"start_idx": 141, "end_idx": 170}
             },
             {
                 "content": "This is a long sibling sentence.",
@@ -143,7 +170,8 @@ class TestChunkHeadersByHierarchy:
                 "level": 3,
                 "parent_level": 2,
                 "doc_index": 1,
-                "chunk_index": 1
+                "chunk_index": 1,
+                "metadata": {"start_idx": 171, "end_idx": 202}
             },
             {
                 "content": "This is the 5th long sentence.",
@@ -153,52 +181,10 @@ class TestChunkHeadersByHierarchy:
                 "level": 3,
                 "parent_level": 2,
                 "doc_index": 1,
-                "chunk_index": 2
+                "chunk_index": 2,
+                "metadata": {"start_idx": 203, "end_idx": 232}
             }
         ]
         results = chunk_headers_by_hierarchy(
             markdown_text, chunk_size, tokenizer, split_fn)
         assert results == expected
-
-    # def test_chunk_headers_by_hierarchy_with_overlap(self, chunking_shared):
-    #     tokenizer, split_fn, chunk_size = chunking_shared
-    #     markdown_text = """## Level 2 Header
-    # First sentence here.
-    # Second sentence here.
-    # Third sentence here."""
-    #     chunk_overlap = 3
-    #     results = chunk_headers_by_hierarchy(
-    #         markdown_text, chunk_size, tokenizer, split_fn, chunk_overlap)
-    #     expected = [
-    #         {
-    #             "content": "First sentence here.",
-    #             "num_tokens": 7,
-    #             "header": "## Level 2 Header",
-    #             "parent_header": None,
-    #             "level": 2,
-    #             "parent_level": None,
-    #             "doc_index": 0,
-    #             "chunk_index": 0
-    #         },
-    #         {
-    #             "content": "sentence here.\nSecond sentence here.",
-    #             "num_tokens": 10,
-    #             "header": "## Level 2 Header",
-    #             "parent_header": None,
-    #             "level": 2,
-    #             "parent_level": None,
-    #             "doc_index": 0,
-    #             "chunk_index": 1
-    #         },
-    #         {
-    #             "content": "sentence here.\nThird sentence here.",
-    #             "num_tokens": 10,
-    #             "header": "## Level 2 Header",
-    #             "parent_header": None,
-    #             "level": 2,
-    #             "parent_level": None,
-    #             "doc_index": 0,
-    #             "chunk_index": 2
-    #         }
-    #     ]
-    #     assert results == expected

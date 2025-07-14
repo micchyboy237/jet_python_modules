@@ -320,7 +320,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         raise
 
 
-class HeaderDpc(TypedDict):
+class HeaderDoc(TypedDict):
     doc_id: str
     header: str
     content: str
@@ -330,11 +330,11 @@ class HeaderDpc(TypedDict):
     tokens: List[MarkdownToken]
 
 
-def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> List[HeaderDpc]:
+def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> List[HeaderDoc]:
     tokens = parse_markdown(
         md_content, merge_headers=False, merge_contents=False, ignore_links=ignore_links)
-    sections: List[HeaderDpc] = []
-    current_section: Optional[HeaderDpc] = None
+    sections: List[HeaderDoc] = []
+    current_section: Optional[HeaderDoc] = None
     header_stack = []  # Stack to track (header, level, section_idx)
     current_tokens = []  # Track tokens for the current section
 

@@ -1,3 +1,9 @@
+import nltk
+from nltk.stem import WordNetLemmatizer
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from typing import Optional, Set
+import logging
 import re
 from typing import List, Dict, Optional, Set
 from jet.data.header_types import NodeType, Nodes, TextNode
@@ -12,6 +18,16 @@ from jet.data.header_utils import split_and_merge_headers
 from tokenizers import Tokenizer
 from jet.utils.text_constants import TEXT_CONTRACTIONS_EN
 from jet.data.header_utils._base import create_text_node, chunk_content, merge_nodes
+
+# Download required NLTK data (only needs to be done once)
+try:
+    nltk.data.find('tokenizers/punkt')
+    nltk.data.find('corpora/stopwords')
+    nltk.data.find('corpora/wordnet')
+except LookupError:
+    nltk.download('punkt')
+    nltk.download('stopwords')
+    nltk.download('wordnet')
 
 
 class VectorStore:
@@ -53,24 +69,56 @@ def preprocess_text(
     remove_stopwords: bool = False,
     apply_lemmatization: bool = False
 ) -> str:
+    """
+    Preprocesses input text by normalizing whitespace, expanding contractions,
+    converting to lowercase, removing unwanted characters, and optionally
+    removing stopwords and applying lemmatization.
+
+    Args:
+        text: Input text to preprocess
+        preserve_chars: Set of characters to preserve in the output
+        remove_stopwords: Whether to remove common stopwords
+        apply_lemmatization: Whether to apply lemmatization to words
+
+    Returns:
+        Preprocessed text as a string
+    """
     if not text or not text.strip():
-        logger.debug(f"Empty or whitespace-only input text: '{text}'")
         return ""
-    logger.debug(f"Preprocessing text: '{text}'")
+
+    # Normalize whitespace
     text = re.sub(r'\s+', ' ', text.strip())
+
+    # Expand contractions
     for contraction, expanded in TEXT_CONTRACTIONS_EN.items():
         text = re.sub(r'\b' + contraction + r'\b',
                       expanded, text, flags=re.IGNORECASE)
+
+    # Convert to lowercase
     text = text.lower()
+
+    # Remove unwanted characters, preserving specified ones
     preserve_chars = preserve_chars or {'-', '_'}
     pattern = r'[^a-z0-9\s' + ''.join(map(re.escape, preserve_chars)) + r']'
     text = re.sub(pattern, '', text)
-    text = re.sub(r'\s+', ' ', text.strip())
+
+    # Tokenize for stopword removal and lemmatization
+    words = word_tokenize(text)
+
+    # Remove stopwords if specified
     if remove_stopwords:
-        logger.warning("Stopword removal not implemented in this version")
+        stop_words = set(stopwords.words('english'))
+        words = [word for word in words if word not in stop_words]
+
+    # Apply lemmatization if specified
     if apply_lemmatization:
-        logger.warning("Lemmatization not implemented in this version")
-    logger.debug(f"Preprocessed text: '{text}'")
+        lemmatizer = WordNetLemmatizer()
+        words = [lemmatizer.lemmatize(word) for word in words]
+
+    # Join words back into a string and normalize whitespace
+    text = ' '.join(words)
+    text = re.sub(r'\s+', ' ', text.strip())
+
     return text
 
 
