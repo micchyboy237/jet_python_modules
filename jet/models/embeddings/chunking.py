@@ -13,7 +13,7 @@ class Metadata(TypedDict):
 class ChunkResult(TypedDict):
     id: str
     parent_id: Optional[str]
-    doc_id: str
+    header_doc_id: str
     doc_index: int
     chunk_index: int
     num_tokens: int
@@ -46,7 +46,7 @@ def chunk_headers_by_hierarchy(
     current = {
         "id": None,
         "parent_id": None,
-        "doc_id": None,
+        "header_doc_id": None,
         "content": [],
         "num_tokens": 0,
         "header": "",
@@ -74,7 +74,7 @@ def chunk_headers_by_hierarchy(
             chunk = {
                 "id": generate_unique_id(),
                 "parent_id": current["parent_id"],
-                "doc_id": current["doc_id"],
+                "header_doc_id": current["header_doc_id"],
                 "doc_index": current["doc_index"],
                 "chunk_index": current["chunk_index"],
                 "num_tokens": current["num_tokens"] + (len(header_tokens) if isinstance(header_tokens, list) else 0),
@@ -114,7 +114,7 @@ def chunk_headers_by_hierarchy(
             header_stack.append({
                 "level": current["level"],
                 "text": current["header"],
-                "doc_id": generate_unique_id()  # Store doc_id in header_stack
+                "header_doc_id": generate_unique_id()  # Store header_doc_id in header_stack
             })
             current["parent_header"] = next(
                 (h["text"] for h in header_stack[::-1]
@@ -125,10 +125,10 @@ def chunk_headers_by_hierarchy(
                  if h["level"] < current["level"]), None
             ) if current["level"] > 1 else None
             current["parent_id"] = next(
-                (h["doc_id"] for h in header_stack[::-1]
+                (h["header_doc_id"] for h in header_stack[::-1]
                  if h["level"] < current["level"]), None
             ) if current["level"] > 1 else None  # Assign parent_id
-            current["doc_id"] = header_stack[-1]["doc_id"]
+            current["header_doc_id"] = header_stack[-1]["header_doc_id"]
             current["doc_index"] = doc_index
             current["chunk_index"] = 0
             char_index += len(line_with_newline)
@@ -178,4 +178,59 @@ def chunk_headers_by_hierarchy(
         char_index += 1
 
     add_chunk()
+    return results
+
+
+class DocChunkResult(ChunkResult):
+    doc_id: str
+
+
+def chunk_docs_by_hierarchy(
+    markdown_texts: List[str],
+    chunk_size: int,
+    tokenizer: Optional[Union[
+        Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]],
+        TokenizerWrapper
+    ]] = None,
+    split_fn: Optional[Callable[[str], List[str]]] = None,
+    ids: Optional[List[str]] = None
+) -> List[DocChunkResult]:
+    """
+    Chunks a list of markdown documents by hierarchy, preserving document IDs.
+
+    Args:
+        markdown_texts: List of markdown text strings to chunk.
+        chunk_size: Maximum number of tokens per chunk.
+        tokenizer: Optional tokenizer function or TokenizerWrapper.
+        split_fn: Optional sentence splitting function.
+        ids: Optional list of document IDs; if None, generates unique IDs.
+
+    Returns:
+        List of DocChunkResult dictionaries containing chunked content with document IDs.
+    """
+    if tokenizer is None:
+        def tokenizer(x): return nltk.word_tokenize(x) if isinstance(
+            x, str) else [nltk.word_tokenize(t) for t in x]
+    split_fn = split_fn or nltk.sent_tokenize
+    results: List[DocChunkResult] = []
+    doc_ids = ids if ids else [generate_unique_id() for _ in markdown_texts]
+
+    if len(doc_ids) != len(markdown_texts):
+        raise ValueError(
+            "Number of provided IDs must match number of documents")
+
+    for doc_idx, (markdown_text, doc_id) in enumerate(zip(markdown_texts, doc_ids)):
+        # Get chunks for the current document using chunk_headers_by_hierarchy
+        doc_chunks = chunk_headers_by_hierarchy(
+            markdown_text, chunk_size, tokenizer, split_fn
+        )
+        # Update each chunk with the document ID and adjust doc_index to be unique across all documents
+        for chunk in doc_chunks:
+            chunk_result: DocChunkResult = {
+                **chunk,
+                "doc_id": doc_id,
+                "doc_index": doc_idx  # Override doc_index to reflect document position in input list
+            }
+            results.append(chunk_result)
+
     return results
