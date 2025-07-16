@@ -20,6 +20,7 @@ class ChunkResult(TypedDict):
     content: str
     level: int
     parent_level: Optional[int]
+    parent_id: Optional[str]  # Added parent_id
     metadata: Metadata
 
 
@@ -76,6 +77,7 @@ def chunk_headers_by_hierarchy(
                 "num_tokens": current["num_tokens"] + (len(header_tokens) if isinstance(header_tokens, list) else 0),
                 "header": current["header"],
                 "parent_header": current["parent_header"],
+                "parent_id": current["parent_id"],  # Include parent_id
                 "content": content_str,
                 "level": current["level"],
                 "parent_level": current["parent_level"],
@@ -99,7 +101,6 @@ def chunk_headers_by_hierarchy(
         if not line:
             char_index += len(line_with_newline)
             continue
-
         header_match = re.match(header_pattern, line, re.MULTILINE)
         if header_match:
             add_chunk()
@@ -108,8 +109,11 @@ def chunk_headers_by_hierarchy(
             current["header"] = header_match.group(0).strip()
             header_stack = [
                 h for h in header_stack if h["level"] < current["level"]]
-            header_stack.append(
-                {"level": current["level"], "text": current["header"]})
+            header_stack.append({
+                "level": current["level"],
+                "text": current["header"],
+                "doc_id": generate_unique_id()  # Store doc_id in header_stack
+            })
             current["parent_header"] = next(
                 (h["text"] for h in header_stack[::-1]
                  if h["level"] < current["level"]), None
@@ -118,7 +122,11 @@ def chunk_headers_by_hierarchy(
                 (h["level"] for h in header_stack[::-1]
                  if h["level"] < current["level"]), None
             ) if current["level"] > 1 else None
-            current["doc_id"] = generate_unique_id()
+            current["parent_id"] = next(
+                (h["doc_id"] for h in header_stack[::-1]
+                 if h["level"] < current["level"]), None
+            ) if current["level"] > 1 else None  # Assign parent_id
+            current["doc_id"] = header_stack[-1]["doc_id"]
             current["doc_index"] = doc_index
             current["chunk_index"] = 0
             char_index += len(line_with_newline)
