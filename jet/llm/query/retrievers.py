@@ -23,8 +23,7 @@ from jet.llm.retrievers.recursive import (
     query_nodes as query_nodes_recursive
 )
 from jet.actions.vector_semantic_search import VectorSemanticSearch
-from jet.llm.mlx.base import get_model_max_tokens
-from jet.token.token_utils import group_texts
+from jet.token.token_utils import group_texts, get_model_max_tokens
 from jet.utils.object import extract_values_by_paths
 from jet.vectors.node_parser.hierarchical import JetHierarchicalNodeParser
 from jet.vectors.utils import get_source_node_attributes

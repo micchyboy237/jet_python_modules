@@ -1,8 +1,9 @@
+import os
 from typing import Any, Optional, TypedDict
 from sklearn.feature_extraction.text import TfidfVectorizer
 from tqdm import tqdm
 from bs4 import BeautifulSoup
-from jet.file.utils import load_file
+from jet.file.utils import load_file, save_file
 from jet.logger import logger
 from jet.logger.timer import time_it
 from jet.search.formatters import clean_string
@@ -112,6 +113,9 @@ class BertSearch:
 
 
 if __name__ == "__main__":
+    output_dir = os.path.join(
+        os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+
     # data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/my-jobs/saved/jobs.json"
     data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/generated/search_web_data/scraped_texts.json"
     data = load_file(data_file)
@@ -145,12 +149,12 @@ if __name__ == "__main__":
     del token_info["results"]
     logger.debug(format_json(token_info))
 
-    copy_to_clipboard({
+    save_file({
         "query": query,
         "count": len(results),
         **token_info,
-        "data": results[:50]
-    })
+        "results": results,
+    }, f"{output_dir}/results.json")
 
     for idx, result in enumerate(results[:10]):
         logger.log(f"{idx + 1}:", result["text"]

@@ -249,7 +249,7 @@ def get_tokenizer(
 def get_tokenizer_fn(
     model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase, TokenizerWrapper],
     remove_pad_tokens: bool = False,
-    add_special_tokens: bool = True,
+    add_special_tokens: bool = False,
     disable_cache: bool = False,
     documents: Optional[Union[str, List[str]]] = None,
     **kwargs,
@@ -270,8 +270,8 @@ def get_tokenizer_fn(
         if documents is not None and tokenizer.model_max_length == int(1e30):
             tokenizer_wrapper = TokenizerWrapper(
                 tokenizer,
-                remove_pad_tokens=False,
-                add_special_tokens=True,
+                remove_pad_tokens=remove_pad_tokens,
+                add_special_tokens=add_special_tokens,
                 pad_token_id=tokenizer.pad_token_id,
                 max_length=None
             )

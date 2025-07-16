@@ -53,75 +53,106 @@ class TestChunkHeadersByHierarchy:
         tokenizer, split_fn, chunk_size = chunking_shared
         expected = [
             {
-                "content": "This is a sentence in root.",
+                "doc_id": "46e2c430-ddef-4d34-adb7-6fdc73c59fce",
+                "doc_index": 0,
+                "chunk_index": 0,
                 "num_tokens": 10,
                 "header": "# Root Header",
                 "parent_header": None,
+                "content": "This is a sentence in root.",
                 "level": 1,
                 "parent_level": None,
-                "doc_index": 0,
-                "chunk_index": 0,
-                "metadata": {"start_idx": 14, "end_idx": 40}
+                "metadata": {
+                    "start_idx": 15,
+                    "end_idx": 41
+                }
             },
             {
-                "content": "This is a very long sentence that fits chunksize.",
+                "doc_id": "7f441525-d17c-42c3-83fe-2c5439172b7b",
+                "doc_index": 1,
+                "chunk_index": 0,
                 "num_tokens": 15,
                 "header": "## Level 2 Header",
                 "parent_header": "# Root Header",
+                "content": "This is a very long sentence that fits chunksize.",
                 "level": 2,
                 "parent_level": 1,
-                "doc_index": 1,
-                "chunk_index": 0,
-                "metadata": {"start_idx": 59, "end_idx": 106}
+                "metadata": {
+                    "start_idx": 62,
+                    "end_idx": 110
+                }
             },
             {
-                "content": "Short sentence.\nJoined short sentence for merging.",
+                "doc_id": "7f441525-d17c-42c3-83fe-2c5439172b7b",
+                "doc_index": 1,
+                "chunk_index": 1,
                 "num_tokens": 14,
                 "header": "## Level 2 Header",
                 "parent_header": "# Root Header",
+                "content": "Short sentence.\nJoined short sentence for merging.",
                 "level": 2,
                 "parent_level": 1,
-                "doc_index": 1,
-                "chunk_index": 1,
-                "metadata": {"start_idx": 107, "end_idx": 162}
+                "metadata": {
+                    "start_idx": 112,
+                    "end_idx": 161
+                }
             },
             {
-                "content": "This is another long sentence.",
+                "doc_id": "d8a92ae1-da89-4d6f-88ad-1ebdc0a2e949",
+                "doc_index": 2,
+                "chunk_index": 0,
                 "num_tokens": 12,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
+                "content": "This is another long sentence.",
                 "level": 3,
                 "parent_level": 2,
-                "doc_index": 2,
-                "chunk_index": 0,
-                "metadata": {"start_idx": 181, "end_idx": 210}
+                "metadata": {
+                    "start_idx": 183,
+                    "end_idx": 212
+                }
             },
             {
-                "content": "This is a long sibling sentence.",
-                "num_tokens": 13,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "level": 3,
-                "parent_level": 2,
+                "doc_id": "d8a92ae1-da89-4d6f-88ad-1ebdc0a2e949",
                 "doc_index": 2,
                 "chunk_index": 1,
-                "metadata": {"start_idx": 211, "end_idx": 242}
-            },
-            {
-                "content": "This is the 5th long sentence.",
                 "num_tokens": 13,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
+                "content": "This is a long sibling sentence.",
                 "level": 3,
                 "parent_level": 2,
+                "metadata": {
+                    "start_idx": 214,
+                    "end_idx": 245
+                }
+            },
+            {
+                "doc_id": "d8a92ae1-da89-4d6f-88ad-1ebdc0a2e949",
                 "doc_index": 2,
                 "chunk_index": 2,
-                "metadata": {"start_idx": 243, "end_idx": 272}
+                "num_tokens": 13,
+                "header": "### Level 3 Header",
+                "parent_header": "## Level 2 Header",
+                "content": "This is the 5th long sentence.",
+                "level": 3,
+                "parent_level": 2,
+                "metadata": {
+                    "start_idx": 247,
+                    "end_idx": 276
+                }
             }
         ]
         results = chunk_headers_by_hierarchy(
             markdown_text, chunk_size, tokenizer, split_fn)
-        assert results == expected
+        assert len(results) == len(expected)
+        for res, exp in zip(results, expected):
+            # Check doc_id is present and is a string
+            assert isinstance(res["doc_id"], str) and res["doc_id"]
+            # Compare all other fields except doc_id
+            res_no_id = {k: v for k, v in res.items() if k != "doc_id"}
+            exp_no_id = {k: v for k, v in exp.items() if k != "doc_id"}
+            assert res_no_id == exp_no_id
 
     def test_chunk_headers_by_hierarchy_no_root(self, chunking_shared, markdown_text):
         # Generate initial chunks with no root
@@ -130,61 +161,88 @@ class TestChunkHeadersByHierarchy:
         tokenizer, split_fn, chunk_size = chunking_shared
         expected = [
             {
-                "content": "This is a very long sentence that fits chunksize.",
+                "doc_id": "a4fa0490-7fae-4425-b72d-822a928b8cc4",
+                "doc_index": 0,
+                "chunk_index": 0,
                 "num_tokens": 15,
                 "header": "## Level 2 Header",
                 "parent_header": None,
+                "content": "This is a very long sentence that fits chunksize.",
                 "level": 2,
                 "parent_level": None,
-                "doc_index": 0,
-                "chunk_index": 0,
-                "metadata": {"start_idx": 19, "end_idx": 66}
+                "metadata": {
+                    "start_idx": 19,
+                    "end_idx": 67
+                }
             },
             {
-                "content": "Short sentence.\nJoined short sentence for merging.",
+                "doc_id": "a4fa0490-7fae-4425-b72d-822a928b8cc4",
+                "doc_index": 0,
+                "chunk_index": 1,
                 "num_tokens": 14,
                 "header": "## Level 2 Header",
                 "parent_header": None,
+                "content": "Short sentence.\nJoined short sentence for merging.",
                 "level": 2,
                 "parent_level": None,
-                "doc_index": 0,
-                "chunk_index": 1,
-                "metadata": {"start_idx": 67, "end_idx": 122}
+                "metadata": {
+                    "start_idx": 69,
+                    "end_idx": 118
+                }
             },
             {
-                "content": "This is another long sentence.",
+                "doc_id": "46e2a72a-9daa-49ea-b49b-b996b5b45ef5",
+                "doc_index": 1,
+                "chunk_index": 0,
                 "num_tokens": 12,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
+                "content": "This is another long sentence.",
                 "level": 3,
                 "parent_level": 2,
-                "doc_index": 1,
-                "chunk_index": 0,
-                "metadata": {"start_idx": 141, "end_idx": 170}
+                "metadata": {
+                    "start_idx": 140,
+                    "end_idx": 169
+                }
             },
             {
-                "content": "This is a long sibling sentence.",
-                "num_tokens": 13,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "level": 3,
-                "parent_level": 2,
+                "doc_id": "46e2a72a-9daa-49ea-b49b-b996b5b45ef5",
                 "doc_index": 1,
                 "chunk_index": 1,
-                "metadata": {"start_idx": 171, "end_idx": 202}
-            },
-            {
-                "content": "This is the 5th long sentence.",
                 "num_tokens": 13,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
+                "content": "This is a long sibling sentence.",
                 "level": 3,
                 "parent_level": 2,
+                "metadata": {
+                    "start_idx": 171,
+                    "end_idx": 202
+                }
+            },
+            {
+                "doc_id": "46e2a72a-9daa-49ea-b49b-b996b5b45ef5",
                 "doc_index": 1,
                 "chunk_index": 2,
-                "metadata": {"start_idx": 203, "end_idx": 232}
+                "num_tokens": 13,
+                "header": "### Level 3 Header",
+                "parent_header": "## Level 2 Header",
+                "content": "This is the 5th long sentence.",
+                "level": 3,
+                "parent_level": 2,
+                "metadata": {
+                    "start_idx": 204,
+                    "end_idx": 233
+                }
             }
         ]
         results = chunk_headers_by_hierarchy(
             markdown_text, chunk_size, tokenizer, split_fn)
-        assert results == expected
+        assert len(results) == len(expected)
+        for res, exp in zip(results, expected):
+            # Check doc_id is present and is a string
+            assert isinstance(res["doc_id"], str) and res["doc_id"]
+            # Compare all other fields except doc_id
+            res_no_id = {k: v for k, v in res.items() if k != "doc_id"}
+            exp_no_id = {k: v for k, v in exp.items() if k != "doc_id"}
+            assert res_no_id == exp_no_id
