@@ -434,15 +434,18 @@ def derive_text(token: MarkdownToken) -> str:
         else:
             header = token['meta']['header']
             rows = token['meta']['rows']
-            widths = [max(len(str(cell)) for row in [header] +
-                          rows for cell in row[i:i+1]) for i in range(len(header))]
+            # Calculate widths based on header and rows, considering only header's column count
+            widths = [max(len(str(cell)) for row in [
+                          header] + rows for cell in row[i:i+1] or [""]) for i in range(len(header))]
             lines = ['| ' + ' | '.join(cell.ljust(widths[i])
                                        for i, cell in enumerate(header)) + ' |']
             lines.append(
                 '| ' + ' | '.join('-' * width for width in widths) + ' |')
             for row in rows:
+                # Pad or truncate row to match header length
+                adjusted_row = (row + [""] * len(header))[:len(header)]
                 lines.append(
-                    '| ' + ' | '.join(str(cell).ljust(widths[i]) for i, cell in enumerate(row)) + ' |')
+                    '| ' + ' | '.join(str(cell).ljust(widths[i]) for i, cell in enumerate(adjusted_row)) + ' |')
             result = '\n'.join(lines)
 
     elif token['type'] == 'code':
