@@ -14,17 +14,19 @@ class TestPhraseDetector:
             "Artificial intelligence and machine learning are key technologies",
             "Cloud computing supports machine learning"
         ]
+        # When: Initializing PhraseDetector with sentences as first argument
         detector = PhraseDetector(
-            model_path=str(model_path),
             sentences=sentences,
+            model_path=str(model_path),
             min_count=2,
             threshold=0.3,
             reset_cache=True
         )
+        # Then: Return detector, sentences, and model_path for testing
         yield detector, sentences, model_path
-        # Cleanup handled by tmp_path
 
     def test_detect_phrases(self, setup_detector):
+        # Given: A configured PhraseDetector and input texts
         detector, texts, _ = setup_detector
         expected = [
             {
@@ -61,7 +63,9 @@ class TestPhraseDetector:
                 ]
             }
         ]
+        # When: Detecting phrases in the input texts
         result = list(detector.detect_phrases(texts))
+        # Then: Verify the detected phrases match expected output
         for res, exp in zip(result, expected):
             assert res["index"] == exp["index"], f"Expected index {exp['index']}, got {res['index']}"
             assert res["sentence"] == exp[
@@ -76,7 +80,7 @@ class TestPhraseDetector:
                     e["score"], abs=0.1), f"Expected score {e['score']}, got {r['score']}"
 
     def test_extract_phrases(self, setup_detector):
-        # Given: A detector and test texts
+        # Given: A configured PhraseDetector and input texts
         detector, texts, _ = setup_detector
         expected = [
             "artificial intelligence",
@@ -84,15 +88,13 @@ class TestPhraseDetector:
             "key technologies",
             "machine learning"
         ]
-
-        # When: Extracting phrases
+        # When: Extracting phrases from the texts
         result = detector.extract_phrases(texts)
-
-        # Then: Verify extracted phrases
+        # Then: Verify the extracted phrases match the expected list
         assert result == expected, f"Expected phrases {expected}, got {result}"
 
     def test_get_phrase_grams(self, setup_detector):
-        # Given: A detector with prebuilt phrase grams
+        # Given: A configured PhraseDetector
         detector, _, _ = setup_detector
         expected = {
             "cloud computing": pytest.approx(0.7, abs=0.1),
@@ -100,11 +102,9 @@ class TestPhraseDetector:
             "key technologies": pytest.approx(0.6, abs=0.1),
             "machine learning": pytest.approx(0.6, abs=0.1),
         }
-
-        # When: Getting phrase grams with a threshold
+        # When: Retrieving phrase grams with a threshold
         result = detector.get_phrase_grams(threshold=0.3)
-
-        # Then: Verify phrase grams and scores
+        # Then: Verify the retrieved phrase grams match the expected dictionary
         assert len(result) == len(
             expected), f"Expected {len(expected)} phrases, got {len(result)}"
         for phrase, score in expected.items():
@@ -112,7 +112,7 @@ class TestPhraseDetector:
             assert result[phrase] == score, f"Expected score {score} for {phrase}, got {result[phrase]}"
 
     def test_query(self, setup_detector):
-        # Given: A detector and sample queries
+        # Given: A configured PhraseDetector and sample queries
         detector, _, _ = setup_detector
         queries = ["machine learning", "cloud"]
         expected = [
@@ -127,17 +127,49 @@ class TestPhraseDetector:
                 "score": pytest.approx(0.6, abs=0.1)
             },
         ]
-
-        # When: Querying phrase grams
+        # When: Querying the detector with specific terms
         result = detector.query(queries)
-
-        # Then: Verify query results
+        # Then: Verify the query results match the expected output
         assert len(result) == len(
             expected), f"Expected {len(expected)} results, got {len(result)}"
         for res, exp in zip(result, expected):
             assert res["query"] == exp["query"], f"Expected query {exp['query']}, got {res['query']}"
             assert res["phrase"] == exp["phrase"], f"Expected phrase {exp['phrase']}, got {res['phrase']}"
             assert res["score"] == exp["score"], f"Expected score {exp['score']}, got {res['score']}"
+
+    def test_filter_phrases_without_noun_or_propn(self, setup_detector):
+        # Given: A configured PhraseDetector and input text with non-noun phrases
+        detector, _, _ = setup_detector
+        texts = [
+            "Very quickly running smoothly",
+            "Artificial intelligence is highly effective"
+        ]
+        expected = [
+            {
+                "index": 1,
+                "sentence": "Artificial intelligence is highly effective",
+                "phrases": ["artificial intelligence"],
+                "results": [
+                    {"phrase": "artificial intelligence",
+                        "score": pytest.approx(0.6, abs=0.1)}
+                ]
+            }
+        ]
+        # When: Detecting phrases in the input texts
+        result = list(detector.detect_phrases(texts))
+        # Then: Verify that only phrases with NOUN or PROPN are included
+        assert len(result) == len(
+            expected), f"Expected {len(expected)} results, got {len(result)}"
+        for res, exp in zip(result, expected):
+            assert res["index"] == exp["index"], f"Expected index {exp['index']}, got {res['index']}"
+            assert res["sentence"] == exp[
+                "sentence"], f"Expected sentence {exp['sentence']}, got {res['sentence']}"
+            assert res["phrases"] == exp[
+                "phrases"], f"Expected phrases {exp['phrases']}, got {res['phrases']}"
+            for r, e in zip(res["results"], exp["results"]):
+                assert r["phrase"] == e["phrase"], f"Expected phrase {e['phrase']}, got {r['phrase']}"
+                assert r["score"] == pytest.approx(
+                    e["score"], abs=0.1), f"Expected score {e['score']}, got {r['score']}"
 
 
 if __name__ == "__main__":

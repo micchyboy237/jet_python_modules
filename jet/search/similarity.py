@@ -18,7 +18,6 @@ from typing import Optional, TypedDict
 # from gensim.corpora import Dictionary
 # from gensim.models import TfidfModel, OkapiBM25Model
 # from gensim.similarities import SparseMatrixSimilarity
-from jet.wordnet.gensim_scripts.phrase_detector import PhraseDetector
 from jet.logger import logger
 from jet.scrapers.utils import clean_newlines, clean_punctuations, clean_spaces
 from jet.search.formatters import clean_string

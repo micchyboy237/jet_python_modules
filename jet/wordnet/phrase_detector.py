@@ -1,18 +1,19 @@
 from typing import Generator, Optional, TypedDict, List
+from jet.logger.timer import time_it
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 from jet.wordnet.sentence import split_by_punctuations, split_sentences
 from jet.wordnet.words import get_words
 from keybert import KeyBERT
 from nltk.corpus import stopwords
+from tqdm import tqdm
 import pickle
 import os
 import spacy
 import nltk
+import spacy.tokens
 
-# Initialize NLTK data
 nltk.download('stopwords', quiet=True)
-
 ENGLISH_STOPWORDS = set(stopwords.words('english'))
 
 
@@ -36,30 +37,42 @@ class QueryPhraseResult(TypedDict):
 
 class PhraseDetector:
     phrasegrams: dict[str, float]
+    _spacy_cache: dict[str, spacy.tokens.Doc]
 
-    def __init__(self, model_path: str, embed_model: EmbedModelType = "all-MiniLM-L6-v2", sentences: list[str] = [], min_count: int = 3, threshold: float = 0.1, *args, punctuations_split: list[str] = [',', '/', ':'], reset_cache: bool = False, **kwargs):
+    def __init__(self, sentences: list[str], model_path: Optional[str] = None, embed_model: EmbedModelType = "all-MiniLM-L6-v2",
+                 min_count: int = 3, threshold: float = 0.1, punctuations_split: list[str] = [',', '/', ':'],
+                 reset_cache: bool = False, *args, **kwargs):
+        self.model_path = model_path
         self.punctuations_split = punctuations_split
         self.min_count = min_count
         self.threshold = threshold
         st_model = SentenceTransformerRegistry.load_model(embed_model)
         self.model = KeyBERT(st_model)
+        # Enable parser for noun_chunks
         self.nlp = spacy.load("en_core_web_sm", disable=["ner"])
+        self._spacy_cache = {}  # Initialize spaCy cache
 
-        if not os.path.exists(model_path) or reset_cache:
-            if not sentences or len(sentences) < 2:
-                raise ValueError("'sentences' must have at least 2 items.")
-            sentences = list(set(sentences))
-            self.phrasegrams = self._build_phrasegrams(sentences)
-            self.save_model(model_path)
-        else:
-            self.load_model(model_path)
+        if not sentences or len(sentences) < 2:
+            raise ValueError("'sentences' must have at least 2 items.")
+        sentences = list(set(sentences))
+        self.phrasegrams = self._build_phrasegrams(sentences)
+
+        if self.model_path and (not os.path.exists(self.model_path) or reset_cache):
+            self.save_model()
+        elif self.model_path:
+            self.load_model()
 
     def _filter_phrases(self, phrases: List[tuple[str, float]], sentence: str) -> List[tuple[str, float]]:
-        doc = self.nlp(sentence.lower())
+        # Use cached spaCy Doc if available, otherwise process and cache
+        if sentence.lower() not in self._spacy_cache:
+            self._spacy_cache[sentence.lower()] = self.nlp(sentence.lower())
+        doc = self._spacy_cache[sentence.lower()]
         noun_phrases = {chunk.text.lower() for chunk in doc.noun_chunks}
         filtered = []
         for phrase, score in phrases:
-            doc_phrase = self.nlp(phrase)
+            if phrase not in self._spacy_cache:
+                self._spacy_cache[phrase] = self.nlp(phrase)
+            doc_phrase = self._spacy_cache[phrase]
             is_valid = (
                 phrase in noun_phrases and
                 all(token.pos_ in ["NOUN", "PROPN", "ADJ", "ADV"] for token in doc_phrase) and
@@ -69,43 +82,77 @@ class PhraseDetector:
                 filtered.append((phrase, score))
         return filtered
 
+    @time_it
     def _build_phrasegrams(self, sentences: List[str]) -> dict[str, float]:
         phrasegrams = {}
-        for sentence in sentences:
+        # Pre-filter sentences with at least 2 words
+        valid_sentences = [s for s in sentences if len(get_words(s)) >= 2]
+        if not valid_sentences:
+            return phrasegrams
+
+        # Batch process sub-sentences
+        all_sub_sentences = []
+        sentence_map = []
+        for sentence in valid_sentences:
             sub_sentences = split_by_punctuations(
                 sentence, self.punctuations_split)
             for sub_sentence in sub_sentences:
-                words = get_words(sub_sentence)
-                if not words:
-                    continue
-                keyphrases = self.model.extract_keywords(
-                    sub_sentence.lower(),
-                    keyphrase_ngram_range=(2, 2),
-                    stop_words=list(ENGLISH_STOPWORDS),
-                    top_n=self.min_count + 2,
-                    use_mmr=True
-                )
-                filtered_phrases = self._filter_phrases(
-                    keyphrases, sub_sentence)
-                for phrase, score in filtered_phrases:
-                    if score >= self.threshold:
-                        phrasegrams[phrase] = max(
-                            phrasegrams.get(phrase, 0), score)
+                if len(get_words(sub_sentence)) >= 2:
+                    all_sub_sentences.append(sub_sentence.lower())
+                    sentence_map.append(sub_sentence)
+
+        # Batch keyword extraction
+        if all_sub_sentences:
+            keyphrases_batch = self.model.extract_keywords(
+                all_sub_sentences,
+                keyphrase_ngram_range=(2, 2),
+                stop_words=list(ENGLISH_STOPWORDS),
+                top_n=self.min_count + 2,
+                use_mmr=True
+            )
+
+        iterable = tqdm(zip(all_sub_sentences, keyphrases_batch, sentence_map),
+                        desc="Building phrasegrams", total=len(all_sub_sentences)) if tqdm else zip(all_sub_sentences, keyphrases_batch, sentence_map)
+
+        for sub_sentence, keyphrases, original_sentence in iterable:
+            filtered_phrases = self._filter_phrases(
+                keyphrases, original_sentence)
+            for phrase, score in filtered_phrases:
+                if score >= self.threshold:
+                    phrasegrams[phrase] = max(
+                        phrasegrams.get(phrase, 0), score)
+
         return phrasegrams
 
-    def load_model(self, model_path: str, *args, **kwargs) -> None:
-        with open(model_path, 'rb') as f:
+    @time_it
+    def load_model(self, model_path: Optional[str] = None, *args, **kwargs) -> None:
+        path = model_path if model_path is not None else self.model_path
+        if path is None:
+            raise ValueError(
+                "No model_path provided and self.model_path is None")
+        with open(path, 'rb') as f:
             self.phrasegrams = pickle.load(f)
+        self._spacy_cache = {}  # Reset cache on load
 
-    def save_model(self, model_path: str) -> None:
-        with open(model_path, 'wb') as f:
+    @time_it
+    def save_model(self, model_path: Optional[str] = None) -> None:
+        path = model_path if model_path is not None else self.model_path
+        if path is None:
+            raise ValueError(
+                "No model_path provided and self.model_path is None")
+        with open(path, 'wb') as f:
             pickle.dump(self.phrasegrams, f)
 
+    @time_it
     def detect_phrases(self, texts: List[str]) -> Generator[DetectedPhrase, None, None]:
-        for idx, text in enumerate(texts):
+        iterable = tqdm(
+            texts, desc="Detecting phrases in texts") if tqdm else texts
+        for idx, text in enumerate(iterable):
             sentences = split_sentences(text)
+            sentence_iterable = tqdm(
+                sentences, desc=f"Processing text {idx+1}", leave=False) if tqdm else sentences
             sentence_dict = {}
-            for sentence in sentences:
+            for sentence in sentence_iterable:
                 sub_sentences = split_by_punctuations(
                     sentence, self.punctuations_split)
                 for sub_sentence in sub_sentences:
@@ -136,12 +183,17 @@ class PhraseDetector:
                     }
                 sentence_dict.clear()
 
+    @time_it
     def extract_phrases(self, texts: List[str]) -> List[str]:
         results: List[str] = []
         seen_phrases = set()
-        for text in texts:
+        iterable = tqdm(
+            texts, desc="Extracting phrases from texts") if tqdm else texts
+        for text in iterable:
             sentences = split_sentences(text.lower())
-            for sentence in sentences:
+            sentence_iterable = tqdm(
+                sentences, desc="Processing sentences", leave=False) if tqdm else sentences
+            for sentence in sentence_iterable:
                 sub_sentences = split_by_punctuations(
                     sentence, self.punctuations_split)
                 for sub_sentence in sub_sentences:
@@ -172,6 +224,7 @@ class PhraseDetector:
         ]
         return {result["phrase"]: result["score"] for result in results}
 
+    @time_it
     def query(self, queries: str | List[str]) -> List[QueryPhraseResult]:
         if isinstance(queries, str):
             queries = [queries]
@@ -189,6 +242,7 @@ class PhraseDetector:
                     })
         return sorted(results, key=lambda x: x["phrase"])
 
+    @time_it
     def transform_queries(self, queries: str | List[str]) -> List[str]:
         if isinstance(queries, str):
             queries = [queries]

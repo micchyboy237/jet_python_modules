@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException
 from jet.file.utils import load_file
-from jet.search.similarity import get_bm25_similarities
 from jet.search.formatters import clean_string
 from pydantic import BaseModel
 from typing import List
@@ -24,8 +23,7 @@ def setup_phrase_detector(sentences):
     global phrase_detector
 
     if not phrase_detector:
-        phrase_detector = PhraseDetector(
-            PHRASE_MODEL_PATH, sentences, reset_cache=True)
+        phrase_detector = PhraseDetector(sentences, reset_cache=True)
 
     return phrase_detector
 
