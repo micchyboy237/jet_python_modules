@@ -11,6 +11,7 @@ class Metadata(TypedDict):
 
 
 class ChunkResult(TypedDict):
+    id: str
     parent_id: Optional[str]
     doc_id: str
     doc_index: int
@@ -36,15 +37,14 @@ def chunk_headers_by_hierarchy(
     if tokenizer is None:
         def tokenizer(x): return nltk.word_tokenize(x) if isinstance(
             x, str) else [nltk.word_tokenize(t) for t in x]
-
     split_fn = split_fn or nltk.sent_tokenize
     if not markdown_text.strip():
         return []
-
     lines = markdown_text.strip().split('\n')
     header_pattern = r'^(#{1,6})\s+(.+)$'
     results = []
     current = {
+        "id": None,
         "parent_id": None,
         "doc_id": None,
         "content": [],
@@ -72,6 +72,7 @@ def chunk_headers_by_hierarchy(
             ) if current["header"] else []
             content_str = "\n".join(current["content"]).strip()
             chunk = {
+                "id": generate_unique_id(),
                 "parent_id": current["parent_id"],
                 "doc_id": current["doc_id"],
                 "doc_index": current["doc_index"],

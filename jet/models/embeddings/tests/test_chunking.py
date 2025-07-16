@@ -53,13 +53,14 @@ class TestChunkHeadersByHierarchy:
         tokenizer, split_fn, chunk_size = chunking_shared
         expected = [
             {
-                "doc_id": "8e971026-03ec-411e-9fa6-ff61893bc1dc",
+                "id": "86472f83-3503-46cb-b80d-63d4a5aaf564",
+                "parent_id": None,
+                "doc_id": "dce2fa07-5470-4822-90a4-2bdc481cc41c",
                 "doc_index": 0,
                 "chunk_index": 0,
                 "num_tokens": 10,
                 "header": "# Root Header",
                 "parent_header": None,
-                "parent_id": None,
                 "content": "This is a sentence in root.",
                 "level": 1,
                 "parent_level": None,
@@ -69,13 +70,14 @@ class TestChunkHeadersByHierarchy:
                 }
             },
             {
-                "doc_id": "ded79015-2296-4302-b215-efca689f2887",
+                "id": "0511bc15-0b5d-437e-8fdc-e105db96fe1c",
+                "parent_id": "dce2fa07-5470-4822-90a4-2bdc481cc41c",
+                "doc_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
                 "doc_index": 1,
                 "chunk_index": 0,
                 "num_tokens": 15,
                 "header": "## Level 2 Header",
                 "parent_header": "# Root Header",
-                "parent_id": "8e971026-03ec-411e-9fa6-ff61893bc1dc",
                 "content": "This is a very long sentence that fits chunksize.",
                 "level": 2,
                 "parent_level": 1,
@@ -85,13 +87,14 @@ class TestChunkHeadersByHierarchy:
                 }
             },
             {
-                "doc_id": "ded79015-2296-4302-b215-efca689f2887",
+                "id": "e87d7ed2-7017-4dad-8b90-a1ec5af65bd4",
+                "parent_id": "dce2fa07-5470-4822-90a4-2bdc481cc41c",
+                "doc_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
                 "doc_index": 1,
                 "chunk_index": 1,
                 "num_tokens": 14,
                 "header": "## Level 2 Header",
                 "parent_header": "# Root Header",
-                "parent_id": "8e971026-03ec-411e-9fa6-ff61893bc1dc",
                 "content": "Short sentence.\nJoined short sentence for merging.",
                 "level": 2,
                 "parent_level": 1,
@@ -101,13 +104,14 @@ class TestChunkHeadersByHierarchy:
                 }
             },
             {
-                "doc_id": "d9aa54e0-36a0-47b3-942c-edbe98a54ce6",
+                "id": "7f79b935-11f2-4e45-9fa1-918c0a8cf467",
+                "parent_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
+                "doc_id": "dd52452f-2e93-47e9-9bbc-18c8bac87fe5",
                 "doc_index": 2,
                 "chunk_index": 0,
                 "num_tokens": 12,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
-                "parent_id": "ded79015-2296-4302-b215-efca689f2887",
                 "content": "This is another long sentence.",
                 "level": 3,
                 "parent_level": 2,
@@ -117,13 +121,14 @@ class TestChunkHeadersByHierarchy:
                 }
             },
             {
-                "doc_id": "d9aa54e0-36a0-47b3-942c-edbe98a54ce6",
+                "id": "897c107f-8138-4b62-a5cd-386589d4fcd4",
+                "parent_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
+                "doc_id": "dd52452f-2e93-47e9-9bbc-18c8bac87fe5",
                 "doc_index": 2,
                 "chunk_index": 1,
                 "num_tokens": 13,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
-                "parent_id": "ded79015-2296-4302-b215-efca689f2887",
                 "content": "This is a long sibling sentence.",
                 "level": 3,
                 "parent_level": 2,
@@ -133,13 +138,14 @@ class TestChunkHeadersByHierarchy:
                 }
             },
             {
-                "doc_id": "d9aa54e0-36a0-47b3-942c-edbe98a54ce6",
+                "id": "2449d6a6-0a71-4944-bb47-9a61006adbf9",
+                "parent_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
+                "doc_id": "dd52452f-2e93-47e9-9bbc-18c8bac87fe5",
                 "doc_index": 2,
                 "chunk_index": 2,
                 "num_tokens": 13,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
-                "parent_id": "ded79015-2296-4302-b215-efca689f2887",
                 "content": "This is the 5th long sentence.",
                 "level": 3,
                 "parent_level": 2,
@@ -153,13 +159,13 @@ class TestChunkHeadersByHierarchy:
             markdown_text, chunk_size, tokenizer, split_fn)
         assert len(results) == len(expected)
         for res, exp in zip(results, expected):
+            assert isinstance(res["id"], str) and res["id"]
             assert isinstance(res["doc_id"], str) and res["doc_id"]
-            assert isinstance(res.get("parent_id", None),
-                              (str, type(None)))  # Validate parent_id
+            assert isinstance(res.get("parent_id", None), (str, type(None)))
             res_no_ids = {k: v for k, v in res.items() if k not in [
-                "doc_id", "parent_id"]}
+                "id", "doc_id", "parent_id"]}
             exp_no_ids = {k: v for k, v in exp.items() if k not in [
-                "doc_id", "parent_id"]}
+                "id", "doc_id", "parent_id"]}
             assert res_no_ids == exp_no_ids
 
     def test_chunk_headers_by_hierarchy_no_root(self, chunking_shared, markdown_text):
@@ -169,13 +175,14 @@ class TestChunkHeadersByHierarchy:
         tokenizer, split_fn, chunk_size = chunking_shared
         expected = [
             {
-                "doc_id": "a55918fc-2e4c-4502-9331-9cd52d885fe2",
+                "id": "6fd6dacb-025b-4e91-9e7f-d3c48367ddaa",
+                "parent_id": None,
+                "doc_id": "515581a4-941e-48e8-b658-03c698fae9d5",
                 "doc_index": 0,
                 "chunk_index": 0,
                 "num_tokens": 15,
                 "header": "## Level 2 Header",
                 "parent_header": None,
-                "parent_id": None,
                 "content": "This is a very long sentence that fits chunksize.",
                 "level": 2,
                 "parent_level": None,
@@ -185,13 +192,14 @@ class TestChunkHeadersByHierarchy:
                 }
             },
             {
-                "doc_id": "a55918fc-2e4c-4502-9331-9cd52d885fe2",
+                "id": "03b8dbdb-b6f5-4a82-a803-c10278dfabbb",
+                "parent_id": None,
+                "doc_id": "515581a4-941e-48e8-b658-03c698fae9d5",
                 "doc_index": 0,
                 "chunk_index": 1,
                 "num_tokens": 14,
                 "header": "## Level 2 Header",
                 "parent_header": None,
-                "parent_id": None,
                 "content": "Short sentence.\nJoined short sentence for merging.",
                 "level": 2,
                 "parent_level": None,
@@ -201,13 +209,14 @@ class TestChunkHeadersByHierarchy:
                 }
             },
             {
-                "doc_id": "bd87bd23-327a-43b6-9be4-64ab9adaa748",
+                "id": "8778a759-c476-4a91-b1b9-b89fabcdaadd",
+                "parent_id": "515581a4-941e-48e8-b658-03c698fae9d5",
+                "doc_id": "4d7c36a2-8450-48f4-bdb2-904d90067ee3",
                 "doc_index": 1,
                 "chunk_index": 0,
                 "num_tokens": 12,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
-                "parent_id": "a55918fc-2e4c-4502-9331-9cd52d885fe2",
                 "content": "This is another long sentence.",
                 "level": 3,
                 "parent_level": 2,
@@ -217,13 +226,14 @@ class TestChunkHeadersByHierarchy:
                 }
             },
             {
-                "doc_id": "bd87bd23-327a-43b6-9be4-64ab9adaa748",
+                "id": "5f494cee-3371-42c0-9d02-b222c8a83e8f",
+                "parent_id": "515581a4-941e-48e8-b658-03c698fae9d5",
+                "doc_id": "4d7c36a2-8450-48f4-bdb2-904d90067ee3",
                 "doc_index": 1,
                 "chunk_index": 1,
                 "num_tokens": 13,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
-                "parent_id": "a55918fc-2e4c-4502-9331-9cd52d885fe2",
                 "content": "This is a long sibling sentence.",
                 "level": 3,
                 "parent_level": 2,
@@ -233,13 +243,14 @@ class TestChunkHeadersByHierarchy:
                 }
             },
             {
-                "doc_id": "bd87bd23-327a-43b6-9be4-64ab9adaa748",
+                "id": "0970804a-2296-4a09-a49b-f439f4c6f974",
+                "parent_id": "515581a4-941e-48e8-b658-03c698fae9d5",
+                "doc_id": "4d7c36a2-8450-48f4-bdb2-904d90067ee3",
                 "doc_index": 1,
                 "chunk_index": 2,
                 "num_tokens": 13,
                 "header": "### Level 3 Header",
                 "parent_header": "## Level 2 Header",
-                "parent_id": "a55918fc-2e4c-4502-9331-9cd52d885fe2",
                 "content": "This is the 5th long sentence.",
                 "level": 3,
                 "parent_level": 2,
@@ -253,11 +264,11 @@ class TestChunkHeadersByHierarchy:
             markdown_text, chunk_size, tokenizer, split_fn)
         assert len(results) == len(expected)
         for res, exp in zip(results, expected):
+            assert isinstance(res["id"], str) and res["id"]
             assert isinstance(res["doc_id"], str) and res["doc_id"]
-            assert isinstance(res.get("parent_id", None),
-                              (str, type(None)))  # Validate parent_id
+            assert isinstance(res.get("parent_id", None), (str, type(None)))
             res_no_ids = {k: v for k, v in res.items() if k not in [
-                "doc_id", "parent_id"]}
+                "id", "doc_id", "parent_id"]}
             exp_no_ids = {k: v for k, v in exp.items() if k not in [
-                "doc_id", "parent_id"]}
+                "id", "doc_id", "parent_id"]}
             assert res_no_ids == exp_no_ids
