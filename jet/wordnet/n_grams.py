@@ -33,12 +33,12 @@ def separate_ngram_lines(texts: str | list[str], punctuations_split: list[str] =
         text = text.strip()
         if not text:
             continue
-        sentences = split_sentences(text)
-        sentences = list(set(sentences))  # Remove duplicates
-        for sentence in sentences:
-            sub_sentences = split_by_punctuations(
-                sentence.strip(), punctuations_split)
-            results.extend([s.strip() for s in sub_sentences if s.strip()])
+        lines = text.splitlines()
+        lines = list(set(lines))  # Remove duplicates
+        for line in lines:
+            sub_lines = split_by_punctuations(
+                line.strip(), punctuations_split)
+            results.extend([s.strip() for s in sub_lines if s.strip()])
     # Sort results to ensure consistent order
     return sorted(results)
 
@@ -46,16 +46,16 @@ def separate_ngram_lines(texts: str | list[str], punctuations_split: list[str] =
 def extract_ngrams(texts: Union[str, List[str]], min_words: int = 1, max_words: int = 1) -> list[str]:
     if isinstance(texts, str):
         texts = [texts]
-    texts = separate_ngram_lines(texts)
+    lines = separate_ngram_lines(texts)
     ngrams: list[str] = []
-    for text in texts:
+    for line in lines:
         n_min = min_words
         n_max = max_words
         if n_max > n_min:
             for n_val in range(n_min, n_max + 1):
-                ngrams.extend(get_words(text, n_val))
+                ngrams.extend(get_words(line, n_val))
         else:
-            ngrams.extend(get_words(text, n_min))
+            ngrams.extend(get_words(line, n_min))
     return ngrams
 
 
@@ -69,12 +69,12 @@ def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Op
         max_words = max((count_words(text)
                         for text in texts if text.strip()), default=1)
     if from_start:
-        sentences = separate_ngram_lines(texts)
+        lines = separate_ngram_lines(texts)
         ngrams = []
-        for sentence in sentences:
-            words = sentence.split()
-            for n in range(min_words, min(max_words, len(words)) + 1):
-                ngrams.append(" ".join(words[:n]))
+        for line in lines:
+            line_ngrams = extract_ngrams(
+                line, min_words=min_words, max_words=max_words)
+            ngrams.extend(line_ngrams)
     else:
         ngrams = extract_ngrams(
             texts, min_words=min_words, max_words=max_words)

@@ -1,9 +1,13 @@
-from typing import Optional, TypedDict, List, Dict
+from typing import Optional, TypedDict, List, Dict, Union
 import numpy as np
 from jet.data.header_utils._prepare_for_rag import preprocess_text
 from jet.data.utils import generate_unique_id
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
+
+
+class Metadata(TypedDict, total=False):
+    query_scores: Dict[str, float]
 
 
 class SearchResult(TypedDict):
@@ -12,7 +16,7 @@ class SearchResult(TypedDict):
     header: str
     content: str
     id: str
-    metadata: Dict
+    metadata: Metadata
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -21,19 +25,24 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def vector_search(
-    query: str,
+    query: Union[str, List[str]],
     texts: List[str],
     embed_model: EmbedModelType,
     top_k: Optional[int] = None,
     ids: Optional[List[str]] = None,
     metadatas: Optional[List[Dict]] = None
 ) -> List[SearchResult]:
-    """Perform vector search with chunking and return ranked results."""
+    """Perform vector search with chunking and return ranked results. Supports single query or list of queries."""
     # Validate inputs
     if ids is not None and len(ids) != len(texts):
         raise ValueError("Length of ids must match length of texts")
     if metadatas is not None and len(metadatas) != len(texts):
         raise ValueError("Length of metadatas must match length of texts")
+
+    # Convert single query to list for uniform processing
+    queries = [query] if isinstance(query, str) else query
+    if not queries:
+        raise ValueError("Query list cannot be empty")
 
     # Generate IDs if not provided
     if ids is None:
@@ -48,27 +57,36 @@ def vector_search(
     for doc_idx, (text, doc_id, metadata) in enumerate(zip(texts, ids, metadatas)):
         chunk_to_doc.append((doc_idx, text, doc_id, metadata))
 
-    # Preprocess text
+    # Preprocess texts
     preprocessed_texts = [preprocess_text(text) for text in texts]
+    preprocessed_queries = [preprocess_text(q) for q in queries]
 
-    # Generate embeddings for query and all chunks
+    # Generate embeddings for queries and all chunks
     embeddings = generate_embeddings(
-        [query] + preprocessed_texts,
+        preprocessed_queries + preprocessed_texts,
         embed_model,
         return_format="numpy",
         show_progress=True,
         batch_size=64
     )
 
-    query_embedding = embeddings[0]
-    chunk_embeddings = embeddings[1:]
+    query_embeddings = embeddings[:len(queries)]
+    chunk_embeddings = embeddings[len(queries):]
 
-    # Calculate similarities
-    similarities = [
-        (cosine_similarity(query_embedding, chunk_emb),
-         doc_idx, orig_text, doc_id, metadata)
-        for chunk_emb, (doc_idx, orig_text, doc_id, metadata) in zip(chunk_embeddings, chunk_to_doc)
-    ]
+    # Calculate similarities for each query and store individual scores
+    similarities = []
+    for chunk_emb, (doc_idx, orig_text, doc_id, metadata) in zip(chunk_embeddings, chunk_to_doc):
+        # Compute similarity for each query
+        scores = [cosine_similarity(query_emb, chunk_emb)
+                  for query_emb in query_embeddings]
+        max_score = float(np.max(scores))  # Use max instead of average
+        # Create a new metadata dict with individual scores if query is a list
+        new_metadata = metadata.copy()
+        if isinstance(query, List):
+            new_metadata['query_scores'] = {
+                q: float(score) for q, score in zip(queries, scores)}
+        similarities.append(
+            (max_score, doc_idx, orig_text, doc_id, new_metadata))
 
     # Aggregate scores by document (take max score across chunks)
     doc_scores = {}
@@ -84,7 +102,7 @@ def vector_search(
         sorted(doc_scores.items(), key=lambda x: x[1][0], reverse=True)[
             :top_k], 1
     ):
-        header = content.splitlines()[0]
+        header = content.splitlines()[0] if content.splitlines() else ""
         results.append(SearchResult(
             rank=rank,
             score=float(score),

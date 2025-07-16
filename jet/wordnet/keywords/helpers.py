@@ -1,3 +1,10 @@
+from tqdm import tqdm
+from jet.wordnet.n_grams import count_ngrams
+from jet.wordnet.pos_tagger import POSTagger
+from jet.scrapers.utils import clean_newlines, clean_punctuations, clean_spaces
+from jet.search.formatters import clean_string
+from jet.wordnet.lemmatizer import lemmatize_text
+import nltk
 from nltk.corpus import stopwords
 from typing import List, Optional, Tuple, Union, TypedDict, Literal
 import os
@@ -63,47 +70,71 @@ def _count_tokens(text: str, nlp=None) -> int:
     return len([token for token in doc if not token.is_space])
 
 
+def preprocess_texts(texts: str | list[str]) -> list[str]:
+
+    # Download stopwords if not already downloaded
+    try:
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        nltk.download('stopwords')
+
+    if isinstance(texts, str):
+        texts = [texts]
+
+    # Lowercase
+    # texts = [text.lower() for text in texts]
+    preprocessed_texts: list[str] = texts.copy()
+    stop_words = set(stopwords.words('english'))
+
+    tagger = POSTagger()
+
+    for idx, text in enumerate(tqdm(preprocessed_texts, desc="Preprocessing texts")):
+        # Filter words by tags not in includes_pos
+        includes_pos = ["PROPN", "NOUN", "VERB", "ADJ", "ADV"]
+
+        text = clean_newlines(text, max_newlines=1)
+        text = clean_punctuations(text)
+        text = clean_spaces(text)
+        text = clean_string(text)
+
+        preprocessed_lines = []
+        for line in text.splitlines():
+            pos_results = tagger.filter_pos(line, includes_pos)
+            filtered_text = [pos_result['word'] for pos_result in pos_results]
+            text = " ".join(filtered_text).lower()
+
+            # Remove stopwords
+            words = get_words(line)
+            filtered_words = [
+                word for word in words if word.lower() not in stop_words]
+            preprocessed_lines.append(' '.join(filtered_words))
+        text = '\n'.join(preprocessed_lines)
+
+        preprocessed_texts[idx] = text
+
+    return preprocessed_texts
+
+
 def setup_keybert(model_name: EmbedModelType = DEFAULT_EMBED_MODEL) -> KeyBERT:
     logger.info(f"Initializing KeyBERT with model: {model_name}")
     embed_model = SentenceTransformerRegistry.load_model(model_name)
     return KeyBERT(model=embed_model)
 
 
-def extract_query_candidates(query: str, nlp=None) -> List[str]:
+def extract_query_candidates(query: Union[str, List[str]], ngram_range: Tuple[int, int] = (1, 2)) -> List[str]:
     """Extract candidate keywords from a query using spaCy NLP, including years."""
-    if nlp is None:
-        nlp = spacy.load("en_core_web_sm")
-    doc = nlp(query.lower())
-    candidates = set()
-    for chunk in doc.noun_chunks:
-        chunk_text = chunk.text.strip()
-        chunk_words = get_words(chunk_text)
-        if len(chunk_words) <= 3:
-            if all(not token.is_stop and token.pos_ in ["NOUN", "PROPN", "ADJ", "NUM"] for token in chunk):
-                candidates.add(chunk_text)
-                if len(chunk_words) == 3:
-                    for i in range(len(chunk_words) - 1):
-                        sub_phrase = " ".join(chunk_words[i:i+2])
-                        sub_doc = nlp(sub_phrase)
-                        sub_chunks = list(sub_doc.noun_chunks)
-                        if sub_chunks and all(not token.is_stop for token in sub_doc):
-                            candidates.add(sub_phrase)
-    for token in doc:
-        if (token.pos_ in ["NOUN", "PROPN"] and not token.is_stop) or \
-           (token.pos_ == "NUM" and re.match(r"^\d{4}$", token.text)):
-            candidates.add(token.text)
-    final_candidates = set()
-    for cand in candidates:
-        is_prefix = any(
-            cand != longer_cand and longer_cand.startswith(cand + " ")
-            for longer_cand in candidates
-        )
-        if not is_prefix:
-            final_candidates.add(cand)
-    final_candidates = {cand for cand in final_candidates if any(
-        not nlp.vocab[word].is_stop for word in get_words(cand))}
-    final_candidates = list(final_candidates)
-    return final_candidates
+    if isinstance(query, str):
+        query = [query]
+    texts = preprocess_texts(query)
+    min_words, max_words = ngram_range
+    all_ngrams = count_ngrams([text.lower()
+                               for text in texts], min_words=min_words, max_words=max_words)
+    # Sort candidates by ngram count in descending order, then alphabetically
+    sorted_candidates = sorted(
+        all_ngrams.items(), key=lambda x: (-x[1], x[0])
+    )
+    candidates = [ngram for ngram, count in sorted_candidates]
+    return candidates
 
 
 def extract_keyword_candidates(
