@@ -11,6 +11,7 @@ class Metadata(TypedDict):
 
 
 class ChunkResult(TypedDict):
+    parent_id: Optional[str]
     doc_id: str
     doc_index: int
     chunk_index: int
@@ -20,7 +21,6 @@ class ChunkResult(TypedDict):
     content: str
     level: int
     parent_level: Optional[int]
-    parent_id: Optional[str]  # Added parent_id
     metadata: Metadata
 
 
@@ -45,6 +45,7 @@ def chunk_headers_by_hierarchy(
     header_pattern = r'^(#{1,6})\s+(.+)$'
     results = []
     current = {
+        "parent_id": None,
         "doc_id": None,
         "content": [],
         "num_tokens": 0,
@@ -71,13 +72,13 @@ def chunk_headers_by_hierarchy(
             ) if current["header"] else []
             content_str = "\n".join(current["content"]).strip()
             chunk = {
+                "parent_id": current["parent_id"],
                 "doc_id": current["doc_id"],
                 "doc_index": current["doc_index"],
                 "chunk_index": current["chunk_index"],
                 "num_tokens": current["num_tokens"] + (len(header_tokens) if isinstance(header_tokens, list) else 0),
                 "header": current["header"],
                 "parent_header": current["parent_header"],
-                "parent_id": current["parent_id"],  # Include parent_id
                 "content": content_str,
                 "level": current["level"],
                 "parent_level": current["parent_level"],
