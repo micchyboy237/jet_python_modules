@@ -82,14 +82,10 @@ class SentenceTransformerRegistry(BaseModelRegistry):
                 f"Could not load SentenceTransformer model {resolved_model_id}: {str(e)}")
 
     def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None, prompts: Optional[dict[str, str]] = None, **kwargs) -> Optional[SentenceTransformer]:
-        try:
-            logger.info(f"Loading embedding model on CPU (onnx): {model_id}")
-            model_instance = SentenceTransformer(
-                model_id, device="cpu", backend="onnx", truncate_dim=truncate_dim, prompts=prompts,
-                model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'})
-        except Exception as e:
-            logger.warning(f"Falling back to MPS for embed model due to: {e}")
-            model_instance = SentenceTransformer(model_id, device="mps")
+        device = "mps" if torch.backends.mps.is_available(
+        ) else "cuda" if torch.cuda.is_available() else "cpu"
+        model_instance = SentenceTransformer(
+            model_id, device=device, truncate_dim=truncate_dim, prompts=prompts,)
         return model_instance
 
     @staticmethod
