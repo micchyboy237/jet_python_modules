@@ -30,7 +30,8 @@ def vector_search(
     embed_model: EmbedModelType,
     top_k: Optional[int] = None,
     ids: Optional[List[str]] = None,
-    metadatas: Optional[List[Dict]] = None
+    metadatas: Optional[List[Dict]] = None,
+    batch_size: int = 32,
 ) -> List[SearchResult]:
     """Perform vector search with chunking and return ranked results. Supports single query or list of queries."""
     # Validate inputs
@@ -67,7 +68,7 @@ def vector_search(
         embed_model,
         return_format="numpy",
         show_progress=True,
-        batch_size=64
+        batch_size=batch_size
     )
 
     query_embeddings = embeddings[:len(queries)]
