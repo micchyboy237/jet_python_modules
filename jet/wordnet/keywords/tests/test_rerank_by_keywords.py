@@ -35,7 +35,7 @@ def mock_dependencies():
         yield mock_keybert, mock_embed_model, mock_nlp
 
 
-class TestRerankByKeywords:
+class TestRerankByKeywordsBasic:
     def test_rerank_with_list_of_strings(self, mock_dependencies):
         # Given: A list of three texts and seed keywords
         mock_keybert, _, _ = mock_dependencies
@@ -154,3 +154,151 @@ class TestRerankByKeywords:
 
         # Then: An empty result list is returned
         assert results == [], "Expected empty results for empty input"
+
+
+class TestRerankByKeywordsSeedKeywords:
+    def test_seed_keywords_filter_relevant_keywords(self, mock_dependencies):
+        """Test that seed_keywords filter extracted keywords to only those containing seed terms."""
+        # Given
+        mock_keybert, _, _ = mock_dependencies
+        texts = [
+            "The quick brown fox jumps over the lazy dog",
+            "A fast cat climbs steep hills",
+            "The dog sleeps by the fire"
+        ]
+        seed_keywords = ["fox", "dog"]
+        expected_keywords = [
+            [("quick fox", 0.8), ("lazy dog", 0.7), ("brown fox", 0.6)],
+            [("fast cat", 0.9), ("steep hills", 0.5)],
+            [("dog sleeps", 0.6), ("fire place", 0.4)]
+        ]
+        expected_filtered_keywords = [
+            [("quick fox", 0.8), ("lazy dog", 0.7)],
+            [],
+            [("dog sleeps", 0.6)]
+        ]
+        mock_keybert.extract_keywords.return_value = expected_keywords
+        expected_result_length = len(texts)
+        expected_scores = [0.8, 0.6, 0.0]
+
+        # When
+        results = rerank_by_keywords(
+            texts=texts,
+            seed_keywords=seed_keywords,
+            top_n=2,
+            show_progress=False
+        )
+
+        # Then
+        assert len(
+            results) == expected_result_length, f"Expected {expected_result_length} results, got {len(results)}"
+        assert [r["score"]
+                for r in results] == expected_scores, f"Expected scores {expected_scores}, got {[r['score'] for r in results]}"
+        assert all(r["rank"] == i + 1 for i, r in enumerate(results)
+                   ), "Ranks should be sequential starting from 1"
+        assert all(r["text"] == texts[r["doc_index"]]
+                   for r in results), "Text should match input text"
+        assert [r["keywords"] for r in results] == [
+            [{"text": kw, "score": score} for kw, score in kw_list]
+            for kw_list in expected_filtered_keywords
+        ], "Keywords should be filtered to include only those containing seed keywords"
+
+    def test_empty_seed_keywords_returns_all_keywords(self, mock_dependencies):
+        """Test that empty seed_keywords returns all extracted keywords without filtering."""
+        # Given
+        mock_keybert, _, _ = mock_dependencies
+        texts = [
+            "The quick brown fox jumps over the lazy dog",
+            "A fast cat climbs steep hills"
+        ]
+        seed_keywords: List[str] = []
+        expected_keywords = [
+            [("quick fox", 0.8), ("lazy dog", 0.7)],
+            [("fast cat", 0.9), ("steep hills", 0.5)]
+        ]
+        mock_keybert.extract_keywords.return_value = expected_keywords
+        expected_result_length = len(texts)
+        expected_scores = [0.9, 0.8]
+
+        # When
+        results = rerank_by_keywords(
+            texts=texts,
+            seed_keywords=seed_keywords,
+            top_n=2,
+            show_progress=False
+        )
+
+        # Then
+        assert len(
+            results) == expected_result_length, f"Expected {expected_result_length} results, got {len(results)}"
+        assert [r["score"]
+                for r in results] == expected_scores, f"Expected scores {expected_scores}, got {[r['score'] for r in results]}"
+        assert all(r["rank"] == i + 1 for i, r in enumerate(results)
+                   ), "Ranks should be sequential starting from 1"
+        assert all(r["text"] == texts[r["doc_index"]]
+                   for r in results), "Text should match input text"
+        assert [r["keywords"] for r in results] == [
+            [{"text": kw, "score": score} for kw, score in kw_list]
+            for kw_list in expected_keywords
+        ], "Keywords should include all extracted keywords when seed_keywords is empty"
+
+    def test_matrix_seed_keywords_filter_relevant_keywords(self, mock_dependencies):
+        """Test seed_keywords filtering with matrix input."""
+        # Given
+        mock_keybert, _, _ = mock_dependencies
+        texts = [
+            [
+                "The quick brown fox jumps over the lazy dog",
+                "Foxes are clever animals"
+            ],
+            [
+                "A fast cat climbs steep hills",
+                "The forest is home to quiet creatures"
+            ]
+        ]
+        seed_keywords = ["fox", "dog"]
+        expected_keywords = [
+            [("quick fox", 0.8), ("lazy dog", 0.7), ("brown fox", 0.6)],
+            [("clever foxes", 0.6), ("smart animals", 0.4)],
+            [("fast cat", 0.9), ("steep hills", 0.5)],
+            [("quiet creatures", 0.3), ("forest home", 0.2)]
+        ]
+        expected_filtered_keywords = [
+            [("quick fox", 0.8), ("lazy dog", 0.7)],
+            [("clever foxes", 0.6)],
+            [],
+            []
+        ]
+        mock_keybert.extract_keywords.return_value = expected_keywords
+        expected_result_length = len(texts)
+        expected_scores = [0.7, 0.0]
+
+        # When
+        results = rerank_by_keywords(
+            texts=texts,
+            seed_keywords=seed_keywords,
+            top_n=2,
+            show_progress=False
+        )
+
+        # Then
+        assert len(
+            results) == expected_result_length, f"Expected {expected_result_length} results, got {len(results)}"
+        assert [round(r["score"], 4) for r in results] == [round(s, 4) for s in expected_scores], \
+            f"Expected scores {[round(s, 4) for s in expected_scores]}, got {[round(r['score'], 4) for r in results]}"
+        assert all(r["rank"] == i + 1 for i, r in enumerate(results)
+                   ), "Ranks should be sequential starting from 1"
+        assert all(r["text"] == " ".join(texts[r["doc_index"]])
+                   for r in results), "Text should be joined input texts"
+        assert [r["keywords"] for r in results] == [
+            [
+                {"text": kw, "score": score}
+                for kw, score in sorted(
+                    set(kw for sublist in expected_filtered_keywords[i*2:(
+                        i+1)*2] for kw in sublist),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:2]
+            ]
+            for i in range(len(texts))
+        ], "Keywords should be filtered to include only those containing seed keywords"
