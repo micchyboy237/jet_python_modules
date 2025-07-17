@@ -25,7 +25,7 @@ from jet.models.embeddings.base import generate_embeddings, load_embed_model
 from jet.logger import logger
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-DEFAULT_EMBED_MODEL: EmbedModelType = "static-retrieval-mrl-en-v1"
+DEFAULT_EMBED_MODEL: EmbedModelType = "all-MiniLM-L6-v2"
 
 
 class Keyword(TypedDict):
