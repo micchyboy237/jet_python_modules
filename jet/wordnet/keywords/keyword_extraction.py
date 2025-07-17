@@ -197,7 +197,10 @@ def rerank_by_keywords(
     # Aggregate results for matrix input
     result = []
     if is_matrix:
-        for i in range(doc_count):
+        iterator = range(doc_count)
+        if show_progress:
+            iterator = tqdm(iterator, desc="Aggregating matrix results")
+        for i in iterator:
             doc_texts = texts[i]
             doc_keywords = keywords[i * texts_per_doc:(i + 1) * texts_per_doc]
             doc_scores = [max((score for _, score in kw_list), default=0.0)
