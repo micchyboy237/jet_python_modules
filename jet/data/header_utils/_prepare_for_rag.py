@@ -16,8 +16,11 @@ import numpy as np
 from jet.logger import logger
 from jet.data.header_utils import split_and_merge_headers
 from tokenizers import Tokenizer
+from jet.scrapers.utils import clean_newlines, clean_punctuations, clean_spaces
+from jet.search.formatters import clean_string
 from jet.utils.text_constants import TEXT_CONTRACTIONS_EN
 from jet.data.header_utils._base import create_text_node, chunk_content, merge_nodes
+from jet.wordnet.words import get_words
 
 # Download required NLTK data (only needs to be done once)
 try:
@@ -66,7 +69,7 @@ class VectorStore:
 def preprocess_text(
     text: str,
     preserve_chars: Optional[Set[str]] = None,
-    remove_stopwords: bool = False,
+    remove_stopwords: bool = True,
     apply_lemmatization: bool = False
 ) -> str:
     """
@@ -86,9 +89,6 @@ def preprocess_text(
     if not text or not text.strip():
         return ""
 
-    # Normalize whitespace
-    text = re.sub(r'\s+', ' ', text.strip())
-
     # Expand contractions
     for contraction, expanded in TEXT_CONTRACTIONS_EN.items():
         text = re.sub(r'\b' + contraction + r'\b',
@@ -97,27 +97,34 @@ def preprocess_text(
     # Convert to lowercase
     text = text.lower()
 
-    # Remove unwanted characters, preserving specified ones
-    preserve_chars = preserve_chars or {'-', '_'}
-    pattern = r'[^a-z0-9\s' + ''.join(map(re.escape, preserve_chars)) + r']'
-    text = re.sub(pattern, '', text)
+    # Clean text
+    text = clean_newlines(text, max_newlines=1)
+    text = clean_punctuations(text)
+    text = clean_spaces(text)
+    text = clean_string(text)
 
-    # Tokenize for stopword removal and lemmatization
-    words = word_tokenize(text)
+    # Split into lines (if any)
+    lines = text.splitlines() if '\n' in text else [text]
+    preprocessed_lines = []
+    stop_words = set(stopwords.words('english')) if remove_stopwords else set()
 
-    # Remove stopwords if specified
-    if remove_stopwords:
-        stop_words = set(stopwords.words('english'))
-        words = [word for word in words if word not in stop_words]
+    for line in lines:
+        words = get_words(line)
+        if remove_stopwords:
+            words = [word for word in words if word.lower() not in stop_words]
+        preprocessed_lines.append(' '.join(words))
+
+    text = '\n'.join(preprocessed_lines)
 
     # Apply lemmatization if specified
     if apply_lemmatization:
         lemmatizer = WordNetLemmatizer()
+        words = []
+        for line in preprocessed_lines:
+            words.extend(line.split())
         words = [lemmatizer.lemmatize(word) for word in words]
-
-    # Join words back into a string and normalize whitespace
-    text = ' '.join(words)
-    text = re.sub(r'\s+', ' ', text.strip())
+        # Join words back into a string and normalize whitespace
+        text = ' '.join(words)
 
     return text
 

@@ -437,9 +437,6 @@ def clean_punctuations(content: str) -> str:
     for key, value in numbers.items():
         content = content.replace(key, value)
 
-    # Remove any extra spaces that may have been introduced
-    content = re.sub(r'\s+', ' ', content).strip()
-
     return content
 
 
