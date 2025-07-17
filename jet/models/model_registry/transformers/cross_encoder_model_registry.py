@@ -85,7 +85,8 @@ class CrossEncoderRegistry(BaseModelRegistry):
                 f"Falling back to CPU (onnx) for CrossEncoder model due to: {e}")
             model_instance = CrossEncoder(
                 model_id, device="cpu", backend="onnx", trust_remote_code=True, max_length=max_length,
-                model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'})
+                # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
+            )
         return model_instance
 
     @staticmethod
