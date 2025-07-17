@@ -1,6 +1,6 @@
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("Snowflake/snowflake-arctic-embed-m")
+model = SentenceTransformer("Snowflake/snowflake-arctic-embed-m-long", trust_remote_code=True)
 
 queries = ['what is snowflake?', 'Where can I get the best tacos?']
 documents = ['The Data Cloud!', 'Mexico City of Course!']

@@ -1,6 +1,0 @@
-
-Then, copy the snippet from the section that is relevant for your use case.
-
-#### Running with the `pipeline` API
-
-With instruction-tuned models, you need to use chat templates to process our inputs first. Then, you can pass it to the pipeline.

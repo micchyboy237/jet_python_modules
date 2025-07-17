@@ -1,19 +1,4 @@
-from transformers import pipeline
-import torch
+from mlx_lm import load, generate
 
-pipe = pipeline("text-generation", model="google/gemma-3-1b-it", device="cuda", torch_dtype=torch.bfloat16)
-
-messages = [
-    [
-        {
-            "role": "system",
-            "content": [{"type": "text", "text": "You are a helpful assistant."},]
-        },
-        {
-            "role": "user",
-            "content": [{"type": "text", "text": "Write a poem on Hugging Face, the company"},]
-        },
-    ],
-]
-
-output = pipe(messages, max_new_tokens=50)
+model, tokenizer = load("mlx-community/Qwen2.5-14B-Instruct-4bit")
+response = generate(model, tokenizer, prompt="hello", verbose=True)

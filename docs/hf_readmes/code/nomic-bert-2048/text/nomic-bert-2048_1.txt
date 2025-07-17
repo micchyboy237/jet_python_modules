@@ -1,0 +1,30 @@
+---
+license: llama3.2
+datasets:
+- OpenCoder-LLM/opc-sft-stage1
+- OpenCoder-LLM/opc-sft-stage2
+- microsoft/orca-agentinstruct-1M-v1
+- microsoft/orca-math-word-problems-200k
+- NousResearch/hermes-function-calling-v1
+- AI-MO/NuminaMath-CoT
+- AI-MO/NuminaMath-TIR
+- allenai/tulu-3-sft-mixture
+- cognitivecomputations/dolphin-coder
+- HuggingFaceTB/smoltalk
+- cognitivecomputations/samantha-data
+- m-a-p/CodeFeedback-Filtered-Instruction
+- m-a-p/Code-Feedback
+language:
+- en
+base_model: cognitivecomputations/Dolphin3.0-Llama3.2-3B
+tags:
+- mlx
+---
+
+# mlx-community/dolphin3.0-llama3.2-3B-4Bit
+
+The Model [mlx-community/dolphin3.0-llama3.2-3B-4Bit](https://huggingface.co/mlx-community/dolphin3.0-llama3.2-3B-4Bit) was
+converted to MLX format from [cognitivecomputations/Dolphin3.0-Llama3.2-3B](https://huggingface.co/cognitivecomputations/Dolphin3.0-Llama3.2-3B)
+using mlx-lm version **0.21.1**.
+
+## Use with mlx

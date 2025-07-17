@@ -1,13 +1,13 @@
-import torch
-from transformers import pipeline
+from mlx_lm import load, generate
 
-model_id = "meta-llama/Llama-3.2-3B"
+model, tokenizer = load("mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ")
 
-pipe = pipeline(
-    "text-generation", 
-    model=model_id, 
-    torch_dtype=torch.bfloat16, 
-    device_map="auto"
-)
+prompt = "hello"
 
-pipe("The key to life is")
+if tokenizer.chat_template is not None:
+    messages = [{"role": "user", "content": prompt}]
+    prompt = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True
+    )
+
+response = generate(model, tokenizer, prompt=prompt, verbose=True)

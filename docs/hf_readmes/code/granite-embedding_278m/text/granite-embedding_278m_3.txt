@@ -1,5 +1,2 @@
 
-### Using Huggingface transformers
-
-
-You can use the transformers package to use an snowflake-arctic-embed model, as shown below. For optimal retrieval quality, use the CLS token to embed each text portion and use the query prefix below (just on the query).
+With instruction-tuned models, you need to use chat templates to process our inputs first. Then, you can pass it to the pipeline.

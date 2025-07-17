@@ -1,9 +1,4 @@
-from transformers import pipeline
-import torch
+from mlx_lm import load, generate
 
-pipe = pipeline(
-    "image-text-to-text",
-    model="google/gemma-3-4b-it",
-    device="cuda",
-    torch_dtype=torch.bfloat16
-)
+model, tokenizer = load("mlx-community/Qwen2.5-7B-Instruct-4bit")
+response = generate(model, tokenizer, prompt="hello", verbose=True)

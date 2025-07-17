@@ -1,0 +1,2 @@
+
+The model can then be used to encode pairs of text and find the similarity between their representations

@@ -1,2 +1,0 @@
-
-Here is how to use this model to get the features of a given text in PyTorch:

@@ -1,6 +1,6 @@
 from transformers import AutoTokenizer, AutoModel
 import torch
-
+import torch.nn.functional as F
 
 #Mean Pooling - Take attention mask into account for correct averaging
 def mean_pooling(model_output, attention_mask):
@@ -13,8 +13,8 @@ def mean_pooling(model_output, attention_mask):
 sentences = ['This is an example sentence', 'Each sentence is converted']
 
 # Load model from HuggingFace Hub
-tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/paraphrase-multilingual-mpnet-base-v2')
-model = AutoModel.from_pretrained('sentence-transformers/paraphrase-multilingual-mpnet-base-v2')
+tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
 
 # Tokenize sentences
 encoded_input = tokenizer(sentences, padding=True, truncation=True, return_tensors='pt')
@@ -23,8 +23,11 @@ encoded_input = tokenizer(sentences, padding=True, truncation=True, return_tenso
 with torch.no_grad():
     model_output = model(**encoded_input)
 
-# Perform pooling. In this case, average pooling
+# Perform pooling
 sentence_embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
+
+# Normalize embeddings
+sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
 
 print("Sentence embeddings:")
 print(sentence_embeddings)

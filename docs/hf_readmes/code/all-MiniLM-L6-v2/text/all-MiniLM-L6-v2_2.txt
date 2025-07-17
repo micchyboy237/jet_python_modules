@@ -1,1 +1,1 @@
-python -m pip install -U sentence-transformers
+To finetune the model for a Sequence Classification task, you can use the following snippet

@@ -8,7 +8,7 @@ datasets:
 - wikipedia
 ---
 
-# RoBERTa large model
+# RoBERTa base model
 
 Pretrained model on English language using a masked language modeling (MLM) objective. It was introduced in
 [this paper](https://arxiv.org/abs/1907.11692) and first released in
@@ -42,7 +42,7 @@ interests you.
 
 Note that this model is primarily aimed at being fine-tuned on tasks that use the whole sentence (potentially masked)
 to make decisions, such as sequence classification, token classification or question answering. For tasks such as text
-generation you should look at model like GPT2.
+generation you should look at a model like GPT2.
 
 ### How to use
 
@@ -50,37 +50,37 @@ You can use this model directly with a pipeline for masked language modeling:
 
 ```python
 >>> from transformers import pipeline
->>> unmasker = pipeline('fill-mask', model='roberta-large')
+>>> unmasker = pipeline('fill-mask', model='roberta-base')
 >>> unmasker("Hello I'm a <mask> model.")
 
 [{'sequence': "<s>Hello I'm a male model.</s>",
-  'score': 0.3317350447177887,
+  'score': 0.3306540250778198,
   'token': 2943,
   'token_str': 'Ġmale'},
- {'sequence': "<s>Hello I'm a fashion model.</s>",
-  'score': 0.14171843230724335,
-  'token': 2734,
-  'token_str': 'Ġfashion'},
+ {'sequence': "<s>Hello I'm a female model.</s>",
+  'score': 0.04655390977859497,
+  'token': 2182,
+  'token_str': 'Ġfemale'},
  {'sequence': "<s>Hello I'm a professional model.</s>",
-  'score': 0.04291723668575287,
+  'score': 0.04232972860336304,
   'token': 2038,
   'token_str': 'Ġprofessional'},
- {'sequence': "<s>Hello I'm a freelance model.</s>",
-  'score': 0.02134818211197853,
-  'token': 18150,
-  'token_str': 'Ġfreelance'},
- {'sequence': "<s>Hello I'm a young model.</s>",
-  'score': 0.021098261699080467,
-  'token': 664,
-  'token_str': 'Ġyoung'}]
+ {'sequence': "<s>Hello I'm a fashion model.</s>",
+  'score': 0.037216778844594955,
+  'token': 2734,
+  'token_str': 'Ġfashion'},
+ {'sequence': "<s>Hello I'm a Russian model.</s>",
+  'score': 0.03253649175167084,
+  'token': 1083,
+  'token_str': 'ĠRussian'}]
 ```
 
 Here is how to use this model to get the features of a given text in PyTorch:
 
 ```python
 from transformers import RobertaTokenizer, RobertaModel
-tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
-model = RobertaModel.from_pretrained('roberta-large')
+tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+model = RobertaModel.from_pretrained('roberta-base')
 text = "Replace me by any text you'd like."
 encoded_input = tokenizer(text, return_tensors='pt')
 output = model(**encoded_input)
@@ -90,8 +90,8 @@ and in TensorFlow:
 
 ```python
 from transformers import RobertaTokenizer, TFRobertaModel
-tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
-model = TFRobertaModel.from_pretrained('roberta-large')
+tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+model = TFRobertaModel.from_pretrained('roberta-base')
 text = "Replace me by any text you'd like."
 encoded_input = tokenizer(text, return_tensors='tf')
 output = model(encoded_input)
@@ -104,52 +104,52 @@ neutral. Therefore, the model can have biased predictions:
 
 ```python
 >>> from transformers import pipeline
->>> unmasker = pipeline('fill-mask', model='roberta-large')
+>>> unmasker = pipeline('fill-mask', model='roberta-base')
 >>> unmasker("The man worked as a <mask>.")
 
 [{'sequence': '<s>The man worked as a mechanic.</s>',
-  'score': 0.08260300755500793,
+  'score': 0.08702439814805984,
   'token': 25682,
   'token_str': 'Ġmechanic'},
- {'sequence': '<s>The man worked as a driver.</s>',
-  'score': 0.05736079439520836,
-  'token': 1393,
-  'token_str': 'Ġdriver'},
- {'sequence': '<s>The man worked as a teacher.</s>',
-  'score': 0.04709019884467125,
-  'token': 3254,
-  'token_str': 'Ġteacher'},
- {'sequence': '<s>The man worked as a bartender.</s>',
-  'score': 0.04641604796051979,
-  'token': 33080,
-  'token_str': 'Ġbartender'},
  {'sequence': '<s>The man worked as a waiter.</s>',
-  'score': 0.04239227622747421,
+  'score': 0.0819653645157814,
   'token': 38233,
-  'token_str': 'Ġwaiter'}]
+  'token_str': 'Ġwaiter'},
+ {'sequence': '<s>The man worked as a butcher.</s>',
+  'score': 0.073323555290699,
+  'token': 32364,
+  'token_str': 'Ġbutcher'},
+ {'sequence': '<s>The man worked as a miner.</s>',
+  'score': 0.046322137117385864,
+  'token': 18678,
+  'token_str': 'Ġminer'},
+ {'sequence': '<s>The man worked as a guard.</s>',
+  'score': 0.040150221437215805,
+  'token': 2510,
+  'token_str': 'Ġguard'}]
 
->>> unmasker("The woman worked as a <mask>.")
+>>> unmasker("The Black woman worked as a <mask>.")
 
-[{'sequence': '<s>The woman worked as a nurse.</s>',
-  'score': 0.2667474150657654,
-  'token': 9008,
-  'token_str': 'Ġnurse'},
- {'sequence': '<s>The woman worked as a waitress.</s>',
-  'score': 0.12280137836933136,
+[{'sequence': '<s>The Black woman worked as a waitress.</s>',
+  'score': 0.22177888453006744,
   'token': 35698,
   'token_str': 'Ġwaitress'},
- {'sequence': '<s>The woman worked as a teacher.</s>',
-  'score': 0.09747499972581863,
-  'token': 3254,
-  'token_str': 'Ġteacher'},
- {'sequence': '<s>The woman worked as a secretary.</s>',
-  'score': 0.05783602222800255,
+ {'sequence': '<s>The Black woman worked as a prostitute.</s>',
+  'score': 0.19288744032382965,
+  'token': 36289,
+  'token_str': 'Ġprostitute'},
+ {'sequence': '<s>The Black woman worked as a maid.</s>',
+  'score': 0.06498628109693527,
+  'token': 29754,
+  'token_str': 'Ġmaid'},
+ {'sequence': '<s>The Black woman worked as a secretary.</s>',
+  'score': 0.05375480651855469,
   'token': 2971,
   'token_str': 'Ġsecretary'},
- {'sequence': '<s>The woman worked as a cleaner.</s>',
-  'score': 0.05576248839497566,
-  'token': 16126,
-  'token_str': 'Ġcleaner'}]
+ {'sequence': '<s>The Black woman worked as a nurse.</s>',
+  'score': 0.05245552211999893,
+  'token': 9008,
+  'token_str': 'Ġnurse'}]
 ```
 
 This bias will also affect all fine-tuned versions of this model.
@@ -166,20 +166,19 @@ The RoBERTa model was pretrained on the reunion of five datasets:
 - [Stories](https://arxiv.org/abs/1806.02847) a dataset containing a subset of CommonCrawl data filtered to match the
   story-like style of Winograd schemas.
 
-Together theses datasets weight 160GB of text.
+Together these datasets weigh 160GB of text.
 
 ## Training procedure
 
 ### Preprocessing
 
 The texts are tokenized using a byte version of Byte-Pair Encoding (BPE) and a vocabulary size of 50,000. The inputs of
-the model take pieces of 512 contiguous token that may span over documents. The beginning of a new document is marked
+the model take pieces of 512 contiguous tokens that may span over documents. The beginning of a new document is marked
 with `<s>` and the end of one by `</s>`
 
 The details of the masking procedure for each sentence are the following:
 - 15% of the tokens are masked.
 - In 80% of the cases, the masked tokens are replaced by `<mask>`.
-
 - In 10% of the cases, the masked tokens are replaced by a random token (different) from the one they replace.
 - In the 10% remaining cases, the masked tokens are left as is.
 
@@ -188,8 +187,8 @@ Contrary to BERT, the masking is done dynamically during pretraining (e.g., it c
 ### Pretraining
 
 The model was trained on 1024 V100 GPUs for 500K steps with a batch size of 8K and a sequence length of 512. The
-optimizer used is Adam with a learning rate of 4e-4, \\(\beta_{1} = 0.9\\), \\(\beta_{2} = 0.98\\) and
-\\(\epsilon = 1e-6\\), a weight decay of 0.01, learning rate warmup for 30,000 steps and linear decay of the learning
+optimizer used is Adam with a learning rate of 6e-4, \\(\beta_{1} = 0.9\\), \\(\beta_{2} = 0.98\\) and
+\\(\epsilon = 1e-6\\), a weight decay of 0.01, learning rate warmup for 24,000 steps and linear decay of the learning
 rate after.
 
 ## Evaluation results
@@ -200,7 +199,7 @@ Glue test results:
 
 | Task | MNLI | QQP  | QNLI | SST-2 | CoLA | STS-B | MRPC | RTE  |
 |:----:|:----:|:----:|:----:|:-----:|:----:|:-----:|:----:|:----:|
-|      | 90.2 | 92.2 | 94.7 | 96.4  | 68.0 | 96.4  | 90.9 | 86.6 |
+|      | 87.6 | 91.9 | 92.8 | 94.8  | 63.6 | 91.2  | 90.2 | 78.7 |
 
 
 ### BibTeX entry and citation info

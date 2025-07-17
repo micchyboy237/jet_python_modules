@@ -1,35 +1,11 @@
-from sentence_transformers import SentenceTransformer
-from sentence_transformers.util import cos_sim
-from sentence_transformers.quantization import quantize_embeddings
+from transformers import AutoModelForMaskedLM, AutoConfig, AutoTokenizer, pipeline
 
-# 1. Specify preffered dimensions
-dimensions = 512
+tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased') # `nomic-bert-2048` uses the standard BERT tokenizer
 
-# 2. load model
-model = SentenceTransformer("mixedbread-ai/mxbai-embed-large-v1", truncate_dim=dimensions)
+config = AutoConfig.from_pretrained('nomic-ai/nomic-bert-2048', trust_remote_code=True) # the config needs to be passed in
+model = AutoModelForMaskedLM.from_pretrained('nomic-ai/nomic-bert-2048',config=config, trust_remote_code=True)
 
-# The prompt used for query retrieval tasks:
-# query_prompt = 'Represent this sentence for searching relevant passages: '
+# To use this model directly for masked language modeling
+classifier = pipeline('fill-mask', model=model, tokenizer=tokenizer,device="cpu")
 
-query = "A man is eating a piece of bread"
-docs = [
-    "A man is eating food.",
-    "A man is eating pasta.",
-    "The girl is carrying a baby.",
-    "A man is riding a horse.",
-]
-
-# 2. Encode
-query_embedding = model.encode(query, prompt_name="query")
-# Equivalent Alternatives:
-# query_embedding = model.encode(query_prompt + query)
-# query_embedding = model.encode(query, prompt=query_prompt)
-
-docs_embeddings = model.encode(docs)
-
-# Optional: Quantize the embeddings
-binary_query_embedding = quantize_embeddings(query_embedding, precision="ubinary")
-binary_docs_embeddings = quantize_embeddings(docs_embeddings, precision="ubinary")
-
-similarities = cos_sim(query_embedding, docs_embeddings)
-print('similarities:', similarities)
+print(classifier("I [MASK] to the store yesterday."))

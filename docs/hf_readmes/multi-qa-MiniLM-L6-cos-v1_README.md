@@ -1,173 +1,235 @@
 ---
 language: en
-license: apache-2.0
-library_name: sentence-transformers
 tags:
-- sentence-transformers
-- feature-extraction
-- sentence-similarity
-- transformers
+- exbert
+license: mit
 datasets:
-- s2orc
-- flax-sentence-embeddings/stackexchange_xml
-- ms_marco
-- gooaq
-- yahoo_answers_topics
-- code_search_net
-- search_qa
-- eli5
-- snli
-- multi_nli
-- wikihow
-- natural_questions
-- trivia_qa
-- embedding-data/sentence-compression
-- embedding-data/flickr30k-captions
-- embedding-data/altlex
-- embedding-data/simple-wiki
-- embedding-data/QQP
-- embedding-data/SPECTER
-- embedding-data/PAQ_pairs
-- embedding-data/WikiAnswers
-pipeline_tag: sentence-similarity
+- bookcorpus
+- wikipedia
 ---
 
+# RoBERTa large model
 
-# all-MiniLM-L6-v2
-This is a [sentence-transformers](https://www.SBERT.net) model: It maps sentences & paragraphs to a 384 dimensional dense vector space and can be used for tasks like clustering or semantic search.
+Pretrained model on English language using a masked language modeling (MLM) objective. It was introduced in
+[this paper](https://arxiv.org/abs/1907.11692) and first released in
+[this repository](https://github.com/pytorch/fairseq/tree/master/examples/roberta). This model is case-sensitive: it
+makes a difference between english and English.
 
-## Usage (Sentence-Transformers)
-Using this model becomes easy when you have [sentence-transformers](https://www.SBERT.net) installed:
+Disclaimer: The team releasing RoBERTa did not write a model card for this model so this model card has been written by
+the Hugging Face team.
 
-```
-pip install -U sentence-transformers
-```
+## Model description
 
-Then you can use the model like this:
+RoBERTa is a transformers model pretrained on a large corpus of English data in a self-supervised fashion. This means
+it was pretrained on the raw texts only, with no humans labelling them in any way (which is why it can use lots of
+publicly available data) with an automatic process to generate inputs and labels from those texts. 
+
+More precisely, it was pretrained with the Masked language modeling (MLM) objective. Taking a sentence, the model
+randomly masks 15% of the words in the input then run the entire masked sentence through the model and has to predict
+the masked words. This is different from traditional recurrent neural networks (RNNs) that usually see the words one
+after the other, or from autoregressive models like GPT which internally mask the future tokens. It allows the model to
+learn a bidirectional representation of the sentence.
+
+This way, the model learns an inner representation of the English language that can then be used to extract features
+useful for downstream tasks: if you have a dataset of labeled sentences for instance, you can train a standard
+classifier using the features produced by the BERT model as inputs.
+
+## Intended uses & limitations
+
+You can use the raw model for masked language modeling, but it's mostly intended to be fine-tuned on a downstream task.
+See the [model hub](https://huggingface.co/models?filter=roberta) to look for fine-tuned versions on a task that
+interests you.
+
+Note that this model is primarily aimed at being fine-tuned on tasks that use the whole sentence (potentially masked)
+to make decisions, such as sequence classification, token classification or question answering. For tasks such as text
+generation you should look at model like GPT2.
+
+### How to use
+
+You can use this model directly with a pipeline for masked language modeling:
+
 ```python
-from sentence_transformers import SentenceTransformer
-sentences = ["This is an example sentence", "Each sentence is converted"]
+>>> from transformers import pipeline
+>>> unmasker = pipeline('fill-mask', model='roberta-large')
+>>> unmasker("Hello I'm a <mask> model.")
 
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-embeddings = model.encode(sentences)
-print(embeddings)
+[{'sequence': "<s>Hello I'm a male model.</s>",
+  'score': 0.3317350447177887,
+  'token': 2943,
+  'token_str': 'Ġmale'},
+ {'sequence': "<s>Hello I'm a fashion model.</s>",
+  'score': 0.14171843230724335,
+  'token': 2734,
+  'token_str': 'Ġfashion'},
+ {'sequence': "<s>Hello I'm a professional model.</s>",
+  'score': 0.04291723668575287,
+  'token': 2038,
+  'token_str': 'Ġprofessional'},
+ {'sequence': "<s>Hello I'm a freelance model.</s>",
+  'score': 0.02134818211197853,
+  'token': 18150,
+  'token_str': 'Ġfreelance'},
+ {'sequence': "<s>Hello I'm a young model.</s>",
+  'score': 0.021098261699080467,
+  'token': 664,
+  'token_str': 'Ġyoung'}]
 ```
 
-## Usage (HuggingFace Transformers)
-Without [sentence-transformers](https://www.SBERT.net), you can use the model like this: First, you pass your input through the transformer model, then you have to apply the right pooling-operation on-top of the contextualized word embeddings.
+Here is how to use this model to get the features of a given text in PyTorch:
 
 ```python
-from transformers import AutoTokenizer, AutoModel
-import torch
-import torch.nn.functional as F
-
-#Mean Pooling - Take attention mask into account for correct averaging
-def mean_pooling(model_output, attention_mask):
-    token_embeddings = model_output[0] #First element of model_output contains all token embeddings
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-
-
-# Sentences we want sentence embeddings for
-sentences = ['This is an example sentence', 'Each sentence is converted']
-
-# Load model from HuggingFace Hub
-tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-
-# Tokenize sentences
-encoded_input = tokenizer(sentences, padding=True, truncation=True, return_tensors='pt')
-
-# Compute token embeddings
-with torch.no_grad():
-    model_output = model(**encoded_input)
-
-# Perform pooling
-sentence_embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
-
-# Normalize embeddings
-sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
-
-print("Sentence embeddings:")
-print(sentence_embeddings)
+from transformers import RobertaTokenizer, RobertaModel
+tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
+model = RobertaModel.from_pretrained('roberta-large')
+text = "Replace me by any text you'd like."
+encoded_input = tokenizer(text, return_tensors='pt')
+output = model(**encoded_input)
 ```
 
-------
+and in TensorFlow:
 
-## Background
+```python
+from transformers import RobertaTokenizer, TFRobertaModel
+tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
+model = TFRobertaModel.from_pretrained('roberta-large')
+text = "Replace me by any text you'd like."
+encoded_input = tokenizer(text, return_tensors='tf')
+output = model(encoded_input)
+```
 
-The project aims to train sentence embedding models on very large sentence level datasets using a self-supervised 
-contrastive learning objective. We used the pretrained [`nreimers/MiniLM-L6-H384-uncased`](https://huggingface.co/nreimers/MiniLM-L6-H384-uncased) model and fine-tuned in on a 
-1B sentence pairs dataset. We use a contrastive learning objective: given a sentence from the pair, the model should predict which out of a set of randomly sampled other sentences, was actually paired with it in our dataset.
+### Limitations and bias
 
-We developed this model during the 
-[Community week using JAX/Flax for NLP & CV](https://discuss.huggingface.co/t/open-to-the-community-community-week-using-jax-flax-for-nlp-cv/7104), 
-organized by Hugging Face. We developed this model as part of the project:
-[Train the Best Sentence Embedding Model Ever with 1B Training Pairs](https://discuss.huggingface.co/t/train-the-best-sentence-embedding-model-ever-with-1b-training-pairs/7354). We benefited from efficient hardware infrastructure to run the project: 7 TPUs v3-8, as well as intervention from Googles Flax, JAX, and Cloud team member about efficient deep learning frameworks.
+The training data used for this model contains a lot of unfiltered content from the internet, which is far from
+neutral. Therefore, the model can have biased predictions:
 
-## Intended uses
+```python
+>>> from transformers import pipeline
+>>> unmasker = pipeline('fill-mask', model='roberta-large')
+>>> unmasker("The man worked as a <mask>.")
 
-Our model is intended to be used as a sentence and short paragraph encoder. Given an input text, it outputs a vector which captures 
-the semantic information. The sentence vector may be used for information retrieval, clustering or sentence similarity tasks.
+[{'sequence': '<s>The man worked as a mechanic.</s>',
+  'score': 0.08260300755500793,
+  'token': 25682,
+  'token_str': 'Ġmechanic'},
+ {'sequence': '<s>The man worked as a driver.</s>',
+  'score': 0.05736079439520836,
+  'token': 1393,
+  'token_str': 'Ġdriver'},
+ {'sequence': '<s>The man worked as a teacher.</s>',
+  'score': 0.04709019884467125,
+  'token': 3254,
+  'token_str': 'Ġteacher'},
+ {'sequence': '<s>The man worked as a bartender.</s>',
+  'score': 0.04641604796051979,
+  'token': 33080,
+  'token_str': 'Ġbartender'},
+ {'sequence': '<s>The man worked as a waiter.</s>',
+  'score': 0.04239227622747421,
+  'token': 38233,
+  'token_str': 'Ġwaiter'}]
 
-By default, input text longer than 256 word pieces is truncated.
+>>> unmasker("The woman worked as a <mask>.")
 
+[{'sequence': '<s>The woman worked as a nurse.</s>',
+  'score': 0.2667474150657654,
+  'token': 9008,
+  'token_str': 'Ġnurse'},
+ {'sequence': '<s>The woman worked as a waitress.</s>',
+  'score': 0.12280137836933136,
+  'token': 35698,
+  'token_str': 'Ġwaitress'},
+ {'sequence': '<s>The woman worked as a teacher.</s>',
+  'score': 0.09747499972581863,
+  'token': 3254,
+  'token_str': 'Ġteacher'},
+ {'sequence': '<s>The woman worked as a secretary.</s>',
+  'score': 0.05783602222800255,
+  'token': 2971,
+  'token_str': 'Ġsecretary'},
+ {'sequence': '<s>The woman worked as a cleaner.</s>',
+  'score': 0.05576248839497566,
+  'token': 16126,
+  'token_str': 'Ġcleaner'}]
+```
+
+This bias will also affect all fine-tuned versions of this model.
+
+## Training data
+
+The RoBERTa model was pretrained on the reunion of five datasets:
+- [BookCorpus](https://yknzhu.wixsite.com/mbweb), a dataset consisting of 11,038 unpublished books;
+- [English Wikipedia](https://en.wikipedia.org/wiki/English_Wikipedia) (excluding lists, tables and headers) ;
+- [CC-News](https://commoncrawl.org/2016/10/news-dataset-available/), a dataset containing 63 millions English news
+  articles crawled between September 2016 and February 2019.
+- [OpenWebText](https://github.com/jcpeterson/openwebtext), an opensource recreation of the WebText dataset used to
+  train GPT-2,
+- [Stories](https://arxiv.org/abs/1806.02847) a dataset containing a subset of CommonCrawl data filtered to match the
+  story-like style of Winograd schemas.
+
+Together theses datasets weight 160GB of text.
 
 ## Training procedure
 
-### Pre-training 
+### Preprocessing
 
-We use the pretrained [`nreimers/MiniLM-L6-H384-uncased`](https://huggingface.co/nreimers/MiniLM-L6-H384-uncased) model. Please refer to the model card for more detailed information about the pre-training procedure.
+The texts are tokenized using a byte version of Byte-Pair Encoding (BPE) and a vocabulary size of 50,000. The inputs of
+the model take pieces of 512 contiguous token that may span over documents. The beginning of a new document is marked
+with `<s>` and the end of one by `</s>`
 
-### Fine-tuning 
+The details of the masking procedure for each sentence are the following:
+- 15% of the tokens are masked.
+- In 80% of the cases, the masked tokens are replaced by `<mask>`.
 
-We fine-tune the model using a contrastive objective. Formally, we compute the cosine similarity from each possible sentence pairs from the batch.
-We then apply the cross entropy loss by comparing with true pairs.
+- In 10% of the cases, the masked tokens are replaced by a random token (different) from the one they replace.
+- In the 10% remaining cases, the masked tokens are left as is.
 
-#### Hyper parameters
+Contrary to BERT, the masking is done dynamically during pretraining (e.g., it changes at each epoch and is not fixed).
 
-We trained our model on a TPU v3-8. We train the model during 100k steps using a batch size of 1024 (128 per TPU core).
-We use a learning rate warm up of 500. The sequence length was limited to 128 tokens. We used the AdamW optimizer with
-a 2e-5 learning rate. The full training script is accessible in this current repository: `train_script.py`.
+### Pretraining
 
-#### Training data
+The model was trained on 1024 V100 GPUs for 500K steps with a batch size of 8K and a sequence length of 512. The
+optimizer used is Adam with a learning rate of 4e-4, \\(\beta_{1} = 0.9\\), \\(\beta_{2} = 0.98\\) and
+\\(\epsilon = 1e-6\\), a weight decay of 0.01, learning rate warmup for 30,000 steps and linear decay of the learning
+rate after.
 
-We use the concatenation from multiple datasets to fine-tune our model. The total number of sentence pairs is above 1 billion sentences.
-We sampled each dataset given a weighted probability which configuration is detailed in the `data_config.json` file.
+## Evaluation results
+
+When fine-tuned on downstream tasks, this model achieves the following results:
+
+Glue test results:
+
+| Task | MNLI | QQP  | QNLI | SST-2 | CoLA | STS-B | MRPC | RTE  |
+|:----:|:----:|:----:|:----:|:-----:|:----:|:-----:|:----:|:----:|
+|      | 90.2 | 92.2 | 94.7 | 96.4  | 68.0 | 96.4  | 90.9 | 86.6 |
 
 
-| Dataset                                                  | Paper                                    | Number of training tuples  |
-|--------------------------------------------------------|:----------------------------------------:|:--------------------------:|
-| [Reddit comments (2015-2018)](https://github.com/PolyAI-LDN/conversational-datasets/tree/master/reddit) | [paper](https://arxiv.org/abs/1904.06472) | 726,484,430 |
-| [S2ORC](https://github.com/allenai/s2orc) Citation pairs (Abstracts) | [paper](https://aclanthology.org/2020.acl-main.447/) | 116,288,806 |
-| [WikiAnswers](https://github.com/afader/oqa#wikianswers-corpus) Duplicate question pairs | [paper](https://doi.org/10.1145/2623330.2623677) | 77,427,422 |
-| [PAQ](https://github.com/facebookresearch/PAQ) (Question, Answer) pairs | [paper](https://arxiv.org/abs/2102.07033) | 64,371,441 |
-| [S2ORC](https://github.com/allenai/s2orc) Citation pairs (Titles) | [paper](https://aclanthology.org/2020.acl-main.447/) | 52,603,982 |
-| [S2ORC](https://github.com/allenai/s2orc) (Title, Abstract) | [paper](https://aclanthology.org/2020.acl-main.447/) | 41,769,185 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) (Title, Body) pairs  | - | 25,316,456 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) (Title+Body, Answer) pairs  | - | 21,396,559 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) (Title, Answer) pairs  | - | 21,396,559 |
-| [MS MARCO](https://microsoft.github.io/msmarco/) triplets | [paper](https://doi.org/10.1145/3404835.3462804) | 9,144,553 |
-| [GOOAQ: Open Question Answering with Diverse Answer Types](https://github.com/allenai/gooaq) | [paper](https://arxiv.org/pdf/2104.08727.pdf) | 3,012,496 |
-| [Yahoo Answers](https://www.kaggle.com/soumikrakshit/yahoo-answers-dataset) (Title, Answer) | [paper](https://proceedings.neurips.cc/paper/2015/hash/250cf8b51c773f3f8dc8b4be867a9a02-Abstract.html) | 1,198,260 |
-| [Code Search](https://huggingface.co/datasets/code_search_net) | - | 1,151,414 |
-| [COCO](https://cocodataset.org/#home) Image captions | [paper](https://link.springer.com/chapter/10.1007%2F978-3-319-10602-1_48) | 828,395|
-| [SPECTER](https://github.com/allenai/specter) citation triplets | [paper](https://doi.org/10.18653/v1/2020.acl-main.207) | 684,100 |
-| [Yahoo Answers](https://www.kaggle.com/soumikrakshit/yahoo-answers-dataset) (Question, Answer) | [paper](https://proceedings.neurips.cc/paper/2015/hash/250cf8b51c773f3f8dc8b4be867a9a02-Abstract.html) | 681,164 |
-| [Yahoo Answers](https://www.kaggle.com/soumikrakshit/yahoo-answers-dataset) (Title, Question) | [paper](https://proceedings.neurips.cc/paper/2015/hash/250cf8b51c773f3f8dc8b4be867a9a02-Abstract.html) | 659,896 |
-| [SearchQA](https://huggingface.co/datasets/search_qa) | [paper](https://arxiv.org/abs/1704.05179) | 582,261 |
-| [Eli5](https://huggingface.co/datasets/eli5) | [paper](https://doi.org/10.18653/v1/p19-1346) | 325,475 |
-| [Flickr 30k](https://shannon.cs.illinois.edu/DenotationGraph/) | [paper](https://transacl.org/ojs/index.php/tacl/article/view/229/33) | 317,695 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) Duplicate questions (titles) | | 304,525 |
-| AllNLI ([SNLI](https://nlp.stanford.edu/projects/snli/) and [MultiNLI](https://cims.nyu.edu/~sbowman/multinli/) | [paper SNLI](https://doi.org/10.18653/v1/d15-1075), [paper MultiNLI](https://doi.org/10.18653/v1/n18-1101) | 277,230 | 
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) Duplicate questions (bodies) | | 250,519 |
-| [Stack Exchange](https://huggingface.co/datasets/flax-sentence-embeddings/stackexchange_xml) Duplicate questions (titles+bodies) | | 250,460 |
-| [Sentence Compression](https://github.com/google-research-datasets/sentence-compression) | [paper](https://www.aclweb.org/anthology/D13-1155/) | 180,000 |
-| [Wikihow](https://github.com/pvl/wikihow_pairs_dataset) | [paper](https://arxiv.org/abs/1810.09305) | 128,542 |
-| [Altlex](https://github.com/chridey/altlex/) | [paper](https://aclanthology.org/P16-1135.pdf) | 112,696 |
-| [Quora Question Triplets](https://quoradata.quora.com/First-Quora-Dataset-Release-Question-Pairs) | - | 103,663 |
-| [Simple Wikipedia](https://cs.pomona.edu/~dkauchak/simplification/) | [paper](https://www.aclweb.org/anthology/P11-2117/) | 102,225 |
-| [Natural Questions (NQ)](https://ai.google.com/research/NaturalQuestions) | [paper](https://transacl.org/ojs/index.php/tacl/article/view/1455) | 100,231 |
-| [SQuAD2.0](https://rajpurkar.github.io/SQuAD-explorer/) | [paper](https://aclanthology.org/P18-2124.pdf) | 87,599 |
-| [TriviaQA](https://huggingface.co/datasets/trivia_qa) | - | 73,346 |
-| **Total** | | **1,170,060,424** |
+### BibTeX entry and citation info
+
+```bibtex
+@article{DBLP:journals/corr/abs-1907-11692,
+  author    = {Yinhan Liu and
+               Myle Ott and
+               Naman Goyal and
+               Jingfei Du and
+               Mandar Joshi and
+               Danqi Chen and
+               Omer Levy and
+               Mike Lewis and
+               Luke Zettlemoyer and
+               Veselin Stoyanov},
+  title     = {RoBERTa: {A} Robustly Optimized {BERT} Pretraining Approach},
+  journal   = {CoRR},
+  volume    = {abs/1907.11692},
+  year      = {2019},
+  url       = {http://arxiv.org/abs/1907.11692},
+  archivePrefix = {arXiv},
+  eprint    = {1907.11692},
+  timestamp = {Thu, 01 Aug 2019 08:59:33 +0200},
+  biburl    = {https://dblp.org/rec/journals/corr/abs-1907-11692.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
+
+<a href="https://huggingface.co/exbert/?model=roberta-base">
+	<img width="300px" src="https://cdn-media.huggingface.co/exbert/button.png">
+</a>

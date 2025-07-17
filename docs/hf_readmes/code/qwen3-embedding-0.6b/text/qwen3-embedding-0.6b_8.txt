@@ -1,0 +1,2 @@
+
+And then, generate the embeddings sending a HTTP POST request as:

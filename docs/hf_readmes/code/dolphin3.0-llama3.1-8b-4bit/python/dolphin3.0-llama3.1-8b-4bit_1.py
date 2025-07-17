@@ -1,24 +1,35 @@
->>> from transformers import pipeline
->>> unmasker = pipeline('fill-mask', model='bert-base-cased')
->>> unmasker("Hello I'm a [MASK] model.")
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import cos_sim
+from sentence_transformers.quantization import quantize_embeddings
 
-[{'sequence': "[CLS] Hello I'm a fashion model. [SEP]",
-  'score': 0.09019174426794052,
-  'token': 4633,
-  'token_str': 'fashion'},
- {'sequence': "[CLS] Hello I'm a new model. [SEP]",
-  'score': 0.06349995732307434,
-  'token': 1207,
-  'token_str': 'new'},
- {'sequence': "[CLS] Hello I'm a male model. [SEP]",
-  'score': 0.06228214129805565,
-  'token': 2581,
-  'token_str': 'male'},
- {'sequence': "[CLS] Hello I'm a professional model. [SEP]",
-  'score': 0.0441727414727211,
-  'token': 1848,
-  'token_str': 'professional'},
- {'sequence': "[CLS] Hello I'm a super model. [SEP]",
-  'score': 0.03326151892542839,
-  'token': 7688,
-  'token_str': 'super'}]
+# 1. Specify preffered dimensions
+dimensions = 512
+
+# 2. load model
+model = SentenceTransformer("mixedbread-ai/mxbai-embed-large-v1", truncate_dim=dimensions)
+
+# The prompt used for query retrieval tasks:
+# query_prompt = 'Represent this sentence for searching relevant passages: '
+
+query = "A man is eating a piece of bread"
+docs = [
+    "A man is eating food.",
+    "A man is eating pasta.",
+    "The girl is carrying a baby.",
+    "A man is riding a horse.",
+]
+
+# 2. Encode
+query_embedding = model.encode(query, prompt_name="query")
+# Equivalent Alternatives:
+# query_embedding = model.encode(query_prompt + query)
+# query_embedding = model.encode(query, prompt=query_prompt)
+
+docs_embeddings = model.encode(docs)
+
+# Optional: Quantize the embeddings
+binary_query_embedding = quantize_embeddings(query_embedding, precision="ubinary")
+binary_docs_embeddings = quantize_embeddings(docs_embeddings, precision="ubinary")
+
+similarities = cos_sim(query_embedding, docs_embeddings)
+print('similarities:', similarities)

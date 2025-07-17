@@ -1,3 +1,4 @@
+import tempfile
 from huggingface_hub import (
     CachedRepoInfo,
     scan_cache_dir,
@@ -289,20 +290,24 @@ def download_huggingface_repo(
     return path
 
 
-def download_readme(model_id: str | ModelValue, model_name: ModelType, output_dir: Path, overwrite: bool = False) -> bool:
+def download_readme(model_id: str | ModelValue, model_name: ModelType, output_dir: Union[str, Path], overwrite: bool = False) -> bool:
     """
     Download README.md for a Hugging Face model using API, fallback to web scraping if necessary.
 
     Args:
         model_id (str | ModelValue): Full HF model repo ID or model name.
         model_name (str): Local name for saved README.
-        output_dir (Path): Directory to save README.
+        output_dir (str | Path): Directory to save README.
         overwrite (bool): Force overwrite if file exists.
 
     Returns:
         bool: True if successful, False otherwise.
     """
     from jet.models.utils import resolve_model_key, resolve_model_value
+
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     model_key = resolve_model_key(model_name)
     readme_path = output_dir / f"{model_key}_README.md"
@@ -311,21 +316,24 @@ def download_readme(model_id: str | ModelValue, model_name: ModelType, output_di
         print(f"README for {model_key} already exists, skipping...")
         return True
 
-    # Try API download
+    # Use temporary directory with model_key as suffix
     try:
-        hf_hub_download(
-            repo_id=model_id,
-            filename="README.md",
-            local_dir=output_dir,
-            local_dir_use_symlinks=False
-        )
-        downloaded_file = output_dir / "README.md"
-        if downloaded_file.exists():
-            downloaded_file.rename(readme_path)
-        print(f"Downloaded README for {model_key} via API")
-        return True
+        with tempfile.TemporaryDirectory(prefix=f"tmp_{model_key}_") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            hf_hub_download(
+                repo_id=model_id,
+                filename="README.md",
+                local_dir=tmp_path,
+                local_dir_use_symlinks=False
+            )
+            downloaded_file = tmp_path / "README.md"
+            if downloaded_file.exists():
+                downloaded_file.rename(readme_path)
+                logger.success(
+                    f"Downloaded README for {model_key} via API:\n{str(readme_path)}")
+                return True
     except Exception as e:
-        print(f"API failed for {model_key}: {e}")
+        logger.error(f"API failed for {model_key}: {e}")
 
     # Fallback to web scraping
     try:

@@ -1,0 +1,6 @@
+
+📌 **Tip**: We recommend that developers customize the `instruct` according to their specific scenarios, tasks, and languages. Our tests have shown that in most retrieval scenarios, not using an `instruct` on the query side can lead to a drop in retrieval performance by approximately 1% to 5%.
+
+### Text Embeddings Inference (TEI) Usage
+
+You can either run / deploy TEI on NVIDIA GPUs as:

@@ -1,0 +1,4 @@
+
+## Generate with `transformers`
+
+If you want to use Hugging Face `transformers` to generate text, you can do something like this.

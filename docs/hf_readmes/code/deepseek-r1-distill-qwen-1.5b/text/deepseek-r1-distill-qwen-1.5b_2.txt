@@ -1,0 +1,4 @@
+
+The model will predict scores for the pairs `('Sentence 1', 'Sentence 2')` and `('Sentence 3', 'Sentence 4')`.
+
+You can use this model also without sentence_transformers and by just using Transformers ``AutoModel`` class

@@ -1,0 +1,52 @@
+
+This bias will also affect all fine-tuned versions of this model.
+
+## Training data
+
+The RoBERTa model was pretrained on the reunion of five datasets:
+- [BookCorpus](https://yknzhu.wixsite.com/mbweb), a dataset consisting of 11,038 unpublished books;
+- [English Wikipedia](https://en.wikipedia.org/wiki/English_Wikipedia) (excluding lists, tables and headers) ;
+- [CC-News](https://commoncrawl.org/2016/10/news-dataset-available/), a dataset containing 63 millions English news
+  articles crawled between September 2016 and February 2019.
+- [OpenWebText](https://github.com/jcpeterson/openwebtext), an opensource recreation of the WebText dataset used to
+  train GPT-2,
+- [Stories](https://arxiv.org/abs/1806.02847) a dataset containing a subset of CommonCrawl data filtered to match the
+  story-like style of Winograd schemas.
+
+Together these datasets weigh 160GB of text.
+
+## Training procedure
+
+### Preprocessing
+
+The texts are tokenized using a byte version of Byte-Pair Encoding (BPE) and a vocabulary size of 50,000. The inputs of
+the model take pieces of 512 contiguous tokens that may span over documents. The beginning of a new document is marked
+with `<s>` and the end of one by `</s>`
+
+The details of the masking procedure for each sentence are the following:
+- 15% of the tokens are masked.
+- In 80% of the cases, the masked tokens are replaced by `<mask>`.
+- In 10% of the cases, the masked tokens are replaced by a random token (different) from the one they replace.
+- In the 10% remaining cases, the masked tokens are left as is.
+
+Contrary to BERT, the masking is done dynamically during pretraining (e.g., it changes at each epoch and is not fixed).
+
+### Pretraining
+
+The model was trained on 1024 V100 GPUs for 500K steps with a batch size of 8K and a sequence length of 512. The
+optimizer used is Adam with a learning rate of 6e-4, \\(\beta_{1} = 0.9\\), \\(\beta_{2} = 0.98\\) and
+\\(\epsilon = 1e-6\\), a weight decay of 0.01, learning rate warmup for 24,000 steps and linear decay of the learning
+rate after.
+
+## Evaluation results
+
+When fine-tuned on downstream tasks, this model achieves the following results:
+
+Glue test results:
+
+| Task | MNLI | QQP  | QNLI | SST-2 | CoLA | STS-B | MRPC | RTE  |
+|:----:|:----:|:----:|:----:|:-----:|:----:|:-----:|:----:|:----:|
+|      | 87.6 | 91.9 | 92.8 | 94.8  | 63.6 | 91.2  | 90.2 | 78.7 |
+
+
+### BibTeX entry and citation info

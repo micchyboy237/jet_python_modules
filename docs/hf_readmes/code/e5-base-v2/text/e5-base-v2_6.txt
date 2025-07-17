@@ -1,0 +1,8 @@
+@misc{granite-embedding-models,
+  author = {author 1, author2, ...},
+  title = {},
+  journal = {},
+  volume = {},
+  year = {2024},
+  url = {https://arxiv.org/abs/0000.00000},
+}

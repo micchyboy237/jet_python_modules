@@ -1,0 +1,21 @@
+---
+license: apache-2.0
+library_name: sentence-transformers
+tags:
+- sentence-transformers
+- feature-extraction
+- sentence-similarity
+- transformers
+pipeline_tag: sentence-similarity
+language:
+- en
+---
+
+# allenai-specter
+
+This model is a conversion of the [AllenAI SPECTER](https://github.com/allenai/specter) model to [sentence-transformers](https://www.SBERT.net). It can be used to map the titles & abstracts of scientific publications to a vector space such that similar papers are close.
+
+
+## Usage (Sentence-Transformers)
+
+Using this model becomes easy when you have [sentence-transformers](https://www.SBERT.net) installed:

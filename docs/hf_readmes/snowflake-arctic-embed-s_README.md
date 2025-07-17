@@ -1,5 +1,4 @@
 ---
-license: apache-2.0
 pipeline_tag: sentence-similarity
 tags:
 - sentence-transformers
@@ -10,7 +9,7 @@ tags:
 - snowflake-arctic-embed
 - transformers.js
 model-index:
-- name: snowflake-arctic-m-long
+- name: snowflake-snowflake-arctic-embed-s
   results:
   - task:
       type: Classification
@@ -22,11 +21,11 @@ model-index:
       revision: e8379541af4e31359cca9fbcf4b00f2671dba205
     metrics:
     - type: accuracy
-      value: 78.4776119402985
+      value: 71.17910447761193
     - type: ap
-      value: 42.34374238166049
+      value: 33.15833652904991
     - type: f1
-      value: 72.51164234732224
+      value: 64.86214791591543
   - task:
       type: Classification
     dataset:
@@ -37,11 +36,11 @@ model-index:
       revision: e2d317d38cd51312af73b3d32a06d1a08b442046
     metrics:
     - type: accuracy
-      value: 78.7416
+      value: 78.750325
     - type: ap
-      value: 73.12074819362377
+      value: 72.83242788470943
     - type: f1
-      value: 78.64057339708795
+      value: 78.63968044029453
   - task:
       type: Classification
     dataset:
@@ -52,9 +51,9 @@ model-index:
       revision: 1399c76144fd37290681b995c656ef9b2e06e26d
     metrics:
     - type: accuracy
-      value: 39.926
+      value: 38.264
     - type: f1
-      value: 39.35531993117573
+      value: 37.140269688532825
   - task:
       type: Retrieval
     dataset:
@@ -65,65 +64,65 @@ model-index:
       revision: c22ab2a51041ffd869aaddef7af8d8215647e41a
     metrics:
     - type: map_at_1
-      value: 34.851
+      value: 32.646
     - type: map_at_10
-      value: 51.473
+      value: 48.372
     - type: map_at_100
-      value: 52.103
+      value: 49.207
     - type: map_at_1000
-      value: 52.105000000000004
+      value: 49.214
     - type: map_at_3
-      value: 46.776
+      value: 43.611
     - type: map_at_5
-      value: 49.617
+      value: 46.601
     - type: mrr_at_1
-      value: 35.491
+      value: 33.144
     - type: mrr_at_10
-      value: 51.73799999999999
+      value: 48.557
     - type: mrr_at_100
-      value: 52.37500000000001
+      value: 49.385
     - type: mrr_at_1000
-      value: 52.378
+      value: 49.392
     - type: mrr_at_3
-      value: 46.965
+      value: 43.777
     - type: mrr_at_5
-      value: 49.878
+      value: 46.792
     - type: ndcg_at_1
-      value: 34.851
+      value: 32.646
     - type: ndcg_at_10
-      value: 60.364
+      value: 56.874
     - type: ndcg_at_100
-      value: 62.888999999999996
+      value: 60.307
     - type: ndcg_at_1000
-      value: 62.946000000000005
+      value: 60.465999999999994
     - type: ndcg_at_3
-      value: 50.807
+      value: 47.339999999999996
     - type: ndcg_at_5
-      value: 55.901
+      value: 52.685
     - type: precision_at_1
-      value: 34.851
+      value: 32.646
     - type: precision_at_10
-      value: 8.855
+      value: 8.378
     - type: precision_at_100
-      value: 0.992
+      value: 0.984
     - type: precision_at_1000
       value: 0.1
     - type: precision_at_3
-      value: 20.839
+      value: 19.393
     - type: precision_at_5
-      value: 14.963999999999999
+      value: 14.210999999999999
     - type: recall_at_1
-      value: 34.851
+      value: 32.646
     - type: recall_at_10
-      value: 88.549
+      value: 83.784
     - type: recall_at_100
-      value: 99.21799999999999
+      value: 98.43499999999999
     - type: recall_at_1000
       value: 99.644
     - type: recall_at_3
-      value: 62.517999999999994
+      value: 58.179
     - type: recall_at_5
-      value: 74.822
+      value: 71.053
   - task:
       type: Clustering
     dataset:
@@ -134,7 +133,7 @@ model-index:
       revision: a122ad7f3f0291bf49cc6f4d32aa80929df69d5d
     metrics:
     - type: v_measure
-      value: 45.5554998405317
+      value: 44.94353025039141
   - task:
       type: Clustering
     dataset:
@@ -145,7 +144,7 @@ model-index:
       revision: f910caf1a6075f7329cdf8c1a6135696f37dbd53
     metrics:
     - type: v_measure
-      value: 35.614248811397005
+      value: 35.870836103029156
   - task:
       type: Reranking
     dataset:
@@ -156,9 +155,9 @@ model-index:
       revision: 2000358ca161889fa9c082cb41daa8dcfb161a54
     metrics:
     - type: map
-      value: 61.355489424753884
+      value: 61.149290266979236
     - type: mrr
-      value: 75.49443784900849
+      value: 73.8448093919008
   - task:
       type: STS
     dataset:
@@ -169,17 +168,17 @@ model-index:
       revision: d3fb88f8f02e40887cd149695127462bbcf29b4a
     metrics:
     - type: cos_sim_pearson
-      value: 89.17311056578292
+      value: 87.055571064151
     - type: cos_sim_spearman
-      value: 88.24237210809322
+      value: 86.2652186235749
     - type: euclidean_pearson
-      value: 87.3188065853646
+      value: 85.82039272282503
     - type: euclidean_spearman
-      value: 88.24237210809322
+      value: 86.2652186235749
     - type: manhattan_pearson
-      value: 86.89499710049658
+      value: 85.95825392094812
     - type: manhattan_spearman
-      value: 87.85441146091777
+      value: 86.6742640885316
   - task:
       type: Classification
     dataset:
@@ -190,9 +189,9 @@ model-index:
       revision: 0fd18e25b25c072e09e0d92ab615fda904d66300
     metrics:
     - type: accuracy
-      value: 80.26298701298703
+      value: 79.11688311688312
     - type: f1
-      value: 79.68356764080303
+      value: 78.28328901613885
   - task:
       type: Clustering
     dataset:
@@ -203,7 +202,7 @@ model-index:
       revision: 62d5330920bca426ce9d3c76ea914f15fc83e891
     metrics:
     - type: v_measure
-      value: 20.923883720813706
+      value: 19.147523589859325
   - task:
       type: Clustering
     dataset:
@@ -214,7 +213,7 @@ model-index:
       revision: 65b79d1d13f80053f67aca9498d9402c2d9f1f40
     metrics:
     - type: v_measure
-      value: 36.16058801465044
+      value: 35.68369864124274
   - task:
       type: Clustering
     dataset:
@@ -225,7 +224,7 @@ model-index:
       revision: 258694dd0231531bc1fd9de6ceb52a0853c6d908
     metrics:
     - type: v_measure
-      value: 30.1402356118627
+      value: 30.474958792950872
   - task:
       type: Retrieval
     dataset:
@@ -236,65 +235,65 @@ model-index:
       revision: f46a197baaae43b4f621051089b82a364682dfeb
     metrics:
     - type: map_at_1
-      value: 35.612
+      value: 33.183
     - type: map_at_10
-      value: 47.117
+      value: 43.989
     - type: map_at_100
-      value: 48.711
+      value: 45.389
     - type: map_at_1000
-      value: 48.826
+      value: 45.517
     - type: map_at_3
-      value: 43.858999999999995
+      value: 40.275
     - type: map_at_5
-      value: 45.612
+      value: 42.306
     - type: mrr_at_1
-      value: 42.918
+      value: 40.486
     - type: mrr_at_10
-      value: 52.806
+      value: 49.62
     - type: mrr_at_100
-      value: 53.564
+      value: 50.351
     - type: mrr_at_1000
-      value: 53.596999999999994
+      value: 50.393
     - type: mrr_at_3
-      value: 50.453
+      value: 46.805
     - type: mrr_at_5
-      value: 51.841
+      value: 48.429
     - type: ndcg_at_1
-      value: 42.918
+      value: 40.486
     - type: ndcg_at_10
-      value: 53.291999999999994
+      value: 50.249
     - type: ndcg_at_100
-      value: 58.711999999999996
+      value: 55.206
     - type: ndcg_at_1000
-      value: 60.317
+      value: 57.145
     - type: ndcg_at_3
-      value: 48.855
+      value: 44.852
     - type: ndcg_at_5
-      value: 50.778
+      value: 47.355000000000004
     - type: precision_at_1
-      value: 42.918
+      value: 40.486
     - type: precision_at_10
-      value: 9.927999999999999
+      value: 9.571
     - type: precision_at_100
-      value: 1.592
+      value: 1.4949999999999999
     - type: precision_at_1000
-      value: 0.201
+      value: 0.196
     - type: precision_at_3
-      value: 23.366999999999997
+      value: 21.173000000000002
     - type: precision_at_5
-      value: 16.366
+      value: 15.622
     - type: recall_at_1
-      value: 35.612
+      value: 33.183
     - type: recall_at_10
-      value: 64.671
+      value: 62.134
     - type: recall_at_100
-      value: 86.97
+      value: 82.73
     - type: recall_at_1000
-      value: 96.99600000000001
+      value: 94.93599999999999
     - type: recall_at_3
-      value: 51.37199999999999
+      value: 46.497
     - type: recall_at_5
-      value: 57.094
+      value: 53.199
   - task:
       type: Retrieval
     dataset:
@@ -305,65 +304,65 @@ model-index:
       revision: ad9991cb51e31e31e430383c75ffb2885547b5f0
     metrics:
     - type: map_at_1
-      value: 33.742
+      value: 32.862
     - type: map_at_10
-      value: 44.49
+      value: 42.439
     - type: map_at_100
-      value: 45.781
+      value: 43.736999999999995
     - type: map_at_1000
-      value: 45.902
+      value: 43.864
     - type: map_at_3
-      value: 41.453
+      value: 39.67
     - type: map_at_5
-      value: 43.251
+      value: 41.202
     - type: mrr_at_1
-      value: 42.357
+      value: 40.892
     - type: mrr_at_10
-      value: 50.463
+      value: 48.61
     - type: mrr_at_100
-      value: 51.17
+      value: 49.29
     - type: mrr_at_1000
-      value: 51.205999999999996
+      value: 49.332
     - type: mrr_at_3
-      value: 48.397
+      value: 46.688
     - type: mrr_at_5
-      value: 49.649
+      value: 47.803000000000004
     - type: ndcg_at_1
-      value: 42.357
+      value: 40.892
     - type: ndcg_at_10
-      value: 50.175000000000004
+      value: 47.797
     - type: ndcg_at_100
-      value: 54.491
+      value: 52.17699999999999
     - type: ndcg_at_1000
-      value: 56.282
+      value: 54.127
     - type: ndcg_at_3
-      value: 46.159
+      value: 44.189
     - type: ndcg_at_5
-      value: 48.226
+      value: 45.821
     - type: precision_at_1
-      value: 42.357
+      value: 40.892
     - type: precision_at_10
-      value: 9.382
+      value: 8.841000000000001
     - type: precision_at_100
-      value: 1.473
+      value: 1.419
     - type: precision_at_1000
-      value: 0.191
+      value: 0.188
     - type: precision_at_3
-      value: 22.187
+      value: 21.104
     - type: precision_at_5
-      value: 15.758
+      value: 14.777000000000001
     - type: recall_at_1
-      value: 33.742
+      value: 32.862
     - type: recall_at_10
-      value: 59.760999999999996
+      value: 56.352999999999994
     - type: recall_at_100
-      value: 77.89500000000001
+      value: 74.795
     - type: recall_at_1000
-      value: 89.005
+      value: 86.957
     - type: recall_at_3
-      value: 47.872
+      value: 45.269999999999996
     - type: recall_at_5
-      value: 53.559
+      value: 50.053000000000004
   - task:
       type: Retrieval
     dataset:
@@ -374,65 +373,65 @@ model-index:
       revision: 4885aa143210c98657558c04aaf3dc47cfb54340
     metrics:
     - type: map_at_1
-      value: 43.883
+      value: 42.998999999999995
     - type: map_at_10
-      value: 56.464999999999996
+      value: 54.745
     - type: map_at_100
-      value: 57.394
+      value: 55.650999999999996
     - type: map_at_1000
-      value: 57.443999999999996
+      value: 55.703
     - type: map_at_3
-      value: 53.169
+      value: 51.67
     - type: map_at_5
-      value: 54.984
+      value: 53.503
     - type: mrr_at_1
-      value: 50.470000000000006
+      value: 49.028
     - type: mrr_at_10
-      value: 59.997
+      value: 58.172000000000004
     - type: mrr_at_100
-      value: 60.586
+      value: 58.744
     - type: mrr_at_1000
-      value: 60.61
+      value: 58.769000000000005
     - type: mrr_at_3
-      value: 57.837
+      value: 55.977
     - type: mrr_at_5
-      value: 59.019
+      value: 57.38799999999999
     - type: ndcg_at_1
-      value: 50.470000000000006
+      value: 49.028
     - type: ndcg_at_10
-      value: 62.134
+      value: 60.161
     - type: ndcg_at_100
-      value: 65.69500000000001
+      value: 63.806
     - type: ndcg_at_1000
-      value: 66.674
+      value: 64.821
     - type: ndcg_at_3
-      value: 56.916999999999994
+      value: 55.199
     - type: ndcg_at_5
-      value: 59.312
+      value: 57.830999999999996
     - type: precision_at_1
-      value: 50.470000000000006
+      value: 49.028
     - type: precision_at_10
-      value: 9.812
+      value: 9.455
     - type: precision_at_100
-      value: 1.25
+      value: 1.216
     - type: precision_at_1000
-      value: 0.13699999999999998
+      value: 0.135
     - type: precision_at_3
-      value: 25.119999999999997
+      value: 24.242
     - type: precision_at_5
-      value: 17.016000000000002
+      value: 16.614
     - type: recall_at_1
-      value: 43.883
+      value: 42.998999999999995
     - type: recall_at_10
-      value: 75.417
+      value: 72.542
     - type: recall_at_100
-      value: 90.545
+      value: 88.605
     - type: recall_at_1000
-      value: 97.44500000000001
+      value: 95.676
     - type: recall_at_3
-      value: 61.306000000000004
+      value: 59.480999999999995
     - type: recall_at_5
-      value: 67.244
+      value: 65.886
   - task:
       type: Retrieval
     dataset:
@@ -443,65 +442,65 @@ model-index:
       revision: 5003b3064772da1887988e05400cf3806fe491f2
     metrics:
     - type: map_at_1
-      value: 29.813000000000002
+      value: 27.907
     - type: map_at_10
-      value: 38.627
+      value: 35.975
     - type: map_at_100
-      value: 39.735
+      value: 36.985
     - type: map_at_1000
-      value: 39.806000000000004
+      value: 37.063
     - type: map_at_3
-      value: 36.283
+      value: 33.467999999999996
     - type: map_at_5
-      value: 37.491
+      value: 34.749
     - type: mrr_at_1
-      value: 32.316
+      value: 30.056
     - type: mrr_at_10
-      value: 40.752
+      value: 38.047
     - type: mrr_at_100
-      value: 41.699000000000005
+      value: 38.932
     - type: mrr_at_1000
-      value: 41.749
+      value: 38.991
     - type: mrr_at_3
-      value: 38.531
+      value: 35.705999999999996
     - type: mrr_at_5
-      value: 39.706
+      value: 36.966
     - type: ndcg_at_1
-      value: 32.316
+      value: 30.056
     - type: ndcg_at_10
-      value: 43.524
+      value: 40.631
     - type: ndcg_at_100
-      value: 48.648
+      value: 45.564
     - type: ndcg_at_1000
-      value: 50.405
+      value: 47.685
     - type: ndcg_at_3
-      value: 38.928000000000004
+      value: 35.748000000000005
     - type: ndcg_at_5
-      value: 40.967
+      value: 37.921
     - type: precision_at_1
-      value: 32.316
+      value: 30.056
     - type: precision_at_10
-      value: 6.451999999999999
+      value: 6.079
     - type: precision_at_100
-      value: 0.9490000000000001
+      value: 0.898
     - type: precision_at_1000
-      value: 0.11299999999999999
+      value: 0.11199999999999999
     - type: precision_at_3
-      value: 16.384
+      value: 14.727
     - type: precision_at_5
-      value: 11.006
+      value: 10.056
     - type: recall_at_1
-      value: 29.813000000000002
+      value: 27.907
     - type: recall_at_10
-      value: 56.562999999999995
+      value: 52.981
     - type: recall_at_100
-      value: 79.452
+      value: 75.53999999999999
     - type: recall_at_1000
-      value: 92.715
+      value: 91.759
     - type: recall_at_3
-      value: 43.985
+      value: 39.878
     - type: recall_at_5
-      value: 49.001
+      value: 45.077
   - task:
       type: Retrieval
     dataset:
@@ -512,65 +511,65 @@ model-index:
       revision: 90fceea13679c63fe563ded68f3b6f06e50061de
     metrics:
     - type: map_at_1
-      value: 19.961000000000002
+      value: 16.764000000000003
     - type: map_at_10
-      value: 28.026
+      value: 24.294
     - type: map_at_100
-      value: 29.212
+      value: 25.507999999999996
     - type: map_at_1000
-      value: 29.332
+      value: 25.64
     - type: map_at_3
-      value: 25.296999999999997
+      value: 21.807000000000002
     - type: map_at_5
-      value: 26.832
+      value: 23.21
     - type: mrr_at_1
-      value: 24.627
+      value: 20.771
     - type: mrr_at_10
-      value: 33.045
+      value: 28.677000000000003
     - type: mrr_at_100
-      value: 33.944
+      value: 29.742
     - type: mrr_at_1000
-      value: 34.013
+      value: 29.816
     - type: mrr_at_3
-      value: 30.307000000000002
+      value: 26.327
     - type: mrr_at_5
-      value: 31.874000000000002
+      value: 27.639000000000003
     - type: ndcg_at_1
-      value: 24.627
+      value: 20.771
     - type: ndcg_at_10
-      value: 33.414
+      value: 29.21
     - type: ndcg_at_100
-      value: 39.061
+      value: 34.788000000000004
     - type: ndcg_at_1000
-      value: 41.795
+      value: 37.813
     - type: ndcg_at_3
-      value: 28.377000000000002
+      value: 24.632
     - type: ndcg_at_5
-      value: 30.781999999999996
+      value: 26.801000000000002
     - type: precision_at_1
-      value: 24.627
+      value: 20.771
     - type: precision_at_10
-      value: 6.02
+      value: 5.373
     - type: precision_at_100
-      value: 1.035
+      value: 0.923
     - type: precision_at_1000
-      value: 0.13899999999999998
+      value: 0.133
     - type: precision_at_3
-      value: 13.516
+      value: 12.065
     - type: precision_at_5
-      value: 9.851
+      value: 8.706
     - type: recall_at_1
-      value: 19.961000000000002
+      value: 16.764000000000003
     - type: recall_at_10
-      value: 45.174
+      value: 40.072
     - type: recall_at_100
-      value: 69.69
+      value: 63.856
     - type: recall_at_1000
-      value: 89.24600000000001
+      value: 85.141
     - type: recall_at_3
-      value: 31.062
+      value: 27.308
     - type: recall_at_5
-      value: 37.193
+      value: 32.876
   - task:
       type: Retrieval
     dataset:
@@ -581,65 +580,65 @@ model-index:
       revision: 79531abbd1fb92d06c6d6315a0cbbbf5bb247ea4
     metrics:
     - type: map_at_1
-      value: 32.080999999999996
+      value: 31.194
     - type: map_at_10
-      value: 42.177
+      value: 40.731
     - type: map_at_100
-      value: 43.431999999999995
+      value: 42.073
     - type: map_at_1000
-      value: 43.533
+      value: 42.178
     - type: map_at_3
-      value: 38.721
+      value: 37.726
     - type: map_at_5
-      value: 40.669
+      value: 39.474
     - type: mrr_at_1
-      value: 38.787
+      value: 37.729
     - type: mrr_at_10
-      value: 47.762
+      value: 46.494
     - type: mrr_at_100
-      value: 48.541000000000004
+      value: 47.368
     - type: mrr_at_1000
-      value: 48.581
+      value: 47.407
     - type: mrr_at_3
-      value: 45.123999999999995
+      value: 44.224999999999994
     - type: mrr_at_5
-      value: 46.639
+      value: 45.582
     - type: ndcg_at_1
-      value: 38.787
+      value: 37.729
     - type: ndcg_at_10
-      value: 48.094
+      value: 46.312999999999995
     - type: ndcg_at_100
-      value: 53.291
+      value: 51.915
     - type: ndcg_at_1000
-      value: 55.21
+      value: 53.788000000000004
     - type: ndcg_at_3
-      value: 42.721
+      value: 41.695
     - type: ndcg_at_5
-      value: 45.301
+      value: 43.956
     - type: precision_at_1
-      value: 38.787
+      value: 37.729
     - type: precision_at_10
-      value: 8.576
+      value: 8.181
     - type: precision_at_100
-      value: 1.306
+      value: 1.275
     - type: precision_at_1000
-      value: 0.164
+      value: 0.16199999999999998
     - type: precision_at_3
-      value: 19.698
+      value: 19.41
     - type: precision_at_5
-      value: 14.013
+      value: 13.648
     - type: recall_at_1
-      value: 32.080999999999996
+      value: 31.194
     - type: recall_at_10
-      value: 59.948
+      value: 57.118
     - type: recall_at_100
-      value: 81.811
+      value: 80.759
     - type: recall_at_1000
-      value: 94.544
+      value: 92.779
     - type: recall_at_3
-      value: 44.903999999999996
+      value: 44.083
     - type: recall_at_5
-      value: 51.763999999999996
+      value: 50.044999999999995
   - task:
       type: Retrieval
     dataset:
@@ -650,65 +649,65 @@ model-index:
       revision: 6184bc1440d2dbc7612be22b50686b8826d22b32
     metrics:
     - type: map_at_1
-      value: 28.869
+      value: 28.047
     - type: map_at_10
-      value: 38.954
+      value: 37.79
     - type: map_at_100
-      value: 40.233000000000004
+      value: 39.145
     - type: map_at_1000
-      value: 40.332
+      value: 39.254
     - type: map_at_3
-      value: 35.585
+      value: 34.857
     - type: map_at_5
-      value: 37.476
+      value: 36.545
     - type: mrr_at_1
-      value: 35.959
+      value: 35.388
     - type: mrr_at_10
-      value: 44.800000000000004
+      value: 43.475
     - type: mrr_at_100
-      value: 45.609
+      value: 44.440000000000005
     - type: mrr_at_1000
-      value: 45.655
+      value: 44.494
     - type: mrr_at_3
-      value: 42.333
+      value: 41.286
     - type: mrr_at_5
-      value: 43.68
+      value: 42.673
     - type: ndcg_at_1
-      value: 35.959
+      value: 35.388
     - type: ndcg_at_10
-      value: 44.957
+      value: 43.169000000000004
     - type: ndcg_at_100
-      value: 50.275000000000006
+      value: 48.785000000000004
     - type: ndcg_at_1000
-      value: 52.29899999999999
+      value: 51.029
     - type: ndcg_at_3
-      value: 39.797
+      value: 38.801
     - type: ndcg_at_5
-      value: 42.128
+      value: 40.9
     - type: precision_at_1
-      value: 35.959
+      value: 35.388
     - type: precision_at_10
-      value: 8.185
+      value: 7.7509999999999994
     - type: precision_at_100
-      value: 1.261
+      value: 1.212
     - type: precision_at_1000
-      value: 0.159
+      value: 0.157
     - type: precision_at_3
-      value: 18.988
+      value: 18.455
     - type: precision_at_5
-      value: 13.516
+      value: 13.014000000000001
     - type: recall_at_1
-      value: 28.869
+      value: 28.047
     - type: recall_at_10
-      value: 57.154
+      value: 53.53099999999999
     - type: recall_at_100
-      value: 79.764
+      value: 77.285
     - type: recall_at_1000
-      value: 93.515
+      value: 92.575
     - type: recall_at_3
-      value: 42.364000000000004
+      value: 40.949000000000005
     - type: recall_at_5
-      value: 48.756
+      value: 46.742
   - task:
       type: Retrieval
     dataset:
@@ -719,65 +718,65 @@ model-index:
       revision: 4ffe81d471b1924886b33c7567bfb200e9eec5c4
     metrics:
     - type: map_at_1
-      value: 29.31008333333333
+      value: 28.131999999999994
     - type: map_at_10
-      value: 38.81849999999999
+      value: 36.93333333333334
     - type: map_at_100
-      value: 40.05058333333334
+      value: 38.117250000000006
     - type: map_at_1000
-      value: 40.16116666666667
+      value: 38.23275
     - type: map_at_3
-      value: 35.91441666666667
+      value: 34.19708333333333
     - type: map_at_5
-      value: 37.526583333333335
+      value: 35.725166666666674
     - type: mrr_at_1
-      value: 34.60066666666667
+      value: 33.16116666666667
     - type: mrr_at_10
-      value: 43.08858333333333
+      value: 41.057833333333335
     - type: mrr_at_100
-      value: 43.927749999999996
+      value: 41.90033333333333
     - type: mrr_at_1000
-      value: 43.97866666666667
+      value: 41.95625
     - type: mrr_at_3
-      value: 40.72775
+      value: 38.757333333333335
     - type: mrr_at_5
-      value: 42.067249999999994
+      value: 40.097333333333324
     - type: ndcg_at_1
-      value: 34.60066666666667
+      value: 33.16116666666667
     - type: ndcg_at_10
-      value: 44.20841666666667
+      value: 42.01983333333333
     - type: ndcg_at_100
-      value: 49.32866666666667
+      value: 46.99916666666667
     - type: ndcg_at_1000
-      value: 51.373999999999995
+      value: 49.21783333333334
     - type: ndcg_at_3
-      value: 39.452083333333334
+      value: 37.479916666666654
     - type: ndcg_at_5
-      value: 41.67
+      value: 39.6355
     - type: precision_at_1
-      value: 34.60066666666667
+      value: 33.16116666666667
     - type: precision_at_10
-      value: 7.616583333333334
+      value: 7.230249999999999
     - type: precision_at_100
-      value: 1.20175
+      value: 1.1411666666666667
     - type: precision_at_1000
-      value: 0.156
+      value: 0.1520833333333333
     - type: precision_at_3
-      value: 17.992
+      value: 17.028166666666667
     - type: precision_at_5
-      value: 12.658416666666666
+      value: 12.046999999999999
     - type: recall_at_1
-      value: 29.31008333333333
+      value: 28.131999999999994
     - type: recall_at_10
-      value: 55.81900000000001
+      value: 52.825500000000005
     - type: recall_at_100
-      value: 78.06308333333334
+      value: 74.59608333333333
     - type: recall_at_1000
-      value: 92.10641666666668
+      value: 89.87916666666668
     - type: recall_at_3
-      value: 42.50166666666667
+      value: 40.13625
     - type: recall_at_5
-      value: 48.26108333333333
+      value: 45.699999999999996
   - task:
       type: Retrieval
     dataset:
@@ -788,65 +787,65 @@ model-index:
       revision: 65ac3a16b8e91f9cee4c9828cc7c335575432a2a
     metrics:
     - type: map_at_1
-      value: 26.773000000000003
+      value: 24.773999999999997
     - type: map_at_10
-      value: 34.13
+      value: 31.997999999999998
     - type: map_at_100
-      value: 35.113
+      value: 32.857
     - type: map_at_1000
-      value: 35.211
+      value: 32.957
     - type: map_at_3
-      value: 31.958
+      value: 30.041
     - type: map_at_5
-      value: 33.080999999999996
+      value: 31.119000000000003
     - type: mrr_at_1
-      value: 30.061
+      value: 27.607
     - type: mrr_at_10
-      value: 37.061
+      value: 34.538000000000004
     - type: mrr_at_100
-      value: 37.865
+      value: 35.308
     - type: mrr_at_1000
-      value: 37.939
+      value: 35.375
     - type: mrr_at_3
-      value: 34.995
+      value: 32.643
     - type: mrr_at_5
-      value: 36.092
+      value: 33.755
     - type: ndcg_at_1
-      value: 30.061
+      value: 27.607
     - type: ndcg_at_10
-      value: 38.391999999999996
+      value: 36.035000000000004
     - type: ndcg_at_100
-      value: 43.13
+      value: 40.351
     - type: ndcg_at_1000
-      value: 45.449
+      value: 42.684
     - type: ndcg_at_3
-      value: 34.411
+      value: 32.414
     - type: ndcg_at_5
-      value: 36.163000000000004
+      value: 34.11
     - type: precision_at_1
-      value: 30.061
+      value: 27.607
     - type: precision_at_10
-      value: 5.982
+      value: 5.6129999999999995
     - type: precision_at_100
-      value: 0.911
+      value: 0.8370000000000001
     - type: precision_at_1000
-      value: 0.11800000000000001
+      value: 0.11199999999999999
     - type: precision_at_3
-      value: 14.673
+      value: 13.957
     - type: precision_at_5
-      value: 10.030999999999999
+      value: 9.571
     - type: recall_at_1
-      value: 26.773000000000003
+      value: 24.773999999999997
     - type: recall_at_10
-      value: 48.445
+      value: 45.717
     - type: recall_at_100
-      value: 69.741
+      value: 65.499
     - type: recall_at_1000
-      value: 86.59
+      value: 82.311
     - type: recall_at_3
-      value: 37.576
+      value: 35.716
     - type: recall_at_5
-      value: 41.948
+      value: 40.007999999999996
   - task:
       type: Retrieval
     dataset:
@@ -857,65 +856,65 @@ model-index:
       revision: 46989137a86843e03a6195de44b09deda022eec7
     metrics:
     - type: map_at_1
-      value: 18.556
+      value: 19.227
     - type: map_at_10
-      value: 26.340999999999998
+      value: 26.649
     - type: map_at_100
-      value: 27.560000000000002
+      value: 27.711999999999996
     - type: map_at_1000
-      value: 27.685
+      value: 27.837
     - type: map_at_3
-      value: 24.136
+      value: 24.454
     - type: map_at_5
-      value: 25.34
+      value: 25.772000000000002
     - type: mrr_at_1
-      value: 22.368
+      value: 23.433999999999997
     - type: mrr_at_10
-      value: 30.192999999999998
+      value: 30.564999999999998
     - type: mrr_at_100
-      value: 31.183
+      value: 31.44
     - type: mrr_at_1000
-      value: 31.258000000000003
+      value: 31.513999999999996
     - type: mrr_at_3
-      value: 28.223
+      value: 28.435
     - type: mrr_at_5
-      value: 29.294999999999998
+      value: 29.744999999999997
     - type: ndcg_at_1
-      value: 22.368
+      value: 23.433999999999997
     - type: ndcg_at_10
-      value: 31.029
+      value: 31.104
     - type: ndcg_at_100
-      value: 36.768
+      value: 36.172
     - type: ndcg_at_1000
-      value: 39.572
+      value: 39.006
     - type: ndcg_at_3
-      value: 27.197
+      value: 27.248
     - type: ndcg_at_5
-      value: 28.912
+      value: 29.249000000000002
     - type: precision_at_1
-      value: 22.368
+      value: 23.433999999999997
     - type: precision_at_10
-      value: 5.606
+      value: 5.496
     - type: precision_at_100
-      value: 0.9979999999999999
+      value: 0.9490000000000001
     - type: precision_at_1000
-      value: 0.14100000000000001
+      value: 0.13699999999999998
     - type: precision_at_3
-      value: 12.892999999999999
+      value: 12.709000000000001
     - type: precision_at_5
-      value: 9.16
+      value: 9.209
     - type: recall_at_1
-      value: 18.556
+      value: 19.227
     - type: recall_at_10
-      value: 41.087
+      value: 40.492
     - type: recall_at_100
-      value: 66.92
+      value: 63.304
     - type: recall_at_1000
-      value: 86.691
+      value: 83.45
     - type: recall_at_3
-      value: 30.415
+      value: 29.713
     - type: recall_at_5
-      value: 34.813
+      value: 34.82
   - task:
       type: Retrieval
     dataset:
@@ -926,65 +925,65 @@ model-index:
       revision: 6c6430d3a6d36f8d2a829195bc5dc94d7e063e53
     metrics:
     - type: map_at_1
-      value: 29.953999999999997
+      value: 29.199
     - type: map_at_10
-      value: 39.633
+      value: 37.617
     - type: map_at_100
-      value: 40.923
+      value: 38.746
     - type: map_at_1000
-      value: 41.016000000000005
+      value: 38.851
     - type: map_at_3
-      value: 36.609
+      value: 34.882000000000005
     - type: map_at_5
-      value: 38.443
+      value: 36.571999999999996
     - type: mrr_at_1
-      value: 35.354
+      value: 33.489000000000004
     - type: mrr_at_10
-      value: 43.718
+      value: 41.089999999999996
     - type: mrr_at_100
-      value: 44.651999999999994
+      value: 41.965
     - type: mrr_at_1000
-      value: 44.696000000000005
+      value: 42.028
     - type: mrr_at_3
-      value: 41.154
+      value: 38.666
     - type: mrr_at_5
-      value: 42.730000000000004
+      value: 40.159
     - type: ndcg_at_1
-      value: 35.354
+      value: 33.489000000000004
     - type: ndcg_at_10
-      value: 44.933
+      value: 42.487
     - type: ndcg_at_100
-      value: 50.577000000000005
+      value: 47.552
     - type: ndcg_at_1000
-      value: 52.428
+      value: 49.774
     - type: ndcg_at_3
-      value: 39.833
+      value: 37.623
     - type: ndcg_at_5
-      value: 42.465
+      value: 40.184999999999995
     - type: precision_at_1
-      value: 35.354
+      value: 33.489000000000004
     - type: precision_at_10
-      value: 7.416
+      value: 6.94
     - type: precision_at_100
-      value: 1.157
+      value: 1.0699999999999998
     - type: precision_at_1000
-      value: 0.14100000000000001
+      value: 0.136
     - type: precision_at_3
-      value: 17.817
+      value: 16.667
     - type: precision_at_5
-      value: 12.687000000000001
+      value: 11.922
     - type: recall_at_1
-      value: 29.953999999999997
+      value: 29.199
     - type: recall_at_10
-      value: 56.932
+      value: 53.689
     - type: recall_at_100
-      value: 80.93900000000001
+      value: 75.374
     - type: recall_at_1000
-      value: 93.582
+      value: 90.64999999999999
     - type: recall_at_3
-      value: 43.192
+      value: 40.577999999999996
     - type: recall_at_5
-      value: 49.757
+      value: 46.909
   - task:
       type: Retrieval
     dataset:
@@ -995,65 +994,65 @@ model-index:
       revision: 160c094312a0e1facb97e55eeddb698c0abe3571
     metrics:
     - type: map_at_1
-      value: 27.85
+      value: 27.206999999999997
     - type: map_at_10
-      value: 37.68
+      value: 36.146
     - type: map_at_100
-      value: 39.295
+      value: 37.759
     - type: map_at_1000
-      value: 39.527
+      value: 37.979
     - type: map_at_3
-      value: 35.036
+      value: 32.967999999999996
     - type: map_at_5
-      value: 36.269
+      value: 34.809
     - type: mrr_at_1
-      value: 33.004
+      value: 32.806000000000004
     - type: mrr_at_10
-      value: 42.096000000000004
+      value: 40.449
     - type: mrr_at_100
-      value: 43.019
+      value: 41.404999999999994
     - type: mrr_at_1000
-      value: 43.071
+      value: 41.457
     - type: mrr_at_3
-      value: 39.987
+      value: 37.614999999999995
     - type: mrr_at_5
-      value: 40.995
+      value: 39.324999999999996
     - type: ndcg_at_1
-      value: 33.004
+      value: 32.806000000000004
     - type: ndcg_at_10
-      value: 43.461
+      value: 41.911
     - type: ndcg_at_100
-      value: 49.138
+      value: 47.576
     - type: ndcg_at_1000
-      value: 51.50900000000001
+      value: 50.072
     - type: ndcg_at_3
-      value: 39.317
+      value: 36.849
     - type: ndcg_at_5
-      value: 40.760999999999996
+      value: 39.475
     - type: precision_at_1
-      value: 33.004
+      value: 32.806000000000004
     - type: precision_at_10
-      value: 8.161999999999999
+      value: 8.103
     - type: precision_at_100
-      value: 1.583
+      value: 1.557
     - type: precision_at_1000
-      value: 0.245
+      value: 0.242
     - type: precision_at_3
-      value: 18.445
+      value: 17.26
     - type: precision_at_5
       value: 12.885
     - type: recall_at_1
-      value: 27.85
+      value: 27.206999999999997
     - type: recall_at_10
-      value: 54.419
+      value: 52.56999999999999
     - type: recall_at_100
-      value: 79.742
+      value: 78.302
     - type: recall_at_1000
-      value: 93.97
+      value: 94.121
     - type: recall_at_3
-      value: 42.149
+      value: 38.317
     - type: recall_at_5
-      value: 46.165
+      value: 45.410000000000004
   - task:
       type: Retrieval
     dataset:
@@ -1064,65 +1063,65 @@ model-index:
       revision: 4ffe81d471b1924886b33c7567bfb200e9eec5c4
     metrics:
     - type: map_at_1
-      value: 24.627
+      value: 24.221
     - type: map_at_10
-      value: 32.182
+      value: 30.826999999999998
     - type: map_at_100
-      value: 33.217999999999996
+      value: 31.845000000000002
     - type: map_at_1000
-      value: 33.32
+      value: 31.95
     - type: map_at_3
-      value: 28.866999999999997
+      value: 28.547
     - type: map_at_5
-      value: 30.871
+      value: 29.441
     - type: mrr_at_1
-      value: 26.987
+      value: 26.247999999999998
     - type: mrr_at_10
-      value: 34.37
+      value: 32.957
     - type: mrr_at_100
-      value: 35.301
+      value: 33.819
     - type: mrr_at_1000
-      value: 35.369
+      value: 33.899
     - type: mrr_at_3
-      value: 31.391999999999996
+      value: 30.714999999999996
     - type: mrr_at_5
-      value: 33.287
+      value: 31.704
     - type: ndcg_at_1
-      value: 26.987
+      value: 26.247999999999998
     - type: ndcg_at_10
-      value: 37.096000000000004
+      value: 35.171
     - type: ndcg_at_100
-      value: 42.158
+      value: 40.098
     - type: ndcg_at_1000
-      value: 44.548
+      value: 42.67
     - type: ndcg_at_3
-      value: 30.913
+      value: 30.508999999999997
     - type: ndcg_at_5
-      value: 34.245
+      value: 32.022
     - type: precision_at_1
-      value: 26.987
+      value: 26.247999999999998
     - type: precision_at_10
-      value: 5.878
+      value: 5.36
     - type: precision_at_100
-      value: 0.906
+      value: 0.843
     - type: precision_at_1000
-      value: 0.123
+      value: 0.11499999999999999
     - type: precision_at_3
-      value: 12.815999999999999
+      value: 12.568999999999999
     - type: precision_at_5
-      value: 9.612
+      value: 8.540000000000001
     - type: recall_at_1
-      value: 24.627
+      value: 24.221
     - type: recall_at_10
-      value: 50.257
+      value: 46.707
     - type: recall_at_100
-      value: 73.288
+      value: 69.104
     - type: recall_at_1000
-      value: 90.97800000000001
+      value: 88.19500000000001
     - type: recall_at_3
-      value: 33.823
+      value: 33.845
     - type: recall_at_5
-      value: 41.839
+      value: 37.375
   - task:
       type: Retrieval
     dataset:
@@ -1133,65 +1132,65 @@ model-index:
       revision: 47f2ac6acb640fc46020b02a5b59fdda04d39380
     metrics:
     - type: map_at_1
-      value: 17.343
+      value: 13.624
     - type: map_at_10
-      value: 28.59
+      value: 22.557
     - type: map_at_100
-      value: 30.591
+      value: 24.367
     - type: map_at_1000
-      value: 30.759999999999998
+      value: 24.54
     - type: map_at_3
-      value: 24.197
+      value: 18.988
     - type: map_at_5
-      value: 26.433
+      value: 20.785999999999998
     - type: mrr_at_1
-      value: 39.609
+      value: 30.619000000000003
     - type: mrr_at_10
-      value: 51.107
+      value: 42.019
     - type: mrr_at_100
-      value: 51.87199999999999
+      value: 42.818
     - type: mrr_at_1000
-      value: 51.894
+      value: 42.856
     - type: mrr_at_3
-      value: 48.154
+      value: 38.578
     - type: mrr_at_5
-      value: 49.939
+      value: 40.669
     - type: ndcg_at_1
-      value: 39.609
+      value: 30.619000000000003
     - type: ndcg_at_10
-      value: 38.329
+      value: 31.252999999999997
     - type: ndcg_at_100
-      value: 45.573
+      value: 38.238
     - type: ndcg_at_1000
-      value: 48.405
+      value: 41.368
     - type: ndcg_at_3
-      value: 32.506
+      value: 25.843
     - type: ndcg_at_5
-      value: 34.331
+      value: 27.638
     - type: precision_at_1
-      value: 39.609
+      value: 30.619000000000003
     - type: precision_at_10
-      value: 11.668000000000001
+      value: 9.687
     - type: precision_at_100
-      value: 1.9539999999999997
+      value: 1.718
     - type: precision_at_1000
-      value: 0.249
+      value: 0.22999999999999998
     - type: precision_at_3
-      value: 23.952
+      value: 18.849
     - type: precision_at_5
-      value: 17.902
+      value: 14.463000000000001
     - type: recall_at_1
-      value: 17.343
+      value: 13.624
     - type: recall_at_10
-      value: 43.704
+      value: 36.693999999999996
     - type: recall_at_100
-      value: 68.363
+      value: 60.9
     - type: recall_at_1000
-      value: 84.04599999999999
+      value: 78.46
     - type: recall_at_3
-      value: 29.028
+      value: 23.354
     - type: recall_at_5
-      value: 35.022
+      value: 28.756999999999998
   - task:
       type: Retrieval
     dataset:
@@ -1202,65 +1201,65 @@ model-index:
       revision: c0f706b76e590d620bd6618b3ca8efdd34e2d659
     metrics:
     - type: map_at_1
-      value: 9.934999999999999
+      value: 9.077
     - type: map_at_10
-      value: 22.081
+      value: 19.813
     - type: map_at_100
-      value: 32.036
+      value: 27.822999999999997
     - type: map_at_1000
-      value: 33.803
+      value: 29.485
     - type: map_at_3
-      value: 15.687999999999999
+      value: 14.255999999999998
     - type: map_at_5
-      value: 18.357
+      value: 16.836000000000002
     - type: mrr_at_1
-      value: 70.75
+      value: 69.25
     - type: mrr_at_10
-      value: 78.506
+      value: 77.059
     - type: mrr_at_100
-      value: 78.874
+      value: 77.41
     - type: mrr_at_1000
-      value: 78.88300000000001
+      value: 77.416
     - type: mrr_at_3
-      value: 77.667
+      value: 75.625
     - type: mrr_at_5
-      value: 78.342
+      value: 76.512
     - type: ndcg_at_1
-      value: 57.25
+      value: 55.75
     - type: ndcg_at_10
-      value: 45.286
+      value: 41.587
     - type: ndcg_at_100
-      value: 50.791
+      value: 46.048
     - type: ndcg_at_1000
-      value: 58.021
+      value: 53.172
     - type: ndcg_at_3
-      value: 49.504
+      value: 46.203
     - type: ndcg_at_5
-      value: 47.03
+      value: 43.696
     - type: precision_at_1
-      value: 70.75
+      value: 69.25
     - type: precision_at_10
-      value: 36.425000000000004
+      value: 32.95
     - type: precision_at_100
-      value: 11.953
+      value: 10.555
     - type: precision_at_1000
-      value: 2.248
+      value: 2.136
     - type: precision_at_3
-      value: 53.25
+      value: 49.667
     - type: precision_at_5
-      value: 46.150000000000006
+      value: 42.5
     - type: recall_at_1
-      value: 9.934999999999999
+      value: 9.077
     - type: recall_at_10
-      value: 27.592
+      value: 25.249
     - type: recall_at_100
-      value: 58.089
+      value: 51.964
     - type: recall_at_1000
-      value: 81.025
+      value: 74.51
     - type: recall_at_3
-      value: 17.048
+      value: 15.584000000000001
     - type: recall_at_5
-      value: 20.834
+      value: 19.717000000000002
   - task:
       type: Classification
     dataset:
@@ -1271,9 +1270,9 @@ model-index:
       revision: 4f58c6b202a23cf9a4da393831edf4f9183cad37
     metrics:
     - type: accuracy
-      value: 47.25999999999999
+      value: 45.769999999999996
     - type: f1
-      value: 43.83371155132253
+      value: 41.64144711933962
   - task:
       type: Retrieval
     dataset:
@@ -1284,65 +1283,65 @@ model-index:
       revision: bea83ef9e8fb933d90a2f1d5515737465d613e12
     metrics:
     - type: map_at_1
-      value: 73.68900000000001
+      value: 67.098
     - type: map_at_10
-      value: 82.878
+      value: 77.69800000000001
     - type: map_at_100
-      value: 83.084
+      value: 77.947
     - type: map_at_1000
-      value: 83.097
+      value: 77.961
     - type: map_at_3
-      value: 81.528
+      value: 76.278
     - type: map_at_5
-      value: 82.432
+      value: 77.217
     - type: mrr_at_1
-      value: 79.49300000000001
+      value: 72.532
     - type: mrr_at_10
-      value: 87.24300000000001
+      value: 82.41199999999999
     - type: mrr_at_100
-      value: 87.3
+      value: 82.527
     - type: mrr_at_1000
-      value: 87.301
+      value: 82.529
     - type: mrr_at_3
-      value: 86.359
+      value: 81.313
     - type: mrr_at_5
-      value: 87.01
+      value: 82.069
     - type: ndcg_at_1
-      value: 79.49300000000001
+      value: 72.532
     - type: ndcg_at_10
-      value: 86.894
+      value: 82.488
     - type: ndcg_at_100
-      value: 87.6
+      value: 83.382
     - type: ndcg_at_1000
-      value: 87.79299999999999
+      value: 83.622
     - type: ndcg_at_3
-      value: 84.777
+      value: 80.101
     - type: ndcg_at_5
-      value: 86.08
+      value: 81.52199999999999
     - type: precision_at_1
-      value: 79.49300000000001
+      value: 72.532
     - type: precision_at_10
-      value: 10.578
+      value: 10.203
     - type: precision_at_100
-      value: 1.117
+      value: 1.082
     - type: precision_at_1000
-      value: 0.11499999999999999
+      value: 0.11199999999999999
     - type: precision_at_3
-      value: 32.592999999999996
+      value: 31.308000000000003
     - type: precision_at_5
-      value: 20.423
+      value: 19.652
     - type: recall_at_1
-      value: 73.68900000000001
+      value: 67.098
     - type: recall_at_10
-      value: 94.833
+      value: 92.511
     - type: recall_at_100
-      value: 97.554
+      value: 96.06099999999999
     - type: recall_at_1000
-      value: 98.672
+      value: 97.548
     - type: recall_at_3
-      value: 89.236
+      value: 86.105
     - type: recall_at_5
-      value: 92.461
+      value: 89.661
   - task:
       type: Retrieval
     dataset:
@@ -1353,65 +1352,65 @@ model-index:
       revision: 27a168819829fe9bcd655c2df245fb19452e8e06
     metrics:
     - type: map_at_1
-      value: 20.59
+      value: 18.681
     - type: map_at_10
-      value: 34.089000000000006
+      value: 31.739
     - type: map_at_100
-      value: 35.796
+      value: 33.503
     - type: map_at_1000
-      value: 35.988
+      value: 33.69
     - type: map_at_3
-      value: 29.877
+      value: 27.604
     - type: map_at_5
-      value: 32.202999999999996
+      value: 29.993
     - type: mrr_at_1
-      value: 41.049
+      value: 37.5
     - type: mrr_at_10
-      value: 50.370000000000005
+      value: 46.933
     - type: mrr_at_100
-      value: 51.209
+      value: 47.771
     - type: mrr_at_1000
-      value: 51.247
+      value: 47.805
     - type: mrr_at_3
-      value: 48.122
+      value: 44.239
     - type: mrr_at_5
-      value: 49.326
+      value: 45.766
     - type: ndcg_at_1
-      value: 41.049
+      value: 37.5
     - type: ndcg_at_10
-      value: 42.163000000000004
+      value: 39.682
     - type: ndcg_at_100
-      value: 48.638999999999996
+      value: 46.127
     - type: ndcg_at_1000
-      value: 51.775000000000006
+      value: 48.994
     - type: ndcg_at_3
-      value: 38.435
+      value: 35.655
     - type: ndcg_at_5
-      value: 39.561
+      value: 37.036
     - type: precision_at_1
-      value: 41.049
+      value: 37.5
     - type: precision_at_10
-      value: 11.481
+      value: 11.08
     - type: precision_at_100
-      value: 1.8239999999999998
+      value: 1.765
     - type: precision_at_1000
-      value: 0.24
+      value: 0.22999999999999998
     - type: precision_at_3
-      value: 25.257
+      value: 23.919999999999998
     - type: precision_at_5
-      value: 18.519
+      value: 17.809
     - type: recall_at_1
-      value: 20.59
+      value: 18.681
     - type: recall_at_10
-      value: 49.547999999999995
+      value: 47.548
     - type: recall_at_100
-      value: 73.676
+      value: 71.407
     - type: recall_at_1000
-      value: 92.269
+      value: 87.805
     - type: recall_at_3
-      value: 35.656
+      value: 32.979
     - type: recall_at_5
-      value: 41.455
+      value: 39.192
   - task:
       type: Retrieval
     dataset:
@@ -1422,65 +1421,65 @@ model-index:
       revision: ab518f4d6fcca38d87c25209f94beba119d02014
     metrics:
     - type: map_at_1
-      value: 39.932
+      value: 38.257999999999996
     - type: map_at_10
-      value: 64.184
+      value: 57.605
     - type: map_at_100
-      value: 65.06
+      value: 58.50300000000001
     - type: map_at_1000
-      value: 65.109
+      value: 58.568
     - type: map_at_3
-      value: 60.27
+      value: 54.172
     - type: map_at_5
-      value: 62.732
+      value: 56.323
     - type: mrr_at_1
-      value: 79.865
+      value: 76.51599999999999
     - type: mrr_at_10
-      value: 85.99799999999999
+      value: 82.584
     - type: mrr_at_100
-      value: 86.13
+      value: 82.78
     - type: mrr_at_1000
-      value: 86.13300000000001
+      value: 82.787
     - type: mrr_at_3
-      value: 85.136
+      value: 81.501
     - type: mrr_at_5
-      value: 85.69200000000001
+      value: 82.185
     - type: ndcg_at_1
-      value: 79.865
+      value: 76.51599999999999
     - type: ndcg_at_10
-      value: 72.756
+      value: 66.593
     - type: ndcg_at_100
-      value: 75.638
+      value: 69.699
     - type: ndcg_at_1000
-      value: 76.589
+      value: 70.953
     - type: ndcg_at_3
-      value: 67.38199999999999
+      value: 61.673
     - type: ndcg_at_5
-      value: 70.402
+      value: 64.42
     - type: precision_at_1
-      value: 79.865
+      value: 76.51599999999999
     - type: precision_at_10
-      value: 15.387999999999998
+      value: 13.857
     - type: precision_at_100
-      value: 1.7610000000000001
+      value: 1.628
     - type: precision_at_1000
-      value: 0.189
+      value: 0.179
     - type: precision_at_3
-      value: 43.394
+      value: 38.956
     - type: precision_at_5
-      value: 28.424
+      value: 25.541999999999998
     - type: recall_at_1
-      value: 39.932
+      value: 38.257999999999996
     - type: recall_at_10
-      value: 76.941
+      value: 69.284
     - type: recall_at_100
-      value: 88.062
+      value: 81.391
     - type: recall_at_1000
-      value: 94.396
+      value: 89.689
     - type: recall_at_3
-      value: 65.091
+      value: 58.433
     - type: recall_at_5
-      value: 71.06
+      value: 63.856
   - task:
       type: Classification
     dataset:
@@ -1491,11 +1490,11 @@ model-index:
       revision: 3d86128a09e091d6018b6d26cad27f2739fc2db7
     metrics:
     - type: accuracy
-      value: 71.7904
+      value: 69.48679999999999
     - type: ap
-      value: 65.82899456730257
+      value: 63.97638838971138
     - type: f1
-      value: 71.56611877410202
+      value: 69.22731638841675
   - task:
       type: Retrieval
     dataset:
@@ -1506,65 +1505,65 @@ model-index:
       revision: c5a29a104738b98a9e76336939199e264163d4a0
     metrics:
     - type: map_at_1
-      value: 21.931
+      value: 20.916999999999998
     - type: map_at_10
-      value: 34.849999999999994
+      value: 32.929
     - type: map_at_100
-      value: 36.033
+      value: 34.1
     - type: map_at_1000
-      value: 36.08
+      value: 34.152
     - type: map_at_3
-      value: 30.842000000000002
+      value: 29.065
     - type: map_at_5
-      value: 33.229
+      value: 31.287
     - type: mrr_at_1
-      value: 22.55
+      value: 21.562
     - type: mrr_at_10
-      value: 35.436
+      value: 33.533
     - type: mrr_at_100
-      value: 36.563
+      value: 34.644000000000005
     - type: mrr_at_1000
-      value: 36.604
+      value: 34.69
     - type: mrr_at_3
-      value: 31.507
+      value: 29.735
     - type: mrr_at_5
-      value: 33.851
+      value: 31.928
     - type: ndcg_at_1
-      value: 22.55
+      value: 21.562
     - type: ndcg_at_10
-      value: 41.969
+      value: 39.788000000000004
     - type: ndcg_at_100
-      value: 47.576
+      value: 45.434999999999995
     - type: ndcg_at_1000
-      value: 48.731
+      value: 46.75
     - type: ndcg_at_3
-      value: 33.894000000000005
+      value: 31.942999999999998
     - type: ndcg_at_5
-      value: 38.133
+      value: 35.888
     - type: precision_at_1
-      value: 22.55
+      value: 21.562
     - type: precision_at_10
-      value: 6.660000000000001
+      value: 6.348
     - type: precision_at_100
-      value: 0.946
+      value: 0.918
     - type: precision_at_1000
-      value: 0.104
+      value: 0.10300000000000001
     - type: precision_at_3
-      value: 14.532
+      value: 13.682
     - type: precision_at_5
-      value: 10.865
+      value: 10.189
     - type: recall_at_1
-      value: 21.931
+      value: 20.916999999999998
     - type: recall_at_10
-      value: 63.841
+      value: 60.926
     - type: recall_at_100
-      value: 89.47699999999999
+      value: 87.03800000000001
     - type: recall_at_1000
-      value: 98.259
+      value: 97.085
     - type: recall_at_3
-      value: 42.063
+      value: 39.637
     - type: recall_at_5
-      value: 52.21
+      value: 49.069
   - task:
       type: Classification
     dataset:
@@ -1575,9 +1574,9 @@ model-index:
       revision: d80d48c1eb48d3562165c59d59d0034df9fff0bf
     metrics:
     - type: accuracy
-      value: 93.03921568627452
+      value: 90.93935248518011
     - type: f1
-      value: 92.56400672314416
+      value: 90.56439321844506
   - task:
       type: Classification
     dataset:
@@ -1588,9 +1587,9 @@ model-index:
       revision: ae001d0e6b1228650b7bd1c2c65fb50ad11a8aba
     metrics:
     - type: accuracy
-      value: 63.515731874145
+      value: 58.62517099863203
     - type: f1
-      value: 44.922310875523216
+      value: 40.69925681703197
   - task:
       type: Classification
     dataset:
@@ -1601,9 +1600,9 @@ model-index:
       revision: 8ccc72e69e65f40c70e117d8b3c08306bb788b60
     metrics:
     - type: accuracy
-      value: 77.57383966244727
+      value: 76.29746835443039
     - type: f1
-      value: 76.55222378218293
+      value: 75.31702672039506
   - task:
       type: Clustering
     dataset:
@@ -1614,7 +1613,7 @@ model-index:
       revision: 8ccc72e69e65f40c70e117d8b3c08306bb788b60
     metrics:
     - type: v_measure
-      value: 62.74836240280833
+      value: 43.05495067062023
   - task:
       type: Clustering
     dataset:
@@ -1625,7 +1624,7 @@ model-index:
       revision: 8ccc72e69e65f40c70e117d8b3c08306bb788b60
     metrics:
     - type: v_measure
-      value: 24.414348715238184
+      value: 19.625272848173843
   - task:
       type: Classification
     dataset:
@@ -1636,9 +1635,9 @@ model-index:
       revision: 31efe3c427b0bae9c22cbb560b8f15491cc6bed7
     metrics:
     - type: accuracy
-      value: 66.54673839946201
+      value: 64.76126429051781
     - type: f1
-      value: 64.61004101532164
+      value: 62.60284261265268
   - task:
       type: Classification
     dataset:
@@ -1649,9 +1648,9 @@ model-index:
       revision: 7d571f92784cd94a019292a1f45445077d0ef634
     metrics:
     - type: accuracy
-      value: 73.11365164761264
+      value: 70.05043712172159
     - type: f1
-      value: 72.01684013680978
+      value: 69.08340521169049
   - task:
       type: Clustering
     dataset:
@@ -1662,7 +1661,7 @@ model-index:
       revision: e7a26af6f3ae46b30dde8737f02c07b1505bcc73
     metrics:
     - type: v_measure
-      value: 31.123671999617297
+      value: 30.78969229005989
   - task:
       type: Clustering
     dataset:
@@ -1673,7 +1672,7 @@ model-index:
       revision: 35191c8c0dca72d8ff3efcd72aa802307d469663
     metrics:
     - type: v_measure
-      value: 26.72684341430875
+      value: 27.954325178520335
   - task:
       type: Reranking
     dataset:
@@ -1684,9 +1683,9 @@ model-index:
       revision: 3bdac13927fdc888b903db93b2ffdbd90b295a69
     metrics:
     - type: map
-      value: 29.910228061734816
+      value: 30.601827413968596
     - type: mrr
-      value: 30.835255982532477
+      value: 31.515372019474196
   - task:
       type: Retrieval
     dataset:
@@ -1697,65 +1696,65 @@ model-index:
       revision: ec0fa4fe99da2ff19ca1214b7966684033a58814
     metrics:
     - type: map_at_1
-      value: 5.6770000000000005
+      value: 5.4559999999999995
     - type: map_at_10
-      value: 13.15
+      value: 12.039
     - type: map_at_100
-      value: 16.205
+      value: 14.804999999999998
     - type: map_at_1000
-      value: 17.580000000000002
+      value: 16.081
     - type: map_at_3
-      value: 9.651
+      value: 8.996
     - type: map_at_5
-      value: 11.142000000000001
+      value: 10.357
     - type: mrr_at_1
-      value: 47.678
+      value: 45.82
     - type: mrr_at_10
-      value: 56.257000000000005
+      value: 53.583999999999996
     - type: mrr_at_100
-      value: 56.708000000000006
+      value: 54.330999999999996
     - type: mrr_at_1000
-      value: 56.751
+      value: 54.366
     - type: mrr_at_3
-      value: 54.128
+      value: 52.166999999999994
     - type: mrr_at_5
-      value: 55.181000000000004
+      value: 52.971999999999994
     - type: ndcg_at_1
-      value: 45.511
+      value: 44.427
     - type: ndcg_at_10
-      value: 35.867
+      value: 32.536
     - type: ndcg_at_100
-      value: 31.566
+      value: 29.410999999999998
     - type: ndcg_at_1000
-      value: 40.077
+      value: 38.012
     - type: ndcg_at_3
-      value: 41.9
+      value: 38.674
     - type: ndcg_at_5
-      value: 39.367999999999995
+      value: 36.107
     - type: precision_at_1
-      value: 47.678
+      value: 45.82
     - type: precision_at_10
-      value: 26.842
+      value: 23.591
     - type: precision_at_100
-      value: 7.991
+      value: 7.35
     - type: precision_at_1000
-      value: 2.0469999999999997
+      value: 1.9769999999999999
     - type: precision_at_3
-      value: 39.938
+      value: 36.016999999999996
     - type: precision_at_5
-      value: 34.613
+      value: 30.959999999999997
     - type: recall_at_1
-      value: 5.6770000000000005
+      value: 5.4559999999999995
     - type: recall_at_10
-      value: 17.119999999999997
+      value: 15.387
     - type: recall_at_100
-      value: 30.828
+      value: 28.754999999999995
     - type: recall_at_1000
-      value: 62.082
+      value: 59.787
     - type: recall_at_3
-      value: 10.456
+      value: 10.137
     - type: recall_at_5
-      value: 12.903999999999998
+      value: 12.200999999999999
   - task:
       type: Retrieval
     dataset:
@@ -1766,65 +1765,65 @@ model-index:
       revision: b774495ed302d8c44a3a7ea25c90dbce03968f31
     metrics:
     - type: map_at_1
-      value: 39.021
+      value: 32.609
     - type: map_at_10
-      value: 54.976
+      value: 48.522
     - type: map_at_100
-      value: 55.793000000000006
+      value: 49.468
     - type: map_at_1000
-      value: 55.811
+      value: 49.497
     - type: map_at_3
-      value: 50.759
+      value: 44.327
     - type: map_at_5
-      value: 53.429
+      value: 46.937
     - type: mrr_at_1
-      value: 43.308
+      value: 36.616
     - type: mrr_at_10
-      value: 57.118
+      value: 50.943000000000005
     - type: mrr_at_100
-      value: 57.69499999999999
+      value: 51.626000000000005
     - type: mrr_at_1000
-      value: 57.704
+      value: 51.647
     - type: mrr_at_3
-      value: 53.848
+      value: 47.532999999999994
     - type: mrr_at_5
-      value: 55.915000000000006
+      value: 49.714000000000006
     - type: ndcg_at_1
-      value: 43.308
+      value: 36.586999999999996
     - type: ndcg_at_10
-      value: 62.33800000000001
+      value: 56.19499999999999
     - type: ndcg_at_100
-      value: 65.61099999999999
+      value: 60.014
     - type: ndcg_at_1000
-      value: 65.995
+      value: 60.707
     - type: ndcg_at_3
-      value: 54.723
+      value: 48.486000000000004
     - type: ndcg_at_5
-      value: 59.026
+      value: 52.791999999999994
     - type: precision_at_1
-      value: 43.308
+      value: 36.586999999999996
     - type: precision_at_10
-      value: 9.803
+      value: 9.139999999999999
     - type: precision_at_100
-      value: 1.167
+      value: 1.129
     - type: precision_at_1000
-      value: 0.121
+      value: 0.11900000000000001
     - type: precision_at_3
-      value: 24.334
+      value: 22.171
     - type: precision_at_5
-      value: 17.144000000000002
+      value: 15.787999999999998
     - type: recall_at_1
-      value: 39.021
+      value: 32.609
     - type: recall_at_10
-      value: 82.37299999999999
+      value: 77.011
     - type: recall_at_100
-      value: 96.21499999999999
+      value: 93.202
     - type: recall_at_1000
-      value: 99.02499999999999
+      value: 98.344
     - type: recall_at_3
-      value: 63.031000000000006
+      value: 57.286
     - type: recall_at_5
-      value: 72.856
+      value: 67.181
   - task:
       type: Classification
     dataset:
@@ -1835,9 +1834,9 @@ model-index:
       revision: eb185aade064a813bc0b7f42de02595523103ca4
     metrics:
     - type: accuracy
-      value: 78.03289473684211
+      value: 77.4421052631579
     - type: f1
-      value: 77.89323745730803
+      value: 77.23976860913628
   - task:
       type: PairClassification
     dataset:
@@ -1850,47 +1849,47 @@ model-index:
     - type: cos_sim_accuracy
       value: 99.89816700610999
     - type: cos_sim_ap
-      value: 100.0
+      value: 100
     - type: cos_sim_f1
       value: 99.9490575649516
     - type: cos_sim_precision
-      value: 100.0
+      value: 100
     - type: cos_sim_recall
       value: 99.89816700610999
     - type: dot_accuracy
       value: 99.89816700610999
     - type: dot_ap
-      value: 100.0
+      value: 100
     - type: dot_f1
       value: 99.9490575649516
     - type: dot_precision
-      value: 100.0
+      value: 100
     - type: dot_recall
       value: 99.89816700610999
     - type: euclidean_accuracy
       value: 99.89816700610999
     - type: euclidean_ap
-      value: 100.0
+      value: 100
     - type: euclidean_f1
       value: 99.9490575649516
     - type: euclidean_precision
-      value: 100.0
+      value: 100
     - type: euclidean_recall
       value: 99.89816700610999
     - type: manhattan_accuracy
       value: 99.89816700610999
     - type: manhattan_ap
-      value: 100.0
+      value: 100
     - type: manhattan_f1
       value: 99.9490575649516
     - type: manhattan_precision
-      value: 100.0
+      value: 100
     - type: manhattan_recall
       value: 99.89816700610999
     - type: max_accuracy
       value: 99.89816700610999
     - type: max_ap
-      value: 100.0
+      value: 100
     - type: max_f1
       value: 99.9490575649516
   - task:
@@ -1903,51 +1902,51 @@ model-index:
       revision: 8a04d940a42cd40658986fdd8e3da561533a3646
     metrics:
     - type: cos_sim_accuracy
-      value: 61.75000000000001
+      value: 61.25000000000001
     - type: cos_sim_ap
-      value: 59.578879568280385
+      value: 59.23166242799505
     - type: cos_sim_f1
-      value: 62.50861474844934
+      value: 62.53016201309893
     - type: cos_sim_precision
-      value: 45.46365914786967
+      value: 45.486459378134406
     - type: cos_sim_recall
-      value: 100.0
+      value: 100
     - type: dot_accuracy
-      value: 61.75000000000001
+      value: 61.25000000000001
     - type: dot_ap
-      value: 59.57893088951573
+      value: 59.23109306756652
     - type: dot_f1
-      value: 62.50861474844934
+      value: 62.53016201309893
     - type: dot_precision
-      value: 45.46365914786967
+      value: 45.486459378134406
     - type: dot_recall
-      value: 100.0
+      value: 100
     - type: euclidean_accuracy
-      value: 61.75000000000001
+      value: 61.25000000000001
     - type: euclidean_ap
-      value: 59.578755624671686
+      value: 59.23166242799505
     - type: euclidean_f1
-      value: 62.50861474844934
+      value: 62.53016201309893
     - type: euclidean_precision
-      value: 45.46365914786967
+      value: 45.486459378134406
     - type: euclidean_recall
-      value: 100.0
+      value: 100
     - type: manhattan_accuracy
-      value: 61.75000000000001
+      value: 61.25000000000001
     - type: manhattan_ap
-      value: 59.58504334461159
+      value: 59.23015114712089
     - type: manhattan_f1
       value: 62.50861474844934
     - type: manhattan_precision
       value: 45.46365914786967
     - type: manhattan_recall
-      value: 100.0
+      value: 100
     - type: max_accuracy
-      value: 61.75000000000001
+      value: 61.25000000000001
     - type: max_ap
-      value: 59.58504334461159
+      value: 59.23166242799505
     - type: max_f1
-      value: 62.50861474844934
+      value: 62.53016201309893
   - task:
       type: Retrieval
     dataset:
@@ -1958,65 +1957,65 @@ model-index:
       revision: e4e08e0b7dbe3c8700f0daef558ff32256715259
     metrics:
     - type: map_at_1
-      value: 70.186
+      value: 69.919
     - type: map_at_10
-      value: 83.875
+      value: 83.636
     - type: map_at_100
-      value: 84.514
+      value: 84.27
     - type: map_at_1000
-      value: 84.53500000000001
+      value: 84.289
     - type: map_at_3
-      value: 80.926
+      value: 80.744
     - type: map_at_5
-      value: 82.797
+      value: 82.509
     - type: mrr_at_1
-      value: 80.82000000000001
+      value: 80.52
     - type: mrr_at_10
-      value: 87.068
+      value: 86.751
     - type: mrr_at_100
-      value: 87.178
+      value: 86.875
     - type: mrr_at_1000
-      value: 87.18
+      value: 86.876
     - type: mrr_at_3
-      value: 86.055
+      value: 85.798
     - type: mrr_at_5
-      value: 86.763
+      value: 86.414
     - type: ndcg_at_1
-      value: 80.84
+      value: 80.53
     - type: ndcg_at_10
-      value: 87.723
+      value: 87.465
     - type: ndcg_at_100
-      value: 88.98700000000001
+      value: 88.762
     - type: ndcg_at_1000
-      value: 89.13499999999999
+      value: 88.90599999999999
     - type: ndcg_at_3
-      value: 84.821
+      value: 84.634
     - type: ndcg_at_5
-      value: 86.441
+      value: 86.09400000000001
     - type: precision_at_1
-      value: 80.84
+      value: 80.53
     - type: precision_at_10
-      value: 13.270000000000001
+      value: 13.263
     - type: precision_at_100
-      value: 1.516
+      value: 1.517
     - type: precision_at_1000
       value: 0.156
     - type: precision_at_3
-      value: 37.013
+      value: 36.973
     - type: precision_at_5
-      value: 24.37
+      value: 24.25
     - type: recall_at_1
-      value: 70.186
+      value: 69.919
     - type: recall_at_10
-      value: 94.948
+      value: 94.742
     - type: recall_at_100
-      value: 99.223
+      value: 99.221
     - type: recall_at_1000
-      value: 99.932
+      value: 99.917
     - type: recall_at_3
-      value: 86.57000000000001
+      value: 86.506
     - type: recall_at_5
-      value: 91.157
+      value: 90.736
   - task:
       type: Clustering
     dataset:
@@ -2027,7 +2026,7 @@ model-index:
       revision: 24640382cdbf8abc73003fb0fa6d111a705499eb
     metrics:
     - type: v_measure
-      value: 50.24198927949519
+      value: 50.47309147963901
   - task:
       type: Clustering
     dataset:
@@ -2038,7 +2037,7 @@ model-index:
       revision: 385e3cb46b4cfa89021f56c4380204149d0efe33
     metrics:
     - type: v_measure
-      value: 61.452073078765544
+      value: 60.53779561923047
   - task:
       type: Retrieval
     dataset:
@@ -2049,65 +2048,65 @@ model-index:
       revision: f8c2fcf00f625baaa80f62ec5bd9e1fff3b8ae88
     metrics:
     - type: map_at_1
-      value: 4.972
+      value: 4.843
     - type: map_at_10
-      value: 12.314
+      value: 11.664
     - type: map_at_100
-      value: 14.333000000000002
+      value: 13.499
     - type: map_at_1000
-      value: 14.628
+      value: 13.771
     - type: map_at_3
-      value: 8.972
+      value: 8.602
     - type: map_at_5
-      value: 10.724
+      value: 10.164
     - type: mrr_at_1
-      value: 24.4
+      value: 23.9
     - type: mrr_at_10
-      value: 35.257
+      value: 34.018
     - type: mrr_at_100
-      value: 36.297000000000004
+      value: 35.099000000000004
     - type: mrr_at_1000
-      value: 36.363
+      value: 35.162
     - type: mrr_at_3
-      value: 32.267
+      value: 31.233
     - type: mrr_at_5
-      value: 33.942
+      value: 32.793
     - type: ndcg_at_1
-      value: 24.4
+      value: 23.9
     - type: ndcg_at_10
-      value: 20.47
+      value: 19.42
     - type: ndcg_at_100
-      value: 28.111000000000004
+      value: 26.715
     - type: ndcg_at_1000
-      value: 33.499
+      value: 31.776
     - type: ndcg_at_3
-      value: 19.975
+      value: 19.165
     - type: ndcg_at_5
-      value: 17.293
+      value: 16.46
     - type: precision_at_1
-      value: 24.4
+      value: 23.9
     - type: precision_at_10
-      value: 10.440000000000001
+      value: 9.82
     - type: precision_at_100
-      value: 2.136
+      value: 2.0340000000000003
     - type: precision_at_1000
-      value: 0.34299999999999997
+      value: 0.325
     - type: precision_at_3
-      value: 18.733
+      value: 17.767
     - type: precision_at_5
-      value: 15.120000000000001
+      value: 14.24
     - type: recall_at_1
-      value: 4.972
+      value: 4.843
     - type: recall_at_10
-      value: 21.157
+      value: 19.895
     - type: recall_at_100
-      value: 43.335
+      value: 41.302
     - type: recall_at_1000
-      value: 69.652
+      value: 66.077
     - type: recall_at_3
-      value: 11.417
+      value: 10.803
     - type: recall_at_5
-      value: 15.317
+      value: 14.418000000000001
   - task:
       type: STS
     dataset:
@@ -2118,17 +2117,17 @@ model-index:
       revision: 20a6d6f312dd54037fe07a32d58e5e168867909d
     metrics:
     - type: cos_sim_pearson
-      value: 76.70295978506286
+      value: 76.94120735638143
     - type: cos_sim_spearman
-      value: 70.91162732446628
+      value: 69.66114097154585
     - type: euclidean_pearson
-      value: 73.25693688746031
+      value: 73.11242035696426
     - type: euclidean_spearman
-      value: 70.91162556180127
+      value: 69.66114271982464
     - type: manhattan_pearson
-      value: 73.27735004735767
+      value: 73.07993034858605
     - type: manhattan_spearman
-      value: 70.8856787022704
+      value: 69.6457893357314
   - task:
       type: STS
     dataset:
@@ -2139,17 +2138,17 @@ model-index:
       revision: a0d554a64d88156834ff5ae9920b964011b16384
     metrics:
     - type: cos_sim_pearson
-      value: 67.55878682646774
+      value: 74.72893353272778
     - type: cos_sim_spearman
-      value: 66.10824660353681
+      value: 68.78540928870311
     - type: euclidean_pearson
-      value: 64.93937270068541
+      value: 71.13907970605574
     - type: euclidean_spearman
-      value: 66.10824660353681
+      value: 68.78540928870311
     - type: manhattan_pearson
-      value: 64.96325555978984
+      value: 71.02709590547859
     - type: manhattan_spearman
-      value: 66.12052481638577
+      value: 68.71685896660532
   - task:
       type: STS
     dataset:
@@ -2160,17 +2159,17 @@ model-index:
       revision: 7e90230a92c190f1bf69ae9002b8cea547a64cca
     metrics:
     - type: cos_sim_pearson
-      value: 79.79979774019496
+      value: 79.30142652684971
     - type: cos_sim_spearman
-      value: 79.82293444619499
+      value: 79.61879435615303
     - type: euclidean_pearson
-      value: 79.4830436509311
+      value: 79.08730432883864
     - type: euclidean_spearman
-      value: 79.82293444619499
+      value: 79.61879435615303
     - type: manhattan_pearson
-      value: 79.49785594799296
+      value: 78.99621073156322
     - type: manhattan_spearman
-      value: 79.8280390479434
+      value: 79.53806342308278
   - task:
       type: STS
     dataset:
@@ -2181,17 +2180,17 @@ model-index:
       revision: 6031580fec1f6af667f0bd2da0a551cf4f0b2375
     metrics:
     - type: cos_sim_pearson
-      value: 76.36839628231121
+      value: 78.99585233036139
     - type: cos_sim_spearman
-      value: 73.63809739428072
+      value: 75.57574519760183
     - type: euclidean_pearson
-      value: 74.93718121215906
+      value: 77.33835658613162
     - type: euclidean_spearman
-      value: 73.63810227650436
+      value: 75.57573873503655
     - type: manhattan_pearson
-      value: 74.8737197659424
+      value: 77.12175044789362
     - type: manhattan_spearman
-      value: 73.57534688126572
+      value: 75.41293517634836
   - task:
       type: STS
     dataset:
@@ -2202,17 +2201,17 @@ model-index:
       revision: ae752c7c21bf194d8b67fd573edf7ae58183cbe3
     metrics:
     - type: cos_sim_pearson
-      value: 82.67482138157656
+      value: 83.9694268253376
     - type: cos_sim_spearman
-      value: 83.23485786963107
+      value: 84.64256921939338
     - type: euclidean_pearson
-      value: 82.50847772197369
+      value: 83.92322958711
     - type: euclidean_spearman
-      value: 83.23485786963107
+      value: 84.64257976421872
     - type: manhattan_pearson
-      value: 82.48916218377576
+      value: 83.93503107204337
     - type: manhattan_spearman
-      value: 83.19756483500014
+      value: 84.63611608236032
   - task:
       type: STS
     dataset:
@@ -2223,17 +2222,17 @@ model-index:
       revision: 4d8694f8f0e0100860b497b999b3dbed754a0513
     metrics:
     - type: cos_sim_pearson
-      value: 81.11626268793967
+      value: 81.09041419790253
     - type: cos_sim_spearman
-      value: 81.58184691061507
+      value: 82.39869157752557
     - type: euclidean_pearson
-      value: 80.65900869004938
+      value: 82.04595698258301
     - type: euclidean_spearman
-      value: 81.58184691061507
+      value: 82.39869157752557
     - type: manhattan_pearson
-      value: 80.67912306966772
+      value: 81.97581168053004
     - type: manhattan_spearman
-      value: 81.59957593393145
+      value: 82.34255320578193
   - task:
       type: STS
     dataset:
@@ -2244,17 +2243,17 @@ model-index:
       revision: af5e6fb845001ecf41f4c1e033ce921939a2a68d
     metrics:
     - type: cos_sim_pearson
-      value: 80.3140990821409
+      value: 86.35210432821825
     - type: cos_sim_spearman
-      value: 80.59196586367551
+      value: 86.73200885328937
     - type: euclidean_pearson
-      value: 80.73014029317672
+      value: 86.8527089168747
     - type: euclidean_spearman
-      value: 80.59196586367551
+      value: 86.73200885328937
     - type: manhattan_pearson
-      value: 80.5774325136987
+      value: 86.95671235295457
     - type: manhattan_spearman
-      value: 80.35102610546238
+      value: 86.77713700838545
   - task:
       type: STS
     dataset:
@@ -2265,17 +2264,17 @@ model-index:
       revision: eea2b4fe26a775864c896887d910b76a8098ad3f
     metrics:
     - type: cos_sim_pearson
-      value: 68.34450491529164
+      value: 68.91106612960657
     - type: cos_sim_spearman
-      value: 68.79451793414492
+      value: 69.48524490302286
     - type: euclidean_pearson
-      value: 68.75619738499324
+      value: 70.51347841618035
     - type: euclidean_spearman
-      value: 68.79451793414492
+      value: 69.48524490302286
     - type: manhattan_pearson
-      value: 68.75256119543882
+      value: 70.31770181334245
     - type: manhattan_spearman
-      value: 68.81836416978547
+      value: 69.12494700138238
   - task:
       type: STS
     dataset:
@@ -2286,17 +2285,17 @@ model-index:
       revision: b0fddb56ed78048fa8b90373c8a3cfc37b684831
     metrics:
     - type: cos_sim_pearson
-      value: 77.95580414975612
+      value: 81.54104342761988
     - type: cos_sim_spearman
-      value: 77.89671867168987
+      value: 81.18789220331483
     - type: euclidean_pearson
-      value: 77.61352097720862
+      value: 81.5895544590969
     - type: euclidean_spearman
-      value: 77.89671867168987
+      value: 81.18789220331483
     - type: manhattan_pearson
-      value: 77.65282228135632
+      value: 81.4738562449809
     - type: manhattan_spearman
-      value: 77.91730533156762
+      value: 81.06565101416024
   - task:
       type: STS
     dataset:
@@ -2307,17 +2306,17 @@ model-index:
       revision: 93d57ef91790589e3ce9c365164337a8a78b7632
     metrics:
     - type: cos_sim_pearson
-      value: 77.95580421496413
+      value: 81.54104346197056
     - type: cos_sim_spearman
-      value: 77.89671867168987
+      value: 81.18789220331483
     - type: euclidean_pearson
-      value: 77.61352107168794
+      value: 81.58955451690102
     - type: euclidean_spearman
-      value: 77.89671867168987
+      value: 81.18789220331483
     - type: manhattan_pearson
-      value: 77.65282237231794
+      value: 81.47385630064072
     - type: manhattan_spearman
-      value: 77.91730533156762
+      value: 81.06565101416024
   - task:
       type: Reranking
     dataset:
@@ -2328,9 +2327,9 @@ model-index:
       revision: d3c5e1fc0b855ab6097bf1cda04dd73947d7caab
     metrics:
     - type: map
-      value: 79.22928110092924
+      value: 79.34107964300796
     - type: mrr
-      value: 94.46700902583257
+      value: 94.01917889662987
   - task:
       type: Retrieval
     dataset:
@@ -2341,65 +2340,65 @@ model-index:
       revision: 0228b52cf27578f30900b9e5271d331663a030d7
     metrics:
     - type: map_at_1
-      value: 56.011
+      value: 55.928
     - type: map_at_10
-      value: 65.544
+      value: 65.443
     - type: map_at_100
-      value: 66.034
+      value: 66.067
     - type: map_at_1000
-      value: 66.065
+      value: 66.091
     - type: map_at_3
-      value: 63.077000000000005
+      value: 62.629999999999995
     - type: map_at_5
-      value: 64.354
+      value: 64.35
     - type: mrr_at_1
-      value: 59.0
+      value: 59
     - type: mrr_at_10
-      value: 66.74900000000001
+      value: 66.845
     - type: mrr_at_100
-      value: 67.176
+      value: 67.31899999999999
     - type: mrr_at_1000
-      value: 67.203
+      value: 67.342
     - type: mrr_at_3
-      value: 65.056
+      value: 64.61099999999999
     - type: mrr_at_5
-      value: 65.956
+      value: 66.044
     - type: ndcg_at_1
-      value: 59.0
+      value: 59
     - type: ndcg_at_10
-      value: 69.95599999999999
+      value: 69.921
     - type: ndcg_at_100
-      value: 72.27
+      value: 72.365
     - type: ndcg_at_1000
-      value: 73.066
+      value: 73.055
     - type: ndcg_at_3
-      value: 65.837
+      value: 65.086
     - type: ndcg_at_5
-      value: 67.633
+      value: 67.62700000000001
     - type: precision_at_1
-      value: 59.0
+      value: 59
     - type: precision_at_10
-      value: 9.333
+      value: 9.3
     - type: precision_at_100
-      value: 1.053
+      value: 1.057
     - type: precision_at_1000
-      value: 0.11199999999999999
+      value: 0.11100000000000002
     - type: precision_at_3
-      value: 26.0
+      value: 25.333
     - type: precision_at_5
       value: 16.866999999999997
     - type: recall_at_1
-      value: 56.011
+      value: 55.928
     - type: recall_at_10
-      value: 82.133
+      value: 82.289
     - type: recall_at_100
-      value: 92.767
+      value: 92.833
     - type: recall_at_1000
-      value: 99.0
+      value: 98.333
     - type: recall_at_3
-      value: 70.95
+      value: 69.172
     - type: recall_at_5
-      value: 75.556
+      value: 75.628
   - task:
       type: PairClassification
     dataset:
@@ -2410,51 +2409,51 @@ model-index:
       revision: d66bd1f72af766a5cc4b0ca5e00c162f89e8cc46
     metrics:
     - type: cos_sim_accuracy
-      value: 99.81584158415842
+      value: 99.81881188118813
     - type: cos_sim_ap
-      value: 94.67482871230736
+      value: 95.2776439040401
     - type: cos_sim_f1
-      value: 90.67201604814443
+      value: 90.74355083459787
     - type: cos_sim_precision
-      value: 90.94567404426559
+      value: 91.81166837256909
     - type: cos_sim_recall
-      value: 90.4
+      value: 89.7
     - type: dot_accuracy
-      value: 99.81584158415842
+      value: 99.81881188118813
     - type: dot_ap
-      value: 94.67482871230737
+      value: 95.27764092100406
     - type: dot_f1
-      value: 90.67201604814443
+      value: 90.74355083459787
     - type: dot_precision
-      value: 90.94567404426559
+      value: 91.81166837256909
     - type: dot_recall
-      value: 90.4
+      value: 89.7
     - type: euclidean_accuracy
-      value: 99.81584158415842
+      value: 99.81881188118813
     - type: euclidean_ap
-      value: 94.67482871230737
+      value: 95.27764091101388
     - type: euclidean_f1
-      value: 90.67201604814443
+      value: 90.74355083459787
     - type: euclidean_precision
-      value: 90.94567404426559
+      value: 91.81166837256909
     - type: euclidean_recall
-      value: 90.4
+      value: 89.7
     - type: manhattan_accuracy
-      value: 99.81188118811882
+      value: 99.82079207920792
     - type: manhattan_ap
-      value: 94.6409082219286
+      value: 95.25081634689418
     - type: manhattan_f1
-      value: 90.50949050949052
+      value: 90.75114971895759
     - type: manhattan_precision
-      value: 90.41916167664671
+      value: 92.78996865203762
     - type: manhattan_recall
-      value: 90.60000000000001
+      value: 88.8
     - type: max_accuracy
-      value: 99.81584158415842
+      value: 99.82079207920792
     - type: max_ap
-      value: 94.67482871230737
+      value: 95.2776439040401
     - type: max_f1
-      value: 90.67201604814443
+      value: 90.75114971895759
   - task:
       type: Clustering
     dataset:
@@ -2465,7 +2464,7 @@ model-index:
       revision: 6cbc1f7b2bc0622f2e39d2c77fa502909748c259
     metrics:
     - type: v_measure
-      value: 62.63494511649264
+      value: 60.69855369728728
   - task:
       type: Clustering
     dataset:
@@ -2476,7 +2475,7 @@ model-index:
       revision: 815ca46b2622cec33ccafc3735d572c266efdb44
     metrics:
     - type: v_measure
-      value: 37.165838327685755
+      value: 33.98191834367251
   - task:
       type: Reranking
     dataset:
@@ -2487,9 +2486,9 @@ model-index:
       revision: e185fbe320c72810689fc5848eb6114e1ef5ec69
     metrics:
     - type: map
-      value: 51.384873075208084
+      value: 50.156163330429614
     - type: mrr
-      value: 52.196439181733304
+      value: 50.90145148968678
   - task:
       type: Summarization
     dataset:
@@ -2500,13 +2499,13 @@ model-index:
       revision: cda12ad7615edc362dbf25a00fdd61d3b1eaf93c
     metrics:
     - type: cos_sim_pearson
-      value: 32.13690355567596
+      value: 31.16938079808134
     - type: cos_sim_spearman
-      value: 31.38349778638125
+      value: 31.74655874538245
     - type: dot_pearson
-      value: 32.13689596691593
+      value: 31.169380299671705
     - type: dot_spearman
-      value: 31.38349778638125
+      value: 31.74655874538245
   - task:
       type: Retrieval
     dataset:
@@ -2517,65 +2516,65 @@ model-index:
       revision: bb9466bac8153a0349341eb1b22e06409e78ef4e
     metrics:
     - type: map_at_1
-      value: 0.26
+      value: 0.252
     - type: map_at_10
-      value: 2.08
+      value: 2.009
     - type: map_at_100
-      value: 12.598
+      value: 11.611
     - type: map_at_1000
-      value: 30.119
+      value: 27.811999999999998
     - type: map_at_3
-      value: 0.701
+      value: 0.685
     - type: map_at_5
-      value: 1.11
+      value: 1.08
     - type: mrr_at_1
-      value: 96.0
+      value: 94
     - type: mrr_at_10
-      value: 97.167
+      value: 97
     - type: mrr_at_100
-      value: 97.167
+      value: 97
     - type: mrr_at_1000
-      value: 97.167
+      value: 97
     - type: mrr_at_3
-      value: 96.667
+      value: 97
     - type: mrr_at_5
-      value: 97.167
+      value: 97
     - type: ndcg_at_1
-      value: 91.0
+      value: 88
     - type: ndcg_at_10
-      value: 81.69800000000001
+      value: 81.388
     - type: ndcg_at_100
-      value: 62.9
+      value: 60.629
     - type: ndcg_at_1000
-      value: 55.245999999999995
+      value: 52.38
     - type: ndcg_at_3
-      value: 86.397
+      value: 86.827
     - type: ndcg_at_5
-      value: 84.286
+      value: 84.597
     - type: precision_at_1
-      value: 96.0
+      value: 94
     - type: precision_at_10
-      value: 87.0
+      value: 85.8
     - type: precision_at_100
-      value: 64.86
+      value: 62.419999999999995
     - type: precision_at_1000
-      value: 24.512
+      value: 23.31
     - type: precision_at_3
       value: 90.667
     - type: precision_at_5
-      value: 88.8
+      value: 88.4
     - type: recall_at_1
-      value: 0.26
+      value: 0.252
     - type: recall_at_10
-      value: 2.238
+      value: 2.164
     - type: recall_at_100
-      value: 15.488
+      value: 14.613999999999999
     - type: recall_at_1000
-      value: 51.6
+      value: 48.730000000000004
     - type: recall_at_3
-      value: 0.716
+      value: 0.7020000000000001
     - type: recall_at_5
-      value: 1.151
+      value: 1.122
   - task:
       type: Retrieval
     dataset:
@@ -2586,65 +2585,65 @@ model-index:
       revision: a34f9a33db75fa0cbb21bb5cfc3dae8dc8bec93f
     metrics:
     - type: map_at_1
-      value: 3.376
+      value: 3.476
     - type: map_at_10
-      value: 13.142000000000001
+      value: 13.442000000000002
     - type: map_at_100
-      value: 19.763
+      value: 20.618
     - type: map_at_1000
-      value: 21.319
+      value: 22.175
     - type: map_at_3
-      value: 6.805999999999999
+      value: 6.968000000000001
     - type: map_at_5
-      value: 8.952
+      value: 9.214
     - type: mrr_at_1
-      value: 46.939
-    - type: mrr_at_10
-      value: 61.082
-    - type: mrr_at_100
-      value: 61.45
-    - type: mrr_at_1000
-      value: 61.468999999999994
-    - type: mrr_at_3
-      value: 57.483
-    - type: mrr_at_5
-      value: 59.931999999999995
-    - type: ndcg_at_1
       value: 44.897999999999996
+    - type: mrr_at_10
+      value: 56.77100000000001
+    - type: mrr_at_100
+      value: 57.226
+    - type: mrr_at_1000
+      value: 57.226
+    - type: mrr_at_3
+      value: 52.381
+    - type: mrr_at_5
+      value: 54.523999999999994
+    - type: ndcg_at_1
+      value: 42.857
     - type: ndcg_at_10
-      value: 32.35
+      value: 32.507999999999996
     - type: ndcg_at_100
-      value: 42.719
+      value: 43.614000000000004
     - type: ndcg_at_1000
-      value: 53.30200000000001
+      value: 53.82
     - type: ndcg_at_3
-      value: 37.724999999999994
+      value: 36.818
     - type: ndcg_at_5
-      value: 34.79
+      value: 33.346
     - type: precision_at_1
-      value: 46.939
+      value: 44.897999999999996
     - type: precision_at_10
-      value: 28.366999999999997
+      value: 28.571
     - type: precision_at_100
-      value: 8.429
+      value: 8.652999999999999
     - type: precision_at_1000
-      value: 1.557
+      value: 1.5709999999999997
     - type: precision_at_3
       value: 38.095
     - type: precision_at_5
-      value: 33.469
+      value: 32.245000000000005
     - type: recall_at_1
-      value: 3.376
+      value: 3.476
     - type: recall_at_10
-      value: 20.164
+      value: 20.827
     - type: recall_at_100
-      value: 50.668
+      value: 53.04299999999999
     - type: recall_at_1000
-      value: 83.159
+      value: 84.221
     - type: recall_at_3
-      value: 8.155
+      value: 8.200000000000001
     - type: recall_at_5
-      value: 11.872
+      value: 11.651
   - task:
       type: Classification
     dataset:
@@ -2655,11 +2654,11 @@ model-index:
       revision: edfaf9da55d3dd50d43143d90c1ac476895ae6de
     metrics:
     - type: accuracy
-      value: 66.739
+      value: 61.96360000000001
     - type: ap
-      value: 12.17931839228834
+      value: 11.256160324436445
     - type: f1
-      value: 51.05383188624636
+      value: 48.07712827691349
   - task:
       type: Classification
     dataset:
@@ -2670,9 +2669,9 @@ model-index:
       revision: d604517c81ca91fe16a244d1248fc021f9ecee7a
     metrics:
     - type: accuracy
-      value: 56.72891907187323
+      value: 58.90492359932088
     - type: f1
-      value: 56.997614557150946
+      value: 59.12542417513503
   - task:
       type: Clustering
     dataset:
@@ -2683,7 +2682,7 @@ model-index:
       revision: 6125ec4e24fa026cec8a478383ee943acfbd5449
     metrics:
     - type: v_measure
-      value: 39.825318429345224
+      value: 38.284935353315355
   - task:
       type: PairClassification
     dataset:
@@ -2694,51 +2693,51 @@ model-index:
       revision: 70970daeab8776df92f5ea462b6173c0b46fd2d1
     metrics:
     - type: cos_sim_accuracy
-      value: 83.65619598259522
+      value: 83.4714192048638
     - type: cos_sim_ap
-      value: 66.17412885183877
+      value: 65.77588263185375
     - type: cos_sim_f1
-      value: 63.09125656951745
+      value: 62.459508098380326
     - type: cos_sim_precision
-      value: 57.63858577040594
+      value: 57.27172717271727
     - type: cos_sim_recall
-      value: 69.68337730870712
+      value: 68.68073878627968
     - type: dot_accuracy
-      value: 83.65619598259522
+      value: 83.4714192048638
     - type: dot_ap
-      value: 66.17413621964548
+      value: 65.77588818364636
     - type: dot_f1
-      value: 63.09125656951745
+      value: 62.459508098380326
     - type: dot_precision
-      value: 57.63858577040594
+      value: 57.27172717271727
     - type: dot_recall
-      value: 69.68337730870712
+      value: 68.68073878627968
     - type: euclidean_accuracy
-      value: 83.65619598259522
+      value: 83.4714192048638
     - type: euclidean_ap
-      value: 66.17412836413126
+      value: 65.77587693431595
     - type: euclidean_f1
-      value: 63.09125656951745
+      value: 62.459508098380326
     - type: euclidean_precision
-      value: 57.63858577040594
+      value: 57.27172717271727
     - type: euclidean_recall
-      value: 69.68337730870712
+      value: 68.68073878627968
     - type: manhattan_accuracy
-      value: 83.5548667819038
+      value: 83.47737974608094
     - type: manhattan_ap
-      value: 66.07998834521334
+      value: 65.65957745829654
     - type: manhattan_f1
-      value: 62.96433419721092
+      value: 62.22760290556902
     - type: manhattan_precision
-      value: 59.14676559239509
+      value: 57.494407158836694
     - type: manhattan_recall
-      value: 67.30870712401055
+      value: 67.81002638522428
     - type: max_accuracy
-      value: 83.65619598259522
+      value: 83.47737974608094
     - type: max_ap
-      value: 66.17413621964548
+      value: 65.77588818364636
     - type: max_f1
-      value: 63.09125656951745
+      value: 62.459508098380326
   - task:
       type: PairClassification
     dataset:
@@ -2749,51 +2748,51 @@ model-index:
       revision: 8b6510b0b1fa4e4c4f879467980e9be563ec1cdf
     metrics:
     - type: cos_sim_accuracy
-      value: 88.55706911941631
+      value: 88.64244964489463
     - type: cos_sim_ap
-      value: 85.20971331546805
+      value: 85.154122301394
     - type: cos_sim_f1
-      value: 77.28446050593702
+      value: 77.45617911327146
     - type: cos_sim_precision
-      value: 74.16135881104033
+      value: 74.23066064370413
     - type: cos_sim_recall
-      value: 80.6821681552202
+      value: 80.97474591931014
     - type: dot_accuracy
-      value: 88.55706911941631
+      value: 88.64244964489463
     - type: dot_ap
-      value: 85.2097154112633
+      value: 85.15411965587543
     - type: dot_f1
-      value: 77.28446050593702
+      value: 77.45617911327146
     - type: dot_precision
-      value: 74.16135881104033
+      value: 74.23066064370413
     - type: dot_recall
-      value: 80.6821681552202
+      value: 80.97474591931014
     - type: euclidean_accuracy
-      value: 88.55706911941631
+      value: 88.64244964489463
     - type: euclidean_ap
-      value: 85.20971719214488
+      value: 85.15414684113986
     - type: euclidean_f1
-      value: 77.28446050593702
+      value: 77.45617911327146
     - type: euclidean_precision
-      value: 74.16135881104033
+      value: 74.23066064370413
     - type: euclidean_recall
-      value: 80.6821681552202
+      value: 80.97474591931014
     - type: manhattan_accuracy
-      value: 88.52020025614158
+      value: 88.57841425078588
     - type: manhattan_ap
-      value: 85.17569799117058
+      value: 85.12472268567576
     - type: manhattan_f1
-      value: 77.27157773040933
+      value: 77.39497339937627
     - type: manhattan_precision
-      value: 72.79286638077734
+      value: 73.92584285413892
     - type: manhattan_recall
-      value: 82.33754234678165
+      value: 81.20572836464429
     - type: max_accuracy
-      value: 88.55706911941631
+      value: 88.64244964489463
     - type: max_ap
-      value: 85.20971719214488
+      value: 85.15414684113986
     - type: max_f1
-      value: 77.28446050593702
+      value: 77.45617911327146
   - task:
       type: Clustering
     dataset:
@@ -2804,9 +2803,10 @@ model-index:
       revision: ddc9ee9242fa65332597f70e967ecc38b9d734fa
     metrics:
     - type: v_measure
-      value: 85.63474850264893
+      value: 79.58576208710117
+license: apache-2.0
 ---
-<h1 align="center">Snowflake's Arctic-embed-m-long</h1>
+<h1 align="center">Snowflake's Arctic-embed-s</h1>
 <h4 align="center">
    <p>
        <a href=#news>News</a> |
@@ -2832,6 +2832,7 @@ model-index:
 05/10/2024: Release the [technical report on Arctic Embed](https://arxiv.org/abs/2405.05374)
 
 04/16/2024: Release the ** snowflake-arctic-embed ** family of text embedding models. The releases are state-of-the-art for Retrieval quality at each of their representative size profiles. [Technical Report]() is coming shortly. For more details, please refer to our Github: [Arctic-Text-Embed](https://github.com/Snowflake-Labs/arctic-embed).
+
 
 ## Models
 
@@ -2950,7 +2951,7 @@ You can use the sentence-transformers package to use an snowflake-arctic-embed m
 ```python
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("Snowflake/snowflake-arctic-embed-m-long", trust_remote_code=True)
+model = SentenceTransformer("Snowflake/snowflake-arctic-embed-s")
 
 queries = ['what is snowflake?', 'Where can I get the best tacos?']
 documents = ['The Data Cloud!', 'Mexico City of Course!']
@@ -2969,11 +2970,11 @@ for query, query_scores in zip(queries, scores):
 ```
 ```
 Query: what is snowflake?
-0.46484852 The Data Cloud!
-0.3758855 Mexico City of Course!
+0.533809 The Data Cloud!
+0.49207097 Mexico City of Course!
 Query: Where can I get the best tacos?
-0.42407742 Mexico City of Course!
-0.36740506 The Data Cloud!
+0.56592476 Mexico City of Course!
+0.48255116 The Data Cloud!
 ```
 
 ### Using Huggingface transformers
@@ -2987,8 +2988,8 @@ You can use the transformers package to use an snowflake-arctic-embed model, as 
 import torch
 from transformers import AutoModel, AutoTokenizer
 
-tokenizer = AutoTokenizer.from_pretrained('Snowflake/snowflake-arctic-embed-m-long')
-model = AutoModel.from_pretrained('Snowflake/snowflake-arctic-embed-m-long', trust_remote_code=True, add_pooling_layer=False, safe_serialization=True)
+tokenizer = AutoTokenizer.from_pretrained('Snowflake/snowflake-arctic-embed-s')
+model = AutoModel.from_pretrained('Snowflake/snowflake-arctic-embed-s', add_pooling_layer=False)
 model.eval()
 
 query_prefix = 'Represent this sentence for searching relevant passages: '
@@ -3019,14 +3020,6 @@ for query, query_scores in zip(queries, scores):
         print(score, document)
 ```
 
-
-If you use the long context model with more than 2048 tokens, ensure that you initialize the model like below instead. This will use [RPE](https://arxiv.org/abs/2104.09864) to allow up to 8192 tokens.
-
-
-``` py
-model = AutoModel.from_pretrained('Snowflake/snowflake-arctic-embed-m-long', trust_remote_code=True, safe_serialization=True, rotary_scaling_factor=2)
-```
-
 ### Using Transformers.js
 
 If you haven't already, you can install the [Transformers.js](https://huggingface.co/docs/transformers.js) JavaScript library from [NPM](https://www.npmjs.com/package/@xenova/transformers) by running:
@@ -3040,7 +3033,7 @@ You can then use the model to compute embeddings as follows:
 import { pipeline, dot } from '@xenova/transformers';
 
 // Create feature extraction pipeline
-const extractor = await pipeline('feature-extraction', 'Snowflake/snowflake-arctic-embed-m-long', {
+const extractor = await pipeline('feature-extraction', 'Snowflake/snowflake-arctic-embed-s', {
     quantized: false, // Comment out this line to use the quantized version
 });
 
@@ -3055,9 +3048,8 @@ const output = await extractor(sentences, { normalize: true, pooling: 'cls' });
 // Compute similarity scores
 const [source_embeddings, ...document_embeddings ] = output.tolist();
 const similarities = document_embeddings.map(x => dot(source_embeddings, x));
-console.log(similarities); // [0.36740492125676116, 0.42407774292046635]
+console.log(similarities); // [0.48255123876493394, 0.5659250100112143]
 ```
-
 
 ## FAQ
 
@@ -3088,4 +3080,4 @@ We also thank the open-source community for producing the great models we could 
 Finally, we thank the researchers who created BEIR and MTEB benchmarks. 
 It is largely thanks to their tireless work to define what better looks like that we could improve model performance. 
 
-<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=f528b5b4-2ba6-4fc6-8eed-259968d45577" />
+<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=26ca7731-2650-44be-942d-0c6809cfcf00" />

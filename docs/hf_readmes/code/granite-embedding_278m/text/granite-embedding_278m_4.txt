@@ -1,4 +1,2 @@
 
-### Using Transformers.js
-
-If you haven't already, you can install the [Transformers.js](https://huggingface.co/docs/transformers.js) JavaScript library from [NPM](https://www.npmjs.com/package/@xenova/transformers) by running:
+#### Running the model on a single/multi GPU

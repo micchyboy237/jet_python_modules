@@ -1,16 +1,28 @@
 ---
 language:
 - en
+- ar
+- cs
+- de
+- es
+- fr
+- it
+- ja
+- ko
+- nl
+- pt
+- zh
 license: apache-2.0
-library_name: sentence-transformers
+library_name: transformers
 tags:
 - language
 - granite
 - embeddings
+- multilingual
 - mteb
-- transformers
+- sentence-transformers
 model-index:
-- name: ibm-granite/granite-embedding-30m-english
+- name: ibm-granite/granite-embedding-278m-multilingual
   results:
   - dataset:
       config: en-ext
@@ -20,17 +32,17 @@ model-index:
       type: mteb/amazon_counterfactual
     metrics:
     - type: accuracy
-      value: 62.856100000000005
+      value: 73.4333
     - type: f1
-      value: 51.5046
+      value: 61.2301
     - type: f1_weighted
-      value: 69.9775
+      value: 78.40899999999999
     - type: ap
-      value: 15.4995
+      value: 23.347
     - type: ap_weighted
-      value: 15.4995
+      value: 23.347
     - type: main_score
-      value: 62.856100000000005
+      value: 73.4333
     task:
       type: Classification
   - dataset:
@@ -41,17 +53,17 @@ model-index:
       type: mteb/amazon_counterfactual
     metrics:
     - type: accuracy
-      value: 60.925399999999996
+      value: 71.806
     - type: f1
-      value: 55.0092
+      value: 65.6467
     - type: f1_weighted
-      value: 64.8014
+      value: 74.4815
     - type: ap
-      value: 25.0517
+      value: 34.045700000000004
     - type: ap_weighted
-      value: 25.0517
+      value: 34.045700000000004
     - type: main_score
-      value: 60.925399999999996
+      value: 71.806
     task:
       type: Classification
   - dataset:
@@ -62,17 +74,17 @@ model-index:
       type: mteb/amazon_polarity
     metrics:
     - type: accuracy
-      value: 62.983599999999996
+      value: 67.5907
     - type: f1
-      value: 62.553599999999996
+      value: 67.36370000000001
     - type: f1_weighted
-      value: 62.553599999999996
+      value: 67.36370000000001
     - type: ap
-      value: 58.3423
+      value: 62.0368
     - type: ap_weighted
-      value: 58.3423
+      value: 62.0368
     - type: main_score
-      value: 62.983599999999996
+      value: 67.5907
     task:
       type: Classification
   - dataset:
@@ -83,13 +95,13 @@ model-index:
       type: mteb/amazon_reviews_multi
     metrics:
     - type: accuracy
-      value: 32.178000000000004
+      value: 37.278
     - type: f1
-      value: 31.5201
+      value: 36.4099
     - type: f1_weighted
-      value: 31.5201
+      value: 36.4099
     - type: main_score
-      value: 32.178000000000004
+      value: 37.278
     task:
       type: Classification
   - dataset:
@@ -100,287 +112,287 @@ model-index:
       type: CoIR-Retrieval/apps
     metrics:
     - type: ndcg_at_1
-      value: 3.5060000000000002
+      value: 3.453
     - type: ndcg_at_3
-      value: 4.789000000000001
+      value: 4.882000000000001
     - type: ndcg_at_5
-      value: 5.314
+      value: 5.564
     - type: ndcg_at_10
-      value: 6.203
+      value: 6.214
     - type: ndcg_at_20
-      value: 6.801
+      value: 6.814000000000001
     - type: ndcg_at_100
-      value: 8.588
+      value: 8.581
     - type: ndcg_at_1000
-      value: 12.418999999999999
+      value: 12.215
     - type: map_at_1
-      value: 3.5060000000000002
+      value: 3.453
     - type: map_at_3
-      value: 4.471
+      value: 4.515000000000001
     - type: map_at_5
-      value: 4.7620000000000005
+      value: 4.89
     - type: map_at_10
-      value: 5.117
+      value: 5.151
     - type: map_at_20
-      value: 5.281000000000001
+      value: 5.313
     - type: map_at_100
-      value: 5.501
+      value: 5.539000000000001
     - type: map_at_1000
-      value: 5.611
+      value: 5.638
     - type: recall_at_1
-      value: 3.5060000000000002
+      value: 3.453
     - type: recall_at_3
-      value: 5.71
+      value: 5.949999999999999
     - type: recall_at_5
-      value: 6.984999999999999
+      value: 7.623
     - type: recall_at_10
-      value: 9.801
+      value: 9.668000000000001
     - type: recall_at_20
-      value: 12.165
+      value: 12.058
     - type: recall_at_100
-      value: 22.205
+      value: 21.859
     - type: recall_at_1000
-      value: 54.396
+      value: 52.722
     - type: precision_at_1
-      value: 3.5060000000000002
+      value: 3.453
     - type: precision_at_3
-      value: 1.9029999999999998
+      value: 1.983
     - type: precision_at_5
-      value: 1.397
+      value: 1.525
     - type: precision_at_10
-      value: 0.98
+      value: 0.967
     - type: precision_at_20
-      value: 0.608
+      value: 0.603
     - type: precision_at_100
-      value: 0.22200000000000003
+      value: 0.219
     - type: precision_at_1000
-      value: 0.054
+      value: 0.053
     - type: mrr_at_1
-      value: 3.5060000000000002
+      value: 3.4528999999999996
     - type: mrr_at_3
-      value: 4.471
+      value: 4.5153
     - type: mrr_at_5
-      value: 4.7618
+      value: 4.889799999999999
     - type: mrr_at_10
-      value: 5.1166
+      value: 5.1507
     - type: mrr_at_20
-      value: 5.2806
+      value: 5.3135
     - type: mrr_at_100
-      value: 5.5014
+      value: 5.5391
     - type: mrr_at_1000
-      value: 5.6113
+      value: 5.6382
     - type: nauc_ndcg_at_1_max
-      value: 32.8089
+      value: 37.1714
     - type: nauc_ndcg_at_1_std
-      value: 13.0518
+      value: 15.306700000000001
     - type: nauc_ndcg_at_1_diff1
-      value: 44.3602
+      value: 46.2252
     - type: nauc_ndcg_at_3_max
-      value: 28.5037
+      value: 32.0309
     - type: nauc_ndcg_at_3_std
-      value: 12.1308
+      value: 14.2983
     - type: nauc_ndcg_at_3_diff1
-      value: 33.0191
+      value: 34.7174
     - type: nauc_ndcg_at_5_max
-      value: 25.970100000000002
+      value: 29.3613
     - type: nauc_ndcg_at_5_std
-      value: 12.089500000000001
+      value: 13.0358
     - type: nauc_ndcg_at_5_diff1
-      value: 30.098200000000002
+      value: 30.8369
     - type: nauc_ndcg_at_10_max
-      value: 23.9177
+      value: 26.820100000000004
     - type: nauc_ndcg_at_10_std
-      value: 12.1279
+      value: 12.3422
     - type: nauc_ndcg_at_10_diff1
-      value: 26.3951
+      value: 27.3719
     - type: nauc_ndcg_at_20_max
-      value: 22.2086
+      value: 25.5643
     - type: nauc_ndcg_at_20_std
-      value: 11.355
+      value: 11.383000000000001
     - type: nauc_ndcg_at_20_diff1
-      value: 24.9668
+      value: 25.7058
     - type: nauc_ndcg_at_100_max
-      value: 20.1961
+      value: 23.2131
     - type: nauc_ndcg_at_100_std
-      value: 11.368300000000001
+      value: 12.4787
     - type: nauc_ndcg_at_100_diff1
-      value: 21.654200000000003
+      value: 21.6874
     - type: nauc_ndcg_at_1000_max
-      value: 19.7802
+      value: 22.900499999999997
     - type: nauc_ndcg_at_1000_std
-      value: 11.9399
+      value: 13.2218
     - type: nauc_ndcg_at_1000_diff1
-      value: 19.8429
+      value: 19.668
     - type: nauc_map_at_1_max
-      value: 32.8089
+      value: 37.1714
     - type: nauc_map_at_1_std
-      value: 13.0518
+      value: 15.306700000000001
     - type: nauc_map_at_1_diff1
-      value: 44.3602
+      value: 46.2252
     - type: nauc_map_at_3_max
-      value: 29.285600000000002
+      value: 33.1012
     - type: nauc_map_at_3_std
-      value: 12.4277
+      value: 14.4117
     - type: nauc_map_at_3_diff1
-      value: 35.2678
+      value: 36.8859
     - type: nauc_map_at_5_max
-      value: 27.6754
+      value: 31.404700000000002
     - type: nauc_map_at_5_std
-      value: 12.4042
+      value: 13.5956
     - type: nauc_map_at_5_diff1
-      value: 33.330799999999996
+      value: 34.3454
     - type: nauc_map_at_10_max
-      value: 26.571299999999997
+      value: 30.1013
     - type: nauc_map_at_10_std
-      value: 12.439400000000001
+      value: 13.2253
     - type: nauc_map_at_10_diff1
-      value: 31.275399999999998
+      value: 32.487
     - type: nauc_map_at_20_max
-      value: 25.8795
+      value: 29.5747
     - type: nauc_map_at_20_std
-      value: 12.1596
+      value: 12.843499999999999
     - type: nauc_map_at_20_diff1
-      value: 30.6354
+      value: 31.8252
     - type: nauc_map_at_100_max
-      value: 25.3369
+      value: 28.968899999999998
     - type: nauc_map_at_100_std
-      value: 12.0245
+      value: 12.967699999999999
     - type: nauc_map_at_100_diff1
-      value: 29.8703
+      value: 30.924000000000003
     - type: nauc_map_at_1000_max
-      value: 25.239800000000002
+      value: 28.894599999999997
     - type: nauc_map_at_1000_std
-      value: 12.0242
+      value: 12.997800000000002
     - type: nauc_map_at_1000_diff1
-      value: 29.7235
+      value: 30.7653
     - type: nauc_recall_at_1_max
-      value: 32.8089
+      value: 37.1714
     - type: nauc_recall_at_1_std
-      value: 13.0518
+      value: 15.306700000000001
     - type: nauc_recall_at_1_diff1
-      value: 44.3602
+      value: 46.2252
     - type: nauc_recall_at_3_max
-      value: 26.747700000000002
+      value: 29.6485
     - type: nauc_recall_at_3_std
-      value: 11.4203
+      value: 14.072799999999999
     - type: nauc_recall_at_3_diff1
-      value: 27.9047
+      value: 29.9536
     - type: nauc_recall_at_5_max
-      value: 22.3707
+      value: 25.251099999999997
     - type: nauc_recall_at_5_std
-      value: 11.4164
+      value: 11.9121
     - type: nauc_recall_at_5_diff1
-      value: 23.4182
+      value: 23.9203
     - type: nauc_recall_at_10_max
-      value: 19.2758
+      value: 20.8856
     - type: nauc_recall_at_10_std
-      value: 11.578800000000001
+      value: 10.7653
     - type: nauc_recall_at_10_diff1
-      value: 18.030099999999997
+      value: 18.3716
     - type: nauc_recall_at_20_max
-      value: 16.1643
+      value: 18.9378
     - type: nauc_recall_at_20_std
-      value: 9.9037
+      value: 8.8933
     - type: nauc_recall_at_20_diff1
-      value: 16.0833
+      value: 15.7693
     - type: nauc_recall_at_100_max
-      value: 13.644700000000002
+      value: 15.7027
     - type: nauc_recall_at_100_std
-      value: 10.986799999999999
+      value: 12.6519
     - type: nauc_recall_at_100_diff1
-      value: 11.0515
+      value: 9.2726
     - type: nauc_recall_at_1000_max
-      value: 13.9712
+      value: 16.2321
     - type: nauc_recall_at_1000_std
-      value: 13.4048
+      value: 15.2717
     - type: nauc_recall_at_1000_diff1
-      value: 6.569500000000001
+      value: 4.4337
     - type: nauc_precision_at_1_max
-      value: 32.8089
+      value: 37.1714
     - type: nauc_precision_at_1_std
-      value: 13.0518
+      value: 15.306700000000001
     - type: nauc_precision_at_1_diff1
-      value: 44.3602
+      value: 46.2252
     - type: nauc_precision_at_3_max
-      value: 26.747700000000002
+      value: 29.6485
     - type: nauc_precision_at_3_std
-      value: 11.4203
+      value: 14.072799999999999
     - type: nauc_precision_at_3_diff1
-      value: 27.9047
+      value: 29.9536
     - type: nauc_precision_at_5_max
-      value: 22.3707
+      value: 25.251099999999997
     - type: nauc_precision_at_5_std
-      value: 11.4164
+      value: 11.9121
     - type: nauc_precision_at_5_diff1
-      value: 23.4182
+      value: 23.9203
     - type: nauc_precision_at_10_max
-      value: 19.2758
+      value: 20.8856
     - type: nauc_precision_at_10_std
-      value: 11.578800000000001
+      value: 10.7653
     - type: nauc_precision_at_10_diff1
-      value: 18.030099999999997
+      value: 18.3716
     - type: nauc_precision_at_20_max
-      value: 16.1643
+      value: 18.9378
     - type: nauc_precision_at_20_std
-      value: 9.9037
+      value: 8.8933
     - type: nauc_precision_at_20_diff1
-      value: 16.0833
+      value: 15.7693
     - type: nauc_precision_at_100_max
-      value: 13.644700000000002
+      value: 15.7027
     - type: nauc_precision_at_100_std
-      value: 10.986799999999999
+      value: 12.6519
     - type: nauc_precision_at_100_diff1
-      value: 11.0515
+      value: 9.2726
     - type: nauc_precision_at_1000_max
-      value: 13.9712
+      value: 16.2321
     - type: nauc_precision_at_1000_std
-      value: 13.4048
+      value: 15.2717
     - type: nauc_precision_at_1000_diff1
-      value: 6.569500000000001
+      value: 4.4337
     - type: nauc_mrr_at_1_max
-      value: 32.8089
+      value: 37.1714
     - type: nauc_mrr_at_1_std
-      value: 13.0518
+      value: 15.306700000000001
     - type: nauc_mrr_at_1_diff1
-      value: 44.3602
+      value: 46.2252
     - type: nauc_mrr_at_3_max
-      value: 29.285600000000002
+      value: 33.1012
     - type: nauc_mrr_at_3_std
-      value: 12.4277
+      value: 14.4117
     - type: nauc_mrr_at_3_diff1
-      value: 35.2678
+      value: 36.8859
     - type: nauc_mrr_at_5_max
-      value: 27.6754
+      value: 31.404700000000002
     - type: nauc_mrr_at_5_std
-      value: 12.4042
+      value: 13.5956
     - type: nauc_mrr_at_5_diff1
-      value: 33.330799999999996
+      value: 34.3454
     - type: nauc_mrr_at_10_max
-      value: 26.571299999999997
+      value: 30.1013
     - type: nauc_mrr_at_10_std
-      value: 12.439400000000001
+      value: 13.2253
     - type: nauc_mrr_at_10_diff1
-      value: 31.275399999999998
+      value: 32.487
     - type: nauc_mrr_at_20_max
-      value: 25.8795
+      value: 29.5747
     - type: nauc_mrr_at_20_std
-      value: 12.1596
+      value: 12.843499999999999
     - type: nauc_mrr_at_20_diff1
-      value: 30.6354
+      value: 31.8252
     - type: nauc_mrr_at_100_max
-      value: 25.337
+      value: 28.968899999999998
     - type: nauc_mrr_at_100_std
-      value: 12.0245
+      value: 12.967699999999999
     - type: nauc_mrr_at_100_diff1
-      value: 29.870400000000004
+      value: 30.9239
     - type: nauc_mrr_at_1000_max
-      value: 25.2399
+      value: 28.894599999999997
     - type: nauc_mrr_at_1000_std
-      value: 12.0242
+      value: 12.997800000000002
     - type: nauc_mrr_at_1000_diff1
-      value: 29.7236
+      value: 30.7653
     - type: main_score
-      value: 6.203
+      value: 6.214
     task:
       type: Retrieval
   - dataset:
@@ -391,287 +403,287 @@ model-index:
       type: mteb/arguana
     metrics:
     - type: ndcg_at_1
-      value: 31.791999999999998
+      value: 31.152
     - type: ndcg_at_3
-      value: 46.453
+      value: 45.050000000000004
     - type: ndcg_at_5
-      value: 51.623
+      value: 50.458999999999996
     - type: ndcg_at_10
-      value: 56.355999999999995
+      value: 55.24400000000001
     - type: ndcg_at_20
-      value: 58.757000000000005
+      value: 57.918000000000006
     - type: ndcg_at_100
-      value: 59.789
+      value: 58.97
     - type: ndcg_at_1000
-      value: 59.857000000000006
+      value: 59.080999999999996
     - type: map_at_1
-      value: 31.791999999999998
+      value: 31.152
     - type: map_at_3
-      value: 42.757
+      value: 41.513
     - type: map_at_5
-      value: 45.634
+      value: 44.542
     - type: map_at_10
-      value: 47.599000000000004
+      value: 46.544000000000004
     - type: map_at_20
-      value: 48.271
+      value: 47.304
     - type: map_at_100
-      value: 48.425000000000004
+      value: 47.467999999999996
     - type: map_at_1000
-      value: 48.427
+      value: 47.473
     - type: recall_at_1
-      value: 31.791999999999998
+      value: 31.152
     - type: recall_at_3
-      value: 57.18299999999999
+      value: 55.334
     - type: recall_at_5
-      value: 69.70100000000001
+      value: 68.35
     - type: recall_at_10
-      value: 84.282
+      value: 83.001
     - type: recall_at_20
-      value: 93.67
+      value: 93.38499999999999
     - type: recall_at_100
-      value: 99.075
+      value: 98.791
     - type: recall_at_1000
       value: 99.644
     - type: precision_at_1
-      value: 31.791999999999998
+      value: 31.152
     - type: precision_at_3
-      value: 19.061
+      value: 18.445
     - type: precision_at_5
-      value: 13.94
+      value: 13.669999999999998
     - type: precision_at_10
-      value: 8.427999999999999
+      value: 8.3
     - type: precision_at_20
-      value: 4.683
+      value: 4.6690000000000005
     - type: precision_at_100
-      value: 0.991
+      value: 0.988
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 32.3613
+      value: 31.7212
     - type: mrr_at_3
-      value: 42.935
+      value: 41.7141
     - type: mrr_at_5
-      value: 45.844
+      value: 44.754599999999996
     - type: mrr_at_10
-      value: 47.808099999999996
+      value: 46.7491
     - type: mrr_at_20
-      value: 48.4844
+      value: 47.515299999999996
     - type: mrr_at_100
-      value: 48.6345
+      value: 47.679300000000005
     - type: mrr_at_1000
-      value: 48.6364
+      value: 47.6841
     - type: nauc_ndcg_at_1_max
-      value: -8.274099999999999
+      value: -7.8191
     - type: nauc_ndcg_at_1_std
-      value: -8.1976
+      value: -4.0581
     - type: nauc_ndcg_at_1_diff1
-      value: 14.155100000000001
+      value: 14.383199999999999
     - type: nauc_ndcg_at_3_max
-      value: -4.6223
+      value: -4.6856
     - type: nauc_ndcg_at_3_std
-      value: -10.198500000000001
+      value: -3.4165
     - type: nauc_ndcg_at_3_diff1
-      value: 14.516499999999999
+      value: 10.7764
     - type: nauc_ndcg_at_5_max
-      value: -4.9834000000000005
+      value: -3.2999
     - type: nauc_ndcg_at_5_std
-      value: -9.6634
+      value: -3.6675
     - type: nauc_ndcg_at_5_diff1
-      value: 12.9298
+      value: 11.6249
     - type: nauc_ndcg_at_10_max
-      value: -4.3251
+      value: -3.2984
     - type: nauc_ndcg_at_10_std
-      value: -8.3068
+      value: -3.0373
     - type: nauc_ndcg_at_10_diff1
-      value: 12.2939
+      value: 11.9938
     - type: nauc_ndcg_at_20_max
-      value: -3.8912000000000004
+      value: -3.147
     - type: nauc_ndcg_at_20_std
-      value: -8.1821
+      value: -2.9219
     - type: nauc_ndcg_at_20_diff1
-      value: 12.673599999999999
+      value: 12.4893
     - type: nauc_ndcg_at_100_max
-      value: -5.0274
+      value: -4.2572
     - type: nauc_ndcg_at_100_std
-      value: -8.450000000000001
+      value: -2.8537
     - type: nauc_ndcg_at_100_diff1
-      value: 12.787399999999998
+      value: 12.1039
     - type: nauc_ndcg_at_1000_max
-      value: -5.1416
+      value: -4.3526
     - type: nauc_ndcg_at_1000_std
-      value: -8.6044
+      value: -3.0145
     - type: nauc_ndcg_at_1000_diff1
-      value: 12.858600000000001
+      value: 12.1685
     - type: nauc_map_at_1_max
-      value: -8.274099999999999
+      value: -7.8191
     - type: nauc_map_at_1_std
-      value: -8.1976
+      value: -4.0581
     - type: nauc_map_at_1_diff1
-      value: 14.155100000000001
+      value: 14.383199999999999
     - type: nauc_map_at_3_max
-      value: -5.6403
+      value: -5.5556
     - type: nauc_map_at_3_std
-      value: -9.7092
+      value: -3.515
     - type: nauc_map_at_3_diff1
-      value: 14.0705
+      value: 11.5486
     - type: nauc_map_at_5_max
-      value: -5.8896999999999995
+      value: -4.840599999999999
     - type: nauc_map_at_5_std
-      value: -9.3946
+      value: -3.6663
     - type: nauc_map_at_5_diff1
-      value: 13.208
+      value: 12.053899999999999
     - type: nauc_map_at_10_max
-      value: -5.7523
+      value: -4.9401
     - type: nauc_map_at_10_std
-      value: -8.9262
+      value: -3.3724
     - type: nauc_map_at_10_diff1
-      value: 12.961500000000001
+      value: 12.1558
     - type: nauc_map_at_20_max
-      value: -5.7103
+      value: -4.9365
     - type: nauc_map_at_20_std
-      value: -8.9336
+      value: -3.3676999999999997
     - type: nauc_map_at_20_diff1
-      value: 13.0351
+      value: 12.2729
     - type: nauc_map_at_100_max
-      value: -5.8204
+      value: -5.0695
     - type: nauc_map_at_100_std
-      value: -8.9441
+      value: -3.3561
     - type: nauc_map_at_100_diff1
-      value: 13.0722
+      value: 12.237
     - type: nauc_map_at_1000_max
-      value: -5.8239
+      value: -5.0709
     - type: nauc_map_at_1000_std
-      value: -8.9463
+      value: -3.3594
     - type: nauc_map_at_1000_diff1
-      value: 13.0724
+      value: 12.2408
     - type: nauc_recall_at_1_max
-      value: -8.274099999999999
+      value: -7.8191
     - type: nauc_recall_at_1_std
-      value: -8.1976
+      value: -4.0581
     - type: nauc_recall_at_1_diff1
-      value: 14.155100000000001
+      value: 14.383199999999999
     - type: nauc_recall_at_3_max
-      value: -1.4792
+      value: -2.0358
     - type: nauc_recall_at_3_std
-      value: -11.6828
+      value: -3.1464
     - type: nauc_recall_at_3_diff1
-      value: 16.026
+      value: 8.510900000000001
     - type: nauc_recall_at_5_max
-      value: -1.6868999999999998
+      value: 2.4358999999999997
     - type: nauc_recall_at_5_std
-      value: -10.5497
+      value: -3.727
     - type: nauc_recall_at_5_diff1
-      value: 11.826
+      value: 10.2867
     - type: nauc_recall_at_10_max
-      value: 5.1425
+      value: 6.5777
     - type: nauc_recall_at_10_std
-      value: -3.1008999999999998
+      value: -1.0198
     - type: nauc_recall_at_10_diff1
-      value: 7.6911
+      value: 11.9244
     - type: nauc_recall_at_20_max
-      value: 25.921499999999998
+      value: 22.8541
     - type: nauc_recall_at_20_std
-      value: 6.812600000000001
+      value: 4.1539
     - type: nauc_recall_at_20_diff1
-      value: 8.311300000000001
+      value: 19.3648
     - type: nauc_recall_at_100_max
-      value: 28.425299999999996
+      value: 18.5148
     - type: nauc_recall_at_100_std
-      value: 45.9592
+      value: 41.1822
     - type: nauc_recall_at_100_diff1
-      value: -11.801
+      value: 5.1883
     - type: nauc_recall_at_1000_max
-      value: 21.834500000000002
+      value: 13.995099999999999
     - type: nauc_recall_at_1000_std
-      value: 38.804
+      value: 53.7961
     - type: nauc_recall_at_1000_diff1
-      value: -3.5484
+      value: 14.8451
     - type: nauc_precision_at_1_max
-      value: -8.274099999999999
+      value: -7.8191
     - type: nauc_precision_at_1_std
-      value: -8.1976
+      value: -4.0581
     - type: nauc_precision_at_1_diff1
-      value: 14.155100000000001
+      value: 14.383199999999999
     - type: nauc_precision_at_3_max
-      value: -1.4792
+      value: -2.0358
     - type: nauc_precision_at_3_std
-      value: -11.6828
+      value: -3.1464
     - type: nauc_precision_at_3_diff1
-      value: 16.026
+      value: 8.510900000000001
     - type: nauc_precision_at_5_max
-      value: -1.6868999999999998
+      value: 2.4358999999999997
     - type: nauc_precision_at_5_std
-      value: -10.5497
+      value: -3.727
     - type: nauc_precision_at_5_diff1
-      value: 11.826
+      value: 10.2867
     - type: nauc_precision_at_10_max
-      value: 5.1425
+      value: 6.5777
     - type: nauc_precision_at_10_std
-      value: -3.1008999999999998
+      value: -1.0198
     - type: nauc_precision_at_10_diff1
-      value: 7.6911
+      value: 11.9244
     - type: nauc_precision_at_20_max
-      value: 25.921499999999998
+      value: 22.8541
     - type: nauc_precision_at_20_std
-      value: 6.812600000000001
+      value: 4.1539
     - type: nauc_precision_at_20_diff1
-      value: 8.311300000000001
+      value: 19.3648
     - type: nauc_precision_at_100_max
-      value: 28.425299999999996
+      value: 18.5148
     - type: nauc_precision_at_100_std
-      value: 45.9592
+      value: 41.1822
     - type: nauc_precision_at_100_diff1
-      value: -11.801
+      value: 5.1883
     - type: nauc_precision_at_1000_max
-      value: 21.834500000000002
+      value: 13.995099999999999
     - type: nauc_precision_at_1000_std
-      value: 38.804
+      value: 53.7961
     - type: nauc_precision_at_1000_diff1
-      value: -3.5484
+      value: 14.8451
     - type: nauc_mrr_at_1_max
-      value: -8.6929
+      value: -8.1904
     - type: nauc_mrr_at_1_std
-      value: -7.7584
+      value: -4.0896
     - type: nauc_mrr_at_1_diff1
-      value: 12.488100000000001
+      value: 12.7103
     - type: nauc_mrr_at_3_max
-      value: -6.6954
+      value: -6.6608
     - type: nauc_mrr_at_3_std
-      value: -9.7075
+      value: -3.6741
     - type: nauc_mrr_at_3_diff1
-      value: 12.2994
+      value: 9.851
     - type: nauc_mrr_at_5_max
-      value: -6.7945
+      value: -5.7596
     - type: nauc_mrr_at_5_std
-      value: -9.3751
+      value: -3.7391
     - type: nauc_mrr_at_5_diff1
-      value: 11.544699999999999
+      value: 10.4908
     - type: nauc_mrr_at_10_max
-      value: -6.6614
+      value: -5.8613
     - type: nauc_mrr_at_10_std
-      value: -8.859200000000001
+      value: -3.4377999999999997
     - type: nauc_mrr_at_10_diff1
-      value: 11.2614
+      value: 10.5641
     - type: nauc_mrr_at_20_max
-      value: -6.6408
+      value: -5.8497
     - type: nauc_mrr_at_20_std
-      value: -8.8599
+      value: -3.4543
     - type: nauc_mrr_at_20_diff1
-      value: 11.3125
+      value: 10.6822
     - type: nauc_mrr_at_100_max
-      value: -6.7582
+      value: -5.9873
     - type: nauc_mrr_at_100_std
-      value: -8.876299999999999
+      value: -3.4431000000000003
     - type: nauc_mrr_at_100_diff1
-      value: 11.325000000000001
+      value: 10.6379
     - type: nauc_mrr_at_1000_max
-      value: -6.7619
+      value: -5.9887999999999995
     - type: nauc_mrr_at_1000_std
-      value: -8.878400000000001
+      value: -3.4465000000000003
     - type: nauc_mrr_at_1000_diff1
-      value: 11.3251
+      value: 10.641399999999999
     - type: main_score
-      value: 56.355999999999995
+      value: 55.24400000000001
     task:
       type: Retrieval
   - dataset:
@@ -682,11 +694,11 @@ model-index:
       type: mteb/arxiv-clustering-p2p
     metrics:
     - type: v_measure
-      value: 46.813
+      value: 43.1321
     - type: v_measure_std
-      value: 13.830899999999998
+      value: 13.594000000000001
     - type: main_score
-      value: 46.813
+      value: 43.1321
     task:
       type: Clustering
   - dataset:
@@ -697,11 +709,11 @@ model-index:
       type: mteb/arxiv-clustering-s2s
     metrics:
     - type: v_measure
-      value: 41.9895
+      value: 32.9343
     - type: v_measure_std
-      value: 14.3004
+      value: 14.2478
     - type: main_score
-      value: 41.9895
+      value: 32.9343
     task:
       type: Clustering
   - dataset:
@@ -712,23 +724,23 @@ model-index:
       type: mteb/askubuntudupquestions-reranking
     metrics:
     - type: map
-      value: 64.1329
+      value: 62.3443
     - type: mrr
-      value: 76.8303
+      value: 76.3882
     - type: nAUC_map_max
-      value: 23.5323
+      value: 28.3073
     - type: nAUC_map_std
-      value: 14.7567
+      value: 15.5307
     - type: nAUC_map_diff1
-      value: 11.6783
+      value: 12.6855
     - type: nAUC_mrr_max
-      value: 32.3309
+      value: 36.409200000000006
     - type: nAUC_mrr_std
-      value: 19.1617
+      value: 22.6271
     - type: nAUC_mrr_diff1
-      value: 23.508699999999997
+      value: 19.1211
     - type: main_score
-      value: 64.1329
+      value: 62.3443
     task:
       type: Reranking
   - dataset:
@@ -739,23 +751,23 @@ model-index:
       type: mteb/biosses-sts
     metrics:
     - type: pearson
-      value: 90.2058
+      value: 84.3253
     - type: spearman
-      value: 88.1641
+      value: 81.6362
     - type: cosine_pearson
-      value: 90.2058
+      value: 84.3253
     - type: cosine_spearman
-      value: 88.1641
+      value: 81.6362
     - type: manhattan_pearson
-      value: 87.7579
+      value: 82.70960000000001
     - type: manhattan_spearman
-      value: 87.6249
+      value: 81.3037
     - type: euclidean_pearson
-      value: 88.3667
+      value: 82.6906
     - type: euclidean_spearman
-      value: 88.1641
+      value: 81.6362
     - type: main_score
-      value: 88.1641
+      value: 81.6362
     task:
       type: STS
   - dataset:
@@ -766,13 +778,13 @@ model-index:
       type: mteb/banking77
     metrics:
     - type: accuracy
-      value: 77.3247
+      value: 78.0617
     - type: f1
-      value: 76.3532
+      value: 77.2085
     - type: f1_weighted
-      value: 76.3532
+      value: 77.2085
     - type: main_score
-      value: 77.3247
+      value: 78.0617
     task:
       type: Classification
   - dataset:
@@ -783,11 +795,11 @@ model-index:
       type: mteb/biorxiv-clustering-p2p
     metrics:
     - type: v_measure
-      value: 39.018
+      value: 35.8271
     - type: v_measure_std
-      value: 0.7512
+      value: 0.7191000000000001
     - type: main_score
-      value: 39.018
+      value: 35.8271
     task:
       type: Clustering
   - dataset:
@@ -798,11 +810,11 @@ model-index:
       type: mteb/biorxiv-clustering-s2s
     metrics:
     - type: v_measure
-      value: 36.8097
+      value: 30.3905
     - type: v_measure_std
-      value: 0.9368
+      value: 0.7136
     - type: main_score
-      value: 36.8097
+      value: 30.3905
     task:
       type: Clustering
   - dataset:
@@ -813,287 +825,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet
     metrics:
     - type: ndcg_at_1
-      value: 85.353
+      value: 83.22800000000001
     - type: ndcg_at_3
-      value: 89.493
+      value: 87.41799999999999
     - type: ndcg_at_5
-      value: 90.347
+      value: 88.089
     - type: ndcg_at_10
-      value: 90.89699999999999
+      value: 88.789
     - type: ndcg_at_20
-      value: 91.20899999999999
+      value: 89.156
     - type: ndcg_at_100
-      value: 91.506
+      value: 89.60900000000001
     - type: ndcg_at_1000
-      value: 91.62400000000001
+      value: 89.79
     - type: map_at_1
-      value: 85.353
+      value: 83.22800000000001
     - type: map_at_3
-      value: 88.532
+      value: 86.431
     - type: map_at_5
-      value: 89.008
+      value: 86.80499999999999
     - type: map_at_10
-      value: 89.238
+      value: 87.09599999999999
     - type: map_at_20
-      value: 89.323
+      value: 87.198
     - type: map_at_100
-      value: 89.366
+      value: 87.263
     - type: map_at_1000
-      value: 89.371
+      value: 87.27000000000001
     - type: recall_at_1
-      value: 85.353
+      value: 83.22800000000001
     - type: recall_at_3
-      value: 92.251
+      value: 90.253
     - type: recall_at_5
-      value: 94.316
+      value: 91.876
     - type: recall_at_10
-      value: 95.998
+      value: 94.03399999999999
     - type: recall_at_20
-      value: 97.238
+      value: 95.475
     - type: recall_at_100
-      value: 98.81400000000001
+      value: 97.882
     - type: recall_at_1000
-      value: 99.725
+      value: 99.316
     - type: precision_at_1
-      value: 85.353
+      value: 83.22800000000001
     - type: precision_at_3
-      value: 30.75
+      value: 30.084
     - type: precision_at_5
-      value: 18.863
+      value: 18.375
     - type: precision_at_10
-      value: 9.6
+      value: 9.403
     - type: precision_at_20
-      value: 4.862
+      value: 4.774
     - type: precision_at_100
-      value: 0.988
+      value: 0.979
     - type: precision_at_1000
-      value: 0.1
+      value: 0.099
     - type: mrr_at_1
-      value: 85.3533
+      value: 83.235
     - type: mrr_at_3
-      value: 88.5318
+      value: 86.4336
     - type: mrr_at_5
-      value: 89.0077
+      value: 86.8077
     - type: mrr_at_10
-      value: 89.2381
+      value: 87.0979
     - type: mrr_at_20
-      value: 89.3231
+      value: 87.2001
     - type: mrr_at_100
-      value: 89.3659
+      value: 87.26509999999999
     - type: mrr_at_1000
-      value: 89.3707
+      value: 87.2718
     - type: nauc_ndcg_at_1_max
-      value: 79.05529999999999
+      value: 82.2462
     - type: nauc_ndcg_at_1_std
-      value: 6.6982
+      value: 11.4635
     - type: nauc_ndcg_at_1_diff1
-      value: 89.6212
+      value: 90.5106
     - type: nauc_ndcg_at_3_max
-      value: 82.5612
+      value: 83.9742
     - type: nauc_ndcg_at_3_std
-      value: 10.379199999999999
+      value: 12.7085
     - type: nauc_ndcg_at_3_diff1
-      value: 87.809
+      value: 88.2182
     - type: nauc_ndcg_at_5_max
-      value: 82.4315
+      value: 84.18870000000001
     - type: nauc_ndcg_at_5_std
-      value: 10.5113
+      value: 13.167499999999999
     - type: nauc_ndcg_at_5_diff1
-      value: 88.0763
+      value: 88.44999999999999
     - type: nauc_ndcg_at_10_max
-      value: 82.4135
+      value: 84.2219
     - type: nauc_ndcg_at_10_std
-      value: 11.046
+      value: 13.5219
     - type: nauc_ndcg_at_10_diff1
-      value: 88.2008
+      value: 88.6386
     - type: nauc_ndcg_at_20_max
-      value: 82.3276
+      value: 84.2289
     - type: nauc_ndcg_at_20_std
-      value: 11.4306
+      value: 14.0686
     - type: nauc_ndcg_at_20_diff1
-      value: 88.2525
+      value: 88.7516
     - type: nauc_ndcg_at_100_max
-      value: 82.1023
+      value: 84.12049999999999
     - type: nauc_ndcg_at_100_std
-      value: 11.2119
+      value: 14.1778
     - type: nauc_ndcg_at_100_diff1
-      value: 88.3149
+      value: 88.8592
     - type: nauc_ndcg_at_1000_max
-      value: 81.91720000000001
+      value: 84.0367
     - type: nauc_ndcg_at_1000_std
-      value: 10.7203
+      value: 13.9125
     - type: nauc_ndcg_at_1000_diff1
-      value: 88.349
+      value: 88.9054
     - type: nauc_map_at_1_max
-      value: 79.05529999999999
+      value: 82.2462
     - type: nauc_map_at_1_std
-      value: 6.6982
+      value: 11.4635
     - type: nauc_map_at_1_diff1
-      value: 89.6212
+      value: 90.5106
     - type: nauc_map_at_3_max
-      value: 81.5856
+      value: 83.5638
     - type: nauc_map_at_3_std
-      value: 9.3626
+      value: 12.3576
     - type: nauc_map_at_3_diff1
-      value: 88.2364
+      value: 88.8502
     - type: nauc_map_at_5_max
-      value: 81.4778
+      value: 83.6625
     - type: nauc_map_at_5_std
-      value: 9.3662
+      value: 12.582099999999999
     - type: nauc_map_at_5_diff1
-      value: 88.3865
+      value: 88.9876
     - type: nauc_map_at_10_max
-      value: 81.447
+      value: 83.6605
     - type: nauc_map_at_10_std
-      value: 9.5111
+      value: 12.6859
     - type: nauc_map_at_10_diff1
-      value: 88.43469999999999
+      value: 89.07119999999999
     - type: nauc_map_at_20_max
-      value: 81.4196
+      value: 83.65629999999999
     - type: nauc_map_at_20_std
-      value: 9.593
+      value: 12.8105
     - type: nauc_map_at_20_diff1
-      value: 88.4473
+      value: 89.1036
     - type: nauc_map_at_100_max
-      value: 81.3925
+      value: 83.6413
     - type: nauc_map_at_100_std
-      value: 9.5683
+      value: 12.823699999999999
     - type: nauc_map_at_100_diff1
-      value: 88.4559
+      value: 89.1193
     - type: nauc_map_at_1000_max
-      value: 81.3865
+      value: 83.6386
     - type: nauc_map_at_1000_std
-      value: 9.554
+      value: 12.815999999999999
     - type: nauc_map_at_1000_diff1
-      value: 88.457
+      value: 89.1209
     - type: nauc_recall_at_1_max
-      value: 79.05529999999999
+      value: 82.2462
     - type: nauc_recall_at_1_std
-      value: 6.6982
+      value: 11.4635
     - type: nauc_recall_at_1_diff1
-      value: 89.6212
+      value: 90.5106
     - type: nauc_recall_at_3_max
-      value: 86.56580000000001
+      value: 85.512
     - type: nauc_recall_at_3_std
-      value: 14.5464
+      value: 14.061399999999999
     - type: nauc_recall_at_3_diff1
-      value: 86.1047
+      value: 85.7898
     - type: nauc_recall_at_5_max
-      value: 87.5044
+      value: 86.5434
     - type: nauc_recall_at_5_std
-      value: 16.7155
+      value: 15.894400000000001
     - type: nauc_recall_at_5_diff1
-      value: 86.5603
+      value: 86.0934
     - type: nauc_recall_at_10_max
-      value: 89.5625
+      value: 87.59909999999999
     - type: nauc_recall_at_10_std
-      value: 23.230700000000002
+      value: 18.9872
     - type: nauc_recall_at_10_diff1
-      value: 86.8079
+      value: 86.26740000000001
     - type: nauc_recall_at_20_max
-      value: 91.7174
+      value: 88.76190000000001
     - type: nauc_recall_at_20_std
-      value: 33.203700000000005
+      value: 25.6618
     - type: nauc_recall_at_20_diff1
-      value: 86.8468
+      value: 86.5002
     - type: nauc_recall_at_100_max
-      value: 95.55160000000001
+      value: 91.0976
     - type: nauc_recall_at_100_std
-      value: 53.0169
+      value: 40.9161
     - type: nauc_recall_at_100_diff1
-      value: 87.1867
+      value: 86.5441
     - type: nauc_recall_at_1000_max
-      value: 97.0907
+      value: 96.018
     - type: nauc_recall_at_1000_std
-      value: 75.0177
+      value: 65.6217
     - type: nauc_recall_at_1000_diff1
-      value: 91.3005
+      value: 86.8456
     - type: nauc_precision_at_1_max
-      value: 79.05529999999999
+      value: 82.2462
     - type: nauc_precision_at_1_std
-      value: 6.6982
+      value: 11.4635
     - type: nauc_precision_at_1_diff1
-      value: 89.6212
+      value: 90.5106
     - type: nauc_precision_at_3_max
-      value: 86.56580000000001
+      value: 85.512
     - type: nauc_precision_at_3_std
-      value: 14.5464
+      value: 14.061399999999999
     - type: nauc_precision_at_3_diff1
-      value: 86.1047
+      value: 85.7898
     - type: nauc_precision_at_5_max
-      value: 87.5044
+      value: 86.5434
     - type: nauc_precision_at_5_std
-      value: 16.7155
+      value: 15.894400000000001
     - type: nauc_precision_at_5_diff1
-      value: 86.5603
+      value: 86.0934
     - type: nauc_precision_at_10_max
-      value: 89.5625
+      value: 87.59909999999999
     - type: nauc_precision_at_10_std
-      value: 23.230700000000002
+      value: 18.9872
     - type: nauc_precision_at_10_diff1
-      value: 86.8079
+      value: 86.26740000000001
     - type: nauc_precision_at_20_max
-      value: 91.7174
+      value: 88.76190000000001
     - type: nauc_precision_at_20_std
-      value: 33.203700000000005
+      value: 25.6618
     - type: nauc_precision_at_20_diff1
-      value: 86.8468
+      value: 86.5002
     - type: nauc_precision_at_100_max
-      value: 95.55160000000001
+      value: 91.0976
     - type: nauc_precision_at_100_std
-      value: 53.0169
+      value: 40.9161
     - type: nauc_precision_at_100_diff1
-      value: 87.1867
+      value: 86.5441
     - type: nauc_precision_at_1000_max
-      value: 97.0907
+      value: 96.018
     - type: nauc_precision_at_1000_std
-      value: 75.0177
+      value: 65.6217
     - type: nauc_precision_at_1000_diff1
-      value: 91.3005
+      value: 86.8456
     - type: nauc_mrr_at_1_max
-      value: 79.05529999999999
+      value: 82.2393
     - type: nauc_mrr_at_1_std
-      value: 6.6982
+      value: 11.5163
     - type: nauc_mrr_at_1_diff1
-      value: 89.6212
+      value: 90.50160000000001
     - type: nauc_mrr_at_3_max
-      value: 81.5856
+      value: 83.5623
     - type: nauc_mrr_at_3_std
-      value: 9.3626
+      value: 12.395
     - type: nauc_mrr_at_3_diff1
-      value: 88.2364
+      value: 88.8463
     - type: nauc_mrr_at_5_max
-      value: 81.4778
+      value: 83.6609
     - type: nauc_mrr_at_5_std
-      value: 9.3662
+      value: 12.620700000000001
     - type: nauc_mrr_at_5_diff1
-      value: 88.3865
+      value: 88.9836
     - type: nauc_mrr_at_10_max
-      value: 81.447
+      value: 83.6589
     - type: nauc_mrr_at_10_std
-      value: 9.5111
+      value: 12.7255
     - type: nauc_mrr_at_10_diff1
-      value: 88.43469999999999
+      value: 89.0672
     - type: nauc_mrr_at_20_max
-      value: 81.4196
+      value: 83.6546
     - type: nauc_mrr_at_20_std
-      value: 9.593
+      value: 12.8504
     - type: nauc_mrr_at_20_diff1
-      value: 88.4473
+      value: 89.09949999999999
     - type: nauc_mrr_at_100_max
-      value: 81.3925
+      value: 83.6396
     - type: nauc_mrr_at_100_std
-      value: 9.5683
+      value: 12.8638
     - type: nauc_mrr_at_100_diff1
-      value: 88.4559
+      value: 89.1152
     - type: nauc_mrr_at_1000_max
-      value: 81.3865
+      value: 83.6369
     - type: nauc_mrr_at_1000_std
-      value: 9.554
+      value: 12.856100000000001
     - type: nauc_mrr_at_1000_diff1
-      value: 88.457
+      value: 89.1168
     - type: main_score
-      value: 90.89699999999999
+      value: 88.789
     task:
       type: Retrieval
   - dataset:
@@ -1104,287 +1116,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet
     metrics:
     - type: ndcg_at_1
-      value: 35.46
+      value: 29.14
     - type: ndcg_at_3
-      value: 42.799
+      value: 35.185
     - type: ndcg_at_5
-      value: 44.64
+      value: 37.013
     - type: ndcg_at_10
-      value: 46.54
+      value: 38.778
     - type: ndcg_at_20
-      value: 48.025
+      value: 40.184999999999995
     - type: ndcg_at_100
-      value: 50.307
+      value: 42.394999999999996
     - type: ndcg_at_1000
-      value: 51.925
+      value: 44.243
     - type: map_at_1
-      value: 35.46
+      value: 29.14
     - type: map_at_3
-      value: 41.016000000000005
+      value: 33.703
     - type: map_at_5
-      value: 42.038
+      value: 34.717999999999996
     - type: map_at_10
-      value: 42.825
+      value: 35.443999999999996
     - type: map_at_20
-      value: 43.233
+      value: 35.831
     - type: map_at_100
-      value: 43.541999999999994
+      value: 36.132999999999996
     - type: map_at_1000
-      value: 43.599
+      value: 36.193999999999996
     - type: recall_at_1
-      value: 35.46
+      value: 29.14
     - type: recall_at_3
-      value: 47.949000000000005
+      value: 39.471000000000004
     - type: recall_at_5
-      value: 52.416
+      value: 43.908
     - type: recall_at_10
-      value: 58.28
+      value: 49.376999999999995
     - type: recall_at_20
-      value: 64.145
+      value: 54.937999999999995
     - type: recall_at_100
-      value: 76.542
+      value: 66.91
     - type: recall_at_1000
-      value: 89.547
+      value: 81.98100000000001
     - type: precision_at_1
-      value: 35.46
+      value: 29.14
     - type: precision_at_3
-      value: 15.983
+      value: 13.157
     - type: precision_at_5
-      value: 10.483
+      value: 8.782
     - type: precision_at_10
-      value: 5.827999999999999
+      value: 4.938
     - type: precision_at_20
-      value: 3.2070000000000003
+      value: 2.7470000000000003
     - type: precision_at_100
-      value: 0.765
+      value: 0.6689999999999999
     - type: precision_at_1000
-      value: 0.09
+      value: 0.082
     - type: mrr_at_1
-      value: 35.460300000000004
+      value: 29.140100000000004
     - type: mrr_at_3
-      value: 41.0159
+      value: 33.703
     - type: mrr_at_5
-      value: 42.038399999999996
+      value: 34.7179
     - type: mrr_at_10
-      value: 42.8251
+      value: 35.4443
     - type: mrr_at_20
-      value: 43.2333
+      value: 35.830600000000004
     - type: mrr_at_100
-      value: 43.542199999999994
+      value: 36.1332
     - type: mrr_at_1000
-      value: 43.5986
+      value: 36.1935
     - type: nauc_ndcg_at_1_max
-      value: 48.2915
+      value: 46.9222
     - type: nauc_ndcg_at_1_std
-      value: 2.4132000000000002
+      value: 3.3564999999999996
     - type: nauc_ndcg_at_1_diff1
-      value: 64.10810000000001
+      value: 60.583
     - type: nauc_ndcg_at_3_max
-      value: 51.357
+      value: 49.205799999999996
     - type: nauc_ndcg_at_3_std
-      value: 4.9681999999999995
+      value: 5.976299999999999
     - type: nauc_ndcg_at_3_diff1
-      value: 58.012600000000006
+      value: 55.09610000000001
     - type: nauc_ndcg_at_5_max
-      value: 51.8888
+      value: 49.0533
     - type: nauc_ndcg_at_5_std
-      value: 6.2654000000000005
+      value: 6.5834
     - type: nauc_ndcg_at_5_diff1
-      value: 57.103
+      value: 54.430800000000005
     - type: nauc_ndcg_at_10_max
-      value: 51.9571
+      value: 48.626799999999996
     - type: nauc_ndcg_at_10_std
-      value: 7.446
+      value: 7.4441
     - type: nauc_ndcg_at_10_diff1
-      value: 56.505700000000004
+      value: 53.1986
     - type: nauc_ndcg_at_20_max
-      value: 51.638799999999996
+      value: 48.7498
     - type: nauc_ndcg_at_20_std
-      value: 7.7742
+      value: 8.3344
     - type: nauc_ndcg_at_20_diff1
-      value: 55.9805
+      value: 52.844
     - type: nauc_ndcg_at_100_max
-      value: 51.3786
+      value: 48.7164
     - type: nauc_ndcg_at_100_std
-      value: 8.1191
+      value: 9.1646
     - type: nauc_ndcg_at_100_diff1
-      value: 56.3265
+      value: 52.6307
     - type: nauc_ndcg_at_1000_max
-      value: 51.162
+      value: 48.634699999999995
     - type: nauc_ndcg_at_1000_std
-      value: 7.6863
+      value: 9.3865
     - type: nauc_ndcg_at_1000_diff1
-      value: 56.6531
+      value: 53.100899999999996
     - type: nauc_map_at_1_max
-      value: 48.2915
+      value: 46.9222
     - type: nauc_map_at_1_std
-      value: 2.4132000000000002
+      value: 3.3564999999999996
     - type: nauc_map_at_1_diff1
-      value: 64.10810000000001
+      value: 60.583
     - type: nauc_map_at_3_max
-      value: 50.6599
+      value: 48.7099
     - type: nauc_map_at_3_std
-      value: 4.3285
+      value: 5.2638
     - type: nauc_map_at_3_diff1
-      value: 59.453100000000006
+      value: 56.370200000000004
     - type: nauc_map_at_5_max
-      value: 50.9502
+      value: 48.6303
     - type: nauc_map_at_5_std
-      value: 5.0428
+      value: 5.5931
     - type: nauc_map_at_5_diff1
-      value: 58.9452
+      value: 55.9968
     - type: nauc_map_at_10_max
-      value: 50.9749
+      value: 48.4549
     - type: nauc_map_at_10_std
-      value: 5.5069
+      value: 5.949800000000001
     - type: nauc_map_at_10_diff1
-      value: 58.7167
+      value: 55.4941
     - type: nauc_map_at_20_max
-      value: 50.8815
+      value: 48.4854
     - type: nauc_map_at_20_std
-      value: 5.5846
+      value: 6.1861
     - type: nauc_map_at_20_diff1
-      value: 58.5793
+      value: 55.4072
     - type: nauc_map_at_100_max
-      value: 50.8454
+      value: 48.4835
     - type: nauc_map_at_100_std
-      value: 5.6249
+      value: 6.2885
     - type: nauc_map_at_100_diff1
-      value: 58.6352
+      value: 55.3743
     - type: nauc_map_at_1000_max
-      value: 50.8377
+      value: 48.4769
     - type: nauc_map_at_1000_std
-      value: 5.6119
+      value: 6.2978000000000005
     - type: nauc_map_at_1000_diff1
-      value: 58.6477
+      value: 55.3852
     - type: nauc_recall_at_1_max
-      value: 48.2915
+      value: 46.9222
     - type: nauc_recall_at_1_std
-      value: 2.4132000000000002
+      value: 3.3564999999999996
     - type: nauc_recall_at_1_diff1
-      value: 64.10810000000001
+      value: 60.583
     - type: nauc_recall_at_3_max
-      value: 53.3613
+      value: 50.5754
     - type: nauc_recall_at_3_std
-      value: 6.833699999999999
+      value: 8.005700000000001
     - type: nauc_recall_at_3_diff1
-      value: 53.8466
+      value: 51.542100000000005
     - type: nauc_recall_at_5_max
-      value: 54.7395
+      value: 50.199000000000005
     - type: nauc_recall_at_5_std
-      value: 10.1014
+      value: 9.5088
     - type: nauc_recall_at_5_diff1
-      value: 51.520900000000005
+      value: 49.9358
     - type: nauc_recall_at_10_max
-      value: 55.125299999999996
+      value: 48.899100000000004
     - type: nauc_recall_at_10_std
-      value: 14.277899999999999
+      value: 12.2017
     - type: nauc_recall_at_10_diff1
-      value: 49.1874
+      value: 46.042
     - type: nauc_recall_at_20_max
-      value: 54.0194
+      value: 49.433899999999994
     - type: nauc_recall_at_20_std
-      value: 16.4329
+      value: 16.1228
     - type: nauc_recall_at_20_diff1
-      value: 46.1551
+      value: 44.1762
     - type: nauc_recall_at_100_max
-      value: 52.7898
+      value: 49.2626
     - type: nauc_recall_at_100_std
-      value: 22.375600000000002
+      value: 23.1356
     - type: nauc_recall_at_100_diff1
-      value: 45.351
+      value: 41.2386
     - type: nauc_recall_at_1000_max
-      value: 49.0379
+      value: 48.7068
     - type: nauc_recall_at_1000_std
-      value: 26.0579
+      value: 34.4874
     - type: nauc_recall_at_1000_diff1
-      value: 41.7849
+      value: 42.088
     - type: nauc_precision_at_1_max
-      value: 48.2915
+      value: 46.9222
     - type: nauc_precision_at_1_std
-      value: 2.4132000000000002
+      value: 3.3564999999999996
     - type: nauc_precision_at_1_diff1
-      value: 64.10810000000001
+      value: 60.583
     - type: nauc_precision_at_3_max
-      value: 53.3613
+      value: 50.5754
     - type: nauc_precision_at_3_std
-      value: 6.833699999999999
+      value: 8.005700000000001
     - type: nauc_precision_at_3_diff1
-      value: 53.8466
+      value: 51.542100000000005
     - type: nauc_precision_at_5_max
-      value: 54.7395
+      value: 50.199000000000005
     - type: nauc_precision_at_5_std
-      value: 10.1014
+      value: 9.5088
     - type: nauc_precision_at_5_diff1
-      value: 51.520900000000005
+      value: 49.9358
     - type: nauc_precision_at_10_max
-      value: 55.125299999999996
+      value: 48.899100000000004
     - type: nauc_precision_at_10_std
-      value: 14.277899999999999
+      value: 12.2017
     - type: nauc_precision_at_10_diff1
-      value: 49.1874
+      value: 46.042
     - type: nauc_precision_at_20_max
-      value: 54.0194
+      value: 49.433899999999994
     - type: nauc_precision_at_20_std
-      value: 16.4329
+      value: 16.1228
     - type: nauc_precision_at_20_diff1
-      value: 46.1551
+      value: 44.1762
     - type: nauc_precision_at_100_max
-      value: 52.7898
+      value: 49.2626
     - type: nauc_precision_at_100_std
-      value: 22.375600000000002
+      value: 23.1356
     - type: nauc_precision_at_100_diff1
-      value: 45.351
+      value: 41.2386
     - type: nauc_precision_at_1000_max
-      value: 49.0379
+      value: 48.7068
     - type: nauc_precision_at_1000_std
-      value: 26.0579
+      value: 34.4874
     - type: nauc_precision_at_1000_diff1
-      value: 41.7849
+      value: 42.088
     - type: nauc_mrr_at_1_max
-      value: 48.2915
+      value: 46.9222
     - type: nauc_mrr_at_1_std
-      value: 2.4132000000000002
+      value: 3.3564999999999996
     - type: nauc_mrr_at_1_diff1
-      value: 64.10810000000001
+      value: 60.583
     - type: nauc_mrr_at_3_max
-      value: 50.6599
+      value: 48.7099
     - type: nauc_mrr_at_3_std
-      value: 4.3285
+      value: 5.2638
     - type: nauc_mrr_at_3_diff1
-      value: 59.453100000000006
+      value: 56.370200000000004
     - type: nauc_mrr_at_5_max
-      value: 50.9502
+      value: 48.6303
     - type: nauc_mrr_at_5_std
-      value: 5.0428
+      value: 5.5931
     - type: nauc_mrr_at_5_diff1
-      value: 58.9452
+      value: 55.9968
     - type: nauc_mrr_at_10_max
-      value: 50.9749
+      value: 48.4549
     - type: nauc_mrr_at_10_std
-      value: 5.5069
+      value: 5.949800000000001
     - type: nauc_mrr_at_10_diff1
-      value: 58.7167
+      value: 55.4941
     - type: nauc_mrr_at_20_max
-      value: 50.8815
+      value: 48.4854
     - type: nauc_mrr_at_20_std
-      value: 5.5846
+      value: 6.1861
     - type: nauc_mrr_at_20_diff1
-      value: 58.5793
+      value: 55.4072
     - type: nauc_mrr_at_100_max
-      value: 50.8454
+      value: 48.4835
     - type: nauc_mrr_at_100_std
-      value: 5.6249
+      value: 6.2885
     - type: nauc_mrr_at_100_diff1
-      value: 58.6352
+      value: 55.3743
     - type: nauc_mrr_at_1000_max
-      value: 50.8377
+      value: 48.4769
     - type: nauc_mrr_at_1000_std
-      value: 5.6119
+      value: 6.2978000000000005
     - type: nauc_mrr_at_1000_diff1
-      value: 58.6477
+      value: 55.3852
     - type: main_score
-      value: 46.54
+      value: 38.778
     task:
       type: Retrieval
   - dataset:
@@ -1395,287 +1407,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet
     metrics:
     - type: ndcg_at_1
-      value: 45.728
+      value: 42.809999999999995
     - type: ndcg_at_3
-      value: 54.942
+      value: 51.949999999999996
     - type: ndcg_at_5
-      value: 57.19499999999999
+      value: 54.217000000000006
     - type: ndcg_at_10
-      value: 59.471
+      value: 56.296
     - type: ndcg_at_20
-      value: 60.888
+      value: 57.735
     - type: ndcg_at_100
-      value: 62.67700000000001
+      value: 59.68599999999999
     - type: ndcg_at_1000
-      value: 63.654999999999994
+      value: 60.812
     - type: map_at_1
-      value: 45.728
+      value: 42.809999999999995
     - type: map_at_3
-      value: 52.717000000000006
+      value: 49.727
     - type: map_at_5
-      value: 53.968
+      value: 50.988
     - type: map_at_10
-      value: 54.921
+      value: 51.847
     - type: map_at_20
-      value: 55.31
+      value: 52.248000000000005
     - type: map_at_100
-      value: 55.555
+      value: 52.52
     - type: map_at_1000
-      value: 55.589999999999996
+      value: 52.561
     - type: recall_at_1
-      value: 45.728
+      value: 42.809999999999995
     - type: recall_at_3
-      value: 61.364
+      value: 58.372
     - type: recall_at_5
-      value: 66.83099999999999
+      value: 63.864
     - type: recall_at_10
-      value: 73.8
+      value: 70.291
     - type: recall_at_20
-      value: 79.402
+      value: 75.92999999999999
     - type: recall_at_100
-      value: 89.079
+      value: 86.432
     - type: recall_at_1000
-      value: 96.885
+      value: 95.371
     - type: precision_at_1
-      value: 45.728
+      value: 42.809999999999995
     - type: precision_at_3
-      value: 20.455000000000002
+      value: 19.457
     - type: precision_at_5
-      value: 13.366
+      value: 12.773000000000001
     - type: precision_at_10
-      value: 7.380000000000001
+      value: 7.029000000000001
     - type: precision_at_20
-      value: 3.9699999999999998
+      value: 3.7960000000000003
     - type: precision_at_100
-      value: 0.8909999999999999
+      value: 0.864
     - type: precision_at_1000
-      value: 0.097
+      value: 0.095
     - type: mrr_at_1
-      value: 45.7277
+      value: 42.8097
     - type: mrr_at_3
-      value: 52.7169
+      value: 49.7271
     - type: mrr_at_5
-      value: 53.9678
+      value: 50.987899999999996
     - type: mrr_at_10
-      value: 54.920500000000004
+      value: 51.847100000000005
     - type: mrr_at_20
-      value: 55.3099
+      value: 52.2483
     - type: mrr_at_100
-      value: 55.5546
+      value: 52.519499999999994
     - type: mrr_at_1000
-      value: 55.5896
+      value: 52.560700000000004
     - type: nauc_ndcg_at_1_max
-      value: 40.5391
+      value: 42.5169
     - type: nauc_ndcg_at_1_std
-      value: -2.9052000000000002
+      value: -2.56
     - type: nauc_ndcg_at_1_diff1
-      value: 63.2351
+      value: 61.5235
     - type: nauc_ndcg_at_3_max
-      value: 43.8365
+      value: 43.897999999999996
     - type: nauc_ndcg_at_3_std
-      value: -0.6831
+      value: -0.927
     - type: nauc_ndcg_at_3_diff1
-      value: 57.782599999999995
+      value: 55.5453
     - type: nauc_ndcg_at_5_max
-      value: 43.851600000000005
+      value: 44.069199999999995
     - type: nauc_ndcg_at_5_std
-      value: -0.3032
+      value: -0.5125000000000001
     - type: nauc_ndcg_at_5_diff1
-      value: 57.0763
+      value: 55.095000000000006
     - type: nauc_ndcg_at_10_max
-      value: 44.1492
+      value: 43.9261
     - type: nauc_ndcg_at_10_std
-      value: 0.6748
+      value: 0.218
     - type: nauc_ndcg_at_10_diff1
-      value: 56.8967
+      value: 54.7159
     - type: nauc_ndcg_at_20_max
-      value: 44.1367
+      value: 44.0206
     - type: nauc_ndcg_at_20_std
-      value: 0.8896
+      value: 0.8718999999999999
     - type: nauc_ndcg_at_20_diff1
-      value: 56.97560000000001
+      value: 54.830400000000004
     - type: nauc_ndcg_at_100_max
-      value: 43.9934
+      value: 43.7526
     - type: nauc_ndcg_at_100_std
-      value: 1.0534
+      value: 0.9793
     - type: nauc_ndcg_at_100_diff1
-      value: 57.347899999999996
+      value: 54.9701
     - type: nauc_ndcg_at_1000_max
-      value: 43.8679
+      value: 43.8809
     - type: nauc_ndcg_at_1000_std
-      value: 0.6431
+      value: 0.7155
     - type: nauc_ndcg_at_1000_diff1
-      value: 57.6967
+      value: 55.3053
     - type: nauc_map_at_1_max
-      value: 40.5391
+      value: 42.5169
     - type: nauc_map_at_1_std
-      value: -2.9052000000000002
+      value: -2.56
     - type: nauc_map_at_1_diff1
-      value: 63.2351
+      value: 61.5235
     - type: nauc_map_at_3_max
-      value: 43.0286
+      value: 43.5908
     - type: nauc_map_at_3_std
-      value: -1.2933
+      value: -1.3469
     - type: nauc_map_at_3_diff1
-      value: 59.065
+      value: 56.9825
     - type: nauc_map_at_5_max
-      value: 43.0224
+      value: 43.674099999999996
     - type: nauc_map_at_5_std
-      value: -1.1081
+      value: -1.1391
     - type: nauc_map_at_5_diff1
-      value: 58.7146
+      value: 56.7628
     - type: nauc_map_at_10_max
-      value: 43.127500000000005
+      value: 43.6154
     - type: nauc_map_at_10_std
-      value: -0.7247
+      value: -0.861
     - type: nauc_map_at_10_diff1
-      value: 58.6619
+      value: 56.6439
     - type: nauc_map_at_20_max
-      value: 43.1213
+      value: 43.650099999999995
     - type: nauc_map_at_20_std
-      value: -0.6853
+      value: -0.6788
     - type: nauc_map_at_20_diff1
-      value: 58.704299999999996
+      value: 56.6917
     - type: nauc_map_at_100_max
-      value: 43.0908
+      value: 43.6075
     - type: nauc_map_at_100_std
-      value: -0.6792
+      value: -0.6773
     - type: nauc_map_at_100_diff1
-      value: 58.7592
+      value: 56.7132
     - type: nauc_map_at_1000_max
-      value: 43.085499999999996
+      value: 43.6113
     - type: nauc_map_at_1000_std
-      value: -0.6897
+      value: -0.6847
     - type: nauc_map_at_1000_diff1
-      value: 58.7689
+      value: 56.725300000000004
     - type: nauc_recall_at_1_max
-      value: 40.5391
+      value: 42.5169
     - type: nauc_recall_at_1_std
-      value: -2.9052000000000002
+      value: -2.56
     - type: nauc_recall_at_1_diff1
-      value: 63.2351
+      value: 61.5235
     - type: nauc_recall_at_3_max
-      value: 46.3617
+      value: 44.8282
     - type: nauc_recall_at_3_std
-      value: 1.2550999999999999
+      value: 0.3731
     - type: nauc_recall_at_3_diff1
-      value: 53.7993
+      value: 51.139199999999995
     - type: nauc_recall_at_5_max
-      value: 46.6666
+      value: 45.3912
     - type: nauc_recall_at_5_std
-      value: 2.5401
+      value: 1.6466999999999998
     - type: nauc_recall_at_5_diff1
-      value: 51.413799999999995
+      value: 49.5336
     - type: nauc_recall_at_10_max
-      value: 48.3645
+      value: 45.0172
     - type: nauc_recall_at_10_std
-      value: 6.8622000000000005
+      value: 4.702
     - type: nauc_recall_at_10_diff1
-      value: 49.6971
+      value: 47.287600000000005
     - type: nauc_recall_at_20_max
-      value: 49.1074
+      value: 45.5956
     - type: nauc_recall_at_20_std
-      value: 9.4846
+      value: 8.8859
     - type: nauc_recall_at_20_diff1
-      value: 48.5587
+      value: 46.5039
     - type: nauc_recall_at_100_max
-      value: 51.2638
+      value: 43.7193
     - type: nauc_recall_at_100_std
-      value: 18.4911
+      value: 15.4564
     - type: nauc_recall_at_100_diff1
-      value: 47.2445
+      value: 42.9843
     - type: nauc_recall_at_1000_max
-      value: 61.0283
+      value: 49.6578
     - type: nauc_recall_at_1000_std
-      value: 31.5949
+      value: 28.1802
     - type: nauc_recall_at_1000_diff1
-      value: 47.239599999999996
+      value: 37.0098
     - type: nauc_precision_at_1_max
-      value: 40.5391
+      value: 42.5169
     - type: nauc_precision_at_1_std
-      value: -2.9052000000000002
+      value: -2.56
     - type: nauc_precision_at_1_diff1
-      value: 63.2351
+      value: 61.5235
     - type: nauc_precision_at_3_max
-      value: 46.3617
+      value: 44.8282
     - type: nauc_precision_at_3_std
-      value: 1.2550999999999999
+      value: 0.3731
     - type: nauc_precision_at_3_diff1
-      value: 53.7993
+      value: 51.139199999999995
     - type: nauc_precision_at_5_max
-      value: 46.6666
+      value: 45.3912
     - type: nauc_precision_at_5_std
-      value: 2.5401
+      value: 1.6466999999999998
     - type: nauc_precision_at_5_diff1
-      value: 51.413799999999995
+      value: 49.5336
     - type: nauc_precision_at_10_max
-      value: 48.3645
+      value: 45.0172
     - type: nauc_precision_at_10_std
-      value: 6.8622000000000005
+      value: 4.702
     - type: nauc_precision_at_10_diff1
-      value: 49.6971
+      value: 47.287600000000005
     - type: nauc_precision_at_20_max
-      value: 49.1074
+      value: 45.5956
     - type: nauc_precision_at_20_std
-      value: 9.4846
+      value: 8.8859
     - type: nauc_precision_at_20_diff1
-      value: 48.5587
+      value: 46.5039
     - type: nauc_precision_at_100_max
-      value: 51.2638
+      value: 43.7193
     - type: nauc_precision_at_100_std
-      value: 18.4911
+      value: 15.4564
     - type: nauc_precision_at_100_diff1
-      value: 47.2445
+      value: 42.9843
     - type: nauc_precision_at_1000_max
-      value: 61.0283
+      value: 49.6578
     - type: nauc_precision_at_1000_std
-      value: 31.5949
+      value: 28.1802
     - type: nauc_precision_at_1000_diff1
-      value: 47.239599999999996
+      value: 37.0098
     - type: nauc_mrr_at_1_max
-      value: 40.5391
+      value: 42.5169
     - type: nauc_mrr_at_1_std
-      value: -2.9052000000000002
+      value: -2.56
     - type: nauc_mrr_at_1_diff1
-      value: 63.2351
+      value: 61.5235
     - type: nauc_mrr_at_3_max
-      value: 43.0286
+      value: 43.5908
     - type: nauc_mrr_at_3_std
-      value: -1.2933
+      value: -1.3469
     - type: nauc_mrr_at_3_diff1
-      value: 59.065
+      value: 56.9825
     - type: nauc_mrr_at_5_max
-      value: 43.0224
+      value: 43.674099999999996
     - type: nauc_mrr_at_5_std
-      value: -1.1081
+      value: -1.1391
     - type: nauc_mrr_at_5_diff1
-      value: 58.7146
+      value: 56.7628
     - type: nauc_mrr_at_10_max
-      value: 43.127500000000005
+      value: 43.6154
     - type: nauc_mrr_at_10_std
-      value: -0.7247
+      value: -0.861
     - type: nauc_mrr_at_10_diff1
-      value: 58.6619
+      value: 56.6439
     - type: nauc_mrr_at_20_max
-      value: 43.1213
+      value: 43.650099999999995
     - type: nauc_mrr_at_20_std
-      value: -0.6853
+      value: -0.6788
     - type: nauc_mrr_at_20_diff1
-      value: 58.704299999999996
+      value: 56.6917
     - type: nauc_mrr_at_100_max
-      value: 43.0908
+      value: 43.6075
     - type: nauc_mrr_at_100_std
-      value: -0.6792
+      value: -0.6773
     - type: nauc_mrr_at_100_diff1
-      value: 58.7592
+      value: 56.7132
     - type: nauc_mrr_at_1000_max
-      value: 43.085499999999996
+      value: 43.6113
     - type: nauc_mrr_at_1000_std
-      value: -0.6897
+      value: -0.6847
     - type: nauc_mrr_at_1000_diff1
-      value: 58.7689
+      value: 56.725300000000004
     - type: main_score
-      value: 59.471
+      value: 56.296
     task:
       type: Retrieval
   - dataset:
@@ -1686,287 +1698,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet
     metrics:
     - type: ndcg_at_1
-      value: 38.144
+      value: 31.721
     - type: ndcg_at_3
-      value: 46.086
+      value: 38.559
     - type: ndcg_at_5
-      value: 48.13
+      value: 40.303
     - type: ndcg_at_10
-      value: 50.166
+      value: 42.536
     - type: ndcg_at_20
-      value: 51.672
+      value: 44.05
     - type: ndcg_at_100
-      value: 53.81
+      value: 46.565
     - type: ndcg_at_1000
-      value: 55.401999999999994
+      value: 48.447
     - type: map_at_1
-      value: 38.144
+      value: 31.721
     - type: map_at_3
-      value: 44.118
+      value: 36.915
     - type: map_at_5
-      value: 45.245000000000005
+      value: 37.891000000000005
     - type: map_at_10
-      value: 46.061
+      value: 38.814
     - type: map_at_20
-      value: 46.475
+      value: 39.236
     - type: map_at_100
-      value: 46.761
+      value: 39.574
     - type: map_at_1000
-      value: 46.815
+      value: 39.641999999999996
     - type: recall_at_1
-      value: 38.144
+      value: 31.721
     - type: recall_at_3
-      value: 51.784
+      value: 43.299
     - type: recall_at_5
-      value: 56.779999999999994
+      value: 47.502
     - type: recall_at_10
-      value: 63.20400000000001
+      value: 54.400999999999996
     - type: recall_at_20
-      value: 69.151
+      value: 60.349
     - type: recall_at_100
-      value: 80.809
+      value: 74.068
     - type: recall_at_1000
-      value: 93.65599999999999
+      value: 89.056
     - type: precision_at_1
-      value: 38.144
+      value: 31.721
     - type: precision_at_3
-      value: 17.261000000000003
+      value: 14.433000000000002
     - type: precision_at_5
-      value: 11.356
+      value: 9.5
     - type: precision_at_10
-      value: 6.32
+      value: 5.4399999999999995
     - type: precision_at_20
-      value: 3.458
+      value: 3.017
     - type: precision_at_100
-      value: 0.808
+      value: 0.741
     - type: precision_at_1000
-      value: 0.094
+      value: 0.089
     - type: mrr_at_1
-      value: 38.1443
+      value: 31.7209
     - type: mrr_at_3
-      value: 44.1184
+      value: 36.9151
     - type: mrr_at_5
-      value: 45.2445
+      value: 37.8906
     - type: mrr_at_10
-      value: 46.0607
+      value: 38.8144
     - type: mrr_at_20
-      value: 46.475
+      value: 39.2355
     - type: mrr_at_100
-      value: 46.7611
+      value: 39.5737
     - type: mrr_at_1000
-      value: 46.8146
+      value: 39.641999999999996
     - type: nauc_ndcg_at_1_max
-      value: 49.8526
+      value: 46.428999999999995
     - type: nauc_ndcg_at_1_std
-      value: 6.944500000000001
+      value: 0.0014
     - type: nauc_ndcg_at_1_diff1
-      value: 59.0325
+      value: 59.6017
     - type: nauc_ndcg_at_3_max
-      value: 48.8152
+      value: 45.9805
     - type: nauc_ndcg_at_3_std
-      value: 6.2506
+      value: 0.5511
     - type: nauc_ndcg_at_3_diff1
-      value: 51.7373
+      value: 53.4978
     - type: nauc_ndcg_at_5_max
-      value: 48.4399
+      value: 45.5339
     - type: nauc_ndcg_at_5_std
-      value: 6.687
+      value: 1.2229
     - type: nauc_ndcg_at_5_diff1
-      value: 50.569900000000004
+      value: 51.798500000000004
     - type: nauc_ndcg_at_10_max
-      value: 47.2669
+      value: 44.018
     - type: nauc_ndcg_at_10_std
-      value: 6.703
+      value: 1.6709
     - type: nauc_ndcg_at_10_diff1
-      value: 49.3867
+      value: 50.428799999999995
     - type: nauc_ndcg_at_20_max
-      value: 47.1761
+      value: 43.5252
     - type: nauc_ndcg_at_20_std
-      value: 7.0552
+      value: 2.4627
     - type: nauc_ndcg_at_20_diff1
-      value: 49.3528
+      value: 50.6172
     - type: nauc_ndcg_at_100_max
-      value: 47.196
+      value: 43.723099999999995
     - type: nauc_ndcg_at_100_std
-      value: 7.697
+      value: 4.0416
     - type: nauc_ndcg_at_100_diff1
-      value: 49.9359
+      value: 50.135600000000004
     - type: nauc_ndcg_at_1000_max
-      value: 47.4306
+      value: 43.7739
     - type: nauc_ndcg_at_1000_std
-      value: 7.3536
+      value: 3.4729
     - type: nauc_ndcg_at_1000_diff1
-      value: 50.365700000000004
+      value: 50.6595
     - type: nauc_map_at_1_max
-      value: 49.8526
+      value: 46.428999999999995
     - type: nauc_map_at_1_std
-      value: 6.944500000000001
+      value: 0.0014
     - type: nauc_map_at_1_diff1
-      value: 59.0325
+      value: 59.6017
     - type: nauc_map_at_3_max
-      value: 48.932900000000004
+      value: 46.217999999999996
     - type: nauc_map_at_3_std
-      value: 6.285499999999999
+      value: 0.43889999999999996
     - type: nauc_map_at_3_diff1
-      value: 53.4821
+      value: 54.882299999999994
     - type: nauc_map_at_5_max
-      value: 48.709799999999994
+      value: 45.9757
     - type: nauc_map_at_5_std
-      value: 6.5305
+      value: 0.8049999999999999
     - type: nauc_map_at_5_diff1
-      value: 52.8586
+      value: 53.950900000000004
     - type: nauc_map_at_10_max
-      value: 48.2504
+      value: 45.3363
     - type: nauc_map_at_10_std
-      value: 6.535299999999999
+      value: 0.9662999999999999
     - type: nauc_map_at_10_diff1
-      value: 52.410000000000004
+      value: 53.369
     - type: nauc_map_at_20_max
-      value: 48.2424
+      value: 45.2008
     - type: nauc_map_at_20_std
-      value: 6.6425
+      value: 1.1801000000000001
     - type: nauc_map_at_20_diff1
-      value: 52.4289
+      value: 53.4425
     - type: nauc_map_at_100_max
-      value: 48.254999999999995
+      value: 45.226699999999994
     - type: nauc_map_at_100_std
-      value: 6.7272
+      value: 1.3667
     - type: nauc_map_at_100_diff1
-      value: 52.517199999999995
+      value: 53.4089
     - type: nauc_map_at_1000_max
-      value: 48.2618
+      value: 45.2252
     - type: nauc_map_at_1000_std
-      value: 6.7179
+      value: 1.3433000000000002
     - type: nauc_map_at_1000_diff1
-      value: 52.5296
+      value: 53.4268
     - type: nauc_recall_at_1_max
-      value: 49.8526
+      value: 46.428999999999995
     - type: nauc_recall_at_1_std
-      value: 6.944500000000001
+      value: 0.0014
     - type: nauc_recall_at_1_diff1
-      value: 59.0325
+      value: 59.6017
     - type: nauc_recall_at_3_max
-      value: 48.5241
+      value: 45.2499
     - type: nauc_recall_at_3_std
-      value: 6.2048
+      value: 0.8637
     - type: nauc_recall_at_3_diff1
-      value: 46.5818
+      value: 49.5773
     - type: nauc_recall_at_5_max
-      value: 47.6347
+      value: 44.1355
     - type: nauc_recall_at_5_std
-      value: 7.290299999999999
+      value: 2.5255
     - type: nauc_recall_at_5_diff1
-      value: 43.3392
+      value: 45.3656
     - type: nauc_recall_at_10_max
-      value: 43.4268
+      value: 39.313700000000004
     - type: nauc_recall_at_10_std
-      value: 7.4028
+      value: 4.1421
     - type: nauc_recall_at_10_diff1
-      value: 38.508700000000005
+      value: 40.8109
     - type: nauc_recall_at_20_max
-      value: 42.416199999999996
+      value: 36.923
     - type: nauc_recall_at_20_std
-      value: 9.0454
+      value: 7.691199999999999
     - type: nauc_recall_at_20_diff1
-      value: 36.9086
+      value: 40.8715
     - type: nauc_recall_at_100_max
-      value: 40.23
+      value: 36.296
     - type: nauc_recall_at_100_std
-      value: 15.776000000000002
+      value: 22.020999999999997
     - type: nauc_recall_at_100_diff1
-      value: 36.492599999999996
+      value: 33.400800000000004
     - type: nauc_recall_at_1000_max
-      value: 36.7611
+      value: 30.508999999999997
     - type: nauc_recall_at_1000_std
-      value: 16.9938
+      value: 29.497600000000002
     - type: nauc_recall_at_1000_diff1
-      value: 29.5398
+      value: 27.5001
     - type: nauc_precision_at_1_max
-      value: 49.8526
+      value: 46.428999999999995
     - type: nauc_precision_at_1_std
-      value: 6.944500000000001
+      value: 0.0014
     - type: nauc_precision_at_1_diff1
-      value: 59.0325
+      value: 59.6017
     - type: nauc_precision_at_3_max
-      value: 48.5241
+      value: 45.2499
     - type: nauc_precision_at_3_std
-      value: 6.2048
+      value: 0.8637
     - type: nauc_precision_at_3_diff1
-      value: 46.5818
+      value: 49.5773
     - type: nauc_precision_at_5_max
-      value: 47.6347
+      value: 44.1355
     - type: nauc_precision_at_5_std
-      value: 7.290299999999999
+      value: 2.5255
     - type: nauc_precision_at_5_diff1
-      value: 43.3392
+      value: 45.3656
     - type: nauc_precision_at_10_max
-      value: 43.4268
+      value: 39.313700000000004
     - type: nauc_precision_at_10_std
-      value: 7.4028
+      value: 4.1421
     - type: nauc_precision_at_10_diff1
-      value: 38.508700000000005
+      value: 40.8109
     - type: nauc_precision_at_20_max
-      value: 42.416199999999996
+      value: 36.923
     - type: nauc_precision_at_20_std
-      value: 9.0454
+      value: 7.691199999999999
     - type: nauc_precision_at_20_diff1
-      value: 36.9086
+      value: 40.8715
     - type: nauc_precision_at_100_max
-      value: 40.23
+      value: 36.296
     - type: nauc_precision_at_100_std
-      value: 15.776000000000002
+      value: 22.020999999999997
     - type: nauc_precision_at_100_diff1
-      value: 36.492599999999996
+      value: 33.400800000000004
     - type: nauc_precision_at_1000_max
-      value: 36.7611
+      value: 30.508999999999997
     - type: nauc_precision_at_1000_std
-      value: 16.9938
+      value: 29.497600000000002
     - type: nauc_precision_at_1000_diff1
-      value: 29.5398
+      value: 27.5001
     - type: nauc_mrr_at_1_max
-      value: 49.8526
+      value: 46.428999999999995
     - type: nauc_mrr_at_1_std
-      value: 6.944500000000001
+      value: 0.0014
     - type: nauc_mrr_at_1_diff1
-      value: 59.0325
+      value: 59.6017
     - type: nauc_mrr_at_3_max
-      value: 48.932900000000004
+      value: 46.217999999999996
     - type: nauc_mrr_at_3_std
-      value: 6.285499999999999
+      value: 0.43889999999999996
     - type: nauc_mrr_at_3_diff1
-      value: 53.4821
+      value: 54.882299999999994
     - type: nauc_mrr_at_5_max
-      value: 48.709799999999994
+      value: 45.9757
     - type: nauc_mrr_at_5_std
-      value: 6.5305
+      value: 0.8049999999999999
     - type: nauc_mrr_at_5_diff1
-      value: 52.8586
+      value: 53.950900000000004
     - type: nauc_mrr_at_10_max
-      value: 48.2504
+      value: 45.3363
     - type: nauc_mrr_at_10_std
-      value: 6.535299999999999
+      value: 0.9662999999999999
     - type: nauc_mrr_at_10_diff1
-      value: 52.410000000000004
+      value: 53.369
     - type: nauc_mrr_at_20_max
-      value: 48.2424
+      value: 45.2008
     - type: nauc_mrr_at_20_std
-      value: 6.6425
+      value: 1.1801000000000001
     - type: nauc_mrr_at_20_diff1
-      value: 52.4289
+      value: 53.4425
     - type: nauc_mrr_at_100_max
-      value: 48.254999999999995
+      value: 45.226699999999994
     - type: nauc_mrr_at_100_std
-      value: 6.7272
+      value: 1.3667
     - type: nauc_mrr_at_100_diff1
-      value: 52.517199999999995
+      value: 53.4089
     - type: nauc_mrr_at_1000_max
-      value: 48.2618
+      value: 45.2252
     - type: nauc_mrr_at_1000_std
-      value: 6.7179
+      value: 1.3433000000000002
     - type: nauc_mrr_at_1000_diff1
-      value: 52.5296
+      value: 53.4268
     - type: main_score
-      value: 50.166
+      value: 42.536
     task:
       type: Retrieval
   - dataset:
@@ -1977,287 +1989,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet
     metrics:
     - type: ndcg_at_1
-      value: 42.355
+      value: 36.887
     - type: ndcg_at_3
-      value: 50.89
+      value: 44.671
     - type: ndcg_at_5
-      value: 53.089
+      value: 46.619
     - type: ndcg_at_10
-      value: 55.062
+      value: 48.54
     - type: ndcg_at_20
-      value: 56.373
+      value: 49.881
     - type: ndcg_at_100
-      value: 58.268
+      value: 51.847
     - type: ndcg_at_1000
-      value: 59.367999999999995
+      value: 53.286
     - type: map_at_1
-      value: 42.355
+      value: 36.887
     - type: map_at_3
-      value: 48.825
+      value: 42.805
     - type: map_at_5
-      value: 50.05
+      value: 43.884
     - type: map_at_10
-      value: 50.866
+      value: 44.68
     - type: map_at_20
-      value: 51.227999999999994
+      value: 45.051
     - type: map_at_100
-      value: 51.486
+      value: 45.316
     - type: map_at_1000
-      value: 51.525
+      value: 45.364
     - type: recall_at_1
-      value: 42.355
+      value: 36.887
     - type: recall_at_3
-      value: 56.851
+      value: 50.05
     - type: recall_at_5
-      value: 62.173
+      value: 54.788000000000004
     - type: recall_at_10
-      value: 68.26100000000001
+      value: 60.711999999999996
     - type: recall_at_20
-      value: 73.437
+      value: 65.997
     - type: recall_at_100
-      value: 83.706
+      value: 76.696
     - type: recall_at_1000
-      value: 92.506
+      value: 88.371
     - type: precision_at_1
-      value: 42.355
+      value: 36.887
     - type: precision_at_3
-      value: 18.95
+      value: 16.683
     - type: precision_at_5
-      value: 12.435
+      value: 10.958
     - type: precision_at_10
-      value: 6.8260000000000005
+      value: 6.071
     - type: precision_at_20
-      value: 3.672
+      value: 3.3000000000000003
     - type: precision_at_100
-      value: 0.8370000000000001
+      value: 0.767
     - type: precision_at_1000
-      value: 0.093
+      value: 0.08800000000000001
     - type: mrr_at_1
-      value: 42.3551
+      value: 36.9147
     - type: mrr_at_3
-      value: 48.8255
+      value: 42.823699999999995
     - type: mrr_at_5
-      value: 50.049600000000005
+      value: 43.8985
     - type: mrr_at_10
-      value: 50.8665
+      value: 44.6961
     - type: mrr_at_20
-      value: 51.227999999999994
+      value: 45.067
     - type: mrr_at_100
-      value: 51.486
+      value: 45.3318
     - type: mrr_at_1000
-      value: 51.525200000000005
+      value: 45.3801
     - type: nauc_ndcg_at_1_max
-      value: 41.261700000000005
+      value: 42.8063
     - type: nauc_ndcg_at_1_std
-      value: -4.1932
+      value: -5.3001
     - type: nauc_ndcg_at_1_diff1
-      value: 62.1792
+      value: 63.370099999999994
     - type: nauc_ndcg_at_3_max
-      value: 43.6389
+      value: 44.0649
     - type: nauc_ndcg_at_3_std
-      value: -2.7453000000000003
+      value: -4.0304
     - type: nauc_ndcg_at_3_diff1
-      value: 56.621
+      value: 57.7429
     - type: nauc_ndcg_at_5_max
-      value: 43.5895
+      value: 43.864799999999995
     - type: nauc_ndcg_at_5_std
-      value: -2.1214
+      value: -3.2800000000000002
     - type: nauc_ndcg_at_5_diff1
-      value: 55.7216
+      value: 57.0472
     - type: nauc_ndcg_at_10_max
-      value: 43.56
+      value: 43.614799999999995
     - type: nauc_ndcg_at_10_std
-      value: -1.2124
+      value: -2.424
     - type: nauc_ndcg_at_10_diff1
-      value: 55.1817
+      value: 56.3498
     - type: nauc_ndcg_at_20_max
-      value: 43.6918
+      value: 43.6108
     - type: nauc_ndcg_at_20_std
-      value: -0.4332
+      value: -1.699
     - type: nauc_ndcg_at_20_diff1
-      value: 54.9887
+      value: 56.2153
     - type: nauc_ndcg_at_100_max
-      value: 43.945499999999996
+      value: 43.4705
     - type: nauc_ndcg_at_100_std
-      value: 0.3674
+      value: -0.7144
     - type: nauc_ndcg_at_100_diff1
-      value: 55.237899999999996
+      value: 56.0679
     - type: nauc_ndcg_at_1000_max
-      value: 43.8498
+      value: 43.6856
     - type: nauc_ndcg_at_1000_std
-      value: 0.1663
+      value: -0.7129
     - type: nauc_ndcg_at_1000_diff1
-      value: 55.6509
+      value: 56.40540000000001
     - type: nauc_map_at_1_max
-      value: 41.261700000000005
+      value: 42.8063
     - type: nauc_map_at_1_std
-      value: -4.1932
+      value: -5.3001
     - type: nauc_map_at_1_diff1
-      value: 62.1792
+      value: 63.370099999999994
     - type: nauc_map_at_3_max
-      value: 43.0699
+      value: 43.797999999999995
     - type: nauc_map_at_3_std
-      value: -3.1619
+      value: -4.3491
     - type: nauc_map_at_3_diff1
-      value: 57.961600000000004
+      value: 59.0673
     - type: nauc_map_at_5_max
-      value: 43.0235
+      value: 43.6812
     - type: nauc_map_at_5_std
-      value: -2.8471
+      value: -3.9397
     - type: nauc_map_at_5_diff1
-      value: 57.492399999999996
+      value: 58.6982
     - type: nauc_map_at_10_max
-      value: 43.0155
+      value: 43.5745
     - type: nauc_map_at_10_std
-      value: -2.4906
+      value: -3.6122
     - type: nauc_map_at_10_diff1
-      value: 57.308899999999994
+      value: 58.431999999999995
     - type: nauc_map_at_20_max
-      value: 43.0405
+      value: 43.573
     - type: nauc_map_at_20_std
-      value: -2.299
+      value: -3.4323
     - type: nauc_map_at_20_diff1
-      value: 57.262
+      value: 58.4168
     - type: nauc_map_at_100_max
-      value: 43.0606
+      value: 43.5448
     - type: nauc_map_at_100_std
-      value: -2.2096
+      value: -3.3167
     - type: nauc_map_at_100_diff1
-      value: 57.2982
+      value: 58.394999999999996
     - type: nauc_map_at_1000_max
-      value: 43.0566
+      value: 43.5506
     - type: nauc_map_at_1000_std
-      value: -2.2155
+      value: -3.3144
     - type: nauc_map_at_1000_diff1
-      value: 57.312
+      value: 58.4057
     - type: nauc_recall_at_1_max
-      value: 41.261700000000005
+      value: 42.8063
     - type: nauc_recall_at_1_std
-      value: -4.1932
+      value: -5.3001
     - type: nauc_recall_at_1_diff1
-      value: 62.1792
+      value: 63.370099999999994
     - type: nauc_recall_at_3_max
-      value: 45.368199999999995
+      value: 44.8286
     - type: nauc_recall_at_3_std
-      value: -1.4471
+      value: -3.0949999999999998
     - type: nauc_recall_at_3_diff1
-      value: 52.5416
+      value: 53.8907
     - type: nauc_recall_at_5_max
-      value: 45.421299999999995
+      value: 44.3801
     - type: nauc_recall_at_5_std
-      value: 0.3829
+      value: -1.1593
     - type: nauc_recall_at_5_diff1
-      value: 49.8591
+      value: 51.948899999999995
     - type: nauc_recall_at_10_max
-      value: 45.4698
+      value: 43.6005
     - type: nauc_recall_at_10_std
-      value: 3.9899999999999998
+      value: 1.9532999999999998
     - type: nauc_recall_at_10_diff1
-      value: 47.100500000000004
+      value: 49.2211
     - type: nauc_recall_at_20_max
-      value: 46.4998
+      value: 43.5839
     - type: nauc_recall_at_20_std
-      value: 8.8468
+      value: 5.8288
     - type: nauc_recall_at_20_diff1
-      value: 45.027899999999995
+      value: 47.7761
     - type: nauc_recall_at_100_max
-      value: 50.79559999999999
+      value: 42.6633
     - type: nauc_recall_at_100_std
-      value: 21.8125
+      value: 16.4317
     - type: nauc_recall_at_100_diff1
-      value: 42.735099999999996
+      value: 44.0676
     - type: nauc_recall_at_1000_max
-      value: 55.116
+      value: 46.698
     - type: nauc_recall_at_1000_std
-      value: 37.5788
+      value: 30.054799999999997
     - type: nauc_recall_at_1000_diff1
-      value: 42.2857
+      value: 41.5816
     - type: nauc_precision_at_1_max
-      value: 41.261700000000005
+      value: 42.8063
     - type: nauc_precision_at_1_std
-      value: -4.1932
+      value: -5.3001
     - type: nauc_precision_at_1_diff1
-      value: 62.1792
+      value: 63.370099999999994
     - type: nauc_precision_at_3_max
-      value: 45.368199999999995
+      value: 44.8286
     - type: nauc_precision_at_3_std
-      value: -1.4471
+      value: -3.0949999999999998
     - type: nauc_precision_at_3_diff1
-      value: 52.5416
+      value: 53.8907
     - type: nauc_precision_at_5_max
-      value: 45.421299999999995
+      value: 44.3801
     - type: nauc_precision_at_5_std
-      value: 0.3829
+      value: -1.1593
     - type: nauc_precision_at_5_diff1
-      value: 49.8591
+      value: 51.948899999999995
     - type: nauc_precision_at_10_max
-      value: 45.4698
+      value: 43.6005
     - type: nauc_precision_at_10_std
-      value: 3.9899999999999998
+      value: 1.9532999999999998
     - type: nauc_precision_at_10_diff1
-      value: 47.100500000000004
+      value: 49.2211
     - type: nauc_precision_at_20_max
-      value: 46.4998
+      value: 43.5839
     - type: nauc_precision_at_20_std
-      value: 8.8468
+      value: 5.8288
     - type: nauc_precision_at_20_diff1
-      value: 45.027899999999995
+      value: 47.7761
     - type: nauc_precision_at_100_max
-      value: 50.79559999999999
+      value: 42.6633
     - type: nauc_precision_at_100_std
-      value: 21.8125
+      value: 16.4317
     - type: nauc_precision_at_100_diff1
-      value: 42.735099999999996
+      value: 44.0676
     - type: nauc_precision_at_1000_max
-      value: 55.116
+      value: 46.698
     - type: nauc_precision_at_1000_std
-      value: 37.5788
+      value: 30.054799999999997
     - type: nauc_precision_at_1000_diff1
-      value: 42.2857
+      value: 41.5816
     - type: nauc_mrr_at_1_max
-      value: 41.261700000000005
+      value: 42.7425
     - type: nauc_mrr_at_1_std
-      value: -4.1932
+      value: -5.2358
     - type: nauc_mrr_at_1_diff1
-      value: 62.1792
+      value: 63.285199999999996
     - type: nauc_mrr_at_3_max
-      value: 43.0699
+      value: 43.763200000000005
     - type: nauc_mrr_at_3_std
-      value: -3.1619
+      value: -4.2973
     - type: nauc_mrr_at_3_diff1
-      value: 57.961600000000004
+      value: 59.031
     - type: nauc_mrr_at_5_max
-      value: 43.0235
+      value: 43.650800000000004
     - type: nauc_mrr_at_5_std
-      value: -2.8471
+      value: -3.8918
     - type: nauc_mrr_at_5_diff1
-      value: 57.492399999999996
+      value: 58.6636
     - type: nauc_mrr_at_10_max
-      value: 43.0155
+      value: 43.5429
     - type: nauc_mrr_at_10_std
-      value: -2.4906
+      value: -3.5659000000000005
     - type: nauc_mrr_at_10_diff1
-      value: 57.308899999999994
+      value: 58.3946
     - type: nauc_mrr_at_20_max
-      value: 43.0405
+      value: 43.5411
     - type: nauc_mrr_at_20_std
-      value: -2.299
+      value: -3.3855000000000004
     - type: nauc_mrr_at_20_diff1
-      value: 57.262
+      value: 58.379099999999994
     - type: nauc_mrr_at_100_max
-      value: 43.0606
+      value: 43.5128
     - type: nauc_mrr_at_100_std
-      value: -2.2096
+      value: -3.2696000000000005
     - type: nauc_mrr_at_100_diff1
-      value: 57.2982
+      value: 58.3572
     - type: nauc_mrr_at_1000_max
-      value: 43.0566
+      value: 43.5186
     - type: nauc_mrr_at_1000_std
-      value: -2.2155
+      value: -3.2672
     - type: nauc_mrr_at_1000_diff1
-      value: 57.312
+      value: 58.3678
     - type: main_score
-      value: 55.062
+      value: 48.54
     task:
       type: Retrieval
   - dataset:
@@ -2268,287 +2280,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet
     metrics:
     - type: ndcg_at_1
-      value: 36.835
+      value: 30.734
     - type: ndcg_at_3
-      value: 45.147999999999996
+      value: 38.155
     - type: ndcg_at_5
-      value: 47.497
+      value: 40.306999999999995
     - type: ndcg_at_10
-      value: 49.784
+      value: 42.510999999999996
     - type: ndcg_at_20
-      value: 51.410999999999994
+      value: 44.156
     - type: ndcg_at_100
-      value: 53.715
+      value: 46.641
     - type: ndcg_at_1000
-      value: 55.102
+      value: 48.359
     - type: map_at_1
-      value: 36.835
+      value: 30.734
     - type: map_at_3
-      value: 43.126
+      value: 36.347
     - type: map_at_5
-      value: 44.429
+      value: 37.539
     - type: map_at_10
-      value: 45.377
+      value: 38.455
     - type: map_at_20
-      value: 45.821
+      value: 38.906
     - type: map_at_100
-      value: 46.139
+      value: 39.24
     - type: map_at_1000
-      value: 46.188
+      value: 39.300000000000004
     - type: recall_at_1
-      value: 36.835
+      value: 30.734
     - type: recall_at_3
-      value: 50.992000000000004
+      value: 43.378
     - type: recall_at_5
-      value: 56.693000000000005
+      value: 48.616
     - type: recall_at_10
-      value: 63.743
+      value: 55.395
     - type: recall_at_20
-      value: 70.194
+      value: 61.91
     - type: recall_at_100
-      value: 82.65299999999999
+      value: 75.432
     - type: recall_at_1000
-      value: 93.728
+      value: 89.254
     - type: precision_at_1
-      value: 36.835
+      value: 30.734
     - type: precision_at_3
-      value: 16.997
+      value: 14.459
     - type: precision_at_5
-      value: 11.339
+      value: 9.722999999999999
     - type: precision_at_10
-      value: 6.3740000000000006
+      value: 5.539000000000001
     - type: precision_at_20
-      value: 3.51
+      value: 3.0949999999999998
     - type: precision_at_100
-      value: 0.827
+      value: 0.754
     - type: precision_at_1000
-      value: 0.094
+      value: 0.089
     - type: mrr_at_1
-      value: 36.8346
+      value: 30.6907
     - type: mrr_at_3
-      value: 43.1259
+      value: 36.3137
     - type: mrr_at_5
-      value: 44.4289
+      value: 37.5121
     - type: mrr_at_10
-      value: 45.3769
+      value: 38.4289
     - type: mrr_at_20
-      value: 45.8215
+      value: 38.8786
     - type: mrr_at_100
-      value: 46.138600000000004
+      value: 39.2136
     - type: mrr_at_1000
-      value: 46.1881
+      value: 39.2729
     - type: nauc_ndcg_at_1_max
-      value: 36.9844
+      value: 36.8055
     - type: nauc_ndcg_at_1_std
-      value: -3.2222
+      value: -1.5909
     - type: nauc_ndcg_at_1_diff1
-      value: 58.896
+      value: 55.9244
     - type: nauc_ndcg_at_3_max
-      value: 37.6355
+      value: 38.4262
     - type: nauc_ndcg_at_3_std
-      value: -2.2689
+      value: 0.5292
     - type: nauc_ndcg_at_3_diff1
-      value: 52.771100000000004
+      value: 49.7477
     - type: nauc_ndcg_at_5_max
-      value: 38.175599999999996
+      value: 38.0552
     - type: nauc_ndcg_at_5_std
-      value: -1.5131999999999999
+      value: 1.102
     - type: nauc_ndcg_at_5_diff1
-      value: 52.0101
+      value: 48.5308
     - type: nauc_ndcg_at_10_max
-      value: 38.2873
+      value: 38.0054
     - type: nauc_ndcg_at_10_std
-      value: -0.5444
+      value: 1.9313
     - type: nauc_ndcg_at_10_diff1
-      value: 51.3992
+      value: 48.016999999999996
     - type: nauc_ndcg_at_20_max
-      value: 38.324200000000005
+      value: 37.8808
     - type: nauc_ndcg_at_20_std
-      value: 0.1328
+      value: 2.56
     - type: nauc_ndcg_at_20_diff1
-      value: 51.2346
+      value: 47.5649
     - type: nauc_ndcg_at_100_max
-      value: 38.6313
+      value: 38.3754
     - type: nauc_ndcg_at_100_std
-      value: 0.9426
+      value: 3.6703
     - type: nauc_ndcg_at_100_diff1
-      value: 51.65729999999999
+      value: 47.6154
     - type: nauc_ndcg_at_1000_max
-      value: 38.6274
+      value: 38.534600000000005
     - type: nauc_ndcg_at_1000_std
-      value: 0.69
+      value: 3.7317000000000005
     - type: nauc_ndcg_at_1000_diff1
-      value: 52.1029
+      value: 48.0299
     - type: nauc_map_at_1_max
-      value: 36.9844
+      value: 36.8055
     - type: nauc_map_at_1_std
-      value: -3.2222
+      value: -1.5909
     - type: nauc_map_at_1_diff1
-      value: 58.896
+      value: 55.9244
     - type: nauc_map_at_3_max
-      value: 37.523
+      value: 38.0383
     - type: nauc_map_at_3_std
-      value: -2.5115
+      value: 0.0207
     - type: nauc_map_at_3_diff1
-      value: 54.17960000000001
+      value: 51.137299999999996
     - type: nauc_map_at_5_max
-      value: 37.8191
+      value: 37.8223
     - type: nauc_map_at_5_std
-      value: -2.1073
+      value: 0.3179
     - type: nauc_map_at_5_diff1
-      value: 53.780499999999996
+      value: 50.4641
     - type: nauc_map_at_10_max
-      value: 37.8581
+      value: 37.8022
     - type: nauc_map_at_10_std
-      value: -1.7191999999999998
+      value: 0.6617999999999999
     - type: nauc_map_at_10_diff1
-      value: 53.541700000000006
+      value: 50.269
     - type: nauc_map_at_20_max
-      value: 37.8684
+      value: 37.7686
     - type: nauc_map_at_20_std
-      value: -1.5565
+      value: 0.8326999999999999
     - type: nauc_map_at_20_diff1
-      value: 53.5155
+      value: 50.153499999999994
     - type: nauc_map_at_100_max
-      value: 37.9101
+      value: 37.832300000000004
     - type: nauc_map_at_100_std
-      value: -1.4577
+      value: 0.9767
     - type: nauc_map_at_100_diff1
-      value: 53.5894
+      value: 50.174099999999996
     - type: nauc_map_at_1000_max
-      value: 37.9109
+      value: 37.838300000000004
     - type: nauc_map_at_1000_std
-      value: -1.4617
+      value: 0.9815
     - type: nauc_map_at_1000_diff1
-      value: 53.6044
+      value: 50.1882
     - type: nauc_recall_at_1_max
-      value: 36.9844
+      value: 36.8055
     - type: nauc_recall_at_1_std
-      value: -3.2222
+      value: -1.5909
     - type: nauc_recall_at_1_diff1
-      value: 58.896
+      value: 55.9244
     - type: nauc_recall_at_3_max
-      value: 37.9468
+      value: 39.5304
     - type: nauc_recall_at_3_std
-      value: -1.5512
+      value: 1.9767
     - type: nauc_recall_at_3_diff1
-      value: 48.6655
+      value: 45.8281
     - type: nauc_recall_at_5_max
-      value: 39.3342
+      value: 38.6851
     - type: nauc_recall_at_5_std
-      value: 0.44739999999999996
+      value: 3.4711
     - type: nauc_recall_at_5_diff1
-      value: 46.475100000000005
+      value: 42.8172
     - type: nauc_recall_at_10_max
-      value: 39.8619
+      value: 38.5524
     - type: nauc_recall_at_10_std
-      value: 4.0042
+      value: 6.2315000000000005
     - type: nauc_recall_at_10_diff1
-      value: 43.8251
+      value: 40.801
     - type: nauc_recall_at_20_max
-      value: 40.226299999999995
+      value: 38.048300000000005
     - type: nauc_recall_at_20_std
-      value: 8.052299999999999
+      value: 9.3045
     - type: nauc_recall_at_20_diff1
-      value: 41.937400000000004
+      value: 38.222
     - type: nauc_recall_at_100_max
-      value: 44.221
+      value: 42.054399999999994
     - type: nauc_recall_at_100_std
-      value: 20.433699999999998
+      value: 20.4425
     - type: nauc_recall_at_100_diff1
-      value: 40.745599999999996
+      value: 35.0773
     - type: nauc_recall_at_1000_max
-      value: 52.6045
+      value: 49.2856
     - type: nauc_recall_at_1000_std
-      value: 40.3497
+      value: 38.4529
     - type: nauc_recall_at_1000_diff1
-      value: 40.248
+      value: 31.7647
     - type: nauc_precision_at_1_max
-      value: 36.9844
+      value: 36.8055
     - type: nauc_precision_at_1_std
-      value: -3.2222
+      value: -1.5909
     - type: nauc_precision_at_1_diff1
-      value: 58.896
+      value: 55.9244
     - type: nauc_precision_at_3_max
-      value: 37.9468
+      value: 39.5304
     - type: nauc_precision_at_3_std
-      value: -1.5512
+      value: 1.9767
     - type: nauc_precision_at_3_diff1
-      value: 48.6655
+      value: 45.8281
     - type: nauc_precision_at_5_max
-      value: 39.3342
+      value: 38.6851
     - type: nauc_precision_at_5_std
-      value: 0.44739999999999996
+      value: 3.4711
     - type: nauc_precision_at_5_diff1
-      value: 46.475100000000005
+      value: 42.8172
     - type: nauc_precision_at_10_max
-      value: 39.8619
+      value: 38.5524
     - type: nauc_precision_at_10_std
-      value: 4.0042
+      value: 6.2315000000000005
     - type: nauc_precision_at_10_diff1
-      value: 43.8251
+      value: 40.801
     - type: nauc_precision_at_20_max
-      value: 40.226299999999995
+      value: 38.048300000000005
     - type: nauc_precision_at_20_std
-      value: 8.052299999999999
+      value: 9.3045
     - type: nauc_precision_at_20_diff1
-      value: 41.937400000000004
+      value: 38.222
     - type: nauc_precision_at_100_max
-      value: 44.221
+      value: 42.054399999999994
     - type: nauc_precision_at_100_std
-      value: 20.433699999999998
+      value: 20.4425
     - type: nauc_precision_at_100_diff1
-      value: 40.745599999999996
+      value: 35.0773
     - type: nauc_precision_at_1000_max
-      value: 52.6045
+      value: 49.2856
     - type: nauc_precision_at_1000_std
-      value: 40.3497
+      value: 38.4529
     - type: nauc_precision_at_1000_diff1
-      value: 40.248
+      value: 31.7647
     - type: nauc_mrr_at_1_max
-      value: 36.9844
+      value: 36.8365
     - type: nauc_mrr_at_1_std
-      value: -3.2222
+      value: -1.4754
     - type: nauc_mrr_at_1_diff1
-      value: 58.896
+      value: 56.0597
     - type: nauc_mrr_at_3_max
-      value: 37.523
+      value: 38.054
     - type: nauc_mrr_at_3_std
-      value: -2.5115
+      value: 0.09430000000000001
     - type: nauc_mrr_at_3_diff1
-      value: 54.17960000000001
+      value: 51.2016
     - type: nauc_mrr_at_5_max
-      value: 37.8191
+      value: 37.8431
     - type: nauc_mrr_at_5_std
-      value: -2.1073
+      value: 0.3829
     - type: nauc_mrr_at_5_diff1
-      value: 53.780499999999996
+      value: 50.5285
     - type: nauc_mrr_at_10_max
-      value: 37.8581
+      value: 37.8231
     - type: nauc_mrr_at_10_std
-      value: -1.7191999999999998
+      value: 0.7271
     - type: nauc_mrr_at_10_diff1
-      value: 53.541700000000006
+      value: 50.333099999999995
     - type: nauc_mrr_at_20_max
-      value: 37.8684
+      value: 37.7905
     - type: nauc_mrr_at_20_std
-      value: -1.5565
+      value: 0.8992999999999999
     - type: nauc_mrr_at_20_diff1
-      value: 53.5155
+      value: 50.2181
     - type: nauc_mrr_at_100_max
-      value: 37.9101
+      value: 37.853500000000004
     - type: nauc_mrr_at_100_std
-      value: -1.4577
+      value: 1.0428
     - type: nauc_mrr_at_100_diff1
-      value: 53.5894
+      value: 50.239
     - type: nauc_mrr_at_1000_max
-      value: 37.9109
+      value: 37.859500000000004
     - type: nauc_mrr_at_1000_std
-      value: -1.4617
+      value: 1.0477
     - type: nauc_mrr_at_1000_diff1
-      value: 53.6044
+      value: 50.2532
     - type: main_score
-      value: 49.784
+      value: 42.510999999999996
     task:
       type: Retrieval
   - dataset:
@@ -2559,287 +2571,287 @@ model-index:
       type: mteb/cqadupstack-android
     metrics:
     - type: ndcg_at_1
-      value: 44.206
+      value: 42.918
     - type: ndcg_at_3
-      value: 49.364999999999995
+      value: 47.992000000000004
     - type: ndcg_at_5
-      value: 51.429
+      value: 50.298
     - type: ndcg_at_10
-      value: 54.106
+      value: 53.047999999999995
     - type: ndcg_at_20
-      value: 56.271
+      value: 55.36600000000001
     - type: ndcg_at_100
-      value: 59.33500000000001
+      value: 58.18
     - type: ndcg_at_1000
-      value: 61.015
+      value: 59.992999999999995
     - type: map_at_1
-      value: 35.797000000000004
+      value: 35.147
     - type: map_at_3
-      value: 44.137
+      value: 42.985
     - type: map_at_5
-      value: 46.062999999999995
+      value: 44.895
     - type: map_at_10
-      value: 47.793
+      value: 46.568
     - type: map_at_20
-      value: 48.730000000000004
+      value: 47.527
     - type: map_at_100
-      value: 49.422
+      value: 48.178
     - type: map_at_1000
-      value: 49.546
+      value: 48.303000000000004
     - type: recall_at_1
-      value: 35.797000000000004
+      value: 35.147
     - type: recall_at_3
-      value: 51.224000000000004
+      value: 50.229
     - type: recall_at_5
-      value: 57.218999999999994
+      value: 56.586999999999996
     - type: recall_at_10
-      value: 65.182
+      value: 64.656
     - type: recall_at_20
-      value: 72.76700000000001
+      value: 72.875
     - type: recall_at_100
-      value: 86.654
+      value: 85.397
     - type: recall_at_1000
-      value: 97.131
+      value: 96.799
     - type: precision_at_1
-      value: 44.206
+      value: 42.918
     - type: precision_at_3
-      value: 23.653
+      value: 22.698999999999998
     - type: precision_at_5
-      value: 16.91
+      value: 16.309
     - type: precision_at_10
-      value: 10.443
+      value: 10.100000000000001
     - type: precision_at_20
-      value: 6.194999999999999
+      value: 6.0440000000000005
     - type: precision_at_100
-      value: 1.6310000000000002
+      value: 1.5890000000000002
     - type: precision_at_1000
-      value: 0.214
+      value: 0.209
     - type: mrr_at_1
-      value: 44.206
+      value: 42.9185
     - type: mrr_at_3
-      value: 51.430600000000005
+      value: 50.1907
     - type: mrr_at_5
-      value: 52.839800000000004
+      value: 51.9003
     - type: mrr_at_10
-      value: 53.808
+      value: 52.824400000000004
     - type: mrr_at_20
-      value: 54.2585
+      value: 53.3002
     - type: mrr_at_100
-      value: 54.540200000000006
+      value: 53.5134
     - type: mrr_at_1000
-      value: 54.577799999999996
+      value: 53.5569
     - type: nauc_ndcg_at_1_max
-      value: 45.573
+      value: 45.115300000000005
     - type: nauc_ndcg_at_1_std
-      value: -5.092300000000001
+      value: -5.3469999999999995
     - type: nauc_ndcg_at_1_diff1
-      value: 50.8011
+      value: 50.792899999999996
     - type: nauc_ndcg_at_3_max
-      value: 44.7194
+      value: 44.379000000000005
     - type: nauc_ndcg_at_3_std
-      value: -2.979
+      value: -2.628
     - type: nauc_ndcg_at_3_diff1
-      value: 49.4014
+      value: 45.6678
     - type: nauc_ndcg_at_5_max
-      value: 45.9838
+      value: 44.8852
     - type: nauc_ndcg_at_5_std
-      value: -2.4417999999999997
+      value: -1.7051
     - type: nauc_ndcg_at_5_diff1
-      value: 48.2985
+      value: 46.0814
     - type: nauc_ndcg_at_10_max
-      value: 45.6755
+      value: 43.969500000000004
     - type: nauc_ndcg_at_10_std
-      value: -2.1826000000000003
+      value: -0.4902
     - type: nauc_ndcg_at_10_diff1
-      value: 48.443799999999996
+      value: 46.2439
     - type: nauc_ndcg_at_20_max
-      value: 45.967200000000005
+      value: 44.588499999999996
     - type: nauc_ndcg_at_20_std
-      value: -0.3553
+      value: 0.5193
     - type: nauc_ndcg_at_20_diff1
-      value: 48.0216
+      value: 45.9229
     - type: nauc_ndcg_at_100_max
-      value: 46.3459
+      value: 45.0779
     - type: nauc_ndcg_at_100_std
-      value: 0.6947
+      value: 1.1967999999999999
     - type: nauc_ndcg_at_100_diff1
-      value: 48.3313
+      value: 46.090199999999996
     - type: nauc_ndcg_at_1000_max
-      value: 46.245599999999996
+      value: 45.082
     - type: nauc_ndcg_at_1000_std
-      value: -0.3032
+      value: 0.3457
     - type: nauc_ndcg_at_1000_diff1
-      value: 48.3821
+      value: 46.366
     - type: nauc_map_at_1_max
-      value: 38.896
+      value: 38.731
     - type: nauc_map_at_1_std
-      value: -5.7093
+      value: -7.1701
     - type: nauc_map_at_1_diff1
-      value: 54.4608
+      value: 52.0087
     - type: nauc_map_at_3_max
-      value: 42.6164
+      value: 42.126799999999996
     - type: nauc_map_at_3_std
-      value: -4.6751000000000005
+      value: -4.8249
     - type: nauc_map_at_3_diff1
-      value: 52.23759999999999
+      value: 47.7841
     - type: nauc_map_at_5_max
-      value: 43.9491
+      value: 43.2155
     - type: nauc_map_at_5_std
-      value: -3.8674
+      value: -3.9702
     - type: nauc_map_at_5_diff1
-      value: 51.03189999999999
+      value: 47.9376
     - type: nauc_map_at_10_max
-      value: 44.4192
+      value: 43.4398
     - type: nauc_map_at_10_std
-      value: -3.4564999999999997
+      value: -2.8201
     - type: nauc_map_at_10_diff1
-      value: 50.6846
+      value: 47.9726
     - type: nauc_map_at_20_max
-      value: 44.8404
+      value: 43.9625
     - type: nauc_map_at_20_std
-      value: -2.67
+      value: -2.4088
     - type: nauc_map_at_20_diff1
-      value: 50.3892
+      value: 47.7323
     - type: nauc_map_at_100_max
-      value: 44.9988
+      value: 44.0439
     - type: nauc_map_at_100_std
-      value: -2.4528000000000003
+      value: -2.1932
     - type: nauc_map_at_100_diff1
-      value: 50.2602
+      value: 47.672399999999996
     - type: nauc_map_at_1000_max
-      value: 45.0043
+      value: 44.059599999999996
     - type: nauc_map_at_1000_std
-      value: -2.5084
+      value: -2.2453999999999996
     - type: nauc_map_at_1000_diff1
-      value: 50.2302
+      value: 47.6659
     - type: nauc_recall_at_1_max
-      value: 38.896
+      value: 38.731
     - type: nauc_recall_at_1_std
-      value: -5.7093
+      value: -7.1701
     - type: nauc_recall_at_1_diff1
-      value: 54.4608
+      value: 52.0087
     - type: nauc_recall_at_3_max
-      value: 40.917500000000004
+      value: 40.5229
     - type: nauc_recall_at_3_std
-      value: -2.9875
+      value: -1.3240999999999998
     - type: nauc_recall_at_3_diff1
-      value: 47.935
+      value: 41.1764
     - type: nauc_recall_at_5_max
-      value: 43.578
+      value: 41.248000000000005
     - type: nauc_recall_at_5_std
-      value: -0.0832
+      value: 1.4647999999999999
     - type: nauc_recall_at_5_diff1
-      value: 43.924800000000005
+      value: 41.044799999999995
     - type: nauc_recall_at_10_max
-      value: 42.3348
+      value: 38.6375
     - type: nauc_recall_at_10_std
-      value: 1.2774
+      value: 5.3439
     - type: nauc_recall_at_10_diff1
-      value: 42.5842
+      value: 39.8162
     - type: nauc_recall_at_20_max
-      value: 43.4429
+      value: 39.6813
     - type: nauc_recall_at_20_std
-      value: 9.6387
+      value: 11.1138
     - type: nauc_recall_at_20_diff1
-      value: 40.1222
+      value: 36.8881
     - type: nauc_recall_at_100_max
-      value: 47.6245
+      value: 44.9346
     - type: nauc_recall_at_100_std
-      value: 28.7436
+      value: 22.5203
     - type: nauc_recall_at_100_diff1
-      value: 42.3728
+      value: 34.8792
     - type: nauc_recall_at_1000_max
-      value: 57.4835
+      value: 52.49979999999999
     - type: nauc_recall_at_1000_std
-      value: 66.6109
+      value: 50.954299999999996
     - type: nauc_recall_at_1000_diff1
-      value: 48.025
+      value: 36.1016
     - type: nauc_precision_at_1_max
-      value: 45.573
+      value: 45.115300000000005
     - type: nauc_precision_at_1_std
-      value: -5.092300000000001
+      value: -5.3469999999999995
     - type: nauc_precision_at_1_diff1
-      value: 50.8011
+      value: 50.792899999999996
     - type: nauc_precision_at_3_max
-      value: 39.7982
+      value: 41.841
     - type: nauc_precision_at_3_std
-      value: 1.3032
+      value: 3.3930000000000002
     - type: nauc_precision_at_3_diff1
-      value: 26.422600000000003
+      value: 27.495399999999997
     - type: nauc_precision_at_5_max
-      value: 36.86
+      value: 38.527
     - type: nauc_precision_at_5_std
-      value: 3.9888
+      value: 8.2496
     - type: nauc_precision_at_5_diff1
-      value: 13.4191
+      value: 19.3628
     - type: nauc_precision_at_10_max
-      value: 26.663199999999996
+      value: 27.5499
     - type: nauc_precision_at_10_std
-      value: 6.388299999999999
+      value: 13.264100000000001
     - type: nauc_precision_at_10_diff1
-      value: 2.1197
+      value: 9.9718
     - type: nauc_precision_at_20_max
-      value: 19.8196
+      value: 21.431
     - type: nauc_precision_at_20_std
-      value: 9.0818
+      value: 14.426400000000001
     - type: nauc_precision_at_20_diff1
-      value: -6.483999999999999
+      value: -0.11030000000000001
     - type: nauc_precision_at_100_max
-      value: 5.6951
+      value: 6.8088
     - type: nauc_precision_at_100_std
-      value: 5.3285
+      value: 9.8979
     - type: nauc_precision_at_100_diff1
-      value: -17.9036
+      value: -10.1603
     - type: nauc_precision_at_1000_max
-      value: -9.107999999999999
+      value: -6.4949
     - type: nauc_precision_at_1000_std
-      value: -7.5626999999999995
+      value: -3.9967999999999995
     - type: nauc_precision_at_1000_diff1
-      value: -27.7189
+      value: -17.765800000000002
     - type: nauc_mrr_at_1_max
-      value: 45.573
+      value: 45.115300000000005
     - type: nauc_mrr_at_1_std
-      value: -5.092300000000001
+      value: -5.3469999999999995
     - type: nauc_mrr_at_1_diff1
-      value: 50.8011
+      value: 50.792899999999996
     - type: nauc_mrr_at_3_max
-      value: 46.394800000000004
+      value: 45.8581
     - type: nauc_mrr_at_3_std
-      value: -3.6457
+      value: -2.9239
     - type: nauc_mrr_at_3_diff1
-      value: 48.8878
+      value: 47.079
     - type: nauc_mrr_at_5_max
-      value: 46.7342
+      value: 45.5453
     - type: nauc_mrr_at_5_std
-      value: -3.2079999999999997
+      value: -2.2778
     - type: nauc_mrr_at_5_diff1
-      value: 47.9827
+      value: 47.0394
     - type: nauc_mrr_at_10_max
-      value: 46.4047
+      value: 45.2727
     - type: nauc_mrr_at_10_std
-      value: -2.9571
+      value: -2.1793
     - type: nauc_mrr_at_10_diff1
-      value: 48.036
+      value: 46.7719
     - type: nauc_mrr_at_20_max
-      value: 46.3645
+      value: 45.232
     - type: nauc_mrr_at_20_std
-      value: -2.6208
+      value: -2.0842
     - type: nauc_mrr_at_20_diff1
-      value: 48.030699999999996
+      value: 46.75
     - type: nauc_mrr_at_100_max
-      value: 46.3951
+      value: 45.3233
     - type: nauc_mrr_at_100_std
-      value: -2.693
+      value: -2.0778000000000003
     - type: nauc_mrr_at_100_diff1
-      value: 48.128
+      value: 46.7919
     - type: nauc_mrr_at_1000_max
-      value: 46.403299999999994
+      value: 45.325700000000005
     - type: nauc_mrr_at_1000_std
-      value: -2.7043999999999997
+      value: -2.0868
     - type: nauc_mrr_at_1000_diff1
-      value: 48.1413
+      value: 46.812799999999996
     - type: main_score
-      value: 54.106
+      value: 53.047999999999995
     task:
       type: Retrieval
   - dataset:
@@ -2850,287 +2862,287 @@ model-index:
       type: mteb/cqadupstack-english
     metrics:
     - type: ndcg_at_1
-      value: 41.274
+      value: 35.796
     - type: ndcg_at_3
-      value: 46.022999999999996
+      value: 40.036
     - type: ndcg_at_5
-      value: 47.882999999999996
+      value: 41.778
     - type: ndcg_at_10
-      value: 50.251000000000005
+      value: 43.868
     - type: ndcg_at_20
-      value: 51.93
+      value: 45.777
     - type: ndcg_at_100
-      value: 54.725
+      value: 48.771
     - type: ndcg_at_1000
-      value: 56.635000000000005
+      value: 51.001
     - type: map_at_1
-      value: 32.748
+      value: 28.177000000000003
     - type: map_at_3
-      value: 40.916000000000004
+      value: 35.445
     - type: map_at_5
-      value: 42.620999999999995
+      value: 36.976
     - type: map_at_10
-      value: 44.138
+      value: 38.25
     - type: map_at_20
-      value: 44.911
+      value: 38.981
     - type: map_at_100
-      value: 45.565
+      value: 39.585
     - type: map_at_1000
-      value: 45.698
+      value: 39.728
     - type: recall_at_1
-      value: 32.748
+      value: 28.177000000000003
     - type: recall_at_3
-      value: 47.522999999999996
+      value: 41.782000000000004
     - type: recall_at_5
-      value: 52.957
+      value: 46.861000000000004
     - type: recall_at_10
-      value: 60.321999999999996
+      value: 53.464
     - type: recall_at_20
-      value: 66.506
+      value: 60.621
     - type: recall_at_100
-      value: 79.669
+      value: 74.628
     - type: recall_at_1000
-      value: 91.73
+      value: 88.839
     - type: precision_at_1
-      value: 41.274
+      value: 35.796
     - type: precision_at_3
-      value: 22.718
+      value: 19.639
     - type: precision_at_5
-      value: 16.064
+      value: 13.924
     - type: precision_at_10
-      value: 9.828000000000001
+      value: 8.439
     - type: precision_at_20
-      value: 5.783
+      value: 5.016
     - type: precision_at_100
-      value: 1.5730000000000002
+      value: 1.394
     - type: precision_at_1000
-      value: 0.202
+      value: 0.189
     - type: mrr_at_1
-      value: 41.273900000000005
+      value: 35.7962
     - type: mrr_at_3
-      value: 48.2378
+      value: 42.1019
     - type: mrr_at_5
-      value: 49.5626
+      value: 43.4172
     - type: mrr_at_10
-      value: 50.459900000000005
+      value: 44.2407
     - type: mrr_at_20
-      value: 50.805
+      value: 44.6907
     - type: mrr_at_100
-      value: 51.069900000000004
+      value: 45.0075
     - type: mrr_at_1000
-      value: 51.1088
+      value: 45.059
     - type: nauc_ndcg_at_1_max
-      value: 44.7657
+      value: 47.856
     - type: nauc_ndcg_at_1_std
-      value: 3.7028
+      value: 3.0363
     - type: nauc_ndcg_at_1_diff1
-      value: 52.017199999999995
+      value: 48.7364
     - type: nauc_ndcg_at_3_max
-      value: 45.2602
+      value: 49.2728
     - type: nauc_ndcg_at_3_std
-      value: 3.9891
+      value: 4.1776
     - type: nauc_ndcg_at_3_diff1
-      value: 48.9746
+      value: 45.1449
     - type: nauc_ndcg_at_5_max
-      value: 45.0766
+      value: 49.5649
     - type: nauc_ndcg_at_5_std
-      value: 4.1764
+      value: 3.7340999999999998
     - type: nauc_ndcg_at_5_diff1
-      value: 48.5708
+      value: 44.6651
     - type: nauc_ndcg_at_10_max
-      value: 45.0325
+      value: 50.1977
     - type: nauc_ndcg_at_10_std
-      value: 4.8281
+      value: 4.5302
     - type: nauc_ndcg_at_10_diff1
-      value: 47.6424
+      value: 45.0403
     - type: nauc_ndcg_at_20_max
-      value: 45.2904
+      value: 49.9326
     - type: nauc_ndcg_at_20_std
-      value: 5.739
+      value: 5.5147
     - type: nauc_ndcg_at_20_diff1
-      value: 47.7781
+      value: 44.5055
     - type: nauc_ndcg_at_100_max
-      value: 45.6547
+      value: 50.3035
     - type: nauc_ndcg_at_100_std
-      value: 7.6744
+      value: 7.1086
     - type: nauc_ndcg_at_100_diff1
-      value: 47.2483
+      value: 44.451
     - type: nauc_ndcg_at_1000_max
-      value: 45.5879
+      value: 50.1836
     - type: nauc_ndcg_at_1000_std
-      value: 7.919
+      value: 7.4503
     - type: nauc_ndcg_at_1000_diff1
-      value: 47.172799999999995
+      value: 44.301899999999996
     - type: nauc_map_at_1_max
-      value: 35.7481
+      value: 41.2555
     - type: nauc_map_at_1_std
-      value: -6.451
+      value: -5.2668
     - type: nauc_map_at_1_diff1
-      value: 55.3994
+      value: 52.0284
     - type: nauc_map_at_3_max
-      value: 41.4679
+      value: 46.6939
     - type: nauc_map_at_3_std
-      value: -2.2265
+      value: -0.8533000000000001
     - type: nauc_map_at_3_diff1
-      value: 51.9234
+      value: 47.9095
     - type: nauc_map_at_5_max
-      value: 42.2532
+      value: 47.5024
     - type: nauc_map_at_5_std
-      value: -0.9950000000000001
+      value: -0.05109999999999999
     - type: nauc_map_at_5_diff1
-      value: 51.172200000000004
+      value: 47.1421
     - type: nauc_map_at_10_max
-      value: 43.0496
+      value: 48.1632
     - type: nauc_map_at_10_std
-      value: 0.3319
+      value: 0.8672
     - type: nauc_map_at_10_diff1
-      value: 50.3961
+      value: 46.9929
     - type: nauc_map_at_20_max
-      value: 43.6286
+      value: 48.2708
     - type: nauc_map_at_20_std
-      value: 1.2991000000000001
+      value: 1.5195
     - type: nauc_map_at_20_diff1
-      value: 50.2938
+      value: 46.7349
     - type: nauc_map_at_100_max
-      value: 43.906800000000004
+      value: 48.5516
     - type: nauc_map_at_100_std
-      value: 2.1626
+      value: 2.1593
     - type: nauc_map_at_100_diff1
-      value: 50.1124
+      value: 46.6641
     - type: nauc_map_at_1000_max
-      value: 43.9529
+      value: 48.6017
     - type: nauc_map_at_1000_std
-      value: 2.309
+      value: 2.2745
     - type: nauc_map_at_1000_diff1
-      value: 50.0859
+      value: 46.649
     - type: nauc_recall_at_1_max
-      value: 35.7481
+      value: 41.2555
     - type: nauc_recall_at_1_std
-      value: -6.451
+      value: -5.2668
     - type: nauc_recall_at_1_diff1
-      value: 55.3994
+      value: 52.0284
     - type: nauc_recall_at_3_max
-      value: 40.739
+      value: 47.0403
     - type: nauc_recall_at_3_std
-      value: -0.9688
+      value: 1.5399
     - type: nauc_recall_at_3_diff1
-      value: 47.1898
+      value: 42.998599999999996
     - type: nauc_recall_at_5_max
-      value: 41.494
+      value: 47.7652
     - type: nauc_recall_at_5_std
-      value: 2.1174
+      value: 2.5079000000000002
     - type: nauc_recall_at_5_diff1
-      value: 44.5816
+      value: 40.131099999999996
     - type: nauc_recall_at_10_max
-      value: 41.739
+      value: 49.215199999999996
     - type: nauc_recall_at_10_std
-      value: 5.7603
+      value: 5.6207
     - type: nauc_recall_at_10_diff1
-      value: 39.9929
+      value: 40.0067
     - type: nauc_recall_at_20_max
-      value: 42.9217
+      value: 47.6907
     - type: nauc_recall_at_20_std
-      value: 10.6088
+      value: 10.0091
     - type: nauc_recall_at_20_diff1
-      value: 39.1455
+      value: 36.548
     - type: nauc_recall_at_100_max
-      value: 45.1375
+      value: 49.8978
     - type: nauc_recall_at_100_std
-      value: 25.986700000000003
+      value: 20.7533
     - type: nauc_recall_at_100_diff1
-      value: 33.972
+      value: 34.463100000000004
     - type: nauc_recall_at_1000_max
-      value: 46.050200000000004
+      value: 49.2751
     - type: nauc_recall_at_1000_std
-      value: 44.597300000000004
+      value: 33.7021
     - type: nauc_recall_at_1000_diff1
-      value: 26.326100000000004
+      value: 27.995199999999997
     - type: nauc_precision_at_1_max
-      value: 44.7657
+      value: 47.856
     - type: nauc_precision_at_1_std
-      value: 3.7028
+      value: 3.0363
     - type: nauc_precision_at_1_diff1
-      value: 52.017199999999995
+      value: 48.7364
     - type: nauc_precision_at_3_max
-      value: 44.291799999999995
+      value: 48.0591
     - type: nauc_precision_at_3_std
-      value: 18.334500000000002
+      value: 16.0079
     - type: nauc_precision_at_3_diff1
-      value: 25.625500000000002
+      value: 28.286099999999998
     - type: nauc_precision_at_5_max
-      value: 40.8025
+      value: 45.3901
     - type: nauc_precision_at_5_std
-      value: 23.6687
+      value: 18.939500000000002
     - type: nauc_precision_at_5_diff1
-      value: 16.6574
+      value: 20.7183
     - type: nauc_precision_at_10_max
-      value: 35.7196
+      value: 40.2901
     - type: nauc_precision_at_10_std
-      value: 29.852099999999997
+      value: 24.1368
     - type: nauc_precision_at_10_diff1
-      value: 5.6891
+      value: 13.1708
     - type: nauc_precision_at_20_max
-      value: 30.119
+      value: 34.5736
     - type: nauc_precision_at_20_std
-      value: 33.204
+      value: 28.524
     - type: nauc_precision_at_20_diff1
-      value: -0.23509999999999998
+      value: 6.0857
     - type: nauc_precision_at_100_max
-      value: 18.7797
+      value: 24.0575
     - type: nauc_precision_at_100_std
-      value: 38.9405
+      value: 32.7048
     - type: nauc_precision_at_100_diff1
-      value: -10.8005
+      value: -4.175800000000001
     - type: nauc_precision_at_1000_max
-      value: 9.0466
+      value: 11.3804
     - type: nauc_precision_at_1000_std
-      value: 35.3392
+      value: 28.917700000000004
     - type: nauc_precision_at_1000_diff1
-      value: -16.3137
+      value: -11.994100000000001
     - type: nauc_mrr_at_1_max
-      value: 44.7657
+      value: 47.856
     - type: nauc_mrr_at_1_std
-      value: 3.7028
+      value: 3.0363
     - type: nauc_mrr_at_1_diff1
-      value: 52.017199999999995
+      value: 48.7364
     - type: nauc_mrr_at_3_max
-      value: 45.8134
+      value: 50.048
     - type: nauc_mrr_at_3_std
-      value: 5.6788
+      value: 6.464300000000001
     - type: nauc_mrr_at_3_diff1
-      value: 48.666199999999996
+      value: 45.5115
     - type: nauc_mrr_at_5_max
-      value: 45.8823
+      value: 50.0947
     - type: nauc_mrr_at_5_std
-      value: 6.4417
+      value: 6.3483
     - type: nauc_mrr_at_5_diff1
-      value: 48.1545
+      value: 44.8476
     - type: nauc_mrr_at_10_max
-      value: 45.813500000000005
+      value: 50.244699999999995
     - type: nauc_mrr_at_10_std
-      value: 6.7535
+      value: 6.666900000000001
     - type: nauc_mrr_at_10_diff1
-      value: 47.726400000000005
+      value: 45.0222
     - type: nauc_mrr_at_20_max
-      value: 45.792500000000004
+      value: 50.1332
     - type: nauc_mrr_at_20_std
-      value: 6.8521
+      value: 6.868200000000001
     - type: nauc_mrr_at_20_diff1
-      value: 47.7553
+      value: 44.8895
     - type: nauc_mrr_at_100_max
-      value: 45.8482
+      value: 50.1173
     - type: nauc_mrr_at_100_std
-      value: 6.979399999999999
+      value: 6.930600000000001
     - type: nauc_mrr_at_100_diff1
-      value: 47.7743
+      value: 44.8887
     - type: nauc_mrr_at_1000_max
-      value: 45.8456
+      value: 50.11259999999999
     - type: nauc_mrr_at_1000_std
-      value: 6.9712
+      value: 6.923799999999999
     - type: nauc_mrr_at_1000_diff1
-      value: 47.7803
+      value: 44.8928
     - type: main_score
-      value: 50.251000000000005
+      value: 43.868
     task:
       type: Retrieval
   - dataset:
@@ -3141,287 +3153,287 @@ model-index:
       type: mteb/cqadupstack-gaming
     metrics:
     - type: ndcg_at_1
-      value: 47.147
+      value: 43.448
     - type: ndcg_at_3
-      value: 53.969
+      value: 51.032999999999994
     - type: ndcg_at_5
-      value: 56.743
+      value: 53.73
     - type: ndcg_at_10
-      value: 59.318000000000005
+      value: 56.369
     - type: ndcg_at_20
-      value: 60.897999999999996
+      value: 58.167
     - type: ndcg_at_100
-      value: 62.971999999999994
+      value: 60.28
     - type: ndcg_at_1000
-      value: 64.033
+      value: 61.511
     - type: map_at_1
-      value: 41.126000000000005
+      value: 38.115
     - type: map_at_3
-      value: 50.388999999999996
+      value: 47.355999999999995
     - type: map_at_5
-      value: 52.286
+      value: 49.221
     - type: map_at_10
-      value: 53.661
+      value: 50.57000000000001
     - type: map_at_20
-      value: 54.228
+      value: 51.2
     - type: map_at_100
-      value: 54.588
+      value: 51.568999999999996
     - type: map_at_1000
-      value: 54.638
+      value: 51.627
     - type: recall_at_1
-      value: 41.126000000000005
+      value: 38.115
     - type: recall_at_3
-      value: 58.374
+      value: 55.733
     - type: recall_at_5
-      value: 65.226
+      value: 62.41100000000001
     - type: recall_at_10
-      value: 72.69099999999999
+      value: 70.11800000000001
     - type: recall_at_20
-      value: 78.62
+      value: 76.714
     - type: recall_at_100
-      value: 88.69200000000001
+      value: 87.071
     - type: recall_at_1000
-      value: 96.232
+      value: 95.921
     - type: precision_at_1
-      value: 47.147
+      value: 43.448
     - type: precision_at_3
-      value: 24.159
+      value: 22.947
     - type: precision_at_5
-      value: 16.577
+      value: 15.799
     - type: precision_at_10
-      value: 9.549000000000001
+      value: 9.154
     - type: precision_at_20
-      value: 5.276
+      value: 5.141
     - type: precision_at_100
-      value: 1.224
+      value: 1.196
     - type: precision_at_1000
       value: 0.135
     - type: mrr_at_1
-      value: 47.147299999999994
+      value: 43.4483
     - type: mrr_at_3
-      value: 54.4305
+      value: 51.3689
     - type: mrr_at_5
-      value: 55.95719999999999
+      value: 52.8955
     - type: mrr_at_10
-      value: 56.8499
+      value: 53.809200000000004
     - type: mrr_at_20
-      value: 57.230000000000004
+      value: 54.224700000000006
     - type: mrr_at_100
-      value: 57.4584
+      value: 54.4617
     - type: mrr_at_1000
-      value: 57.4867
+      value: 54.49079999999999
     - type: nauc_ndcg_at_1_max
-      value: 43.5129
+      value: 41.9268
     - type: nauc_ndcg_at_1_std
-      value: -3.5116
+      value: -6.0252
     - type: nauc_ndcg_at_1_diff1
-      value: 52.717000000000006
+      value: 55.4978
     - type: nauc_ndcg_at_3_max
-      value: 43.6514
+      value: 43.5492
     - type: nauc_ndcg_at_3_std
-      value: -3.7903
+      value: -4.7010000000000005
     - type: nauc_ndcg_at_3_diff1
-      value: 48.7913
+      value: 51.0898
     - type: nauc_ndcg_at_5_max
-      value: 44.465700000000005
+      value: 44.7544
     - type: nauc_ndcg_at_5_std
-      value: -3.3794999999999997
+      value: -2.9584
     - type: nauc_ndcg_at_5_diff1
-      value: 48.8527
+      value: 50.6481
     - type: nauc_ndcg_at_10_max
-      value: 46.0891
+      value: 45.2203
     - type: nauc_ndcg_at_10_std
-      value: -0.5534
+      value: -1.6934
     - type: nauc_ndcg_at_10_diff1
-      value: 48.857099999999996
+      value: 49.9874
     - type: nauc_ndcg_at_20_max
-      value: 46.1334
+      value: 45.002199999999995
     - type: nauc_ndcg_at_20_std
-      value: 0.2072
+      value: -0.9383
     - type: nauc_ndcg_at_20_diff1
-      value: 48.8269
+      value: 49.666700000000006
     - type: nauc_ndcg_at_100_max
-      value: 46.2793
+      value: 45.448699999999995
     - type: nauc_ndcg_at_100_std
-      value: 1.2965
+      value: -0.1934
     - type: nauc_ndcg_at_100_diff1
-      value: 48.6421
+      value: 50.0483
     - type: nauc_ndcg_at_1000_max
-      value: 46.1606
+      value: 45.3335
     - type: nauc_ndcg_at_1000_std
-      value: 0.5259
+      value: -0.42389999999999994
     - type: nauc_ndcg_at_1000_diff1
-      value: 48.9864
+      value: 50.5614
     - type: nauc_map_at_1_max
-      value: 36.4337
+      value: 35.7022
     - type: nauc_map_at_1_std
-      value: -5.6848
+      value: -6.6763
     - type: nauc_map_at_1_diff1
-      value: 53.42360000000001
+      value: 54.848699999999994
     - type: nauc_map_at_3_max
-      value: 41.6669
+      value: 41.5987
     - type: nauc_map_at_3_std
-      value: -5.6545
+      value: -6.3043000000000005
     - type: nauc_map_at_3_diff1
-      value: 49.6128
+      value: 52.058400000000006
     - type: nauc_map_at_5_max
-      value: 42.6809
+      value: 42.5887
     - type: nauc_map_at_5_std
-      value: -4.9988
+      value: -5.0012
     - type: nauc_map_at_5_diff1
-      value: 49.645
+      value: 51.804300000000005
     - type: nauc_map_at_10_max
-      value: 43.7393
+      value: 43.085
     - type: nauc_map_at_10_std
-      value: -3.3649
+      value: -4.1721
     - type: nauc_map_at_10_diff1
-      value: 49.574
+      value: 51.524499999999996
     - type: nauc_map_at_20_max
-      value: 43.9855
+      value: 43.185
     - type: nauc_map_at_20_std
-      value: -2.8590999999999998
+      value: -3.6862
     - type: nauc_map_at_20_diff1
-      value: 49.5139
+      value: 51.4297
     - type: nauc_map_at_100_max
-      value: 44.0978
+      value: 43.3473
     - type: nauc_map_at_100_std
-      value: -2.604
+      value: -3.4286999999999996
     - type: nauc_map_at_100_diff1
-      value: 49.4857
+      value: 51.497099999999996
     - type: nauc_map_at_1000_max
-      value: 44.114399999999996
+      value: 43.358799999999995
     - type: nauc_map_at_1000_std
-      value: -2.6081
+      value: -3.3894
     - type: nauc_map_at_1000_diff1
-      value: 49.508799999999994
+      value: 51.5155
     - type: nauc_recall_at_1_max
-      value: 36.4337
+      value: 35.7022
     - type: nauc_recall_at_1_std
-      value: -5.6848
+      value: -6.6763
     - type: nauc_recall_at_1_diff1
-      value: 53.42360000000001
+      value: 54.848699999999994
     - type: nauc_recall_at_3_max
-      value: 41.320299999999996
+      value: 42.9096
     - type: nauc_recall_at_3_std
-      value: -5.7135
+      value: -5.9907
     - type: nauc_recall_at_3_diff1
-      value: 45.0436
+      value: 47.407
     - type: nauc_recall_at_5_max
-      value: 43.1656
+      value: 45.9891
     - type: nauc_recall_at_5_std
-      value: -3.8888
+      value: -0.5341
     - type: nauc_recall_at_5_diff1
-      value: 44.3304
+      value: 45.336
     - type: nauc_recall_at_10_max
-      value: 48.9816
+      value: 47.457899999999995
     - type: nauc_recall_at_10_std
-      value: 5.9506000000000006
+      value: 4.2982
     - type: nauc_recall_at_10_diff1
-      value: 43.9217
+      value: 41.6
     - type: nauc_recall_at_20_max
-      value: 50.5525
+      value: 47.3364
     - type: nauc_recall_at_20_std
-      value: 11.8017
+      value: 9.667100000000001
     - type: nauc_recall_at_20_diff1
-      value: 43.4987
+      value: 38.4822
     - type: nauc_recall_at_100_max
-      value: 54.654
+      value: 52.0554
     - type: nauc_recall_at_100_std
-      value: 31.634800000000002
+      value: 21.6585
     - type: nauc_recall_at_100_diff1
-      value: 38.7139
+      value: 35.2361
     - type: nauc_recall_at_1000_max
-      value: 62.253
+      value: 62.38590000000001
     - type: nauc_recall_at_1000_std
-      value: 42.6522
+      value: 42.5442
     - type: nauc_recall_at_1000_diff1
-      value: 38.3715
+      value: 37.1857
     - type: nauc_precision_at_1_max
-      value: 43.5129
+      value: 41.9268
     - type: nauc_precision_at_1_std
-      value: -3.5116
+      value: -6.0252
     - type: nauc_precision_at_1_diff1
-      value: 52.717000000000006
+      value: 55.4978
     - type: nauc_precision_at_3_max
-      value: 41.983399999999996
+      value: 44.0934
     - type: nauc_precision_at_3_std
-      value: 2.4643
+      value: 2.4657
     - type: nauc_precision_at_3_diff1
-      value: 28.185
+      value: 33.468399999999995
     - type: nauc_precision_at_5_max
-      value: 39.8061
+      value: 41.8649
     - type: nauc_precision_at_5_std
-      value: 6.4715
+      value: 8.4992
     - type: nauc_precision_at_5_diff1
-      value: 21.333199999999998
+      value: 25.8132
     - type: nauc_precision_at_10_max
-      value: 37.914500000000004
+      value: 36.8909
     - type: nauc_precision_at_10_std
-      value: 17.1485
+      value: 15.173200000000001
     - type: nauc_precision_at_10_diff1
-      value: 12.6277
+      value: 16.0022
     - type: nauc_precision_at_20_max
-      value: 34.0432
+      value: 31.3774
     - type: nauc_precision_at_20_std
-      value: 23.0425
+      value: 21.304100000000002
     - type: nauc_precision_at_20_diff1
-      value: 5.551699999999999
+      value: 7.8406
     - type: nauc_precision_at_100_max
-      value: 26.0405
+      value: 23.828
     - type: nauc_precision_at_100_std
-      value: 28.572599999999998
+      value: 27.3387
     - type: nauc_precision_at_100_diff1
-      value: -4.2162
+      value: -0.5574
     - type: nauc_precision_at_1000_max
-      value: 20.176099999999998
+      value: 14.3787
     - type: nauc_precision_at_1000_std
-      value: 27.293499999999998
+      value: 27.8714
     - type: nauc_precision_at_1000_diff1
-      value: -7.4514
+      value: -6.372400000000001
     - type: nauc_mrr_at_1_max
-      value: 43.5129
+      value: 41.9268
     - type: nauc_mrr_at_1_std
-      value: -3.5116
+      value: -6.0252
     - type: nauc_mrr_at_1_diff1
-      value: 52.717000000000006
+      value: 55.4978
     - type: nauc_mrr_at_3_max
-      value: 44.9785
+      value: 44.3228
     - type: nauc_mrr_at_3_std
-      value: -2.2618
+      value: -4.8039
     - type: nauc_mrr_at_3_diff1
-      value: 49.8663
+      value: 52.6895
     - type: nauc_mrr_at_5_max
-      value: 45.1749
+      value: 45.0053
     - type: nauc_mrr_at_5_std
-      value: -2.1027
+      value: -3.5381000000000005
     - type: nauc_mrr_at_5_diff1
-      value: 49.8332
+      value: 52.321
     - type: nauc_mrr_at_10_max
-      value: 45.6015
+      value: 44.9242
     - type: nauc_mrr_at_10_std
-      value: -1.3832
+      value: -3.2841
     - type: nauc_mrr_at_10_diff1
-      value: 49.9586
+      value: 52.0518
     - type: nauc_mrr_at_20_max
-      value: 45.535399999999996
+      value: 44.8189
     - type: nauc_mrr_at_20_std
-      value: -1.2799
+      value: -3.1717000000000004
     - type: nauc_mrr_at_20_diff1
-      value: 49.9829
+      value: 52.0415
     - type: nauc_mrr_at_100_max
-      value: 45.5168
+      value: 44.8679
     - type: nauc_mrr_at_100_std
-      value: -1.2195
+      value: -3.1606
     - type: nauc_mrr_at_100_diff1
-      value: 49.9728
+      value: 52.1083
     - type: nauc_mrr_at_1000_max
-      value: 45.5076
+      value: 44.864599999999996
     - type: nauc_mrr_at_1000_std
-      value: -1.2494
+      value: -3.167
     - type: nauc_mrr_at_1000_diff1
-      value: 49.977
+      value: 52.121399999999994
     - type: main_score
-      value: 59.318000000000005
+      value: 56.369
     task:
       type: Retrieval
   - dataset:
@@ -3432,287 +3444,287 @@ model-index:
       type: mteb/cqadupstack-gis
     metrics:
     - type: ndcg_at_1
-      value: 30.734
+      value: 31.863999999999997
     - type: ndcg_at_3
-      value: 38.672000000000004
+      value: 38.537
     - type: ndcg_at_5
-      value: 40.954
+      value: 41.104
     - type: ndcg_at_10
-      value: 43.564
+      value: 43.503
     - type: ndcg_at_20
-      value: 45.48
+      value: 45.413
     - type: ndcg_at_100
-      value: 48.419000000000004
+      value: 48.291000000000004
     - type: ndcg_at_1000
-      value: 50.404
+      value: 50.26199999999999
     - type: map_at_1
-      value: 28.464
+      value: 29.37
     - type: map_at_3
-      value: 35.704
+      value: 35.824
     - type: map_at_5
-      value: 37.116
+      value: 37.408
     - type: map_at_10
-      value: 38.279999999999994
+      value: 38.452999999999996
     - type: map_at_20
-      value: 38.834
+      value: 39.004
     - type: map_at_100
-      value: 39.277
+      value: 39.421
     - type: map_at_1000
-      value: 39.355000000000004
+      value: 39.501
     - type: recall_at_1
-      value: 28.464
+      value: 29.37
     - type: recall_at_3
-      value: 44.588
+      value: 43.442
     - type: recall_at_5
-      value: 50.031000000000006
+      value: 49.551
     - type: recall_at_10
-      value: 57.621
+      value: 56.791000000000004
     - type: recall_at_20
-      value: 64.85499999999999
+      value: 63.93
     - type: recall_at_100
-      value: 79.66
+      value: 78.666
     - type: recall_at_1000
-      value: 94.633
+      value: 93.354
     - type: precision_at_1
-      value: 30.734
+      value: 31.863999999999997
     - type: precision_at_3
-      value: 16.497
+      value: 16.083
     - type: precision_at_5
       value: 11.254
     - type: precision_at_10
-      value: 6.633
+      value: 6.508
     - type: precision_at_20
-      value: 3.757
+      value: 3.712
     - type: precision_at_100
-      value: 0.9560000000000001
+      value: 0.9390000000000001
     - type: precision_at_1000
-      value: 0.116
+      value: 0.11399999999999999
     - type: mrr_at_1
-      value: 30.734499999999997
+      value: 31.8644
     - type: mrr_at_3
-      value: 38.1356
+      value: 38.5122
     - type: mrr_at_5
-      value: 39.3616
+      value: 39.873799999999996
     - type: mrr_at_10
-      value: 40.4225
+      value: 40.8308
     - type: mrr_at_20
-      value: 40.9334
+      value: 41.3284
     - type: mrr_at_100
-      value: 41.297200000000004
+      value: 41.6819
     - type: mrr_at_1000
-      value: 41.354600000000005
+      value: 41.7416
     - type: nauc_ndcg_at_1_max
-      value: 30.2094
+      value: 33.7601
     - type: nauc_ndcg_at_1_std
-      value: -6.9741
+      value: -9.8717
     - type: nauc_ndcg_at_1_diff1
-      value: 47.5543
+      value: 42.2537
     - type: nauc_ndcg_at_3_max
-      value: 31.4334
+      value: 34.409600000000005
     - type: nauc_ndcg_at_3_std
-      value: -4.7826
+      value: -10.6027
     - type: nauc_ndcg_at_3_diff1
-      value: 41.1025
+      value: 40.0317
     - type: nauc_ndcg_at_5_max
-      value: 32.3557
+      value: 34.0482
     - type: nauc_ndcg_at_5_std
-      value: -4.1379
+      value: -9.0778
     - type: nauc_ndcg_at_5_diff1
-      value: 40.81
+      value: 39.421499999999995
     - type: nauc_ndcg_at_10_max
-      value: 32.3949
+      value: 34.5365
     - type: nauc_ndcg_at_10_std
-      value: -2.3524
+      value: -7.3511999999999995
     - type: nauc_ndcg_at_10_diff1
-      value: 39.5175
+      value: 38.6886
     - type: nauc_ndcg_at_20_max
-      value: 31.680500000000002
+      value: 35.335699999999996
     - type: nauc_ndcg_at_20_std
-      value: -1.7559000000000002
+      value: -5.9596
     - type: nauc_ndcg_at_20_diff1
-      value: 38.1515
+      value: 38.6051
     - type: nauc_ndcg_at_100_max
-      value: 31.4167
+      value: 34.6961
     - type: nauc_ndcg_at_100_std
-      value: -1.0329
+      value: -6.5812
     - type: nauc_ndcg_at_100_diff1
-      value: 37.8268
+      value: 37.8079
     - type: nauc_ndcg_at_1000_max
-      value: 31.736900000000002
+      value: 34.3938
     - type: nauc_ndcg_at_1000_std
-      value: -1.8415000000000001
+      value: -6.9155
     - type: nauc_ndcg_at_1000_diff1
-      value: 39.0335
+      value: 38.2247
     - type: nauc_map_at_1_max
-      value: 28.260099999999998
+      value: 32.231500000000004
     - type: nauc_map_at_1_std
-      value: -9.0806
+      value: -11.4991
     - type: nauc_map_at_1_diff1
-      value: 47.6706
+      value: 44.7044
     - type: nauc_map_at_3_max
-      value: 30.551000000000002
+      value: 34.0411
     - type: nauc_map_at_3_std
-      value: -6.0257
+      value: -10.8111
     - type: nauc_map_at_3_diff1
-      value: 42.8155
+      value: 41.6004
     - type: nauc_map_at_5_max
-      value: 31.285800000000002
+      value: 33.9275
     - type: nauc_map_at_5_std
-      value: -5.671600000000001
+      value: -9.9881
     - type: nauc_map_at_5_diff1
-      value: 42.5887
+      value: 41.1704
     - type: nauc_map_at_10_max
-      value: 31.329800000000002
+      value: 34.1806
     - type: nauc_map_at_10_std
-      value: -4.8092999999999995
+      value: -9.2606
     - type: nauc_map_at_10_diff1
-      value: 41.9856
+      value: 40.9213
     - type: nauc_map_at_20_max
-      value: 31.2046
+      value: 34.474
     - type: nauc_map_at_20_std
-      value: -4.612
+      value: -8.798599999999999
     - type: nauc_map_at_20_diff1
-      value: 41.658699999999996
+      value: 40.9088
     - type: nauc_map_at_100_max
-      value: 31.181399999999996
+      value: 34.381699999999995
     - type: nauc_map_at_100_std
-      value: -4.4687
+      value: -8.869
     - type: nauc_map_at_100_diff1
-      value: 41.5836
+      value: 40.7894
     - type: nauc_map_at_1000_max
-      value: 31.1979
+      value: 34.3718
     - type: nauc_map_at_1000_std
-      value: -4.4772
+      value: -8.8674
     - type: nauc_map_at_1000_diff1
-      value: 41.627900000000004
+      value: 40.801700000000004
     - type: nauc_recall_at_1_max
-      value: 28.260099999999998
+      value: 32.231500000000004
     - type: nauc_recall_at_1_std
-      value: -9.0806
+      value: -11.4991
     - type: nauc_recall_at_1_diff1
-      value: 47.6706
+      value: 44.7044
     - type: nauc_recall_at_3_max
-      value: 31.129800000000003
+      value: 33.4997
     - type: nauc_recall_at_3_std
-      value: -3.2782
+      value: -10.793999999999999
     - type: nauc_recall_at_3_diff1
-      value: 35.4529
+      value: 36.8971
     - type: nauc_recall_at_5_max
-      value: 33.6541
+      value: 33.217600000000004
     - type: nauc_recall_at_5_std
-      value: -1.7704999999999997
+      value: -7.4771
     - type: nauc_recall_at_5_diff1
-      value: 34.9944
+      value: 35.7378
     - type: nauc_recall_at_10_max
-      value: 33.536100000000005
+      value: 34.3881
     - type: nauc_recall_at_10_std
-      value: 3.4567
+      value: -1.9206
     - type: nauc_recall_at_10_diff1
-      value: 30.553599999999996
+      value: 33.024300000000004
     - type: nauc_recall_at_20_max
-      value: 29.889100000000003
+      value: 37.1734
     - type: nauc_recall_at_20_std
-      value: 6.5926
+      value: 4.5757
     - type: nauc_recall_at_20_diff1
-      value: 23.217
+      value: 31.7119
     - type: nauc_recall_at_100_max
-      value: 27.4646
+      value: 33.3328
     - type: nauc_recall_at_100_std
-      value: 15.746199999999998
+      value: 4.0235
     - type: nauc_recall_at_100_diff1
-      value: 15.1327
+      value: 23.5836
     - type: nauc_recall_at_1000_max
-      value: 32.294200000000004
+      value: 23.6203
     - type: nauc_recall_at_1000_std
-      value: 21.6293
+      value: 10.4212
     - type: nauc_recall_at_1000_diff1
-      value: 11.265600000000001
+      value: 16.5204
     - type: nauc_precision_at_1_max
-      value: 30.2094
+      value: 33.7601
     - type: nauc_precision_at_1_std
-      value: -6.9741
+      value: -9.8717
     - type: nauc_precision_at_1_diff1
-      value: 47.5543
+      value: 42.2537
     - type: nauc_precision_at_3_max
-      value: 34.3053
+      value: 37.046099999999996
     - type: nauc_precision_at_3_std
-      value: 0.42760000000000004
+      value: -8.1696
     - type: nauc_precision_at_3_diff1
-      value: 33.4827
+      value: 32.893699999999995
     - type: nauc_precision_at_5_max
-      value: 35.4035
+      value: 33.5411
     - type: nauc_precision_at_5_std
-      value: 2.3141
+      value: -3.8621000000000003
     - type: nauc_precision_at_5_diff1
-      value: 30.8004
+      value: 28.4192
     - type: nauc_precision_at_10_max
-      value: 33.4042
+      value: 33.8177
     - type: nauc_precision_at_10_std
-      value: 8.6847
+      value: 1.4605
     - type: nauc_precision_at_10_diff1
-      value: 23.558200000000003
+      value: 23.8779
     - type: nauc_precision_at_20_max
-      value: 29.015200000000004
+      value: 33.2362
     - type: nauc_precision_at_20_std
-      value: 11.3556
+      value: 6.8675
     - type: nauc_precision_at_20_diff1
-      value: 15.774099999999999
+      value: 19.12
     - type: nauc_precision_at_100_max
-      value: 16.663700000000002
+      value: 22.0581
     - type: nauc_precision_at_100_std
-      value: 14.666100000000002
+      value: 5.6537999999999995
     - type: nauc_precision_at_100_diff1
-      value: 2.1911
+      value: 2.677
     - type: nauc_precision_at_1000_max
-      value: 7.348599999999999
+      value: 6.4192
     - type: nauc_precision_at_1000_std
-      value: 8.8804
+      value: 5.2604999999999995
     - type: nauc_precision_at_1000_diff1
-      value: -7.026599999999999
+      value: -12.5191
     - type: nauc_mrr_at_1_max
-      value: 30.2094
+      value: 33.7601
     - type: nauc_mrr_at_1_std
-      value: -6.9741
+      value: -9.8717
     - type: nauc_mrr_at_1_diff1
-      value: 47.5543
+      value: 42.2537
     - type: nauc_mrr_at_3_max
-      value: 31.831500000000002
+      value: 34.590700000000005
     - type: nauc_mrr_at_3_std
-      value: -3.6407000000000003
+      value: -9.3063
     - type: nauc_mrr_at_3_diff1
-      value: 42.445
+      value: 39.157599999999995
     - type: nauc_mrr_at_5_max
-      value: 32.273
+      value: 34.262
     - type: nauc_mrr_at_5_std
-      value: -3.5416000000000003
+      value: -8.6629
     - type: nauc_mrr_at_5_diff1
-      value: 42.5464
+      value: 38.7425
     - type: nauc_mrr_at_10_max
-      value: 32.3297
+      value: 34.3456
     - type: nauc_mrr_at_10_std
-      value: -2.9149000000000003
+      value: -8.0433
     - type: nauc_mrr_at_10_diff1
-      value: 42.0233
+      value: 38.474199999999996
     - type: nauc_mrr_at_20_max
-      value: 32.124
+      value: 34.504400000000004
     - type: nauc_mrr_at_20_std
-      value: -2.7826
+      value: -7.7764
     - type: nauc_mrr_at_20_diff1
-      value: 41.652
+      value: 38.4646
     - type: nauc_mrr_at_100_max
-      value: 32.0994
+      value: 34.407700000000006
     - type: nauc_mrr_at_100_std
-      value: -2.7182999999999997
+      value: -7.8669
     - type: nauc_mrr_at_100_diff1
-      value: 41.6024
+      value: 38.4062
     - type: nauc_mrr_at_1000_max
-      value: 32.1058
+      value: 34.400999999999996
     - type: nauc_mrr_at_1000_std
-      value: -2.7332
+      value: -7.8653
     - type: nauc_mrr_at_1000_diff1
-      value: 41.652899999999995
+      value: 38.4264
     - type: main_score
-      value: 43.564
+      value: 43.503
     task:
       type: Retrieval
   - dataset:
@@ -3723,287 +3735,287 @@ model-index:
       type: mteb/cqadupstack-mathematica
     metrics:
     - type: ndcg_at_1
-      value: 22.886
+      value: 22.637
     - type: ndcg_at_3
-      value: 27.864
+      value: 26.865
     - type: ndcg_at_5
-      value: 30.177
+      value: 29.506
     - type: ndcg_at_10
-      value: 32.749
+      value: 32.024
     - type: ndcg_at_20
-      value: 35.343
+      value: 34.123999999999995
     - type: ndcg_at_100
-      value: 39.095
+      value: 38.013999999999996
     - type: ndcg_at_1000
-      value: 41.656
+      value: 40.681
     - type: map_at_1
-      value: 18.119
+      value: 18.354
     - type: map_at_3
-      value: 24.340999999999998
+      value: 23.777
     - type: map_at_5
-      value: 25.861
+      value: 25.380000000000003
     - type: map_at_10
-      value: 27.055
+      value: 26.588
     - type: map_at_20
-      value: 27.855
+      value: 27.227
     - type: map_at_100
-      value: 28.461
+      value: 27.851
     - type: map_at_1000
-      value: 28.577
+      value: 27.971
     - type: recall_at_1
-      value: 18.119
+      value: 18.354
     - type: recall_at_3
-      value: 31.633
+      value: 30.029
     - type: recall_at_5
-      value: 37.532
+      value: 36.716
     - type: recall_at_10
-      value: 44.983000000000004
+      value: 44.083
     - type: recall_at_20
-      value: 54.234
+      value: 51.653000000000006
     - type: recall_at_100
-      value: 72.396
+      value: 70.24000000000001
     - type: recall_at_1000
-      value: 90.223
+      value: 88.941
     - type: precision_at_1
-      value: 22.886
+      value: 22.637
     - type: precision_at_3
-      value: 13.682
+      value: 12.852
     - type: precision_at_5
-      value: 9.950000000000001
+      value: 9.652
     - type: precision_at_10
-      value: 6.1690000000000005
+      value: 5.970000000000001
     - type: precision_at_20
-      value: 3.8120000000000003
+      value: 3.557
     - type: precision_at_100
-      value: 1.0699999999999998
+      value: 1.035
     - type: precision_at_1000
-      value: 0.14300000000000002
+      value: 0.13899999999999998
     - type: mrr_at_1
-      value: 22.8856
+      value: 22.6368
     - type: mrr_at_3
-      value: 29.6642
+      value: 28.296
     - type: mrr_at_5
-      value: 31.107000000000003
+      value: 30.198999999999998
     - type: mrr_at_10
-      value: 32.2342
+      value: 31.2411
     - type: mrr_at_20
-      value: 32.8971
+      value: 31.773600000000002
     - type: mrr_at_100
-      value: 33.2804
+      value: 32.230199999999996
     - type: mrr_at_1000
-      value: 33.3395
+      value: 32.2949
     - type: nauc_ndcg_at_1_max
-      value: 24.8022
+      value: 31.0579
     - type: nauc_ndcg_at_1_std
-      value: -0.5363
+      value: -1.1154000000000002
     - type: nauc_ndcg_at_1_diff1
-      value: 33.1639
+      value: 37.0188
     - type: nauc_ndcg_at_3_max
-      value: 22.0142
+      value: 30.6319
     - type: nauc_ndcg_at_3_std
-      value: 0.9467
+      value: 1.2079
     - type: nauc_ndcg_at_3_diff1
-      value: 28.9545
+      value: 29.7055
     - type: nauc_ndcg_at_5_max
-      value: 21.9949
+      value: 29.2059
     - type: nauc_ndcg_at_5_std
-      value: 2.2558000000000002
+      value: 3.0105
     - type: nauc_ndcg_at_5_diff1
-      value: 27.4516
+      value: 28.0947
     - type: nauc_ndcg_at_10_max
-      value: 21.5958
+      value: 29.2307
     - type: nauc_ndcg_at_10_std
-      value: 3.5044
+      value: 3.1515
     - type: nauc_ndcg_at_10_diff1
-      value: 26.9835
+      value: 27.2115
     - type: nauc_ndcg_at_20_max
-      value: 21.940299999999997
+      value: 29.1914
     - type: nauc_ndcg_at_20_std
-      value: 4.6913
+      value: 3.9833
     - type: nauc_ndcg_at_20_diff1
-      value: 26.8386
+      value: 27.287899999999997
     - type: nauc_ndcg_at_100_max
-      value: 22.4749
+      value: 30.759999999999998
     - type: nauc_ndcg_at_100_std
-      value: 6.1636999999999995
+      value: 5.6163
     - type: nauc_ndcg_at_100_diff1
-      value: 27.4132
+      value: 28.1445
     - type: nauc_ndcg_at_1000_max
-      value: 23.034299999999998
+      value: 30.4012
     - type: nauc_ndcg_at_1000_std
-      value: 5.7944
+      value: 4.8586
     - type: nauc_ndcg_at_1000_diff1
-      value: 27.3963
+      value: 27.7366
     - type: nauc_map_at_1_max
-      value: 21.4135
+      value: 26.9538
     - type: nauc_map_at_1_std
-      value: 0.649
+      value: -0.9815
     - type: nauc_map_at_1_diff1
-      value: 32.1954
+      value: 35.1964
     - type: nauc_map_at_3_max
-      value: 20.8778
+      value: 28.9516
     - type: nauc_map_at_3_std
-      value: 1.0705
+      value: 0.6373
     - type: nauc_map_at_3_diff1
-      value: 28.5319
+      value: 30.476599999999998
     - type: nauc_map_at_5_max
-      value: 21.0234
+      value: 28.3735
     - type: nauc_map_at_5_std
-      value: 1.5574
+      value: 1.5893000000000002
     - type: nauc_map_at_5_diff1
-      value: 27.996399999999998
+      value: 29.4822
     - type: nauc_map_at_10_max
-      value: 20.9927
+      value: 28.4489
     - type: nauc_map_at_10_std
-      value: 2.2451
+      value: 1.7179
     - type: nauc_map_at_10_diff1
-      value: 27.8283
+      value: 29.0721
     - type: nauc_map_at_20_max
-      value: 21.16
+      value: 28.6443
     - type: nauc_map_at_20_std
-      value: 2.6176999999999997
+      value: 1.9567999999999999
     - type: nauc_map_at_20_diff1
-      value: 27.7722
+      value: 29.2744
     - type: nauc_map_at_100_max
-      value: 21.3551
+      value: 28.9144
     - type: nauc_map_at_100_std
-      value: 2.8299000000000003
+      value: 2.2790999999999997
     - type: nauc_map_at_100_diff1
-      value: 27.8752
+      value: 29.3889
     - type: nauc_map_at_1000_max
-      value: 21.3871
+      value: 28.8827
     - type: nauc_map_at_1000_std
-      value: 2.7986
+      value: 2.2127999999999997
     - type: nauc_map_at_1000_diff1
-      value: 27.8709
+      value: 29.367700000000003
     - type: nauc_recall_at_1_max
-      value: 21.4135
+      value: 26.9538
     - type: nauc_recall_at_1_std
-      value: 0.649
+      value: -0.9815
     - type: nauc_recall_at_1_diff1
-      value: 32.1954
+      value: 35.1964
     - type: nauc_recall_at_3_max
-      value: 19.3537
+      value: 29.2823
     - type: nauc_recall_at_3_std
-      value: 1.4591
+      value: 2.2192
     - type: nauc_recall_at_3_diff1
-      value: 25.1911
+      value: 25.174400000000002
     - type: nauc_recall_at_5_max
-      value: 19.6154
+      value: 26.098300000000002
     - type: nauc_recall_at_5_std
-      value: 3.5305000000000004
+      value: 5.870100000000001
     - type: nauc_recall_at_5_diff1
-      value: 22.6218
+      value: 21.5717
     - type: nauc_recall_at_10_max
-      value: 18.3048
+      value: 26.3965
     - type: nauc_recall_at_10_std
-      value: 6.1244
+      value: 5.9524
     - type: nauc_recall_at_10_diff1
-      value: 21.6834
+      value: 19.2576
     - type: nauc_recall_at_20_max
-      value: 18.4913
+      value: 25.014799999999997
     - type: nauc_recall_at_20_std
-      value: 10.083599999999999
+      value: 8.889800000000001
     - type: nauc_recall_at_20_diff1
-      value: 20.502200000000002
+      value: 18.2048
     - type: nauc_recall_at_100_max
-      value: 19.0212
+      value: 32.664100000000005
     - type: nauc_recall_at_100_std
-      value: 21.8101
+      value: 20.66
     - type: nauc_recall_at_100_diff1
-      value: 21.2653
+      value: 20.7167
     - type: nauc_recall_at_1000_max
-      value: 29.3582
+      value: 32.7425
     - type: nauc_recall_at_1000_std
-      value: 42.8902
+      value: 31.798
     - type: nauc_recall_at_1000_diff1
-      value: 14.060900000000002
+      value: 6.1744
     - type: nauc_precision_at_1_max
-      value: 24.8022
+      value: 31.0579
     - type: nauc_precision_at_1_std
-      value: -0.5363
+      value: -1.1154000000000002
     - type: nauc_precision_at_1_diff1
-      value: 33.1639
+      value: 37.0188
     - type: nauc_precision_at_3_max
-      value: 23.9746
+      value: 34.0041
     - type: nauc_precision_at_3_std
-      value: 0.9273999999999999
+      value: 2.759
     - type: nauc_precision_at_3_diff1
-      value: 26.0507
+      value: 26.0113
     - type: nauc_precision_at_5_max
-      value: 23.5487
+      value: 31.591599999999996
     - type: nauc_precision_at_5_std
-      value: 2.8788
+      value: 7.019499999999999
     - type: nauc_precision_at_5_diff1
-      value: 22.439799999999998
+      value: 22.5517
     - type: nauc_precision_at_10_max
-      value: 21.826999999999998
+      value: 28.9779
     - type: nauc_precision_at_10_std
-      value: 5.6201
+      value: 6.0112
     - type: nauc_precision_at_10_diff1
-      value: 19.8703
+      value: 18.4627
     - type: nauc_precision_at_20_max
-      value: 21.199399999999997
+      value: 27.2677
     - type: nauc_precision_at_20_std
-      value: 8.9305
+      value: 7.9853
     - type: nauc_precision_at_20_diff1
-      value: 18.043
+      value: 17.6528
     - type: nauc_precision_at_100_max
-      value: 17.2345
+      value: 23.8248
     - type: nauc_precision_at_100_std
-      value: 10.0714
+      value: 9.9215
     - type: nauc_precision_at_100_diff1
-      value: 14.521999999999998
+      value: 13.5355
     - type: nauc_precision_at_1000_max
-      value: 7.5709
+      value: 9.9312
     - type: nauc_precision_at_1000_std
-      value: 0.2689
+      value: 1.8778
     - type: nauc_precision_at_1000_diff1
-      value: 4.4733
+      value: 3.6692
     - type: nauc_mrr_at_1_max
-      value: 24.8022
+      value: 31.0579
     - type: nauc_mrr_at_1_std
-      value: -0.5363
+      value: -1.1154000000000002
     - type: nauc_mrr_at_1_diff1
-      value: 33.1639
+      value: 37.0188
     - type: nauc_mrr_at_3_max
-      value: 24.435499999999998
+      value: 32.265100000000004
     - type: nauc_mrr_at_3_std
-      value: 0.9502999999999999
+      value: 0.4738
     - type: nauc_mrr_at_3_diff1
-      value: 30.7875
+      value: 31.6965
     - type: nauc_mrr_at_5_max
-      value: 24.7103
+      value: 31.610100000000003
     - type: nauc_mrr_at_5_std
-      value: 1.8724999999999998
+      value: 1.693
     - type: nauc_mrr_at_5_diff1
-      value: 30.086000000000002
+      value: 31.2068
     - type: nauc_mrr_at_10_max
-      value: 24.5685
+      value: 31.593500000000002
     - type: nauc_mrr_at_10_std
-      value: 2.1533
+      value: 1.6910999999999998
     - type: nauc_mrr_at_10_diff1
-      value: 29.862899999999996
+      value: 30.988300000000002
     - type: nauc_mrr_at_20_max
-      value: 24.662100000000002
+      value: 31.4229
     - type: nauc_mrr_at_20_std
-      value: 2.3742
+      value: 1.9178000000000002
     - type: nauc_mrr_at_20_diff1
-      value: 29.751300000000004
+      value: 30.911
     - type: nauc_mrr_at_100_max
-      value: 24.635099999999998
+      value: 31.510500000000004
     - type: nauc_mrr_at_100_std
-      value: 2.4393000000000002
+      value: 1.9404000000000001
     - type: nauc_mrr_at_100_diff1
-      value: 29.741
+      value: 30.928499999999996
     - type: nauc_mrr_at_1000_max
-      value: 24.651699999999998
+      value: 31.499899999999997
     - type: nauc_mrr_at_1000_std
-      value: 2.4291
+      value: 1.9026999999999998
     - type: nauc_mrr_at_1000_diff1
-      value: 29.7639
+      value: 30.9234
     - type: main_score
-      value: 32.749
+      value: 32.024
     task:
       type: Retrieval
   - dataset:
@@ -4014,287 +4026,287 @@ model-index:
       type: mteb/cqadupstack-physics
     metrics:
     - type: ndcg_at_1
-      value: 38.114
+      value: 36.477
     - type: ndcg_at_3
-      value: 42.986000000000004
+      value: 41.9
     - type: ndcg_at_5
-      value: 45.893
+      value: 44.352000000000004
     - type: ndcg_at_10
-      value: 48.339999999999996
+      value: 47.316
     - type: ndcg_at_20
-      value: 50.617000000000004
+      value: 49.262
     - type: ndcg_at_100
-      value: 53.861000000000004
+      value: 52.5
     - type: ndcg_at_1000
-      value: 55.701
+      value: 54.433
     - type: map_at_1
-      value: 30.517
+      value: 29.633
     - type: map_at_3
-      value: 38.443
+      value: 37.374
     - type: map_at_5
-      value: 40.685
+      value: 39.327
     - type: map_at_10
-      value: 42.031
+      value: 40.897
     - type: map_at_20
-      value: 42.79
+      value: 41.629
     - type: map_at_100
-      value: 43.415
+      value: 42.221
     - type: map_at_1000
-      value: 43.525000000000006
+      value: 42.337
     - type: recall_at_1
-      value: 30.517
+      value: 29.633
     - type: recall_at_3
-      value: 46.015
+      value: 45.141999999999996
     - type: recall_at_5
-      value: 53.801
+      value: 51.578
     - type: recall_at_10
-      value: 61.332
+      value: 60.465999999999994
     - type: recall_at_20
-      value: 69.274
+      value: 67.012
     - type: recall_at_100
-      value: 84.051
+      value: 82.174
     - type: recall_at_1000
-      value: 95.826
+      value: 94.65
     - type: precision_at_1
-      value: 38.114
+      value: 36.477
     - type: precision_at_3
-      value: 20.821
+      value: 20.308
     - type: precision_at_5
-      value: 15.034
+      value: 14.379
     - type: precision_at_10
-      value: 8.892999999999999
+      value: 8.816
     - type: precision_at_20
-      value: 5.231
+      value: 5.106
     - type: precision_at_100
-      value: 1.375
+      value: 1.3419999999999999
     - type: precision_at_1000
-      value: 0.172
+      value: 0.169
     - type: mrr_at_1
-      value: 38.1136
+      value: 36.477399999999996
     - type: mrr_at_3
-      value: 45.1716
+      value: 44.0648
     - type: mrr_at_5
-      value: 46.8175
+      value: 45.4604
     - type: mrr_at_10
-      value: 47.7831
+      value: 46.6132
     - type: mrr_at_20
-      value: 48.329
+      value: 47.0122
     - type: mrr_at_100
-      value: 48.6471
+      value: 47.3432
     - type: mrr_at_1000
-      value: 48.6877
+      value: 47.383900000000004
     - type: nauc_ndcg_at_1_max
-      value: 40.1541
+      value: 44.2532
     - type: nauc_ndcg_at_1_std
-      value: 1.4596
+      value: 0.27399999999999997
     - type: nauc_ndcg_at_1_diff1
-      value: 56.6442
+      value: 56.0608
     - type: nauc_ndcg_at_3_max
-      value: 38.9776
+      value: 40.7243
     - type: nauc_ndcg_at_3_std
-      value: 1.464
+      value: -3.0545
     - type: nauc_ndcg_at_3_diff1
-      value: 51.5596
+      value: 48.4101
     - type: nauc_ndcg_at_5_max
-      value: 38.8678
+      value: 39.556999999999995
     - type: nauc_ndcg_at_5_std
-      value: 2.5537
+      value: -3.9035
     - type: nauc_ndcg_at_5_diff1
-      value: 50.522
+      value: 47.2832
     - type: nauc_ndcg_at_10_max
-      value: 38.698100000000004
+      value: 39.6116
     - type: nauc_ndcg_at_10_std
-      value: 2.7959
+      value: -4.2111
     - type: nauc_ndcg_at_10_diff1
-      value: 49.8331
+      value: 47.0266
     - type: nauc_ndcg_at_20_max
-      value: 39.7247
+      value: 40.1775
     - type: nauc_ndcg_at_20_std
-      value: 4.1737
+      value: -2.9367
     - type: nauc_ndcg_at_20_diff1
-      value: 49.5233
+      value: 47.4448
     - type: nauc_ndcg_at_100_max
-      value: 40.649
+      value: 41.9972
     - type: nauc_ndcg_at_100_std
-      value: 5.7359
+      value: 0.46740000000000004
     - type: nauc_ndcg_at_100_diff1
-      value: 50.0626
+      value: 48.4355
     - type: nauc_ndcg_at_1000_max
-      value: 40.765299999999996
+      value: 42.1182
     - type: nauc_ndcg_at_1000_std
-      value: 5.5551
+      value: 0.8456
     - type: nauc_ndcg_at_1000_diff1
-      value: 50.3599
+      value: 48.1614
     - type: nauc_map_at_1_max
-      value: 35.659
+      value: 37.5422
     - type: nauc_map_at_1_std
-      value: -3.8913
+      value: -4.2909999999999995
     - type: nauc_map_at_1_diff1
-      value: 57.7115
+      value: 55.083800000000004
     - type: nauc_map_at_3_max
-      value: 37.3901
+      value: 39.0107
     - type: nauc_map_at_3_std
-      value: -0.88
+      value: -4.3038
     - type: nauc_map_at_3_diff1
-      value: 52.9203
+      value: 49.5355
     - type: nauc_map_at_5_max
-      value: 38.0129
+      value: 38.9933
     - type: nauc_map_at_5_std
-      value: 0.1544
+      value: -4.3489
     - type: nauc_map_at_5_diff1
-      value: 52.1596
+      value: 48.9543
     - type: nauc_map_at_10_max
-      value: 38.3708
+      value: 39.2673
     - type: nauc_map_at_10_std
-      value: 0.7947
+      value: -4.1611
     - type: nauc_map_at_10_diff1
-      value: 51.909000000000006
+      value: 48.891400000000004
     - type: nauc_map_at_20_max
-      value: 38.690200000000004
+      value: 39.533699999999996
     - type: nauc_map_at_20_std
-      value: 1.2379
+      value: -3.7303
     - type: nauc_map_at_20_diff1
-      value: 51.775000000000006
+      value: 49.001099999999994
     - type: nauc_map_at_100_max
-      value: 38.9637
+      value: 39.9274
     - type: nauc_map_at_100_std
-      value: 1.5914000000000001
+      value: -3.0797000000000003
     - type: nauc_map_at_100_diff1
-      value: 51.90820000000001
+      value: 49.1862
     - type: nauc_map_at_1000_max
-      value: 38.9784
+      value: 39.957100000000004
     - type: nauc_map_at_1000_std
-      value: 1.6184
+      value: -3.0084
     - type: nauc_map_at_1000_diff1
-      value: 51.909000000000006
+      value: 49.1595
     - type: nauc_recall_at_1_max
-      value: 35.659
+      value: 37.5422
     - type: nauc_recall_at_1_std
-      value: -3.8913
+      value: -4.2909999999999995
     - type: nauc_recall_at_1_diff1
-      value: 57.7115
+      value: 55.083800000000004
     - type: nauc_recall_at_3_max
-      value: 34.6073
+      value: 35.5355
     - type: nauc_recall_at_3_std
-      value: 0.0162
+      value: -7.140000000000001
     - type: nauc_recall_at_3_diff1
-      value: 47.0539
+      value: 42.4278
     - type: nauc_recall_at_5_max
-      value: 34.3868
+      value: 33.9238
     - type: nauc_recall_at_5_std
-      value: 3.1425
+      value: -7.9919
     - type: nauc_recall_at_5_diff1
-      value: 43.1625
+      value: 39.1808
     - type: nauc_recall_at_10_max
-      value: 33.6467
+      value: 33.4493
     - type: nauc_recall_at_10_std
-      value: 4.1808
+      value: -9.1861
     - type: nauc_recall_at_10_diff1
-      value: 39.711600000000004
+      value: 36.8475
     - type: nauc_recall_at_20_max
-      value: 36.3449
+      value: 34.9121
     - type: nauc_recall_at_20_std
-      value: 9.7358
+      value: -4.8026
     - type: nauc_recall_at_20_diff1
-      value: 36.5764
+      value: 37.9247
     - type: nauc_recall_at_100_max
-      value: 40.563500000000005
+      value: 44.1541
     - type: nauc_recall_at_100_std
-      value: 23.5405
+      value: 18.1134
     - type: nauc_recall_at_100_diff1
-      value: 34.2152
+      value: 41.6633
     - type: nauc_recall_at_1000_max
-      value: 57.387699999999995
+      value: 56.3385
     - type: nauc_recall_at_1000_std
-      value: 50.897999999999996
+      value: 53.257299999999994
     - type: nauc_recall_at_1000_diff1
-      value: 32.9321
+      value: 36.1232
     - type: nauc_precision_at_1_max
-      value: 40.1541
+      value: 44.2532
     - type: nauc_precision_at_1_std
-      value: 1.4596
+      value: 0.27399999999999997
     - type: nauc_precision_at_1_diff1
-      value: 56.6442
+      value: 56.0608
     - type: nauc_precision_at_3_max
-      value: 36.586600000000004
+      value: 41.179
     - type: nauc_precision_at_3_std
-      value: 9.7112
+      value: 5.588
     - type: nauc_precision_at_3_diff1
-      value: 33.8758
+      value: 32.8574
     - type: nauc_precision_at_5_max
-      value: 34.1914
+      value: 34.808699999999995
     - type: nauc_precision_at_5_std
-      value: 13.7515
+      value: 6.261
     - type: nauc_precision_at_5_diff1
-      value: 24.6272
+      value: 23.993100000000002
     - type: nauc_precision_at_10_max
-      value: 30.764999999999997
+      value: 30.966500000000003
     - type: nauc_precision_at_10_std
-      value: 16.9823
+      value: 9.9887
     - type: nauc_precision_at_10_diff1
-      value: 15.954799999999999
+      value: 16.8352
     - type: nauc_precision_at_20_max
-      value: 27.976699999999997
+      value: 26.977600000000002
     - type: nauc_precision_at_20_std
-      value: 21.465999999999998
+      value: 14.0043
     - type: nauc_precision_at_20_diff1
-      value: 7.0363999999999995
+      value: 10.9725
     - type: nauc_precision_at_100_max
-      value: 17.6394
+      value: 20.0541
     - type: nauc_precision_at_100_std
-      value: 23.4207
+      value: 24.0399
     - type: nauc_precision_at_100_diff1
-      value: -4.0614
+      value: -0.46509999999999996
     - type: nauc_precision_at_1000_max
-      value: 3.8186999999999998
+      value: 8.1382
     - type: nauc_precision_at_1000_std
-      value: 16.0902
+      value: 21.7963
     - type: nauc_precision_at_1000_diff1
-      value: -14.5093
+      value: -13.7289
     - type: nauc_mrr_at_1_max
-      value: 40.1541
+      value: 44.2532
     - type: nauc_mrr_at_1_std
-      value: 1.4596
+      value: 0.27399999999999997
     - type: nauc_mrr_at_1_diff1
-      value: 56.6442
+      value: 56.0608
     - type: nauc_mrr_at_3_max
-      value: 40.4577
+      value: 43.0277
     - type: nauc_mrr_at_3_std
-      value: 3.558
+      value: -0.8843
     - type: nauc_mrr_at_3_diff1
-      value: 53.0569
+      value: 51.112899999999996
     - type: nauc_mrr_at_5_max
-      value: 40.6135
+      value: 42.852000000000004
     - type: nauc_mrr_at_5_std
-      value: 4.3164
+      value: -0.8572
     - type: nauc_mrr_at_5_diff1
-      value: 52.3585
+      value: 50.4937
     - type: nauc_mrr_at_10_max
-      value: 40.6563
+      value: 43.0093
     - type: nauc_mrr_at_10_std
-      value: 4.3038
+      value: -0.8631
     - type: nauc_mrr_at_10_diff1
-      value: 52.2149
+      value: 50.41909999999999
     - type: nauc_mrr_at_20_max
-      value: 40.914
+      value: 43.0484
     - type: nauc_mrr_at_20_std
-      value: 4.5423
+      value: -0.6054999999999999
     - type: nauc_mrr_at_20_diff1
-      value: 52.2729
+      value: 50.527100000000004
     - type: nauc_mrr_at_100_max
-      value: 40.8944
+      value: 43.175200000000004
     - type: nauc_mrr_at_100_std
-      value: 4.546
+      value: -0.3019
     - type: nauc_mrr_at_100_diff1
-      value: 52.315400000000004
+      value: 50.5962
     - type: nauc_mrr_at_1000_max
-      value: 40.893499999999996
+      value: 43.173899999999996
     - type: nauc_mrr_at_1000_std
-      value: 4.5310999999999995
+      value: -0.3115
     - type: nauc_mrr_at_1000_diff1
-      value: 52.337500000000006
+      value: 50.6012
     - type: main_score
-      value: 48.339999999999996
+      value: 47.316
     task:
       type: Retrieval
   - dataset:
@@ -4305,287 +4317,287 @@ model-index:
       type: mteb/cqadupstack-programmers
     metrics:
     - type: ndcg_at_1
-      value: 34.247
+      value: 33.676
     - type: ndcg_at_3
-      value: 38.976
+      value: 38.7
     - type: ndcg_at_5
-      value: 41.332
+      value: 41.032999999999994
     - type: ndcg_at_10
-      value: 44.065
+      value: 43.580999999999996
     - type: ndcg_at_20
-      value: 46.312999999999995
+      value: 45.992
     - type: ndcg_at_100
-      value: 49.434
+      value: 49.192
     - type: ndcg_at_1000
-      value: 51.681999999999995
+      value: 51.473
     - type: map_at_1
-      value: 27.395999999999997
+      value: 27.389999999999997
     - type: map_at_3
-      value: 34.782999999999994
+      value: 34.660999999999994
     - type: map_at_5
-      value: 36.63
+      value: 36.38
     - type: map_at_10
-      value: 38.043
+      value: 37.768
     - type: map_at_20
-      value: 38.783
+      value: 38.534
     - type: map_at_100
-      value: 39.341
+      value: 39.091
     - type: map_at_1000
-      value: 39.454
+      value: 39.2
     - type: recall_at_1
-      value: 27.395999999999997
+      value: 27.389999999999997
     - type: recall_at_3
-      value: 41.785
+      value: 41.876000000000005
     - type: recall_at_5
-      value: 48.303000000000004
+      value: 47.961999999999996
     - type: recall_at_10
-      value: 56.481
+      value: 55.445
     - type: recall_at_20
-      value: 64.473
+      value: 64.143
     - type: recall_at_100
-      value: 79.012
+      value: 79.327
     - type: recall_at_1000
-      value: 94.182
+      value: 94.64200000000001
     - type: precision_at_1
-      value: 34.247
+      value: 33.676
     - type: precision_at_3
-      value: 18.759999999999998
+      value: 18.455
     - type: precision_at_5
-      value: 13.333
+      value: 13.128
     - type: precision_at_10
-      value: 8.059
+      value: 7.888000000000001
     - type: precision_at_20
-      value: 4.766
+      value: 4.697
     - type: precision_at_100
-      value: 1.258
+      value: 1.234
     - type: precision_at_1000
-      value: 0.16199999999999998
+      value: 0.161
     - type: mrr_at_1
-      value: 34.2466
+      value: 33.6758
     - type: mrr_at_3
-      value: 41.172
+      value: 40.7725
     - type: mrr_at_5
-      value: 42.701699999999995
+      value: 42.267900000000004
     - type: mrr_at_10
-      value: 43.6807
+      value: 43.1813
     - type: mrr_at_20
-      value: 44.1991
+      value: 43.769200000000005
     - type: mrr_at_100
-      value: 44.5097
+      value: 44.0965
     - type: mrr_at_1000
-      value: 44.5693
+      value: 44.149899999999995
     - type: nauc_ndcg_at_1_max
-      value: 38.232
+      value: 47.957699999999996
     - type: nauc_ndcg_at_1_std
-      value: 3.374
+      value: 11.211
     - type: nauc_ndcg_at_1_diff1
-      value: 51.223200000000006
+      value: 50.975899999999996
     - type: nauc_ndcg_at_3_max
-      value: 38.839800000000004
+      value: 46.7077
     - type: nauc_ndcg_at_3_std
-      value: 6.529
+      value: 11.8166
     - type: nauc_ndcg_at_3_diff1
-      value: 44.2371
+      value: 44.183699999999995
     - type: nauc_ndcg_at_5_max
-      value: 39.0094
+      value: 46.5691
     - type: nauc_ndcg_at_5_std
-      value: 8.2202
+      value: 12.3224
     - type: nauc_ndcg_at_5_diff1
-      value: 44.8305
+      value: 43.2912
     - type: nauc_ndcg_at_10_max
-      value: 40.1918
+      value: 45.989200000000004
     - type: nauc_ndcg_at_10_std
-      value: 9.9826
+      value: 13.4501
     - type: nauc_ndcg_at_10_diff1
-      value: 43.5034
+      value: 41.3206
     - type: nauc_ndcg_at_20_max
-      value: 40.7846
+      value: 46.400400000000005
     - type: nauc_ndcg_at_20_std
-      value: 11.0178
+      value: 15.004000000000001
     - type: nauc_ndcg_at_20_diff1
-      value: 43.176199999999994
+      value: 40.8932
     - type: nauc_ndcg_at_100_max
-      value: 40.5507
+      value: 47.3346
     - type: nauc_ndcg_at_100_std
-      value: 13.0203
+      value: 16.5132
     - type: nauc_ndcg_at_100_diff1
-      value: 43.2445
+      value: 42.126599999999996
     - type: nauc_ndcg_at_1000_max
-      value: 40.8071
+      value: 47.5217
     - type: nauc_ndcg_at_1000_std
-      value: 11.7945
+      value: 15.4551
     - type: nauc_ndcg_at_1000_diff1
-      value: 43.8587
+      value: 42.5563
     - type: nauc_map_at_1_max
-      value: 33.517599999999995
+      value: 42.549
     - type: nauc_map_at_1_std
-      value: -0.7517
+      value: 4.9833
     - type: nauc_map_at_1_diff1
-      value: 52.92059999999999
+      value: 52.14339999999999
     - type: nauc_map_at_3_max
-      value: 36.8937
+      value: 44.8114
     - type: nauc_map_at_3_std
-      value: 4.0335
+      value: 9.440800000000001
     - type: nauc_map_at_3_diff1
-      value: 46.4322
+      value: 46.1197
     - type: nauc_map_at_5_max
-      value: 37.602000000000004
+      value: 45.3059
     - type: nauc_map_at_5_std
-      value: 5.3923
+      value: 10.286900000000001
     - type: nauc_map_at_5_diff1
-      value: 46.6764
+      value: 45.6263
     - type: nauc_map_at_10_max
-      value: 38.3082
+      value: 45.3517
     - type: nauc_map_at_10_std
-      value: 6.483600000000001
+      value: 11.1304
     - type: nauc_map_at_10_diff1
-      value: 46.0255
+      value: 44.6502
     - type: nauc_map_at_20_max
-      value: 38.655899999999995
+      value: 45.5319
     - type: nauc_map_at_20_std
-      value: 6.8814
+      value: 11.5773
     - type: nauc_map_at_20_diff1
-      value: 45.8245
+      value: 44.5681
     - type: nauc_map_at_100_max
-      value: 38.7492
+      value: 45.8019
     - type: nauc_map_at_100_std
-      value: 7.327100000000001
+      value: 11.9772
     - type: nauc_map_at_100_diff1
-      value: 45.8365
+      value: 44.7825
     - type: nauc_map_at_1000_max
-      value: 38.7584
+      value: 45.8134
     - type: nauc_map_at_1000_std
-      value: 7.2851
+      value: 11.9461
     - type: nauc_map_at_1000_diff1
-      value: 45.8479
+      value: 44.7905
     - type: nauc_recall_at_1_max
-      value: 33.517599999999995
+      value: 42.549
     - type: nauc_recall_at_1_std
-      value: -0.7517
+      value: 4.9833
     - type: nauc_recall_at_1_diff1
-      value: 52.92059999999999
+      value: 52.14339999999999
     - type: nauc_recall_at_3_max
-      value: 37.0749
+      value: 44.0409
     - type: nauc_recall_at_3_std
-      value: 7.466399999999999
+      value: 11.9146
     - type: nauc_recall_at_3_diff1
-      value: 39.454
+      value: 38.6436
     - type: nauc_recall_at_5_max
-      value: 37.227199999999996
+      value: 43.3961
     - type: nauc_recall_at_5_std
-      value: 11.7497
+      value: 12.6675
     - type: nauc_recall_at_5_diff1
-      value: 39.402
+      value: 35.5553
     - type: nauc_recall_at_10_max
-      value: 39.901199999999996
+      value: 41.4966
     - type: nauc_recall_at_10_std
-      value: 16.7381
+      value: 16.1644
     - type: nauc_recall_at_10_diff1
-      value: 34.3843
+      value: 29.2835
     - type: nauc_recall_at_20_max
-      value: 41.0603
+      value: 41.474
     - type: nauc_recall_at_20_std
-      value: 20.78
+      value: 22.5684
     - type: nauc_recall_at_20_diff1
-      value: 32.2975
+      value: 25.7308
     - type: nauc_recall_at_100_max
-      value: 38.3499
+      value: 45.1253
     - type: nauc_recall_at_100_std
-      value: 38.7219
+      value: 36.248799999999996
     - type: nauc_recall_at_100_diff1
-      value: 29.078100000000003
+      value: 28.799500000000002
     - type: nauc_recall_at_1000_max
-      value: 48.2277
+      value: 54.1747
     - type: nauc_recall_at_1000_std
-      value: 55.4646
+      value: 47.1501
     - type: nauc_recall_at_1000_diff1
-      value: 26.919900000000002
+      value: 23.198900000000002
     - type: nauc_precision_at_1_max
-      value: 38.232
+      value: 47.957699999999996
     - type: nauc_precision_at_1_std
-      value: 3.374
+      value: 11.211
     - type: nauc_precision_at_1_diff1
-      value: 51.223200000000006
+      value: 50.975899999999996
     - type: nauc_precision_at_3_max
-      value: 39.8718
+      value: 46.6181
     - type: nauc_precision_at_3_std
-      value: 14.112
+      value: 19.475
     - type: nauc_precision_at_3_diff1
-      value: 28.971200000000003
+      value: 30.6784
     - type: nauc_precision_at_5_max
-      value: 38.7064
+      value: 43.5114
     - type: nauc_precision_at_5_std
-      value: 18.1345
+      value: 22.1293
     - type: nauc_precision_at_5_diff1
-      value: 26.5685
+      value: 24.6525
     - type: nauc_precision_at_10_max
-      value: 36.4352
+      value: 37.47
     - type: nauc_precision_at_10_std
-      value: 22.331500000000002
+      value: 23.8068
     - type: nauc_precision_at_10_diff1
-      value: 17.163600000000002
+      value: 14.9368
     - type: nauc_precision_at_20_max
-      value: 33.2221
+      value: 33.4529
     - type: nauc_precision_at_20_std
-      value: 24.252000000000002
+      value: 25.4979
     - type: nauc_precision_at_20_diff1
-      value: 9.0445
+      value: 9.4501
     - type: nauc_precision_at_100_max
-      value: 16.5544
+      value: 23.7406
     - type: nauc_precision_at_100_std
-      value: 22.867199999999997
+      value: 22.8583
     - type: nauc_precision_at_100_diff1
-      value: -3.8588999999999998
+      value: 3.6348
     - type: nauc_precision_at_1000_max
-      value: 1.7690000000000001
+      value: 4.5396
     - type: nauc_precision_at_1000_std
-      value: 8.2609
+      value: 6.0796
     - type: nauc_precision_at_1000_diff1
-      value: -13.8927
+      value: -7.2498000000000005
     - type: nauc_mrr_at_1_max
-      value: 38.232
+      value: 47.957699999999996
     - type: nauc_mrr_at_1_std
-      value: 3.374
+      value: 11.211
     - type: nauc_mrr_at_1_diff1
-      value: 51.223200000000006
+      value: 50.975899999999996
     - type: nauc_mrr_at_3_max
-      value: 40.2699
+      value: 48.6226
     - type: nauc_mrr_at_3_std
-      value: 7.6
+      value: 13.600000000000001
     - type: nauc_mrr_at_3_diff1
-      value: 45.1804
+      value: 45.2881
     - type: nauc_mrr_at_5_max
-      value: 40.1434
+      value: 48.402499999999996
     - type: nauc_mrr_at_5_std
-      value: 8.3698
+      value: 13.616
     - type: nauc_mrr_at_5_diff1
-      value: 45.1772
+      value: 44.7074
     - type: nauc_mrr_at_10_max
-      value: 40.6102
+      value: 48.0556
     - type: nauc_mrr_at_10_std
-      value: 8.9793
+      value: 13.7803
     - type: nauc_mrr_at_10_diff1
-      value: 44.6458
+      value: 44.0852
     - type: nauc_mrr_at_20_max
-      value: 40.5002
+      value: 48.173500000000004
     - type: nauc_mrr_at_20_std
-      value: 9.003
+      value: 14.1617
     - type: nauc_mrr_at_20_diff1
-      value: 44.671
+      value: 44.0396
     - type: nauc_mrr_at_100_max
-      value: 40.4429
+      value: 48.1841
     - type: nauc_mrr_at_100_std
-      value: 9.131
+      value: 14.1827
     - type: nauc_mrr_at_100_diff1
-      value: 44.728899999999996
+      value: 44.210100000000004
     - type: nauc_mrr_at_1000_max
-      value: 40.4634
+      value: 48.1875
     - type: nauc_mrr_at_1000_std
-      value: 9.1018
+      value: 14.161000000000001
     - type: nauc_mrr_at_1000_diff1
-      value: 44.7656
+      value: 44.222
     - type: main_score
-      value: 44.065
+      value: 43.580999999999996
     task:
       type: Retrieval
   - dataset:
@@ -4596,287 +4608,287 @@ model-index:
       type: CQADupstackRetrieval_is_a_combined_dataset
     metrics:
     - type: ndcg_at_1
-      value: 33.917750000000005
+      value: 32.588499999999996
     - type: ndcg_at_3
-      value: 39.253750000000004
+      value: 37.949083333333334
     - type: ndcg_at_5
-      value: 41.62250000000001
+      value: 40.258833333333335
     - type: ndcg_at_10
-      value: 44.29191666666667
+      value: 42.74341666666667
     - type: ndcg_at_20
-      value: 46.318083333333334
+      value: 44.784
     - type: ndcg_at_100
-      value: 49.489000000000004
+      value: 47.903416666666665
     - type: ndcg_at_1000
-      value: 51.534083333333335
+      value: 50.067416666666674
     - type: map_at_1
-      value: 28.50841666666667
+      value: 27.52808333333333
     - type: map_at_3
-      value: 35.52141666666667
+      value: 34.321999999999996
     - type: map_at_5
-      value: 37.228500000000004
+      value: 35.96091666666666
     - type: map_at_10
-      value: 38.61175
+      value: 37.22708333333333
     - type: map_at_20
-      value: 39.3125
+      value: 37.914833333333334
     - type: map_at_100
-      value: 39.882083333333334
+      value: 38.462166666666675
     - type: map_at_1000
-      value: 39.995916666666666
+      value: 38.57725
     - type: recall_at_1
-      value: 28.50841666666667
+      value: 27.52808333333333
     - type: recall_at_3
-      value: 42.46875000000001
+      value: 41.30075
     - type: recall_at_5
-      value: 48.59916666666667
+      value: 47.26408333333334
     - type: recall_at_10
-      value: 56.56024999999999
+      value: 54.663833333333336
     - type: recall_at_20
-      value: 63.96383333333333
+      value: 62.11658333333333
     - type: recall_at_100
-      value: 79.2645
+      value: 77.176
     - type: recall_at_1000
-      value: 93.25150000000002
+      value: 92.03791666666666
     - type: precision_at_1
-      value: 33.917750000000005
+      value: 32.588499999999996
     - type: precision_at_3
-      value: 18.19558333333333
+      value: 17.485
     - type: precision_at_5
-      value: 12.950166666666668
+      value: 12.427666666666669
     - type: precision_at_10
-      value: 7.866333333333333
+      value: 7.493333333333334
     - type: precision_at_20
-      value: 4.614749999999999
+      value: 4.413499999999999
     - type: precision_at_100
-      value: 1.2374166666666666
+      value: 1.18675
     - type: precision_at_1000
-      value: 0.16091666666666668
+      value: 0.15691666666666665
     - type: mrr_at_1
-      value: 33.917699999999996
+      value: 32.58871666666667
     - type: mrr_at_3
-      value: 40.448166666666665
+      value: 39.09032499999999
     - type: mrr_at_5
-      value: 41.903483333333334
+      value: 40.533125
     - type: mrr_at_10
-      value: 42.944941666666665
+      value: 41.51483333333333
     - type: mrr_at_20
-      value: 43.43391666666666
+      value: 42.01036666666667
     - type: mrr_at_100
-      value: 43.782399999999996
+      value: 42.35724166666667
     - type: mrr_at_1000
-      value: 43.832325
+      value: 42.41010833333333
     - type: nauc_ndcg_at_1_max
-      value: 38.768750000000004
+      value: 41.86760833333334
     - type: nauc_ndcg_at_1_std
-      value: 0.5314750000000001
+      value: -0.022441666666666443
     - type: nauc_ndcg_at_1_diff1
-      value: 50.18021666666667
+      value: 48.604266666666675
     - type: nauc_ndcg_at_3_max
-      value: 37.73569166666667
+      value: 40.649825
     - type: nauc_ndcg_at_3_std
-      value: 1.9756250000000004
+      value: 0.9594416666666666
     - type: nauc_ndcg_at_3_diff1
-      value: 45.217191666666665
+      value: 42.754375
     - type: nauc_ndcg_at_5_max
-      value: 38.19843333333333
+      value: 40.71646666666666
     - type: nauc_ndcg_at_5_std
-      value: 2.760133333333333
+      value: 1.8118249999999998
     - type: nauc_ndcg_at_5_diff1
-      value: 44.559908333333325
+      value: 42.09031666666666
     - type: nauc_ndcg_at_10_max
-      value: 38.34826666666667
+      value: 40.616033333333334
     - type: nauc_ndcg_at_10_std
-      value: 3.8177249999999994
+      value: 2.621475
     - type: nauc_ndcg_at_10_diff1
-      value: 43.772149999999996
+      value: 41.56405833333333
     - type: nauc_ndcg_at_20_max
-      value: 38.53288333333333
+      value: 41.00335
     - type: nauc_ndcg_at_20_std
-      value: 4.801466666666668
+      value: 3.5835
     - type: nauc_ndcg_at_20_diff1
-      value: 43.312774999999995
+      value: 41.526025
     - type: nauc_ndcg_at_100_max
-      value: 38.912774999999996
+      value: 41.626575
     - type: nauc_ndcg_at_100_std
-      value: 6.39795
+      value: 4.921058333333334
     - type: nauc_ndcg_at_100_diff1
-      value: 43.38179166666667
+      value: 41.785700000000006
     - type: nauc_ndcg_at_1000_max
-      value: 39.0197
+      value: 41.623041666666666
     - type: nauc_ndcg_at_1000_std
-      value: 5.861708333333333
+      value: 4.743416666666667
     - type: nauc_ndcg_at_1000_diff1
-      value: 43.78785833333334
+      value: 41.930049999999994
     - type: nauc_map_at_1_max
-      value: 34.808508333333336
+      value: 37.757374999999996
     - type: nauc_map_at_1_std
-      value: -2.4239916666666663
+      value: -2.7256583333333335
     - type: nauc_map_at_1_diff1
-      value: 51.88476666666666
+      value: 49.68454166666667
     - type: nauc_map_at_3_max
-      value: 36.516549999999995
+      value: 39.41603333333333
     - type: nauc_map_at_3_std
-      value: 0.008974999999999955
+      value: -0.7485333333333334
     - type: nauc_map_at_3_diff1
-      value: 47.11013333333332
+      value: 44.64258333333333
     - type: nauc_map_at_5_max
-      value: 37.17583333333333
+      value: 39.84875833333333
     - type: nauc_map_at_5_std
-      value: 0.7668083333333334
+      value: 0.010733333333333428
     - type: nauc_map_at_5_diff1
-      value: 46.496975
+      value: 44.133975
     - type: nauc_map_at_10_max
-      value: 37.54620833333333
+      value: 40.05009166666666
     - type: nauc_map_at_10_std
-      value: 1.5577166666666666
+      value: 0.6503083333333333
     - type: nauc_map_at_10_diff1
-      value: 46.02030833333334
+      value: 43.826724999999996
     - type: nauc_map_at_20_max
-      value: 37.738058333333335
+      value: 40.287733333333335
     - type: nauc_map_at_20_std
-      value: 2.0228750000000004
+      value: 1.0432333333333332
     - type: nauc_map_at_20_diff1
-      value: 45.837608333333336
+      value: 43.784241666666674
     - type: nauc_map_at_100_max
-      value: 37.864575
+      value: 40.44630833333334
     - type: nauc_map_at_100_std
-      value: 2.3781916666666665
+      value: 1.3809583333333333
     - type: nauc_map_at_100_diff1
-      value: 45.818783333333336
+      value: 43.81610833333333
     - type: nauc_map_at_1000_max
-      value: 37.8704
+      value: 40.45624166666667
     - type: nauc_map_at_1000_std
-      value: 2.403341666666667
+      value: 1.4088416666666665
     - type: nauc_map_at_1000_diff1
-      value: 45.83103333333333
+      value: 43.81260833333333
     - type: nauc_recall_at_1_max
-      value: 34.808508333333336
+      value: 37.757374999999996
     - type: nauc_recall_at_1_std
-      value: -2.4239916666666663
+      value: -2.7256583333333335
     - type: nauc_recall_at_1_diff1
-      value: 51.88476666666666
+      value: 49.68454166666667
     - type: nauc_recall_at_3_max
-      value: 35.12659166666666
+      value: 37.99286666666667
     - type: nauc_recall_at_3_std
-      value: 1.5866916666666664
+      value: 0.5074666666666666
     - type: nauc_recall_at_3_diff1
-      value: 41.56113333333334
+      value: 38.458816666666664
     - type: nauc_recall_at_5_max
-      value: 36.147058333333334
+      value: 38.23744166666667
     - type: nauc_recall_at_5_std
-      value: 3.803583333333333
+      value: 2.8538000000000006
     - type: nauc_recall_at_5_diff1
-      value: 39.051366666666674
+      value: 36.16175833333334
     - type: nauc_recall_at_10_max
-      value: 36.10466666666667
+      value: 37.54170833333333
     - type: nauc_recall_at_10_std
-      value: 7.102541666666666
+      value: 5.354441666666667
     - type: nauc_recall_at_10_diff1
-      value: 35.79460833333333
+      value: 33.80731666666667
     - type: nauc_recall_at_20_max
-      value: 36.25878333333333
+      value: 38.071758333333335
     - type: nauc_recall_at_20_std
-      value: 11.494475000000001
+      value: 9.4403
     - type: nauc_recall_at_20_diff1
-      value: 33.06425833333333
+      value: 32.409758333333336
     - type: nauc_recall_at_100_max
-      value: 38.00966666666667
+      value: 41.127158333333334
     - type: nauc_recall_at_100_std
-      value: 27.040050000000004
+      value: 20.718875000000004
     - type: nauc_recall_at_100_diff1
-      value: 29.968625
+      value: 30.971016666666664
     - type: nauc_recall_at_1000_max
-      value: 45.32993333333334
+      value: 44.978608333333334
     - type: nauc_recall_at_1000_std
-      value: 45.327316666666675
+      value: 39.36581666666667
     - type: nauc_recall_at_1000_diff1
-      value: 28.088641666666668
+      value: 27.076241666666668
     - type: nauc_precision_at_1_max
-      value: 38.768750000000004
+      value: 41.86760833333334
     - type: nauc_precision_at_1_std
-      value: 0.5314750000000001
+      value: -0.022441666666666443
     - type: nauc_precision_at_1_diff1
-      value: 50.18021666666667
+      value: 48.604266666666675
     - type: nauc_precision_at_3_max
-      value: 36.52460833333333
+      value: 40.53820000000001
     - type: nauc_precision_at_3_std
-      value: 7.665850000000001
+      value: 6.682866666666667
     - type: nauc_precision_at_3_diff1
-      value: 31.133191666666672
+      value: 30.627458333333337
     - type: nauc_precision_at_5_max
-      value: 35.20106666666667
+      value: 38.085708333333336
     - type: nauc_precision_at_5_std
-      value: 10.746766666666666
+      value: 10.236816666666666
     - type: nauc_precision_at_5_diff1
-      value: 24.582291666666663
+      value: 24.589866666666666
     - type: nauc_precision_at_10_max
-      value: 31.465108333333337
+      value: 33.795766666666665
     - type: nauc_precision_at_10_std
-      value: 15.019074999999999
+      value: 13.644358333333335
     - type: nauc_precision_at_10_diff1
-      value: 16.25574166666667
+      value: 17.663875
     - type: nauc_precision_at_20_max
-      value: 27.589949999999995
+      value: 30.67170833333333
     - type: nauc_precision_at_20_std
-      value: 18.108775
+      value: 16.899591666666666
     - type: nauc_precision_at_20_diff1
-      value: 9.511666666666668
+      value: 12.398666666666665
     - type: nauc_precision_at_100_max
-      value: 17.18691666666667
+      value: 21.46699166666666
     - type: nauc_precision_at_100_std
-      value: 21.440466666666666
+      value: 19.683266666666665
     - type: nauc_precision_at_100_diff1
-      value: -1.2442166666666667
+      value: 2.3721666666666668
     - type: nauc_precision_at_1000_max
-      value: 5.215425
+      value: 6.773875
     - type: nauc_precision_at_1000_std
-      value: 13.896516666666663
+      value: 13.712933333333336
     - type: nauc_precision_at_1000_diff1
-      value: -10.446258333333335
+      value: -9.302758333333333
     - type: nauc_mrr_at_1_max
-      value: 38.768750000000004
+      value: 41.86760833333334
     - type: nauc_mrr_at_1_std
-      value: 0.5314750000000001
+      value: -0.022441666666666443
     - type: nauc_mrr_at_1_diff1
-      value: 50.18021666666667
+      value: 48.604266666666675
     - type: nauc_mrr_at_3_max
-      value: 38.979308333333336
+      value: 42.065525
     - type: nauc_mrr_at_3_std
-      value: 2.755991666666666
+      value: 1.6751166666666664
     - type: nauc_mrr_at_3_diff1
-      value: 45.991875
+      value: 43.90220833333333
     - type: nauc_mrr_at_5_max
-      value: 39.26664166666667
+      value: 42.07275833333333
     - type: nauc_mrr_at_5_std
-      value: 3.2105333333333332
+      value: 2.3014749999999995
     - type: nauc_mrr_at_5_diff1
-      value: 45.54448333333333
+      value: 43.440275
     - type: nauc_mrr_at_10_max
-      value: 39.239558333333335
+      value: 41.955425000000005
     - type: nauc_mrr_at_10_std
-      value: 3.57125
+      value: 2.499491666666667
     - type: nauc_mrr_at_10_diff1
-      value: 45.24083333333333
+      value: 43.23685833333333
     - type: nauc_mrr_at_20_max
-      value: 39.212075
+      value: 41.98479166666666
     - type: nauc_mrr_at_20_std
-      value: 3.7281833333333334
+      value: 2.6983083333333333
     - type: nauc_mrr_at_20_diff1
-      value: 45.153083333333335
+      value: 43.24806666666667
     - type: nauc_mrr_at_100_max
-      value: 39.221091666666666
+      value: 42.01090833333334
     - type: nauc_mrr_at_100_std
-      value: 3.823533333333333
+      value: 2.7583083333333334
     - type: nauc_mrr_at_100_diff1
-      value: 45.19413333333333
+      value: 43.28899166666667
     - type: nauc_mrr_at_1000_max
-      value: 39.22478333333333
+      value: 42.010841666666664
     - type: nauc_mrr_at_1000_std
-      value: 3.8052833333333327
+      value: 2.750433333333333
     - type: nauc_mrr_at_1000_diff1
-      value: 45.21384166666667
+      value: 43.299625
     - type: main_score
-      value: 44.29191666666667
+      value: 42.74341666666667
     task:
       type: Retrieval
   - dataset:
@@ -4887,9 +4899,9 @@ model-index:
       type: CQADupstackRetrieval_is_a_combined_dataset
     metrics:
     - type: main_score
-      value: 44.29191666666667
+      value: 42.743416666666675
     - type: ndcg_at_10
-      value: 44.29191666666667
+      value: 42.743416666666675
     task:
       type: Retrieval
   - dataset:
@@ -4900,287 +4912,287 @@ model-index:
       type: mteb/cqadupstack-stats
     metrics:
     - type: ndcg_at_1
-      value: 29.141000000000002
+      value: 27.607
     - type: ndcg_at_3
-      value: 33.861000000000004
+      value: 32.665
     - type: ndcg_at_5
-      value: 35.887
+      value: 34.876000000000005
     - type: ndcg_at_10
-      value: 38.596000000000004
+      value: 36.796
     - type: ndcg_at_20
-      value: 40.172000000000004
+      value: 38.405
     - type: ndcg_at_100
-      value: 43.375
+      value: 41.612
     - type: ndcg_at_1000
-      value: 45.562000000000005
+      value: 43.869
     - type: map_at_1
-      value: 25.728
+      value: 24.748
     - type: map_at_3
-      value: 31.268
+      value: 30.192999999999998
     - type: map_at_5
-      value: 32.596000000000004
+      value: 31.563999999999997
     - type: map_at_10
-      value: 33.903
+      value: 32.424
     - type: map_at_20
-      value: 34.392
+      value: 32.905
     - type: map_at_100
-      value: 34.853
+      value: 33.385
     - type: map_at_1000
-      value: 34.943999999999996
+      value: 33.476
     - type: recall_at_1
-      value: 25.728
+      value: 24.748
     - type: recall_at_3
-      value: 36.638
+      value: 36.14
     - type: recall_at_5
-      value: 41.689
+      value: 41.617
     - type: recall_at_10
-      value: 50.121
+      value: 47.49
     - type: recall_at_20
-      value: 56.043
+      value: 53.413
     - type: recall_at_100
-      value: 72.382
+      value: 69.461
     - type: recall_at_1000
-      value: 88.306
+      value: 86.014
     - type: precision_at_1
-      value: 29.141000000000002
+      value: 27.607
     - type: precision_at_3
-      value: 14.826
+      value: 13.957
     - type: precision_at_5
-      value: 10.428999999999998
+      value: 9.847
     - type: precision_at_10
-      value: 6.334
+      value: 5.782
     - type: precision_at_20
-      value: 3.589
+      value: 3.3360000000000003
     - type: precision_at_100
-      value: 0.9520000000000001
+      value: 0.906
     - type: precision_at_1000
-      value: 0.121
+      value: 0.11800000000000001
     - type: mrr_at_1
-      value: 29.141099999999998
+      value: 27.6074
     - type: mrr_at_3
-      value: 34.407
+      value: 32.9499
     - type: mrr_at_5
-      value: 35.68
+      value: 34.2229
     - type: mrr_at_10
-      value: 36.739
+      value: 35.0668
     - type: mrr_at_20
-      value: 37.1572
+      value: 35.4859
     - type: mrr_at_100
-      value: 37.5448
+      value: 35.8948
     - type: mrr_at_1000
-      value: 37.607600000000005
+      value: 35.9562
     - type: nauc_ndcg_at_1_max
-      value: 43.0703
+      value: 49.1944
     - type: nauc_ndcg_at_1_std
-      value: 7.8586
+      value: 11.7093
     - type: nauc_ndcg_at_1_diff1
-      value: 57.5204
+      value: 56.8806
     - type: nauc_ndcg_at_3_max
-      value: 41.7529
+      value: 46.7361
     - type: nauc_ndcg_at_3_std
-      value: 8.549800000000001
+      value: 13.4354
     - type: nauc_ndcg_at_3_diff1
-      value: 52.7211
+      value: 49.7927
     - type: nauc_ndcg_at_5_max
-      value: 43.404399999999995
+      value: 47.280899999999995
     - type: nauc_ndcg_at_5_std
-      value: 9.117799999999999
+      value: 14.5061
     - type: nauc_ndcg_at_5_diff1
-      value: 52.607400000000005
+      value: 48.9168
     - type: nauc_ndcg_at_10_max
-      value: 43.8638
+      value: 47.5137
     - type: nauc_ndcg_at_10_std
-      value: 10.7135
+      value: 15.4698
     - type: nauc_ndcg_at_10_diff1
-      value: 50.7607
+      value: 48.4279
     - type: nauc_ndcg_at_20_max
-      value: 43.3389
+      value: 47.9904
     - type: nauc_ndcg_at_20_std
-      value: 11.7901
+      value: 15.7135
     - type: nauc_ndcg_at_20_diff1
-      value: 50.056900000000006
+      value: 48.4332
     - type: nauc_ndcg_at_100_max
-      value: 43.580600000000004
+      value: 48.2942
     - type: nauc_ndcg_at_100_std
-      value: 13.616900000000001
+      value: 17.502100000000002
     - type: nauc_ndcg_at_100_diff1
-      value: 49.359700000000004
+      value: 48.6035
     - type: nauc_ndcg_at_1000_max
-      value: 43.6164
+      value: 48.0957
     - type: nauc_ndcg_at_1000_std
-      value: 13.5428
+      value: 17.6368
     - type: nauc_ndcg_at_1000_diff1
-      value: 50.0821
+      value: 48.7597
     - type: nauc_map_at_1_max
-      value: 40.5495
+      value: 45.6445
     - type: nauc_map_at_1_std
-      value: 3.5229999999999997
+      value: 6.9397
     - type: nauc_map_at_1_diff1
-      value: 59.7723
+      value: 58.6992
     - type: nauc_map_at_3_max
-      value: 41.2977
+      value: 45.8449
     - type: nauc_map_at_3_std
-      value: 6.9411000000000005
+      value: 11.036200000000001
     - type: nauc_map_at_3_diff1
-      value: 54.879999999999995
+      value: 51.906
     - type: nauc_map_at_5_max
-      value: 42.5686
+      value: 46.3198
     - type: nauc_map_at_5_std
-      value: 7.8032
+      value: 11.921
     - type: nauc_map_at_5_diff1
-      value: 54.4624
+      value: 51.2763
     - type: nauc_map_at_10_max
-      value: 43.1361
+      value: 46.5425
     - type: nauc_map_at_10_std
-      value: 8.8783
+      value: 12.5743
     - type: nauc_map_at_10_diff1
-      value: 53.747
+      value: 50.9536
     - type: nauc_map_at_20_max
-      value: 42.9941
+      value: 46.726
     - type: nauc_map_at_20_std
-      value: 9.1777
+      value: 12.6497
     - type: nauc_map_at_20_diff1
-      value: 53.5394
+      value: 50.99510000000001
     - type: nauc_map_at_100_max
-      value: 42.960300000000004
+      value: 46.7746
     - type: nauc_map_at_100_std
-      value: 9.3584
+      value: 12.881200000000002
     - type: nauc_map_at_100_diff1
-      value: 53.3856
+      value: 51.011399999999995
     - type: nauc_map_at_1000_max
-      value: 42.9595
+      value: 46.785900000000005
     - type: nauc_map_at_1000_std
-      value: 9.3575
+      value: 12.898000000000001
     - type: nauc_map_at_1000_diff1
-      value: 53.4136
+      value: 51.01480000000001
     - type: nauc_recall_at_1_max
-      value: 40.5495
+      value: 45.6445
     - type: nauc_recall_at_1_std
-      value: 3.5229999999999997
+      value: 6.9397
     - type: nauc_recall_at_1_diff1
-      value: 59.7723
+      value: 58.6992
     - type: nauc_recall_at_3_max
-      value: 39.5622
+      value: 45.0182
     - type: nauc_recall_at_3_std
-      value: 7.614
+      value: 14.2648
     - type: nauc_recall_at_3_diff1
-      value: 49.469
+      value: 45.3428
     - type: nauc_recall_at_5_max
-      value: 43.086400000000005
+      value: 46.2258
     - type: nauc_recall_at_5_std
-      value: 9.1332
+      value: 17.2103
     - type: nauc_recall_at_5_diff1
-      value: 47.8829
+      value: 42.5614
     - type: nauc_recall_at_10_max
-      value: 43.054700000000004
+      value: 46.251799999999996
     - type: nauc_recall_at_10_std
-      value: 13.116900000000001
+      value: 19.8669
     - type: nauc_recall_at_10_diff1
-      value: 40.804
+      value: 40.415
     - type: nauc_recall_at_20_max
-      value: 40.8398
+      value: 46.7318
     - type: nauc_recall_at_20_std
-      value: 17.099600000000002
+      value: 20.3996
     - type: nauc_recall_at_20_diff1
-      value: 37.8978
+      value: 39.0112
     - type: nauc_recall_at_100_max
-      value: 41.8268
+      value: 48.3756
     - type: nauc_recall_at_100_std
-      value: 31.5507
+      value: 33.558
     - type: nauc_recall_at_100_diff1
-      value: 28.8246
+      value: 37.584
     - type: nauc_recall_at_1000_max
-      value: 44.7113
+      value: 46.1278
     - type: nauc_recall_at_1000_std
-      value: 49.8697
+      value: 50.2506
     - type: nauc_recall_at_1000_diff1
-      value: 26.7287
+      value: 33.7694
     - type: nauc_precision_at_1_max
-      value: 43.0703
+      value: 49.1944
     - type: nauc_precision_at_1_std
-      value: 7.8586
+      value: 11.7093
     - type: nauc_precision_at_1_diff1
-      value: 57.5204
+      value: 56.8806
     - type: nauc_precision_at_3_max
-      value: 41.098
+      value: 49.9406
     - type: nauc_precision_at_3_std
-      value: 16.1082
+      value: 22.883200000000002
     - type: nauc_precision_at_3_diff1
-      value: 40.5806
+      value: 40.5974
     - type: nauc_precision_at_5_max
-      value: 43.8705
+      value: 48.4187
     - type: nauc_precision_at_5_std
-      value: 19.470299999999998
+      value: 25.9129
     - type: nauc_precision_at_5_diff1
-      value: 36.9411
+      value: 34.863
     - type: nauc_precision_at_10_max
-      value: 41.5225
+      value: 46.734700000000004
     - type: nauc_precision_at_10_std
-      value: 22.9023
+      value: 28.5765
     - type: nauc_precision_at_10_diff1
-      value: 28.0016
+      value: 30.071599999999997
     - type: nauc_precision_at_20_max
-      value: 36.68
+      value: 45.2343
     - type: nauc_precision_at_20_std
-      value: 25.5411
+      value: 27.4324
     - type: nauc_precision_at_20_diff1
-      value: 22.3414
+      value: 26.888299999999997
     - type: nauc_precision_at_100_max
-      value: 25.8805
+      value: 33.7511
     - type: nauc_precision_at_100_std
-      value: 29.0719
+      value: 30.084300000000002
     - type: nauc_precision_at_100_diff1
-      value: 7.4353
+      value: 14.877099999999999
     - type: nauc_precision_at_1000_max
-      value: 12.2406
+      value: 15.059000000000001
     - type: nauc_precision_at_1000_std
-      value: 22.909
+      value: 21.4471
     - type: nauc_precision_at_1000_diff1
-      value: -4.0427
+      value: -1.2862
     - type: nauc_mrr_at_1_max
-      value: 43.0703
+      value: 49.1944
     - type: nauc_mrr_at_1_std
-      value: 7.8586
+      value: 11.7093
     - type: nauc_mrr_at_1_diff1
-      value: 57.5204
+      value: 56.8806
     - type: nauc_mrr_at_3_max
-      value: 42.4962
+      value: 48.8173
     - type: nauc_mrr_at_3_std
-      value: 9.9083
+      value: 14.7023
     - type: nauc_mrr_at_3_diff1
-      value: 52.81
+      value: 50.9845
     - type: nauc_mrr_at_5_max
-      value: 43.7188
+      value: 49.0933
     - type: nauc_mrr_at_5_std
-      value: 10.2951
+      value: 15.5443
     - type: nauc_mrr_at_5_diff1
-      value: 52.9848
+      value: 50.403299999999994
     - type: nauc_mrr_at_10_max
-      value: 43.6725
+      value: 49.058
     - type: nauc_mrr_at_10_std
-      value: 10.8946
+      value: 15.6592
     - type: nauc_mrr_at_10_diff1
-      value: 52.037
+      value: 50.3304
     - type: nauc_mrr_at_20_max
-      value: 43.4857
+      value: 49.104
     - type: nauc_mrr_at_20_std
-      value: 11.097700000000001
+      value: 15.7446
     - type: nauc_mrr_at_20_diff1
-      value: 51.83560000000001
+      value: 50.2689
     - type: nauc_mrr_at_100_max
-      value: 43.4906
+      value: 49.071999999999996
     - type: nauc_mrr_at_100_std
-      value: 11.2695
+      value: 15.8584
     - type: nauc_mrr_at_100_diff1
-      value: 51.783500000000004
+      value: 50.3045
     - type: nauc_mrr_at_1000_max
-      value: 43.490899999999996
+      value: 49.061
     - type: nauc_mrr_at_1000_std
-      value: 11.2507
+      value: 15.856700000000002
     - type: nauc_mrr_at_1000_diff1
-      value: 51.8107
+      value: 50.3081
     - type: main_score
-      value: 38.596000000000004
+      value: 36.796
     task:
       type: Retrieval
   - dataset:
@@ -5191,287 +5203,287 @@ model-index:
       type: mteb/cqadupstack-tex
     metrics:
     - type: ndcg_at_1
-      value: 24.054000000000002
+      value: 23.159
     - type: ndcg_at_3
-      value: 29.115999999999996
+      value: 27.401999999999997
     - type: ndcg_at_5
-      value: 31.286
+      value: 29.354000000000003
     - type: ndcg_at_10
-      value: 33.722
+      value: 31.775
     - type: ndcg_at_20
-      value: 35.844
+      value: 33.743
     - type: ndcg_at_100
-      value: 39.361000000000004
+      value: 37.125
     - type: ndcg_at_1000
-      value: 42.064
+      value: 39.956
     - type: map_at_1
-      value: 19.911
+      value: 18.997
     - type: map_at_3
-      value: 25.874999999999996
+      value: 24.351
     - type: map_at_5
-      value: 27.403
+      value: 25.724999999999998
     - type: map_at_10
-      value: 28.559
+      value: 26.873
     - type: map_at_20
-      value: 29.213
+      value: 27.479
     - type: map_at_100
-      value: 29.784
+      value: 28.008
     - type: map_at_1000
-      value: 29.909999999999997
+      value: 28.133999999999997
     - type: recall_at_1
-      value: 19.911
+      value: 18.997
     - type: recall_at_3
-      value: 32.195
+      value: 30.14
     - type: recall_at_5
-      value: 37.818000000000005
+      value: 35.225
     - type: recall_at_10
-      value: 45.183
+      value: 42.447
     - type: recall_at_20
-      value: 53.081999999999994
+      value: 49.769000000000005
     - type: recall_at_100
-      value: 70.25
+      value: 66.39500000000001
     - type: recall_at_1000
-      value: 89.22200000000001
+      value: 86.434
     - type: precision_at_1
-      value: 24.054000000000002
+      value: 23.159
     - type: precision_at_3
-      value: 13.914000000000001
+      value: 12.995999999999999
     - type: precision_at_5
-      value: 10.069
+      value: 9.381
     - type: precision_at_10
-      value: 6.194
+      value: 5.778
     - type: precision_at_20
-      value: 3.7060000000000004
+      value: 3.467
     - type: precision_at_100
-      value: 1.058
+      value: 0.9900000000000001
     - type: precision_at_1000
-      value: 0.148
+      value: 0.14200000000000002
     - type: mrr_at_1
-      value: 24.0537
+      value: 23.159
     - type: mrr_at_3
-      value: 30.161700000000003
+      value: 28.676299999999998
     - type: mrr_at_5
-      value: 31.505499999999998
+      value: 29.9082
     - type: mrr_at_10
-      value: 32.4828
+      value: 30.9286
     - type: mrr_at_20
-      value: 33.054899999999996
+      value: 31.4303
     - type: mrr_at_100
-      value: 33.4643
+      value: 31.845000000000002
     - type: mrr_at_1000
-      value: 33.534000000000006
+      value: 31.9176
     - type: nauc_ndcg_at_1_max
-      value: 30.663200000000003
+      value: 32.959500000000006
     - type: nauc_ndcg_at_1_std
-      value: 1.6019999999999999
+      value: -2.0082
     - type: nauc_ndcg_at_1_diff1
-      value: 45.730199999999996
+      value: 41.801500000000004
     - type: nauc_ndcg_at_3_max
-      value: 28.5124
+      value: 32.8362
     - type: nauc_ndcg_at_3_std
-      value: 3.4572
+      value: -0.9611
     - type: nauc_ndcg_at_3_diff1
-      value: 37.109500000000004
+      value: 36.248200000000004
     - type: nauc_ndcg_at_5_max
-      value: 28.8788
+      value: 32.650800000000004
     - type: nauc_ndcg_at_5_std
-      value: 4.5551
+      value: 0.13879999999999998
     - type: nauc_ndcg_at_5_diff1
-      value: 36.1603
+      value: 35.2211
     - type: nauc_ndcg_at_10_max
-      value: 28.4392
+      value: 32.6256
     - type: nauc_ndcg_at_10_std
-      value: 5.1365
+      value: 1.0654000000000001
     - type: nauc_ndcg_at_10_diff1
-      value: 34.6232
+      value: 34.6558
     - type: nauc_ndcg_at_20_max
-      value: 28.4854
+      value: 33.0706
     - type: nauc_ndcg_at_20_std
-      value: 6.6366
+      value: 2.2485
     - type: nauc_ndcg_at_20_diff1
-      value: 34.5488
+      value: 34.5314
     - type: nauc_ndcg_at_100_max
-      value: 29.17
+      value: 33.3131
     - type: nauc_ndcg_at_100_std
-      value: 7.904
+      value: 3.4467
     - type: nauc_ndcg_at_100_diff1
-      value: 34.7771
+      value: 34.4791
     - type: nauc_ndcg_at_1000_max
-      value: 29.437
+      value: 33.644400000000005
     - type: nauc_ndcg_at_1000_std
-      value: 7.5479
+      value: 3.6159999999999997
     - type: nauc_ndcg_at_1000_diff1
-      value: 35.605399999999996
+      value: 34.9717
     - type: nauc_map_at_1_max
-      value: 28.6015
+      value: 30.2696
     - type: nauc_map_at_1_std
-      value: 1.6265
+      value: -3.3264
     - type: nauc_map_at_1_diff1
-      value: 46.170899999999996
+      value: 42.0066
     - type: nauc_map_at_3_max
-      value: 27.931099999999997
+      value: 31.455899999999996
     - type: nauc_map_at_3_std
-      value: 3.3492
+      value: -1.8429999999999997
     - type: nauc_map_at_3_diff1
-      value: 39.2592
+      value: 37.4893
     - type: nauc_map_at_5_max
-      value: 28.268700000000003
+      value: 31.7755
     - type: nauc_map_at_5_std
-      value: 3.9050000000000002
+      value: -1.1461999999999999
     - type: nauc_map_at_5_diff1
-      value: 38.488299999999995
+      value: 36.8624
     - type: nauc_map_at_10_max
-      value: 28.197400000000002
+      value: 31.9842
     - type: nauc_map_at_10_std
-      value: 4.1464
+      value: -0.6542
     - type: nauc_map_at_10_diff1
-      value: 37.7547
+      value: 36.5911
     - type: nauc_map_at_20_max
-      value: 28.27
+      value: 32.1745
     - type: nauc_map_at_20_std
-      value: 4.5844000000000005
+      value: -0.2191
     - type: nauc_map_at_20_diff1
-      value: 37.7547
+      value: 36.552800000000005
     - type: nauc_map_at_100_max
-      value: 28.458
+      value: 32.3001
     - type: nauc_map_at_100_std
-      value: 4.786300000000001
+      value: 0.012199999999999999
     - type: nauc_map_at_100_diff1
-      value: 37.782199999999996
+      value: 36.5376
     - type: nauc_map_at_1000_max
-      value: 28.4996
+      value: 32.3571
     - type: nauc_map_at_1000_std
-      value: 4.7852
+      value: 0.0557
     - type: nauc_map_at_1000_diff1
-      value: 37.816300000000005
+      value: 36.5535
     - type: nauc_recall_at_1_max
-      value: 28.6015
+      value: 30.2696
     - type: nauc_recall_at_1_std
-      value: 1.6265
+      value: -3.3264
     - type: nauc_recall_at_1_diff1
-      value: 46.170899999999996
+      value: 42.0066
     - type: nauc_recall_at_3_max
-      value: 25.9988
+      value: 30.413600000000002
     - type: nauc_recall_at_3_std
-      value: 4.1643
+      value: -0.44530000000000003
     - type: nauc_recall_at_3_diff1
-      value: 31.9357
+      value: 32.3805
     - type: nauc_recall_at_5_max
-      value: 26.6721
+      value: 30.075499999999998
     - type: nauc_recall_at_5_std
-      value: 6.1122000000000005
+      value: 1.8853000000000002
     - type: nauc_recall_at_5_diff1
-      value: 29.1941
+      value: 29.8885
     - type: nauc_recall_at_10_max
-      value: 24.9394
+      value: 29.7039
     - type: nauc_recall_at_10_std
-      value: 7.313
+      value: 4.1936
     - type: nauc_recall_at_10_diff1
-      value: 24.283099999999997
+      value: 27.9912
     - type: nauc_recall_at_20_max
-      value: 24.3242
+      value: 30.538700000000002
     - type: nauc_recall_at_20_std
-      value: 12.6805
+      value: 7.8352
     - type: nauc_recall_at_20_diff1
-      value: 22.8247
+      value: 26.842
     - type: nauc_recall_at_100_max
-      value: 26.917799999999996
+      value: 30.8116
     - type: nauc_recall_at_100_std
-      value: 21.5069
+      value: 15.1426
     - type: nauc_recall_at_100_diff1
-      value: 21.205
+      value: 23.9166
     - type: nauc_recall_at_1000_max
-      value: 29.8594
+      value: 31.9647
     - type: nauc_recall_at_1000_std
-      value: 31.4363
+      value: 26.5754
     - type: nauc_recall_at_1000_diff1
-      value: 23.8707
+      value: 22.608
     - type: nauc_precision_at_1_max
-      value: 30.663200000000003
+      value: 32.959500000000006
     - type: nauc_precision_at_1_std
-      value: 1.6019999999999999
+      value: -2.0082
     - type: nauc_precision_at_1_diff1
-      value: 45.730199999999996
+      value: 41.801500000000004
     - type: nauc_precision_at_3_max
-      value: 28.3435
+      value: 34.8709
     - type: nauc_precision_at_3_std
-      value: 4.1368
+      value: 1.5288
     - type: nauc_precision_at_3_diff1
-      value: 28.5551
+      value: 30.6782
     - type: nauc_precision_at_5_max
-      value: 28.49
+      value: 34.163700000000006
     - type: nauc_precision_at_5_std
-      value: 5.8044
+      value: 4.3446
     - type: nauc_precision_at_5_diff1
-      value: 24.5061
+      value: 26.2964
     - type: nauc_precision_at_10_max
-      value: 26.255699999999997
+      value: 33.1747
     - type: nauc_precision_at_10_std
-      value: 6.998799999999999
+      value: 7.2109000000000005
     - type: nauc_precision_at_10_diff1
-      value: 18.3038
+      value: 22.6126
     - type: nauc_precision_at_20_max
-      value: 25.217699999999997
+      value: 32.8185
     - type: nauc_precision_at_20_std
-      value: 9.9304
+      value: 11.296100000000001
     - type: nauc_precision_at_20_diff1
-      value: 15.4876
+      value: 19.4086
     - type: nauc_precision_at_100_max
-      value: 21.865499999999997
+      value: 30.4363
     - type: nauc_precision_at_100_std
-      value: 10.746500000000001
+      value: 14.23
     - type: nauc_precision_at_100_diff1
-      value: 7.4687
+      value: 13.1689
     - type: nauc_precision_at_1000_max
-      value: 18.4782
+      value: 24.6263
     - type: nauc_precision_at_1000_std
-      value: 3.0096000000000003
+      value: 11.190999999999999
     - type: nauc_precision_at_1000_diff1
-      value: 3.3539
+      value: 4.5375
     - type: nauc_mrr_at_1_max
-      value: 30.663200000000003
+      value: 32.959500000000006
     - type: nauc_mrr_at_1_std
-      value: 1.6019999999999999
+      value: -2.0082
     - type: nauc_mrr_at_1_diff1
-      value: 45.730199999999996
+      value: 41.801500000000004
     - type: nauc_mrr_at_3_max
-      value: 29.9128
+      value: 33.949400000000004
     - type: nauc_mrr_at_3_std
-      value: 3.4235
+      value: -0.5342
     - type: nauc_mrr_at_3_diff1
-      value: 39.1412
+      value: 37.3148
     - type: nauc_mrr_at_5_max
-      value: 30.3311
+      value: 33.7685
     - type: nauc_mrr_at_5_std
-      value: 4.0177
+      value: 0.2542
     - type: nauc_mrr_at_5_diff1
-      value: 38.7065
+      value: 36.5632
     - type: nauc_mrr_at_10_max
-      value: 30.144399999999997
+      value: 33.849000000000004
     - type: nauc_mrr_at_10_std
-      value: 4.2534
+      value: 0.6677
     - type: nauc_mrr_at_10_diff1
-      value: 38.0266
+      value: 36.4741
     - type: nauc_mrr_at_20_max
-      value: 30.1249
+      value: 33.9586
     - type: nauc_mrr_at_20_std
-      value: 4.6181
+      value: 0.897
     - type: nauc_mrr_at_20_diff1
-      value: 38.002
+      value: 36.478899999999996
     - type: nauc_mrr_at_100_max
-      value: 30.1948
+      value: 33.9441
     - type: nauc_mrr_at_100_std
-      value: 4.7099
+      value: 0.9808000000000001
     - type: nauc_mrr_at_100_diff1
-      value: 38.0455
+      value: 36.5049
     - type: nauc_mrr_at_1000_max
-      value: 30.1966
+      value: 33.9546
     - type: nauc_mrr_at_1000_std
-      value: 4.6948
+      value: 0.9831
     - type: nauc_mrr_at_1000_diff1
-      value: 38.0747
+      value: 36.5259
     - type: main_score
-      value: 33.722
+      value: 31.775
     task:
       type: Retrieval
   - dataset:
@@ -5482,287 +5494,287 @@ model-index:
       type: mteb/cqadupstack-unix
     metrics:
     - type: ndcg_at_1
-      value: 35.168
+      value: 34.981
     - type: ndcg_at_3
-      value: 39.972
+      value: 40.107
     - type: ndcg_at_5
-      value: 42.586
+      value: 42.842999999999996
     - type: ndcg_at_10
-      value: 46.071
+      value: 45.275
     - type: ndcg_at_20
-      value: 48.028999999999996
+      value: 47.455999999999996
     - type: ndcg_at_100
-      value: 51.351
+      value: 50.321000000000005
     - type: ndcg_at_1000
-      value: 53.169999999999995
+      value: 52.406
     - type: map_at_1
-      value: 29.819000000000003
+      value: 29.504
     - type: map_at_3
-      value: 36.571999999999996
+      value: 36.622
     - type: map_at_5
-      value: 38.385999999999996
+      value: 38.541
     - type: map_at_10
-      value: 40.073
+      value: 39.675
     - type: map_at_20
-      value: 40.72
+      value: 40.409
     - type: map_at_100
-      value: 41.289
+      value: 40.914
     - type: map_at_1000
-      value: 41.375
+      value: 41.012
     - type: recall_at_1
-      value: 29.819000000000003
+      value: 29.504
     - type: recall_at_3
-      value: 43.245
+      value: 43.807
     - type: recall_at_5
-      value: 49.931
+      value: 50.77700000000001
     - type: recall_at_10
-      value: 60.075
+      value: 57.898
     - type: recall_at_20
-      value: 67.118
+      value: 65.59899999999999
     - type: recall_at_100
-      value: 82.771
+      value: 78.974
     - type: recall_at_1000
-      value: 95.219
+      value: 93.33399999999999
     - type: precision_at_1
-      value: 35.168
+      value: 34.981
     - type: precision_at_3
-      value: 18.221
+      value: 18.315
     - type: precision_at_5
-      value: 12.892000000000001
+      value: 13.097
     - type: precision_at_10
-      value: 7.985
+      value: 7.631
     - type: precision_at_20
-      value: 4.529
+      value: 4.431
     - type: precision_at_100
-      value: 1.185
+      value: 1.13
     - type: precision_at_1000
-      value: 0.14400000000000002
+      value: 0.14100000000000001
     - type: mrr_at_1
-      value: 35.1679
+      value: 34.9813
     - type: mrr_at_3
-      value: 41.4024
+      value: 41.3557
     - type: mrr_at_5
-      value: 43.039500000000004
+      value: 42.9602
     - type: mrr_at_10
-      value: 44.3808
+      value: 43.9816
     - type: mrr_at_20
-      value: 44.823299999999996
+      value: 44.5
     - type: mrr_at_100
-      value: 45.1914
+      value: 44.8076
     - type: mrr_at_1000
-      value: 45.2339
+      value: 44.865
     - type: nauc_ndcg_at_1_max
-      value: 43.9321
+      value: 48.6102
     - type: nauc_ndcg_at_1_std
-      value: -6.0145
+      value: -5.6691
     - type: nauc_ndcg_at_1_diff1
-      value: 53.6293
+      value: 56.008599999999994
     - type: nauc_ndcg_at_3_max
-      value: 42.0025
+      value: 46.388400000000004
     - type: nauc_ndcg_at_3_std
-      value: -5.6881
+      value: -4.877800000000001
     - type: nauc_ndcg_at_3_diff1
-      value: 47.9461
+      value: 49.1768
     - type: nauc_ndcg_at_5_max
-      value: 42.916900000000005
+      value: 46.3438
     - type: nauc_ndcg_at_5_std
-      value: -4.2002999999999995
+      value: -4.1069
     - type: nauc_ndcg_at_5_diff1
-      value: 48.0738
+      value: 48.209999999999994
     - type: nauc_ndcg_at_10_max
-      value: 42.6014
+      value: 46.147
     - type: nauc_ndcg_at_10_std
-      value: -2.8179
+      value: -3.7115
     - type: nauc_ndcg_at_10_diff1
-      value: 46.792899999999996
+      value: 47.9846
     - type: nauc_ndcg_at_20_max
-      value: 41.9182
+      value: 46.2731
     - type: nauc_ndcg_at_20_std
-      value: -2.6714
+      value: -3.5068
     - type: nauc_ndcg_at_20_diff1
-      value: 46.111000000000004
+      value: 48.1901
     - type: nauc_ndcg_at_100_max
-      value: 42.6218
+      value: 46.886
     - type: nauc_ndcg_at_100_std
-      value: -1.6882000000000001
+      value: -1.8507
     - type: nauc_ndcg_at_100_diff1
-      value: 46.3204
+      value: 49.058
     - type: nauc_ndcg_at_1000_max
-      value: 42.6413
+      value: 46.5984
     - type: nauc_ndcg_at_1000_std
-      value: -2.2983
+      value: -2.1614999999999998
     - type: nauc_ndcg_at_1000_diff1
-      value: 46.840399999999995
+      value: 49.1318
     - type: nauc_map_at_1_max
-      value: 41.256
+      value: 45.5569
     - type: nauc_map_at_1_std
-      value: -7.5877
+      value: -7.604900000000001
     - type: nauc_map_at_1_diff1
-      value: 56.383300000000006
+      value: 56.3936
     - type: nauc_map_at_3_max
-      value: 41.904
+      value: 46.0028
     - type: nauc_map_at_3_std
-      value: -6.548
+      value: -6.334
     - type: nauc_map_at_3_diff1
-      value: 50.7949
+      value: 51.3472
     - type: nauc_map_at_5_max
-      value: 42.568400000000004
+      value: 46.2903
     - type: nauc_map_at_5_std
-      value: -5.3873999999999995
+      value: -5.475300000000001
     - type: nauc_map_at_5_diff1
-      value: 50.3791
+      value: 50.5945
     - type: nauc_map_at_10_max
-      value: 42.6619
+      value: 46.3277
     - type: nauc_map_at_10_std
-      value: -4.8052
+      value: -5.1829
     - type: nauc_map_at_10_diff1
-      value: 49.5933
+      value: 50.4714
     - type: nauc_map_at_20_max
-      value: 42.4985
+      value: 46.5326
     - type: nauc_map_at_20_std
-      value: -4.7620000000000005
+      value: -5.0456
     - type: nauc_map_at_20_diff1
-      value: 49.3214
+      value: 50.5729
     - type: nauc_map_at_100_max
-      value: 42.6165
+      value: 46.6537
     - type: nauc_map_at_100_std
-      value: -4.595599999999999
+      value: -4.7367
     - type: nauc_map_at_100_diff1
-      value: 49.277100000000004
+      value: 50.711
     - type: nauc_map_at_1000_max
-      value: 42.6146
+      value: 46.6406
     - type: nauc_map_at_1000_std
-      value: -4.5920000000000005
+      value: -4.7269
     - type: nauc_map_at_1000_diff1
-      value: 49.2815
+      value: 50.6985
     - type: nauc_recall_at_1_max
-      value: 41.256
+      value: 45.5569
     - type: nauc_recall_at_1_std
-      value: -7.5877
+      value: -7.604900000000001
     - type: nauc_recall_at_1_diff1
-      value: 56.383300000000006
+      value: 56.3936
     - type: nauc_recall_at_3_max
-      value: 39.626099999999994
+      value: 43.1624
     - type: nauc_recall_at_3_std
-      value: -5.973
+      value: -5.0664
     - type: nauc_recall_at_3_diff1
-      value: 44.651
+      value: 44.016
     - type: nauc_recall_at_5_max
-      value: 41.4392
+      value: 42.893
     - type: nauc_recall_at_5_std
-      value: -1.8328
+      value: -2.0581
     - type: nauc_recall_at_5_diff1
-      value: 42.928399999999996
+      value: 40.6813
     - type: nauc_recall_at_10_max
-      value: 38.807
+      value: 41.3464
     - type: nauc_recall_at_10_std
-      value: 2.863
+      value: -0.9026
     - type: nauc_recall_at_10_diff1
-      value: 37.6663
+      value: 38.8716
     - type: nauc_recall_at_20_max
-      value: 34.9705
+      value: 40.7766
     - type: nauc_recall_at_20_std
-      value: 4.1407
+      value: -0.4664
     - type: nauc_recall_at_20_diff1
-      value: 33.6156
+      value: 38.6801
     - type: nauc_recall_at_100_max
-      value: 38.4049
+      value: 43.856
     - type: nauc_recall_at_100_std
-      value: 16.7735
+      value: 12.148200000000001
     - type: nauc_recall_at_100_diff1
-      value: 30.724800000000002
+      value: 43.189899999999994
     - type: nauc_recall_at_1000_max
-      value: 42.9152
+      value: 36.6555
     - type: nauc_recall_at_1000_std
-      value: 32.1176
+      value: 25.7409
     - type: nauc_recall_at_1000_diff1
-      value: 33.2582
+      value: 44.9133
     - type: nauc_precision_at_1_max
-      value: 43.9321
+      value: 48.6102
     - type: nauc_precision_at_1_std
-      value: -6.0145
+      value: -5.6691
     - type: nauc_precision_at_1_diff1
-      value: 53.6293
+      value: 56.008599999999994
     - type: nauc_precision_at_3_max
-      value: 38.1748
+      value: 43.2148
     - type: nauc_precision_at_3_std
-      value: -2.3163
+      value: 0.0292
     - type: nauc_precision_at_3_diff1
-      value: 31.2502
+      value: 35.75
     - type: nauc_precision_at_5_max
-      value: 36.503
+      value: 39.8562
     - type: nauc_precision_at_5_std
-      value: 2.0892
+      value: 4.105
     - type: nauc_precision_at_5_diff1
-      value: 25.249100000000002
+      value: 28.4213
     - type: nauc_precision_at_10_max
-      value: 30.2104
+      value: 34.901199999999996
     - type: nauc_precision_at_10_std
-      value: 6.6937999999999995
+      value: 6.4718
     - type: nauc_precision_at_10_diff1
-      value: 14.0684
+      value: 22.785
     - type: nauc_precision_at_20_max
-      value: 23.6494
+      value: 29.151
     - type: nauc_precision_at_20_std
-      value: 7.216500000000001
+      value: 8.213
     - type: nauc_precision_at_20_diff1
-      value: 6.7953
+      value: 16.6992
     - type: nauc_precision_at_100_max
-      value: 11.2361
+      value: 17.1377
     - type: nauc_precision_at_100_std
-      value: 11.824
+      value: 16.1652
     - type: nauc_precision_at_100_diff1
-      value: -7.6405
+      value: 4.4657
     - type: nauc_precision_at_1000_max
-      value: -3.8651
+      value: -2.6889
     - type: nauc_precision_at_1000_std
-      value: 5.367999999999999
+      value: 11.010499999999999
     - type: nauc_precision_at_1000_diff1
-      value: -17.473
+      value: -11.0026
     - type: nauc_mrr_at_1_max
-      value: 43.9321
+      value: 48.6102
     - type: nauc_mrr_at_1_std
-      value: -6.0145
+      value: -5.6691
     - type: nauc_mrr_at_1_diff1
-      value: 53.6293
+      value: 56.008599999999994
     - type: nauc_mrr_at_3_max
-      value: 42.8188
+      value: 47.6571
     - type: nauc_mrr_at_3_std
-      value: -5.1393
+      value: -4.1072999999999995
     - type: nauc_mrr_at_3_diff1
-      value: 48.3128
+      value: 50.18470000000001
     - type: nauc_mrr_at_5_max
-      value: 43.5383
+      value: 47.6268
     - type: nauc_mrr_at_5_std
-      value: -4.2538
+      value: -3.6222
     - type: nauc_mrr_at_5_diff1
-      value: 48.0319
+      value: 49.5854
     - type: nauc_mrr_at_10_max
-      value: 43.121700000000004
+      value: 47.454499999999996
     - type: nauc_mrr_at_10_std
-      value: -3.7823
+      value: -3.4977
     - type: nauc_mrr_at_10_diff1
-      value: 47.6064
+      value: 49.5833
     - type: nauc_mrr_at_20_max
-      value: 42.8886
+      value: 47.3316
     - type: nauc_mrr_at_20_std
-      value: -3.8175
+      value: -3.5721000000000003
     - type: nauc_mrr_at_20_diff1
-      value: 47.5437
+      value: 49.6713
     - type: nauc_mrr_at_100_max
-      value: 42.9514
+      value: 47.387299999999996
     - type: nauc_mrr_at_100_std
-      value: -3.8205000000000005
+      value: -3.4835
     - type: nauc_mrr_at_100_diff1
-      value: 47.6513
+      value: 49.8135
     - type: nauc_mrr_at_1000_max
-      value: 42.9567
+      value: 47.4002
     - type: nauc_mrr_at_1000_std
-      value: -3.8327
+      value: -3.4842999999999997
     - type: nauc_mrr_at_1000_diff1
-      value: 47.6603
+      value: 49.8286
     - type: main_score
-      value: 46.071
+      value: 45.275
     task:
       type: Retrieval
   - dataset:
@@ -5773,287 +5785,287 @@ model-index:
       type: mteb/cqadupstack-webmasters
     metrics:
     - type: ndcg_at_1
-      value: 33.794000000000004
+      value: 32.806000000000004
     - type: ndcg_at_3
-      value: 38.442
+      value: 38.775999999999996
     - type: ndcg_at_5
-      value: 40.737
+      value: 40.614
     - type: ndcg_at_10
-      value: 43.832
+      value: 42.957
     - type: ndcg_at_20
-      value: 45.589
+      value: 45.202999999999996
     - type: ndcg_at_100
-      value: 49.514
+      value: 48.941
     - type: ndcg_at_1000
-      value: 51.742
+      value: 51.105000000000004
     - type: map_at_1
-      value: 28.409000000000002
+      value: 27.236
     - type: map_at_3
-      value: 34.337
+      value: 34.204
     - type: map_at_5
-      value: 35.985
+      value: 35.66
     - type: map_at_10
-      value: 37.621
+      value: 36.986000000000004
     - type: map_at_20
-      value: 38.391
+      value: 37.827
     - type: map_at_100
-      value: 39.233000000000004
+      value: 38.602
     - type: map_at_1000
-      value: 39.471000000000004
+      value: 38.818000000000005
     - type: recall_at_1
-      value: 28.409000000000002
+      value: 27.236
     - type: recall_at_3
-      value: 40.133
+      value: 41.596
     - type: recall_at_5
-      value: 45.913
+      value: 46.947
     - type: recall_at_10
-      value: 55.388000000000005
+      value: 54.129000000000005
     - type: recall_at_20
-      value: 62.134
+      value: 62.641000000000005
     - type: recall_at_100
-      value: 81.517
+      value: 80.971
     - type: recall_at_1000
-      value: 95.038
+      value: 93.98100000000001
     - type: precision_at_1
-      value: 33.794000000000004
+      value: 32.806000000000004
     - type: precision_at_3
-      value: 17.787
+      value: 18.445
     - type: precision_at_5
-      value: 13.241
+      value: 13.083
     - type: precision_at_10
-      value: 8.597000000000001
+      value: 8.142000000000001
     - type: precision_at_20
-      value: 5.267
+      value: 5.119
     - type: precision_at_100
-      value: 1.652
+      value: 1.599
     - type: precision_at_1000
-      value: 0.251
+      value: 0.244
     - type: mrr_at_1
-      value: 33.7945
+      value: 32.8063
     - type: mrr_at_3
       value: 39.5257
     - type: mrr_at_5
-      value: 41.087
+      value: 40.8399
     - type: mrr_at_10
-      value: 42.3491
+      value: 41.8107
     - type: mrr_at_20
-      value: 42.7479
+      value: 42.4012
     - type: mrr_at_100
-      value: 43.1961
+      value: 42.7919
     - type: mrr_at_1000
-      value: 43.2373
+      value: 42.8261
     - type: nauc_ndcg_at_1_max
-      value: 43.9886
+      value: 49.2838
     - type: nauc_ndcg_at_1_std
-      value: 9.8923
+      value: 8.713799999999999
     - type: nauc_ndcg_at_1_diff1
-      value: 50.394000000000005
+      value: 48.2777
     - type: nauc_ndcg_at_3_max
-      value: 43.074200000000005
+      value: 44.4031
     - type: nauc_ndcg_at_3_std
-      value: 13.5108
+      value: 11.4725
     - type: nauc_ndcg_at_3_diff1
-      value: 47.0674
+      value: 41.5639
     - type: nauc_ndcg_at_5_max
-      value: 42.810700000000004
+      value: 44.452999999999996
     - type: nauc_ndcg_at_5_std
-      value: 14.119499999999999
+      value: 11.9373
     - type: nauc_ndcg_at_5_diff1
-      value: 46.822
+      value: 41.977199999999996
     - type: nauc_ndcg_at_10_max
-      value: 43.533699999999996
+      value: 44.8695
     - type: nauc_ndcg_at_10_std
-      value: 14.009599999999999
+      value: 13.6193
     - type: nauc_ndcg_at_10_diff1
-      value: 47.3163
+      value: 41.665
     - type: nauc_ndcg_at_20_max
-      value: 44.4973
+      value: 45.691900000000004
     - type: nauc_ndcg_at_20_std
-      value: 14.5044
+      value: 14.0959
     - type: nauc_ndcg_at_20_diff1
-      value: 47.2833
+      value: 42.2414
     - type: nauc_ndcg_at_100_max
-      value: 44.7593
+      value: 45.7442
     - type: nauc_ndcg_at_100_std
-      value: 16.833000000000002
+      value: 15.218699999999998
     - type: nauc_ndcg_at_100_diff1
-      value: 47.251599999999996
+      value: 41.7288
     - type: nauc_ndcg_at_1000_max
-      value: 44.790600000000005
+      value: 46.788000000000004
     - type: nauc_ndcg_at_1000_std
-      value: 15.987199999999998
+      value: 15.409900000000002
     - type: nauc_ndcg_at_1000_diff1
-      value: 47.4071
+      value: 41.9824
     - type: nauc_map_at_1_max
-      value: 43.4155
+      value: 48.0334
     - type: nauc_map_at_1_std
-      value: 6.3514
+      value: 8.0125
     - type: nauc_map_at_1_diff1
-      value: 54.8257
+      value: 53.4579
     - type: nauc_map_at_3_max
-      value: 43.1906
+      value: 45.1289
     - type: nauc_map_at_3_std
-      value: 9.823
+      value: 10.013
     - type: nauc_map_at_3_diff1
-      value: 49.5974
+      value: 45.51
     - type: nauc_map_at_5_max
-      value: 43.1564
+      value: 45.3494
     - type: nauc_map_at_5_std
-      value: 10.3498
+      value: 10.0348
     - type: nauc_map_at_5_diff1
-      value: 48.7876
+      value: 45.3972
     - type: nauc_map_at_10_max
-      value: 43.6805
+      value: 45.8378
     - type: nauc_map_at_10_std
-      value: 10.844199999999999
+      value: 11.3299
     - type: nauc_map_at_10_diff1
-      value: 48.5759
+      value: 44.8933
     - type: nauc_map_at_20_max
-      value: 44.121700000000004
+      value: 46.156000000000006
     - type: nauc_map_at_20_std
-      value: 11.6161
+      value: 11.8154
     - type: nauc_map_at_20_diff1
-      value: 48.4631
+      value: 44.6615
     - type: nauc_map_at_100_max
-      value: 44.1124
+      value: 46.1188
     - type: nauc_map_at_100_std
-      value: 12.439
+      value: 12.3635
     - type: nauc_map_at_100_diff1
-      value: 48.4742
+      value: 44.5946
     - type: nauc_map_at_1000_max
-      value: 44.0146
+      value: 46.1113
     - type: nauc_map_at_1000_std
-      value: 12.708
+      value: 12.526599999999998
     - type: nauc_map_at_1000_diff1
-      value: 48.5587
+      value: 44.595400000000005
     - type: nauc_recall_at_1_max
-      value: 43.4155
+      value: 48.0334
     - type: nauc_recall_at_1_std
-      value: 6.3514
+      value: 8.0125
     - type: nauc_recall_at_1_diff1
-      value: 54.8257
+      value: 53.4579
     - type: nauc_recall_at_3_max
-      value: 40.941300000000005
+      value: 39.3688
     - type: nauc_recall_at_3_std
-      value: 12.864700000000001
+      value: 10.3834
     - type: nauc_recall_at_3_diff1
-      value: 44.642900000000004
+      value: 37.8084
     - type: nauc_recall_at_5_max
-      value: 39.6961
+      value: 39.3184
     - type: nauc_recall_at_5_std
-      value: 13.6938
+      value: 10.509400000000001
     - type: nauc_recall_at_5_diff1
-      value: 42.142
+      value: 36.7191
     - type: nauc_recall_at_10_max
-      value: 40.2068
+      value: 38.785599999999995
     - type: nauc_recall_at_10_std
-      value: 14.1258
+      value: 15.781300000000002
     - type: nauc_recall_at_10_diff1
-      value: 42.244
+      value: 34.7564
     - type: nauc_recall_at_20_max
-      value: 42.7956
+      value: 39.6075
     - type: nauc_recall_at_20_std
-      value: 17.518
+      value: 18.0278
     - type: nauc_recall_at_20_diff1
-      value: 42.3104
+      value: 35.483399999999996
     - type: nauc_recall_at_100_max
-      value: 43.4746
+      value: 36.1361
     - type: nauc_recall_at_100_std
-      value: 39.7613
+      value: 29.1037
     - type: nauc_recall_at_100_diff1
-      value: 40.5005
+      value: 26.9486
     - type: nauc_recall_at_1000_max
-      value: 58.044
+      value: 62.4461
     - type: nauc_recall_at_1000_std
-      value: 56.4975
+      value: 57.465599999999995
     - type: nauc_recall_at_1000_diff1
-      value: 40.238600000000005
+      value: 29.5554
     - type: nauc_precision_at_1_max
-      value: 43.9886
+      value: 49.2838
     - type: nauc_precision_at_1_std
-      value: 9.8923
+      value: 8.713799999999999
     - type: nauc_precision_at_1_diff1
-      value: 50.394000000000005
+      value: 48.2777
     - type: nauc_precision_at_3_max
-      value: 37.436
+      value: 36.4572
     - type: nauc_precision_at_3_std
-      value: 19.9652
+      value: 14.3924
     - type: nauc_precision_at_3_diff1
-      value: 31.1933
+      value: 22.9406
     - type: nauc_precision_at_5_max
-      value: 32.124900000000004
+      value: 32.5803
     - type: nauc_precision_at_5_std
-      value: 22.8439
+      value: 16.4452
     - type: nauc_precision_at_5_diff1
-      value: 23.325699999999998
+      value: 18.2745
     - type: nauc_precision_at_10_max
-      value: 26.956200000000003
+      value: 27.3789
     - type: nauc_precision_at_10_std
-      value: 24.7414
+      value: 21.0131
     - type: nauc_precision_at_10_diff1
-      value: 15.1951
+      value: 6.947399999999999
     - type: nauc_precision_at_20_max
-      value: 20.924799999999998
+      value: 22.8404
     - type: nauc_precision_at_20_std
-      value: 27.1802
+      value: 24.6328
     - type: nauc_precision_at_20_diff1
-      value: 8.575800000000001
+      value: 0.1601
     - type: nauc_precision_at_100_max
-      value: 3.8554
+      value: 2.6098
     - type: nauc_precision_at_100_std
-      value: 32.46
+      value: 22.3326
     - type: nauc_precision_at_100_diff1
-      value: 1.1094
+      value: -10.1755
     - type: nauc_precision_at_1000_max
-      value: -4.0572
+      value: -6.730899999999999
     - type: nauc_precision_at_1000_std
-      value: 29.813499999999998
+      value: 18.262900000000002
     - type: nauc_precision_at_1000_diff1
-      value: 0.7384
+      value: -16.3364
     - type: nauc_mrr_at_1_max
-      value: 43.9886
+      value: 49.2838
     - type: nauc_mrr_at_1_std
-      value: 9.8923
+      value: 8.713799999999999
     - type: nauc_mrr_at_1_diff1
-      value: 50.394000000000005
+      value: 48.2777
     - type: nauc_mrr_at_3_max
-      value: 43.5962
+      value: 45.8613
     - type: nauc_mrr_at_3_std
-      value: 13.738
+      value: 10.4584
     - type: nauc_mrr_at_3_diff1
-      value: 46.9918
+      value: 42.2388
     - type: nauc_mrr_at_5_max
-      value: 43.6259
+      value: 46.1544
     - type: nauc_mrr_at_5_std
-      value: 13.3696
+      value: 11.1434
     - type: nauc_mrr_at_5_diff1
-      value: 46.7241
+      value: 42.2252
     - type: nauc_mrr_at_10_max
-      value: 43.7969
+      value: 46.2703
     - type: nauc_mrr_at_10_std
-      value: 13.477500000000001
+      value: 11.7714
     - type: nauc_mrr_at_10_diff1
-      value: 47.125499999999995
+      value: 42.0821
     - type: nauc_mrr_at_20_max
-      value: 43.8469
+      value: 46.4586
     - type: nauc_mrr_at_20_std
-      value: 13.5156
+      value: 11.9329
     - type: nauc_mrr_at_20_diff1
-      value: 47.088
+      value: 42.3199
     - type: nauc_mrr_at_100_max
-      value: 43.8068
+      value: 46.4309
     - type: nauc_mrr_at_100_std
-      value: 13.7051
+      value: 11.9458
     - type: nauc_mrr_at_100_diff1
-      value: 47.153600000000004
+      value: 42.2902
     - type: nauc_mrr_at_1000_max
-      value: 43.8016
+      value: 46.4392
     - type: nauc_mrr_at_1000_std
-      value: 13.661999999999999
+      value: 11.9269
     - type: nauc_mrr_at_1000_diff1
-      value: 47.1571
+      value: 42.3078
     - type: main_score
-      value: 43.832
+      value: 42.957
     task:
       type: Retrieval
   - dataset:
@@ -6064,287 +6076,287 @@ model-index:
       type: mteb/cqadupstack-wordpress
     metrics:
     - type: ndcg_at_1
-      value: 26.247999999999998
+      value: 25.692999999999998
     - type: ndcg_at_3
-      value: 31.799
+      value: 31.375999999999998
     - type: ndcg_at_5
-      value: 34.563
+      value: 33.617999999999995
     - type: ndcg_at_10
-      value: 36.889
+      value: 36.409000000000006
     - type: ndcg_at_20
-      value: 39.330999999999996
+      value: 38.5
     - type: ndcg_at_100
-      value: 42.426
+      value: 41.614000000000004
     - type: ndcg_at_1000
-      value: 44.745000000000005
+      value: 44.119
     - type: map_at_1
-      value: 24.067
+      value: 23.666
     - type: map_at_3
-      value: 29.492
+      value: 29.072
     - type: map_at_5
-      value: 31.11
+      value: 30.453999999999997
     - type: map_at_10
-      value: 32.184000000000005
+      value: 31.673000000000002
     - type: map_at_20
-      value: 32.903
+      value: 32.256
     - type: map_at_100
-      value: 33.357
+      value: 32.721000000000004
     - type: map_at_1000
-      value: 33.458
+      value: 32.82
     - type: recall_at_1
-      value: 24.067
+      value: 23.666
     - type: recall_at_3
-      value: 36.272
+      value: 35.693000000000005
     - type: recall_at_5
-      value: 42.77
+      value: 40.937
     - type: recall_at_10
-      value: 49.344
+      value: 48.979
     - type: recall_at_20
-      value: 58.46
+      value: 57.028999999999996
     - type: recall_at_100
-      value: 74.11999999999999
+      value: 72.80799999999999
     - type: recall_at_1000
-      value: 91.276
+      value: 91.546
     - type: precision_at_1
-      value: 26.247999999999998
+      value: 25.692999999999998
     - type: precision_at_3
-      value: 13.309000000000001
+      value: 13.123999999999999
     - type: precision_at_5
-      value: 9.649000000000001
+      value: 9.279
     - type: precision_at_10
       value: 5.712
     - type: precision_at_20
-      value: 3.466
+      value: 3.3360000000000003
     - type: precision_at_100
-      value: 0.915
+      value: 0.8869999999999999
     - type: precision_at_1000
-      value: 0.123
+      value: 0.122
     - type: mrr_at_1
-      value: 26.247700000000002
+      value: 25.6932
     - type: mrr_at_3
-      value: 31.638899999999996
+      value: 31.2693
     - type: mrr_at_5
-      value: 33.1824
+      value: 32.4522
     - type: mrr_at_10
-      value: 34.1493
+      value: 33.6496
     - type: mrr_at_20
-      value: 34.7716
+      value: 34.208
     - type: mrr_at_100
-      value: 35.1893
+      value: 34.6132
     - type: mrr_at_1000
-      value: 35.2507
+      value: 34.6794
     - type: nauc_ndcg_at_1_max
-      value: 36.3215
+      value: 30.436400000000003
     - type: nauc_ndcg_at_1_std
-      value: 0.6172000000000001
+      value: -5.177099999999999
     - type: nauc_ndcg_at_1_diff1
-      value: 50.767799999999994
+      value: 38.9465
     - type: nauc_ndcg_at_3_max
-      value: 32.5903
+      value: 27.759600000000002
     - type: nauc_ndcg_at_3_std
-      value: 2.5009
+      value: -3.7716
     - type: nauc_ndcg_at_3_diff1
-      value: 44.7412
+      value: 32.0374
     - type: nauc_ndcg_at_5_max
-      value: 32.616499999999995
+      value: 29.284399999999998
     - type: nauc_ndcg_at_5_std
-      value: 2.2826
+      value: -2.1555999999999997
     - type: nauc_ndcg_at_5_diff1
-      value: 41.7193
+      value: 31.2735
     - type: nauc_ndcg_at_10_max
-      value: 32.063399999999994
+      value: 27.4811
     - type: nauc_ndcg_at_10_std
-      value: 2.7484
+      value: -2.3712
     - type: nauc_ndcg_at_10_diff1
-      value: 40.9919
+      value: 30.5165
     - type: nauc_ndcg_at_20_max
-      value: 32.6337
+      value: 28.385899999999996
     - type: nauc_ndcg_at_20_std
-      value: 3.6401000000000003
+      value: -0.7358
     - type: nauc_ndcg_at_20_diff1
-      value: 39.4371
+      value: 30.5901
     - type: nauc_ndcg_at_100_max
-      value: 33.4504
+      value: 29.6634
     - type: nauc_ndcg_at_100_std
-      value: 6.5571
+      value: 0.6082
     - type: nauc_ndcg_at_100_diff1
-      value: 40.103899999999996
+      value: 30.455
     - type: nauc_ndcg_at_1000_max
-      value: 33.413399999999996
+      value: 29.316
     - type: nauc_ndcg_at_1000_std
-      value: 6.1167
+      value: 0.8039
     - type: nauc_ndcg_at_1000_diff1
-      value: 40.3296
+      value: 30.406699999999997
     - type: nauc_map_at_1_max
-      value: 33.9516
+      value: 28.618900000000004
     - type: nauc_map_at_1_std
-      value: -2.0814
+      value: -5.8273
     - type: nauc_map_at_1_diff1
-      value: 51.6831
+      value: 39.6434
     - type: nauc_map_at_3_max
-      value: 32.4114
+      value: 27.3257
     - type: nauc_map_at_3_std
-      value: 0.9002
+      value: -4.8353
     - type: nauc_map_at_3_diff1
-      value: 46.3164
+      value: 33.9743
     - type: nauc_map_at_5_max
-      value: 32.7406
+      value: 28.5433
     - type: nauc_map_at_5_std
-      value: 0.9598000000000001
+      value: -3.7222
     - type: nauc_map_at_5_diff1
-      value: 44.576100000000004
+      value: 33.360099999999996
     - type: nauc_map_at_10_max
-      value: 32.669
+      value: 27.972399999999997
     - type: nauc_map_at_10_std
-      value: 1.4043
+      value: -3.565
     - type: nauc_map_at_10_diff1
-      value: 44.1697
+      value: 32.9863
     - type: nauc_map_at_20_max
-      value: 32.807199999999995
+      value: 28.2615
     - type: nauc_map_at_20_std
-      value: 1.7632999999999999
+      value: -3.1113
     - type: nauc_map_at_20_diff1
-      value: 43.745400000000004
+      value: 32.9793
     - type: nauc_map_at_100_max
-      value: 32.9749
+      value: 28.540300000000002
     - type: nauc_map_at_100_std
-      value: 2.1647
+      value: -2.7937
     - type: nauc_map_at_100_diff1
-      value: 43.8445
+      value: 32.9581
     - type: nauc_map_at_1000_max
-      value: 32.9631
+      value: 28.5349
     - type: nauc_map_at_1000_std
-      value: 2.164
+      value: -2.7701
     - type: nauc_map_at_1000_diff1
-      value: 43.8217
+      value: 32.939299999999996
     - type: nauc_recall_at_1_max
-      value: 33.9516
+      value: 28.618900000000004
     - type: nauc_recall_at_1_std
-      value: -2.0814
+      value: -5.8273
     - type: nauc_recall_at_1_diff1
-      value: 51.6831
+      value: 39.6434
     - type: nauc_recall_at_3_max
-      value: 30.248199999999997
+      value: 25.120199999999997
     - type: nauc_recall_at_3_std
-      value: 4.3766
+      value: -3.4718
     - type: nauc_recall_at_3_diff1
-      value: 40.7147
+      value: 27.233200000000004
     - type: nauc_recall_at_5_max
-      value: 29.749799999999997
+      value: 28.6985
     - type: nauc_recall_at_5_std
-      value: 3.739
+      value: 0.1915
     - type: nauc_recall_at_5_diff1
-      value: 33.4515
+      value: 25.533299999999997
     - type: nauc_recall_at_10_max
-      value: 27.8039
+      value: 23.3717
     - type: nauc_recall_at_10_std
-      value: 4.3235
+      value: -0.9587999999999999
     - type: nauc_recall_at_10_diff1
-      value: 31.706200000000003
+      value: 23.8178
     - type: nauc_recall_at_20_max
-      value: 29.4726
+      value: 25.923800000000004
     - type: nauc_recall_at_20_std
-      value: 7.2537
+      value: 5.4661
     - type: nauc_recall_at_20_diff1
-      value: 24.763099999999998
+      value: 23.4099
     - type: nauc_recall_at_100_max
-      value: 32.6767
+      value: 32.182500000000005
     - type: nauc_recall_at_100_std
-      value: 28.704400000000003
+      value: 14.696200000000001
     - type: nauc_recall_at_100_diff1
-      value: 23.6186
+      value: 20.6716
     - type: nauc_recall_at_1000_max
-      value: 35.3748
+      value: 31.512400000000003
     - type: nauc_recall_at_1000_std
-      value: 49.2642
+      value: 42.5301
     - type: nauc_recall_at_1000_diff1
-      value: 15.0664
+      value: 10.7694
     - type: nauc_precision_at_1_max
-      value: 36.3215
+      value: 30.436400000000003
     - type: nauc_precision_at_1_std
-      value: 0.6172000000000001
+      value: -5.177099999999999
     - type: nauc_precision_at_1_diff1
-      value: 50.767799999999994
+      value: 38.9465
     - type: nauc_precision_at_3_max
-      value: 32.4313
+      value: 29.1341
     - type: nauc_precision_at_3_std
-      value: 6.8161
+      value: -0.1582
     - type: nauc_precision_at_3_diff1
-      value: 39.4056
+      value: 25.872600000000002
     - type: nauc_precision_at_5_max
-      value: 32.1058
+      value: 32.7748
     - type: nauc_precision_at_5_std
-      value: 7.5455
+      value: 4.798100000000001
     - type: nauc_precision_at_5_diff1
-      value: 29.119899999999998
+      value: 21.712400000000002
     - type: nauc_precision_at_10_max
-      value: 29.9078
+      value: 27.396700000000003
     - type: nauc_precision_at_10_std
-      value: 11.8851
+      value: 6.6187
     - type: nauc_precision_at_10_diff1
-      value: 22.5166
+      value: 16.292499999999997
     - type: nauc_precision_at_20_max
-      value: 29.212300000000003
+      value: 29.6999
     - type: nauc_precision_at_20_std
-      value: 16.1047
+      value: 12.6113
     - type: nauc_precision_at_20_diff1
-      value: 12.209299999999999
+      value: 14.616399999999999
     - type: nauc_precision_at_100_max
-      value: 24.7982
+      value: 29.297099999999997
     - type: nauc_precision_at_100_std
-      value: 29.3162
+      value: 20.9722
     - type: nauc_precision_at_100_diff1
-      value: 0.8240000000000001
+      value: 1.6410999999999998
     - type: nauc_precision_at_1000_max
-      value: -0.8333
+      value: 2.7286
     - type: nauc_precision_at_1000_std
-      value: 17.0877
+      value: 14.837200000000001
     - type: nauc_precision_at_1000_diff1
-      value: -25.4924
+      value: -21.584500000000002
     - type: nauc_mrr_at_1_max
-      value: 36.3215
+      value: 30.436400000000003
     - type: nauc_mrr_at_1_std
-      value: 0.6172000000000001
+      value: -5.177099999999999
     - type: nauc_mrr_at_1_diff1
-      value: 50.767799999999994
+      value: 38.9465
     - type: nauc_mrr_at_3_max
-      value: 34.7464
+      value: 29.766199999999998
     - type: nauc_mrr_at_3_std
-      value: 2.9025
+      value: -3.0375
     - type: nauc_mrr_at_3_diff1
-      value: 45.7566
+      value: 33.568599999999996
     - type: nauc_mrr_at_5_max
-      value: 34.454
+      value: 30.4582
     - type: nauc_mrr_at_5_std
-      value: 2.9497
+      value: -2.0233
     - type: nauc_mrr_at_5_diff1
-      value: 43.948
+      value: 33.1478
     - type: nauc_mrr_at_10_max
-      value: 34.1548
+      value: 29.3877
     - type: nauc_mrr_at_10_std
-      value: 3.0771
+      value: -2.3752
     - type: nauc_mrr_at_10_diff1
-      value: 43.626599999999996
+      value: 32.5597
     - type: nauc_mrr_at_20_max
-      value: 34.3061
+      value: 29.631400000000003
     - type: nauc_mrr_at_20_std
-      value: 3.2359999999999998
+      value: -1.9325999999999999
     - type: nauc_mrr_at_20_diff1
-      value: 43.2516
+      value: 32.6145
     - type: nauc_mrr_at_100_max
-      value: 34.3776
+      value: 29.7106
     - type: nauc_mrr_at_100_std
-      value: 3.5534999999999997
+      value: -1.8483
     - type: nauc_mrr_at_100_diff1
-      value: 43.432900000000004
+      value: 32.624900000000004
     - type: nauc_mrr_at_1000_max
-      value: 34.3807
+      value: 29.7099
     - type: nauc_mrr_at_1000_std
-      value: 3.5423999999999998
+      value: -1.8341
     - type: nauc_mrr_at_1000_diff1
-      value: 43.4448
+      value: 32.6251
     - type: main_score
-      value: 36.889
+      value: 36.409000000000006
     task:
       type: Retrieval
   - dataset:
@@ -6355,287 +6367,287 @@ model-index:
       type: mteb/climate-fever
     metrics:
     - type: ndcg_at_1
-      value: 29.837000000000003
+      value: 26.971
     - type: ndcg_at_3
-      value: 25.392
+      value: 24.196
     - type: ndcg_at_5
-      value: 27.153
+      value: 25.811
     - type: ndcg_at_10
-      value: 30.263
+      value: 29.494
     - type: ndcg_at_20
-      value: 33.073
+      value: 32.013999999999996
     - type: ndcg_at_100
-      value: 37.228
+      value: 35.989
     - type: ndcg_at_1000
-      value: 40.677
+      value: 39.326
     - type: map_at_1
-      value: 13.189
+      value: 12.107
     - type: map_at_3
-      value: 18.512999999999998
+      value: 17.538
     - type: map_at_5
-      value: 20.212
+      value: 19.124
     - type: map_at_10
-      value: 21.789
+      value: 20.896
     - type: map_at_20
-      value: 22.787
+      value: 21.798000000000002
     - type: map_at_100
-      value: 23.580000000000002
+      value: 22.567
     - type: map_at_1000
-      value: 23.772
+      value: 22.746
     - type: recall_at_1
-      value: 13.189
+      value: 12.107
     - type: recall_at_3
-      value: 23.255
+      value: 22.425
     - type: recall_at_5
-      value: 28.445999999999998
+      value: 27.394000000000002
     - type: recall_at_10
-      value: 35.355
+      value: 35.57
     - type: recall_at_20
-      value: 43.187999999999995
+      value: 42.565
     - type: recall_at_100
-      value: 59.255
+      value: 57.708000000000006
     - type: recall_at_1000
-      value: 78.637
+      value: 76.673
     - type: precision_at_1
-      value: 29.837000000000003
+      value: 26.971
     - type: precision_at_3
-      value: 18.545
+      value: 18.111
     - type: precision_at_5
-      value: 14.241000000000001
+      value: 13.694
     - type: precision_at_10
-      value: 9.179
+      value: 9.303
     - type: precision_at_20
-      value: 5.808
+      value: 5.769
     - type: precision_at_100
-      value: 1.659
+      value: 1.6320000000000001
     - type: precision_at_1000
-      value: 0.22999999999999998
+      value: 0.22499999999999998
     - type: mrr_at_1
-      value: 29.8371
+      value: 26.970699999999997
     - type: mrr_at_3
-      value: 38.2845
+      value: 36.0478
     - type: mrr_at_5
-      value: 40.300799999999995
+      value: 37.9598
     - type: mrr_at_10
-      value: 41.3765
+      value: 39.4286
     - type: mrr_at_20
-      value: 41.958400000000005
+      value: 39.9242
     - type: mrr_at_100
-      value: 42.281600000000005
+      value: 40.232600000000005
     - type: mrr_at_1000
-      value: 42.3193
+      value: 40.2711
     - type: nauc_ndcg_at_1_max
-      value: 29.676000000000002
+      value: 30.1498
     - type: nauc_ndcg_at_1_std
-      value: 20.4771
+      value: 9.795
     - type: nauc_ndcg_at_1_diff1
-      value: 22.0866
+      value: 28.3202
     - type: nauc_ndcg_at_3_max
-      value: 34.3256
+      value: 36.1507
     - type: nauc_ndcg_at_3_std
-      value: 18.886400000000002
+      value: 16.6918
     - type: nauc_ndcg_at_3_diff1
-      value: 19.692999999999998
+      value: 25.9179
     - type: nauc_ndcg_at_5_max
-      value: 36.709599999999995
+      value: 38.4314
     - type: nauc_ndcg_at_5_std
-      value: 21.857
+      value: 19.1236
     - type: nauc_ndcg_at_5_diff1
-      value: 20.2605
+      value: 25.7315
     - type: nauc_ndcg_at_10_max
-      value: 36.951699999999995
+      value: 39.734
     - type: nauc_ndcg_at_10_std
-      value: 24.1201
+      value: 22.795199999999998
     - type: nauc_ndcg_at_10_diff1
-      value: 19.5268
+      value: 24.5446
     - type: nauc_ndcg_at_20_max
-      value: 37.2598
+      value: 40.0306
     - type: nauc_ndcg_at_20_std
-      value: 26.072699999999998
+      value: 25.0242
     - type: nauc_ndcg_at_20_diff1
-      value: 18.5947
+      value: 23.7608
     - type: nauc_ndcg_at_100_max
-      value: 37.5131
+      value: 39.881
     - type: nauc_ndcg_at_100_std
-      value: 27.3519
+      value: 26.8935
     - type: nauc_ndcg_at_100_diff1
-      value: 18.7028
+      value: 23.366600000000002
     - type: nauc_ndcg_at_1000_max
-      value: 37.4262
+      value: 39.6299
     - type: nauc_ndcg_at_1000_std
-      value: 27.158700000000003
+      value: 27.556000000000004
     - type: nauc_ndcg_at_1000_diff1
-      value: 19.2395
+      value: 23.4406
     - type: nauc_map_at_1_max
-      value: 32.2132
+      value: 36.033500000000004
     - type: nauc_map_at_1_std
-      value: 15.244
+      value: 9.3902
     - type: nauc_map_at_1_diff1
-      value: 26.2965
+      value: 33.3389
     - type: nauc_map_at_3_max
-      value: 35.157
+      value: 38.2772
     - type: nauc_map_at_3_std
-      value: 16.8008
+      value: 14.862
     - type: nauc_map_at_3_diff1
-      value: 21.7011
+      value: 29.121799999999997
     - type: nauc_map_at_5_max
-      value: 36.0907
+      value: 38.8901
     - type: nauc_map_at_5_std
-      value: 19.0433
+      value: 16.4551
     - type: nauc_map_at_5_diff1
-      value: 21.5595
+      value: 28.258499999999998
     - type: nauc_map_at_10_max
-      value: 36.1498
+      value: 39.689099999999996
     - type: nauc_map_at_10_std
-      value: 20.7259
+      value: 19.0082
     - type: nauc_map_at_10_diff1
-      value: 20.816599999999998
+      value: 27.5292
     - type: nauc_map_at_20_max
-      value: 36.365199999999994
+      value: 39.8114
     - type: nauc_map_at_20_std
-      value: 21.6367
+      value: 20.099700000000002
     - type: nauc_map_at_20_diff1
-      value: 20.4563
+      value: 27.1249
     - type: nauc_map_at_100_max
-      value: 36.503600000000006
+      value: 39.7759
     - type: nauc_map_at_100_std
-      value: 22.020200000000003
+      value: 20.671400000000002
     - type: nauc_map_at_100_diff1
-      value: 20.5135
+      value: 26.9515
     - type: nauc_map_at_1000_max
-      value: 36.4843
+      value: 39.7635
     - type: nauc_map_at_1000_std
-      value: 22.0155
+      value: 20.7381
     - type: nauc_map_at_1000_diff1
-      value: 20.5659
+      value: 26.9318
     - type: nauc_recall_at_1_max
-      value: 32.2132
+      value: 36.033500000000004
     - type: nauc_recall_at_1_std
-      value: 15.244
+      value: 9.3902
     - type: nauc_recall_at_1_diff1
-      value: 26.2965
+      value: 33.3389
     - type: nauc_recall_at_3_max
-      value: 34.6294
+      value: 37.040099999999995
     - type: nauc_recall_at_3_std
-      value: 16.517200000000003
+      value: 18.421000000000003
     - type: nauc_recall_at_3_diff1
-      value: 16.6413
+      value: 23.591
     - type: nauc_recall_at_5_max
-      value: 35.938700000000004
+      value: 38.2483
     - type: nauc_recall_at_5_std
-      value: 21.1943
+      value: 21.9791
     - type: nauc_recall_at_5_diff1
-      value: 16.702
+      value: 20.9432
     - type: nauc_recall_at_10_max
-      value: 34.956900000000005
+      value: 38.684400000000004
     - type: nauc_recall_at_10_std
-      value: 24.6739
+      value: 27.528000000000002
     - type: nauc_recall_at_10_diff1
-      value: 14.4465
+      value: 17.874599999999997
     - type: nauc_recall_at_20_max
-      value: 33.873799999999996
+      value: 37.7408
     - type: nauc_recall_at_20_std
-      value: 27.9903
+      value: 31.178800000000003
     - type: nauc_recall_at_20_diff1
-      value: 11.1114
+      value: 15.3021
     - type: nauc_recall_at_100_max
-      value: 33.123799999999996
+      value: 35.0668
     - type: nauc_recall_at_100_std
-      value: 31.4933
+      value: 35.8934
     - type: nauc_recall_at_100_diff1
-      value: 10.3246
+      value: 12.0978
     - type: nauc_recall_at_1000_max
-      value: 32.9304
+      value: 33.2113
     - type: nauc_recall_at_1000_std
-      value: 33.5144
+      value: 44.3165
     - type: nauc_recall_at_1000_diff1
-      value: 10.810699999999999
+      value: 9.6011
     - type: nauc_precision_at_1_max
-      value: 29.676000000000002
+      value: 30.1498
     - type: nauc_precision_at_1_std
-      value: 20.4771
+      value: 9.795
     - type: nauc_precision_at_1_diff1
-      value: 22.0866
+      value: 28.3202
     - type: nauc_precision_at_3_max
-      value: 32.0765
+      value: 32.1047
     - type: nauc_precision_at_3_std
-      value: 20.6039
+      value: 20.7027
     - type: nauc_precision_at_3_diff1
-      value: 13.585700000000001
+      value: 18.3366
     - type: nauc_precision_at_5_max
-      value: 33.5445
+      value: 32.9484
     - type: nauc_precision_at_5_std
-      value: 26.567400000000003
+      value: 24.439700000000002
     - type: nauc_precision_at_5_diff1
-      value: 14.421700000000001
+      value: 16.3709
     - type: nauc_precision_at_10_max
-      value: 29.520200000000003
+      value: 30.626900000000003
     - type: nauc_precision_at_10_std
-      value: 28.8453
+      value: 30.3335
     - type: nauc_precision_at_10_diff1
-      value: 11.2529
+      value: 10.4378
     - type: nauc_precision_at_20_max
-      value: 25.610300000000002
+      value: 26.875100000000003
     - type: nauc_precision_at_20_std
-      value: 30.6799
+      value: 33.1578
     - type: nauc_precision_at_20_diff1
-      value: 6.8877
+      value: 6.3161
     - type: nauc_precision_at_100_max
-      value: 18.3639
+      value: 18.5691
     - type: nauc_precision_at_100_std
-      value: 28.2568
+      value: 32.4294
     - type: nauc_precision_at_100_diff1
-      value: 3.8568
+      value: 1.9001000000000001
     - type: nauc_precision_at_1000_max
-      value: 6.9706
+      value: 5.2522
     - type: nauc_precision_at_1000_std
-      value: 18.9339
+      value: 26.337899999999998
     - type: nauc_precision_at_1000_diff1
-      value: 0.6999
+      value: -4.2309
     - type: nauc_mrr_at_1_max
-      value: 29.676000000000002
+      value: 30.1498
     - type: nauc_mrr_at_1_std
-      value: 20.4771
+      value: 9.795
     - type: nauc_mrr_at_1_diff1
-      value: 22.0866
+      value: 28.3202
     - type: nauc_mrr_at_3_max
-      value: 32.559900000000006
+      value: 32.2466
     - type: nauc_mrr_at_3_std
-      value: 22.1817
+      value: 15.6475
     - type: nauc_mrr_at_3_diff1
-      value: 19.1362
+      value: 24.160899999999998
     - type: nauc_mrr_at_5_max
-      value: 33.692299999999996
+      value: 33.1837
     - type: nauc_mrr_at_5_std
-      value: 23.5179
+      value: 16.8917
     - type: nauc_mrr_at_5_diff1
-      value: 19.9908
+      value: 24.072499999999998
     - type: nauc_mrr_at_10_max
-      value: 33.6748
+      value: 33.576
     - type: nauc_mrr_at_10_std
-      value: 23.624200000000002
+      value: 17.4501
     - type: nauc_mrr_at_10_diff1
-      value: 19.969
+      value: 23.9826
     - type: nauc_mrr_at_20_max
-      value: 33.562599999999996
+      value: 33.5003
     - type: nauc_mrr_at_20_std
-      value: 23.776
+      value: 17.5104
     - type: nauc_mrr_at_20_diff1
-      value: 19.8259
+      value: 23.9237
     - type: nauc_mrr_at_100_max
-      value: 33.4998
+      value: 33.455200000000005
     - type: nauc_mrr_at_100_std
-      value: 23.7432
+      value: 17.5181
     - type: nauc_mrr_at_100_diff1
-      value: 19.8137
+      value: 23.9598
     - type: nauc_mrr_at_1000_max
-      value: 33.4876
+      value: 33.4473
     - type: nauc_mrr_at_1000_std
-      value: 23.719199999999997
+      value: 17.4969
     - type: nauc_mrr_at_1000_diff1
-      value: 19.817
+      value: 23.974899999999998
     - type: main_score
-      value: 30.263
+      value: 29.494
     task:
       type: Retrieval
   - dataset:
@@ -6646,287 +6658,287 @@ model-index:
       type: CoIR-Retrieval/codefeedback-mt
     metrics:
     - type: ndcg_at_1
-      value: 27.002
+      value: 21.044
     - type: ndcg_at_3
-      value: 33.597
+      value: 27.134999999999998
     - type: ndcg_at_5
-      value: 35.75
+      value: 29.205
     - type: ndcg_at_10
-      value: 37.757000000000005
+      value: 31.391999999999996
     - type: ndcg_at_20
-      value: 39.36
+      value: 33.031
     - type: ndcg_at_100
-      value: 41.806
+      value: 35.852000000000004
     - type: ndcg_at_1000
-      value: 43.675000000000004
+      value: 38.076
     - type: map_at_1
-      value: 27.002
+      value: 21.044
     - type: map_at_3
-      value: 31.964
+      value: 25.637
     - type: map_at_5
-      value: 33.158
+      value: 26.779999999999998
     - type: map_at_10
-      value: 33.988
+      value: 27.683000000000003
     - type: map_at_20
-      value: 34.43
+      value: 28.133999999999997
     - type: map_at_100
-      value: 34.760000000000005
+      value: 28.510999999999996
     - type: map_at_1000
-      value: 34.821999999999996
+      value: 28.588
     - type: recall_at_1
-      value: 27.002
+      value: 21.044
     - type: recall_at_3
-      value: 38.329
+      value: 31.468
     - type: recall_at_5
-      value: 43.557
+      value: 36.522
     - type: recall_at_10
-      value: 49.755
+      value: 43.278
     - type: recall_at_20
-      value: 56.082
+      value: 49.748
     - type: recall_at_100
-      value: 69.376
+      value: 65.16499999999999
     - type: recall_at_1000
-      value: 84.56
+      value: 83.031
     - type: precision_at_1
-      value: 27.002
+      value: 21.044
     - type: precision_at_3
-      value: 12.776000000000002
+      value: 10.488999999999999
     - type: precision_at_5
-      value: 8.711
+      value: 7.303999999999999
     - type: precision_at_10
-      value: 4.976
+      value: 4.328
     - type: precision_at_20
-      value: 2.804
+      value: 2.487
     - type: precision_at_100
-      value: 0.694
+      value: 0.652
     - type: precision_at_1000
-      value: 0.08499999999999999
+      value: 0.083
     - type: mrr_at_1
-      value: 27.001599999999996
+      value: 21.043899999999997
     - type: mrr_at_3
-      value: 31.9638
+      value: 25.6371
     - type: mrr_at_5
-      value: 33.158300000000004
+      value: 26.7796
     - type: mrr_at_10
-      value: 33.9877
+      value: 27.6831
     - type: mrr_at_20
-      value: 34.429700000000004
+      value: 28.1344
     - type: mrr_at_100
-      value: 34.760200000000005
+      value: 28.510999999999996
     - type: mrr_at_1000
-      value: 34.822399999999995
+      value: 28.588400000000004
     - type: nauc_ndcg_at_1_max
-      value: 14.691199999999998
+      value: 11.8658
     - type: nauc_ndcg_at_1_std
-      value: -18.2481
+      value: -18.4852
     - type: nauc_ndcg_at_1_diff1
-      value: 51.82940000000001
+      value: 47.3429
     - type: nauc_ndcg_at_3_max
-      value: 15.9155
+      value: 11.608400000000001
     - type: nauc_ndcg_at_3_std
-      value: -18.21
+      value: -19.0804
     - type: nauc_ndcg_at_3_diff1
-      value: 46.4667
+      value: 41.7031
     - type: nauc_ndcg_at_5_max
-      value: 16.2958
+      value: 11.289299999999999
     - type: nauc_ndcg_at_5_std
-      value: -17.8939
+      value: -19.3124
     - type: nauc_ndcg_at_5_diff1
-      value: 45.4591
+      value: 40.5381
     - type: nauc_ndcg_at_10_max
-      value: 16.6542
+      value: 11.6701
     - type: nauc_ndcg_at_10_std
-      value: -17.121
+      value: -18.7838
     - type: nauc_ndcg_at_10_diff1
-      value: 44.5803
+      value: 39.8088
     - type: nauc_ndcg_at_20_max
-      value: 17.210800000000003
+      value: 11.942400000000001
     - type: nauc_ndcg_at_20_std
-      value: -16.3918
+      value: -18.123900000000003
     - type: nauc_ndcg_at_20_diff1
-      value: 44.0927
+      value: 38.967800000000004
     - type: nauc_ndcg_at_100_max
-      value: 17.8597
+      value: 13.114999999999998
     - type: nauc_ndcg_at_100_std
-      value: -14.35
+      value: -16.1964
     - type: nauc_ndcg_at_100_diff1
-      value: 43.561
+      value: 39.0077
     - type: nauc_ndcg_at_1000_max
-      value: 18.0753
+      value: 13.5244
     - type: nauc_ndcg_at_1000_std
-      value: -13.827300000000001
+      value: -15.2702
     - type: nauc_ndcg_at_1000_diff1
-      value: 43.9433
+      value: 39.1235
     - type: nauc_map_at_1_max
-      value: 14.691199999999998
+      value: 11.8658
     - type: nauc_map_at_1_std
-      value: -18.2481
+      value: -18.4852
     - type: nauc_map_at_1_diff1
-      value: 51.82940000000001
+      value: 47.3429
     - type: nauc_map_at_3_max
-      value: 15.657099999999998
+      value: 11.6937
     - type: nauc_map_at_3_std
-      value: -18.253700000000002
+      value: -18.9625
     - type: nauc_map_at_3_diff1
-      value: 47.749399999999994
+      value: 42.993900000000004
     - type: nauc_map_at_5_max
-      value: 15.8683
+      value: 11.5064
     - type: nauc_map_at_5_std
-      value: -18.0718
+      value: -19.0958
     - type: nauc_map_at_5_diff1
-      value: 47.176899999999996
+      value: 42.3108
     - type: nauc_map_at_10_max
-      value: 16.0118
+      value: 11.6615
     - type: nauc_map_at_10_std
-      value: -17.7494
+      value: -18.885199999999998
     - type: nauc_map_at_10_diff1
-      value: 46.818799999999996
+      value: 41.993399999999994
     - type: nauc_map_at_20_max
-      value: 16.1658
+      value: 11.7419
     - type: nauc_map_at_20_std
-      value: -17.552400000000002
+      value: -18.7005
     - type: nauc_map_at_20_diff1
-      value: 46.694
+      value: 41.7643
     - type: nauc_map_at_100_max
-      value: 16.2407
+      value: 11.902600000000001
     - type: nauc_map_at_100_std
-      value: -17.289099999999998
+      value: -18.4376
     - type: nauc_map_at_100_diff1
-      value: 46.6325
+      value: 41.7771
     - type: nauc_map_at_1000_max
-      value: 16.2491
+      value: 11.9208
     - type: nauc_map_at_1000_std
-      value: -17.2655
+      value: -18.395500000000002
     - type: nauc_map_at_1000_diff1
-      value: 46.646300000000004
+      value: 41.7802
     - type: nauc_recall_at_1_max
-      value: 14.691199999999998
+      value: 11.8658
     - type: nauc_recall_at_1_std
-      value: -18.2481
+      value: -18.4852
     - type: nauc_recall_at_1_diff1
-      value: 51.82940000000001
+      value: 47.3429
     - type: nauc_recall_at_3_max
-      value: 16.6167
+      value: 11.3724
     - type: nauc_recall_at_3_std
-      value: -18.0762
+      value: -19.3869
     - type: nauc_recall_at_3_diff1
-      value: 42.9204
+      value: 38.2763
     - type: nauc_recall_at_5_max
-      value: 17.522299999999998
+      value: 10.678600000000001
     - type: nauc_recall_at_5_std
-      value: -17.349899999999998
+      value: -19.8995
     - type: nauc_recall_at_5_diff1
-      value: 40.5682
+      value: 35.781400000000005
     - type: nauc_recall_at_10_max
-      value: 18.6573
+      value: 11.7997
     - type: nauc_recall_at_10_std
-      value: -14.9976
+      value: -18.3219
     - type: nauc_recall_at_10_diff1
-      value: 37.7799
+      value: 33.7507
     - type: nauc_recall_at_20_max
-      value: 21.0226
+      value: 12.7832
     - type: nauc_recall_at_20_std
-      value: -11.8854
+      value: -15.8611
     - type: nauc_recall_at_20_diff1
-      value: 35.3475
+      value: 30.4676
     - type: nauc_recall_at_100_max
-      value: 26.442300000000003
+      value: 20.0012
     - type: nauc_recall_at_100_std
-      value: 2.9998
+      value: -3.8268000000000004
     - type: nauc_recall_at_100_diff1
-      value: 29.618699999999997
+      value: 28.8928
     - type: nauc_recall_at_1000_max
-      value: 36.3607
+      value: 30.812099999999997
     - type: nauc_recall_at_1000_std
-      value: 24.0336
+      value: 18.1771
     - type: nauc_recall_at_1000_diff1
-      value: 25.6114
+      value: 23.3851
     - type: nauc_precision_at_1_max
-      value: 14.691199999999998
+      value: 11.8658
     - type: nauc_precision_at_1_std
-      value: -18.2481
+      value: -18.4852
     - type: nauc_precision_at_1_diff1
-      value: 51.82940000000001
+      value: 47.3429
     - type: nauc_precision_at_3_max
-      value: 16.6167
+      value: 11.3724
     - type: nauc_precision_at_3_std
-      value: -18.0762
+      value: -19.3869
     - type: nauc_precision_at_3_diff1
-      value: 42.9204
+      value: 38.2763
     - type: nauc_precision_at_5_max
-      value: 17.522299999999998
+      value: 10.678600000000001
     - type: nauc_precision_at_5_std
-      value: -17.349899999999998
+      value: -19.8995
     - type: nauc_precision_at_5_diff1
-      value: 40.5682
+      value: 35.781400000000005
     - type: nauc_precision_at_10_max
-      value: 18.6573
+      value: 11.7997
     - type: nauc_precision_at_10_std
-      value: -14.9976
+      value: -18.3219
     - type: nauc_precision_at_10_diff1
-      value: 37.7799
+      value: 33.7507
     - type: nauc_precision_at_20_max
-      value: 21.0226
+      value: 12.7832
     - type: nauc_precision_at_20_std
-      value: -11.8854
+      value: -15.8611
     - type: nauc_precision_at_20_diff1
-      value: 35.3475
+      value: 30.4676
     - type: nauc_precision_at_100_max
-      value: 26.442300000000003
+      value: 20.0012
     - type: nauc_precision_at_100_std
-      value: 2.9998
+      value: -3.8268000000000004
     - type: nauc_precision_at_100_diff1
-      value: 29.618699999999997
+      value: 28.8928
     - type: nauc_precision_at_1000_max
-      value: 36.3607
+      value: 30.812099999999997
     - type: nauc_precision_at_1000_std
-      value: 24.0336
+      value: 18.1771
     - type: nauc_precision_at_1000_diff1
-      value: 25.6114
+      value: 23.3851
     - type: nauc_mrr_at_1_max
-      value: 14.691199999999998
+      value: 11.8658
     - type: nauc_mrr_at_1_std
-      value: -18.2481
+      value: -18.4852
     - type: nauc_mrr_at_1_diff1
-      value: 51.82940000000001
+      value: 47.3429
     - type: nauc_mrr_at_3_max
-      value: 15.657099999999998
+      value: 11.6937
     - type: nauc_mrr_at_3_std
-      value: -18.253700000000002
+      value: -18.9625
     - type: nauc_mrr_at_3_diff1
-      value: 47.749399999999994
+      value: 42.993900000000004
     - type: nauc_mrr_at_5_max
-      value: 15.8683
+      value: 11.5064
     - type: nauc_mrr_at_5_std
-      value: -18.0718
+      value: -19.0958
     - type: nauc_mrr_at_5_diff1
-      value: 47.176899999999996
+      value: 42.3108
     - type: nauc_mrr_at_10_max
-      value: 16.0118
+      value: 11.6615
     - type: nauc_mrr_at_10_std
-      value: -17.7494
+      value: -18.885199999999998
     - type: nauc_mrr_at_10_diff1
-      value: 46.818799999999996
+      value: 41.993399999999994
     - type: nauc_mrr_at_20_max
-      value: 16.1658
+      value: 11.7419
     - type: nauc_mrr_at_20_std
-      value: -17.552400000000002
+      value: -18.7005
     - type: nauc_mrr_at_20_diff1
-      value: 46.694
+      value: 41.7643
     - type: nauc_mrr_at_100_max
-      value: 16.2407
+      value: 11.902600000000001
     - type: nauc_mrr_at_100_std
-      value: -17.289099999999998
+      value: -18.4376
     - type: nauc_mrr_at_100_diff1
-      value: 46.6325
+      value: 41.7771
     - type: nauc_mrr_at_1000_max
-      value: 16.2491
+      value: 11.9208
     - type: nauc_mrr_at_1000_std
-      value: -17.2655
+      value: -18.395500000000002
     - type: nauc_mrr_at_1000_diff1
-      value: 46.646300000000004
+      value: 41.7802
     - type: main_score
-      value: 37.757000000000005
+      value: 31.391999999999996
     task:
       type: Retrieval
   - dataset:
@@ -6937,287 +6949,287 @@ model-index:
       type: CoIR-Retrieval/codefeedback-st
     metrics:
     - type: ndcg_at_1
-      value: 53.335
+      value: 51.227000000000004
     - type: ndcg_at_3
-      value: 64.78399999999999
+      value: 62.971999999999994
     - type: ndcg_at_5
-      value: 67.418
+      value: 65.649
     - type: ndcg_at_10
-      value: 69.425
+      value: 67.72200000000001
     - type: ndcg_at_20
-      value: 70.513
+      value: 68.919
     - type: ndcg_at_100
-      value: 71.709
+      value: 70.15299999999999
     - type: ndcg_at_1000
-      value: 72.139
+      value: 70.658
     - type: map_at_1
-      value: 53.335
+      value: 51.227000000000004
     - type: map_at_3
-      value: 62.0
+      value: 60.114000000000004
     - type: map_at_5
-      value: 63.467
+      value: 61.607
     - type: map_at_10
-      value: 64.306
+      value: 62.475
     - type: map_at_20
-      value: 64.608
+      value: 62.806
     - type: map_at_100
-      value: 64.776
+      value: 62.979
     - type: map_at_1000
-      value: 64.793
+      value: 62.999
     - type: recall_at_1
-      value: 53.335
+      value: 51.227000000000004
     - type: recall_at_3
-      value: 72.82600000000001
+      value: 71.232
     - type: recall_at_5
-      value: 79.199
+      value: 77.69800000000001
     - type: recall_at_10
-      value: 85.354
+      value: 84.041
     - type: recall_at_20
-      value: 89.628
+      value: 88.756
     - type: recall_at_100
-      value: 96.039
+      value: 95.371
     - type: recall_at_1000
-      value: 99.368
+      value: 99.278
     - type: precision_at_1
-      value: 53.335
+      value: 51.227000000000004
     - type: precision_at_3
-      value: 24.275
+      value: 23.744
     - type: precision_at_5
-      value: 15.840000000000002
+      value: 15.540000000000001
     - type: precision_at_10
-      value: 8.535
+      value: 8.404
     - type: precision_at_20
-      value: 4.481
+      value: 4.438000000000001
     - type: precision_at_100
-      value: 0.96
+      value: 0.954
     - type: precision_at_1000
       value: 0.099
     - type: mrr_at_1
-      value: 53.31249999999999
+      value: 51.0062
     - type: mrr_at_3
-      value: 62.0217
+      value: 60.0023
     - type: mrr_at_5
-      value: 63.489700000000006
+      value: 61.492999999999995
     - type: mrr_at_10
-      value: 64.3214
+      value: 62.362899999999996
     - type: mrr_at_20
-      value: 64.6232
+      value: 62.693200000000004
     - type: mrr_at_100
-      value: 64.7915
+      value: 62.8664
     - type: mrr_at_1000
-      value: 64.8086
+      value: 62.8866
     - type: nauc_ndcg_at_1_max
-      value: 4.5411
+      value: 5.5119
     - type: nauc_ndcg_at_1_std
-      value: -27.4357
+      value: -27.434599999999996
     - type: nauc_ndcg_at_1_diff1
-      value: 70.331
+      value: 67.3476
     - type: nauc_ndcg_at_3_max
-      value: 9.293899999999999
+      value: 11.8474
     - type: nauc_ndcg_at_3_std
-      value: -30.4201
+      value: -30.5305
     - type: nauc_ndcg_at_3_diff1
-      value: 64.90599999999999
+      value: 61.4515
     - type: nauc_ndcg_at_5_max
-      value: 9.725
+      value: 12.692700000000002
     - type: nauc_ndcg_at_5_std
-      value: -30.8448
+      value: -30.938
     - type: nauc_ndcg_at_5_diff1
-      value: 64.2796
+      value: 61.0505
     - type: nauc_ndcg_at_10_max
-      value: 9.4302
+      value: 12.354800000000001
     - type: nauc_ndcg_at_10_std
-      value: -30.5425
+      value: -30.6409
     - type: nauc_ndcg_at_10_diff1
-      value: 64.5211
+      value: 61.205600000000004
     - type: nauc_ndcg_at_20_max
-      value: 9.019
+      value: 11.9146
     - type: nauc_ndcg_at_20_std
-      value: -29.986800000000002
+      value: -30.247
     - type: nauc_ndcg_at_20_diff1
-      value: 64.7995
+      value: 61.5428
     - type: nauc_ndcg_at_100_max
-      value: 8.780100000000001
+      value: 11.5407
     - type: nauc_ndcg_at_100_std
-      value: -29.4587
+      value: -29.561700000000002
     - type: nauc_ndcg_at_100_diff1
-      value: 65.3485
+      value: 62.06270000000001
     - type: nauc_ndcg_at_1000_max
-      value: 8.5933
+      value: 11.2459
     - type: nauc_ndcg_at_1000_std
-      value: -29.462300000000003
+      value: -29.5751
     - type: nauc_ndcg_at_1000_diff1
-      value: 65.5513
+      value: 62.28
     - type: nauc_map_at_1_max
-      value: 4.5411
+      value: 5.5119
     - type: nauc_map_at_1_std
-      value: -27.4357
+      value: -27.434599999999996
     - type: nauc_map_at_1_diff1
-      value: 70.331
+      value: 67.3476
     - type: nauc_map_at_3_max
-      value: 7.9982
+      value: 10.1298
     - type: nauc_map_at_3_std
-      value: -29.5826
+      value: -29.674899999999997
     - type: nauc_map_at_3_diff1
-      value: 66.2961
+      value: 62.982000000000006
     - type: nauc_map_at_5_max
-      value: 8.1756
+      value: 10.5075
     - type: nauc_map_at_5_std
-      value: -29.765900000000002
+      value: -29.858600000000003
     - type: nauc_map_at_5_diff1
-      value: 66.0248
+      value: 62.829299999999996
     - type: nauc_map_at_10_max
-      value: 8.0296
+      value: 10.3459
     - type: nauc_map_at_10_std
-      value: -29.6458
+      value: -29.7338
     - type: nauc_map_at_10_diff1
-      value: 66.158
+      value: 62.917699999999996
     - type: nauc_map_at_20_max
-      value: 7.919099999999999
+      value: 10.2198
     - type: nauc_map_at_20_std
-      value: -29.505799999999997
+      value: -29.6284
     - type: nauc_map_at_20_diff1
-      value: 66.24029999999999
+      value: 63.01409999999999
     - type: nauc_map_at_100_max
-      value: 7.8803
+      value: 10.1683
     - type: nauc_map_at_100_std
-      value: -29.442600000000002
+      value: -29.5448
     - type: nauc_map_at_100_diff1
-      value: 66.3125
+      value: 63.0794
     - type: nauc_map_at_1000_max
-      value: 7.8752
+      value: 10.1602
     - type: nauc_map_at_1000_std
-      value: -29.438399999999998
+      value: -29.5412
     - type: nauc_map_at_1000_diff1
-      value: 66.3195
+      value: 63.0874
     - type: nauc_recall_at_1_max
-      value: 4.5411
+      value: 5.5119
     - type: nauc_recall_at_1_std
-      value: -27.4357
+      value: -27.434599999999996
     - type: nauc_recall_at_1_diff1
-      value: 70.331
+      value: 67.3476
     - type: nauc_recall_at_3_max
-      value: 13.911000000000001
+      value: 17.8724
     - type: nauc_recall_at_3_std
-      value: -33.4167
+      value: -33.5404
     - type: nauc_recall_at_3_diff1
-      value: 59.9986
+      value: 56.1172
     - type: nauc_recall_at_5_max
-      value: 16.401
+      value: 21.945700000000002
     - type: nauc_recall_at_5_std
-      value: -35.5473
+      value: -35.5124
     - type: nauc_recall_at_5_diff1
-      value: 56.781000000000006
+      value: 53.6154
     - type: nauc_recall_at_10_max
-      value: 17.2917
+      value: 23.1968
     - type: nauc_recall_at_10_std
-      value: -35.4908
+      value: -35.4292
     - type: nauc_recall_at_10_diff1
-      value: 55.279199999999996
+      value: 51.998900000000006
     - type: nauc_recall_at_20_max
-      value: 16.4243
+      value: 23.4056
     - type: nauc_recall_at_20_std
-      value: -32.2776
+      value: -33.825300000000006
     - type: nauc_recall_at_20_diff1
-      value: 54.4386
+      value: 51.544900000000005
     - type: nauc_recall_at_100_max
-      value: 21.5949
+      value: 29.2331
     - type: nauc_recall_at_100_std
-      value: -19.9444
+      value: -20.444499999999998
     - type: nauc_recall_at_100_diff1
-      value: 54.3502
+      value: 51.8606
     - type: nauc_recall_at_1000_max
-      value: 35.8557
+      value: 47.943000000000005
     - type: nauc_recall_at_1000_std
-      value: 18.242
+      value: 16.1139
     - type: nauc_recall_at_1000_diff1
-      value: 50.969699999999996
+      value: 49.2407
     - type: nauc_precision_at_1_max
-      value: 4.5411
+      value: 5.5119
     - type: nauc_precision_at_1_std
-      value: -27.4357
+      value: -27.434599999999996
     - type: nauc_precision_at_1_diff1
-      value: 70.331
+      value: 67.3476
     - type: nauc_precision_at_3_max
-      value: 13.911000000000001
+      value: 17.8724
     - type: nauc_precision_at_3_std
-      value: -33.4167
+      value: -33.5404
     - type: nauc_precision_at_3_diff1
-      value: 59.9986
+      value: 56.1172
     - type: nauc_precision_at_5_max
-      value: 16.401
+      value: 21.945700000000002
     - type: nauc_precision_at_5_std
-      value: -35.5473
+      value: -35.5124
     - type: nauc_precision_at_5_diff1
-      value: 56.781000000000006
+      value: 53.6154
     - type: nauc_precision_at_10_max
-      value: 17.2917
+      value: 23.1968
     - type: nauc_precision_at_10_std
-      value: -35.4908
+      value: -35.4292
     - type: nauc_precision_at_10_diff1
-      value: 55.279199999999996
+      value: 51.998900000000006
     - type: nauc_precision_at_20_max
-      value: 16.4243
+      value: 23.4056
     - type: nauc_precision_at_20_std
-      value: -32.2776
+      value: -33.825300000000006
     - type: nauc_precision_at_20_diff1
-      value: 54.4386
+      value: 51.544900000000005
     - type: nauc_precision_at_100_max
-      value: 21.5949
+      value: 29.2331
     - type: nauc_precision_at_100_std
-      value: -19.9444
+      value: -20.444499999999998
     - type: nauc_precision_at_100_diff1
-      value: 54.3502
+      value: 51.8606
     - type: nauc_precision_at_1000_max
-      value: 35.8557
+      value: 47.943000000000005
     - type: nauc_precision_at_1000_std
-      value: 18.242
+      value: 16.1139
     - type: nauc_precision_at_1000_diff1
-      value: 50.969699999999996
+      value: 49.2407
     - type: nauc_mrr_at_1_max
-      value: 4.045
+      value: 4.9502
     - type: nauc_mrr_at_1_std
-      value: -27.371299999999998
+      value: -27.426099999999998
     - type: nauc_mrr_at_1_diff1
-      value: 70.3681
+      value: 67.8214
     - type: nauc_mrr_at_3_max
-      value: 7.7906
+      value: 9.7423
     - type: nauc_mrr_at_3_std
-      value: -29.488999999999997
+      value: -29.674699999999998
     - type: nauc_mrr_at_3_diff1
-      value: 66.2574
+      value: 63.24340000000001
     - type: nauc_mrr_at_5_max
-      value: 7.8858999999999995
+      value: 10.1129
     - type: nauc_mrr_at_5_std
-      value: -29.7336
+      value: -29.871100000000002
     - type: nauc_mrr_at_5_diff1
-      value: 66.0274
+      value: 63.1148
     - type: nauc_mrr_at_10_max
-      value: 7.7456
+      value: 9.9493
     - type: nauc_mrr_at_10_std
-      value: -29.5912
+      value: -29.7413
     - type: nauc_mrr_at_10_diff1
-      value: 66.1546
+      value: 63.2057
     - type: nauc_mrr_at_20_max
-      value: 7.6305
+      value: 9.8157
     - type: nauc_mrr_at_20_std
-      value: -29.4551
+      value: -29.644
     - type: nauc_mrr_at_20_diff1
-      value: 66.2342
+      value: 63.307100000000005
     - type: nauc_mrr_at_100_max
-      value: 7.589799999999999
+      value: 9.7639
     - type: nauc_mrr_at_100_std
-      value: -29.392400000000002
+      value: -29.5582
     - type: nauc_mrr_at_100_diff1
-      value: 66.3072
+      value: 63.3738
     - type: nauc_mrr_at_1000_max
-      value: 7.584499999999999
+      value: 9.7555
     - type: nauc_mrr_at_1000_std
-      value: -29.3881
+      value: -29.554599999999997
     - type: nauc_mrr_at_1000_diff1
-      value: 66.3142
+      value: 63.382000000000005
     - type: main_score
-      value: 69.425
+      value: 67.72200000000001
     task:
       type: Retrieval
   - dataset:
@@ -7228,287 +7240,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet-ccr
     metrics:
     - type: ndcg_at_1
-      value: 39.395
+      value: 32.417
     - type: ndcg_at_3
-      value: 49.038
+      value: 40.904
     - type: ndcg_at_5
-      value: 51.398999999999994
+      value: 43.321
     - type: ndcg_at_10
-      value: 53.593999999999994
+      value: 45.532000000000004
     - type: ndcg_at_20
-      value: 55.013
+      value: 47.071000000000005
     - type: ndcg_at_100
-      value: 56.940999999999995
+      value: 49.297999999999995
     - type: ndcg_at_1000
-      value: 58.126999999999995
+      value: 50.859
     - type: map_at_1
-      value: 39.395
+      value: 32.417
     - type: map_at_3
-      value: 46.687
+      value: 38.829
     - type: map_at_5
-      value: 48.003
+      value: 40.166000000000004
     - type: map_at_10
-      value: 48.911
+      value: 41.087
     - type: map_at_20
-      value: 49.305
+      value: 41.510999999999996
     - type: map_at_100
-      value: 49.571
+      value: 41.815000000000005
     - type: map_at_1000
-      value: 49.612
+      value: 41.869
     - type: recall_at_1
-      value: 39.395
+      value: 32.417
     - type: recall_at_3
-      value: 55.832
+      value: 46.903
     - type: recall_at_5
-      value: 61.543000000000006
+      value: 52.788999999999994
     - type: recall_at_10
-      value: 68.313
+      value: 59.57900000000001
     - type: recall_at_20
-      value: 73.897
+      value: 65.652
     - type: recall_at_100
-      value: 84.308
+      value: 77.718
     - type: recall_at_1000
-      value: 93.866
+      value: 90.294
     - type: precision_at_1
-      value: 39.395
+      value: 32.417
     - type: precision_at_3
-      value: 18.611
+      value: 15.634
     - type: precision_at_5
-      value: 12.309000000000001
+      value: 10.558
     - type: precision_at_10
-      value: 6.8309999999999995
+      value: 5.958
     - type: precision_at_20
-      value: 3.695
+      value: 3.283
     - type: precision_at_100
-      value: 0.843
+      value: 0.777
     - type: precision_at_1000
-      value: 0.094
+      value: 0.09
     - type: mrr_at_1
-      value: 39.402100000000004
+      value: 32.4239
     - type: mrr_at_3
-      value: 46.690799999999996
+      value: 38.8323
     - type: mrr_at_5
-      value: 48.0073
+      value: 40.1696
     - type: mrr_at_10
-      value: 48.9156
+      value: 41.0908
     - type: mrr_at_20
-      value: 49.3097
+      value: 41.5149
     - type: mrr_at_100
-      value: 49.5752
+      value: 41.8188
     - type: mrr_at_1000
-      value: 49.6159
+      value: 41.8726
     - type: nauc_ndcg_at_1_max
-      value: 29.945899999999998
+      value: 32.4803
     - type: nauc_ndcg_at_1_std
-      value: -7.957
+      value: -1.1774
     - type: nauc_ndcg_at_1_diff1
-      value: 55.8451
+      value: 54.68730000000001
     - type: nauc_ndcg_at_3_max
-      value: 31.5415
+      value: 33.5662
     - type: nauc_ndcg_at_3_std
-      value: -8.2198
+      value: 0.361
     - type: nauc_ndcg_at_3_diff1
-      value: 51.75959999999999
+      value: 49.522
     - type: nauc_ndcg_at_5_max
-      value: 31.6664
+      value: 33.0861
     - type: nauc_ndcg_at_5_std
-      value: -7.1463
+      value: 0.5551999999999999
     - type: nauc_ndcg_at_5_diff1
-      value: 51.0188
+      value: 48.9052
     - type: nauc_ndcg_at_10_max
-      value: 31.616
+      value: 33.0427
     - type: nauc_ndcg_at_10_std
-      value: -6.575699999999999
+      value: 1.466
     - type: nauc_ndcg_at_10_diff1
-      value: 50.7344
+      value: 48.3256
     - type: nauc_ndcg_at_20_max
-      value: 31.626199999999997
+      value: 33.059
     - type: nauc_ndcg_at_20_std
-      value: -6.0725
+      value: 2.2277
     - type: nauc_ndcg_at_20_diff1
-      value: 50.77159999999999
+      value: 48.2916
     - type: nauc_ndcg_at_100_max
-      value: 31.6639
+      value: 33.0797
     - type: nauc_ndcg_at_100_std
-      value: -5.4948999999999995
+      value: 2.9991
     - type: nauc_ndcg_at_100_diff1
-      value: 50.790800000000004
+      value: 48.266999999999996
     - type: nauc_ndcg_at_1000_max
-      value: 31.5161
+      value: 33.1052
     - type: nauc_ndcg_at_1000_std
-      value: -5.748600000000001
+      value: 2.8583000000000003
     - type: nauc_ndcg_at_1000_diff1
-      value: 51.062799999999996
+      value: 48.5209
     - type: nauc_map_at_1_max
-      value: 29.945899999999998
+      value: 32.4803
     - type: nauc_map_at_1_std
-      value: -7.957
+      value: -1.1774
     - type: nauc_map_at_1_diff1
-      value: 55.8451
+      value: 54.68730000000001
     - type: nauc_map_at_3_max
-      value: 31.1851
+      value: 33.3014
     - type: nauc_map_at_3_std
-      value: -8.1706
+      value: -0.06409999999999999
     - type: nauc_map_at_3_diff1
-      value: 52.7057
+      value: 50.6726
     - type: nauc_map_at_5_max
-      value: 31.2519
+      value: 33.0327
     - type: nauc_map_at_5_std
-      value: -7.580299999999999
+      value: 0.0325
     - type: nauc_map_at_5_diff1
-      value: 52.3165
+      value: 50.3363
     - type: nauc_map_at_10_max
-      value: 31.231399999999997
+      value: 33.0181
     - type: nauc_map_at_10_std
-      value: -7.360800000000001
+      value: 0.3939
     - type: nauc_map_at_10_diff1
-      value: 52.23
+      value: 50.1109
     - type: nauc_map_at_20_max
-      value: 31.2307
+      value: 33.0183
     - type: nauc_map_at_20_std
-      value: -7.2384
+      value: 0.5951
     - type: nauc_map_at_20_diff1
-      value: 52.2532
+      value: 50.108
     - type: nauc_map_at_100_max
-      value: 31.2368
+      value: 33.022
     - type: nauc_map_at_100_std
-      value: -7.1598
+      value: 0.6973
     - type: nauc_map_at_100_diff1
-      value: 52.260600000000004
+      value: 50.10790000000001
     - type: nauc_map_at_1000_max
-      value: 31.230900000000002
+      value: 33.022
     - type: nauc_map_at_1000_std
-      value: -7.1662
+      value: 0.6931999999999999
     - type: nauc_map_at_1000_diff1
-      value: 52.267300000000006
+      value: 50.1174
     - type: nauc_recall_at_1_max
-      value: 29.945899999999998
+      value: 32.4803
     - type: nauc_recall_at_1_std
-      value: -7.957
+      value: -1.1774
     - type: nauc_recall_at_1_diff1
-      value: 55.8451
+      value: 54.68730000000001
     - type: nauc_recall_at_3_max
-      value: 32.6121
+      value: 34.3301
     - type: nauc_recall_at_3_std
-      value: -8.363
+      value: 1.6075
     - type: nauc_recall_at_3_diff1
-      value: 48.9016
+      value: 46.2477
     - type: nauc_recall_at_5_max
-      value: 33.0025
+      value: 33.177299999999995
     - type: nauc_recall_at_5_std
-      value: -5.5725
+      value: 2.1687000000000003
     - type: nauc_recall_at_5_diff1
-      value: 46.7352
+      value: 44.61
     - type: nauc_recall_at_10_max
-      value: 32.9683
+      value: 33.020500000000006
     - type: nauc_recall_at_10_std
-      value: -3.2460999999999998
+      value: 5.3331
     - type: nauc_recall_at_10_diff1
-      value: 45.0443
+      value: 42.3796
     - type: nauc_recall_at_20_max
-      value: 33.2455
+      value: 33.1279
     - type: nauc_recall_at_20_std
-      value: -0.0093
+      value: 9.2437
     - type: nauc_recall_at_20_diff1
-      value: 44.294200000000004
+      value: 41.584199999999996
     - type: nauc_recall_at_100_max
-      value: 34.4004
+      value: 33.2882
     - type: nauc_recall_at_100_std
-      value: 8.996500000000001
+      value: 18.1866
     - type: nauc_recall_at_100_diff1
-      value: 41.0779
+      value: 38.9221
     - type: nauc_recall_at_1000_max
-      value: 33.096399999999996
+      value: 34.2607
     - type: nauc_recall_at_1000_std
-      value: 19.266
+      value: 30.5699
     - type: nauc_recall_at_1000_diff1
-      value: 38.2966
+      value: 35.204800000000006
     - type: nauc_precision_at_1_max
-      value: 29.945899999999998
+      value: 32.4803
     - type: nauc_precision_at_1_std
-      value: -7.957
+      value: -1.1774
     - type: nauc_precision_at_1_diff1
-      value: 55.8451
+      value: 54.68730000000001
     - type: nauc_precision_at_3_max
-      value: 32.6121
+      value: 34.3301
     - type: nauc_precision_at_3_std
-      value: -8.363
+      value: 1.6075
     - type: nauc_precision_at_3_diff1
-      value: 48.9016
+      value: 46.2477
     - type: nauc_precision_at_5_max
-      value: 33.0025
+      value: 33.177299999999995
     - type: nauc_precision_at_5_std
-      value: -5.5725
+      value: 2.1687000000000003
     - type: nauc_precision_at_5_diff1
-      value: 46.7352
+      value: 44.61
     - type: nauc_precision_at_10_max
-      value: 32.9683
+      value: 33.020500000000006
     - type: nauc_precision_at_10_std
-      value: -3.2460999999999998
+      value: 5.3331
     - type: nauc_precision_at_10_diff1
-      value: 45.0443
+      value: 42.3796
     - type: nauc_precision_at_20_max
-      value: 33.2455
+      value: 33.1279
     - type: nauc_precision_at_20_std
-      value: -0.0093
+      value: 9.2437
     - type: nauc_precision_at_20_diff1
-      value: 44.294200000000004
+      value: 41.584199999999996
     - type: nauc_precision_at_100_max
-      value: 34.4004
+      value: 33.2882
     - type: nauc_precision_at_100_std
-      value: 8.996500000000001
+      value: 18.1866
     - type: nauc_precision_at_100_diff1
-      value: 41.0779
+      value: 38.9221
     - type: nauc_precision_at_1000_max
-      value: 33.096399999999996
+      value: 34.2607
     - type: nauc_precision_at_1000_std
-      value: 19.266
+      value: 30.5699
     - type: nauc_precision_at_1000_diff1
-      value: 38.2966
+      value: 35.204800000000006
     - type: nauc_mrr_at_1_max
-      value: 29.9427
+      value: 32.5013
     - type: nauc_mrr_at_1_std
-      value: -7.9670000000000005
+      value: -1.1843
     - type: nauc_mrr_at_1_diff1
-      value: 55.824799999999996
+      value: 54.6663
     - type: nauc_mrr_at_3_max
-      value: 31.1834
+      value: 33.315
     - type: nauc_mrr_at_3_std
-      value: -8.175799999999999
+      value: -0.06849999999999999
     - type: nauc_mrr_at_3_diff1
-      value: 52.6952
+      value: 50.66460000000001
     - type: nauc_mrr_at_5_max
-      value: 31.2515
+      value: 33.0452
     - type: nauc_mrr_at_5_std
-      value: -7.5835
+      value: 0.0305
     - type: nauc_mrr_at_5_diff1
-      value: 52.303599999999996
+      value: 50.326499999999996
     - type: nauc_mrr_at_10_max
-      value: 31.2284
+      value: 33.0308
     - type: nauc_mrr_at_10_std
-      value: -7.3647
+      value: 0.39189999999999997
     - type: nauc_mrr_at_10_diff1
-      value: 52.2177
+      value: 50.101
     - type: nauc_mrr_at_20_max
-      value: 31.2274
+      value: 33.031
     - type: nauc_mrr_at_20_std
-      value: -7.243399999999999
+      value: 0.5930000000000001
     - type: nauc_mrr_at_20_diff1
-      value: 52.2417
+      value: 50.0981
     - type: nauc_mrr_at_100_max
-      value: 31.2336
+      value: 33.0348
     - type: nauc_mrr_at_100_std
-      value: -7.1640999999999995
+      value: 0.6952
     - type: nauc_mrr_at_100_diff1
-      value: 52.2482
+      value: 50.097899999999996
     - type: nauc_mrr_at_1000_max
-      value: 31.227700000000002
+      value: 33.0348
     - type: nauc_mrr_at_1000_std
-      value: -7.1705000000000005
+      value: 0.6910999999999999
     - type: nauc_mrr_at_1000_diff1
-      value: 52.254900000000006
+      value: 50.1074
     - type: main_score
-      value: 53.593999999999994
+      value: 45.532000000000004
     task:
       type: Retrieval
   - dataset:
@@ -7519,287 +7531,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet-ccr
     metrics:
     - type: ndcg_at_1
-      value: 39.593
+      value: 33.364
     - type: ndcg_at_3
-      value: 48.759
+      value: 41.943999999999996
     - type: ndcg_at_5
-      value: 51.073
+      value: 44.167
     - type: ndcg_at_10
-      value: 53.1
+      value: 46.024
     - type: ndcg_at_20
-      value: 54.230999999999995
+      value: 47.508
     - type: ndcg_at_100
-      value: 56.289
+      value: 49.668
     - type: ndcg_at_1000
-      value: 57.67400000000001
+      value: 51.336999999999996
     - type: map_at_1
-      value: 39.593
+      value: 33.364
     - type: map_at_3
-      value: 46.536
+      value: 39.846
     - type: map_at_5
-      value: 47.826
+      value: 41.083999999999996
     - type: map_at_10
-      value: 48.676
+      value: 41.85
     - type: map_at_20
-      value: 48.983
+      value: 42.254000000000005
     - type: map_at_100
-      value: 49.268
+      value: 42.547000000000004
     - type: map_at_1000
-      value: 49.313
+      value: 42.601
     - type: recall_at_1
-      value: 39.593
+      value: 33.364
     - type: recall_at_3
-      value: 55.181000000000004
+      value: 48.010000000000005
     - type: recall_at_5
-      value: 60.772000000000006
+      value: 53.388000000000005
     - type: recall_at_10
-      value: 66.971
+      value: 59.131
     - type: recall_at_20
-      value: 71.468
+      value: 65.026
     - type: recall_at_100
-      value: 82.55799999999999
+      value: 76.755
     - type: recall_at_1000
-      value: 93.83200000000001
+      value: 90.398
     - type: precision_at_1
-      value: 39.593
+      value: 33.364
     - type: precision_at_3
-      value: 18.394
+      value: 16.003
     - type: precision_at_5
-      value: 12.154
+      value: 10.678
     - type: precision_at_10
-      value: 6.697
+      value: 5.913
     - type: precision_at_20
-      value: 3.573
+      value: 3.251
     - type: precision_at_100
-      value: 0.826
+      value: 0.768
     - type: precision_at_1000
-      value: 0.094
+      value: 0.09
     - type: mrr_at_1
-      value: 39.5624
+      value: 33.272600000000004
     - type: mrr_at_3
-      value: 46.5158
+      value: 39.7954
     - type: mrr_at_5
-      value: 47.8056
+      value: 41.0412
     - type: mrr_at_10
-      value: 48.654799999999994
+      value: 41.8073
     - type: mrr_at_20
-      value: 48.9616
+      value: 42.2109
     - type: mrr_at_100
-      value: 49.2469
+      value: 42.5037
     - type: mrr_at_1000
-      value: 49.2923
+      value: 42.5577
     - type: nauc_ndcg_at_1_max
-      value: 26.582099999999997
+      value: 26.6036
     - type: nauc_ndcg_at_1_std
-      value: -14.751900000000001
+      value: -8.3972
     - type: nauc_ndcg_at_1_diff1
-      value: 54.9795
+      value: 52.43560000000001
     - type: nauc_ndcg_at_3_max
-      value: 30.000700000000002
+      value: 28.5119
     - type: nauc_ndcg_at_3_std
-      value: -13.107299999999999
+      value: -5.6812000000000005
     - type: nauc_ndcg_at_3_diff1
-      value: 51.7972
+      value: 47.1671
     - type: nauc_ndcg_at_5_max
-      value: 29.4468
+      value: 28.1875
     - type: nauc_ndcg_at_5_std
-      value: -13.3189
+      value: -5.6434999999999995
     - type: nauc_ndcg_at_5_diff1
-      value: 51.0062
+      value: 46.1849
     - type: nauc_ndcg_at_10_max
-      value: 28.6629
+      value: 27.5534
     - type: nauc_ndcg_at_10_std
-      value: -13.900000000000002
+      value: -5.6785000000000005
     - type: nauc_ndcg_at_10_diff1
-      value: 50.4771
+      value: 45.6927
     - type: nauc_ndcg_at_20_max
-      value: 28.558600000000002
+      value: 27.4338
     - type: nauc_ndcg_at_20_std
-      value: -13.793
+      value: -5.5037
     - type: nauc_ndcg_at_20_diff1
-      value: 50.720299999999995
+      value: 45.872800000000005
     - type: nauc_ndcg_at_100_max
-      value: 28.7124
+      value: 27.386100000000003
     - type: nauc_ndcg_at_100_std
-      value: -13.133000000000001
+      value: -5.2795000000000005
     - type: nauc_ndcg_at_100_diff1
-      value: 50.7983
+      value: 46.1008
     - type: nauc_ndcg_at_1000_max
-      value: 28.4906
+      value: 27.5195
     - type: nauc_ndcg_at_1000_std
-      value: -13.5678
+      value: -5.0668999999999995
     - type: nauc_ndcg_at_1000_diff1
-      value: 51.1172
+      value: 46.381499999999996
     - type: nauc_map_at_1_max
-      value: 26.582099999999997
+      value: 26.6036
     - type: nauc_map_at_1_std
-      value: -14.751900000000001
+      value: -8.3972
     - type: nauc_map_at_1_diff1
-      value: 54.9795
+      value: 52.43560000000001
     - type: nauc_map_at_3_max
-      value: 29.191899999999997
+      value: 28.098699999999997
     - type: nauc_map_at_3_std
-      value: -13.565299999999999
+      value: -6.357500000000001
     - type: nauc_map_at_3_diff1
-      value: 52.5372
+      value: 48.4799
     - type: nauc_map_at_5_max
-      value: 28.865099999999998
+      value: 27.938000000000002
     - type: nauc_map_at_5_std
-      value: -13.6911
+      value: -6.3283000000000005
     - type: nauc_map_at_5_diff1
-      value: 52.12520000000001
+      value: 47.955799999999996
     - type: nauc_map_at_10_max
-      value: 28.5526
+      value: 27.6989
     - type: nauc_map_at_10_std
-      value: -13.9255
+      value: -6.3546000000000005
     - type: nauc_map_at_10_diff1
-      value: 51.931400000000004
+      value: 47.7813
     - type: nauc_map_at_20_max
-      value: 28.520200000000003
+      value: 27.637099999999997
     - type: nauc_map_at_20_std
-      value: -13.8934
+      value: -6.3278
     - type: nauc_map_at_20_diff1
-      value: 51.991299999999995
+      value: 47.8258
     - type: nauc_map_at_100_max
-      value: 28.5184
+      value: 27.6654
     - type: nauc_map_at_100_std
-      value: -13.8399
+      value: -6.284199999999999
     - type: nauc_map_at_100_diff1
-      value: 52.0024
+      value: 47.8675
     - type: nauc_map_at_1000_max
-      value: 28.512500000000003
+      value: 27.668599999999998
     - type: nauc_map_at_1000_std
-      value: -13.851700000000001
+      value: -6.2727
     - type: nauc_map_at_1000_diff1
-      value: 52.0139
+      value: 47.8793
     - type: nauc_recall_at_1_max
-      value: 26.582099999999997
+      value: 26.6036
     - type: nauc_recall_at_1_std
-      value: -14.751900000000001
+      value: -8.3972
     - type: nauc_recall_at_1_diff1
-      value: 54.9795
+      value: 52.43560000000001
     - type: nauc_recall_at_3_max
-      value: 32.443
+      value: 29.686600000000002
     - type: nauc_recall_at_3_std
-      value: -11.6927
+      value: -3.7178999999999998
     - type: nauc_recall_at_3_diff1
-      value: 49.568400000000004
+      value: 43.3556
     - type: nauc_recall_at_5_max
-      value: 31.2258
+      value: 28.835499999999996
     - type: nauc_recall_at_5_std
-      value: -12.1296
+      value: -3.6023
     - type: nauc_recall_at_5_diff1
-      value: 47.3057
+      value: 40.7246
     - type: nauc_recall_at_10_max
-      value: 28.561999999999998
+      value: 26.6593
     - type: nauc_recall_at_10_std
-      value: -14.103499999999999
+      value: -3.5498000000000003
     - type: nauc_recall_at_10_diff1
-      value: 44.9228
+      value: 38.6728
     - type: nauc_recall_at_20_max
-      value: 28.0738
+      value: 26.293499999999998
     - type: nauc_recall_at_20_std
-      value: -13.632
+      value: -2.3813
     - type: nauc_recall_at_20_diff1
-      value: 45.6569
+      value: 38.8857
     - type: nauc_recall_at_100_max
-      value: 29.9618
+      value: 24.7411
     - type: nauc_recall_at_100_std
-      value: -6.2382
+      value: 0.1296
     - type: nauc_recall_at_100_diff1
-      value: 44.1378
+      value: 38.1683
     - type: nauc_recall_at_1000_max
-      value: 23.4062
+      value: 25.1934
     - type: nauc_recall_at_1000_std
-      value: -11.6326
+      value: 10.7766
     - type: nauc_recall_at_1000_diff1
-      value: 45.130199999999995
+      value: 35.856300000000005
     - type: nauc_precision_at_1_max
-      value: 26.582099999999997
+      value: 26.6036
     - type: nauc_precision_at_1_std
-      value: -14.751900000000001
+      value: -8.3972
     - type: nauc_precision_at_1_diff1
-      value: 54.9795
+      value: 52.43560000000001
     - type: nauc_precision_at_3_max
-      value: 32.443
+      value: 29.686600000000002
     - type: nauc_precision_at_3_std
-      value: -11.6927
+      value: -3.7178999999999998
     - type: nauc_precision_at_3_diff1
-      value: 49.568400000000004
+      value: 43.3556
     - type: nauc_precision_at_5_max
-      value: 31.2258
+      value: 28.835499999999996
     - type: nauc_precision_at_5_std
-      value: -12.1296
+      value: -3.6023
     - type: nauc_precision_at_5_diff1
-      value: 47.3057
+      value: 40.7246
     - type: nauc_precision_at_10_max
-      value: 28.561999999999998
+      value: 26.6593
     - type: nauc_precision_at_10_std
-      value: -14.103499999999999
+      value: -3.5498000000000003
     - type: nauc_precision_at_10_diff1
-      value: 44.9228
+      value: 38.6728
     - type: nauc_precision_at_20_max
-      value: 28.0738
+      value: 26.293499999999998
     - type: nauc_precision_at_20_std
-      value: -13.632
+      value: -2.3813
     - type: nauc_precision_at_20_diff1
-      value: 45.6569
+      value: 38.8857
     - type: nauc_precision_at_100_max
-      value: 29.9618
+      value: 24.7411
     - type: nauc_precision_at_100_std
-      value: -6.2382
+      value: 0.1296
     - type: nauc_precision_at_100_diff1
-      value: 44.1378
+      value: 38.1683
     - type: nauc_precision_at_1000_max
-      value: 23.4062
+      value: 25.1934
     - type: nauc_precision_at_1000_std
-      value: -11.6326
+      value: 10.7766
     - type: nauc_precision_at_1000_diff1
-      value: 45.130199999999995
+      value: 35.856300000000005
     - type: nauc_mrr_at_1_max
-      value: 26.571499999999997
+      value: 26.7351
     - type: nauc_mrr_at_1_std
-      value: -14.9002
+      value: -8.2798
     - type: nauc_mrr_at_1_diff1
-      value: 55.071400000000004
+      value: 52.7186
     - type: nauc_mrr_at_3_max
-      value: 29.1956
+      value: 28.1671
     - type: nauc_mrr_at_3_std
-      value: -13.6331
+      value: -6.3235
     - type: nauc_mrr_at_3_diff1
-      value: 52.59439999999999
+      value: 48.6387
     - type: nauc_mrr_at_5_max
-      value: 28.8688
+      value: 28.0115
     - type: nauc_mrr_at_5_std
-      value: -13.7599
+      value: -6.256399999999999
     - type: nauc_mrr_at_5_diff1
-      value: 52.1832
+      value: 48.098400000000005
     - type: nauc_mrr_at_10_max
-      value: 28.556199999999997
+      value: 27.7729
     - type: nauc_mrr_at_10_std
-      value: -13.9924
+      value: -6.2821
     - type: nauc_mrr_at_10_diff1
-      value: 51.9865
+      value: 47.925000000000004
     - type: nauc_mrr_at_20_max
-      value: 28.523799999999998
+      value: 27.7115
     - type: nauc_mrr_at_20_std
-      value: -13.960700000000001
+      value: -6.254899999999999
     - type: nauc_mrr_at_20_diff1
-      value: 52.0466
+      value: 47.9703
     - type: nauc_mrr_at_100_max
-      value: 28.522
+      value: 27.740199999999998
     - type: nauc_mrr_at_100_std
-      value: -13.9076
+      value: -6.2109
     - type: nauc_mrr_at_100_diff1
-      value: 52.058099999999996
+      value: 48.0128
     - type: nauc_mrr_at_1000_max
-      value: 28.5161
+      value: 27.743499999999997
     - type: nauc_mrr_at_1000_std
-      value: -13.919500000000001
+      value: -6.1993
     - type: nauc_mrr_at_1000_diff1
-      value: 52.0697
+      value: 48.0248
     - type: main_score
-      value: 53.1
+      value: 46.024
     task:
       type: Retrieval
   - dataset:
@@ -7810,287 +7822,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet-ccr
     metrics:
     - type: ndcg_at_1
-      value: 30.459999999999997
+      value: 26.471
     - type: ndcg_at_3
-      value: 37.88
+      value: 33.489999999999995
     - type: ndcg_at_5
-      value: 40.11
+      value: 35.55
     - type: ndcg_at_10
-      value: 42.094
+      value: 37.555
     - type: ndcg_at_20
-      value: 43.683
+      value: 39.029
     - type: ndcg_at_100
-      value: 45.998
+      value: 41.478
     - type: ndcg_at_1000
-      value: 47.723
+      value: 43.457
     - type: map_at_1
-      value: 30.459999999999997
+      value: 26.471
     - type: map_at_3
-      value: 36.046
+      value: 31.774
     - type: map_at_5
-      value: 37.285000000000004
+      value: 32.915
     - type: map_at_10
-      value: 38.108
+      value: 33.745999999999995
     - type: map_at_20
-      value: 38.546
+      value: 34.150000000000006
     - type: map_at_100
-      value: 38.859
+      value: 34.477999999999994
     - type: map_at_1000
-      value: 38.917
+      value: 34.544000000000004
     - type: recall_at_1
-      value: 30.459999999999997
+      value: 26.471
     - type: recall_at_3
-      value: 43.191
+      value: 38.451
     - type: recall_at_5
-      value: 48.596000000000004
+      value: 43.462
     - type: recall_at_10
-      value: 54.716
+      value: 49.643
     - type: recall_at_20
-      value: 60.983
+      value: 55.479
     - type: recall_at_100
-      value: 73.566
+      value: 68.825
     - type: recall_at_1000
-      value: 87.515
+      value: 84.93
     - type: precision_at_1
-      value: 30.459999999999997
+      value: 26.471
     - type: precision_at_3
-      value: 14.396999999999998
+      value: 12.817
     - type: precision_at_5
-      value: 9.719
+      value: 8.692
     - type: precision_at_10
-      value: 5.4719999999999995
+      value: 4.9639999999999995
     - type: precision_at_20
-      value: 3.049
+      value: 2.774
     - type: precision_at_100
-      value: 0.736
+      value: 0.688
     - type: precision_at_1000
-      value: 0.08800000000000001
+      value: 0.08499999999999999
     - type: mrr_at_1
-      value: 30.448199999999996
+      value: 26.459
     - type: mrr_at_3
-      value: 36.042
+      value: 31.757400000000004
     - type: mrr_at_5
-      value: 37.2763
+      value: 32.9092
     - type: mrr_at_10
-      value: 38.1013
+      value: 33.7387
     - type: mrr_at_20
-      value: 38.5373
+      value: 34.1428
     - type: mrr_at_100
-      value: 38.8506
+      value: 34.471000000000004
     - type: mrr_at_1000
-      value: 38.9093
+      value: 34.5364
     - type: nauc_ndcg_at_1_max
-      value: 27.284999999999997
+      value: 29.408299999999997
     - type: nauc_ndcg_at_1_std
-      value: -6.6476999999999995
+      value: 1.5685
     - type: nauc_ndcg_at_1_diff1
-      value: 50.871500000000005
+      value: 45.834599999999995
     - type: nauc_ndcg_at_3_max
-      value: 26.6017
+      value: 27.7526
     - type: nauc_ndcg_at_3_std
-      value: -7.6026
+      value: -0.43810000000000004
     - type: nauc_ndcg_at_3_diff1
-      value: 46.768
+      value: 41.272999999999996
     - type: nauc_ndcg_at_5_max
-      value: 26.2865
+      value: 27.2864
     - type: nauc_ndcg_at_5_std
-      value: -7.3601
+      value: -0.37820000000000004
     - type: nauc_ndcg_at_5_diff1
-      value: 45.7969
+      value: 40.4934
     - type: nauc_ndcg_at_10_max
-      value: 25.746599999999997
+      value: 26.845599999999997
     - type: nauc_ndcg_at_10_std
-      value: -7.4333
+      value: -0.3317
     - type: nauc_ndcg_at_10_diff1
-      value: 45.4115
+      value: 39.9305
     - type: nauc_ndcg_at_20_max
-      value: 25.5118
+      value: 26.4669
     - type: nauc_ndcg_at_20_std
-      value: -6.9322
+      value: 0.1423
     - type: nauc_ndcg_at_20_diff1
-      value: 45.0598
+      value: 39.432
     - type: nauc_ndcg_at_100_max
-      value: 25.309900000000003
+      value: 26.3318
     - type: nauc_ndcg_at_100_std
-      value: -6.0600000000000005
+      value: 0.8049000000000001
     - type: nauc_ndcg_at_100_diff1
-      value: 44.8825
+      value: 39.0276
     - type: nauc_ndcg_at_1000_max
-      value: 25.521700000000003
+      value: 26.5895
     - type: nauc_ndcg_at_1000_std
-      value: -5.9789
+      value: 1.0204
     - type: nauc_ndcg_at_1000_diff1
-      value: 45.2513
+      value: 39.2747
     - type: nauc_map_at_1_max
-      value: 27.284999999999997
+      value: 29.408299999999997
     - type: nauc_map_at_1_std
-      value: -6.6476999999999995
+      value: 1.5685
     - type: nauc_map_at_1_diff1
-      value: 50.871500000000005
+      value: 45.834599999999995
     - type: nauc_map_at_3_max
-      value: 26.7721
+      value: 28.1245
     - type: nauc_map_at_3_std
-      value: -7.452300000000001
+      value: -0.006999999999999999
     - type: nauc_map_at_3_diff1
-      value: 47.7211
+      value: 42.2701
     - type: nauc_map_at_5_max
-      value: 26.600600000000004
+      value: 27.8563
     - type: nauc_map_at_5_std
-      value: -7.3378
+      value: 0.0204
     - type: nauc_map_at_5_diff1
-      value: 47.1879
+      value: 41.8294
     - type: nauc_map_at_10_max
-      value: 26.372
+      value: 27.6709
     - type: nauc_map_at_10_std
-      value: -7.3735
+      value: 0.0262
     - type: nauc_map_at_10_diff1
-      value: 47.0298
+      value: 41.5973
     - type: nauc_map_at_20_max
-      value: 26.3071
+      value: 27.572000000000003
     - type: nauc_map_at_20_std
-      value: -7.2452000000000005
+      value: 0.1652
     - type: nauc_map_at_20_diff1
-      value: 46.9294
+      value: 41.4683
     - type: nauc_map_at_100_max
-      value: 26.281100000000002
+      value: 27.5573
     - type: nauc_map_at_100_std
-      value: -7.1155
+      value: 0.243
     - type: nauc_map_at_100_diff1
-      value: 46.9054
+      value: 41.4201
     - type: nauc_map_at_1000_max
-      value: 26.2903
+      value: 27.5663
     - type: nauc_map_at_1000_std
-      value: -7.1089
+      value: 0.254
     - type: nauc_map_at_1000_diff1
-      value: 46.9182
+      value: 41.4275
     - type: nauc_recall_at_1_max
-      value: 27.284999999999997
+      value: 29.408299999999997
     - type: nauc_recall_at_1_std
-      value: -6.6476999999999995
+      value: 1.5685
     - type: nauc_recall_at_1_diff1
-      value: 50.871500000000005
+      value: 45.834599999999995
     - type: nauc_recall_at_3_max
-      value: 26.1146
+      value: 26.737499999999997
     - type: nauc_recall_at_3_std
-      value: -7.9985
+      value: -1.6067999999999998
     - type: nauc_recall_at_3_diff1
-      value: 44.0707
+      value: 38.5628
     - type: nauc_recall_at_5_max
-      value: 25.3292
+      value: 25.6664
     - type: nauc_recall_at_5_std
-      value: -7.331799999999999
+      value: -1.4459
     - type: nauc_recall_at_5_diff1
-      value: 41.6571
+      value: 36.7369
     - type: nauc_recall_at_10_max
-      value: 23.6012
+      value: 24.3156
     - type: nauc_recall_at_10_std
-      value: -7.5294
+      value: -1.25
     - type: nauc_recall_at_10_diff1
-      value: 40.244099999999996
+      value: 34.959
     - type: nauc_recall_at_20_max
-      value: 22.453300000000002
+      value: 22.6187
     - type: nauc_recall_at_20_std
-      value: -5.3024000000000004
+      value: 0.5539
     - type: nauc_recall_at_20_diff1
-      value: 38.4242
+      value: 32.634299999999996
     - type: nauc_recall_at_100_max
-      value: 20.069100000000002
+      value: 20.8069
     - type: nauc_recall_at_100_std
-      value: 1.4581
+      value: 5.2502
     - type: nauc_recall_at_100_diff1
-      value: 35.1775
+      value: 28.3304
     - type: nauc_recall_at_1000_max
-      value: 19.4385
+      value: 20.8473
     - type: nauc_recall_at_1000_std
-      value: 9.0112
+      value: 12.2405
     - type: nauc_recall_at_1000_diff1
-      value: 34.138000000000005
+      value: 24.2366
     - type: nauc_precision_at_1_max
-      value: 27.284999999999997
+      value: 29.408299999999997
     - type: nauc_precision_at_1_std
-      value: -6.6476999999999995
+      value: 1.5685
     - type: nauc_precision_at_1_diff1
-      value: 50.871500000000005
+      value: 45.834599999999995
     - type: nauc_precision_at_3_max
-      value: 26.1146
+      value: 26.737499999999997
     - type: nauc_precision_at_3_std
-      value: -7.9985
+      value: -1.6067999999999998
     - type: nauc_precision_at_3_diff1
-      value: 44.0707
+      value: 38.5628
     - type: nauc_precision_at_5_max
-      value: 25.3292
+      value: 25.6664
     - type: nauc_precision_at_5_std
-      value: -7.331799999999999
+      value: -1.4459
     - type: nauc_precision_at_5_diff1
-      value: 41.6571
+      value: 36.7369
     - type: nauc_precision_at_10_max
-      value: 23.6012
+      value: 24.3156
     - type: nauc_precision_at_10_std
-      value: -7.5294
+      value: -1.25
     - type: nauc_precision_at_10_diff1
-      value: 40.244099999999996
+      value: 34.959
     - type: nauc_precision_at_20_max
-      value: 22.453300000000002
+      value: 22.6187
     - type: nauc_precision_at_20_std
-      value: -5.3024000000000004
+      value: 0.5539
     - type: nauc_precision_at_20_diff1
-      value: 38.4242
+      value: 32.634299999999996
     - type: nauc_precision_at_100_max
-      value: 20.069100000000002
+      value: 20.8069
     - type: nauc_precision_at_100_std
-      value: 1.4581
+      value: 5.2502
     - type: nauc_precision_at_100_diff1
-      value: 35.1775
+      value: 28.3304
     - type: nauc_precision_at_1000_max
-      value: 19.4385
+      value: 20.8473
     - type: nauc_precision_at_1000_std
-      value: 9.0112
+      value: 12.2405
     - type: nauc_precision_at_1000_diff1
-      value: 34.138000000000005
+      value: 24.2366
     - type: nauc_mrr_at_1_max
-      value: 27.334000000000003
+      value: 29.435499999999998
     - type: nauc_mrr_at_1_std
-      value: -6.5517
+      value: 1.5623
     - type: nauc_mrr_at_1_diff1
-      value: 50.9102
+      value: 45.8822
     - type: nauc_mrr_at_3_max
-      value: 26.807199999999998
+      value: 28.183000000000003
     - type: nauc_mrr_at_3_std
-      value: -7.436800000000001
+      value: -0.00039999999999999996
     - type: nauc_mrr_at_3_diff1
-      value: 47.7425
+      value: 42.2776
     - type: nauc_mrr_at_5_max
-      value: 26.6194
+      value: 27.8735
     - type: nauc_mrr_at_5_std
-      value: -7.3031
+      value: 0.0288
     - type: nauc_mrr_at_5_diff1
-      value: 47.2053
+      value: 41.827999999999996
     - type: nauc_mrr_at_10_max
-      value: 26.3924
+      value: 27.6989
     - type: nauc_mrr_at_10_std
-      value: -7.324700000000001
+      value: 0.0349
     - type: nauc_mrr_at_10_diff1
-      value: 47.051500000000004
+      value: 41.6043
     - type: nauc_mrr_at_20_max
-      value: 26.3274
+      value: 27.599
     - type: nauc_mrr_at_20_std
-      value: -7.209899999999999
+      value: 0.1719
     - type: nauc_mrr_at_20_diff1
-      value: 46.953
+      value: 41.4786
     - type: nauc_mrr_at_100_max
-      value: 26.3019
+      value: 27.5846
     - type: nauc_mrr_at_100_std
-      value: -7.0785
+      value: 0.25
     - type: nauc_mrr_at_100_diff1
-      value: 46.9298
+      value: 41.4307
     - type: nauc_mrr_at_1000_max
-      value: 26.311
+      value: 27.5937
     - type: nauc_mrr_at_1000_std
-      value: -7.0719
+      value: 0.261
     - type: nauc_mrr_at_1000_diff1
-      value: 46.942499999999995
+      value: 41.4381
     - type: main_score
-      value: 42.094
+      value: 37.555
     task:
       type: Retrieval
   - dataset:
@@ -8101,287 +8113,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet-ccr
     metrics:
     - type: ndcg_at_1
-      value: 37.827
+      value: 36.003
     - type: ndcg_at_3
-      value: 47.599000000000004
+      value: 43.306
     - type: ndcg_at_5
-      value: 49.687
+      value: 45.443
     - type: ndcg_at_10
-      value: 51.686
+      value: 47.549
     - type: ndcg_at_20
-      value: 53.018
+      value: 48.872
     - type: ndcg_at_100
-      value: 54.75600000000001
+      value: 50.651
     - type: ndcg_at_1000
-      value: 56.196
+      value: 52.406
     - type: map_at_1
-      value: 37.827
+      value: 36.003
     - type: map_at_3
-      value: 45.242
+      value: 41.501
     - type: map_at_5
-      value: 46.400000000000006
+      value: 42.695
     - type: map_at_10
-      value: 47.223
+      value: 43.580999999999996
     - type: map_at_20
-      value: 47.593
+      value: 43.954
     - type: map_at_100
-      value: 47.824
+      value: 44.195
     - type: map_at_1000
-      value: 47.878
+      value: 44.255
     - type: recall_at_1
-      value: 37.827
+      value: 36.003
     - type: recall_at_3
-      value: 54.400999999999996
+      value: 48.533
     - type: recall_at_5
-      value: 59.477000000000004
+      value: 53.688
     - type: recall_at_10
-      value: 65.66199999999999
+      value: 60.111000000000004
     - type: recall_at_20
-      value: 70.896
+      value: 65.266
     - type: recall_at_100
-      value: 80.41199999999999
+      value: 74.941
     - type: recall_at_1000
-      value: 91.753
+      value: 89.056
     - type: precision_at_1
-      value: 37.827
+      value: 36.003
     - type: precision_at_3
-      value: 18.134
+      value: 16.178
     - type: precision_at_5
-      value: 11.895
+      value: 10.738
     - type: precision_at_10
-      value: 6.566
+      value: 6.010999999999999
     - type: precision_at_20
-      value: 3.5450000000000004
+      value: 3.263
     - type: precision_at_100
-      value: 0.804
+      value: 0.749
     - type: precision_at_1000
-      value: 0.092
+      value: 0.089
     - type: mrr_at_1
-      value: 37.8271
+      value: 36.0032
     - type: mrr_at_3
-      value: 45.2154
+      value: 41.5015
     - type: mrr_at_5
-      value: 46.3931
+      value: 42.695
     - type: mrr_at_10
-      value: 47.2166
+      value: 43.580600000000004
     - type: mrr_at_20
-      value: 47.5869
+      value: 43.9543
     - type: mrr_at_100
-      value: 47.8167
+      value: 44.195299999999996
     - type: mrr_at_1000
-      value: 47.8715
+      value: 44.255
     - type: nauc_ndcg_at_1_max
-      value: 34.1998
+      value: 32.9994
     - type: nauc_ndcg_at_1_std
-      value: -15.7415
+      value: -12.2575
     - type: nauc_ndcg_at_1_diff1
-      value: 61.8572
+      value: 55.63360000000001
     - type: nauc_ndcg_at_3_max
-      value: 33.566
+      value: 33.314899999999994
     - type: nauc_ndcg_at_3_std
-      value: -18.0058
+      value: -11.4208
     - type: nauc_ndcg_at_3_diff1
-      value: 54.5929
+      value: 50.995599999999996
     - type: nauc_ndcg_at_5_max
-      value: 34.0447
+      value: 33.1612
     - type: nauc_ndcg_at_5_std
-      value: -17.3914
+      value: -11.4067
     - type: nauc_ndcg_at_5_diff1
-      value: 53.980399999999996
+      value: 50.766999999999996
     - type: nauc_ndcg_at_10_max
-      value: 34.0521
+      value: 32.903999999999996
     - type: nauc_ndcg_at_10_std
-      value: -17.298099999999998
+      value: -11.447000000000001
     - type: nauc_ndcg_at_10_diff1
-      value: 53.63830000000001
+      value: 50.1061
     - type: nauc_ndcg_at_20_max
-      value: 34.076499999999996
+      value: 32.8849
     - type: nauc_ndcg_at_20_std
-      value: -17.1978
+      value: -11.4567
     - type: nauc_ndcg_at_20_diff1
-      value: 53.3739
+      value: 50.0131
     - type: nauc_ndcg_at_100_max
-      value: 33.9961
+      value: 32.5449
     - type: nauc_ndcg_at_100_std
-      value: -17.0232
+      value: -11.0686
     - type: nauc_ndcg_at_100_diff1
-      value: 53.8714
+      value: 49.7046
     - type: nauc_ndcg_at_1000_max
-      value: 34.0269
+      value: 32.7575
     - type: nauc_ndcg_at_1000_std
-      value: -16.6124
+      value: -10.9682
     - type: nauc_ndcg_at_1000_diff1
-      value: 54.286199999999994
+      value: 50.17359999999999
     - type: nauc_map_at_1_max
-      value: 34.1998
+      value: 32.9994
     - type: nauc_map_at_1_std
-      value: -15.7415
+      value: -12.2575
     - type: nauc_map_at_1_diff1
-      value: 61.8572
+      value: 55.63360000000001
     - type: nauc_map_at_3_max
-      value: 33.8395
+      value: 33.2746
     - type: nauc_map_at_3_std
-      value: -17.529
+      value: -11.5215
     - type: nauc_map_at_3_diff1
-      value: 56.4065
+      value: 52.1439
     - type: nauc_map_at_5_max
-      value: 34.1343
+      value: 33.206799999999994
     - type: nauc_map_at_5_std
-      value: -17.1732
+      value: -11.533
     - type: nauc_map_at_5_diff1
-      value: 56.1246
+      value: 52.0477
     - type: nauc_map_at_10_max
-      value: 34.1717
+      value: 33.1113
     - type: nauc_map_at_10_std
-      value: -17.1179
+      value: -11.5406
     - type: nauc_map_at_10_diff1
-      value: 56.041399999999996
+      value: 51.8103
     - type: nauc_map_at_20_max
-      value: 34.1895
+      value: 33.070899999999995
     - type: nauc_map_at_20_std
-      value: -17.077
+      value: -11.5655
     - type: nauc_map_at_20_diff1
-      value: 55.96489999999999
+      value: 51.7759
     - type: nauc_map_at_100_max
-      value: 34.1922
+      value: 32.9989
     - type: nauc_map_at_100_std
-      value: -17.0664
+      value: -11.546
     - type: nauc_map_at_100_diff1
-      value: 56.0487
+      value: 51.739000000000004
     - type: nauc_map_at_1000_max
-      value: 34.186
+      value: 33.0074
     - type: nauc_map_at_1000_std
-      value: -17.0498
+      value: -11.541
     - type: nauc_map_at_1000_diff1
-      value: 56.0623
+      value: 51.7548
     - type: nauc_recall_at_1_max
-      value: 34.1998
+      value: 32.9994
     - type: nauc_recall_at_1_std
-      value: -15.7415
+      value: -12.2575
     - type: nauc_recall_at_1_diff1
-      value: 61.8572
+      value: 55.63360000000001
     - type: nauc_recall_at_3_max
-      value: 32.6911
+      value: 33.4172
     - type: nauc_recall_at_3_std
-      value: -19.4073
+      value: -11.1701
     - type: nauc_recall_at_3_diff1
-      value: 49.1188
+      value: 47.6442
     - type: nauc_recall_at_5_max
-      value: 33.7416
+      value: 32.962799999999994
     - type: nauc_recall_at_5_std
-      value: -17.965700000000002
+      value: -11.0448
     - type: nauc_recall_at_5_diff1
-      value: 47.0821
+      value: 46.8433
     - type: nauc_recall_at_10_max
-      value: 33.5209
+      value: 32.042500000000004
     - type: nauc_recall_at_10_std
-      value: -17.7965
+      value: -11.2125
     - type: nauc_recall_at_10_diff1
-      value: 44.8874
+      value: 44.2396
     - type: nauc_recall_at_20_max
-      value: 33.4757
+      value: 32.1997
     - type: nauc_recall_at_20_std
-      value: -17.4921
+      value: -11.0222
     - type: nauc_recall_at_20_diff1
-      value: 42.747
+      value: 43.4014
     - type: nauc_recall_at_100_max
-      value: 32.2069
+      value: 29.972500000000004
     - type: nauc_recall_at_100_std
-      value: -15.6244
+      value: -7.2572
     - type: nauc_recall_at_100_diff1
-      value: 43.0441
+      value: 39.285199999999996
     - type: nauc_recall_at_1000_max
-      value: 32.428000000000004
+      value: 31.759300000000003
     - type: nauc_recall_at_1000_std
-      value: -2.6172
+      value: -1.555
     - type: nauc_recall_at_1000_diff1
-      value: 42.1384
+      value: 38.7819
     - type: nauc_precision_at_1_max
-      value: 34.1998
+      value: 32.9994
     - type: nauc_precision_at_1_std
-      value: -15.7415
+      value: -12.2575
     - type: nauc_precision_at_1_diff1
-      value: 61.8572
+      value: 55.63360000000001
     - type: nauc_precision_at_3_max
-      value: 32.6911
+      value: 33.4172
     - type: nauc_precision_at_3_std
-      value: -19.4073
+      value: -11.1701
     - type: nauc_precision_at_3_diff1
-      value: 49.1188
+      value: 47.6442
     - type: nauc_precision_at_5_max
-      value: 33.7416
+      value: 32.962799999999994
     - type: nauc_precision_at_5_std
-      value: -17.965700000000002
+      value: -11.0448
     - type: nauc_precision_at_5_diff1
-      value: 47.0821
+      value: 46.8433
     - type: nauc_precision_at_10_max
-      value: 33.5209
+      value: 32.042500000000004
     - type: nauc_precision_at_10_std
-      value: -17.7965
+      value: -11.2125
     - type: nauc_precision_at_10_diff1
-      value: 44.8874
+      value: 44.2396
     - type: nauc_precision_at_20_max
-      value: 33.4757
+      value: 32.1997
     - type: nauc_precision_at_20_std
-      value: -17.4921
+      value: -11.0222
     - type: nauc_precision_at_20_diff1
-      value: 42.747
+      value: 43.4014
     - type: nauc_precision_at_100_max
-      value: 32.2069
+      value: 29.972500000000004
     - type: nauc_precision_at_100_std
-      value: -15.6244
+      value: -7.2572
     - type: nauc_precision_at_100_diff1
-      value: 43.0441
+      value: 39.285199999999996
     - type: nauc_precision_at_1000_max
-      value: 32.428000000000004
+      value: 31.759300000000003
     - type: nauc_precision_at_1000_std
-      value: -2.6172
+      value: -1.555
     - type: nauc_precision_at_1000_diff1
-      value: 42.1384
+      value: 38.7819
     - type: nauc_mrr_at_1_max
-      value: 34.5467
+      value: 33.1174
     - type: nauc_mrr_at_1_std
-      value: -15.676499999999999
+      value: -12.0388
     - type: nauc_mrr_at_1_diff1
-      value: 61.8572
+      value: 55.63360000000001
     - type: nauc_mrr_at_3_max
-      value: 34.0355
+      value: 33.333800000000004
     - type: nauc_mrr_at_3_std
-      value: -17.448900000000002
+      value: -11.4119
     - type: nauc_mrr_at_3_diff1
-      value: 56.4005
+      value: 52.1439
     - type: nauc_mrr_at_5_max
-      value: 34.319100000000006
+      value: 33.2665
     - type: nauc_mrr_at_5_std
-      value: -17.1276
+      value: -11.4223
     - type: nauc_mrr_at_5_diff1
-      value: 56.1231
+      value: 52.0477
     - type: nauc_mrr_at_10_max
-      value: 34.3588
+      value: 33.1716
     - type: nauc_mrr_at_10_std
-      value: -17.0717
+      value: -11.4289
     - type: nauc_mrr_at_10_diff1
-      value: 56.03979999999999
+      value: 51.8103
     - type: nauc_mrr_at_20_max
-      value: 34.3778
+      value: 33.1315
     - type: nauc_mrr_at_20_std
-      value: -17.0305
+      value: -11.4531
     - type: nauc_mrr_at_20_diff1
-      value: 55.96339999999999
+      value: 51.7759
     - type: nauc_mrr_at_100_max
-      value: 34.3812
+      value: 33.0598
     - type: nauc_mrr_at_100_std
-      value: -17.022599999999997
+      value: -11.4331
     - type: nauc_mrr_at_100_diff1
-      value: 56.0469
+      value: 51.739000000000004
     - type: nauc_mrr_at_1000_max
-      value: 34.375
+      value: 33.0684
     - type: nauc_mrr_at_1000_std
-      value: -17.0037
+      value: -11.428
     - type: nauc_mrr_at_1000_diff1
-      value: 56.0608
+      value: 51.7548
     - type: main_score
-      value: 51.686
+      value: 47.549
     task:
       type: Retrieval
   - dataset:
@@ -8392,287 +8404,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet-ccr
     metrics:
     - type: ndcg_at_1
-      value: 39.744
+      value: 33.355000000000004
     - type: ndcg_at_3
-      value: 48.465
+      value: 41.551
     - type: ndcg_at_5
-      value: 50.615
+      value: 43.592
     - type: ndcg_at_10
-      value: 52.544000000000004
+      value: 45.539
     - type: ndcg_at_20
-      value: 53.864999999999995
+      value: 46.922999999999995
     - type: ndcg_at_100
-      value: 55.806
+      value: 49.01
     - type: ndcg_at_1000
-      value: 57.082
+      value: 50.592000000000006
     - type: map_at_1
-      value: 39.744
+      value: 33.355000000000004
     - type: map_at_3
-      value: 46.346
+      value: 39.582
     - type: map_at_5
-      value: 47.538000000000004
+      value: 40.716
     - type: map_at_10
-      value: 48.333999999999996
+      value: 41.524
     - type: map_at_20
-      value: 48.699999999999996
+      value: 41.905
     - type: map_at_100
-      value: 48.97
+      value: 42.185
     - type: map_at_1000
-      value: 49.014
+      value: 42.239
     - type: recall_at_1
-      value: 39.744
+      value: 33.355000000000004
     - type: recall_at_3
-      value: 54.586999999999996
+      value: 47.23
     - type: recall_at_5
-      value: 59.80799999999999
+      value: 52.17699999999999
     - type: recall_at_10
-      value: 65.778
+      value: 58.17400000000001
     - type: recall_at_20
-      value: 70.97200000000001
+      value: 63.641999999999996
     - type: recall_at_100
-      value: 81.415
+      value: 75.034
     - type: recall_at_1000
-      value: 91.702
+      value: 87.85
     - type: precision_at_1
-      value: 39.744
+      value: 33.355000000000004
     - type: precision_at_3
-      value: 18.196
+      value: 15.742999999999999
     - type: precision_at_5
-      value: 11.962
+      value: 10.435
     - type: precision_at_10
-      value: 6.578
+      value: 5.817
     - type: precision_at_20
-      value: 3.549
+      value: 3.182
     - type: precision_at_100
-      value: 0.814
+      value: 0.75
     - type: precision_at_1000
-      value: 0.092
+      value: 0.08800000000000001
     - type: mrr_at_1
-      value: 39.7901
+      value: 33.3455
     - type: mrr_at_3
-      value: 46.367000000000004
+      value: 39.569500000000005
     - type: mrr_at_5
-      value: 47.556799999999996
+      value: 40.7055
     - type: mrr_at_10
-      value: 48.3531
+      value: 41.5123
     - type: mrr_at_20
-      value: 48.7206
+      value: 41.8948
     - type: mrr_at_100
-      value: 48.9901
+      value: 42.175200000000004
     - type: mrr_at_1000
-      value: 49.034
+      value: 42.228500000000004
     - type: nauc_ndcg_at_1_max
-      value: 31.1431
+      value: 29.177500000000002
     - type: nauc_ndcg_at_1_std
-      value: -10.407399999999999
+      value: -5.8229999999999995
     - type: nauc_ndcg_at_1_diff1
-      value: 56.6466
+      value: 53.2548
     - type: nauc_ndcg_at_3_max
-      value: 33.022800000000004
+      value: 31.0728
     - type: nauc_ndcg_at_3_std
-      value: -9.5046
+      value: -4.3403
     - type: nauc_ndcg_at_3_diff1
-      value: 52.7916
+      value: 48.6597
     - type: nauc_ndcg_at_5_max
-      value: 33.1721
+      value: 30.9135
     - type: nauc_ndcg_at_5_std
-      value: -9.0365
+      value: -3.5812999999999997
     - type: nauc_ndcg_at_5_diff1
-      value: 52.317400000000006
+      value: 47.6076
     - type: nauc_ndcg_at_10_max
-      value: 33.1837
+      value: 30.662899999999997
     - type: nauc_ndcg_at_10_std
-      value: -8.4008
+      value: -3.3078999999999996
     - type: nauc_ndcg_at_10_diff1
-      value: 52.007999999999996
+      value: 46.9647
     - type: nauc_ndcg_at_20_max
-      value: 33.024
+      value: 30.7534
     - type: nauc_ndcg_at_20_std
-      value: -7.9246
+      value: -2.6957
     - type: nauc_ndcg_at_20_diff1
-      value: 51.9078
+      value: 46.6956
     - type: nauc_ndcg_at_100_max
-      value: 32.962599999999995
+      value: 30.8268
     - type: nauc_ndcg_at_100_std
-      value: -7.4719
+      value: -1.9675000000000002
     - type: nauc_ndcg_at_100_diff1
-      value: 51.94180000000001
+      value: 46.4854
     - type: nauc_ndcg_at_1000_max
-      value: 33.1905
+      value: 30.7713
     - type: nauc_ndcg_at_1000_std
-      value: -7.295599999999999
+      value: -1.9892
     - type: nauc_ndcg_at_1000_diff1
-      value: 52.351099999999995
+      value: 46.7157
     - type: nauc_map_at_1_max
-      value: 31.1431
+      value: 29.177500000000002
     - type: nauc_map_at_1_std
-      value: -10.407399999999999
+      value: -5.8229999999999995
     - type: nauc_map_at_1_diff1
-      value: 56.6466
+      value: 53.2548
     - type: nauc_map_at_3_max
-      value: 32.5713
+      value: 30.6136
     - type: nauc_map_at_3_std
-      value: -9.734
+      value: -4.7136
     - type: nauc_map_at_3_diff1
-      value: 53.703599999999994
+      value: 49.709399999999995
     - type: nauc_map_at_5_max
-      value: 32.6494
+      value: 30.523699999999998
     - type: nauc_map_at_5_std
-      value: -9.4813
+      value: -4.288200000000001
     - type: nauc_map_at_5_diff1
-      value: 53.4567
+      value: 49.127700000000004
     - type: nauc_map_at_10_max
-      value: 32.664100000000005
+      value: 30.4224
     - type: nauc_map_at_10_std
-      value: -9.225999999999999
+      value: -4.1822
     - type: nauc_map_at_10_diff1
-      value: 53.3589
+      value: 48.8812
     - type: nauc_map_at_20_max
-      value: 32.6136
+      value: 30.4446
     - type: nauc_map_at_20_std
-      value: -9.107899999999999
+      value: -4.0194
     - type: nauc_map_at_20_diff1
-      value: 53.337
+      value: 48.8177
     - type: nauc_map_at_100_max
-      value: 32.6036
+      value: 30.4531
     - type: nauc_map_at_100_std
-      value: -9.0547
+      value: -3.9356
     - type: nauc_map_at_100_diff1
-      value: 53.35339999999999
+      value: 48.7971
     - type: nauc_map_at_1000_max
-      value: 32.610299999999995
+      value: 30.4507
     - type: nauc_map_at_1000_std
-      value: -9.0493
+      value: -3.9337999999999997
     - type: nauc_map_at_1000_diff1
-      value: 53.3656
+      value: 48.8055
     - type: nauc_recall_at_1_max
-      value: 31.1431
+      value: 29.177500000000002
     - type: nauc_recall_at_1_std
-      value: -10.407399999999999
+      value: -5.8229999999999995
     - type: nauc_recall_at_1_diff1
-      value: 56.6466
+      value: 53.2548
     - type: nauc_recall_at_3_max
-      value: 34.3846
+      value: 32.3983
     - type: nauc_recall_at_3_std
-      value: -8.8071
+      value: -3.2567
     - type: nauc_recall_at_3_diff1
-      value: 50.047
+      value: 45.6552
     - type: nauc_recall_at_5_max
-      value: 34.8431
+      value: 32.043
     - type: nauc_recall_at_5_std
-      value: -7.550999999999999
+      value: -1.3823
     - type: nauc_recall_at_5_diff1
-      value: 48.6504
+      value: 42.9898
     - type: nauc_recall_at_10_max
-      value: 34.9686
+      value: 31.272
     - type: nauc_recall_at_10_std
-      value: -5.1544
+      value: -0.3417
     - type: nauc_recall_at_10_diff1
-      value: 47.0462
+      value: 40.5539
     - type: nauc_recall_at_20_max
-      value: 34.441300000000005
+      value: 31.7395
     - type: nauc_recall_at_20_std
-      value: -2.3698
+      value: 2.645
     - type: nauc_recall_at_20_diff1
-      value: 45.9903
+      value: 38.777499999999996
     - type: nauc_recall_at_100_max
-      value: 34.4855
+      value: 32.6198
     - type: nauc_recall_at_100_std
-      value: 4.2675
+      value: 10.1172
     - type: nauc_recall_at_100_diff1
-      value: 43.5966
+      value: 34.6806
     - type: nauc_recall_at_1000_max
-      value: 42.692600000000006
+      value: 33.0633
     - type: nauc_recall_at_1000_std
-      value: 21.8632
+      value: 19.5697
     - type: nauc_recall_at_1000_diff1
-      value: 46.5143
+      value: 29.418699999999998
     - type: nauc_precision_at_1_max
-      value: 31.1431
+      value: 29.177500000000002
     - type: nauc_precision_at_1_std
-      value: -10.407399999999999
+      value: -5.8229999999999995
     - type: nauc_precision_at_1_diff1
-      value: 56.6466
+      value: 53.2548
     - type: nauc_precision_at_3_max
-      value: 34.3846
+      value: 32.3983
     - type: nauc_precision_at_3_std
-      value: -8.8071
+      value: -3.2567
     - type: nauc_precision_at_3_diff1
-      value: 50.047
+      value: 45.6552
     - type: nauc_precision_at_5_max
-      value: 34.8431
+      value: 32.043
     - type: nauc_precision_at_5_std
-      value: -7.550999999999999
+      value: -1.3823
     - type: nauc_precision_at_5_diff1
-      value: 48.6504
+      value: 42.9898
     - type: nauc_precision_at_10_max
-      value: 34.9686
+      value: 31.272
     - type: nauc_precision_at_10_std
-      value: -5.1544
+      value: -0.3417
     - type: nauc_precision_at_10_diff1
-      value: 47.0462
+      value: 40.5539
     - type: nauc_precision_at_20_max
-      value: 34.441300000000005
+      value: 31.7395
     - type: nauc_precision_at_20_std
-      value: -2.3698
+      value: 2.645
     - type: nauc_precision_at_20_diff1
-      value: 45.9903
+      value: 38.777499999999996
     - type: nauc_precision_at_100_max
-      value: 34.4855
+      value: 32.6198
     - type: nauc_precision_at_100_std
-      value: 4.2675
+      value: 10.1172
     - type: nauc_precision_at_100_diff1
-      value: 43.5966
+      value: 34.6806
     - type: nauc_precision_at_1000_max
-      value: 42.692600000000006
+      value: 33.0633
     - type: nauc_precision_at_1000_std
-      value: 21.8632
+      value: 19.5697
     - type: nauc_precision_at_1000_diff1
-      value: 46.5143
+      value: 29.418699999999998
     - type: nauc_mrr_at_1_max
-      value: 31.1816
+      value: 29.217900000000004
     - type: nauc_mrr_at_1_std
-      value: -10.2945
+      value: -5.8532
     - type: nauc_mrr_at_1_diff1
-      value: 56.5084
+      value: 53.283100000000005
     - type: nauc_mrr_at_3_max
-      value: 32.609300000000005
+      value: 30.6327
     - type: nauc_mrr_at_3_std
-      value: -9.6538
+      value: -4.7439
     - type: nauc_mrr_at_3_diff1
-      value: 53.6187
+      value: 49.7477
     - type: nauc_mrr_at_5_max
-      value: 32.6863
+      value: 30.5427
     - type: nauc_mrr_at_5_std
-      value: -9.3972
+      value: -4.3167
     - type: nauc_mrr_at_5_diff1
-      value: 53.378400000000006
+      value: 49.152
     - type: nauc_mrr_at_10_max
-      value: 32.697700000000005
+      value: 30.444100000000002
     - type: nauc_mrr_at_10_std
-      value: -9.1456
+      value: -4.2066
     - type: nauc_mrr_at_10_diff1
-      value: 53.2796
+      value: 48.9038
     - type: nauc_mrr_at_20_max
-      value: 32.6496
+      value: 30.462899999999998
     - type: nauc_mrr_at_20_std
-      value: -9.0244
+      value: -4.0467
     - type: nauc_mrr_at_20_diff1
-      value: 53.257600000000004
+      value: 48.8397
     - type: nauc_mrr_at_100_max
-      value: 32.6402
+      value: 30.4714
     - type: nauc_mrr_at_100_std
-      value: -8.970799999999999
+      value: -3.963
     - type: nauc_mrr_at_100_diff1
-      value: 53.274100000000004
+      value: 48.8192
     - type: nauc_mrr_at_1000_max
-      value: 32.647
+      value: 30.469
     - type: nauc_mrr_at_1000_std
-      value: -8.9653
+      value: -3.9613
     - type: nauc_mrr_at_1000_diff1
-      value: 53.286100000000005
+      value: 48.8277
     - type: main_score
-      value: 52.544000000000004
+      value: 45.539
     task:
       type: Retrieval
   - dataset:
@@ -8683,287 +8695,287 @@ model-index:
       type: CoIR-Retrieval/CodeSearchNet-ccr
     metrics:
     - type: ndcg_at_1
-      value: 29.685
+      value: 25.139
     - type: ndcg_at_3
-      value: 37.448
+      value: 31.922
     - type: ndcg_at_5
-      value: 39.781
+      value: 33.989999999999995
     - type: ndcg_at_10
-      value: 41.814
+      value: 35.942
     - type: ndcg_at_20
-      value: 43.333
+      value: 37.506
     - type: ndcg_at_100
-      value: 45.664
+      value: 39.971000000000004
     - type: ndcg_at_1000
-      value: 47.536
+      value: 42.074
     - type: map_at_1
-      value: 29.685
+      value: 25.139
     - type: map_at_3
-      value: 35.545
+      value: 30.263
     - type: map_at_5
-      value: 36.839
+      value: 31.411
     - type: map_at_10
-      value: 37.682
+      value: 32.218
     - type: map_at_20
-      value: 38.099
+      value: 32.65
     - type: map_at_100
-      value: 38.415
+      value: 32.979
     - type: map_at_1000
-      value: 38.478
+      value: 33.050000000000004
     - type: recall_at_1
-      value: 29.685
+      value: 25.139
     - type: recall_at_3
-      value: 42.95
+      value: 36.720000000000006
     - type: recall_at_5
-      value: 48.616
+      value: 41.737
     - type: recall_at_10
-      value: 54.888000000000005
+      value: 47.766999999999996
     - type: recall_at_20
-      value: 60.895999999999994
+      value: 53.932
     - type: recall_at_100
-      value: 73.548
+      value: 67.38300000000001
     - type: recall_at_1000
-      value: 88.697
+      value: 84.416
     - type: precision_at_1
-      value: 29.685
+      value: 25.139
     - type: precision_at_3
-      value: 14.316999999999998
+      value: 12.24
     - type: precision_at_5
-      value: 9.722999999999999
+      value: 8.347
     - type: precision_at_10
-      value: 5.489
+      value: 4.777
     - type: precision_at_20
-      value: 3.045
+      value: 2.697
     - type: precision_at_100
-      value: 0.735
+      value: 0.674
     - type: precision_at_1000
-      value: 0.089
+      value: 0.084
     - type: mrr_at_1
-      value: 29.6489
+      value: 25.1463
     - type: mrr_at_3
-      value: 35.5299
+      value: 30.2709
     - type: mrr_at_5
-      value: 36.8133
+      value: 31.4126
     - type: mrr_at_10
-      value: 37.6632
+      value: 32.2202
     - type: mrr_at_20
-      value: 38.079299999999996
+      value: 32.6527
     - type: mrr_at_100
-      value: 38.3951
+      value: 32.9822
     - type: mrr_at_1000
-      value: 38.4584
+      value: 33.0527
     - type: nauc_ndcg_at_1_max
-      value: 23.1966
+      value: 24.082600000000003
     - type: nauc_ndcg_at_1_std
-      value: -9.4926
+      value: -3.9068
     - type: nauc_ndcg_at_1_diff1
-      value: 50.2664
+      value: 50.1815
     - type: nauc_ndcg_at_3_max
-      value: 22.9114
+      value: 23.160700000000002
     - type: nauc_ndcg_at_3_std
-      value: -9.3945
+      value: -3.3746
     - type: nauc_ndcg_at_3_diff1
-      value: 45.266400000000004
+      value: 45.009
     - type: nauc_ndcg_at_5_max
-      value: 22.2736
+      value: 22.644000000000002
     - type: nauc_ndcg_at_5_std
-      value: -9.1173
+      value: -3.0027999999999997
     - type: nauc_ndcg_at_5_diff1
-      value: 44.1003
+      value: 44.0016
     - type: nauc_ndcg_at_10_max
-      value: 22.0212
+      value: 22.3578
     - type: nauc_ndcg_at_10_std
-      value: -8.5559
+      value: -2.5096
     - type: nauc_ndcg_at_10_diff1
-      value: 43.5542
+      value: 43.4367
     - type: nauc_ndcg_at_20_max
-      value: 21.5977
+      value: 22.0477
     - type: nauc_ndcg_at_20_std
-      value: -8.236400000000001
+      value: -1.7484
     - type: nauc_ndcg_at_20_diff1
-      value: 43.1564
+      value: 42.9771
     - type: nauc_ndcg_at_100_max
-      value: 21.4543
+      value: 21.7016
     - type: nauc_ndcg_at_100_std
-      value: -7.5462
+      value: -1.0854000000000001
     - type: nauc_ndcg_at_100_diff1
-      value: 43.1768
+      value: 42.707
     - type: nauc_ndcg_at_1000_max
-      value: 21.6202
+      value: 21.988
     - type: nauc_ndcg_at_1000_std
-      value: -7.5571
+      value: -0.8564999999999999
     - type: nauc_ndcg_at_1000_diff1
-      value: 43.5388
+      value: 43.0368
     - type: nauc_map_at_1_max
-      value: 23.1966
+      value: 24.082600000000003
     - type: nauc_map_at_1_std
-      value: -9.4926
+      value: -3.9068
     - type: nauc_map_at_1_diff1
-      value: 50.2664
+      value: 50.1815
     - type: nauc_map_at_3_max
-      value: 23.0018
+      value: 23.418
     - type: nauc_map_at_3_std
-      value: -9.4391
+      value: -3.4922
     - type: nauc_map_at_3_diff1
-      value: 46.428000000000004
+      value: 46.19
     - type: nauc_map_at_5_max
-      value: 22.642300000000002
+      value: 23.1203
     - type: nauc_map_at_5_std
-      value: -9.2849
+      value: -3.2856000000000005
     - type: nauc_map_at_5_diff1
-      value: 45.776
+      value: 45.6063
     - type: nauc_map_at_10_max
-      value: 22.551099999999998
+      value: 23.0132
     - type: nauc_map_at_10_std
-      value: -9.045300000000001
+      value: -3.0803000000000003
     - type: nauc_map_at_10_diff1
-      value: 45.5645
+      value: 45.3708
     - type: nauc_map_at_20_max
-      value: 22.4407
+      value: 22.926199999999998
     - type: nauc_map_at_20_std
-      value: -8.9542
+      value: -2.8717
     - type: nauc_map_at_20_diff1
-      value: 45.4588
+      value: 45.2482
     - type: nauc_map_at_100_max
-      value: 22.4247
+      value: 22.8776
     - type: nauc_map_at_100_std
-      value: -8.869299999999999
+      value: -2.7819
     - type: nauc_map_at_100_diff1
-      value: 45.467200000000005
+      value: 45.2205
     - type: nauc_map_at_1000_max
-      value: 22.429299999999998
+      value: 22.886
     - type: nauc_map_at_1000_std
-      value: -8.8653
+      value: -2.7714
     - type: nauc_map_at_1000_diff1
-      value: 45.479
+      value: 45.231300000000005
     - type: nauc_recall_at_1_max
-      value: 23.1966
+      value: 24.082600000000003
     - type: nauc_recall_at_1_std
-      value: -9.4926
+      value: -3.9068
     - type: nauc_recall_at_1_diff1
-      value: 50.2664
+      value: 50.1815
     - type: nauc_recall_at_3_max
-      value: 22.6466
+      value: 22.442500000000003
     - type: nauc_recall_at_3_std
-      value: -9.259599999999999
+      value: -3.0562
     - type: nauc_recall_at_3_diff1
-      value: 41.9917
+      value: 41.797000000000004
     - type: nauc_recall_at_5_max
-      value: 21.121100000000002
+      value: 21.2749
     - type: nauc_recall_at_5_std
-      value: -8.5882
+      value: -2.1853000000000002
     - type: nauc_recall_at_5_diff1
-      value: 39.1445
+      value: 39.543
     - type: nauc_recall_at_10_max
-      value: 20.191200000000002
+      value: 20.336399999999998
     - type: nauc_recall_at_10_std
-      value: -6.824
+      value: -0.6941
     - type: nauc_recall_at_10_diff1
-      value: 37.107
+      value: 37.7835
     - type: nauc_recall_at_20_max
-      value: 18.2104
+      value: 19.031799999999997
     - type: nauc_recall_at_20_std
-      value: -5.3749
+      value: 2.4044
     - type: nauc_recall_at_20_diff1
-      value: 34.9673
+      value: 35.6973
     - type: nauc_recall_at_100_max
-      value: 16.0859
+      value: 16.1657
     - type: nauc_recall_at_100_std
-      value: 0.7539
+      value: 7.480199999999999
     - type: nauc_recall_at_100_diff1
-      value: 32.603500000000004
+      value: 32.2845
     - type: nauc_recall_at_1000_max
-      value: 14.1642
+      value: 16.6175
     - type: nauc_recall_at_1000_std
-      value: 8.5463
+      value: 17.7626
     - type: nauc_recall_at_1000_diff1
-      value: 29.5927
+      value: 29.4846
     - type: nauc_precision_at_1_max
-      value: 23.1966
+      value: 24.082600000000003
     - type: nauc_precision_at_1_std
-      value: -9.4926
+      value: -3.9068
     - type: nauc_precision_at_1_diff1
-      value: 50.2664
+      value: 50.1815
     - type: nauc_precision_at_3_max
-      value: 22.6466
+      value: 22.442500000000003
     - type: nauc_precision_at_3_std
-      value: -9.259599999999999
+      value: -3.0562
     - type: nauc_precision_at_3_diff1
-      value: 41.9917
+      value: 41.797000000000004
     - type: nauc_precision_at_5_max
-      value: 21.121100000000002
+      value: 21.2749
     - type: nauc_precision_at_5_std
-      value: -8.5882
+      value: -2.1853000000000002
     - type: nauc_precision_at_5_diff1
-      value: 39.1445
+      value: 39.543
     - type: nauc_precision_at_10_max
-      value: 20.191200000000002
+      value: 20.336399999999998
     - type: nauc_precision_at_10_std
-      value: -6.824
+      value: -0.6941
     - type: nauc_precision_at_10_diff1
-      value: 37.107
+      value: 37.7835
     - type: nauc_precision_at_20_max
-      value: 18.2104
+      value: 19.031799999999997
     - type: nauc_precision_at_20_std
-      value: -5.3749
+      value: 2.4044
     - type: nauc_precision_at_20_diff1
-      value: 34.9673
+      value: 35.6973
     - type: nauc_precision_at_100_max
-      value: 16.0859
+      value: 16.1657
     - type: nauc_precision_at_100_std
-      value: 0.7539
+      value: 7.480199999999999
     - type: nauc_precision_at_100_diff1
-      value: 32.603500000000004
+      value: 32.2845
     - type: nauc_precision_at_1000_max
-      value: 14.1642
+      value: 16.6175
     - type: nauc_precision_at_1000_std
-      value: 8.5463
+      value: 17.7626
     - type: nauc_precision_at_1000_diff1
-      value: 29.5927
+      value: 29.4846
     - type: nauc_mrr_at_1_max
-      value: 23.2502
+      value: 23.9848
     - type: nauc_mrr_at_1_std
-      value: -9.507
+      value: -3.9669000000000003
     - type: nauc_mrr_at_1_diff1
-      value: 50.3997
+      value: 50.152699999999996
     - type: nauc_mrr_at_3_max
-      value: 23.009
+      value: 23.3397
     - type: nauc_mrr_at_3_std
-      value: -9.4541
+      value: -3.5128
     - type: nauc_mrr_at_3_diff1
-      value: 46.4733
+      value: 46.1227
     - type: nauc_mrr_at_5_max
-      value: 22.656000000000002
+      value: 23.0454
     - type: nauc_mrr_at_5_std
-      value: -9.2987
+      value: -3.3141
     - type: nauc_mrr_at_5_diff1
-      value: 45.839999999999996
+      value: 45.561
     - type: nauc_mrr_at_10_max
-      value: 22.5697
+      value: 22.9526
     - type: nauc_mrr_at_10_std
-      value: -9.0543
+      value: -3.1052
     - type: nauc_mrr_at_10_diff1
-      value: 45.618700000000004
+      value: 45.3316
     - type: nauc_mrr_at_20_max
-      value: 22.461000000000002
+      value: 22.8654
     - type: nauc_mrr_at_20_std
-      value: -8.9628
+      value: -2.8967
     - type: nauc_mrr_at_20_diff1
-      value: 45.5146
+      value: 45.2089
     - type: nauc_mrr_at_100_max
-      value: 22.4449
+      value: 22.8164
     - type: nauc_mrr_at_100_std
-      value: -8.877699999999999
+      value: -2.8074000000000003
     - type: nauc_mrr_at_100_diff1
-      value: 45.5229
+      value: 45.1812
     - type: nauc_mrr_at_1000_max
-      value: 22.4498
+      value: 22.8248
     - type: nauc_mrr_at_1000_std
-      value: -8.873899999999999
+      value: -2.7968
     - type: nauc_mrr_at_1000_diff1
-      value: 45.535199999999996
+      value: 45.191900000000004
     - type: main_score
-      value: 41.814
+      value: 35.942
     task:
       type: Retrieval
   - dataset:
@@ -8974,195 +8986,195 @@ model-index:
       type: code-search-net/code_search_net
     metrics:
     - type: ndcg_at_1
-      value: 73.5
+      value: 70.89999999999999
     - type: ndcg_at_3
-      value: 82.35900000000001
+      value: 80.06400000000001
     - type: ndcg_at_5
-      value: 83.543
+      value: 81.703
     - type: ndcg_at_10
-      value: 84.357
+      value: 83.12
     - type: ndcg_at_20
-      value: 84.973
+      value: 83.67999999999999
     - type: ndcg_at_100
-      value: 85.449
+      value: 84.11
     - type: ndcg_at_1000
-      value: 85.591
+      value: 84.195
     - type: map_at_1
-      value: 73.5
+      value: 70.89999999999999
     - type: map_at_3
-      value: 80.2
+      value: 77.86699999999999
     - type: map_at_5
-      value: 80.85
+      value: 78.77199999999999
     - type: map_at_10
-      value: 81.189
+      value: 79.353
     - type: map_at_20
-      value: 81.364
+      value: 79.508
     - type: map_at_100
-      value: 81.434
+      value: 79.569
     - type: map_at_1000
-      value: 81.44
+      value: 79.571
     - type: recall_at_1
-      value: 73.5
+      value: 70.89999999999999
     - type: recall_at_3
-      value: 88.6
+      value: 86.4
     - type: recall_at_5
-      value: 91.5
+      value: 90.4
     - type: recall_at_10
-      value: 94.0
+      value: 94.8
     - type: recall_at_20
-      value: 96.39999999999999
+      value: 97.0
     - type: recall_at_100
-      value: 98.9
+      value: 99.3
     - type: recall_at_1000
       value: 100.0
     - type: precision_at_1
-      value: 73.5
+      value: 70.89999999999999
     - type: precision_at_3
-      value: 29.532999999999998
+      value: 28.799999999999997
     - type: precision_at_5
-      value: 18.3
+      value: 18.08
     - type: precision_at_10
-      value: 9.4
+      value: 9.48
     - type: precision_at_20
-      value: 4.82
+      value: 4.8500000000000005
     - type: precision_at_100
-      value: 0.989
+      value: 0.993
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 73.5
+      value: 70.89999999999999
     - type: mrr_at_3
-      value: 80.2
+      value: 77.8667
     - type: mrr_at_5
-      value: 80.85
+      value: 78.7717
     - type: mrr_at_10
-      value: 81.1894
+      value: 79.3526
     - type: mrr_at_20
-      value: 81.3638
+      value: 79.5084
     - type: mrr_at_100
-      value: 81.43430000000001
+      value: 79.5687
     - type: mrr_at_1000
-      value: 81.44
+      value: 79.5713
     - type: nauc_ndcg_at_1_max
-      value: 45.553
+      value: 42.7162
     - type: nauc_ndcg_at_1_std
-      value: -3.8149
+      value: -4.6818
     - type: nauc_ndcg_at_1_diff1
-      value: 72.4638
+      value: 70.6364
     - type: nauc_ndcg_at_3_max
-      value: 47.8454
+      value: 48.1282
     - type: nauc_ndcg_at_3_std
-      value: -3.2174
+      value: -2.8091
     - type: nauc_ndcg_at_3_diff1
-      value: 69.05059999999999
+      value: 67.9426
     - type: nauc_ndcg_at_5_max
-      value: 48.105599999999995
+      value: 45.713
     - type: nauc_ndcg_at_5_std
-      value: -3.0107
+      value: -4.0022
     - type: nauc_ndcg_at_5_diff1
-      value: 70.2436
+      value: 67.0684
     - type: nauc_ndcg_at_10_max
-      value: 48.871900000000004
+      value: 45.8762
     - type: nauc_ndcg_at_10_std
-      value: -2.7289
+      value: -2.8594999999999997
     - type: nauc_ndcg_at_10_diff1
-      value: 70.87440000000001
+      value: 67.318
     - type: nauc_ndcg_at_20_max
-      value: 49.1441
+      value: 45.8448
     - type: nauc_ndcg_at_20_std
-      value: -2.2193
+      value: -2.9843
     - type: nauc_ndcg_at_20_diff1
-      value: 70.9602
+      value: 67.5016
     - type: nauc_ndcg_at_100_max
-      value: 48.2597
+      value: 45.9045
     - type: nauc_ndcg_at_100_std
-      value: -2.8648
+      value: -3.1647000000000003
     - type: nauc_ndcg_at_100_diff1
-      value: 70.5487
+      value: 67.8211
     - type: nauc_ndcg_at_1000_max
-      value: 48.0576
+      value: 45.7011
     - type: nauc_ndcg_at_1000_std
-      value: -3.0315000000000003
+      value: -3.4981
     - type: nauc_ndcg_at_1000_diff1
-      value: 70.8214
+      value: 67.9137
     - type: nauc_map_at_1_max
-      value: 45.553
+      value: 42.7162
     - type: nauc_map_at_1_std
-      value: -3.8149
+      value: -4.6818
     - type: nauc_map_at_1_diff1
-      value: 72.4638
+      value: 70.6364
     - type: nauc_map_at_3_max
-      value: 47.143
+      value: 46.5287
     - type: nauc_map_at_3_std
-      value: -3.4511
+      value: -3.6239
     - type: nauc_map_at_3_diff1
-      value: 70.2411
+      value: 68.5879
     - type: nauc_map_at_5_max
-      value: 47.2524
+      value: 45.291599999999995
     - type: nauc_map_at_5_std
-      value: -3.3834999999999997
+      value: -4.2172
     - type: nauc_map_at_5_diff1
-      value: 70.8691
+      value: 68.1788
     - type: nauc_map_at_10_max
-      value: 47.5215
+      value: 45.31
     - type: nauc_map_at_10_std
-      value: -3.3042000000000002
+      value: -3.8557
     - type: nauc_map_at_10_diff1
-      value: 71.1041
+      value: 68.2538
     - type: nauc_map_at_20_max
-      value: 47.5871
+      value: 45.2841
     - type: nauc_map_at_20_std
-      value: -3.1888
+      value: -3.92
     - type: nauc_map_at_20_diff1
-      value: 71.1157
+      value: 68.2978
     - type: nauc_map_at_100_max
-      value: 47.4746
+      value: 45.3154
     - type: nauc_map_at_100_std
-      value: -3.3092
+      value: -3.929
     - type: nauc_map_at_100_diff1
-      value: 71.0626
+      value: 68.3362
     - type: nauc_map_at_1000_max
-      value: 47.4686
+      value: 45.3097
     - type: nauc_map_at_1000_std
-      value: -3.3099000000000003
+      value: -3.9364999999999997
     - type: nauc_map_at_1000_diff1
-      value: 71.0712
+      value: 68.3376
     - type: nauc_recall_at_1_max
-      value: 45.553
+      value: 42.7162
     - type: nauc_recall_at_1_std
-      value: -3.8149
+      value: -4.6818
     - type: nauc_recall_at_1_diff1
-      value: 72.4638
+      value: 70.6364
     - type: nauc_recall_at_3_max
-      value: 51.09590000000001
+      value: 55.0798
     - type: nauc_recall_at_3_std
-      value: -2.1018
+      value: 0.9014
     - type: nauc_recall_at_3_diff1
-      value: 63.4433
+      value: 65.2358
     - type: nauc_recall_at_5_max
-      value: 53.195499999999996
+      value: 47.4148
     - type: nauc_recall_at_5_std
-      value: -0.6421
+      value: -2.9387
     - type: nauc_recall_at_5_diff1
-      value: 66.7381
+      value: 60.644299999999994
     - type: nauc_recall_at_10_max
-      value: 60.660599999999995
+      value: 50.820600000000006
     - type: nauc_recall_at_10_std
-      value: 2.5576000000000003
+      value: 8.7499
     - type: nauc_recall_at_10_diff1
-      value: 69.8771
+      value: 58.34049999999999
     - type: nauc_recall_at_20_max
-      value: 72.0082
+      value: 54.4382
     - type: nauc_recall_at_20_std
-      value: 13.519300000000001
+      value: 16.0862
     - type: nauc_recall_at_20_diff1
-      value: 70.8774
+      value: 55.5229
     - type: nauc_recall_at_100_max
-      value: 67.6683
+      value: 79.2317
     - type: nauc_recall_at_100_std
-      value: 16.4757
+      value: 54.095000000000006
     - type: nauc_recall_at_100_diff1
-      value: 45.535199999999996
+      value: 50.6869
     - type: nauc_recall_at_1000_max
       value: .nan
     - type: nauc_recall_at_1000_std
@@ -9170,41 +9182,41 @@ model-index:
     - type: nauc_recall_at_1000_diff1
       value: .nan
     - type: nauc_precision_at_1_max
-      value: 45.553
+      value: 42.7162
     - type: nauc_precision_at_1_std
-      value: -3.8149
+      value: -4.6818
     - type: nauc_precision_at_1_diff1
-      value: 72.4638
+      value: 70.6364
     - type: nauc_precision_at_3_max
-      value: 51.09590000000001
+      value: 55.0798
     - type: nauc_precision_at_3_std
-      value: -2.1018
+      value: 0.9014
     - type: nauc_precision_at_3_diff1
-      value: 63.4433
+      value: 65.2358
     - type: nauc_precision_at_5_max
-      value: 53.195499999999996
+      value: 47.4148
     - type: nauc_precision_at_5_std
-      value: -0.6421
+      value: -2.9387
     - type: nauc_precision_at_5_diff1
-      value: 66.7381
+      value: 60.644299999999994
     - type: nauc_precision_at_10_max
-      value: 60.660599999999995
+      value: 50.820600000000006
     - type: nauc_precision_at_10_std
-      value: 2.5576000000000003
+      value: 8.7499
     - type: nauc_precision_at_10_diff1
-      value: 69.8771
+      value: 58.34049999999999
     - type: nauc_precision_at_20_max
-      value: 72.0082
+      value: 54.4382
     - type: nauc_precision_at_20_std
-      value: 13.519300000000001
+      value: 16.0862
     - type: nauc_precision_at_20_diff1
-      value: 70.8774
+      value: 55.5229
     - type: nauc_precision_at_100_max
-      value: 67.6683
+      value: 79.2317
     - type: nauc_precision_at_100_std
-      value: 16.4757
+      value: 54.095000000000006
     - type: nauc_precision_at_100_diff1
-      value: 45.535199999999996
+      value: 50.6869
     - type: nauc_precision_at_1000_max
       value: .nan
     - type: nauc_precision_at_1000_std
@@ -9212,49 +9224,49 @@ model-index:
     - type: nauc_precision_at_1000_diff1
       value: .nan
     - type: nauc_mrr_at_1_max
-      value: 45.553
+      value: 42.7162
     - type: nauc_mrr_at_1_std
-      value: -3.8149
+      value: -4.6818
     - type: nauc_mrr_at_1_diff1
-      value: 72.4638
+      value: 70.6364
     - type: nauc_mrr_at_3_max
-      value: 47.143
+      value: 46.5287
     - type: nauc_mrr_at_3_std
-      value: -3.4511
+      value: -3.6239
     - type: nauc_mrr_at_3_diff1
-      value: 70.2411
+      value: 68.5879
     - type: nauc_mrr_at_5_max
-      value: 47.2524
+      value: 45.291599999999995
     - type: nauc_mrr_at_5_std
-      value: -3.3834999999999997
+      value: -4.2172
     - type: nauc_mrr_at_5_diff1
-      value: 70.8691
+      value: 68.1788
     - type: nauc_mrr_at_10_max
-      value: 47.5215
+      value: 45.31
     - type: nauc_mrr_at_10_std
-      value: -3.3042000000000002
+      value: -3.8557
     - type: nauc_mrr_at_10_diff1
-      value: 71.1041
+      value: 68.2538
     - type: nauc_mrr_at_20_max
-      value: 47.5871
+      value: 45.2841
     - type: nauc_mrr_at_20_std
-      value: -3.1888
+      value: -3.92
     - type: nauc_mrr_at_20_diff1
-      value: 71.1157
+      value: 68.2978
     - type: nauc_mrr_at_100_max
-      value: 47.4746
+      value: 45.3154
     - type: nauc_mrr_at_100_std
-      value: -3.3092
+      value: -3.929
     - type: nauc_mrr_at_100_diff1
-      value: 71.0626
+      value: 68.3362
     - type: nauc_mrr_at_1000_max
-      value: 47.4686
+      value: 45.3097
     - type: nauc_mrr_at_1000_std
-      value: -3.3099000000000003
+      value: -3.9364999999999997
     - type: nauc_mrr_at_1000_diff1
-      value: 71.0712
+      value: 68.3376
     - type: main_score
-      value: 84.357
+      value: 83.12
     task:
       type: Retrieval
   - dataset:
@@ -9265,195 +9277,195 @@ model-index:
       type: code-search-net/code_search_net
     metrics:
     - type: ndcg_at_1
-      value: 59.4
+      value: 57.99999999999999
     - type: ndcg_at_3
-      value: 68.58800000000001
+      value: 67.24900000000001
     - type: ndcg_at_5
-      value: 70.0
+      value: 68.781
     - type: ndcg_at_10
-      value: 71.384
+      value: 70.34
     - type: ndcg_at_20
-      value: 72.505
+      value: 71.24000000000001
     - type: ndcg_at_100
-      value: 73.532
+      value: 72.617
     - type: ndcg_at_1000
-      value: 74.414
+      value: 73.436
     - type: map_at_1
-      value: 59.4
+      value: 57.99999999999999
     - type: map_at_3
-      value: 66.367
+      value: 64.983
     - type: map_at_5
-      value: 67.157
+      value: 65.838
     - type: map_at_10
-      value: 67.72399999999999
+      value: 66.50500000000001
     - type: map_at_20
-      value: 68.036
+      value: 66.74600000000001
     - type: map_at_100
-      value: 68.182
+      value: 66.93299999999999
     - type: map_at_1000
-      value: 68.208
+      value: 66.959
     - type: recall_at_1
-      value: 59.4
+      value: 57.99999999999999
     - type: recall_at_3
-      value: 75.0
+      value: 73.8
     - type: recall_at_5
-      value: 78.4
+      value: 77.5
     - type: recall_at_10
-      value: 82.69999999999999
+      value: 82.19999999999999
     - type: recall_at_20
-      value: 87.1
+      value: 85.8
     - type: recall_at_100
-      value: 92.60000000000001
+      value: 93.30000000000001
     - type: recall_at_1000
       value: 100.0
     - type: precision_at_1
-      value: 59.4
+      value: 57.99999999999999
     - type: precision_at_3
-      value: 25.0
+      value: 24.6
     - type: precision_at_5
-      value: 15.68
+      value: 15.5
     - type: precision_at_10
-      value: 8.27
+      value: 8.219999999999999
     - type: precision_at_20
-      value: 4.3549999999999995
+      value: 4.29
     - type: precision_at_100
-      value: 0.9259999999999999
+      value: 0.9329999999999999
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 59.4
+      value: 57.99999999999999
     - type: mrr_at_3
-      value: 66.3667
+      value: 64.9833
     - type: mrr_at_5
-      value: 67.1567
+      value: 65.8383
     - type: mrr_at_10
-      value: 67.72399999999999
+      value: 66.50500000000001
     - type: mrr_at_20
-      value: 68.036
+      value: 66.7464
     - type: mrr_at_100
-      value: 68.1821
+      value: 66.9326
     - type: mrr_at_1000
-      value: 68.20779999999999
+      value: 66.9593
     - type: nauc_ndcg_at_1_max
-      value: 55.2077
+      value: 51.0918
     - type: nauc_ndcg_at_1_std
-      value: 23.8385
+      value: 12.0501
     - type: nauc_ndcg_at_1_diff1
-      value: 72.8827
+      value: 69.1716
     - type: nauc_ndcg_at_3_max
-      value: 62.495
+      value: 59.404199999999996
     - type: nauc_ndcg_at_3_std
-      value: 31.867800000000003
+      value: 22.4787
     - type: nauc_ndcg_at_3_diff1
-      value: 69.8148
+      value: 66.2602
     - type: nauc_ndcg_at_5_max
-      value: 63.132999999999996
+      value: 60.711000000000006
     - type: nauc_ndcg_at_5_std
-      value: 33.3486
+      value: 24.1272
     - type: nauc_ndcg_at_5_diff1
-      value: 69.8501
+      value: 65.9406
     - type: nauc_ndcg_at_10_max
-      value: 64.3507
+      value: 61.492599999999996
     - type: nauc_ndcg_at_10_std
-      value: 36.4767
+      value: 26.6758
     - type: nauc_ndcg_at_10_diff1
-      value: 69.5995
+      value: 66.1164
     - type: nauc_ndcg_at_20_max
-      value: 63.930299999999995
+      value: 61.34610000000001
     - type: nauc_ndcg_at_20_std
-      value: 36.8457
+      value: 27.331
     - type: nauc_ndcg_at_20_diff1
-      value: 70.0822
+      value: 66.981
     - type: nauc_ndcg_at_100_max
-      value: 63.10249999999999
+      value: 60.50020000000001
     - type: nauc_ndcg_at_100_std
-      value: 36.4228
+      value: 26.623
     - type: nauc_ndcg_at_100_diff1
-      value: 70.0219
+      value: 66.4658
     - type: nauc_ndcg_at_1000_max
-      value: 62.3826
+      value: 59.600500000000004
     - type: nauc_ndcg_at_1000_std
-      value: 34.2464
+      value: 24.3596
     - type: nauc_ndcg_at_1000_diff1
-      value: 70.2371
+      value: 66.7619
     - type: nauc_map_at_1_max
-      value: 55.2077
+      value: 51.0918
     - type: nauc_map_at_1_std
-      value: 23.8385
+      value: 12.0501
     - type: nauc_map_at_1_diff1
-      value: 72.8827
+      value: 69.1716
     - type: nauc_map_at_3_max
-      value: 60.4208
+      value: 57.2093
     - type: nauc_map_at_3_std
-      value: 29.6445
+      value: 19.4523
     - type: nauc_map_at_3_diff1
-      value: 70.58630000000001
+      value: 67.0065
     - type: nauc_map_at_5_max
-      value: 60.709900000000005
+      value: 57.81699999999999
     - type: nauc_map_at_5_std
-      value: 30.400899999999996
+      value: 20.2597
     - type: nauc_map_at_5_diff1
-      value: 70.6255
+      value: 66.8577
     - type: nauc_map_at_10_max
-      value: 61.152499999999996
+      value: 58.052099999999996
     - type: nauc_map_at_10_std
-      value: 31.550800000000002
+      value: 21.195
     - type: nauc_map_at_10_diff1
-      value: 70.56099999999999
+      value: 66.9095
     - type: nauc_map_at_20_max
-      value: 61.0075
+      value: 57.9955
     - type: nauc_map_at_20_std
-      value: 31.585600000000003
+      value: 21.3121
     - type: nauc_map_at_20_diff1
-      value: 70.6649
+      value: 67.1257
     - type: nauc_map_at_100_max
-      value: 60.90370000000001
+      value: 57.8974
     - type: nauc_map_at_100_std
-      value: 31.510700000000003
+      value: 21.2576
     - type: nauc_map_at_100_diff1
-      value: 70.66839999999999
+      value: 67.0765
     - type: nauc_map_at_1000_max
-      value: 60.8865
+      value: 57.873799999999996
     - type: nauc_map_at_1000_std
-      value: 31.4572
+      value: 21.195
     - type: nauc_map_at_1000_diff1
-      value: 70.6705
+      value: 67.08579999999999
     - type: nauc_recall_at_1_max
-      value: 55.2077
+      value: 51.0918
     - type: nauc_recall_at_1_std
-      value: 23.8385
+      value: 12.0501
     - type: nauc_recall_at_1_diff1
-      value: 72.8827
+      value: 69.1716
     - type: nauc_recall_at_3_max
-      value: 69.92819999999999
+      value: 67.0934
     - type: nauc_recall_at_3_std
-      value: 39.8045
+      value: 33.2241
     - type: nauc_recall_at_3_diff1
-      value: 67.10040000000001
+      value: 63.65769999999999
     - type: nauc_recall_at_5_max
-      value: 72.8013
+      value: 72.2191
     - type: nauc_recall_at_5_std
-      value: 45.1476
+      value: 39.5657
     - type: nauc_recall_at_5_diff1
-      value: 66.84790000000001
+      value: 62.3367
     - type: nauc_recall_at_10_max
-      value: 80.1828
+      value: 78.3358
     - type: nauc_recall_at_10_std
-      value: 61.6781
+      value: 54.093599999999995
     - type: nauc_recall_at_10_diff1
-      value: 64.9272
+      value: 62.605900000000005
     - type: nauc_recall_at_20_max
-      value: 82.11840000000001
+      value: 81.0991
     - type: nauc_recall_at_20_std
-      value: 72.1146
+      value: 64.9068
     - type: nauc_recall_at_20_diff1
-      value: 67.3756
+      value: 67.7761
     - type: nauc_recall_at_100_max
-      value: 80.8836
+      value: 85.0279
     - type: nauc_recall_at_100_std
-      value: 89.47810000000001
+      value: 87.47930000000001
     - type: nauc_recall_at_100_diff1
-      value: 64.169
+      value: 58.818000000000005
     - type: nauc_recall_at_1000_max
       value: .nan
     - type: nauc_recall_at_1000_std
@@ -9461,41 +9473,41 @@ model-index:
     - type: nauc_recall_at_1000_diff1
       value: .nan
     - type: nauc_precision_at_1_max
-      value: 55.2077
+      value: 51.0918
     - type: nauc_precision_at_1_std
-      value: 23.8385
+      value: 12.0501
     - type: nauc_precision_at_1_diff1
-      value: 72.8827
+      value: 69.1716
     - type: nauc_precision_at_3_max
-      value: 69.92819999999999
+      value: 67.0934
     - type: nauc_precision_at_3_std
-      value: 39.8045
+      value: 33.2241
     - type: nauc_precision_at_3_diff1
-      value: 67.10040000000001
+      value: 63.65769999999999
     - type: nauc_precision_at_5_max
-      value: 72.8013
+      value: 72.2191
     - type: nauc_precision_at_5_std
-      value: 45.1476
+      value: 39.5657
     - type: nauc_precision_at_5_diff1
-      value: 66.84790000000001
+      value: 62.3367
     - type: nauc_precision_at_10_max
-      value: 80.1828
+      value: 78.3358
     - type: nauc_precision_at_10_std
-      value: 61.6781
+      value: 54.093599999999995
     - type: nauc_precision_at_10_diff1
-      value: 64.9272
+      value: 62.605900000000005
     - type: nauc_precision_at_20_max
-      value: 82.11840000000001
+      value: 81.0991
     - type: nauc_precision_at_20_std
-      value: 72.1146
+      value: 64.9068
     - type: nauc_precision_at_20_diff1
-      value: 67.3756
+      value: 67.7761
     - type: nauc_precision_at_100_max
-      value: 80.8836
+      value: 85.0279
     - type: nauc_precision_at_100_std
-      value: 89.47810000000001
+      value: 87.47930000000001
     - type: nauc_precision_at_100_diff1
-      value: 64.169
+      value: 58.818000000000005
     - type: nauc_precision_at_1000_max
       value: .nan
     - type: nauc_precision_at_1000_std
@@ -9503,49 +9515,49 @@ model-index:
     - type: nauc_precision_at_1000_diff1
       value: .nan
     - type: nauc_mrr_at_1_max
-      value: 55.2077
+      value: 51.0918
     - type: nauc_mrr_at_1_std
-      value: 23.8385
+      value: 12.0501
     - type: nauc_mrr_at_1_diff1
-      value: 72.8827
+      value: 69.1716
     - type: nauc_mrr_at_3_max
-      value: 60.4208
+      value: 57.2093
     - type: nauc_mrr_at_3_std
-      value: 29.6445
+      value: 19.4523
     - type: nauc_mrr_at_3_diff1
-      value: 70.58630000000001
+      value: 67.0065
     - type: nauc_mrr_at_5_max
-      value: 60.709900000000005
+      value: 57.81699999999999
     - type: nauc_mrr_at_5_std
-      value: 30.400899999999996
+      value: 20.2597
     - type: nauc_mrr_at_5_diff1
-      value: 70.6255
+      value: 66.8577
     - type: nauc_mrr_at_10_max
-      value: 61.152499999999996
+      value: 58.052099999999996
     - type: nauc_mrr_at_10_std
-      value: 31.550800000000002
+      value: 21.195
     - type: nauc_mrr_at_10_diff1
-      value: 70.56099999999999
+      value: 66.9095
     - type: nauc_mrr_at_20_max
-      value: 61.0075
+      value: 57.9955
     - type: nauc_mrr_at_20_std
-      value: 31.585600000000003
+      value: 21.3121
     - type: nauc_mrr_at_20_diff1
-      value: 70.6649
+      value: 67.1257
     - type: nauc_mrr_at_100_max
-      value: 60.90370000000001
+      value: 57.8974
     - type: nauc_mrr_at_100_std
-      value: 31.510700000000003
+      value: 21.2576
     - type: nauc_mrr_at_100_diff1
-      value: 70.66839999999999
+      value: 67.0765
     - type: nauc_mrr_at_1000_max
-      value: 60.8865
+      value: 57.873799999999996
     - type: nauc_mrr_at_1000_std
-      value: 31.4572
+      value: 21.195
     - type: nauc_mrr_at_1000_diff1
-      value: 70.6705
+      value: 67.08579999999999
     - type: main_score
-      value: 71.384
+      value: 70.34
     task:
       type: Retrieval
   - dataset:
@@ -9556,195 +9568,195 @@ model-index:
       type: code-search-net/code_search_net
     metrics:
     - type: ndcg_at_1
-      value: 71.39999999999999
+      value: 75.6
     - type: ndcg_at_3
-      value: 82.32000000000001
+      value: 84.112
     - type: ndcg_at_5
-      value: 84.22699999999999
+      value: 85.351
     - type: ndcg_at_10
-      value: 84.922
+      value: 86.139
     - type: ndcg_at_20
-      value: 85.226
+      value: 86.599
     - type: ndcg_at_100
-      value: 85.563
+      value: 86.971
     - type: ndcg_at_1000
-      value: 85.66
+      value: 87.086
     - type: map_at_1
-      value: 71.39999999999999
+      value: 75.6
     - type: map_at_3
-      value: 79.783
+      value: 82.1
     - type: map_at_5
-      value: 80.848
+      value: 82.78999999999999
     - type: map_at_10
-      value: 81.145
+      value: 83.122
     - type: map_at_20
-      value: 81.229
+      value: 83.25099999999999
     - type: map_at_100
-      value: 81.284
+      value: 83.30300000000001
     - type: map_at_1000
-      value: 81.286
+      value: 83.307
     - type: recall_at_1
-      value: 71.39999999999999
+      value: 75.6
     - type: recall_at_3
-      value: 89.60000000000001
+      value: 89.9
     - type: recall_at_5
-      value: 94.19999999999999
+      value: 92.9
     - type: recall_at_10
-      value: 96.3
+      value: 95.3
     - type: recall_at_20
-      value: 97.5
+      value: 97.1
     - type: recall_at_100
-      value: 99.2
+      value: 99.1
     - type: recall_at_1000
       value: 100.0
     - type: precision_at_1
-      value: 71.39999999999999
+      value: 75.6
     - type: precision_at_3
-      value: 29.866999999999997
+      value: 29.967
     - type: precision_at_5
-      value: 18.84
+      value: 18.58
     - type: precision_at_10
-      value: 9.629999999999999
+      value: 9.53
     - type: precision_at_20
-      value: 4.875
+      value: 4.855
     - type: precision_at_100
-      value: 0.992
+      value: 0.991
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 71.39999999999999
+      value: 75.6
     - type: mrr_at_3
-      value: 79.7833
+      value: 82.1
     - type: mrr_at_5
-      value: 80.8483
+      value: 82.78999999999999
     - type: mrr_at_10
-      value: 81.14489999999999
+      value: 83.12230000000001
     - type: mrr_at_20
-      value: 81.22890000000001
+      value: 83.2511
     - type: mrr_at_100
-      value: 81.2836
+      value: 83.3027
     - type: mrr_at_1000
-      value: 81.28649999999999
+      value: 83.307
     - type: nauc_ndcg_at_1_max
-      value: 46.2744
+      value: 50.9856
     - type: nauc_ndcg_at_1_std
-      value: -2.9863
+      value: 6.729
     - type: nauc_ndcg_at_1_diff1
-      value: 74.0857
+      value: 75.68589999999999
     - type: nauc_ndcg_at_3_max
-      value: 54.4012
+      value: 59.266
     - type: nauc_ndcg_at_3_std
-      value: -3.3299000000000003
+      value: 10.0957
     - type: nauc_ndcg_at_3_diff1
-      value: 70.891
+      value: 73.3044
     - type: nauc_ndcg_at_5_max
-      value: 54.3223
+      value: 58.7545
     - type: nauc_ndcg_at_5_std
-      value: -1.6239
+      value: 9.295399999999999
     - type: nauc_ndcg_at_5_diff1
-      value: 71.7397
+      value: 73.9355
     - type: nauc_ndcg_at_10_max
-      value: 53.629099999999994
+      value: 58.7538
     - type: nauc_ndcg_at_10_std
-      value: -1.8041999999999998
+      value: 10.335999999999999
     - type: nauc_ndcg_at_10_diff1
-      value: 72.8108
+      value: 74.01870000000001
     - type: nauc_ndcg_at_20_max
-      value: 52.8247
+      value: 57.9057
     - type: nauc_ndcg_at_20_std
-      value: -2.6823
+      value: 10.115300000000001
     - type: nauc_ndcg_at_20_diff1
-      value: 72.7573
+      value: 74.456
     - type: nauc_ndcg_at_100_max
-      value: 52.359
+      value: 57.198800000000006
     - type: nauc_ndcg_at_100_std
-      value: -2.8805
+      value: 9.2269
     - type: nauc_ndcg_at_100_diff1
-      value: 72.8282
+      value: 74.2418
     - type: nauc_ndcg_at_1000_max
-      value: 52.1323
+      value: 57.1141
     - type: nauc_ndcg_at_1000_std
-      value: -2.8353
+      value: 9.366900000000001
     - type: nauc_ndcg_at_1000_diff1
-      value: 72.6771
+      value: 74.3329
     - type: nauc_map_at_1_max
-      value: 46.2744
+      value: 50.9856
     - type: nauc_map_at_1_std
-      value: -2.9863
+      value: 6.729
     - type: nauc_map_at_1_diff1
-      value: 74.0857
+      value: 75.68589999999999
     - type: nauc_map_at_3_max
-      value: 52.0957
+      value: 57.0017
     - type: nauc_map_at_3_std
-      value: -3.5077999999999996
+      value: 9.2059
     - type: nauc_map_at_3_diff1
-      value: 71.90530000000001
+      value: 73.9956
     - type: nauc_map_at_5_max
-      value: 51.9209
+      value: 56.6856
     - type: nauc_map_at_5_std
-      value: -2.7184
+      value: 8.8058
     - type: nauc_map_at_5_diff1
-      value: 72.3474
+      value: 74.3367
     - type: nauc_map_at_10_max
-      value: 51.642900000000004
+      value: 56.652100000000004
     - type: nauc_map_at_10_std
-      value: -2.8069
+      value: 9.1465
     - type: nauc_map_at_10_diff1
-      value: 72.74589999999999
+      value: 74.37519999999999
     - type: nauc_map_at_20_max
-      value: 51.451800000000006
+      value: 56.4431
     - type: nauc_map_at_20_std
-      value: -2.9922
+      value: 9.0962
     - type: nauc_map_at_20_diff1
-      value: 72.7222
+      value: 74.4763
     - type: nauc_map_at_100_max
-      value: 51.3795
+      value: 56.3572
     - type: nauc_map_at_100_std
-      value: -3.0112
+      value: 8.9981
     - type: nauc_map_at_100_diff1
-      value: 72.723
+      value: 74.4551
     - type: nauc_map_at_1000_max
-      value: 51.3724
+      value: 56.3527
     - type: nauc_map_at_1000_std
-      value: -3.009
+      value: 9.0022
     - type: nauc_map_at_1000_diff1
-      value: 72.7192
+      value: 74.4583
     - type: nauc_recall_at_1_max
-      value: 46.2744
+      value: 50.9856
     - type: nauc_recall_at_1_std
-      value: -2.9863
+      value: 6.729
     - type: nauc_recall_at_1_diff1
-      value: 74.0857
+      value: 75.68589999999999
     - type: nauc_recall_at_3_max
-      value: 65.8657
+      value: 69.7291
     - type: nauc_recall_at_3_std
-      value: -2.2125
+      value: 14.183000000000002
     - type: nauc_recall_at_3_diff1
-      value: 65.75649999999999
+      value: 70.07900000000001
     - type: nauc_recall_at_5_max
-      value: 74.348
+      value: 71.5009
     - type: nauc_recall_at_5_std
-      value: 8.7503
+      value: 11.9764
     - type: nauc_recall_at_5_diff1
-      value: 66.9693
+      value: 71.5765
     - type: nauc_recall_at_10_max
-      value: 77.9494
+      value: 77.7927
     - type: nauc_recall_at_10_std
-      value: 12.8688
+      value: 22.2123
     - type: nauc_recall_at_10_diff1
-      value: 75.7287
+      value: 71.0601
     - type: nauc_recall_at_20_max
-      value: 72.9655
+      value: 75.421
     - type: nauc_recall_at_20_std
-      value: 0.8702
+      value: 25.5385
     - type: nauc_recall_at_20_diff1
-      value: 76.5864
+      value: 76.5318
     - type: nauc_recall_at_100_max
-      value: 80.4563
+      value: 64.4206
     - type: nauc_recall_at_100_std
-      value: -9.278699999999999
+      value: -4.8864
     - type: nauc_recall_at_100_diff1
-      value: 92.793
+      value: 65.2765
     - type: nauc_recall_at_1000_max
       value: .nan
     - type: nauc_recall_at_1000_std
@@ -9752,41 +9764,41 @@ model-index:
     - type: nauc_recall_at_1000_diff1
       value: .nan
     - type: nauc_precision_at_1_max
-      value: 46.2744
+      value: 50.9856
     - type: nauc_precision_at_1_std
-      value: -2.9863
+      value: 6.729
     - type: nauc_precision_at_1_diff1
-      value: 74.0857
+      value: 75.68589999999999
     - type: nauc_precision_at_3_max
-      value: 65.8657
+      value: 69.7291
     - type: nauc_precision_at_3_std
-      value: -2.2125
+      value: 14.183000000000002
     - type: nauc_precision_at_3_diff1
-      value: 65.75649999999999
+      value: 70.07900000000001
     - type: nauc_precision_at_5_max
-      value: 74.348
+      value: 71.5009
     - type: nauc_precision_at_5_std
-      value: 8.7503
+      value: 11.9764
     - type: nauc_precision_at_5_diff1
-      value: 66.9693
+      value: 71.5765
     - type: nauc_precision_at_10_max
-      value: 77.9494
+      value: 77.7927
     - type: nauc_precision_at_10_std
-      value: 12.8688
+      value: 22.2123
     - type: nauc_precision_at_10_diff1
-      value: 75.7287
+      value: 71.0601
     - type: nauc_precision_at_20_max
-      value: 72.9655
+      value: 75.421
     - type: nauc_precision_at_20_std
-      value: 0.8702
+      value: 25.5385
     - type: nauc_precision_at_20_diff1
-      value: 76.5864
+      value: 76.5318
     - type: nauc_precision_at_100_max
-      value: 80.4563
+      value: 64.4206
     - type: nauc_precision_at_100_std
-      value: -9.278699999999999
+      value: -4.8864
     - type: nauc_precision_at_100_diff1
-      value: 92.793
+      value: 65.2765
     - type: nauc_precision_at_1000_max
       value: .nan
     - type: nauc_precision_at_1000_std
@@ -9794,49 +9806,49 @@ model-index:
     - type: nauc_precision_at_1000_diff1
       value: .nan
     - type: nauc_mrr_at_1_max
-      value: 46.2744
+      value: 50.9856
     - type: nauc_mrr_at_1_std
-      value: -2.9863
+      value: 6.729
     - type: nauc_mrr_at_1_diff1
-      value: 74.0857
+      value: 75.68589999999999
     - type: nauc_mrr_at_3_max
-      value: 52.0957
+      value: 57.0017
     - type: nauc_mrr_at_3_std
-      value: -3.5077999999999996
+      value: 9.2059
     - type: nauc_mrr_at_3_diff1
-      value: 71.90530000000001
+      value: 73.9956
     - type: nauc_mrr_at_5_max
-      value: 51.9209
+      value: 56.6856
     - type: nauc_mrr_at_5_std
-      value: -2.7184
+      value: 8.8058
     - type: nauc_mrr_at_5_diff1
-      value: 72.3474
+      value: 74.3367
     - type: nauc_mrr_at_10_max
-      value: 51.642900000000004
+      value: 56.652100000000004
     - type: nauc_mrr_at_10_std
-      value: -2.8069
+      value: 9.1465
     - type: nauc_mrr_at_10_diff1
-      value: 72.74589999999999
+      value: 74.37519999999999
     - type: nauc_mrr_at_20_max
-      value: 51.451800000000006
+      value: 56.4431
     - type: nauc_mrr_at_20_std
-      value: -2.9922
+      value: 9.0962
     - type: nauc_mrr_at_20_diff1
-      value: 72.7222
+      value: 74.4763
     - type: nauc_mrr_at_100_max
-      value: 51.3795
+      value: 56.3572
     - type: nauc_mrr_at_100_std
-      value: -3.0112
+      value: 8.9981
     - type: nauc_mrr_at_100_diff1
-      value: 72.723
+      value: 74.4551
     - type: nauc_mrr_at_1000_max
-      value: 51.3724
+      value: 56.3527
     - type: nauc_mrr_at_1000_std
-      value: -3.009
+      value: 9.0022
     - type: nauc_mrr_at_1000_diff1
-      value: 72.7192
+      value: 74.4583
     - type: main_score
-      value: 84.922
+      value: 86.139
     task:
       type: Retrieval
   - dataset:
@@ -9847,195 +9859,195 @@ model-index:
       type: code-search-net/code_search_net
     metrics:
     - type: ndcg_at_1
-      value: 61.9
+      value: 61.3
     - type: ndcg_at_3
-      value: 71.91
+      value: 71.232
     - type: ndcg_at_5
-      value: 74.11
+      value: 73.1
     - type: ndcg_at_10
-      value: 75.274
+      value: 74.736
     - type: ndcg_at_20
-      value: 75.97
+      value: 75.511
     - type: ndcg_at_100
-      value: 77.021
+      value: 76.416
     - type: ndcg_at_1000
-      value: 77.511
+      value: 76.996
     - type: map_at_1
-      value: 61.9
+      value: 61.3
     - type: map_at_3
-      value: 69.55
+      value: 68.85
     - type: map_at_5
-      value: 70.78
+      value: 69.895
     - type: map_at_10
-      value: 71.26
+      value: 70.581
     - type: map_at_20
-      value: 71.45899999999999
+      value: 70.80199999999999
     - type: map_at_100
-      value: 71.609
+      value: 70.94200000000001
     - type: map_at_1000
-      value: 71.624
+      value: 70.961
     - type: recall_at_1
-      value: 61.9
+      value: 61.3
     - type: recall_at_3
-      value: 78.7
+      value: 78.10000000000001
     - type: recall_at_5
-      value: 84.0
+      value: 82.6
     - type: recall_at_10
       value: 87.6
     - type: recall_at_20
-      value: 90.3
+      value: 90.60000000000001
     - type: recall_at_100
-      value: 95.89999999999999
+      value: 95.3
     - type: recall_at_1000
       value: 100.0
     - type: precision_at_1
-      value: 61.9
+      value: 61.3
     - type: precision_at_3
-      value: 26.233
+      value: 26.033
     - type: precision_at_5
-      value: 16.8
+      value: 16.520000000000003
     - type: precision_at_10
       value: 8.76
     - type: precision_at_20
-      value: 4.515000000000001
+      value: 4.53
     - type: precision_at_100
-      value: 0.959
+      value: 0.9530000000000001
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 61.9
+      value: 61.3
     - type: mrr_at_3
-      value: 69.55
+      value: 68.85
     - type: mrr_at_5
-      value: 70.78
+      value: 69.895
     - type: mrr_at_10
-      value: 71.2604
+      value: 70.58109999999999
     - type: mrr_at_20
-      value: 71.4589
+      value: 70.8024
     - type: mrr_at_100
-      value: 71.609
+      value: 70.94160000000001
     - type: mrr_at_1000
-      value: 71.6242
+      value: 70.96090000000001
     - type: nauc_ndcg_at_1_max
-      value: 51.8333
+      value: 54.2597
     - type: nauc_ndcg_at_1_std
-      value: 8.4163
+      value: 9.9915
     - type: nauc_ndcg_at_1_diff1
-      value: 72.37700000000001
+      value: 72.0029
     - type: nauc_ndcg_at_3_max
-      value: 56.0395
+      value: 58.517799999999994
     - type: nauc_ndcg_at_3_std
-      value: 12.583
+      value: 13.256599999999999
     - type: nauc_ndcg_at_3_diff1
-      value: 67.5758
+      value: 67.861
     - type: nauc_ndcg_at_5_max
-      value: 56.35289999999999
+      value: 59.1541
     - type: nauc_ndcg_at_5_std
-      value: 13.9102
+      value: 16.237099999999998
     - type: nauc_ndcg_at_5_diff1
-      value: 68.36179999999999
+      value: 67.8155
     - type: nauc_ndcg_at_10_max
-      value: 55.954499999999996
+      value: 59.1703
     - type: nauc_ndcg_at_10_std
-      value: 14.8003
+      value: 17.8202
     - type: nauc_ndcg_at_10_diff1
-      value: 68.3755
+      value: 67.6082
     - type: nauc_ndcg_at_20_max
-      value: 56.2808
+      value: 58.829299999999996
     - type: nauc_ndcg_at_20_std
-      value: 16.0875
+      value: 18.001900000000003
     - type: nauc_ndcg_at_20_diff1
-      value: 68.3962
+      value: 67.6747
     - type: nauc_ndcg_at_100_max
-      value: 56.3164
+      value: 58.675399999999996
     - type: nauc_ndcg_at_100_std
-      value: 15.8916
+      value: 17.7394
     - type: nauc_ndcg_at_100_diff1
-      value: 69.00699999999999
+      value: 68.02810000000001
     - type: nauc_ndcg_at_1000_max
-      value: 55.785700000000006
+      value: 58.333400000000005
     - type: nauc_ndcg_at_1000_std
-      value: 14.3348
+      value: 16.169900000000002
     - type: nauc_ndcg_at_1000_diff1
-      value: 69.0698
+      value: 68.3788
     - type: nauc_map_at_1_max
-      value: 51.8333
+      value: 54.2597
     - type: nauc_map_at_1_std
-      value: 8.4163
+      value: 9.9915
     - type: nauc_map_at_1_diff1
-      value: 72.37700000000001
+      value: 72.0029
     - type: nauc_map_at_3_max
-      value: 54.942800000000005
+      value: 57.4277
     - type: nauc_map_at_3_std
-      value: 11.2973
+      value: 12.1778
     - type: nauc_map_at_3_diff1
-      value: 68.9311
+      value: 69.0312
     - type: nauc_map_at_5_max
-      value: 55.0587
+      value: 57.7291
     - type: nauc_map_at_5_std
-      value: 11.9547
+      value: 13.655800000000001
     - type: nauc_map_at_5_diff1
-      value: 69.3713
+      value: 69.0376
     - type: nauc_map_at_10_max
-      value: 54.9098
+      value: 57.7091
     - type: nauc_map_at_10_std
-      value: 12.2453
+      value: 14.2236
     - type: nauc_map_at_10_diff1
-      value: 69.3958
+      value: 68.99849999999999
     - type: nauc_map_at_20_max
-      value: 54.9689
+      value: 57.605700000000006
     - type: nauc_map_at_20_std
-      value: 12.524799999999999
+      value: 14.2305
     - type: nauc_map_at_20_diff1
-      value: 69.4109
+      value: 69.0304
     - type: nauc_map_at_100_max
-      value: 54.9906
+      value: 57.6007
     - type: nauc_map_at_100_std
-      value: 12.500300000000001
+      value: 14.219499999999998
     - type: nauc_map_at_100_diff1
-      value: 69.50319999999999
+      value: 69.0682
     - type: nauc_map_at_1000_max
-      value: 54.97840000000001
+      value: 57.5939
     - type: nauc_map_at_1000_std
-      value: 12.4639
+      value: 14.1793
     - type: nauc_map_at_1000_diff1
-      value: 69.50460000000001
+      value: 69.0767
     - type: nauc_recall_at_1_max
-      value: 51.8333
+      value: 54.2597
     - type: nauc_recall_at_1_std
-      value: 8.4163
+      value: 9.9915
     - type: nauc_recall_at_1_diff1
-      value: 72.37700000000001
+      value: 72.0029
     - type: nauc_recall_at_3_max
-      value: 60.100699999999996
+      value: 62.5301
     - type: nauc_recall_at_3_std
-      value: 17.4623
+      value: 17.372799999999998
     - type: nauc_recall_at_3_diff1
-      value: 62.495599999999996
+      value: 63.488
     - type: nauc_recall_at_5_max
-      value: 62.3622
+      value: 65.4804
     - type: nauc_recall_at_5_std
-      value: 23.282700000000002
+      value: 28.376
     - type: nauc_recall_at_5_diff1
-      value: 63.8786
+      value: 62.4274
     - type: nauc_recall_at_10_max
-      value: 61.567899999999995
+      value: 67.7459
     - type: nauc_recall_at_10_std
-      value: 30.543300000000002
+      value: 40.8339
     - type: nauc_recall_at_10_diff1
-      value: 62.765800000000006
+      value: 59.2704
     - type: nauc_recall_at_20_max
-      value: 65.8648
+      value: 67.4241
     - type: nauc_recall_at_20_std
-      value: 45.2891
+      value: 49.1244
     - type: nauc_recall_at_20_diff1
-      value: 61.5048
+      value: 57.3728
     - type: nauc_recall_at_100_max
-      value: 77.73790000000001
+      value: 71.1514
     - type: nauc_recall_at_100_std
-      value: 78.3004
+      value: 71.35510000000001
     - type: nauc_recall_at_100_diff1
-      value: 66.54820000000001
+      value: 55.964800000000004
     - type: nauc_recall_at_1000_max
       value: .nan
     - type: nauc_recall_at_1000_std
@@ -10043,41 +10055,41 @@ model-index:
     - type: nauc_recall_at_1000_diff1
       value: .nan
     - type: nauc_precision_at_1_max
-      value: 51.8333
+      value: 54.2597
     - type: nauc_precision_at_1_std
-      value: 8.4163
+      value: 9.9915
     - type: nauc_precision_at_1_diff1
-      value: 72.37700000000001
+      value: 72.0029
     - type: nauc_precision_at_3_max
-      value: 60.100699999999996
+      value: 62.5301
     - type: nauc_precision_at_3_std
-      value: 17.4623
+      value: 17.372799999999998
     - type: nauc_precision_at_3_diff1
-      value: 62.495599999999996
+      value: 63.488
     - type: nauc_precision_at_5_max
-      value: 62.3622
+      value: 65.4804
     - type: nauc_precision_at_5_std
-      value: 23.282700000000002
+      value: 28.376
     - type: nauc_precision_at_5_diff1
-      value: 63.8786
+      value: 62.4274
     - type: nauc_precision_at_10_max
-      value: 61.567899999999995
+      value: 67.7459
     - type: nauc_precision_at_10_std
-      value: 30.543300000000002
+      value: 40.8339
     - type: nauc_precision_at_10_diff1
-      value: 62.765800000000006
+      value: 59.2704
     - type: nauc_precision_at_20_max
-      value: 65.8648
+      value: 67.4241
     - type: nauc_precision_at_20_std
-      value: 45.2891
+      value: 49.1244
     - type: nauc_precision_at_20_diff1
-      value: 61.5048
+      value: 57.3728
     - type: nauc_precision_at_100_max
-      value: 77.73790000000001
+      value: 71.1514
     - type: nauc_precision_at_100_std
-      value: 78.3004
+      value: 71.35510000000001
     - type: nauc_precision_at_100_diff1
-      value: 66.54820000000001
+      value: 55.964800000000004
     - type: nauc_precision_at_1000_max
       value: .nan
     - type: nauc_precision_at_1000_std
@@ -10085,49 +10097,49 @@ model-index:
     - type: nauc_precision_at_1000_diff1
       value: .nan
     - type: nauc_mrr_at_1_max
-      value: 51.8333
+      value: 54.2597
     - type: nauc_mrr_at_1_std
-      value: 8.4163
+      value: 9.9915
     - type: nauc_mrr_at_1_diff1
-      value: 72.37700000000001
+      value: 72.0029
     - type: nauc_mrr_at_3_max
-      value: 54.942800000000005
+      value: 57.4277
     - type: nauc_mrr_at_3_std
-      value: 11.2973
+      value: 12.1778
     - type: nauc_mrr_at_3_diff1
-      value: 68.9311
+      value: 69.0312
     - type: nauc_mrr_at_5_max
-      value: 55.0587
+      value: 57.7291
     - type: nauc_mrr_at_5_std
-      value: 11.9547
+      value: 13.655800000000001
     - type: nauc_mrr_at_5_diff1
-      value: 69.3713
+      value: 69.0376
     - type: nauc_mrr_at_10_max
-      value: 54.9098
+      value: 57.7091
     - type: nauc_mrr_at_10_std
-      value: 12.2453
+      value: 14.2236
     - type: nauc_mrr_at_10_diff1
-      value: 69.3958
+      value: 68.99849999999999
     - type: nauc_mrr_at_20_max
-      value: 54.9689
+      value: 57.605700000000006
     - type: nauc_mrr_at_20_std
-      value: 12.524799999999999
+      value: 14.2305
     - type: nauc_mrr_at_20_diff1
-      value: 69.4109
+      value: 69.0304
     - type: nauc_mrr_at_100_max
-      value: 54.9906
+      value: 57.6007
     - type: nauc_mrr_at_100_std
-      value: 12.500300000000001
+      value: 14.219499999999998
     - type: nauc_mrr_at_100_diff1
-      value: 69.50319999999999
+      value: 69.0682
     - type: nauc_mrr_at_1000_max
-      value: 54.97840000000001
+      value: 57.5939
     - type: nauc_mrr_at_1000_std
-      value: 12.4639
+      value: 14.1793
     - type: nauc_mrr_at_1000_diff1
-      value: 69.50460000000001
+      value: 69.0767
     - type: main_score
-      value: 75.274
+      value: 74.736
     task:
       type: Retrieval
   - dataset:
@@ -10138,195 +10150,195 @@ model-index:
       type: code-search-net/code_search_net
     metrics:
     - type: ndcg_at_1
-      value: 52.6
+      value: 55.1
     - type: ndcg_at_3
-      value: 64.044
+      value: 66.89399999999999
     - type: ndcg_at_5
-      value: 67.202
+      value: 68.89999999999999
     - type: ndcg_at_10
-      value: 69.447
+      value: 70.89
     - type: ndcg_at_20
-      value: 70.488
+      value: 72.016
     - type: ndcg_at_100
-      value: 71.481
+      value: 73.047
     - type: ndcg_at_1000
-      value: 71.995
+      value: 73.553
     - type: map_at_1
-      value: 52.6
+      value: 55.1
     - type: map_at_3
-      value: 61.317
+      value: 64.05
     - type: map_at_5
-      value: 63.062
+      value: 65.18
     - type: map_at_10
-      value: 64.01400000000001
+      value: 66.012
     - type: map_at_20
-      value: 64.302
+      value: 66.328
     - type: map_at_100
-      value: 64.443
+      value: 66.483
     - type: map_at_1000
-      value: 64.459
+      value: 66.498
     - type: recall_at_1
-      value: 52.6
+      value: 55.1
     - type: recall_at_3
-      value: 71.89999999999999
+      value: 75.1
     - type: recall_at_5
-      value: 79.60000000000001
+      value: 79.9
     - type: recall_at_10
-      value: 86.4
+      value: 86.0
     - type: recall_at_20
-      value: 90.5
+      value: 90.4
     - type: recall_at_100
       value: 95.8
     - type: recall_at_1000
       value: 100.0
     - type: precision_at_1
-      value: 52.6
+      value: 55.1
     - type: precision_at_3
-      value: 23.967
+      value: 25.033
     - type: precision_at_5
-      value: 15.920000000000002
+      value: 15.98
     - type: precision_at_10
-      value: 8.64
+      value: 8.6
     - type: precision_at_20
-      value: 4.5249999999999995
+      value: 4.52
     - type: precision_at_100
       value: 0.958
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 52.6
+      value: 55.1
     - type: mrr_at_3
-      value: 61.316700000000004
+      value: 64.05
     - type: mrr_at_5
-      value: 63.0617
+      value: 65.18
     - type: mrr_at_10
-      value: 64.01400000000001
+      value: 66.0123
     - type: mrr_at_20
-      value: 64.3022
+      value: 66.32820000000001
     - type: mrr_at_100
-      value: 64.443
+      value: 66.4827
     - type: mrr_at_1000
-      value: 64.4595
+      value: 66.49810000000001
     - type: nauc_ndcg_at_1_max
-      value: 38.4317
+      value: 30.206100000000003
     - type: nauc_ndcg_at_1_std
-      value: -18.9677
+      value: -14.6389
     - type: nauc_ndcg_at_1_diff1
-      value: 62.74570000000001
+      value: 61.8849
     - type: nauc_ndcg_at_3_max
-      value: 43.612
+      value: 32.7259
     - type: nauc_ndcg_at_3_std
-      value: -14.6587
+      value: -11.568399999999999
     - type: nauc_ndcg_at_3_diff1
-      value: 56.92230000000001
+      value: 59.918800000000005
     - type: nauc_ndcg_at_5_max
-      value: 44.840999999999994
+      value: 34.1822
     - type: nauc_ndcg_at_5_std
-      value: -12.328600000000002
+      value: -8.104
     - type: nauc_ndcg_at_5_diff1
-      value: 56.998000000000005
+      value: 59.434799999999996
     - type: nauc_ndcg_at_10_max
-      value: 45.5768
+      value: 36.1247
     - type: nauc_ndcg_at_10_std
-      value: -10.871
+      value: -6.585100000000001
     - type: nauc_ndcg_at_10_diff1
-      value: 57.36130000000001
+      value: 59.2885
     - type: nauc_ndcg_at_20_max
-      value: 45.1125
+      value: 35.9396
     - type: nauc_ndcg_at_20_std
-      value: -10.575
+      value: -6.0885
     - type: nauc_ndcg_at_20_diff1
-      value: 57.2132
+      value: 59.4417
     - type: nauc_ndcg_at_100_max
-      value: 45.4087
+      value: 35.951499999999996
     - type: nauc_ndcg_at_100_std
-      value: -10.356300000000001
+      value: -6.1491
     - type: nauc_ndcg_at_100_diff1
-      value: 57.607
+      value: 60.3437
     - type: nauc_ndcg_at_1000_max
-      value: 44.2686
+      value: 34.7092
     - type: nauc_ndcg_at_1000_std
-      value: -12.2661
+      value: -8.0607
     - type: nauc_ndcg_at_1000_diff1
-      value: 58.0082
+      value: 60.0215
     - type: nauc_map_at_1_max
-      value: 38.4317
+      value: 30.206100000000003
     - type: nauc_map_at_1_std
-      value: -18.9677
+      value: -14.6389
     - type: nauc_map_at_1_diff1
-      value: 62.74570000000001
+      value: 61.8849
     - type: nauc_map_at_3_max
-      value: 42.278
+      value: 31.9303
     - type: nauc_map_at_3_std
-      value: -15.937499999999998
+      value: -12.651200000000001
     - type: nauc_map_at_3_diff1
-      value: 58.4671
+      value: 60.33
     - type: nauc_map_at_5_max
-      value: 42.8414
+      value: 32.6537
     - type: nauc_map_at_5_std
-      value: -14.7742
+      value: -10.8746
     - type: nauc_map_at_5_diff1
-      value: 58.582100000000004
+      value: 60.0754
     - type: nauc_map_at_10_max
-      value: 43.0236
+      value: 33.269
     - type: nauc_map_at_10_std
-      value: -14.3595
+      value: -10.4054
     - type: nauc_map_at_10_diff1
-      value: 58.765100000000004
+      value: 60.0235
     - type: nauc_map_at_20_max
-      value: 42.8918
+      value: 33.1875
     - type: nauc_map_at_20_std
-      value: -14.335500000000001
+      value: -10.3417
     - type: nauc_map_at_20_diff1
-      value: 58.746500000000005
+      value: 60.067899999999995
     - type: nauc_map_at_100_max
-      value: 42.9383
+      value: 33.213
     - type: nauc_map_at_100_std
-      value: -14.296600000000002
+      value: -10.3299
     - type: nauc_map_at_100_diff1
-      value: 58.796099999999996
+      value: 60.166399999999996
     - type: nauc_map_at_1000_max
-      value: 42.9079
+      value: 33.186
     - type: nauc_map_at_1000_std
-      value: -14.3452
+      value: -10.3713
     - type: nauc_map_at_1000_diff1
-      value: 58.8048
+      value: 60.16010000000001
     - type: nauc_recall_at_1_max
-      value: 38.4317
+      value: 30.206100000000003
     - type: nauc_recall_at_1_std
-      value: -18.9677
+      value: -14.6389
     - type: nauc_recall_at_1_diff1
-      value: 62.74570000000001
+      value: 61.8849
     - type: nauc_recall_at_3_max
-      value: 48.255199999999995
+      value: 35.7096
     - type: nauc_recall_at_3_std
-      value: -10.116999999999999
+      value: -7.4548000000000005
     - type: nauc_recall_at_3_diff1
-      value: 51.5211
+      value: 58.475699999999996
     - type: nauc_recall_at_5_max
-      value: 53.7581
+      value: 41.0231
     - type: nauc_recall_at_5_std
-      value: -1.1828
+      value: 4.4421
     - type: nauc_recall_at_5_diff1
-      value: 50.139199999999995
+      value: 56.7391
     - type: nauc_recall_at_10_max
-      value: 62.2138
+      value: 54.789
     - type: nauc_recall_at_10_std
-      value: 12.5761
+      value: 17.7044
     - type: nauc_recall_at_10_diff1
-      value: 49.091499999999996
+      value: 55.0592
     - type: nauc_recall_at_20_max
-      value: 64.05619999999999
+      value: 60.7809
     - type: nauc_recall_at_20_std
-      value: 24.6892
+      value: 32.4021
     - type: nauc_recall_at_20_diff1
-      value: 44.4292
+      value: 54.7663
     - type: nauc_recall_at_100_max
-      value: 94.1543
+      value: 89.4591
     - type: nauc_recall_at_100_std
-      value: 72.2889
+      value: 76.2783
     - type: nauc_recall_at_100_diff1
-      value: 39.8115
+      value: 74.4576
     - type: nauc_recall_at_1000_max
       value: .nan
     - type: nauc_recall_at_1000_std
@@ -10334,41 +10346,41 @@ model-index:
     - type: nauc_recall_at_1000_diff1
       value: .nan
     - type: nauc_precision_at_1_max
-      value: 38.4317
+      value: 30.206100000000003
     - type: nauc_precision_at_1_std
-      value: -18.9677
+      value: -14.6389
     - type: nauc_precision_at_1_diff1
-      value: 62.74570000000001
+      value: 61.8849
     - type: nauc_precision_at_3_max
-      value: 48.255199999999995
+      value: 35.7096
     - type: nauc_precision_at_3_std
-      value: -10.116999999999999
+      value: -7.4548000000000005
     - type: nauc_precision_at_3_diff1
-      value: 51.5211
+      value: 58.475699999999996
     - type: nauc_precision_at_5_max
-      value: 53.7581
+      value: 41.0231
     - type: nauc_precision_at_5_std
-      value: -1.1828
+      value: 4.4421
     - type: nauc_precision_at_5_diff1
-      value: 50.139199999999995
+      value: 56.7391
     - type: nauc_precision_at_10_max
-      value: 62.2138
+      value: 54.789
     - type: nauc_precision_at_10_std
-      value: 12.5761
+      value: 17.7044
     - type: nauc_precision_at_10_diff1
-      value: 49.091499999999996
+      value: 55.0592
     - type: nauc_precision_at_20_max
-      value: 64.05619999999999
+      value: 60.7809
     - type: nauc_precision_at_20_std
-      value: 24.6892
+      value: 32.4021
     - type: nauc_precision_at_20_diff1
-      value: 44.4292
+      value: 54.7663
     - type: nauc_precision_at_100_max
-      value: 94.1543
+      value: 89.4591
     - type: nauc_precision_at_100_std
-      value: 72.2889
+      value: 76.2783
     - type: nauc_precision_at_100_diff1
-      value: 39.8115
+      value: 74.4576
     - type: nauc_precision_at_1000_max
       value: .nan
     - type: nauc_precision_at_1000_std
@@ -10376,49 +10388,49 @@ model-index:
     - type: nauc_precision_at_1000_diff1
       value: .nan
     - type: nauc_mrr_at_1_max
-      value: 38.4317
+      value: 30.206100000000003
     - type: nauc_mrr_at_1_std
-      value: -18.9677
+      value: -14.6389
     - type: nauc_mrr_at_1_diff1
-      value: 62.74570000000001
+      value: 61.8849
     - type: nauc_mrr_at_3_max
-      value: 42.278
+      value: 31.9303
     - type: nauc_mrr_at_3_std
-      value: -15.937499999999998
+      value: -12.651200000000001
     - type: nauc_mrr_at_3_diff1
-      value: 58.4671
+      value: 60.33
     - type: nauc_mrr_at_5_max
-      value: 42.8414
+      value: 32.6537
     - type: nauc_mrr_at_5_std
-      value: -14.7742
+      value: -10.8746
     - type: nauc_mrr_at_5_diff1
-      value: 58.582100000000004
+      value: 60.0754
     - type: nauc_mrr_at_10_max
-      value: 43.0236
+      value: 33.269
     - type: nauc_mrr_at_10_std
-      value: -14.3595
+      value: -10.4054
     - type: nauc_mrr_at_10_diff1
-      value: 58.765100000000004
+      value: 60.0235
     - type: nauc_mrr_at_20_max
-      value: 42.8918
+      value: 33.1875
     - type: nauc_mrr_at_20_std
-      value: -14.335500000000001
+      value: -10.3417
     - type: nauc_mrr_at_20_diff1
-      value: 58.746500000000005
+      value: 60.067899999999995
     - type: nauc_mrr_at_100_max
-      value: 42.9383
+      value: 33.213
     - type: nauc_mrr_at_100_std
-      value: -14.296600000000002
+      value: -10.3299
     - type: nauc_mrr_at_100_diff1
-      value: 58.796099999999996
+      value: 60.166399999999996
     - type: nauc_mrr_at_1000_max
-      value: 42.9079
+      value: 33.186
     - type: nauc_mrr_at_1000_std
-      value: -14.3452
+      value: -10.3713
     - type: nauc_mrr_at_1000_diff1
-      value: 58.8048
+      value: 60.16010000000001
     - type: main_score
-      value: 69.447
+      value: 70.89
     task:
       type: Retrieval
   - dataset:
@@ -10429,195 +10441,195 @@ model-index:
       type: code-search-net/code_search_net
     metrics:
     - type: ndcg_at_1
-      value: 57.699999999999996
+      value: 56.89999999999999
     - type: ndcg_at_3
-      value: 69.071
+      value: 69.128
     - type: ndcg_at_5
-      value: 71.331
+      value: 71.495
     - type: ndcg_at_10
-      value: 73.455
+      value: 72.92999999999999
     - type: ndcg_at_20
-      value: 74.298
+      value: 73.775
     - type: ndcg_at_100
-      value: 74.842
+      value: 74.476
     - type: ndcg_at_1000
-      value: 75.411
+      value: 75.075
     - type: map_at_1
-      value: 57.699999999999996
+      value: 56.89999999999999
     - type: map_at_3
-      value: 66.233
+      value: 66.10000000000001
     - type: map_at_5
-      value: 67.508
+      value: 67.425
     - type: map_at_10
-      value: 68.398
+      value: 68.024
     - type: map_at_20
-      value: 68.634
+      value: 68.26100000000001
     - type: map_at_100
-      value: 68.718
+      value: 68.357
     - type: map_at_1000
-      value: 68.735
+      value: 68.376
     - type: recall_at_1
-      value: 57.699999999999996
+      value: 56.89999999999999
     - type: recall_at_3
-      value: 77.3
+      value: 77.9
     - type: recall_at_5
-      value: 82.69999999999999
+      value: 83.6
     - type: recall_at_10
-      value: 89.2
+      value: 88.0
     - type: recall_at_20
-      value: 92.5
+      value: 91.3
     - type: recall_at_100
-      value: 95.3
+      value: 95.1
     - type: recall_at_1000
       value: 100.0
     - type: precision_at_1
-      value: 57.699999999999996
+      value: 56.89999999999999
     - type: precision_at_3
-      value: 25.767
+      value: 25.967000000000002
     - type: precision_at_5
-      value: 16.54
+      value: 16.72
     - type: precision_at_10
-      value: 8.92
+      value: 8.799999999999999
     - type: precision_at_20
-      value: 4.625
+      value: 4.565
     - type: precision_at_100
-      value: 0.9530000000000001
+      value: 0.951
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 57.699999999999996
+      value: 56.89999999999999
     - type: mrr_at_3
-      value: 66.2333
+      value: 66.10000000000001
     - type: mrr_at_5
-      value: 67.5083
+      value: 67.425
     - type: mrr_at_10
-      value: 68.398
+      value: 68.0238
     - type: mrr_at_20
-      value: 68.6345
+      value: 68.2613
     - type: mrr_at_100
-      value: 68.71770000000001
+      value: 68.35719999999999
     - type: mrr_at_1000
-      value: 68.7351
+      value: 68.3763
     - type: nauc_ndcg_at_1_max
-      value: 47.0017
+      value: 43.5297
     - type: nauc_ndcg_at_1_std
-      value: 7.702000000000001
+      value: 7.986600000000001
     - type: nauc_ndcg_at_1_diff1
-      value: 65.5265
+      value: 65.95689999999999
     - type: nauc_ndcg_at_3_max
-      value: 53.1223
+      value: 52.166500000000006
     - type: nauc_ndcg_at_3_std
-      value: 14.5277
+      value: 17.0778
     - type: nauc_ndcg_at_3_diff1
-      value: 60.5267
+      value: 60.8598
     - type: nauc_ndcg_at_5_max
-      value: 55.99570000000001
+      value: 53.1733
     - type: nauc_ndcg_at_5_std
-      value: 17.467
+      value: 18.7316
     - type: nauc_ndcg_at_5_diff1
-      value: 63.1188
+      value: 61.4908
     - type: nauc_ndcg_at_10_max
-      value: 55.7826
+      value: 53.6245
     - type: nauc_ndcg_at_10_std
-      value: 19.1279
+      value: 19.5627
     - type: nauc_ndcg_at_10_diff1
-      value: 63.463
+      value: 61.9788
     - type: nauc_ndcg_at_20_max
-      value: 55.2338
+      value: 53.725199999999994
     - type: nauc_ndcg_at_20_std
-      value: 19.5684
+      value: 20.5901
     - type: nauc_ndcg_at_20_diff1
-      value: 63.7312
+      value: 62.480199999999996
     - type: nauc_ndcg_at_100_max
-      value: 54.898199999999996
+      value: 53.083499999999994
     - type: nauc_ndcg_at_100_std
-      value: 19.1172
+      value: 19.8779
     - type: nauc_ndcg_at_100_diff1
-      value: 63.7935
+      value: 62.849
     - type: nauc_ndcg_at_1000_max
-      value: 53.9486
+      value: 51.9568
     - type: nauc_ndcg_at_1000_std
-      value: 17.0841
+      value: 17.8629
     - type: nauc_ndcg_at_1000_diff1
-      value: 63.5189
+      value: 62.7251
     - type: nauc_map_at_1_max
-      value: 47.0017
+      value: 43.5297
     - type: nauc_map_at_1_std
-      value: 7.702000000000001
+      value: 7.986600000000001
     - type: nauc_map_at_1_diff1
-      value: 65.5265
+      value: 65.95689999999999
     - type: nauc_map_at_3_max
-      value: 51.3811
+      value: 49.7136
     - type: nauc_map_at_3_std
-      value: 12.6201
+      value: 14.054400000000001
     - type: nauc_map_at_3_diff1
-      value: 61.781299999999995
+      value: 62.3127
     - type: nauc_map_at_5_max
-      value: 52.788599999999995
+      value: 50.138400000000004
     - type: nauc_map_at_5_std
-      value: 13.9926
+      value: 14.7824
     - type: nauc_map_at_5_diff1
-      value: 63.155300000000004
+      value: 62.6784
     - type: nauc_map_at_10_max
-      value: 52.630900000000004
+      value: 50.2613
     - type: nauc_map_at_10_std
-      value: 14.5419
+      value: 15.024899999999999
     - type: nauc_map_at_10_diff1
-      value: 63.299499999999995
+      value: 62.864200000000004
     - type: nauc_map_at_20_max
-      value: 52.4779
+      value: 50.267300000000006
     - type: nauc_map_at_20_std
-      value: 14.615300000000001
+      value: 15.234300000000001
     - type: nauc_map_at_20_diff1
-      value: 63.360099999999996
+      value: 63.00130000000001
     - type: nauc_map_at_100_max
-      value: 52.434999999999995
+      value: 50.1927
     - type: nauc_map_at_100_std
-      value: 14.5613
+      value: 15.1701
     - type: nauc_map_at_100_diff1
-      value: 63.362700000000004
+      value: 63.0549
     - type: nauc_map_at_1000_max
-      value: 52.412000000000006
+      value: 50.1623
     - type: nauc_map_at_1000_std
-      value: 14.5121
+      value: 15.118500000000001
     - type: nauc_map_at_1000_diff1
-      value: 63.361000000000004
+      value: 63.048300000000005
     - type: nauc_recall_at_1_max
-      value: 47.0017
+      value: 43.5297
     - type: nauc_recall_at_1_std
-      value: 7.702000000000001
+      value: 7.986600000000001
     - type: nauc_recall_at_1_diff1
-      value: 65.5265
+      value: 65.95689999999999
     - type: nauc_recall_at_3_max
-      value: 59.7842
+      value: 61.7214
     - type: nauc_recall_at_3_std
-      value: 21.8077
+      value: 29.1046
     - type: nauc_recall_at_3_diff1
-      value: 55.81850000000001
+      value: 55.1971
     - type: nauc_recall_at_5_max
-      value: 71.5097
+      value: 68.1151
     - type: nauc_recall_at_5_std
-      value: 34.341899999999995
+      value: 38.587700000000005
     - type: nauc_recall_at_5_diff1
-      value: 63.604000000000006
+      value: 55.886
     - type: nauc_recall_at_10_max
-      value: 78.1568
+      value: 75.3834
     - type: nauc_recall_at_10_std
-      value: 53.016600000000004
+      value: 49.6516
     - type: nauc_recall_at_10_diff1
-      value: 65.779
+      value: 57.0852
     - type: nauc_recall_at_20_max
-      value: 81.5145
+      value: 83.7342
     - type: nauc_recall_at_20_std
-      value: 72.038
+      value: 69.9947
     - type: nauc_recall_at_20_diff1
-      value: 69.7603
+      value: 60.002500000000005
     - type: nauc_recall_at_100_max
-      value: 89.0587
+      value: 91.4204
     - type: nauc_recall_at_100_std
-      value: 91.89070000000001
+      value: 89.0309
     - type: nauc_recall_at_100_diff1
-      value: 75.1088
+      value: 65.7358
     - type: nauc_recall_at_1000_max
       value: .nan
     - type: nauc_recall_at_1000_std
@@ -10625,41 +10637,41 @@ model-index:
     - type: nauc_recall_at_1000_diff1
       value: .nan
     - type: nauc_precision_at_1_max
-      value: 47.0017
+      value: 43.5297
     - type: nauc_precision_at_1_std
-      value: 7.702000000000001
+      value: 7.986600000000001
     - type: nauc_precision_at_1_diff1
-      value: 65.5265
+      value: 65.95689999999999
     - type: nauc_precision_at_3_max
-      value: 59.7842
+      value: 61.7214
     - type: nauc_precision_at_3_std
-      value: 21.8077
+      value: 29.1046
     - type: nauc_precision_at_3_diff1
-      value: 55.81850000000001
+      value: 55.1971
     - type: nauc_precision_at_5_max
-      value: 71.5097
+      value: 68.1151
     - type: nauc_precision_at_5_std
-      value: 34.341899999999995
+      value: 38.587700000000005
     - type: nauc_precision_at_5_diff1
-      value: 63.604000000000006
+      value: 55.886
     - type: nauc_precision_at_10_max
-      value: 78.1568
+      value: 75.3834
     - type: nauc_precision_at_10_std
-      value: 53.016600000000004
+      value: 49.6516
     - type: nauc_precision_at_10_diff1
-      value: 65.779
+      value: 57.0852
     - type: nauc_precision_at_20_max
-      value: 81.5145
+      value: 83.7342
     - type: nauc_precision_at_20_std
-      value: 72.038
+      value: 69.9947
     - type: nauc_precision_at_20_diff1
-      value: 69.7603
+      value: 60.002500000000005
     - type: nauc_precision_at_100_max
-      value: 89.0587
+      value: 91.4204
     - type: nauc_precision_at_100_std
-      value: 91.89070000000001
+      value: 89.0309
     - type: nauc_precision_at_100_diff1
-      value: 75.1088
+      value: 65.7358
     - type: nauc_precision_at_1000_max
       value: .nan
     - type: nauc_precision_at_1000_std
@@ -10667,49 +10679,49 @@ model-index:
     - type: nauc_precision_at_1000_diff1
       value: .nan
     - type: nauc_mrr_at_1_max
-      value: 47.0017
+      value: 43.5297
     - type: nauc_mrr_at_1_std
-      value: 7.702000000000001
+      value: 7.986600000000001
     - type: nauc_mrr_at_1_diff1
-      value: 65.5265
+      value: 65.95689999999999
     - type: nauc_mrr_at_3_max
-      value: 51.3811
+      value: 49.7136
     - type: nauc_mrr_at_3_std
-      value: 12.6201
+      value: 14.054400000000001
     - type: nauc_mrr_at_3_diff1
-      value: 61.781299999999995
+      value: 62.3127
     - type: nauc_mrr_at_5_max
-      value: 52.788599999999995
+      value: 50.138400000000004
     - type: nauc_mrr_at_5_std
-      value: 13.9926
+      value: 14.7824
     - type: nauc_mrr_at_5_diff1
-      value: 63.155300000000004
+      value: 62.6784
     - type: nauc_mrr_at_10_max
-      value: 52.630900000000004
+      value: 50.2613
     - type: nauc_mrr_at_10_std
-      value: 14.5419
+      value: 15.024899999999999
     - type: nauc_mrr_at_10_diff1
-      value: 63.299499999999995
+      value: 62.864200000000004
     - type: nauc_mrr_at_20_max
-      value: 52.4779
+      value: 50.267300000000006
     - type: nauc_mrr_at_20_std
-      value: 14.615300000000001
+      value: 15.234300000000001
     - type: nauc_mrr_at_20_diff1
-      value: 63.360099999999996
+      value: 63.00130000000001
     - type: nauc_mrr_at_100_max
-      value: 52.434999999999995
+      value: 50.1927
     - type: nauc_mrr_at_100_std
-      value: 14.5613
+      value: 15.1701
     - type: nauc_mrr_at_100_diff1
-      value: 63.362700000000004
+      value: 63.0549
     - type: nauc_mrr_at_1000_max
-      value: 52.412000000000006
+      value: 50.1623
     - type: nauc_mrr_at_1000_std
-      value: 14.5121
+      value: 15.118500000000001
     - type: nauc_mrr_at_1000_diff1
-      value: 63.361000000000004
+      value: 63.048300000000005
     - type: main_score
-      value: 73.455
+      value: 72.92999999999999
     task:
       type: Retrieval
   - dataset:
@@ -10720,195 +10732,195 @@ model-index:
       type: CoIR-Retrieval/codetrans-contest
     metrics:
     - type: ndcg_at_1
-      value: 46.154
+      value: 50.226000000000006
     - type: ndcg_at_3
-      value: 52.019999999999996
+      value: 55.748
     - type: ndcg_at_5
-      value: 53.929
+      value: 58.007
     - type: ndcg_at_10
-      value: 57.475
+      value: 60.831
     - type: ndcg_at_20
-      value: 59.861
+      value: 62.793
     - type: ndcg_at_100
-      value: 61.577000000000005
+      value: 64.43299999999999
     - type: ndcg_at_1000
-      value: 62.755
+      value: 65.60000000000001
     - type: map_at_1
-      value: 46.154
+      value: 50.226000000000006
     - type: map_at_3
-      value: 50.602999999999994
+      value: 54.374
     - type: map_at_5
-      value: 51.68899999999999
+      value: 55.641
     - type: map_at_10
-      value: 53.174
+      value: 56.83200000000001
     - type: map_at_20
-      value: 53.818
+      value: 57.379999999999995
     - type: map_at_100
-      value: 54.041
+      value: 57.594
     - type: map_at_1000
-      value: 54.081
+      value: 57.633
     - type: recall_at_1
-      value: 46.154
+      value: 50.226000000000006
     - type: recall_at_3
-      value: 56.108999999999995
+      value: 59.729
     - type: recall_at_5
-      value: 60.633
+      value: 65.158
     - type: recall_at_10
-      value: 71.493
+      value: 73.756
     - type: recall_at_20
-      value: 80.99499999999999
+      value: 81.448
     - type: recall_at_100
       value: 90.498
     - type: recall_at_1000
       value: 100.0
     - type: precision_at_1
-      value: 46.154
+      value: 50.226000000000006
     - type: precision_at_3
-      value: 18.703
+      value: 19.91
     - type: precision_at_5
-      value: 12.127
+      value: 13.032
     - type: precision_at_10
-      value: 7.149
+      value: 7.376
     - type: precision_at_20
-      value: 4.05
+      value: 4.072
     - type: precision_at_100
       value: 0.905
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 46.153800000000004
+      value: 50.2262
     - type: mrr_at_3
-      value: 50.6033
+      value: 54.374100000000006
     - type: mrr_at_5
-      value: 51.6893
+      value: 55.641
     - type: mrr_at_10
-      value: 53.173899999999996
+      value: 56.8322
     - type: mrr_at_20
-      value: 53.8181
+      value: 57.3798
     - type: mrr_at_100
-      value: 54.0405
+      value: 57.594500000000004
     - type: mrr_at_1000
-      value: 54.081199999999995
+      value: 57.6333
     - type: nauc_ndcg_at_1_max
-      value: 59.032
+      value: 57.24249999999999
     - type: nauc_ndcg_at_1_std
-      value: 8.2815
+      value: 3.4893
     - type: nauc_ndcg_at_1_diff1
-      value: 80.5428
+      value: 74.5093
     - type: nauc_ndcg_at_3_max
-      value: 55.47410000000001
+      value: 57.099
     - type: nauc_ndcg_at_3_std
-      value: 4.4284
+      value: 3.3562000000000003
     - type: nauc_ndcg_at_3_diff1
-      value: 77.2405
+      value: 71.5239
     - type: nauc_ndcg_at_5_max
-      value: 54.6337
+      value: 57.5998
     - type: nauc_ndcg_at_5_std
-      value: 5.3048
+      value: 4.7879
     - type: nauc_ndcg_at_5_diff1
-      value: 76.5969
+      value: 69.9839
     - type: nauc_ndcg_at_10_max
-      value: 51.8584
+      value: 56.1631
     - type: nauc_ndcg_at_10_std
-      value: 3.5628
+      value: 6.0869
     - type: nauc_ndcg_at_10_diff1
-      value: 74.6966
+      value: 68.32939999999999
     - type: nauc_ndcg_at_20_max
-      value: 54.3478
+      value: 56.098800000000004
     - type: nauc_ndcg_at_20_std
-      value: 4.3697
+      value: 5.1246
     - type: nauc_ndcg_at_20_diff1
-      value: 75.6032
+      value: 68.9858
     - type: nauc_ndcg_at_100_max
-      value: 55.488400000000006
+      value: 56.788799999999995
     - type: nauc_ndcg_at_100_std
-      value: 6.101
+      value: 5.6714
     - type: nauc_ndcg_at_100_diff1
-      value: 76.0249
+      value: 69.3668
     - type: nauc_ndcg_at_1000_max
-      value: 55.1091
+      value: 56.7396
     - type: nauc_ndcg_at_1000_std
-      value: 5.5951
+      value: 5.0106
     - type: nauc_ndcg_at_1000_diff1
-      value: 76.3907
+      value: 70.1024
     - type: nauc_map_at_1_max
-      value: 59.032
+      value: 57.24249999999999
     - type: nauc_map_at_1_std
-      value: 8.2815
+      value: 3.4893
     - type: nauc_map_at_1_diff1
-      value: 80.5428
+      value: 74.5093
     - type: nauc_map_at_3_max
-      value: 56.261700000000005
+      value: 57.2832
     - type: nauc_map_at_3_std
-      value: 5.3123
+      value: 3.4703999999999997
     - type: nauc_map_at_3_diff1
-      value: 77.823
+      value: 72.40490000000001
     - type: nauc_map_at_5_max
-      value: 55.7926
+      value: 57.5445
     - type: nauc_map_at_5_std
-      value: 5.8055
+      value: 4.1418
     - type: nauc_map_at_5_diff1
-      value: 77.4779
+      value: 71.5756
     - type: nauc_map_at_10_max
-      value: 54.77459999999999
+      value: 57.0669
     - type: nauc_map_at_10_std
-      value: 5.1733
+      value: 4.7488
     - type: nauc_map_at_10_diff1
-      value: 76.79249999999999
+      value: 70.97869999999999
     - type: nauc_map_at_20_max
-      value: 55.4426
+      value: 57.08800000000001
     - type: nauc_map_at_20_std
-      value: 5.4346
+      value: 4.4653
     - type: nauc_map_at_20_diff1
-      value: 77.0378
+      value: 71.2187
     - type: nauc_map_at_100_max
-      value: 55.6049
+      value: 57.1484
     - type: nauc_map_at_100_std
-      value: 5.7131
+      value: 4.5175
     - type: nauc_map_at_100_diff1
-      value: 77.0756
+      value: 71.2734
     - type: nauc_map_at_1000_max
-      value: 55.5915
+      value: 57.1356
     - type: nauc_map_at_1000_std
-      value: 5.7007
+      value: 4.4929
     - type: nauc_map_at_1000_diff1
-      value: 77.0939
+      value: 71.28710000000001
     - type: nauc_recall_at_1_max
-      value: 59.032
+      value: 57.24249999999999
     - type: nauc_recall_at_1_std
-      value: 8.2815
+      value: 3.4893
     - type: nauc_recall_at_1_diff1
-      value: 80.5428
+      value: 74.5093
     - type: nauc_recall_at_3_max
-      value: 53.1398
+      value: 56.469800000000006
     - type: nauc_recall_at_3_std
-      value: 1.7934999999999999
+      value: 2.9709
     - type: nauc_recall_at_3_diff1
-      value: 75.5862
+      value: 68.7698
     - type: nauc_recall_at_5_max
-      value: 50.9304
+      value: 57.811
     - type: nauc_recall_at_5_std
-      value: 3.8924
+      value: 7.2669999999999995
     - type: nauc_recall_at_5_diff1
-      value: 73.8369
+      value: 64.4325
     - type: nauc_recall_at_10_max
-      value: 38.9905
+      value: 51.5712
     - type: nauc_recall_at_10_std
-      value: -3.4564999999999997
+      value: 12.1867
     - type: nauc_recall_at_10_diff1
-      value: 65.5567
+      value: 56.4929
     - type: nauc_recall_at_20_max
-      value: 50.0429
+      value: 49.3
     - type: nauc_recall_at_20_std
-      value: -1.4551
+      value: 8.371599999999999
     - type: nauc_recall_at_20_diff1
-      value: 67.9871
+      value: 56.2505
     - type: nauc_recall_at_100_max
-      value: 63.44030000000001
+      value: 55.7663
     - type: nauc_recall_at_100_std
-      value: 17.8876
+      value: 19.9214
     - type: nauc_recall_at_100_diff1
-      value: 68.9388
+      value: 51.6979
     - type: nauc_recall_at_1000_max
       value: .nan
     - type: nauc_recall_at_1000_std
@@ -10916,41 +10928,41 @@ model-index:
     - type: nauc_recall_at_1000_diff1
       value: .nan
     - type: nauc_precision_at_1_max
-      value: 59.032
+      value: 57.24249999999999
     - type: nauc_precision_at_1_std
-      value: 8.2815
+      value: 3.4893
     - type: nauc_precision_at_1_diff1
-      value: 80.5428
+      value: 74.5093
     - type: nauc_precision_at_3_max
-      value: 53.1398
+      value: 56.469800000000006
     - type: nauc_precision_at_3_std
-      value: 1.7934999999999999
+      value: 2.9709
     - type: nauc_precision_at_3_diff1
-      value: 75.5862
+      value: 68.7698
     - type: nauc_precision_at_5_max
-      value: 50.9304
+      value: 57.811
     - type: nauc_precision_at_5_std
-      value: 3.8924
+      value: 7.2669999999999995
     - type: nauc_precision_at_5_diff1
-      value: 73.8369
+      value: 64.4325
     - type: nauc_precision_at_10_max
-      value: 38.9905
+      value: 51.5712
     - type: nauc_precision_at_10_std
-      value: -3.4564999999999997
+      value: 12.1867
     - type: nauc_precision_at_10_diff1
-      value: 65.5567
+      value: 56.4929
     - type: nauc_precision_at_20_max
-      value: 50.0429
+      value: 49.3
     - type: nauc_precision_at_20_std
-      value: -1.4551
+      value: 8.371599999999999
     - type: nauc_precision_at_20_diff1
-      value: 67.9871
+      value: 56.2505
     - type: nauc_precision_at_100_max
-      value: 63.44030000000001
+      value: 55.7663
     - type: nauc_precision_at_100_std
-      value: 17.8876
+      value: 19.9214
     - type: nauc_precision_at_100_diff1
-      value: 68.9388
+      value: 51.6979
     - type: nauc_precision_at_1000_max
       value: 100.0
     - type: nauc_precision_at_1000_std
@@ -10958,49 +10970,49 @@ model-index:
     - type: nauc_precision_at_1000_diff1
       value: 100.0
     - type: nauc_mrr_at_1_max
-      value: 59.032
+      value: 57.24249999999999
     - type: nauc_mrr_at_1_std
-      value: 8.2815
+      value: 3.4893
     - type: nauc_mrr_at_1_diff1
-      value: 80.5428
+      value: 74.5093
     - type: nauc_mrr_at_3_max
-      value: 56.261700000000005
+      value: 57.2832
     - type: nauc_mrr_at_3_std
-      value: 5.3123
+      value: 3.4703999999999997
     - type: nauc_mrr_at_3_diff1
-      value: 77.823
+      value: 72.40490000000001
     - type: nauc_mrr_at_5_max
-      value: 55.7926
+      value: 57.5445
     - type: nauc_mrr_at_5_std
-      value: 5.8055
+      value: 4.1418
     - type: nauc_mrr_at_5_diff1
-      value: 77.4779
+      value: 71.5756
     - type: nauc_mrr_at_10_max
-      value: 54.77459999999999
+      value: 57.0669
     - type: nauc_mrr_at_10_std
-      value: 5.1733
+      value: 4.7488
     - type: nauc_mrr_at_10_diff1
-      value: 76.79249999999999
+      value: 70.97869999999999
     - type: nauc_mrr_at_20_max
-      value: 55.4426
+      value: 57.08800000000001
     - type: nauc_mrr_at_20_std
-      value: 5.4346
+      value: 4.4653
     - type: nauc_mrr_at_20_diff1
-      value: 77.0378
+      value: 71.2187
     - type: nauc_mrr_at_100_max
-      value: 55.6049
+      value: 57.1484
     - type: nauc_mrr_at_100_std
-      value: 5.7131
+      value: 4.5175
     - type: nauc_mrr_at_100_diff1
-      value: 77.0756
+      value: 71.2734
     - type: nauc_mrr_at_1000_max
-      value: 55.5915
+      value: 57.1356
     - type: nauc_mrr_at_1000_std
-      value: 5.7007
+      value: 4.4929
     - type: nauc_mrr_at_1000_diff1
-      value: 77.0939
+      value: 71.28710000000001
     - type: main_score
-      value: 57.475
+      value: 60.831
     task:
       type: Retrieval
   - dataset:
@@ -11013,193 +11025,193 @@ model-index:
     - type: ndcg_at_1
       value: 8.889
     - type: ndcg_at_3
-      value: 10.700999999999999
+      value: 12.09
     - type: ndcg_at_5
-      value: 16.082
+      value: 18.355
     - type: ndcg_at_10
-      value: 26.888
+      value: 32.138
     - type: ndcg_at_20
-      value: 35.608000000000004
+      value: 38.437
     - type: ndcg_at_100
-      value: 36.459
+      value: 39.031
     - type: ndcg_at_1000
-      value: 36.775999999999996
+      value: 39.031
     - type: map_at_1
       value: 8.889
     - type: map_at_3
-      value: 10.184999999999999
+      value: 11.111
     - type: map_at_5
-      value: 13.241
+      value: 14.639
     - type: map_at_10
-      value: 17.502000000000002
+      value: 20.193
     - type: map_at_20
-      value: 19.978
+      value: 22.137
     - type: map_at_100
-      value: 20.108
+      value: 22.21
     - type: map_at_1000
-      value: 20.125
+      value: 22.21
     - type: recall_at_1
       value: 8.889
     - type: recall_at_3
-      value: 12.222
+      value: 15.0
     - type: recall_at_5
-      value: 25.0
+      value: 30.0
     - type: recall_at_10
-      value: 59.443999999999996
+      value: 73.333
     - type: recall_at_20
-      value: 93.333
+      value: 96.667
     - type: recall_at_100
-      value: 97.77799999999999
+      value: 100.0
     - type: recall_at_1000
       value: 100.0
     - type: precision_at_1
       value: 8.889
     - type: precision_at_3
-      value: 4.074
-    - type: precision_at_5
       value: 5.0
+    - type: precision_at_5
+      value: 6.0
     - type: precision_at_10
-      value: 5.944
+      value: 7.333
     - type: precision_at_20
-      value: 4.667000000000001
+      value: 4.833
     - type: precision_at_100
-      value: 0.9780000000000001
+      value: 1.0
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 3.8889
+      value: 6.1110999999999995
     - type: mrr_at_3
-      value: 8.9815
+      value: 10.0
     - type: mrr_at_5
-      value: 10.2593
+      value: 12.8056
     - type: mrr_at_10
-      value: 15.263399999999999
+      value: 19.164900000000003
     - type: mrr_at_20
-      value: 17.711
+      value: 20.8374
     - type: mrr_at_100
-      value: 17.8421
+      value: 20.9115
     - type: mrr_at_1000
-      value: 17.8596
+      value: 20.9115
     - type: nauc_ndcg_at_1_max
       value: -40.8791
     - type: nauc_ndcg_at_1_std
-      value: -22.7629
+      value: -29.137
     - type: nauc_ndcg_at_1_diff1
-      value: -23.105
+      value: -25.7462
     - type: nauc_ndcg_at_3_max
-      value: -43.187599999999996
+      value: -43.8611
     - type: nauc_ndcg_at_3_std
-      value: -26.9994
+      value: -31.619999999999997
     - type: nauc_ndcg_at_3_diff1
-      value: -15.4181
+      value: -8.387799999999999
     - type: nauc_ndcg_at_5_max
-      value: -37.2549
+      value: -34.1018
     - type: nauc_ndcg_at_5_std
-      value: -24.4115
+      value: -20.9725
     - type: nauc_ndcg_at_5_diff1
-      value: -5.7322999999999995
+      value: -14.6478
     - type: nauc_ndcg_at_10_max
-      value: -36.3471
+      value: -29.694599999999998
     - type: nauc_ndcg_at_10_std
-      value: -22.8065
+      value: -17.6602
     - type: nauc_ndcg_at_10_diff1
-      value: -5.3767000000000005
+      value: -21.0388
     - type: nauc_ndcg_at_20_max
-      value: -35.829100000000004
+      value: -42.308800000000005
     - type: nauc_ndcg_at_20_std
-      value: -20.787300000000002
+      value: -20.778
     - type: nauc_ndcg_at_20_diff1
-      value: -9.6038
+      value: -15.67
     - type: nauc_ndcg_at_100_max
-      value: -36.5805
+      value: -37.4946
     - type: nauc_ndcg_at_100_std
-      value: -20.1283
+      value: -22.2861
     - type: nauc_ndcg_at_100_diff1
-      value: -8.9448
+      value: -16.020300000000002
     - type: nauc_ndcg_at_1000_max
-      value: -38.1158
+      value: -37.4946
     - type: nauc_ndcg_at_1000_std
-      value: -22.2744
+      value: -22.2861
     - type: nauc_ndcg_at_1000_diff1
-      value: -9.8704
+      value: -16.020300000000002
     - type: nauc_map_at_1_max
       value: -40.8791
     - type: nauc_map_at_1_std
-      value: -22.7629
+      value: -29.137
     - type: nauc_map_at_1_diff1
-      value: -23.105
+      value: -25.7462
     - type: nauc_map_at_3_max
-      value: -42.559200000000004
+      value: -43.1058
     - type: nauc_map_at_3_std
-      value: -25.8594
+      value: -31.071900000000003
     - type: nauc_map_at_3_diff1
-      value: -17.2362
+      value: -12.875900000000001
     - type: nauc_map_at_5_max
-      value: -38.595800000000004
+      value: -36.4737
     - type: nauc_map_at_5_std
-      value: -24.1339
+      value: -23.8979
     - type: nauc_map_at_5_diff1
-      value: -10.4452
+      value: -16.206400000000002
     - type: nauc_map_at_10_max
-      value: -38.2389
+      value: -34.2318
     - type: nauc_map_at_10_std
-      value: -23.453599999999998
+      value: -22.0811
     - type: nauc_map_at_10_diff1
-      value: -10.2748
+      value: -18.5454
     - type: nauc_map_at_20_max
-      value: -38.8856
+      value: -37.9204
     - type: nauc_map_at_20_std
-      value: -23.095499999999998
+      value: -23.3876
     - type: nauc_map_at_20_diff1
-      value: -11.695500000000001
+      value: -16.8628
     - type: nauc_map_at_100_max
-      value: -38.9696
+      value: -37.401
     - type: nauc_map_at_100_std
-      value: -23.0057
+      value: -23.595299999999998
     - type: nauc_map_at_100_diff1
-      value: -11.635900000000001
+      value: -16.8443
     - type: nauc_map_at_1000_max
-      value: -39.035399999999996
+      value: -37.401
     - type: nauc_map_at_1000_std
-      value: -23.1075
+      value: -23.595299999999998
     - type: nauc_map_at_1000_diff1
-      value: -11.6855
+      value: -16.8443
     - type: nauc_recall_at_1_max
       value: -40.8791
     - type: nauc_recall_at_1_std
-      value: -22.7629
+      value: -29.137
     - type: nauc_recall_at_1_diff1
-      value: -23.105
+      value: -25.7462
     - type: nauc_recall_at_3_max
-      value: -44.8047
+      value: -45.6372
     - type: nauc_recall_at_3_std
-      value: -29.9296
+      value: -32.8876
     - type: nauc_recall_at_3_diff1
-      value: -10.8169
+      value: 2.1906
     - type: nauc_recall_at_5_max
-      value: -34.5699
+      value: -29.531299999999998
     - type: nauc_recall_at_5_std
-      value: -24.9544
+      value: -15.2907
     - type: nauc_recall_at_5_diff1
-      value: 3.4269000000000003
+      value: -12.279900000000001
     - type: nauc_recall_at_10_max
-      value: -32.149699999999996
+      value: -17.0981
     - type: nauc_recall_at_10_std
-      value: -21.0142
+      value: -5.6821
     - type: nauc_recall_at_10_diff1
-      value: 4.358
+      value: -31.382700000000003
     - type: nauc_recall_at_20_max
-      value: 0.7547
+      value: -164.1923
     - type: nauc_recall_at_20_std
-      value: 7.1739999999999995
+      value: 14.6592
     - type: nauc_recall_at_20_diff1
-      value: -3.2252
+      value: -1.6729
     - type: nauc_recall_at_100_max
-      value: 41.4332
+      value: .nan
     - type: nauc_recall_at_100_std
-      value: 86.1111
+      value: .nan
     - type: nauc_recall_at_100_diff1
-      value: 35.7143
+      value: .nan
     - type: nauc_recall_at_1000_max
       value: .nan
     - type: nauc_recall_at_1000_std
@@ -11209,39 +11221,39 @@ model-index:
     - type: nauc_precision_at_1_max
       value: -40.8791
     - type: nauc_precision_at_1_std
-      value: -22.7629
+      value: -29.137
     - type: nauc_precision_at_1_diff1
-      value: -23.105
+      value: -25.7462
     - type: nauc_precision_at_3_max
-      value: -44.8047
+      value: -45.6372
     - type: nauc_precision_at_3_std
-      value: -29.9296
+      value: -32.8876
     - type: nauc_precision_at_3_diff1
-      value: -10.8169
+      value: 2.1906
     - type: nauc_precision_at_5_max
-      value: -34.5699
+      value: -29.531299999999998
     - type: nauc_precision_at_5_std
-      value: -24.9544
+      value: -15.2907
     - type: nauc_precision_at_5_diff1
-      value: 3.4269000000000003
+      value: -12.279900000000001
     - type: nauc_precision_at_10_max
-      value: -32.149699999999996
+      value: -17.0981
     - type: nauc_precision_at_10_std
-      value: -21.0142
+      value: -5.6821
     - type: nauc_precision_at_10_diff1
-      value: 4.358
+      value: -31.382700000000003
     - type: nauc_precision_at_20_max
-      value: 0.7547
+      value: -164.1923
     - type: nauc_precision_at_20_std
-      value: 7.1739999999999995
+      value: 14.6592
     - type: nauc_precision_at_20_diff1
-      value: -3.2252
+      value: -1.6729
     - type: nauc_precision_at_100_max
-      value: 41.4332
+      value: 100.0
     - type: nauc_precision_at_100_std
-      value: 86.1111
+      value: 100.0
     - type: nauc_precision_at_100_diff1
-      value: 35.7143
+      value: 100.0
     - type: nauc_precision_at_1000_max
       value: 100.0
     - type: nauc_precision_at_1000_std
@@ -11249,49 +11261,49 @@ model-index:
     - type: nauc_precision_at_1000_diff1
       value: 100.0
     - type: nauc_mrr_at_1_max
-      value: -42.7345
+      value: -38.4833
     - type: nauc_mrr_at_1_std
-      value: -35.9194
+      value: -27.4288
     - type: nauc_mrr_at_1_diff1
-      value: -3.8369
+      value: -2.3441
     - type: nauc_mrr_at_3_max
-      value: -35.497099999999996
+      value: -40.2427
     - type: nauc_mrr_at_3_std
-      value: -28.1283
+      value: -28.479
     - type: nauc_mrr_at_3_diff1
-      value: 22.5336
+      value: 14.5837
     - type: nauc_mrr_at_5_max
-      value: -34.9895
+      value: -32.784400000000005
     - type: nauc_mrr_at_5_std
-      value: -26.9499
+      value: -19.3984
     - type: nauc_mrr_at_5_diff1
-      value: 16.9652
+      value: 8.2762
     - type: nauc_mrr_at_10_max
-      value: -36.7778
+      value: -31.999499999999998
     - type: nauc_mrr_at_10_std
-      value: -28.069
+      value: -20.9878
     - type: nauc_mrr_at_10_diff1
-      value: 18.806700000000003
+      value: 9.2346
     - type: nauc_mrr_at_20_max
-      value: -36.2726
+      value: -36.2588
     - type: nauc_mrr_at_20_std
-      value: -26.359500000000004
+      value: -21.057699999999997
     - type: nauc_mrr_at_20_diff1
-      value: 18.1655
+      value: 9.4499
     - type: nauc_mrr_at_100_max
-      value: -36.361
+      value: -35.6528
     - type: nauc_mrr_at_100_std
-      value: -26.280900000000003
+      value: -21.288
     - type: nauc_mrr_at_100_diff1
-      value: 18.5228
+      value: 9.591
     - type: nauc_mrr_at_1000_max
-      value: -36.4424
+      value: -35.6528
     - type: nauc_mrr_at_1000_std
-      value: -26.415699999999998
+      value: -21.288
     - type: nauc_mrr_at_1000_diff1
-      value: 18.496499999999997
+      value: 9.591
     - type: main_score
-      value: 26.888
+      value: 32.138
     task:
       type: Retrieval
   - dataset:
@@ -11302,287 +11314,287 @@ model-index:
       type: CoIR-Retrieval/cosqa
     metrics:
     - type: ndcg_at_1
-      value: 15.4
+      value: 14.6
     - type: ndcg_at_3
-      value: 23.59
+      value: 23.043
     - type: ndcg_at_5
-      value: 29.779
+      value: 28.551
     - type: ndcg_at_10
-      value: 35.449999999999996
+      value: 33.452
     - type: ndcg_at_20
-      value: 38.309
+      value: 37.094
     - type: ndcg_at_100
-      value: 41.980000000000004
+      value: 40.416999999999994
     - type: ndcg_at_1000
-      value: 42.917
+      value: 41.684
     - type: map_at_1
-      value: 15.4
+      value: 14.6
     - type: map_at_3
-      value: 21.4
+      value: 20.8
     - type: map_at_5
-      value: 24.84
+      value: 23.849999999999998
     - type: map_at_10
-      value: 27.245
+      value: 25.941
     - type: map_at_20
-      value: 28.043000000000003
+      value: 26.941
     - type: map_at_100
-      value: 28.592000000000002
+      value: 27.418
     - type: map_at_1000
-      value: 28.63
+      value: 27.473999999999997
     - type: recall_at_1
-      value: 15.4
+      value: 14.6
     - type: recall_at_3
-      value: 30.0
+      value: 29.599999999999998
     - type: recall_at_5
-      value: 45.0
+      value: 43.0
     - type: recall_at_10
-      value: 62.2
+      value: 57.8
     - type: recall_at_20
-      value: 73.4
+      value: 72.2
     - type: recall_at_100
-      value: 92.60000000000001
+      value: 89.8
     - type: recall_at_1000
-      value: 99.8
+      value: 99.4
     - type: precision_at_1
-      value: 15.4
+      value: 14.6
     - type: precision_at_3
-      value: 10.0
+      value: 9.866999999999999
     - type: precision_at_5
-      value: 9.0
+      value: 8.6
     - type: precision_at_10
-      value: 6.22
+      value: 5.779999999999999
     - type: precision_at_20
-      value: 3.6700000000000004
+      value: 3.61
     - type: precision_at_100
-      value: 0.9259999999999999
+      value: 0.898
     - type: precision_at_1000
-      value: 0.1
+      value: 0.099
     - type: mrr_at_1
-      value: 13.600000000000001
+      value: 15.4
     - type: mrr_at_3
-      value: 19.666700000000002
+      value: 21.099999999999998
     - type: mrr_at_5
-      value: 22.0867
+      value: 23.380000000000003
     - type: mrr_at_10
-      value: 25.020799999999998
+      value: 25.5087
     - type: mrr_at_20
-      value: 25.8896
+      value: 26.5332
     - type: mrr_at_100
-      value: 26.434400000000004
+      value: 27.0822
     - type: mrr_at_1000
-      value: 26.4729
+      value: 27.1358
     - type: nauc_ndcg_at_1_max
-      value: 7.9282
+      value: 15.7645
     - type: nauc_ndcg_at_1_std
-      value: -14.053299999999998
+      value: -8.4668
     - type: nauc_ndcg_at_1_diff1
-      value: 36.687799999999996
+      value: 38.0187
     - type: nauc_ndcg_at_3_max
-      value: 11.969899999999999
+      value: 14.791799999999999
     - type: nauc_ndcg_at_3_std
-      value: -13.7404
+      value: -11.6736
     - type: nauc_ndcg_at_3_diff1
-      value: 22.2386
+      value: 24.288899999999998
     - type: nauc_ndcg_at_5_max
-      value: 13.4812
+      value: 17.9426
     - type: nauc_ndcg_at_5_std
-      value: -13.2079
+      value: -11.1099
     - type: nauc_ndcg_at_5_diff1
-      value: 15.8384
+      value: 18.8892
     - type: nauc_ndcg_at_10_max
-      value: 12.061399999999999
+      value: 18.3537
     - type: nauc_ndcg_at_10_std
-      value: -15.1337
+      value: -9.0621
     - type: nauc_ndcg_at_10_diff1
-      value: 18.804399999999998
+      value: 17.6054
     - type: nauc_ndcg_at_20_max
-      value: 14.027000000000001
+      value: 19.9156
     - type: nauc_ndcg_at_20_std
-      value: -13.123899999999999
+      value: -6.926699999999999
     - type: nauc_ndcg_at_20_diff1
-      value: 18.546499999999998
+      value: 16.125
     - type: nauc_ndcg_at_100_max
-      value: 15.4228
+      value: 19.527900000000002
     - type: nauc_ndcg_at_100_std
-      value: -9.7982
+      value: -5.9748
     - type: nauc_ndcg_at_100_diff1
-      value: 20.637900000000002
+      value: 18.8697
     - type: nauc_ndcg_at_1000_max
-      value: 13.3878
+      value: 18.6624
     - type: nauc_ndcg_at_1000_std
-      value: -12.3766
+      value: -7.6636999999999995
     - type: nauc_ndcg_at_1000_diff1
-      value: 21.2979
+      value: 20.2624
     - type: nauc_map_at_1_max
-      value: 7.9282
+      value: 15.7645
     - type: nauc_map_at_1_std
-      value: -14.053299999999998
+      value: -8.4668
     - type: nauc_map_at_1_diff1
-      value: 36.687799999999996
+      value: 38.0187
     - type: nauc_map_at_3_max
-      value: 11.2376
+      value: 14.932200000000002
     - type: nauc_map_at_3_std
-      value: -13.882800000000001
+      value: -11.2233
     - type: nauc_map_at_3_diff1
-      value: 25.4638
+      value: 27.254800000000003
     - type: nauc_map_at_5_max
-      value: 12.0973
+      value: 16.700599999999998
     - type: nauc_map_at_5_std
-      value: -13.581399999999999
+      value: -10.9701
     - type: nauc_map_at_5_diff1
-      value: 21.6642
+      value: 23.9832
     - type: nauc_map_at_10_max
-      value: 11.4818
+      value: 16.947200000000002
     - type: nauc_map_at_10_std
-      value: -14.3841
+      value: -9.896099999999999
     - type: nauc_map_at_10_diff1
-      value: 23.0484
+      value: 23.4428
     - type: nauc_map_at_20_max
-      value: 11.9802
+      value: 17.3857
     - type: nauc_map_at_20_std
-      value: -13.8687
+      value: -9.2728
     - type: nauc_map_at_20_diff1
-      value: 23.0349
+      value: 23.1321
     - type: nauc_map_at_100_max
-      value: 12.112
+      value: 17.3462
     - type: nauc_map_at_100_std
-      value: -13.423099999999998
+      value: -9.2043
     - type: nauc_map_at_100_diff1
-      value: 23.385
+      value: 23.5583
     - type: nauc_map_at_1000_max
-      value: 12.034
+      value: 17.3214
     - type: nauc_map_at_1000_std
-      value: -13.5156
+      value: -9.2627
     - type: nauc_map_at_1000_diff1
-      value: 23.4084
+      value: 23.6455
     - type: nauc_recall_at_1_max
-      value: 7.9282
+      value: 15.7645
     - type: nauc_recall_at_1_std
-      value: -14.053299999999998
+      value: -8.4668
     - type: nauc_recall_at_1_diff1
-      value: 36.687799999999996
+      value: 38.0187
     - type: nauc_recall_at_3_max
-      value: 13.6773
+      value: 14.4809
     - type: nauc_recall_at_3_std
-      value: -13.376299999999999
+      value: -12.664700000000002
     - type: nauc_recall_at_3_diff1
-      value: 14.4918
+      value: 17.275199999999998
     - type: nauc_recall_at_5_max
-      value: 16.8852
+      value: 21.2405
     - type: nauc_recall_at_5_std
-      value: -12.237499999999999
+      value: -11.2278
     - type: nauc_recall_at_5_diff1
-      value: 1.4449
+      value: 6.6622
     - type: nauc_recall_at_10_max
-      value: 13.234499999999999
+      value: 22.3474
     - type: nauc_recall_at_10_std
-      value: -17.8241
+      value: -6.399299999999999
     - type: nauc_recall_at_10_diff1
-      value: 7.6404
+      value: 2.0452000000000004
     - type: nauc_recall_at_20_max
-      value: 22.708000000000002
+      value: 30.1398
     - type: nauc_recall_at_20_std
-      value: -9.111600000000001
+      value: 3.3263000000000003
     - type: nauc_recall_at_20_diff1
-      value: 3.4109
+      value: -9.3067
     - type: nauc_recall_at_100_max
-      value: 66.1165
+      value: 37.6654
     - type: nauc_recall_at_100_std
-      value: 55.2477
+      value: 30.699700000000004
     - type: nauc_recall_at_100_diff1
-      value: 5.7612
+      value: -8.959999999999999
     - type: nauc_recall_at_1000_max
-      value: 100.0
+      value: 47.3389
     - type: nauc_recall_at_1000_std
-      value: 86.9281
+      value: 95.6427
     - type: nauc_recall_at_1000_diff1
-      value: 72.2222
+      value: -102.10079999999999
     - type: nauc_precision_at_1_max
-      value: 7.9282
+      value: 15.7645
     - type: nauc_precision_at_1_std
-      value: -14.053299999999998
+      value: -8.4668
     - type: nauc_precision_at_1_diff1
-      value: 36.687799999999996
+      value: 38.0187
     - type: nauc_precision_at_3_max
-      value: 13.6773
+      value: 14.4809
     - type: nauc_precision_at_3_std
-      value: -13.376299999999999
+      value: -12.664700000000002
     - type: nauc_precision_at_3_diff1
-      value: 14.4918
+      value: 17.275199999999998
     - type: nauc_precision_at_5_max
-      value: 16.8852
+      value: 21.2405
     - type: nauc_precision_at_5_std
-      value: -12.237499999999999
+      value: -11.2278
     - type: nauc_precision_at_5_diff1
-      value: 1.4449
+      value: 6.6622
     - type: nauc_precision_at_10_max
-      value: 13.234499999999999
+      value: 22.3474
     - type: nauc_precision_at_10_std
-      value: -17.8241
+      value: -6.399299999999999
     - type: nauc_precision_at_10_diff1
-      value: 7.6404
+      value: 2.0452000000000004
     - type: nauc_precision_at_20_max
-      value: 22.708000000000002
+      value: 30.1398
     - type: nauc_precision_at_20_std
-      value: -9.111600000000001
+      value: 3.3263000000000003
     - type: nauc_precision_at_20_diff1
-      value: 3.4109
+      value: -9.3067
     - type: nauc_precision_at_100_max
-      value: 66.1165
+      value: 37.6654
     - type: nauc_precision_at_100_std
-      value: 55.2477
+      value: 30.699700000000004
     - type: nauc_precision_at_100_diff1
-      value: 5.7612
+      value: -8.959999999999999
     - type: nauc_precision_at_1000_max
-      value: 100.0
+      value: 47.3389
     - type: nauc_precision_at_1000_std
-      value: 86.9281
+      value: 95.6427
     - type: nauc_precision_at_1000_diff1
-      value: 72.2222
+      value: -102.10079999999999
     - type: nauc_mrr_at_1_max
-      value: 13.238199999999999
+      value: 15.059800000000001
     - type: nauc_mrr_at_1_std
-      value: -21.1942
+      value: -17.3443
     - type: nauc_mrr_at_1_diff1
-      value: 47.1481
+      value: 34.5918
     - type: nauc_mrr_at_3_max
-      value: 13.370999999999999
+      value: 15.5076
     - type: nauc_mrr_at_3_std
-      value: -18.0171
+      value: -16.3353
     - type: nauc_mrr_at_3_diff1
-      value: 31.3232
+      value: 27.414899999999996
     - type: nauc_mrr_at_5_max
-      value: 12.646099999999999
+      value: 15.033299999999999
     - type: nauc_mrr_at_5_std
-      value: -18.5601
+      value: -16.0288
     - type: nauc_mrr_at_5_diff1
-      value: 28.8561
+      value: 25.4198
     - type: nauc_mrr_at_10_max
-      value: 13.1101
+      value: 15.7434
     - type: nauc_mrr_at_10_std
-      value: -18.915000000000003
+      value: -14.8923
     - type: nauc_mrr_at_10_diff1
-      value: 28.9512
+      value: 23.6099
     - type: nauc_mrr_at_20_max
-      value: 13.0191
+      value: 16.2588
     - type: nauc_mrr_at_20_std
-      value: -18.501
+      value: -14.5306
     - type: nauc_mrr_at_20_diff1
-      value: 29.102299999999996
+      value: 23.718700000000002
     - type: nauc_mrr_at_100_max
-      value: 13.475699999999998
+      value: 16.2196
     - type: nauc_mrr_at_100_std
-      value: -17.9907
+      value: -14.4928
     - type: nauc_mrr_at_100_diff1
-      value: 29.549999999999997
+      value: 24.017
     - type: nauc_mrr_at_1000_max
-      value: 13.3963
+      value: 16.1885
     - type: nauc_mrr_at_1000_std
-      value: -18.093999999999998
+      value: -14.5629
     - type: nauc_mrr_at_1000_diff1
-      value: 29.583
+      value: 24.0998
     - type: main_score
-      value: 35.449999999999996
+      value: 33.452
     task:
       type: Retrieval
   - dataset:
@@ -11593,287 +11605,287 @@ model-index:
       type: mteb/dbpedia
     metrics:
     - type: ndcg_at_1
-      value: 51.37500000000001
+      value: 48.75
     - type: ndcg_at_3
-      value: 41.275
+      value: 40.266000000000005
     - type: ndcg_at_5
-      value: 38.297
+      value: 37.034
     - type: ndcg_at_10
-      value: 35.96
+      value: 34.565
     - type: ndcg_at_20
-      value: 35.117
+      value: 34.013
     - type: ndcg_at_100
-      value: 39.878
+      value: 39.006
     - type: ndcg_at_1000
-      value: 47.931000000000004
+      value: 46.64
     - type: map_at_1
-      value: 8.651
+      value: 7.866
     - type: map_at_3
-      value: 13.51
+      value: 12.145999999999999
     - type: map_at_5
-      value: 15.468000000000002
+      value: 13.874
     - type: map_at_10
-      value: 17.628
+      value: 16.02
     - type: map_at_20
-      value: 19.786
+      value: 18.183
     - type: map_at_100
-      value: 23.354
+      value: 21.775
     - type: map_at_1000
-      value: 24.826
+      value: 23.203
     - type: recall_at_1
-      value: 8.651
+      value: 7.866
     - type: recall_at_3
-      value: 14.847
+      value: 13.700000000000001
     - type: recall_at_5
-      value: 18.04
+      value: 16.683
     - type: recall_at_10
-      value: 22.416
+      value: 21.059
     - type: recall_at_20
-      value: 28.136
+      value: 27.045
     - type: recall_at_100
-      value: 46.381
+      value: 45.236
     - type: recall_at_1000
-      value: 71.557
+      value: 69.867
     - type: precision_at_1
-      value: 64.5
+      value: 60.5
     - type: precision_at_3
-      value: 44.417
+      value: 44.083
     - type: precision_at_5
-      value: 36.6
+      value: 35.449999999999996
     - type: precision_at_10
-      value: 27.450000000000003
+      value: 26.400000000000002
     - type: precision_at_20
-      value: 19.811999999999998
+      value: 19.75
     - type: precision_at_100
-      value: 8.405
+      value: 8.472
     - type: precision_at_1000
-      value: 1.923
+      value: 1.822
     - type: mrr_at_1
-      value: 64.5
+      value: 60.5
     - type: mrr_at_3
-      value: 70.25
+      value: 67.625
     - type: mrr_at_5
-      value: 71.275
+      value: 68.4625
     - type: mrr_at_10
-      value: 71.9889
+      value: 69.4092
     - type: mrr_at_20
-      value: 72.207
+      value: 69.6644
     - type: mrr_at_100
-      value: 72.33239999999999
+      value: 69.8187
     - type: mrr_at_1000
-      value: 72.3461
+      value: 69.8284
     - type: nauc_ndcg_at_1_max
-      value: 31.932100000000002
+      value: 27.385199999999998
     - type: nauc_ndcg_at_1_std
-      value: 10.2841
+      value: 15.502199999999998
     - type: nauc_ndcg_at_1_diff1
-      value: 36.07
+      value: 40.3474
     - type: nauc_ndcg_at_3_max
-      value: 29.2531
+      value: 23.691100000000002
     - type: nauc_ndcg_at_3_std
-      value: 11.178799999999999
+      value: 17.8766
     - type: nauc_ndcg_at_3_diff1
-      value: 25.764799999999997
+      value: 26.1322
     - type: nauc_ndcg_at_5_max
-      value: 27.1826
+      value: 21.908
     - type: nauc_ndcg_at_5_std
-      value: 12.5
+      value: 16.5012
     - type: nauc_ndcg_at_5_diff1
-      value: 24.9511
+      value: 24.9377
     - type: nauc_ndcg_at_10_max
-      value: 24.1388
+      value: 21.5239
     - type: nauc_ndcg_at_10_std
-      value: 11.350200000000001
+      value: 15.327399999999999
     - type: nauc_ndcg_at_10_diff1
-      value: 23.7319
+      value: 25.0379
     - type: nauc_ndcg_at_20_max
-      value: 19.1396
+      value: 18.6445
     - type: nauc_ndcg_at_20_std
-      value: 9.464699999999999
+      value: 10.4816
     - type: nauc_ndcg_at_20_diff1
-      value: 20.9192
+      value: 24.5885
     - type: nauc_ndcg_at_100_max
-      value: 20.1158
+      value: 21.7258
     - type: nauc_ndcg_at_100_std
-      value: 13.2815
+      value: 14.514199999999999
     - type: nauc_ndcg_at_100_diff1
-      value: 21.221400000000003
+      value: 21.6285
     - type: nauc_ndcg_at_1000_max
-      value: 26.648899999999998
+      value: 25.515
     - type: nauc_ndcg_at_1000_std
-      value: 22.5347
+      value: 23.278499999999998
     - type: nauc_ndcg_at_1000_diff1
-      value: 19.6168
+      value: 21.3373
     - type: nauc_map_at_1_max
-      value: -4.3177
+      value: 2.911
     - type: nauc_map_at_1_std
-      value: -24.5562
+      value: -23.3734
     - type: nauc_map_at_1_diff1
-      value: 29.4423
+      value: 31.251099999999997
     - type: nauc_map_at_3_max
-      value: -3.3966000000000003
+      value: 6.7765
     - type: nauc_map_at_3_std
-      value: -21.9222
+      value: -21.1466
     - type: nauc_map_at_3_diff1
-      value: 21.2481
+      value: 26.6096
     - type: nauc_map_at_5_max
-      value: -1.1166
+      value: 7.2574
     - type: nauc_map_at_5_std
-      value: -17.1077
+      value: -18.0369
     - type: nauc_map_at_5_diff1
-      value: 19.9608
+      value: 24.0648
     - type: nauc_map_at_10_max
-      value: 2.8669000000000002
+      value: 11.669699999999999
     - type: nauc_map_at_10_std
-      value: -11.6119
+      value: -10.5142
     - type: nauc_map_at_10_diff1
-      value: 19.6247
+      value: 23.289099999999998
     - type: nauc_map_at_20_max
-      value: 6.4855
+      value: 13.9376
     - type: nauc_map_at_20_std
-      value: -4.1277
+      value: -4.1179
     - type: nauc_map_at_20_diff1
-      value: 18.1824
+      value: 22.9493
     - type: nauc_map_at_100_max
-      value: 12.971499999999999
+      value: 18.756600000000002
     - type: nauc_map_at_100_std
-      value: 7.603400000000001
+      value: 7.5601
     - type: nauc_map_at_100_diff1
-      value: 17.5644
+      value: 21.1962
     - type: nauc_map_at_1000_max
-      value: 15.277299999999999
+      value: 20.4084
     - type: nauc_map_at_1000_std
-      value: 10.5578
+      value: 10.7807
     - type: nauc_map_at_1000_diff1
-      value: 17.1155
+      value: 21.6074
     - type: nauc_recall_at_1_max
-      value: -4.3177
+      value: 2.911
     - type: nauc_recall_at_1_std
-      value: -24.5562
+      value: -23.3734
     - type: nauc_recall_at_1_diff1
-      value: 29.4423
+      value: 31.251099999999997
     - type: nauc_recall_at_3_max
-      value: -6.2376000000000005
+      value: 5.9628
     - type: nauc_recall_at_3_std
-      value: -23.4233
+      value: -21.7657
     - type: nauc_recall_at_3_diff1
-      value: 17.329800000000002
+      value: 22.1779
     - type: nauc_recall_at_5_max
-      value: -3.4825000000000004
+      value: 4.2336
     - type: nauc_recall_at_5_std
-      value: -17.4895
+      value: -19.872
     - type: nauc_recall_at_5_diff1
-      value: 16.2379
+      value: 17.4799
     - type: nauc_recall_at_10_max
-      value: 0.9988
+      value: 9.376900000000001
     - type: nauc_recall_at_10_std
-      value: -11.1992
+      value: -12.3596
     - type: nauc_recall_at_10_diff1
-      value: 16.225
+      value: 15.801100000000002
     - type: nauc_recall_at_20_max
-      value: 4.693300000000001
+      value: 11.2098
     - type: nauc_recall_at_20_std
-      value: -1.8259999999999998
+      value: -6.471699999999999
     - type: nauc_recall_at_20_diff1
-      value: 12.612400000000001
+      value: 15.1155
     - type: nauc_recall_at_100_max
-      value: 13.420599999999999
+      value: 16.7433
     - type: nauc_recall_at_100_std
-      value: 14.4476
+      value: 12.2849
     - type: nauc_recall_at_100_diff1
-      value: 14.5736
+      value: 6.908499999999999
     - type: nauc_recall_at_1000_max
-      value: 18.4052
+      value: 18.6941
     - type: nauc_recall_at_1000_std
-      value: 32.6262
+      value: 25.2521
     - type: nauc_recall_at_1000_diff1
-      value: 6.2448
+      value: 1.0488000000000002
     - type: nauc_precision_at_1_max
-      value: 44.2395
+      value: 39.5387
     - type: nauc_precision_at_1_std
-      value: 16.9766
+      value: 23.244600000000002
     - type: nauc_precision_at_1_diff1
-      value: 42.981
+      value: 50.275499999999994
     - type: nauc_precision_at_3_max
-      value: 37.5078
+      value: 32.3641
     - type: nauc_precision_at_3_std
-      value: 24.46
+      value: 34.4136
     - type: nauc_precision_at_3_diff1
-      value: 16.700799999999997
+      value: 17.316200000000002
     - type: nauc_precision_at_5_max
-      value: 39.9766
+      value: 29.9613
     - type: nauc_precision_at_5_std
-      value: 35.1485
+      value: 39.3271
     - type: nauc_precision_at_5_diff1
-      value: 13.0716
+      value: 13.352
     - type: nauc_precision_at_10_max
-      value: 39.642500000000005
+      value: 29.5821
     - type: nauc_precision_at_10_std
-      value: 41.8067
+      value: 48.0976
     - type: nauc_precision_at_10_diff1
-      value: 8.864700000000001
+      value: 9.610000000000001
     - type: nauc_precision_at_20_max
-      value: 36.7342
+      value: 25.5555
     - type: nauc_precision_at_20_std
-      value: 47.144200000000005
+      value: 49.3622
     - type: nauc_precision_at_20_diff1
-      value: 3.6226000000000003
+      value: 8.0656
     - type: nauc_precision_at_100_max
-      value: 35.3062
+      value: 24.3874
     - type: nauc_precision_at_100_std
-      value: 47.2687
+      value: 49.613600000000005
     - type: nauc_precision_at_100_diff1
-      value: 0.0039
+      value: 4.1512
     - type: nauc_precision_at_1000_max
-      value: 27.387099999999997
+      value: 16.0014
     - type: nauc_precision_at_1000_std
-      value: 24.4162
+      value: 28.3243
     - type: nauc_precision_at_1000_diff1
-      value: -13.5
+      value: 11.5068
     - type: nauc_mrr_at_1_max
-      value: 44.2395
+      value: 39.5387
     - type: nauc_mrr_at_1_std
-      value: 16.9766
+      value: 23.244600000000002
     - type: nauc_mrr_at_1_diff1
-      value: 42.981
+      value: 50.275499999999994
     - type: nauc_mrr_at_3_max
-      value: 45.9027
+      value: 44.3328
     - type: nauc_mrr_at_3_std
-      value: 16.3998
+      value: 29.595900000000004
     - type: nauc_mrr_at_3_diff1
-      value: 42.7201
+      value: 47.0929
     - type: nauc_mrr_at_5_max
-      value: 46.7905
+      value: 43.6678
     - type: nauc_mrr_at_5_std
-      value: 17.921599999999998
+      value: 29.219299999999997
     - type: nauc_mrr_at_5_diff1
-      value: 42.4334
+      value: 47.7731
     - type: nauc_mrr_at_10_max
-      value: 46.775
+      value: 43.1409
     - type: nauc_mrr_at_10_std
-      value: 18.282899999999998
+      value: 29.5283
     - type: nauc_mrr_at_10_diff1
-      value: 42.4501
+      value: 47.7777
     - type: nauc_mrr_at_20_max
-      value: 46.671600000000005
+      value: 43.2155
     - type: nauc_mrr_at_20_std
-      value: 18.064700000000002
+      value: 29.378999999999998
     - type: nauc_mrr_at_20_diff1
-      value: 42.4331
+      value: 47.826800000000006
     - type: nauc_mrr_at_100_max
-      value: 46.7118
+      value: 43.2448
     - type: nauc_mrr_at_100_std
-      value: 18.2135
+      value: 29.385
     - type: nauc_mrr_at_100_diff1
-      value: 42.4809
+      value: 47.7931
     - type: nauc_mrr_at_1000_max
-      value: 46.6966
+      value: 43.2316
     - type: nauc_mrr_at_1000_std
-      value: 18.185200000000002
+      value: 29.3645
     - type: nauc_mrr_at_1000_diff1
-      value: 42.4844
+      value: 47.7958
     - type: main_score
-      value: 35.96
+      value: 34.565
     task:
       type: Retrieval
   - dataset:
@@ -11884,13 +11896,13 @@ model-index:
       type: mteb/emotion
     metrics:
     - type: accuracy
-      value: 38.795
+      value: 36.449999999999996
     - type: f1
-      value: 35.2399
+      value: 32.3042
     - type: f1_weighted
-      value: 40.7945
+      value: 38.7818
     - type: main_score
-      value: 38.795
+      value: 36.449999999999996
     task:
       type: Classification
   - dataset:
@@ -11901,287 +11913,287 @@ model-index:
       type: mteb/fever
     metrics:
     - type: ndcg_at_1
-      value: 79.08800000000001
+      value: 77.93299999999999
     - type: ndcg_at_3
-      value: 83.943
+      value: 83.146
     - type: ndcg_at_5
-      value: 84.878
+      value: 84.188
     - type: ndcg_at_10
-      value: 85.528
+      value: 84.932
     - type: ndcg_at_20
-      value: 85.842
+      value: 85.187
     - type: ndcg_at_100
-      value: 86.134
+      value: 85.452
     - type: ndcg_at_1000
-      value: 86.367
+      value: 85.68599999999999
     - type: map_at_1
-      value: 73.211
+      value: 72.173
     - type: map_at_3
-      value: 80.5
+      value: 79.618
     - type: map_at_5
-      value: 81.134
+      value: 80.32000000000001
     - type: map_at_10
-      value: 81.463
+      value: 80.674
     - type: map_at_20
-      value: 81.566
+      value: 80.762
     - type: map_at_100
-      value: 81.622
+      value: 80.81
     - type: map_at_1000
-      value: 81.634
+      value: 80.822
     - type: recall_at_1
-      value: 73.211
+      value: 72.173
     - type: recall_at_3
-      value: 88.32799999999999
+      value: 87.804
     - type: recall_at_5
-      value: 90.821
+      value: 90.556
     - type: recall_at_10
-      value: 92.797
+      value: 92.869
     - type: recall_at_20
-      value: 93.932
+      value: 93.768
     - type: recall_at_100
-      value: 95.26299999999999
+      value: 95.00699999999999
     - type: recall_at_1000
-      value: 96.738
+      value: 96.504
     - type: precision_at_1
-      value: 79.08800000000001
+      value: 77.93299999999999
     - type: precision_at_3
-      value: 31.963
+      value: 31.828
     - type: precision_at_5
-      value: 19.769000000000002
+      value: 19.727
     - type: precision_at_10
-      value: 10.132
+      value: 10.135
     - type: precision_at_20
-      value: 5.149
+      value: 5.136
     - type: precision_at_100
-      value: 1.055
+      value: 1.049
     - type: precision_at_1000
       value: 0.109
     - type: mrr_at_1
-      value: 79.0879
+      value: 77.9328
     - type: mrr_at_3
-      value: 86.1536
+      value: 85.221
     - type: mrr_at_5
-      value: 86.7004
+      value: 85.8076
     - type: mrr_at_10
-      value: 86.9425
+      value: 86.0963
     - type: mrr_at_20
-      value: 87.00099999999999
+      value: 86.1448
     - type: mrr_at_100
-      value: 87.01719999999999
+      value: 86.1622
     - type: mrr_at_1000
-      value: 87.01769999999999
+      value: 86.1631
     - type: nauc_ndcg_at_1_max
-      value: 28.2184
+      value: 27.804499999999997
     - type: nauc_ndcg_at_1_std
-      value: -20.374200000000002
+      value: -31.1045
     - type: nauc_ndcg_at_1_diff1
-      value: 64.4185
+      value: 66.6633
     - type: nauc_ndcg_at_3_max
-      value: 22.014
+      value: 21.6576
     - type: nauc_ndcg_at_3_std
-      value: -15.221699999999998
+      value: -24.3372
     - type: nauc_ndcg_at_3_diff1
-      value: 47.511700000000005
+      value: 48.9088
     - type: nauc_ndcg_at_5_max
-      value: 21.381700000000002
+      value: 20.612
     - type: nauc_ndcg_at_5_std
-      value: -14.3711
+      value: -23.8007
     - type: nauc_ndcg_at_5_diff1
-      value: 46.6271
+      value: 48.0635
     - type: nauc_ndcg_at_10_max
-      value: 20.4251
+      value: 19.6463
     - type: nauc_ndcg_at_10_std
-      value: -13.3096
+      value: -22.5941
     - type: nauc_ndcg_at_10_diff1
-      value: 46.1205
+      value: 47.5561
     - type: nauc_ndcg_at_20_max
-      value: 20.686
+      value: 19.5443
     - type: nauc_ndcg_at_20_std
-      value: -12.6058
+      value: -21.998
     - type: nauc_ndcg_at_20_diff1
-      value: 46.14
+      value: 47.664699999999996
     - type: nauc_ndcg_at_100_max
-      value: 20.657700000000002
+      value: 19.2285
     - type: nauc_ndcg_at_100_std
-      value: -12.5531
+      value: -21.6826
     - type: nauc_ndcg_at_100_diff1
-      value: 46.3788
+      value: 47.897099999999995
     - type: nauc_ndcg_at_1000_max
-      value: 21.0177
+      value: 19.5578
     - type: nauc_ndcg_at_1000_std
-      value: -12.8318
+      value: -21.9412
     - type: nauc_ndcg_at_1000_diff1
-      value: 46.8648
+      value: 48.361
     - type: nauc_map_at_1_max
-      value: 21.4975
+      value: 20.3735
     - type: nauc_map_at_1_std
-      value: -14.5207
+      value: -24.7274
     - type: nauc_map_at_1_diff1
-      value: 51.53959999999999
+      value: 54.148399999999995
     - type: nauc_map_at_3_max
-      value: 20.322699999999998
+      value: 19.3166
     - type: nauc_map_at_3_std
-      value: -13.8986
+      value: -23.171
     - type: nauc_map_at_3_diff1
-      value: 46.3932
+      value: 48.254000000000005
     - type: nauc_map_at_5_max
-      value: 20.3296
+      value: 19.158900000000003
     - type: nauc_map_at_5_std
-      value: -13.5416
+      value: -22.966900000000003
     - type: nauc_map_at_5_diff1
-      value: 46.1518
+      value: 48.0877
     - type: nauc_map_at_10_max
-      value: 20.0385
+      value: 18.8745
     - type: nauc_map_at_10_std
-      value: -13.239999999999998
+      value: -22.5913
     - type: nauc_map_at_10_diff1
-      value: 46.061800000000005
+      value: 47.957899999999995
     - type: nauc_map_at_20_max
-      value: 20.113300000000002
+      value: 18.895200000000003
     - type: nauc_map_at_20_std
-      value: -13.0931
+      value: -22.4542
     - type: nauc_map_at_20_diff1
-      value: 46.091
+      value: 48.0047
     - type: nauc_map_at_100_max
-      value: 20.1262
+      value: 18.8722
     - type: nauc_map_at_100_std
-      value: -13.0646
+      value: -22.3984
     - type: nauc_map_at_100_diff1
-      value: 46.1321
+      value: 48.0394
     - type: nauc_map_at_1000_max
-      value: 20.1391
+      value: 18.8824
     - type: nauc_map_at_1000_std
-      value: -13.069600000000001
+      value: -22.4034
     - type: nauc_map_at_1000_diff1
-      value: 46.1501
+      value: 48.0533
     - type: nauc_recall_at_1_max
-      value: 21.4975
+      value: 20.3735
     - type: nauc_recall_at_1_std
-      value: -14.5207
+      value: -24.7274
     - type: nauc_recall_at_1_diff1
-      value: 51.53959999999999
+      value: 54.148399999999995
     - type: nauc_recall_at_3_max
-      value: 15.379399999999999
+      value: 15.2387
     - type: nauc_recall_at_3_std
-      value: -9.9735
+      value: -17.3947
     - type: nauc_recall_at_3_diff1
-      value: 30.6769
+      value: 30.6589
     - type: nauc_recall_at_5_max
-      value: 13.104099999999999
+      value: 11.4037
     - type: nauc_recall_at_5_std
-      value: -6.2273000000000005
+      value: -14.3603
     - type: nauc_recall_at_5_diff1
-      value: 24.4602
+      value: 23.7356
     - type: nauc_recall_at_10_max
-      value: 6.4093
+      value: 3.8233
     - type: nauc_recall_at_10_std
-      value: 0.9238
+      value: -4.6399
     - type: nauc_recall_at_10_diff1
-      value: 16.2715
+      value: 13.8514
     - type: nauc_recall_at_20_max
-      value: 5.5285
+      value: 0.3939
     - type: nauc_recall_at_20_std
-      value: 9.1474
+      value: 2.4212000000000002
     - type: nauc_recall_at_20_diff1
-      value: 10.8034
+      value: 10.110800000000001
     - type: nauc_recall_at_100_max
-      value: -0.116
+      value: -8.9768
     - type: nauc_recall_at_100_std
-      value: 14.4612
+      value: 11.2598
     - type: nauc_recall_at_100_diff1
-      value: 4.6372
+      value: 4.6753
     - type: nauc_recall_at_1000_max
-      value: -1.595
+      value: -13.494800000000001
     - type: nauc_recall_at_1000_std
-      value: 18.1495
+      value: 17.2306
     - type: nauc_recall_at_1000_diff1
-      value: -0.022000000000000002
+      value: 0.0856
     - type: nauc_precision_at_1_max
-      value: 28.2184
+      value: 27.804499999999997
     - type: nauc_precision_at_1_std
-      value: -20.374200000000002
+      value: -31.1045
     - type: nauc_precision_at_1_diff1
-      value: 64.4185
+      value: 66.6633
     - type: nauc_precision_at_3_max
-      value: 24.238799999999998
+      value: 25.660899999999998
     - type: nauc_precision_at_3_std
-      value: -19.7064
+      value: -22.0243
     - type: nauc_precision_at_3_diff1
-      value: 37.7498
+      value: 34.5966
     - type: nauc_precision_at_5_max
-      value: 20.8308
+      value: 22.4777
     - type: nauc_precision_at_5_std
-      value: -13.6486
+      value: -14.9469
     - type: nauc_precision_at_5_diff1
-      value: 23.3404
+      value: 20.9233
     - type: nauc_precision_at_10_max
-      value: 9.4386
+      value: 13.7882
     - type: nauc_precision_at_10_std
-      value: -4.8239
+      value: -0.1941
     - type: nauc_precision_at_10_diff1
-      value: 6.8594
+      value: 2.5737
     - type: nauc_precision_at_20_max
-      value: 9.0063
+      value: 10.422099999999999
     - type: nauc_precision_at_20_std
-      value: 4.0311
+      value: 8.518
     - type: nauc_precision_at_20_diff1
-      value: -2.9298
+      value: -4.2715000000000005
     - type: nauc_precision_at_100_max
-      value: 5.1057
+      value: 3.8884000000000003
     - type: nauc_precision_at_100_std
-      value: 7.3903
+      value: 14.529800000000002
     - type: nauc_precision_at_100_diff1
-      value: -8.7148
+      value: -10.066
     - type: nauc_precision_at_1000_max
-      value: 6.3359
+      value: 5.5056
     - type: nauc_precision_at_1000_std
-      value: 3.9797
+      value: 10.3948
     - type: nauc_precision_at_1000_diff1
-      value: -8.3131
+      value: -9.5234
     - type: nauc_mrr_at_1_max
-      value: 28.2184
+      value: 27.804499999999997
     - type: nauc_mrr_at_1_std
-      value: -20.374200000000002
+      value: -31.1045
     - type: nauc_mrr_at_1_diff1
-      value: 64.4185
+      value: 66.6633
     - type: nauc_mrr_at_3_max
-      value: 29.7481
+      value: 30.593500000000002
     - type: nauc_mrr_at_3_std
-      value: -21.9924
+      value: -31.844499999999996
     - type: nauc_mrr_at_3_diff1
-      value: 62.5737
+      value: 63.571
     - type: nauc_mrr_at_5_max
-      value: 29.8062
+      value: 30.544700000000002
     - type: nauc_mrr_at_5_std
-      value: -22.078
+      value: -32.0369
     - type: nauc_mrr_at_5_diff1
-      value: 62.9
+      value: 63.8464
     - type: nauc_mrr_at_10_max
-      value: 29.641000000000002
+      value: 30.459000000000003
     - type: nauc_mrr_at_10_std
-      value: -21.6827
+      value: -31.799500000000002
     - type: nauc_mrr_at_10_diff1
-      value: 62.944599999999994
+      value: 64.0984
     - type: nauc_mrr_at_20_max
-      value: 29.6535
+      value: 30.3871
     - type: nauc_mrr_at_20_std
-      value: -21.520400000000002
+      value: -31.6429
     - type: nauc_mrr_at_20_diff1
-      value: 62.9583
+      value: 64.1444
     - type: nauc_mrr_at_100_max
-      value: 29.622799999999998
+      value: 30.324099999999998
     - type: nauc_mrr_at_100_std
-      value: -21.5393
+      value: -31.629800000000003
     - type: nauc_mrr_at_100_diff1
-      value: 62.9658
+      value: 64.163
     - type: nauc_mrr_at_1000_max
-      value: 29.619400000000002
+      value: 30.3201
     - type: nauc_mrr_at_1000_std
-      value: -21.5417
+      value: -31.6352
     - type: nauc_mrr_at_1000_diff1
-      value: 62.96469999999999
+      value: 64.1637
     - type: main_score
-      value: 85.528
+      value: 84.932
     task:
       type: Retrieval
   - dataset:
@@ -12192,287 +12204,287 @@ model-index:
       type: mteb/fiqa
     metrics:
     - type: ndcg_at_1
-      value: 35.494
+      value: 34.259
     - type: ndcg_at_3
-      value: 32.305
+      value: 32.14
     - type: ndcg_at_5
-      value: 34.332
+      value: 33.391
     - type: ndcg_at_10
-      value: 36.851
+      value: 35.663
     - type: ndcg_at_20
-      value: 39.31
+      value: 38.193
     - type: ndcg_at_100
-      value: 43.462
+      value: 42.232
     - type: ndcg_at_1000
-      value: 46.766000000000005
+      value: 45.595
     - type: map_at_1
-      value: 18.311
+      value: 17.124
     - type: map_at_3
-      value: 24.778
+      value: 24.359
     - type: map_at_5
-      value: 27.453
+      value: 26.532
     - type: map_at_10
-      value: 29.198
+      value: 28.183000000000003
     - type: map_at_20
-      value: 30.118000000000002
+      value: 29.119
     - type: map_at_100
-      value: 30.930000000000003
+      value: 29.881
     - type: map_at_1000
-      value: 31.115
+      value: 30.070000000000004
     - type: recall_at_1
-      value: 18.311
+      value: 17.124
     - type: recall_at_3
-      value: 28.823999999999998
+      value: 29.488999999999997
     - type: recall_at_5
-      value: 36.178
+      value: 35.436
     - type: recall_at_10
-      value: 43.842
+      value: 42.665
     - type: recall_at_20
-      value: 51.370000000000005
+      value: 50.381
     - type: recall_at_100
-      value: 68.593
+      value: 67.364
     - type: recall_at_1000
-      value: 88.55
+      value: 87.315
     - type: precision_at_1
-      value: 35.494
+      value: 34.259
     - type: precision_at_3
-      value: 21.142
+      value: 21.399
     - type: precision_at_5
-      value: 16.326999999999998
+      value: 15.926000000000002
     - type: precision_at_10
-      value: 10.309
+      value: 9.907
     - type: precision_at_20
-      value: 6.211
+      value: 6.026
     - type: precision_at_100
-      value: 1.7069999999999999
+      value: 1.637
     - type: precision_at_1000
-      value: 0.22899999999999998
+      value: 0.22599999999999998
     - type: mrr_at_1
-      value: 35.4938
+      value: 34.259299999999996
     - type: mrr_at_3
-      value: 41.6667
+      value: 40.7922
     - type: mrr_at_5
-      value: 43.4182
+      value: 42.1811
     - type: mrr_at_10
-      value: 44.4732
+      value: 43.1663
     - type: mrr_at_20
-      value: 44.969
+      value: 43.684400000000004
     - type: mrr_at_100
-      value: 45.318599999999996
+      value: 44.079
     - type: mrr_at_1000
-      value: 45.3674
+      value: 44.1277
     - type: nauc_ndcg_at_1_max
-      value: 33.946799999999996
+      value: 45.5993
     - type: nauc_ndcg_at_1_std
-      value: -5.282
+      value: 4.2730999999999995
     - type: nauc_ndcg_at_1_diff1
-      value: 47.413
+      value: 51.0941
     - type: nauc_ndcg_at_3_max
-      value: 30.9073
+      value: 38.6082
     - type: nauc_ndcg_at_3_std
-      value: -2.2498
+      value: 1.7973
     - type: nauc_ndcg_at_3_diff1
-      value: 38.548500000000004
+      value: 41.556599999999996
     - type: nauc_ndcg_at_5_max
-      value: 30.2537
+      value: 37.0326
     - type: nauc_ndcg_at_5_std
-      value: -0.9919000000000001
+      value: 3.5555000000000003
     - type: nauc_ndcg_at_5_diff1
-      value: 37.988499999999995
+      value: 41.166599999999995
     - type: nauc_ndcg_at_10_max
-      value: 30.5224
+      value: 36.8257
     - type: nauc_ndcg_at_10_std
-      value: 0.0762
+      value: 4.6765
     - type: nauc_ndcg_at_10_diff1
-      value: 38.2531
+      value: 40.7039
     - type: nauc_ndcg_at_20_max
-      value: 32.173
+      value: 37.9542
     - type: nauc_ndcg_at_20_std
-      value: 3.3266999999999998
+      value: 6.2273000000000005
     - type: nauc_ndcg_at_20_diff1
-      value: 37.5071
+      value: 40.7126
     - type: nauc_ndcg_at_100_max
-      value: 33.551700000000004
+      value: 40.029399999999995
     - type: nauc_ndcg_at_100_std
-      value: 5.8902
+      value: 8.8925
     - type: nauc_ndcg_at_100_diff1
-      value: 37.3363
+      value: 40.8749
     - type: nauc_ndcg_at_1000_max
-      value: 34.1671
+      value: 41.0995
     - type: nauc_ndcg_at_1000_std
-      value: 5.4682
+      value: 9.055399999999999
     - type: nauc_ndcg_at_1000_diff1
-      value: 37.5779
+      value: 42.0999
     - type: nauc_map_at_1_max
-      value: 20.0425
+      value: 29.1034
     - type: nauc_map_at_1_std
-      value: -7.41
+      value: -1.3329
     - type: nauc_map_at_1_diff1
-      value: 40.725699999999996
+      value: 49.6713
     - type: nauc_map_at_3_max
-      value: 25.380799999999997
+      value: 31.2555
     - type: nauc_map_at_3_std
-      value: -4.5524000000000004
+      value: -1.2727
     - type: nauc_map_at_3_diff1
-      value: 38.960699999999996
+      value: 42.8671
     - type: nauc_map_at_5_max
-      value: 27.208900000000003
+      value: 32.7495
     - type: nauc_map_at_5_std
-      value: -3.034
+      value: 0.4463
     - type: nauc_map_at_5_diff1
-      value: 38.475500000000004
+      value: 42.3138
     - type: nauc_map_at_10_max
-      value: 28.6066
+      value: 34.0564
     - type: nauc_map_at_10_std
-      value: -2.1042
+      value: 1.8785
     - type: nauc_map_at_10_diff1
-      value: 38.4411
+      value: 41.9711
     - type: nauc_map_at_20_max
-      value: 29.3931
+      value: 34.7449
     - type: nauc_map_at_20_std
-      value: -0.8289
+      value: 2.6273
     - type: nauc_map_at_20_diff1
-      value: 38.137
+      value: 41.9563
     - type: nauc_map_at_100_max
-      value: 29.8041
+      value: 35.3724
     - type: nauc_map_at_100_std
-      value: -0.1992
+      value: 3.1910000000000003
     - type: nauc_map_at_100_diff1
-      value: 38.0546
+      value: 41.990899999999996
     - type: nauc_map_at_1000_max
-      value: 29.886400000000002
+      value: 35.4782
     - type: nauc_map_at_1000_std
-      value: -0.1638
+      value: 3.2302999999999997
     - type: nauc_map_at_1000_diff1
-      value: 38.0646
+      value: 42.0484
     - type: nauc_recall_at_1_max
-      value: 20.0425
+      value: 29.1034
     - type: nauc_recall_at_1_std
-      value: -7.41
+      value: -1.3329
     - type: nauc_recall_at_1_diff1
-      value: 40.725699999999996
+      value: 49.6713
     - type: nauc_recall_at_3_max
-      value: 20.8038
+      value: 28.3729
     - type: nauc_recall_at_3_std
-      value: -4.1075
+      value: 0.0225
     - type: nauc_recall_at_3_diff1
-      value: 33.0009
+      value: 35.2655
     - type: nauc_recall_at_5_max
-      value: 23.1816
+      value: 28.0157
     - type: nauc_recall_at_5_std
-      value: 0.2681
+      value: 3.5967
     - type: nauc_recall_at_5_diff1
-      value: 30.1663
+      value: 31.5507
     - type: nauc_recall_at_10_max
-      value: 23.754
+      value: 28.0271
     - type: nauc_recall_at_10_std
-      value: 2.4185000000000003
+      value: 6.7875000000000005
     - type: nauc_recall_at_10_diff1
-      value: 28.475499999999997
+      value: 28.3267
     - type: nauc_recall_at_20_max
-      value: 27.711599999999997
+      value: 30.2764
     - type: nauc_recall_at_20_std
-      value: 12.509700000000002
+      value: 11.2697
     - type: nauc_recall_at_20_diff1
-      value: 25.172299999999996
+      value: 27.5277
     - type: nauc_recall_at_100_max
-      value: 29.3806
+      value: 33.2215
     - type: nauc_recall_at_100_std
-      value: 25.1963
+      value: 23.6362
     - type: nauc_recall_at_100_diff1
-      value: 21.849
+      value: 23.1851
     - type: nauc_recall_at_1000_max
-      value: 34.1492
+      value: 41.8199
     - type: nauc_recall_at_1000_std
-      value: 40.4872
+      value: 42.2866
     - type: nauc_recall_at_1000_diff1
-      value: 17.0167
+      value: 29.341099999999997
     - type: nauc_precision_at_1_max
-      value: 33.946799999999996
+      value: 45.5993
     - type: nauc_precision_at_1_std
-      value: -5.282
+      value: 4.2730999999999995
     - type: nauc_precision_at_1_diff1
-      value: 47.413
+      value: 51.0941
     - type: nauc_precision_at_3_max
-      value: 36.6837
+      value: 40.541
     - type: nauc_precision_at_3_std
-      value: 3.7282
+      value: 3.6046
     - type: nauc_precision_at_3_diff1
-      value: 31.0152
+      value: 29.2879
     - type: nauc_precision_at_5_max
-      value: 37.6087
+      value: 40.4116
     - type: nauc_precision_at_5_std
-      value: 7.3439000000000005
+      value: 9.523
     - type: nauc_precision_at_5_diff1
-      value: 27.2321
+      value: 24.9572
     - type: nauc_precision_at_10_max
-      value: 38.2792
+      value: 39.7377
     - type: nauc_precision_at_10_std
-      value: 11.3814
+      value: 11.8076
     - type: nauc_precision_at_10_diff1
-      value: 22.6494
+      value: 21.1979
     - type: nauc_precision_at_20_max
-      value: 38.455
+      value: 40.1851
     - type: nauc_precision_at_20_std
-      value: 17.4053
+      value: 14.967
     - type: nauc_precision_at_20_diff1
-      value: 16.8265
+      value: 19.0881
     - type: nauc_precision_at_100_max
-      value: 36.203
+      value: 39.4474
     - type: nauc_precision_at_100_std
-      value: 22.2758
+      value: 19.6785
     - type: nauc_precision_at_100_diff1
-      value: 8.3908
+      value: 12.6951
     - type: nauc_precision_at_1000_max
-      value: 29.599700000000002
+      value: 32.071600000000004
     - type: nauc_precision_at_1000_std
-      value: 17.186899999999998
+      value: 14.7899
     - type: nauc_precision_at_1000_diff1
-      value: 0.0332
+      value: 7.456599999999999
     - type: nauc_mrr_at_1_max
-      value: 33.946799999999996
+      value: 45.5993
     - type: nauc_mrr_at_1_std
-      value: -5.282
+      value: 4.2730999999999995
     - type: nauc_mrr_at_1_diff1
-      value: 47.413
+      value: 51.0941
     - type: nauc_mrr_at_3_max
-      value: 34.0785
+      value: 45.5586
     - type: nauc_mrr_at_3_std
-      value: -2.1323000000000003
+      value: 5.6932
     - type: nauc_mrr_at_3_diff1
-      value: 43.8661
+      value: 47.1359
     - type: nauc_mrr_at_5_max
-      value: 34.244
+      value: 45.0408
     - type: nauc_mrr_at_5_std
-      value: -1.5425
+      value: 6.4838000000000005
     - type: nauc_mrr_at_5_diff1
-      value: 43.7631
+      value: 46.4912
     - type: nauc_mrr_at_10_max
-      value: 34.265299999999996
+      value: 44.9499
     - type: nauc_mrr_at_10_std
-      value: -1.1494
+      value: 6.6139
     - type: nauc_mrr_at_10_diff1
-      value: 43.639
+      value: 46.332699999999996
     - type: nauc_mrr_at_20_max
-      value: 34.5648
+      value: 45.063900000000004
     - type: nauc_mrr_at_20_std
-      value: -0.6076
+      value: 6.6114999999999995
     - type: nauc_mrr_at_20_diff1
-      value: 43.431
+      value: 46.3181
     - type: nauc_mrr_at_100_max
-      value: 34.571400000000004
+      value: 45.2249
     - type: nauc_mrr_at_100_std
-      value: -0.5074000000000001
+      value: 6.8897
     - type: nauc_mrr_at_100_diff1
-      value: 43.4003
+      value: 46.373799999999996
     - type: nauc_mrr_at_1000_max
-      value: 34.5576
+      value: 45.2235
     - type: nauc_mrr_at_1000_std
-      value: -0.534
+      value: 6.8732
     - type: nauc_mrr_at_1000_diff1
-      value: 43.4086
+      value: 46.399699999999996
     - type: main_score
-      value: 36.851
+      value: 35.663
     task:
       type: Retrieval
   - dataset:
@@ -12483,287 +12495,287 @@ model-index:
       type: mteb/hotpotqa
     metrics:
     - type: ndcg_at_1
-      value: 73.531
+      value: 75.908
     - type: ndcg_at_3
-      value: 58.24700000000001
+      value: 57.643
     - type: ndcg_at_5
-      value: 60.905
+      value: 59.689
     - type: ndcg_at_10
-      value: 62.918
+      value: 61.513
     - type: ndcg_at_20
-      value: 64.297
+      value: 62.721000000000004
     - type: ndcg_at_100
-      value: 66.056
+      value: 64.57000000000001
     - type: ndcg_at_1000
-      value: 67.554
+      value: 65.981
     - type: map_at_1
-      value: 36.766
+      value: 37.954
     - type: map_at_3
-      value: 50.427
+      value: 49.424
     - type: map_at_5
-      value: 52.449999999999996
+      value: 50.99399999999999
     - type: map_at_10
-      value: 53.639
+      value: 52.066
     - type: map_at_20
-      value: 54.17999999999999
+      value: 52.54600000000001
     - type: map_at_100
-      value: 54.532000000000004
+      value: 52.910000000000004
     - type: map_at_1000
-      value: 54.608000000000004
+      value: 52.981
     - type: recall_at_1
-      value: 36.766
+      value: 37.954
     - type: recall_at_3
-      value: 54.835
+      value: 53.201
     - type: recall_at_5
-      value: 60.080999999999996
+      value: 57.232000000000006
     - type: recall_at_10
-      value: 65.098
+      value: 61.82299999999999
     - type: recall_at_20
-      value: 69.541
+      value: 65.692
     - type: recall_at_100
-      value: 77.306
+      value: 73.896
     - type: recall_at_1000
-      value: 87.252
+      value: 83.255
     - type: precision_at_1
-      value: 73.531
+      value: 75.908
     - type: precision_at_3
-      value: 36.556
+      value: 35.467
     - type: precision_at_5
-      value: 24.032
+      value: 22.893
     - type: precision_at_10
-      value: 13.020000000000001
+      value: 12.365
     - type: precision_at_20
-      value: 6.954000000000001
+      value: 6.569
     - type: precision_at_100
-      value: 1.546
+      value: 1.478
     - type: precision_at_1000
-      value: 0.17500000000000002
+      value: 0.167
     - type: mrr_at_1
-      value: 73.5314
+      value: 75.90820000000001
     - type: mrr_at_3
-      value: 78.9489
+      value: 80.5717
     - type: mrr_at_5
-      value: 79.7288
+      value: 81.15299999999999
     - type: mrr_at_10
-      value: 80.1036
+      value: 81.4709
     - type: mrr_at_20
-      value: 80.2602
+      value: 81.6082
     - type: mrr_at_100
-      value: 80.3412
+      value: 81.69239999999999
     - type: mrr_at_1000
-      value: 80.3512
+      value: 81.7034
     - type: nauc_ndcg_at_1_max
-      value: 49.4087
+      value: 53.456199999999995
     - type: nauc_ndcg_at_1_std
-      value: -8.233
+      value: -7.1338
     - type: nauc_ndcg_at_1_diff1
-      value: 69.19380000000001
+      value: 72.2296
     - type: nauc_ndcg_at_3_max
-      value: 29.407899999999998
+      value: 30.760199999999998
     - type: nauc_ndcg_at_3_std
-      value: -2.1144
+      value: -3.1088999999999998
     - type: nauc_ndcg_at_3_diff1
-      value: 27.245599999999996
+      value: 29.957099999999997
     - type: nauc_ndcg_at_5_max
-      value: 27.483
+      value: 29.404000000000003
     - type: nauc_ndcg_at_5_std
-      value: -0.7036
+      value: -1.8713
     - type: nauc_ndcg_at_5_diff1
-      value: 24.2534
+      value: 27.3461
     - type: nauc_ndcg_at_10_max
-      value: 26.766499999999997
+      value: 28.0841
     - type: nauc_ndcg_at_10_std
-      value: 0.5583
+      value: -0.8572
     - type: nauc_ndcg_at_10_diff1
-      value: 22.822300000000002
+      value: 25.1934
     - type: nauc_ndcg_at_20_max
-      value: 26.339800000000004
+      value: 27.581099999999996
     - type: nauc_ndcg_at_20_std
-      value: 1.3486
+      value: -0.1989
     - type: nauc_ndcg_at_20_diff1
-      value: 22.3499
+      value: 24.3724
     - type: nauc_ndcg_at_100_max
-      value: 26.436799999999998
+      value: 27.0287
     - type: nauc_ndcg_at_100_std
-      value: 2.5304
+      value: 0.7972
     - type: nauc_ndcg_at_100_diff1
-      value: 22.372700000000002
+      value: 23.6936
     - type: nauc_ndcg_at_1000_max
-      value: 26.9472
+      value: 27.070800000000002
     - type: nauc_ndcg_at_1000_std
-      value: 2.3277
+      value: 0.8108000000000001
     - type: nauc_ndcg_at_1000_diff1
-      value: 23.3345
+      value: 24.0546
     - type: nauc_map_at_1_max
-      value: 49.4087
+      value: 53.456199999999995
     - type: nauc_map_at_1_std
-      value: -8.233
+      value: -7.1338
     - type: nauc_map_at_1_diff1
-      value: 69.19380000000001
+      value: 72.2296
     - type: nauc_map_at_3_max
-      value: 25.2676
+      value: 26.085199999999997
     - type: nauc_map_at_3_std
-      value: -1.8659999999999999
+      value: -3.3792999999999997
     - type: nauc_map_at_3_diff1
-      value: 21.0961
+      value: 23.335900000000002
     - type: nauc_map_at_5_max
-      value: 24.0651
+      value: 25.2911
     - type: nauc_map_at_5_std
-      value: -0.8111
+      value: -2.6356
     - type: nauc_map_at_5_diff1
-      value: 19.237099999999998
+      value: 21.7569
     - type: nauc_map_at_10_max
-      value: 23.785
+      value: 24.5926
     - type: nauc_map_at_10_std
-      value: -0.1037
+      value: -2.1178
     - type: nauc_map_at_10_diff1
-      value: 18.5973
+      value: 20.6735
     - type: nauc_map_at_20_max
-      value: 23.6813
+      value: 24.479400000000002
     - type: nauc_map_at_20_std
-      value: 0.1708
+      value: -1.8454000000000002
     - type: nauc_map_at_20_diff1
-      value: 18.499299999999998
+      value: 20.4617
     - type: nauc_map_at_100_max
-      value: 23.7276
+      value: 24.390600000000003
     - type: nauc_map_at_100_std
-      value: 0.3879
+      value: -1.6625999999999999
     - type: nauc_map_at_100_diff1
-      value: 18.5423
+      value: 20.3774
     - type: nauc_map_at_1000_max
-      value: 23.7501
+      value: 24.387900000000002
     - type: nauc_map_at_1000_std
-      value: 0.3886
+      value: -1.6534
     - type: nauc_map_at_1000_diff1
-      value: 18.578500000000002
+      value: 20.3887
     - type: nauc_recall_at_1_max
-      value: 49.4087
+      value: 53.456199999999995
     - type: nauc_recall_at_1_std
-      value: -8.233
+      value: -7.1338
     - type: nauc_recall_at_1_diff1
-      value: 69.19380000000001
+      value: 72.2296
     - type: nauc_recall_at_3_max
-      value: 21.7043
+      value: 22.2324
     - type: nauc_recall_at_3_std
-      value: 0.24320000000000003
+      value: -1.4433
     - type: nauc_recall_at_3_diff1
-      value: 12.102599999999999
+      value: 14.944799999999999
     - type: nauc_recall_at_5_max
-      value: 16.923
+      value: 19.1126
     - type: nauc_recall_at_5_std
-      value: 2.9763
+      value: 0.9252
     - type: nauc_recall_at_5_diff1
-      value: 5.5262
+      value: 9.6723
     - type: nauc_recall_at_10_max
-      value: 13.8286
+      value: 15.4048
     - type: nauc_recall_at_10_std
-      value: 6.1254
+      value: 3.3196000000000003
     - type: nauc_recall_at_10_diff1
-      value: 0.6326
+      value: 4.2059
     - type: nauc_recall_at_20_max
-      value: 11.307300000000001
+      value: 12.7643
     - type: nauc_recall_at_20_std
-      value: 8.9861
+      value: 5.431699999999999
     - type: nauc_recall_at_20_diff1
-      value: -2.5909
+      value: 0.46880000000000005
     - type: nauc_recall_at_100_max
-      value: 8.2009
+      value: 7.538
     - type: nauc_recall_at_100_std
-      value: 16.051199999999998
+      value: 10.5696
     - type: nauc_recall_at_100_diff1
-      value: -7.757699999999999
+      value: -6.472300000000001
     - type: nauc_recall_at_1000_max
-      value: 5.4062
+      value: 1.7873
     - type: nauc_recall_at_1000_std
-      value: 20.6122
+      value: 13.6112
     - type: nauc_recall_at_1000_diff1
-      value: -11.931700000000001
+      value: -13.081000000000001
     - type: nauc_precision_at_1_max
-      value: 49.4087
+      value: 53.456199999999995
     - type: nauc_precision_at_1_std
-      value: -8.233
+      value: -7.1338
     - type: nauc_precision_at_1_diff1
-      value: 69.19380000000001
+      value: 72.2296
     - type: nauc_precision_at_3_max
-      value: 21.7043
+      value: 22.2324
     - type: nauc_precision_at_3_std
-      value: 0.24320000000000003
+      value: -1.4433
     - type: nauc_precision_at_3_diff1
-      value: 12.102599999999999
+      value: 14.944799999999999
     - type: nauc_precision_at_5_max
-      value: 16.923
+      value: 19.1126
     - type: nauc_precision_at_5_std
-      value: 2.9763
+      value: 0.9252
     - type: nauc_precision_at_5_diff1
-      value: 5.5262
+      value: 9.6723
     - type: nauc_precision_at_10_max
-      value: 13.8286
+      value: 15.4048
     - type: nauc_precision_at_10_std
-      value: 6.1254
+      value: 3.3196000000000003
     - type: nauc_precision_at_10_diff1
-      value: 0.6326
+      value: 4.2059
     - type: nauc_precision_at_20_max
-      value: 11.307300000000001
+      value: 12.7643
     - type: nauc_precision_at_20_std
-      value: 8.9861
+      value: 5.431699999999999
     - type: nauc_precision_at_20_diff1
-      value: -2.5909
+      value: 0.46880000000000005
     - type: nauc_precision_at_100_max
-      value: 8.2009
+      value: 7.538
     - type: nauc_precision_at_100_std
-      value: 16.051199999999998
+      value: 10.5696
     - type: nauc_precision_at_100_diff1
-      value: -7.757699999999999
+      value: -6.472300000000001
     - type: nauc_precision_at_1000_max
-      value: 5.4062
+      value: 1.7873
     - type: nauc_precision_at_1000_std
-      value: 20.6122
+      value: 13.6112
     - type: nauc_precision_at_1000_diff1
-      value: -11.931700000000001
+      value: -13.081000000000001
     - type: nauc_mrr_at_1_max
-      value: 49.4087
+      value: 53.456199999999995
     - type: nauc_mrr_at_1_std
-      value: -8.233
+      value: -7.1338
     - type: nauc_mrr_at_1_diff1
-      value: 69.19380000000001
+      value: 72.2296
     - type: nauc_mrr_at_3_max
-      value: 51.004099999999994
+      value: 54.94369999999999
     - type: nauc_mrr_at_3_std
-      value: -6.4677
+      value: -5.0057
     - type: nauc_mrr_at_3_diff1
-      value: 66.1969
+      value: 69.6774
     - type: nauc_mrr_at_5_max
-      value: 50.880199999999995
+      value: 54.970699999999994
     - type: nauc_mrr_at_5_std
-      value: -6.3541
+      value: -4.3104000000000005
     - type: nauc_mrr_at_5_diff1
-      value: 66.0764
+      value: 69.4618
     - type: nauc_mrr_at_10_max
-      value: 50.924899999999994
+      value: 55.01970000000001
     - type: nauc_mrr_at_10_std
-      value: -6.2945
+      value: -4.0596
     - type: nauc_mrr_at_10_diff1
-      value: 66.2079
+      value: 69.435
     - type: nauc_mrr_at_20_max
-      value: 50.907199999999996
+      value: 54.9824
     - type: nauc_mrr_at_20_std
-      value: -6.253
+      value: -4.1227
     - type: nauc_mrr_at_20_diff1
-      value: 66.28450000000001
+      value: 69.4712
     - type: nauc_mrr_at_100_max
-      value: 50.8991
+      value: 54.9588
     - type: nauc_mrr_at_100_std
-      value: -6.2459
+      value: -4.1325
     - type: nauc_mrr_at_100_diff1
-      value: 66.3257
+      value: 69.498
     - type: nauc_mrr_at_1000_max
-      value: 50.8934
+      value: 54.95179999999999
     - type: nauc_mrr_at_1000_std
-      value: -6.2602
+      value: -4.1442
     - type: nauc_mrr_at_1000_diff1
-      value: 66.328
+      value: 69.503
     - type: main_score
-      value: 62.918
+      value: 61.513
     task:
       type: Retrieval
   - dataset:
@@ -12774,19 +12786,5257 @@ model-index:
       type: mteb/imdb
     metrics:
     - type: accuracy
-      value: 62.2348
+      value: 63.0232
     - type: f1
-      value: 62.0977
+      value: 62.8137
     - type: f1_weighted
-      value: 62.0977
+      value: 62.8137
     - type: ap
-      value: 57.750800000000005
+      value: 58.377199999999995
     - type: ap_weighted
-      value: 57.750800000000005
+      value: 58.377199999999995
     - type: main_score
-      value: 62.2348
+      value: 63.0232
     task:
       type: Classification
+  - dataset:
+      config: ar
+      name: MTEB MIRACLRetrieval (ar)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 57.459
+    - type: ndcg_at_3
+      value: 58.162000000000006
+    - type: ndcg_at_5
+      value: 60.831
+    - type: ndcg_at_10
+      value: 64.238
+    - type: ndcg_at_20
+      value: 66.455
+    - type: ndcg_at_100
+      value: 68.67
+    - type: ndcg_at_1000
+      value: 69.51
+    - type: map_at_1
+      value: 38.064
+    - type: map_at_3
+      value: 51.217999999999996
+    - type: map_at_5
+      value: 54.364999999999995
+    - type: map_at_10
+      value: 56.589999999999996
+    - type: map_at_20
+      value: 57.545
+    - type: map_at_100
+      value: 58.06400000000001
+    - type: map_at_1000
+      value: 58.111999999999995
+    - type: recall_at_1
+      value: 38.064
+    - type: recall_at_3
+      value: 58.618
+    - type: recall_at_5
+      value: 66.353
+    - type: recall_at_10
+      value: 75.098
+    - type: recall_at_20
+      value: 81.978
+    - type: recall_at_100
+      value: 91.203
+    - type: recall_at_1000
+      value: 96.706
+    - type: precision_at_1
+      value: 57.459
+    - type: precision_at_3
+      value: 32.965
+    - type: precision_at_5
+      value: 23.405
+    - type: precision_at_10
+      value: 13.816
+    - type: precision_at_20
+      value: 7.742
+    - type: precision_at_100
+      value: 1.7739999999999998
+    - type: precision_at_1000
+      value: 0.189
+    - type: mrr_at_1
+      value: 57.458600000000004
+    - type: mrr_at_3
+      value: 65.4523
+    - type: mrr_at_5
+      value: 66.6506
+    - type: mrr_at_10
+      value: 67.48100000000001
+    - type: mrr_at_20
+      value: 67.7522
+    - type: mrr_at_100
+      value: 67.88419999999999
+    - type: mrr_at_1000
+      value: 67.8972
+    - type: nauc_ndcg_at_1_max
+      value: 38.2614
+    - type: nauc_ndcg_at_1_std
+      value: 1.0798999999999999
+    - type: nauc_ndcg_at_1_diff1
+      value: 44.3159
+    - type: nauc_ndcg_at_3_max
+      value: 35.7658
+    - type: nauc_ndcg_at_3_std
+      value: -3.9097
+    - type: nauc_ndcg_at_3_diff1
+      value: 36.8009
+    - type: nauc_ndcg_at_5_max
+      value: 37.7543
+    - type: nauc_ndcg_at_5_std
+      value: -2.7727999999999997
+    - type: nauc_ndcg_at_5_diff1
+      value: 36.8992
+    - type: nauc_ndcg_at_10_max
+      value: 39.9339
+    - type: nauc_ndcg_at_10_std
+      value: -0.2843
+    - type: nauc_ndcg_at_10_diff1
+      value: 36.7359
+    - type: nauc_ndcg_at_20_max
+      value: 40.9231
+    - type: nauc_ndcg_at_20_std
+      value: 1.5467
+    - type: nauc_ndcg_at_20_diff1
+      value: 36.5693
+    - type: nauc_ndcg_at_100_max
+      value: 41.554
+    - type: nauc_ndcg_at_100_std
+      value: 3.7470999999999997
+    - type: nauc_ndcg_at_100_diff1
+      value: 36.6323
+    - type: nauc_ndcg_at_1000_max
+      value: 41.1969
+    - type: nauc_ndcg_at_1000_std
+      value: 2.9972
+    - type: nauc_ndcg_at_1000_diff1
+      value: 37.1419
+    - type: nauc_map_at_1_max
+      value: 21.1612
+    - type: nauc_map_at_1_std
+      value: -11.2901
+    - type: nauc_map_at_1_diff1
+      value: 43.8572
+    - type: nauc_map_at_3_max
+      value: 31.0197
+    - type: nauc_map_at_3_std
+      value: -7.5985
+    - type: nauc_map_at_3_diff1
+      value: 38.0396
+    - type: nauc_map_at_5_max
+      value: 33.8261
+    - type: nauc_map_at_5_std
+      value: -5.501
+    - type: nauc_map_at_5_diff1
+      value: 37.2243
+    - type: nauc_map_at_10_max
+      value: 35.5222
+    - type: nauc_map_at_10_std
+      value: -3.7351
+    - type: nauc_map_at_10_diff1
+      value: 36.8849
+    - type: nauc_map_at_20_max
+      value: 36.0478
+    - type: nauc_map_at_20_std
+      value: -2.9566
+    - type: nauc_map_at_20_diff1
+      value: 36.7755
+    - type: nauc_map_at_100_max
+      value: 36.256
+    - type: nauc_map_at_100_std
+      value: -2.455
+    - type: nauc_map_at_100_diff1
+      value: 36.778800000000004
+    - type: nauc_map_at_1000_max
+      value: 36.249900000000004
+    - type: nauc_map_at_1000_std
+      value: -2.4678999999999998
+    - type: nauc_map_at_1000_diff1
+      value: 36.7962
+    - type: nauc_recall_at_1_max
+      value: 21.1612
+    - type: nauc_recall_at_1_std
+      value: -11.2901
+    - type: nauc_recall_at_1_diff1
+      value: 43.8572
+    - type: nauc_recall_at_3_max
+      value: 30.1126
+    - type: nauc_recall_at_3_std
+      value: -8.705499999999999
+    - type: nauc_recall_at_3_diff1
+      value: 33.0274
+    - type: nauc_recall_at_5_max
+      value: 35.5301
+    - type: nauc_recall_at_5_std
+      value: -4.1692
+    - type: nauc_recall_at_5_diff1
+      value: 30.693900000000003
+    - type: nauc_recall_at_10_max
+      value: 41.431200000000004
+    - type: nauc_recall_at_10_std
+      value: 3.1441999999999997
+    - type: nauc_recall_at_10_diff1
+      value: 28.5864
+    - type: nauc_recall_at_20_max
+      value: 46.097100000000005
+    - type: nauc_recall_at_20_std
+      value: 10.93
+    - type: nauc_recall_at_20_diff1
+      value: 26.930100000000003
+    - type: nauc_recall_at_100_max
+      value: 58.3395
+    - type: nauc_recall_at_100_std
+      value: 40.328599999999994
+    - type: nauc_recall_at_100_diff1
+      value: 21.9273
+    - type: nauc_recall_at_1000_max
+      value: 72.4689
+    - type: nauc_recall_at_1000_std
+      value: 59.1972
+    - type: nauc_recall_at_1000_diff1
+      value: 27.697899999999997
+    - type: nauc_precision_at_1_max
+      value: 38.2614
+    - type: nauc_precision_at_1_std
+      value: 1.0798999999999999
+    - type: nauc_precision_at_1_diff1
+      value: 44.3159
+    - type: nauc_precision_at_3_max
+      value: 35.755700000000004
+    - type: nauc_precision_at_3_std
+      value: 11.9015
+    - type: nauc_precision_at_3_diff1
+      value: 8.3107
+    - type: nauc_precision_at_5_max
+      value: 33.9849
+    - type: nauc_precision_at_5_std
+      value: 16.7448
+    - type: nauc_precision_at_5_diff1
+      value: 0.6217999999999999
+    - type: nauc_precision_at_10_max
+      value: 29.9323
+    - type: nauc_precision_at_10_std
+      value: 21.601100000000002
+    - type: nauc_precision_at_10_diff1
+      value: -5.758900000000001
+    - type: nauc_precision_at_20_max
+      value: 26.142100000000003
+    - type: nauc_precision_at_20_std
+      value: 25.1079
+    - type: nauc_precision_at_20_diff1
+      value: -9.9798
+    - type: nauc_precision_at_100_max
+      value: 19.456100000000003
+    - type: nauc_precision_at_100_std
+      value: 28.674899999999997
+    - type: nauc_precision_at_100_diff1
+      value: -14.6005
+    - type: nauc_precision_at_1000_max
+      value: 14.49
+    - type: nauc_precision_at_1000_std
+      value: 25.480399999999996
+    - type: nauc_precision_at_1000_diff1
+      value: -15.570899999999998
+    - type: nauc_mrr_at_1_max
+      value: 38.2614
+    - type: nauc_mrr_at_1_std
+      value: 1.0798999999999999
+    - type: nauc_mrr_at_1_diff1
+      value: 44.3159
+    - type: nauc_mrr_at_3_max
+      value: 42.2344
+    - type: nauc_mrr_at_3_std
+      value: 1.9994
+    - type: nauc_mrr_at_3_diff1
+      value: 41.5794
+    - type: nauc_mrr_at_5_max
+      value: 42.9754
+    - type: nauc_mrr_at_5_std
+      value: 2.8443
+    - type: nauc_mrr_at_5_diff1
+      value: 41.5702
+    - type: nauc_mrr_at_10_max
+      value: 43.0856
+    - type: nauc_mrr_at_10_std
+      value: 3.1882
+    - type: nauc_mrr_at_10_diff1
+      value: 41.6792
+    - type: nauc_mrr_at_20_max
+      value: 42.972300000000004
+    - type: nauc_mrr_at_20_std
+      value: 3.2651
+    - type: nauc_mrr_at_20_diff1
+      value: 41.6405
+    - type: nauc_mrr_at_100_max
+      value: 42.945499999999996
+    - type: nauc_mrr_at_100_std
+      value: 3.3168
+    - type: nauc_mrr_at_100_diff1
+      value: 41.6818
+    - type: nauc_mrr_at_1000_max
+      value: 42.9332
+    - type: nauc_mrr_at_1000_std
+      value: 3.3009999999999997
+    - type: nauc_mrr_at_1000_diff1
+      value: 41.6879
+    - type: main_score
+      value: 64.238
+    task:
+      type: Retrieval
+  - dataset:
+      config: bn
+      name: MTEB MIRACLRetrieval (bn)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 60.341
+    - type: ndcg_at_3
+      value: 60.805
+    - type: ndcg_at_5
+      value: 64.486
+    - type: ndcg_at_10
+      value: 68.05499999999999
+    - type: ndcg_at_20
+      value: 69.914
+    - type: ndcg_at_100
+      value: 72.00800000000001
+    - type: ndcg_at_1000
+      value: 72.71600000000001
+    - type: map_at_1
+      value: 37.948
+    - type: map_at_3
+      value: 52.89
+    - type: map_at_5
+      value: 56.845
+    - type: map_at_10
+      value: 59.329
+    - type: map_at_20
+      value: 60.158
+    - type: map_at_100
+      value: 60.73
+    - type: map_at_1000
+      value: 60.778
+    - type: recall_at_1
+      value: 37.948
+    - type: recall_at_3
+      value: 61.095
+    - type: recall_at_5
+      value: 71.316
+    - type: recall_at_10
+      value: 80.609
+    - type: recall_at_20
+      value: 86.141
+    - type: recall_at_100
+      value: 94.305
+    - type: recall_at_1000
+      value: 98.625
+    - type: precision_at_1
+      value: 60.341
+    - type: precision_at_3
+      value: 36.172
+    - type: precision_at_5
+      value: 26.277
+    - type: precision_at_10
+      value: 15.595999999999998
+    - type: precision_at_20
+      value: 8.552
+    - type: precision_at_100
+      value: 1.9539999999999997
+    - type: precision_at_1000
+      value: 0.207
+    - type: mrr_at_1
+      value: 60.3406
+    - type: mrr_at_3
+      value: 68.8564
+    - type: mrr_at_5
+      value: 70.51089999999999
+    - type: mrr_at_10
+      value: 71.3043
+    - type: mrr_at_20
+      value: 71.5148
+    - type: mrr_at_100
+      value: 71.5779
+    - type: mrr_at_1000
+      value: 71.5857
+    - type: nauc_ndcg_at_1_max
+      value: 39.480900000000005
+    - type: nauc_ndcg_at_1_std
+      value: 4.66
+    - type: nauc_ndcg_at_1_diff1
+      value: 43.4568
+    - type: nauc_ndcg_at_3_max
+      value: 34.6544
+    - type: nauc_ndcg_at_3_std
+      value: -1.7936
+    - type: nauc_ndcg_at_3_diff1
+      value: 39.1951
+    - type: nauc_ndcg_at_5_max
+      value: 36.9934
+    - type: nauc_ndcg_at_5_std
+      value: -1.427
+    - type: nauc_ndcg_at_5_diff1
+      value: 39.6396
+    - type: nauc_ndcg_at_10_max
+      value: 38.9518
+    - type: nauc_ndcg_at_10_std
+      value: 0.1574
+    - type: nauc_ndcg_at_10_diff1
+      value: 37.6783
+    - type: nauc_ndcg_at_20_max
+      value: 38.5914
+    - type: nauc_ndcg_at_20_std
+      value: 1.8135999999999999
+    - type: nauc_ndcg_at_20_diff1
+      value: 38.063
+    - type: nauc_ndcg_at_100_max
+      value: 40.2409
+    - type: nauc_ndcg_at_100_std
+      value: 5.0953
+    - type: nauc_ndcg_at_100_diff1
+      value: 38.5175
+    - type: nauc_ndcg_at_1000_max
+      value: 39.9212
+    - type: nauc_ndcg_at_1000_std
+      value: 4.5499
+    - type: nauc_ndcg_at_1000_diff1
+      value: 38.6193
+    - type: nauc_map_at_1_max
+      value: 17.9005
+    - type: nauc_map_at_1_std
+      value: -15.587699999999998
+    - type: nauc_map_at_1_diff1
+      value: 48.1378
+    - type: nauc_map_at_3_max
+      value: 28.119300000000003
+    - type: nauc_map_at_3_std
+      value: -11.3599
+    - type: nauc_map_at_3_diff1
+      value: 41.3327
+    - type: nauc_map_at_5_max
+      value: 32.3026
+    - type: nauc_map_at_5_std
+      value: -7.741499999999999
+    - type: nauc_map_at_5_diff1
+      value: 40.5989
+    - type: nauc_map_at_10_max
+      value: 33.8864
+    - type: nauc_map_at_10_std
+      value: -5.6699
+    - type: nauc_map_at_10_diff1
+      value: 39.586
+    - type: nauc_map_at_20_max
+      value: 34.0193
+    - type: nauc_map_at_20_std
+      value: -4.6238
+    - type: nauc_map_at_20_diff1
+      value: 39.7785
+    - type: nauc_map_at_100_max
+      value: 34.475699999999996
+    - type: nauc_map_at_100_std
+      value: -3.6669
+    - type: nauc_map_at_100_diff1
+      value: 39.8911
+    - type: nauc_map_at_1000_max
+      value: 34.4983
+    - type: nauc_map_at_1000_std
+      value: -3.6664000000000003
+    - type: nauc_map_at_1000_diff1
+      value: 39.9015
+    - type: nauc_recall_at_1_max
+      value: 17.9005
+    - type: nauc_recall_at_1_std
+      value: -15.587699999999998
+    - type: nauc_recall_at_1_diff1
+      value: 48.1378
+    - type: nauc_recall_at_3_max
+      value: 27.0807
+    - type: nauc_recall_at_3_std
+      value: -10.071
+    - type: nauc_recall_at_3_diff1
+      value: 35.7245
+    - type: nauc_recall_at_5_max
+      value: 32.561499999999995
+    - type: nauc_recall_at_5_std
+      value: -7.4364
+    - type: nauc_recall_at_5_diff1
+      value: 32.2967
+    - type: nauc_recall_at_10_max
+      value: 36.9998
+    - type: nauc_recall_at_10_std
+      value: -1.9453000000000003
+    - type: nauc_recall_at_10_diff1
+      value: 23.9665
+    - type: nauc_recall_at_20_max
+      value: 34.0415
+    - type: nauc_recall_at_20_std
+      value: 3.2483999999999997
+    - type: nauc_recall_at_20_diff1
+      value: 22.3991
+    - type: nauc_recall_at_100_max
+      value: 52.1359
+    - type: nauc_recall_at_100_std
+      value: 39.305299999999995
+    - type: nauc_recall_at_100_diff1
+      value: 17.8559
+    - type: nauc_recall_at_1000_max
+      value: 53.5217
+    - type: nauc_recall_at_1000_std
+      value: 78.536
+    - type: nauc_recall_at_1000_diff1
+      value: -24.390600000000003
+    - type: nauc_precision_at_1_max
+      value: 39.480900000000005
+    - type: nauc_precision_at_1_std
+      value: 4.66
+    - type: nauc_precision_at_1_diff1
+      value: 43.4568
+    - type: nauc_precision_at_3_max
+      value: 38.954499999999996
+    - type: nauc_precision_at_3_std
+      value: 21.0387
+    - type: nauc_precision_at_3_diff1
+      value: 4.625900000000001
+    - type: nauc_precision_at_5_max
+      value: 38.8673
+    - type: nauc_precision_at_5_std
+      value: 31.512800000000002
+    - type: nauc_precision_at_5_diff1
+      value: -4.147399999999999
+    - type: nauc_precision_at_10_max
+      value: 32.7684
+    - type: nauc_precision_at_10_std
+      value: 36.237700000000004
+    - type: nauc_precision_at_10_diff1
+      value: -13.6404
+    - type: nauc_precision_at_20_max
+      value: 26.0982
+    - type: nauc_precision_at_20_std
+      value: 38.5385
+    - type: nauc_precision_at_20_diff1
+      value: -16.3735
+    - type: nauc_precision_at_100_max
+      value: 20.8957
+    - type: nauc_precision_at_100_std
+      value: 42.1707
+    - type: nauc_precision_at_100_diff1
+      value: -18.7092
+    - type: nauc_precision_at_1000_max
+      value: 17.1788
+    - type: nauc_precision_at_1000_std
+      value: 39.5064
+    - type: nauc_precision_at_1000_diff1
+      value: -20.671400000000002
+    - type: nauc_mrr_at_1_max
+      value: 39.480900000000005
+    - type: nauc_mrr_at_1_std
+      value: 4.66
+    - type: nauc_mrr_at_1_diff1
+      value: 43.4568
+    - type: nauc_mrr_at_3_max
+      value: 44.2708
+    - type: nauc_mrr_at_3_std
+      value: 11.021799999999999
+    - type: nauc_mrr_at_3_diff1
+      value: 41.6187
+    - type: nauc_mrr_at_5_max
+      value: 44.9277
+    - type: nauc_mrr_at_5_std
+      value: 11.3479
+    - type: nauc_mrr_at_5_diff1
+      value: 41.14
+    - type: nauc_mrr_at_10_max
+      value: 44.6467
+    - type: nauc_mrr_at_10_std
+      value: 11.3277
+    - type: nauc_mrr_at_10_diff1
+      value: 40.5017
+    - type: nauc_mrr_at_20_max
+      value: 44.298
+    - type: nauc_mrr_at_20_std
+      value: 11.0061
+    - type: nauc_mrr_at_20_diff1
+      value: 40.6235
+    - type: nauc_mrr_at_100_max
+      value: 44.2517
+    - type: nauc_mrr_at_100_std
+      value: 10.9246
+    - type: nauc_mrr_at_100_diff1
+      value: 40.7234
+    - type: nauc_mrr_at_1000_max
+      value: 44.241
+    - type: nauc_mrr_at_1000_std
+      value: 10.9113
+    - type: nauc_mrr_at_1000_diff1
+      value: 40.7358
+    - type: main_score
+      value: 68.05499999999999
+    task:
+      type: Retrieval
+  - dataset:
+      config: de
+      name: MTEB MIRACLRetrieval (de)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 45.574
+    - type: ndcg_at_3
+      value: 41.243
+    - type: ndcg_at_5
+      value: 43.86
+    - type: ndcg_at_10
+      value: 48.123
+    - type: ndcg_at_20
+      value: 51.785000000000004
+    - type: ndcg_at_100
+      value: 56.04900000000001
+    - type: ndcg_at_1000
+      value: 57.979
+    - type: map_at_1
+      value: 20.401
+    - type: map_at_3
+      value: 31.308000000000003
+    - type: map_at_5
+      value: 35.356
+    - type: map_at_10
+      value: 38.24
+    - type: map_at_20
+      value: 39.879
+    - type: map_at_100
+      value: 40.979
+    - type: map_at_1000
+      value: 41.103
+    - type: recall_at_1
+      value: 20.401
+    - type: recall_at_3
+      value: 36.573
+    - type: recall_at_5
+      value: 47.495
+    - type: recall_at_10
+      value: 58.779
+    - type: recall_at_20
+      value: 69.06099999999999
+    - type: recall_at_100
+      value: 85.84
+    - type: recall_at_1000
+      value: 97.36399999999999
+    - type: precision_at_1
+      value: 45.574
+    - type: precision_at_3
+      value: 30.055
+    - type: precision_at_5
+      value: 23.344
+    - type: precision_at_10
+      value: 14.754000000000001
+    - type: precision_at_20
+      value: 9.033
+    - type: precision_at_100
+      value: 2.275
+    - type: precision_at_1000
+      value: 0.258
+    - type: mrr_at_1
+      value: 45.5738
+    - type: mrr_at_3
+      value: 52.18580000000001
+    - type: mrr_at_5
+      value: 54.5628
+    - type: mrr_at_10
+      value: 55.604699999999994
+    - type: mrr_at_20
+      value: 55.9833
+    - type: mrr_at_100
+      value: 56.2015
+    - type: mrr_at_1000
+      value: 56.2431
+    - type: nauc_ndcg_at_1_max
+      value: 48.355
+    - type: nauc_ndcg_at_1_std
+      value: 15.508
+    - type: nauc_ndcg_at_1_diff1
+      value: 42.6569
+    - type: nauc_ndcg_at_3_max
+      value: 45.5945
+    - type: nauc_ndcg_at_3_std
+      value: 16.6953
+    - type: nauc_ndcg_at_3_diff1
+      value: 38.6081
+    - type: nauc_ndcg_at_5_max
+      value: 43.3231
+    - type: nauc_ndcg_at_5_std
+      value: 14.394100000000002
+    - type: nauc_ndcg_at_5_diff1
+      value: 38.846799999999995
+    - type: nauc_ndcg_at_10_max
+      value: 44.0599
+    - type: nauc_ndcg_at_10_std
+      value: 16.0584
+    - type: nauc_ndcg_at_10_diff1
+      value: 38.2432
+    - type: nauc_ndcg_at_20_max
+      value: 45.8588
+    - type: nauc_ndcg_at_20_std
+      value: 17.531
+    - type: nauc_ndcg_at_20_diff1
+      value: 38.982099999999996
+    - type: nauc_ndcg_at_100_max
+      value: 48.7095
+    - type: nauc_ndcg_at_100_std
+      value: 20.7655
+    - type: nauc_ndcg_at_100_diff1
+      value: 39.7349
+    - type: nauc_ndcg_at_1000_max
+      value: 48.024499999999996
+    - type: nauc_ndcg_at_1000_std
+      value: 20.1299
+    - type: nauc_ndcg_at_1000_diff1
+      value: 39.8087
+    - type: nauc_map_at_1_max
+      value: 30.0998
+    - type: nauc_map_at_1_std
+      value: 4.7429
+    - type: nauc_map_at_1_diff1
+      value: 45.4045
+    - type: nauc_map_at_3_max
+      value: 39.053399999999996
+    - type: nauc_map_at_3_std
+      value: 10.807
+    - type: nauc_map_at_3_diff1
+      value: 40.8294
+    - type: nauc_map_at_5_max
+      value: 39.204499999999996
+    - type: nauc_map_at_5_std
+      value: 11.5165
+    - type: nauc_map_at_5_diff1
+      value: 38.9168
+    - type: nauc_map_at_10_max
+      value: 41.099799999999995
+    - type: nauc_map_at_10_std
+      value: 13.758899999999999
+    - type: nauc_map_at_10_diff1
+      value: 38.2256
+    - type: nauc_map_at_20_max
+      value: 42.2131
+    - type: nauc_map_at_20_std
+      value: 14.366000000000001
+    - type: nauc_map_at_20_diff1
+      value: 38.572
+    - type: nauc_map_at_100_max
+      value: 43.0508
+    - type: nauc_map_at_100_std
+      value: 15.060100000000002
+    - type: nauc_map_at_100_diff1
+      value: 38.9831
+    - type: nauc_map_at_1000_max
+      value: 43.048700000000004
+    - type: nauc_map_at_1000_std
+      value: 15.085999999999999
+    - type: nauc_map_at_1000_diff1
+      value: 38.9957
+    - type: nauc_recall_at_1_max
+      value: 30.0998
+    - type: nauc_recall_at_1_std
+      value: 4.7429
+    - type: nauc_recall_at_1_diff1
+      value: 45.4045
+    - type: nauc_recall_at_3_max
+      value: 36.9204
+    - type: nauc_recall_at_3_std
+      value: 11.2734
+    - type: nauc_recall_at_3_diff1
+      value: 37.431
+    - type: nauc_recall_at_5_max
+      value: 33.4392
+    - type: nauc_recall_at_5_std
+      value: 9.4283
+    - type: nauc_recall_at_5_diff1
+      value: 32.7815
+    - type: nauc_recall_at_10_max
+      value: 34.427099999999996
+    - type: nauc_recall_at_10_std
+      value: 13.147400000000001
+    - type: nauc_recall_at_10_diff1
+      value: 29.394199999999998
+    - type: nauc_recall_at_20_max
+      value: 36.8459
+    - type: nauc_recall_at_20_std
+      value: 16.1323
+    - type: nauc_recall_at_20_diff1
+      value: 29.9502
+    - type: nauc_recall_at_100_max
+      value: 56.360600000000005
+    - type: nauc_recall_at_100_std
+      value: 40.8465
+    - type: nauc_recall_at_100_diff1
+      value: 33.2542
+    - type: nauc_recall_at_1000_max
+      value: 62.121
+    - type: nauc_recall_at_1000_std
+      value: 65.4518
+    - type: nauc_recall_at_1000_diff1
+      value: 23.9221
+    - type: nauc_precision_at_1_max
+      value: 48.355
+    - type: nauc_precision_at_1_std
+      value: 15.508
+    - type: nauc_precision_at_1_diff1
+      value: 42.6569
+    - type: nauc_precision_at_3_max
+      value: 46.72
+    - type: nauc_precision_at_3_std
+      value: 21.5057
+    - type: nauc_precision_at_3_diff1
+      value: 23.3313
+    - type: nauc_precision_at_5_max
+      value: 39.5888
+    - type: nauc_precision_at_5_std
+      value: 20.930699999999998
+    - type: nauc_precision_at_5_diff1
+      value: 15.661900000000001
+    - type: nauc_precision_at_10_max
+      value: 37.8371
+    - type: nauc_precision_at_10_std
+      value: 25.2882
+    - type: nauc_precision_at_10_diff1
+      value: 8.7263
+    - type: nauc_precision_at_20_max
+      value: 34.7638
+    - type: nauc_precision_at_20_std
+      value: 25.795800000000003
+    - type: nauc_precision_at_20_diff1
+      value: 5.5533
+    - type: nauc_precision_at_100_max
+      value: 31.1513
+    - type: nauc_precision_at_100_std
+      value: 28.7441
+    - type: nauc_precision_at_100_diff1
+      value: -0.2107
+    - type: nauc_precision_at_1000_max
+      value: 24.329700000000003
+    - type: nauc_precision_at_1000_std
+      value: 27.4593
+    - type: nauc_precision_at_1000_diff1
+      value: -5.1174
+    - type: nauc_mrr_at_1_max
+      value: 48.355
+    - type: nauc_mrr_at_1_std
+      value: 15.508
+    - type: nauc_mrr_at_1_diff1
+      value: 42.6569
+    - type: nauc_mrr_at_3_max
+      value: 50.1901
+    - type: nauc_mrr_at_3_std
+      value: 17.6811
+    - type: nauc_mrr_at_3_diff1
+      value: 42.7492
+    - type: nauc_mrr_at_5_max
+      value: 50.210699999999996
+    - type: nauc_mrr_at_5_std
+      value: 17.4661
+    - type: nauc_mrr_at_5_diff1
+      value: 42.9336
+    - type: nauc_mrr_at_10_max
+      value: 49.9472
+    - type: nauc_mrr_at_10_std
+      value: 17.3815
+    - type: nauc_mrr_at_10_diff1
+      value: 42.4177
+    - type: nauc_mrr_at_20_max
+      value: 49.9918
+    - type: nauc_mrr_at_20_std
+      value: 17.7321
+    - type: nauc_mrr_at_20_diff1
+      value: 42.5105
+    - type: nauc_mrr_at_100_max
+      value: 49.9862
+    - type: nauc_mrr_at_100_std
+      value: 17.7582
+    - type: nauc_mrr_at_100_diff1
+      value: 42.5947
+    - type: nauc_mrr_at_1000_max
+      value: 49.9819
+    - type: nauc_mrr_at_1000_std
+      value: 17.7188
+    - type: nauc_mrr_at_1000_diff1
+      value: 42.620000000000005
+    - type: main_score
+      value: 48.123
+    task:
+      type: Retrieval
+  - dataset:
+      config: en
+      name: MTEB MIRACLRetrieval (en)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 45.556999999999995
+    - type: ndcg_at_3
+      value: 43.969
+    - type: ndcg_at_5
+      value: 45.551
+    - type: ndcg_at_10
+      value: 49.372
+    - type: ndcg_at_20
+      value: 52.86300000000001
+    - type: ndcg_at_100
+      value: 57.28
+    - type: ndcg_at_1000
+      value: 59.187
+    - type: map_at_1
+      value: 21.785
+    - type: map_at_3
+      value: 32.679
+    - type: map_at_5
+      value: 35.885
+    - type: map_at_10
+      value: 38.836
+    - type: map_at_20
+      value: 40.425
+    - type: map_at_100
+      value: 41.592
+    - type: map_at_1000
+      value: 41.749
+    - type: recall_at_1
+      value: 21.785
+    - type: recall_at_3
+      value: 40.403
+    - type: recall_at_5
+      value: 48.498999999999995
+    - type: recall_at_10
+      value: 59.513000000000005
+    - type: recall_at_20
+      value: 69.357
+    - type: recall_at_100
+      value: 85.785
+    - type: recall_at_1000
+      value: 96.041
+    - type: precision_at_1
+      value: 45.556999999999995
+    - type: precision_at_3
+      value: 30.287999999999997
+    - type: precision_at_5
+      value: 23.204
+    - type: precision_at_10
+      value: 15.006
+    - type: precision_at_20
+      value: 9.118
+    - type: precision_at_100
+      value: 2.404
+    - type: precision_at_1000
+      value: 0.27799999999999997
+    - type: mrr_at_1
+      value: 45.5569
+    - type: mrr_at_3
+      value: 55.4234
+    - type: mrr_at_5
+      value: 57.3884
+    - type: mrr_at_10
+      value: 58.391400000000004
+    - type: mrr_at_20
+      value: 58.7477
+    - type: mrr_at_100
+      value: 58.93620000000001
+    - type: mrr_at_1000
+      value: 58.949600000000004
+    - type: nauc_ndcg_at_1_max
+      value: 34.794799999999995
+    - type: nauc_ndcg_at_1_std
+      value: 2.102
+    - type: nauc_ndcg_at_1_diff1
+      value: 33.8113
+    - type: nauc_ndcg_at_3_max
+      value: 31.6187
+    - type: nauc_ndcg_at_3_std
+      value: -1.3106
+    - type: nauc_ndcg_at_3_diff1
+      value: 28.5676
+    - type: nauc_ndcg_at_5_max
+      value: 30.4962
+    - type: nauc_ndcg_at_5_std
+      value: -1.016
+    - type: nauc_ndcg_at_5_diff1
+      value: 28.0032
+    - type: nauc_ndcg_at_10_max
+      value: 29.460900000000002
+    - type: nauc_ndcg_at_10_std
+      value: -0.6328
+    - type: nauc_ndcg_at_10_diff1
+      value: 26.351000000000003
+    - type: nauc_ndcg_at_20_max
+      value: 31.443900000000003
+    - type: nauc_ndcg_at_20_std
+      value: 1.1067
+    - type: nauc_ndcg_at_20_diff1
+      value: 26.2068
+    - type: nauc_ndcg_at_100_max
+      value: 34.273199999999996
+    - type: nauc_ndcg_at_100_std
+      value: 5.1303
+    - type: nauc_ndcg_at_100_diff1
+      value: 26.4772
+    - type: nauc_ndcg_at_1000_max
+      value: 34.1663
+    - type: nauc_ndcg_at_1000_std
+      value: 5.1834999999999996
+    - type: nauc_ndcg_at_1000_diff1
+      value: 26.6768
+    - type: nauc_map_at_1_max
+      value: 23.6327
+    - type: nauc_map_at_1_std
+      value: -6.3777
+    - type: nauc_map_at_1_diff1
+      value: 32.028800000000004
+    - type: nauc_map_at_3_max
+      value: 27.869300000000003
+    - type: nauc_map_at_3_std
+      value: -5.9788
+    - type: nauc_map_at_3_diff1
+      value: 29.8636
+    - type: nauc_map_at_5_max
+      value: 28.6043
+    - type: nauc_map_at_5_std
+      value: -4.4539
+    - type: nauc_map_at_5_diff1
+      value: 29.044999999999998
+    - type: nauc_map_at_10_max
+      value: 29.065600000000003
+    - type: nauc_map_at_10_std
+      value: -3.2986
+    - type: nauc_map_at_10_diff1
+      value: 27.8952
+    - type: nauc_map_at_20_max
+      value: 30.191200000000002
+    - type: nauc_map_at_20_std
+      value: -2.4181999999999997
+    - type: nauc_map_at_20_diff1
+      value: 27.973399999999998
+    - type: nauc_map_at_100_max
+      value: 31.0841
+    - type: nauc_map_at_100_std
+      value: -1.1223
+    - type: nauc_map_at_100_diff1
+      value: 28.089199999999998
+    - type: nauc_map_at_1000_max
+      value: 31.114399999999996
+    - type: nauc_map_at_1000_std
+      value: -1.0668
+    - type: nauc_map_at_1000_diff1
+      value: 28.098
+    - type: nauc_recall_at_1_max
+      value: 23.6327
+    - type: nauc_recall_at_1_std
+      value: -6.3777
+    - type: nauc_recall_at_1_diff1
+      value: 32.028800000000004
+    - type: nauc_recall_at_3_max
+      value: 20.9084
+    - type: nauc_recall_at_3_std
+      value: -7.3713
+    - type: nauc_recall_at_3_diff1
+      value: 23.488300000000002
+    - type: nauc_recall_at_5_max
+      value: 20.4249
+    - type: nauc_recall_at_5_std
+      value: -3.8598
+    - type: nauc_recall_at_5_diff1
+      value: 20.935200000000002
+    - type: nauc_recall_at_10_max
+      value: 17.5405
+    - type: nauc_recall_at_10_std
+      value: -3.5011
+    - type: nauc_recall_at_10_diff1
+      value: 16.9646
+    - type: nauc_recall_at_20_max
+      value: 20.6496
+    - type: nauc_recall_at_20_std
+      value: 0.1168
+    - type: nauc_recall_at_20_diff1
+      value: 14.2125
+    - type: nauc_recall_at_100_max
+      value: 31.916099999999997
+    - type: nauc_recall_at_100_std
+      value: 20.2048
+    - type: nauc_recall_at_100_diff1
+      value: 9.3709
+    - type: nauc_recall_at_1000_max
+      value: 46.2569
+    - type: nauc_recall_at_1000_std
+      value: 55.2292
+    - type: nauc_recall_at_1000_diff1
+      value: -0.2909
+    - type: nauc_precision_at_1_max
+      value: 34.794799999999995
+    - type: nauc_precision_at_1_std
+      value: 2.102
+    - type: nauc_precision_at_1_diff1
+      value: 33.8113
+    - type: nauc_precision_at_3_max
+      value: 31.221700000000002
+    - type: nauc_precision_at_3_std
+      value: 7.513
+    - type: nauc_precision_at_3_diff1
+      value: 15.9311
+    - type: nauc_precision_at_5_max
+      value: 28.5241
+    - type: nauc_precision_at_5_std
+      value: 12.2286
+    - type: nauc_precision_at_5_diff1
+      value: 9.5435
+    - type: nauc_precision_at_10_max
+      value: 24.3663
+    - type: nauc_precision_at_10_std
+      value: 15.867700000000001
+    - type: nauc_precision_at_10_diff1
+      value: 2.396
+    - type: nauc_precision_at_20_max
+      value: 22.322300000000002
+    - type: nauc_precision_at_20_std
+      value: 18.3505
+    - type: nauc_precision_at_20_diff1
+      value: 0.0719
+    - type: nauc_precision_at_100_max
+      value: 18.8029
+    - type: nauc_precision_at_100_std
+      value: 24.728
+    - type: nauc_precision_at_100_diff1
+      value: -4.0887
+    - type: nauc_precision_at_1000_max
+      value: 12.315800000000001
+    - type: nauc_precision_at_1000_std
+      value: 20.9058
+    - type: nauc_precision_at_1000_diff1
+      value: -6.4069
+    - type: nauc_mrr_at_1_max
+      value: 34.794799999999995
+    - type: nauc_mrr_at_1_std
+      value: 2.102
+    - type: nauc_mrr_at_1_diff1
+      value: 33.8113
+    - type: nauc_mrr_at_3_max
+      value: 33.3929
+    - type: nauc_mrr_at_3_std
+      value: 3.4512
+    - type: nauc_mrr_at_3_diff1
+      value: 29.718
+    - type: nauc_mrr_at_5_max
+      value: 34.586
+    - type: nauc_mrr_at_5_std
+      value: 5.4722
+    - type: nauc_mrr_at_5_diff1
+      value: 30.0744
+    - type: nauc_mrr_at_10_max
+      value: 34.3898
+    - type: nauc_mrr_at_10_std
+      value: 4.854
+    - type: nauc_mrr_at_10_diff1
+      value: 29.979
+    - type: nauc_mrr_at_20_max
+      value: 34.516000000000005
+    - type: nauc_mrr_at_20_std
+      value: 4.9616
+    - type: nauc_mrr_at_20_diff1
+      value: 29.907899999999998
+    - type: nauc_mrr_at_100_max
+      value: 34.515499999999996
+    - type: nauc_mrr_at_100_std
+      value: 4.8578
+    - type: nauc_mrr_at_100_diff1
+      value: 29.997
+    - type: nauc_mrr_at_1000_max
+      value: 34.5046
+    - type: nauc_mrr_at_1000_std
+      value: 4.8536
+    - type: nauc_mrr_at_1000_diff1
+      value: 30.0019
+    - type: main_score
+      value: 49.372
+    task:
+      type: Retrieval
+  - dataset:
+      config: es
+      name: MTEB MIRACLRetrieval (es)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 55.71
+    - type: ndcg_at_3
+      value: 47.981
+    - type: ndcg_at_5
+      value: 46.583999999999996
+    - type: ndcg_at_10
+      value: 49.688
+    - type: ndcg_at_20
+      value: 54.437999999999995
+    - type: ndcg_at_100
+      value: 60.492999999999995
+    - type: ndcg_at_1000
+      value: 62.922
+    - type: map_at_1
+      value: 16.38
+    - type: map_at_3
+      value: 27.137
+    - type: map_at_5
+      value: 31.81
+    - type: map_at_10
+      value: 36.986999999999995
+    - type: map_at_20
+      value: 39.749
+    - type: map_at_100
+      value: 41.69
+    - type: map_at_1000
+      value: 41.924
+    - type: recall_at_1
+      value: 16.38
+    - type: recall_at_3
+      value: 31.502999999999997
+    - type: recall_at_5
+      value: 40.355999999999995
+    - type: recall_at_10
+      value: 54.155
+    - type: recall_at_20
+      value: 65.32900000000001
+    - type: recall_at_100
+      value: 85.136
+    - type: recall_at_1000
+      value: 96.951
+    - type: precision_at_1
+      value: 55.71
+    - type: precision_at_3
+      value: 39.969
+    - type: precision_at_5
+      value: 32.469
+    - type: precision_at_10
+      value: 23.071
+    - type: precision_at_20
+      value: 14.482999999999999
+    - type: precision_at_100
+      value: 3.8920000000000003
+    - type: precision_at_1000
+      value: 0.44799999999999995
+    - type: mrr_at_1
+      value: 55.709900000000005
+    - type: mrr_at_3
+      value: 63.9146
+    - type: mrr_at_5
+      value: 65.4192
+    - type: mrr_at_10
+      value: 66.4602
+    - type: mrr_at_20
+      value: 66.71249999999999
+    - type: mrr_at_100
+      value: 66.8844
+    - type: mrr_at_1000
+      value: 66.893
+    - type: nauc_ndcg_at_1_max
+      value: 39.4623
+    - type: nauc_ndcg_at_1_std
+      value: 18.2237
+    - type: nauc_ndcg_at_1_diff1
+      value: 34.3382
+    - type: nauc_ndcg_at_3_max
+      value: 33.3518
+    - type: nauc_ndcg_at_3_std
+      value: 14.2885
+    - type: nauc_ndcg_at_3_diff1
+      value: 22.4965
+    - type: nauc_ndcg_at_5_max
+      value: 31.5822
+    - type: nauc_ndcg_at_5_std
+      value: 10.4064
+    - type: nauc_ndcg_at_5_diff1
+      value: 24.4417
+    - type: nauc_ndcg_at_10_max
+      value: 33.4838
+    - type: nauc_ndcg_at_10_std
+      value: 11.5351
+    - type: nauc_ndcg_at_10_diff1
+      value: 27.1137
+    - type: nauc_ndcg_at_20_max
+      value: 38.831700000000005
+    - type: nauc_ndcg_at_20_std
+      value: 18.784
+    - type: nauc_ndcg_at_20_diff1
+      value: 27.408700000000003
+    - type: nauc_ndcg_at_100_max
+      value: 42.8785
+    - type: nauc_ndcg_at_100_std
+      value: 24.596
+    - type: nauc_ndcg_at_100_diff1
+      value: 25.8252
+    - type: nauc_ndcg_at_1000_max
+      value: 42.023500000000006
+    - type: nauc_ndcg_at_1000_std
+      value: 23.2727
+    - type: nauc_ndcg_at_1000_diff1
+      value: 24.8455
+    - type: nauc_map_at_1_max
+      value: 10.5243
+    - type: nauc_map_at_1_std
+      value: -10.143699999999999
+    - type: nauc_map_at_1_diff1
+      value: 32.2699
+    - type: nauc_map_at_3_max
+      value: 16.902900000000002
+    - type: nauc_map_at_3_std
+      value: -5.6548
+    - type: nauc_map_at_3_diff1
+      value: 26.238699999999998
+    - type: nauc_map_at_5_max
+      value: 21.4475
+    - type: nauc_map_at_5_std
+      value: -2.1950000000000003
+    - type: nauc_map_at_5_diff1
+      value: 25.2077
+    - type: nauc_map_at_10_max
+      value: 27.2231
+    - type: nauc_map_at_10_std
+      value: 3.9522000000000004
+    - type: nauc_map_at_10_diff1
+      value: 26.0175
+    - type: nauc_map_at_20_max
+      value: 30.8106
+    - type: nauc_map_at_20_std
+      value: 8.9534
+    - type: nauc_map_at_20_diff1
+      value: 25.8477
+    - type: nauc_map_at_100_max
+      value: 32.5864
+    - type: nauc_map_at_100_std
+      value: 11.2878
+    - type: nauc_map_at_100_diff1
+      value: 25.3496
+    - type: nauc_map_at_1000_max
+      value: 32.573
+    - type: nauc_map_at_1000_std
+      value: 11.2812
+    - type: nauc_map_at_1000_diff1
+      value: 25.2334
+    - type: nauc_recall_at_1_max
+      value: 10.5243
+    - type: nauc_recall_at_1_std
+      value: -10.143699999999999
+    - type: nauc_recall_at_1_diff1
+      value: 32.2699
+    - type: nauc_recall_at_3_max
+      value: 12.1019
+    - type: nauc_recall_at_3_std
+      value: -8.2304
+    - type: nauc_recall_at_3_diff1
+      value: 22.9436
+    - type: nauc_recall_at_5_max
+      value: 15.0438
+    - type: nauc_recall_at_5_std
+      value: -6.216200000000001
+    - type: nauc_recall_at_5_diff1
+      value: 21.5158
+    - type: nauc_recall_at_10_max
+      value: 22.825100000000003
+    - type: nauc_recall_at_10_std
+      value: 4.994400000000001
+    - type: nauc_recall_at_10_diff1
+      value: 22.4346
+    - type: nauc_recall_at_20_max
+      value: 33.1395
+    - type: nauc_recall_at_20_std
+      value: 19.5456
+    - type: nauc_recall_at_20_diff1
+      value: 24.0575
+    - type: nauc_recall_at_100_max
+      value: 50.0911
+    - type: nauc_recall_at_100_std
+      value: 45.542300000000004
+    - type: nauc_recall_at_100_diff1
+      value: 19.9322
+    - type: nauc_recall_at_1000_max
+      value: 73.2055
+    - type: nauc_recall_at_1000_std
+      value: 74.8121
+    - type: nauc_recall_at_1000_diff1
+      value: 6.7021999999999995
+    - type: nauc_precision_at_1_max
+      value: 39.4623
+    - type: nauc_precision_at_1_std
+      value: 18.2237
+    - type: nauc_precision_at_1_diff1
+      value: 34.3382
+    - type: nauc_precision_at_3_max
+      value: 37.2684
+    - type: nauc_precision_at_3_std
+      value: 24.1559
+    - type: nauc_precision_at_3_diff1
+      value: 10.6349
+    - type: nauc_precision_at_5_max
+      value: 37.9483
+    - type: nauc_precision_at_5_std
+      value: 26.973000000000003
+    - type: nauc_precision_at_5_diff1
+      value: 6.722499999999999
+    - type: nauc_precision_at_10_max
+      value: 41.4223
+    - type: nauc_precision_at_10_std
+      value: 35.661100000000005
+    - type: nauc_precision_at_10_diff1
+      value: 3.8463
+    - type: nauc_precision_at_20_max
+      value: 41.917300000000004
+    - type: nauc_precision_at_20_std
+      value: 42.0563
+    - type: nauc_precision_at_20_diff1
+      value: 0.4484
+    - type: nauc_precision_at_100_max
+      value: 37.4895
+    - type: nauc_precision_at_100_std
+      value: 45.1734
+    - type: nauc_precision_at_100_diff1
+      value: -7.4965
+    - type: nauc_precision_at_1000_max
+      value: 27.853299999999997
+    - type: nauc_precision_at_1000_std
+      value: 36.997
+    - type: nauc_precision_at_1000_diff1
+      value: -13.5956
+    - type: nauc_mrr_at_1_max
+      value: 39.4623
+    - type: nauc_mrr_at_1_std
+      value: 18.2237
+    - type: nauc_mrr_at_1_diff1
+      value: 34.3382
+    - type: nauc_mrr_at_3_max
+      value: 43.2341
+    - type: nauc_mrr_at_3_std
+      value: 22.287599999999998
+    - type: nauc_mrr_at_3_diff1
+      value: 32.1338
+    - type: nauc_mrr_at_5_max
+      value: 43.1729
+    - type: nauc_mrr_at_5_std
+      value: 21.9232
+    - type: nauc_mrr_at_5_diff1
+      value: 32.0241
+    - type: nauc_mrr_at_10_max
+      value: 43.8014
+    - type: nauc_mrr_at_10_std
+      value: 23.1591
+    - type: nauc_mrr_at_10_diff1
+      value: 31.898100000000003
+    - type: nauc_mrr_at_20_max
+      value: 43.7825
+    - type: nauc_mrr_at_20_std
+      value: 23.1845
+    - type: nauc_mrr_at_20_diff1
+      value: 32.2338
+    - type: nauc_mrr_at_100_max
+      value: 43.6665
+    - type: nauc_mrr_at_100_std
+      value: 23.0026
+    - type: nauc_mrr_at_100_diff1
+      value: 32.177299999999995
+    - type: nauc_mrr_at_1000_max
+      value: 43.6579
+    - type: nauc_mrr_at_1000_std
+      value: 22.986500000000003
+    - type: nauc_mrr_at_1000_diff1
+      value: 32.1927
+    - type: main_score
+      value: 49.688
+    task:
+      type: Retrieval
+  - dataset:
+      config: fa
+      name: MTEB MIRACLRetrieval (fa)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 39.873
+    - type: ndcg_at_3
+      value: 42.738
+    - type: ndcg_at_5
+      value: 45.843
+    - type: ndcg_at_10
+      value: 50.226000000000006
+    - type: ndcg_at_20
+      value: 52.92
+    - type: ndcg_at_100
+      value: 56.516999999999996
+    - type: ndcg_at_1000
+      value: 57.967
+    - type: map_at_1
+      value: 25.369000000000003
+    - type: map_at_3
+      value: 35.791000000000004
+    - type: map_at_5
+      value: 39.027
+    - type: map_at_10
+      value: 41.759
+    - type: map_at_20
+      value: 42.899
+    - type: map_at_100
+      value: 43.637
+    - type: map_at_1000
+      value: 43.734
+    - type: recall_at_1
+      value: 25.369000000000003
+    - type: recall_at_3
+      value: 43.808
+    - type: recall_at_5
+      value: 52.378
+    - type: recall_at_10
+      value: 63.775999999999996
+    - type: recall_at_20
+      value: 72.099
+    - type: recall_at_100
+      value: 87.68599999999999
+    - type: recall_at_1000
+      value: 96.71
+    - type: precision_at_1
+      value: 39.873
+    - type: precision_at_3
+      value: 25.580000000000002
+    - type: precision_at_5
+      value: 19.367
+    - type: precision_at_10
+      value: 12.437
+    - type: precision_at_20
+      value: 7.247000000000001
+    - type: precision_at_100
+      value: 1.807
+    - type: precision_at_1000
+      value: 0.202
+    - type: mrr_at_1
+      value: 39.8734
+    - type: mrr_at_3
+      value: 49.1297
+    - type: mrr_at_5
+      value: 50.8703
+    - type: mrr_at_10
+      value: 52.0393
+    - type: mrr_at_20
+      value: 52.428
+    - type: mrr_at_100
+      value: 52.7259
+    - type: mrr_at_1000
+      value: 52.7512
+    - type: nauc_ndcg_at_1_max
+      value: 37.2005
+    - type: nauc_ndcg_at_1_std
+      value: 7.2856000000000005
+    - type: nauc_ndcg_at_1_diff1
+      value: 24.3391
+    - type: nauc_ndcg_at_3_max
+      value: 34.9919
+    - type: nauc_ndcg_at_3_std
+      value: 4.1377
+    - type: nauc_ndcg_at_3_diff1
+      value: 22.7251
+    - type: nauc_ndcg_at_5_max
+      value: 35.3802
+    - type: nauc_ndcg_at_5_std
+      value: 5.1718
+    - type: nauc_ndcg_at_5_diff1
+      value: 20.7966
+    - type: nauc_ndcg_at_10_max
+      value: 37.5244
+    - type: nauc_ndcg_at_10_std
+      value: 8.4159
+    - type: nauc_ndcg_at_10_diff1
+      value: 20.3825
+    - type: nauc_ndcg_at_20_max
+      value: 39.457
+    - type: nauc_ndcg_at_20_std
+      value: 10.9359
+    - type: nauc_ndcg_at_20_diff1
+      value: 20.1633
+    - type: nauc_ndcg_at_100_max
+      value: 40.605799999999995
+    - type: nauc_ndcg_at_100_std
+      value: 12.8063
+    - type: nauc_ndcg_at_100_diff1
+      value: 20.1186
+    - type: nauc_ndcg_at_1000_max
+      value: 39.6952
+    - type: nauc_ndcg_at_1000_std
+      value: 12.0795
+    - type: nauc_ndcg_at_1000_diff1
+      value: 20.1048
+    - type: nauc_map_at_1_max
+      value: 22.758200000000002
+    - type: nauc_map_at_1_std
+      value: -4.4208
+    - type: nauc_map_at_1_diff1
+      value: 32.8042
+    - type: nauc_map_at_3_max
+      value: 29.5871
+    - type: nauc_map_at_3_std
+      value: -1.0369
+    - type: nauc_map_at_3_diff1
+      value: 26.7399
+    - type: nauc_map_at_5_max
+      value: 31.630799999999997
+    - type: nauc_map_at_5_std
+      value: 1.133
+    - type: nauc_map_at_5_diff1
+      value: 23.9264
+    - type: nauc_map_at_10_max
+      value: 33.5866
+    - type: nauc_map_at_10_std
+      value: 3.8602999999999996
+    - type: nauc_map_at_10_diff1
+      value: 23.0431
+    - type: nauc_map_at_20_max
+      value: 34.7099
+    - type: nauc_map_at_20_std
+      value: 5.2187
+    - type: nauc_map_at_20_diff1
+      value: 22.751099999999997
+    - type: nauc_map_at_100_max
+      value: 35.0549
+    - type: nauc_map_at_100_std
+      value: 5.7357
+    - type: nauc_map_at_100_diff1
+      value: 22.7261
+    - type: nauc_map_at_1000_max
+      value: 35.02
+    - type: nauc_map_at_1000_std
+      value: 5.7542
+    - type: nauc_map_at_1000_diff1
+      value: 22.717000000000002
+    - type: nauc_recall_at_1_max
+      value: 22.758200000000002
+    - type: nauc_recall_at_1_std
+      value: -4.4208
+    - type: nauc_recall_at_1_diff1
+      value: 32.8042
+    - type: nauc_recall_at_3_max
+      value: 29.2098
+    - type: nauc_recall_at_3_std
+      value: 0.1884
+    - type: nauc_recall_at_3_diff1
+      value: 21.9167
+    - type: nauc_recall_at_5_max
+      value: 30.634099999999997
+    - type: nauc_recall_at_5_std
+      value: 2.9632
+    - type: nauc_recall_at_5_diff1
+      value: 15.8588
+    - type: nauc_recall_at_10_max
+      value: 34.958
+    - type: nauc_recall_at_10_std
+      value: 10.6769
+    - type: nauc_recall_at_10_diff1
+      value: 13.9022
+    - type: nauc_recall_at_20_max
+      value: 40.5569
+    - type: nauc_recall_at_20_std
+      value: 18.1782
+    - type: nauc_recall_at_20_diff1
+      value: 13.4488
+    - type: nauc_recall_at_100_max
+      value: 54.6126
+    - type: nauc_recall_at_100_std
+      value: 39.507999999999996
+    - type: nauc_recall_at_100_diff1
+      value: 10.122
+    - type: nauc_recall_at_1000_max
+      value: 64.1019
+    - type: nauc_recall_at_1000_std
+      value: 65.3022
+    - type: nauc_recall_at_1000_diff1
+      value: -0.9008
+    - type: nauc_precision_at_1_max
+      value: 37.2005
+    - type: nauc_precision_at_1_std
+      value: 7.2856000000000005
+    - type: nauc_precision_at_1_diff1
+      value: 24.3391
+    - type: nauc_precision_at_3_max
+      value: 40.8492
+    - type: nauc_precision_at_3_std
+      value: 14.955099999999998
+    - type: nauc_precision_at_3_diff1
+      value: 5.8083
+    - type: nauc_precision_at_5_max
+      value: 37.6411
+    - type: nauc_precision_at_5_std
+      value: 20.1371
+    - type: nauc_precision_at_5_diff1
+      value: -4.7182
+    - type: nauc_precision_at_10_max
+      value: 35.9345
+    - type: nauc_precision_at_10_std
+      value: 27.593899999999998
+    - type: nauc_precision_at_10_diff1
+      value: -9.1429
+    - type: nauc_precision_at_20_max
+      value: 33.7364
+    - type: nauc_precision_at_20_std
+      value: 31.8223
+    - type: nauc_precision_at_20_diff1
+      value: -11.98
+    - type: nauc_precision_at_100_max
+      value: 25.7037
+    - type: nauc_precision_at_100_std
+      value: 32.6954
+    - type: nauc_precision_at_100_diff1
+      value: -15.2838
+    - type: nauc_precision_at_1000_max
+      value: 16.6881
+    - type: nauc_precision_at_1000_std
+      value: 27.787200000000002
+    - type: nauc_precision_at_1000_diff1
+      value: -16.964000000000002
+    - type: nauc_mrr_at_1_max
+      value: 37.2005
+    - type: nauc_mrr_at_1_std
+      value: 7.2856000000000005
+    - type: nauc_mrr_at_1_diff1
+      value: 24.3391
+    - type: nauc_mrr_at_3_max
+      value: 40.9867
+    - type: nauc_mrr_at_3_std
+      value: 10.7794
+    - type: nauc_mrr_at_3_diff1
+      value: 21.0522
+    - type: nauc_mrr_at_5_max
+      value: 40.7712
+    - type: nauc_mrr_at_5_std
+      value: 11.2036
+    - type: nauc_mrr_at_5_diff1
+      value: 20.3769
+    - type: nauc_mrr_at_10_max
+      value: 40.8976
+    - type: nauc_mrr_at_10_std
+      value: 11.7276
+    - type: nauc_mrr_at_10_diff1
+      value: 20.261699999999998
+    - type: nauc_mrr_at_20_max
+      value: 40.8283
+    - type: nauc_mrr_at_20_std
+      value: 11.6606
+    - type: nauc_mrr_at_20_diff1
+      value: 20.430300000000003
+    - type: nauc_mrr_at_100_max
+      value: 40.9123
+    - type: nauc_mrr_at_100_std
+      value: 11.6937
+    - type: nauc_mrr_at_100_diff1
+      value: 20.4759
+    - type: nauc_mrr_at_1000_max
+      value: 40.895399999999995
+    - type: nauc_mrr_at_1000_std
+      value: 11.6648
+    - type: nauc_mrr_at_1000_diff1
+      value: 20.4831
+    - type: main_score
+      value: 50.226000000000006
+    task:
+      type: Retrieval
+  - dataset:
+      config: fi
+      name: MTEB MIRACLRetrieval (fi)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 60.818000000000005
+    - type: ndcg_at_3
+      value: 60.06
+    - type: ndcg_at_5
+      value: 63.842
+    - type: ndcg_at_10
+      value: 67.46
+    - type: ndcg_at_20
+      value: 69.692
+    - type: ndcg_at_100
+      value: 71.516
+    - type: ndcg_at_1000
+      value: 72.18
+    - type: map_at_1
+      value: 39.263999999999996
+    - type: map_at_3
+      value: 53.723
+    - type: map_at_5
+      value: 57.118
+    - type: map_at_10
+      value: 59.394000000000005
+    - type: map_at_20
+      value: 60.339
+    - type: map_at_100
+      value: 60.739
+    - type: map_at_1000
+      value: 60.782000000000004
+    - type: recall_at_1
+      value: 39.263999999999996
+    - type: recall_at_3
+      value: 61.05500000000001
+    - type: recall_at_5
+      value: 69.774
+    - type: recall_at_10
+      value: 78.577
+    - type: recall_at_20
+      value: 85.435
+    - type: recall_at_100
+      value: 93.291
+    - type: recall_at_1000
+      value: 97.493
+    - type: precision_at_1
+      value: 60.818000000000005
+    - type: precision_at_3
+      value: 35.064
+    - type: precision_at_5
+      value: 24.815
+    - type: precision_at_10
+      value: 14.445
+    - type: precision_at_20
+      value: 8.049000000000001
+    - type: precision_at_100
+      value: 1.7819999999999998
+    - type: precision_at_1000
+      value: 0.187
+    - type: mrr_at_1
+      value: 60.8183
+    - type: mrr_at_3
+      value: 68.7516
+    - type: mrr_at_5
+      value: 70.1678
+    - type: mrr_at_10
+      value: 70.85040000000001
+    - type: mrr_at_20
+      value: 71.1314
+    - type: mrr_at_100
+      value: 71.2271
+    - type: mrr_at_1000
+      value: 71.2334
+    - type: nauc_ndcg_at_1_max
+      value: 39.623000000000005
+    - type: nauc_ndcg_at_1_std
+      value: -0.6057
+    - type: nauc_ndcg_at_1_diff1
+      value: 50.2688
+    - type: nauc_ndcg_at_3_max
+      value: 36.2982
+    - type: nauc_ndcg_at_3_std
+      value: -0.4931
+    - type: nauc_ndcg_at_3_diff1
+      value: 41.5229
+    - type: nauc_ndcg_at_5_max
+      value: 37.1813
+    - type: nauc_ndcg_at_5_std
+      value: -1.1114000000000002
+    - type: nauc_ndcg_at_5_diff1
+      value: 41.429700000000004
+    - type: nauc_ndcg_at_10_max
+      value: 39.3656
+    - type: nauc_ndcg_at_10_std
+      value: 0.2202
+    - type: nauc_ndcg_at_10_diff1
+      value: 41.4453
+    - type: nauc_ndcg_at_20_max
+      value: 40.186
+    - type: nauc_ndcg_at_20_std
+      value: 2.8166
+    - type: nauc_ndcg_at_20_diff1
+      value: 41.0657
+    - type: nauc_ndcg_at_100_max
+      value: 40.2423
+    - type: nauc_ndcg_at_100_std
+      value: 4.5445
+    - type: nauc_ndcg_at_100_diff1
+      value: 42.1274
+    - type: nauc_ndcg_at_1000_max
+      value: 39.821200000000005
+    - type: nauc_ndcg_at_1000_std
+      value: 3.71
+    - type: nauc_ndcg_at_1000_diff1
+      value: 42.2532
+    - type: nauc_map_at_1_max
+      value: 25.539
+    - type: nauc_map_at_1_std
+      value: -7.6318
+    - type: nauc_map_at_1_diff1
+      value: 47.2875
+    - type: nauc_map_at_3_max
+      value: 33.5096
+    - type: nauc_map_at_3_std
+      value: -3.4685
+    - type: nauc_map_at_3_diff1
+      value: 41.2351
+    - type: nauc_map_at_5_max
+      value: 35.0144
+    - type: nauc_map_at_5_std
+      value: -2.9198999999999997
+    - type: nauc_map_at_5_diff1
+      value: 40.892
+    - type: nauc_map_at_10_max
+      value: 36.4497
+    - type: nauc_map_at_10_std
+      value: -1.8148999999999997
+    - type: nauc_map_at_10_diff1
+      value: 40.823100000000004
+    - type: nauc_map_at_20_max
+      value: 36.863
+    - type: nauc_map_at_20_std
+      value: -0.7572
+    - type: nauc_map_at_20_diff1
+      value: 40.6285
+    - type: nauc_map_at_100_max
+      value: 36.882
+    - type: nauc_map_at_100_std
+      value: -0.40850000000000003
+    - type: nauc_map_at_100_diff1
+      value: 40.844500000000004
+    - type: nauc_map_at_1000_max
+      value: 36.8736
+    - type: nauc_map_at_1000_std
+      value: -0.4359
+    - type: nauc_map_at_1000_diff1
+      value: 40.8569
+    - type: nauc_recall_at_1_max
+      value: 25.539
+    - type: nauc_recall_at_1_std
+      value: -7.6318
+    - type: nauc_recall_at_1_diff1
+      value: 47.2875
+    - type: nauc_recall_at_3_max
+      value: 32.7716
+    - type: nauc_recall_at_3_std
+      value: -1.6856
+    - type: nauc_recall_at_3_diff1
+      value: 36.4533
+    - type: nauc_recall_at_5_max
+      value: 33.5681
+    - type: nauc_recall_at_5_std
+      value: -2.4453
+    - type: nauc_recall_at_5_diff1
+      value: 33.8472
+    - type: nauc_recall_at_10_max
+      value: 39.5319
+    - type: nauc_recall_at_10_std
+      value: 0.6228
+    - type: nauc_recall_at_10_diff1
+      value: 31.935200000000002
+    - type: nauc_recall_at_20_max
+      value: 44.3495
+    - type: nauc_recall_at_20_std
+      value: 12.5445
+    - type: nauc_recall_at_20_diff1
+      value: 27.6315
+    - type: nauc_recall_at_100_max
+      value: 53.924499999999995
+    - type: nauc_recall_at_100_std
+      value: 44.5927
+    - type: nauc_recall_at_100_diff1
+      value: 32.2776
+    - type: nauc_recall_at_1000_max
+      value: 59.7088
+    - type: nauc_recall_at_1000_std
+      value: 61.6974
+    - type: nauc_recall_at_1000_diff1
+      value: 28.367700000000003
+    - type: nauc_precision_at_1_max
+      value: 39.623000000000005
+    - type: nauc_precision_at_1_std
+      value: -0.6057
+    - type: nauc_precision_at_1_diff1
+      value: 50.2688
+    - type: nauc_precision_at_3_max
+      value: 29.5187
+    - type: nauc_precision_at_3_std
+      value: 11.1305
+    - type: nauc_precision_at_3_diff1
+      value: 11.674
+    - type: nauc_precision_at_5_max
+      value: 25.5889
+    - type: nauc_precision_at_5_std
+      value: 13.4716
+    - type: nauc_precision_at_5_diff1
+      value: 3.2894
+    - type: nauc_precision_at_10_max
+      value: 21.2446
+    - type: nauc_precision_at_10_std
+      value: 15.7787
+    - type: nauc_precision_at_10_diff1
+      value: -4.0968
+    - type: nauc_precision_at_20_max
+      value: 15.9944
+    - type: nauc_precision_at_20_std
+      value: 22.4212
+    - type: nauc_precision_at_20_diff1
+      value: -11.3771
+    - type: nauc_precision_at_100_max
+      value: 8.592600000000001
+    - type: nauc_precision_at_100_std
+      value: 26.4342
+    - type: nauc_precision_at_100_diff1
+      value: -15.402
+    - type: nauc_precision_at_1000_max
+      value: 2.8388
+    - type: nauc_precision_at_1000_std
+      value: 23.2317
+    - type: nauc_precision_at_1000_diff1
+      value: -19.1173
+    - type: nauc_mrr_at_1_max
+      value: 39.623000000000005
+    - type: nauc_mrr_at_1_std
+      value: -0.6057
+    - type: nauc_mrr_at_1_diff1
+      value: 50.2688
+    - type: nauc_mrr_at_3_max
+      value: 41.694199999999995
+    - type: nauc_mrr_at_3_std
+      value: 2.5751
+    - type: nauc_mrr_at_3_diff1
+      value: 48.6111
+    - type: nauc_mrr_at_5_max
+      value: 41.5674
+    - type: nauc_mrr_at_5_std
+      value: 2.7312
+    - type: nauc_mrr_at_5_diff1
+      value: 48.6988
+    - type: nauc_mrr_at_10_max
+      value: 41.7364
+    - type: nauc_mrr_at_10_std
+      value: 2.5787
+    - type: nauc_mrr_at_10_diff1
+      value: 48.5842
+    - type: nauc_mrr_at_20_max
+      value: 41.7509
+    - type: nauc_mrr_at_20_std
+      value: 2.6837
+    - type: nauc_mrr_at_20_diff1
+      value: 48.7196
+    - type: nauc_mrr_at_100_max
+      value: 41.6895
+    - type: nauc_mrr_at_100_std
+      value: 2.6545
+    - type: nauc_mrr_at_100_diff1
+      value: 48.7483
+    - type: nauc_mrr_at_1000_max
+      value: 41.6849
+    - type: nauc_mrr_at_1000_std
+      value: 2.6379
+    - type: nauc_mrr_at_1000_diff1
+      value: 48.753600000000006
+    - type: main_score
+      value: 67.46
+    task:
+      type: Retrieval
+  - dataset:
+      config: fr
+      name: MTEB MIRACLRetrieval (fr)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 39.65
+    - type: ndcg_at_3
+      value: 39.843
+    - type: ndcg_at_5
+      value: 44.416
+    - type: ndcg_at_10
+      value: 49.891000000000005
+    - type: ndcg_at_20
+      value: 53.163000000000004
+    - type: ndcg_at_100
+      value: 56.492
+    - type: ndcg_at_1000
+      value: 57.837
+    - type: map_at_1
+      value: 22.644000000000002
+    - type: map_at_3
+      value: 33.021
+    - type: map_at_5
+      value: 36.958
+    - type: map_at_10
+      value: 39.967999999999996
+    - type: map_at_20
+      value: 41.298
+    - type: map_at_100
+      value: 42.03
+    - type: map_at_1000
+      value: 42.119
+    - type: recall_at_1
+      value: 22.644000000000002
+    - type: recall_at_3
+      value: 39.798
+    - type: recall_at_5
+      value: 51.001
+    - type: recall_at_10
+      value: 65.169
+    - type: recall_at_20
+      value: 75.33800000000001
+    - type: recall_at_100
+      value: 89.786
+    - type: recall_at_1000
+      value: 98.08099999999999
+    - type: precision_at_1
+      value: 39.65
+    - type: precision_at_3
+      value: 25.656000000000002
+    - type: precision_at_5
+      value: 20.175
+    - type: precision_at_10
+      value: 13.120000000000001
+    - type: precision_at_20
+      value: 7.7410000000000005
+    - type: precision_at_100
+      value: 1.883
+    - type: precision_at_1000
+      value: 0.208
+    - type: mrr_at_1
+      value: 39.6501
+    - type: mrr_at_3
+      value: 48.7366
+    - type: mrr_at_5
+      value: 50.9961
+    - type: mrr_at_10
+      value: 52.659
+    - type: mrr_at_20
+      value: 53.0856
+    - type: mrr_at_100
+      value: 53.273199999999996
+    - type: mrr_at_1000
+      value: 53.2931
+    - type: nauc_ndcg_at_1_max
+      value: 29.1135
+    - type: nauc_ndcg_at_1_std
+      value: 13.9561
+    - type: nauc_ndcg_at_1_diff1
+      value: 28.410400000000003
+    - type: nauc_ndcg_at_3_max
+      value: 29.0117
+    - type: nauc_ndcg_at_3_std
+      value: 15.655
+    - type: nauc_ndcg_at_3_diff1
+      value: 19.7043
+    - type: nauc_ndcg_at_5_max
+      value: 31.3257
+    - type: nauc_ndcg_at_5_std
+      value: 17.4096
+    - type: nauc_ndcg_at_5_diff1
+      value: 20.5295
+    - type: nauc_ndcg_at_10_max
+      value: 33.244
+    - type: nauc_ndcg_at_10_std
+      value: 18.8436
+    - type: nauc_ndcg_at_10_diff1
+      value: 17.9986
+    - type: nauc_ndcg_at_20_max
+      value: 35.0697
+    - type: nauc_ndcg_at_20_std
+      value: 19.84
+    - type: nauc_ndcg_at_20_diff1
+      value: 19.611600000000003
+    - type: nauc_ndcg_at_100_max
+      value: 34.7837
+    - type: nauc_ndcg_at_100_std
+      value: 22.2762
+    - type: nauc_ndcg_at_100_diff1
+      value: 19.3138
+    - type: nauc_ndcg_at_1000_max
+      value: 34.4487
+    - type: nauc_ndcg_at_1000_std
+      value: 20.8402
+    - type: nauc_ndcg_at_1000_diff1
+      value: 20.2691
+    - type: nauc_map_at_1_max
+      value: 20.247200000000003
+    - type: nauc_map_at_1_std
+      value: 8.8046
+    - type: nauc_map_at_1_diff1
+      value: 27.227600000000002
+    - type: nauc_map_at_3_max
+      value: 26.7076
+    - type: nauc_map_at_3_std
+      value: 13.7464
+    - type: nauc_map_at_3_diff1
+      value: 21.1266
+    - type: nauc_map_at_5_max
+      value: 28.777399999999997
+    - type: nauc_map_at_5_std
+      value: 15.348400000000002
+    - type: nauc_map_at_5_diff1
+      value: 21.4282
+    - type: nauc_map_at_10_max
+      value: 29.907600000000002
+    - type: nauc_map_at_10_std
+      value: 16.3636
+    - type: nauc_map_at_10_diff1
+      value: 20.1957
+    - type: nauc_map_at_20_max
+      value: 30.864399999999996
+    - type: nauc_map_at_20_std
+      value: 16.936999999999998
+    - type: nauc_map_at_20_diff1
+      value: 20.8871
+    - type: nauc_map_at_100_max
+      value: 30.998900000000003
+    - type: nauc_map_at_100_std
+      value: 17.673
+    - type: nauc_map_at_100_diff1
+      value: 20.7773
+    - type: nauc_map_at_1000_max
+      value: 31.0185
+    - type: nauc_map_at_1000_std
+      value: 17.6212
+    - type: nauc_map_at_1000_diff1
+      value: 20.846700000000002
+    - type: nauc_recall_at_1_max
+      value: 20.247200000000003
+    - type: nauc_recall_at_1_std
+      value: 8.8046
+    - type: nauc_recall_at_1_diff1
+      value: 27.227600000000002
+    - type: nauc_recall_at_3_max
+      value: 25.074600000000004
+    - type: nauc_recall_at_3_std
+      value: 14.0657
+    - type: nauc_recall_at_3_diff1
+      value: 14.7258
+    - type: nauc_recall_at_5_max
+      value: 29.442899999999998
+    - type: nauc_recall_at_5_std
+      value: 16.2404
+    - type: nauc_recall_at_5_diff1
+      value: 15.4134
+    - type: nauc_recall_at_10_max
+      value: 33.5052
+    - type: nauc_recall_at_10_std
+      value: 19.417
+    - type: nauc_recall_at_10_diff1
+      value: 7.933700000000001
+    - type: nauc_recall_at_20_max
+      value: 40.2402
+    - type: nauc_recall_at_20_std
+      value: 22.7218
+    - type: nauc_recall_at_20_diff1
+      value: 11.777600000000001
+    - type: nauc_recall_at_100_max
+      value: 44.4613
+    - type: nauc_recall_at_100_std
+      value: 52.5751
+    - type: nauc_recall_at_100_diff1
+      value: 5.1827
+    - type: nauc_recall_at_1000_max
+      value: 80.4059
+    - type: nauc_recall_at_1000_std
+      value: 82.2582
+    - type: nauc_recall_at_1000_diff1
+      value: 37.9332
+    - type: nauc_precision_at_1_max
+      value: 29.1135
+    - type: nauc_precision_at_1_std
+      value: 13.9561
+    - type: nauc_precision_at_1_diff1
+      value: 28.410400000000003
+    - type: nauc_precision_at_3_max
+      value: 32.4031
+    - type: nauc_precision_at_3_std
+      value: 21.222099999999998
+    - type: nauc_precision_at_3_diff1
+      value: 9.2426
+    - type: nauc_precision_at_5_max
+      value: 31.372600000000002
+    - type: nauc_precision_at_5_std
+      value: 22.4259
+    - type: nauc_precision_at_5_diff1
+      value: 7.199
+    - type: nauc_precision_at_10_max
+      value: 29.5298
+    - type: nauc_precision_at_10_std
+      value: 22.183
+    - type: nauc_precision_at_10_diff1
+      value: -1.2202
+    - type: nauc_precision_at_20_max
+      value: 28.1874
+    - type: nauc_precision_at_20_std
+      value: 21.7393
+    - type: nauc_precision_at_20_diff1
+      value: 0.2774
+    - type: nauc_precision_at_100_max
+      value: 18.2122
+    - type: nauc_precision_at_100_std
+      value: 21.566
+    - type: nauc_precision_at_100_diff1
+      value: -5.8792
+    - type: nauc_precision_at_1000_max
+      value: 11.3258
+    - type: nauc_precision_at_1000_std
+      value: 12.261700000000001
+    - type: nauc_precision_at_1000_diff1
+      value: -5.8514
+    - type: nauc_mrr_at_1_max
+      value: 29.1135
+    - type: nauc_mrr_at_1_std
+      value: 13.9561
+    - type: nauc_mrr_at_1_diff1
+      value: 28.410400000000003
+    - type: nauc_mrr_at_3_max
+      value: 30.904999999999998
+    - type: nauc_mrr_at_3_std
+      value: 16.5695
+    - type: nauc_mrr_at_3_diff1
+      value: 22.555
+    - type: nauc_mrr_at_5_max
+      value: 32.408
+    - type: nauc_mrr_at_5_std
+      value: 17.7334
+    - type: nauc_mrr_at_5_diff1
+      value: 22.912399999999998
+    - type: nauc_mrr_at_10_max
+      value: 33.069500000000005
+    - type: nauc_mrr_at_10_std
+      value: 17.8731
+    - type: nauc_mrr_at_10_diff1
+      value: 22.270300000000002
+    - type: nauc_mrr_at_20_max
+      value: 33.062000000000005
+    - type: nauc_mrr_at_20_std
+      value: 17.8293
+    - type: nauc_mrr_at_20_diff1
+      value: 22.5118
+    - type: nauc_mrr_at_100_max
+      value: 32.9394
+    - type: nauc_mrr_at_100_std
+      value: 17.7815
+    - type: nauc_mrr_at_100_diff1
+      value: 22.676199999999998
+    - type: nauc_mrr_at_1000_max
+      value: 32.9188
+    - type: nauc_mrr_at_1000_std
+      value: 17.7435
+    - type: nauc_mrr_at_1000_diff1
+      value: 22.6855
+    - type: main_score
+      value: 49.891000000000005
+    task:
+      type: Retrieval
+  - dataset:
+      config: hi
+      name: MTEB MIRACLRetrieval (hi)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 36.857
+    - type: ndcg_at_3
+      value: 39.469
+    - type: ndcg_at_5
+      value: 41.839999999999996
+    - type: ndcg_at_10
+      value: 46.141
+    - type: ndcg_at_20
+      value: 49.384
+    - type: ndcg_at_100
+      value: 52.565
+    - type: ndcg_at_1000
+      value: 54.318999999999996
+    - type: map_at_1
+      value: 20.185
+    - type: map_at_3
+      value: 30.9
+    - type: map_at_5
+      value: 34.311
+    - type: map_at_10
+      value: 37.074
+    - type: map_at_20
+      value: 38.493
+    - type: map_at_100
+      value: 39.174
+    - type: map_at_1000
+      value: 39.269
+    - type: recall_at_1
+      value: 20.185
+    - type: recall_at_3
+      value: 38.993
+    - type: recall_at_5
+      value: 47.881
+    - type: recall_at_10
+      value: 59.474000000000004
+    - type: recall_at_20
+      value: 69.437
+    - type: recall_at_100
+      value: 83.38499999999999
+    - type: recall_at_1000
+      value: 94.813
+    - type: precision_at_1
+      value: 36.857
+    - type: precision_at_3
+      value: 26.19
+    - type: precision_at_5
+      value: 19.829
+    - type: precision_at_10
+      value: 12.543000000000001
+    - type: precision_at_20
+      value: 7.542999999999999
+    - type: precision_at_100
+      value: 1.8030000000000002
+    - type: precision_at_1000
+      value: 0.20500000000000002
+    - type: mrr_at_1
+      value: 36.857099999999996
+    - type: mrr_at_3
+      value: 46.5238
+    - type: mrr_at_5
+      value: 47.9952
+    - type: mrr_at_10
+      value: 49.331399999999995
+    - type: mrr_at_20
+      value: 49.8255
+    - type: mrr_at_100
+      value: 50.0575
+    - type: mrr_at_1000
+      value: 50.097
+    - type: nauc_ndcg_at_1_max
+      value: 42.226200000000006
+    - type: nauc_ndcg_at_1_std
+      value: 4.0359
+    - type: nauc_ndcg_at_1_diff1
+      value: 41.728500000000004
+    - type: nauc_ndcg_at_3_max
+      value: 37.5731
+    - type: nauc_ndcg_at_3_std
+      value: 7.4824
+    - type: nauc_ndcg_at_3_diff1
+      value: 25.607499999999998
+    - type: nauc_ndcg_at_5_max
+      value: 36.1243
+    - type: nauc_ndcg_at_5_std
+      value: 6.7822
+    - type: nauc_ndcg_at_5_diff1
+      value: 26.4955
+    - type: nauc_ndcg_at_10_max
+      value: 38.8673
+    - type: nauc_ndcg_at_10_std
+      value: 9.925699999999999
+    - type: nauc_ndcg_at_10_diff1
+      value: 25.262400000000003
+    - type: nauc_ndcg_at_20_max
+      value: 41.564099999999996
+    - type: nauc_ndcg_at_20_std
+      value: 12.4619
+    - type: nauc_ndcg_at_20_diff1
+      value: 26.902900000000002
+    - type: nauc_ndcg_at_100_max
+      value: 42.2534
+    - type: nauc_ndcg_at_100_std
+      value: 12.1461
+    - type: nauc_ndcg_at_100_diff1
+      value: 27.721600000000002
+    - type: nauc_ndcg_at_1000_max
+      value: 42.3689
+    - type: nauc_ndcg_at_1000_std
+      value: 11.9947
+    - type: nauc_ndcg_at_1000_diff1
+      value: 28.6224
+    - type: nauc_map_at_1_max
+      value: 23.4774
+    - type: nauc_map_at_1_std
+      value: -1.6596
+    - type: nauc_map_at_1_diff1
+      value: 32.9091
+    - type: nauc_map_at_3_max
+      value: 29.2888
+    - type: nauc_map_at_3_std
+      value: 2.8310999999999997
+    - type: nauc_map_at_3_diff1
+      value: 25.7556
+    - type: nauc_map_at_5_max
+      value: 32.013200000000005
+    - type: nauc_map_at_5_std
+      value: 3.8372
+    - type: nauc_map_at_5_diff1
+      value: 26.3662
+    - type: nauc_map_at_10_max
+      value: 34.6644
+    - type: nauc_map_at_10_std
+      value: 5.9211
+    - type: nauc_map_at_10_diff1
+      value: 25.737700000000004
+    - type: nauc_map_at_20_max
+      value: 36.5315
+    - type: nauc_map_at_20_std
+      value: 7.657500000000001
+    - type: nauc_map_at_20_diff1
+      value: 26.2519
+    - type: nauc_map_at_100_max
+      value: 36.7956
+    - type: nauc_map_at_100_std
+      value: 7.6282000000000005
+    - type: nauc_map_at_100_diff1
+      value: 26.5173
+    - type: nauc_map_at_1000_max
+      value: 36.822500000000005
+    - type: nauc_map_at_1000_std
+      value: 7.641100000000001
+    - type: nauc_map_at_1000_diff1
+      value: 26.5875
+    - type: nauc_recall_at_1_max
+      value: 23.4774
+    - type: nauc_recall_at_1_std
+      value: -1.6596
+    - type: nauc_recall_at_1_diff1
+      value: 32.9091
+    - type: nauc_recall_at_3_max
+      value: 23.9443
+    - type: nauc_recall_at_3_std
+      value: 7.0466
+    - type: nauc_recall_at_3_diff1
+      value: 15.045
+    - type: nauc_recall_at_5_max
+      value: 27.515
+    - type: nauc_recall_at_5_std
+      value: 7.8471
+    - type: nauc_recall_at_5_diff1
+      value: 16.0936
+    - type: nauc_recall_at_10_max
+      value: 32.9675
+    - type: nauc_recall_at_10_std
+      value: 15.6248
+    - type: nauc_recall_at_10_diff1
+      value: 11.8783
+    - type: nauc_recall_at_20_max
+      value: 40.6864
+    - type: nauc_recall_at_20_std
+      value: 23.9995
+    - type: nauc_recall_at_20_diff1
+      value: 16.9561
+    - type: nauc_recall_at_100_max
+      value: 47.5027
+    - type: nauc_recall_at_100_std
+      value: 30.6021
+    - type: nauc_recall_at_100_diff1
+      value: 17.3955
+    - type: nauc_recall_at_1000_max
+      value: 66.6978
+    - type: nauc_recall_at_1000_std
+      value: 62.0413
+    - type: nauc_recall_at_1000_diff1
+      value: 27.5068
+    - type: nauc_precision_at_1_max
+      value: 42.226200000000006
+    - type: nauc_precision_at_1_std
+      value: 4.0359
+    - type: nauc_precision_at_1_diff1
+      value: 41.728500000000004
+    - type: nauc_precision_at_3_max
+      value: 44.7816
+    - type: nauc_precision_at_3_std
+      value: 15.473300000000002
+    - type: nauc_precision_at_3_diff1
+      value: 17.0949
+    - type: nauc_precision_at_5_max
+      value: 44.6483
+    - type: nauc_precision_at_5_std
+      value: 14.8981
+    - type: nauc_precision_at_5_diff1
+      value: 17.1841
+    - type: nauc_precision_at_10_max
+      value: 45.796
+    - type: nauc_precision_at_10_std
+      value: 21.046300000000002
+    - type: nauc_precision_at_10_diff1
+      value: 10.9757
+    - type: nauc_precision_at_20_max
+      value: 45.0264
+    - type: nauc_precision_at_20_std
+      value: 24.8162
+    - type: nauc_precision_at_20_diff1
+      value: 10.624699999999999
+    - type: nauc_precision_at_100_max
+      value: 39.8456
+    - type: nauc_precision_at_100_std
+      value: 21.0487
+    - type: nauc_precision_at_100_diff1
+      value: 8.372
+    - type: nauc_precision_at_1000_max
+      value: 34.7517
+    - type: nauc_precision_at_1000_std
+      value: 18.3825
+    - type: nauc_precision_at_1000_diff1
+      value: 7.969900000000001
+    - type: nauc_mrr_at_1_max
+      value: 42.226200000000006
+    - type: nauc_mrr_at_1_std
+      value: 4.0359
+    - type: nauc_mrr_at_1_diff1
+      value: 41.728500000000004
+    - type: nauc_mrr_at_3_max
+      value: 42.1134
+    - type: nauc_mrr_at_3_std
+      value: 7.674799999999999
+    - type: nauc_mrr_at_3_diff1
+      value: 34.1447
+    - type: nauc_mrr_at_5_max
+      value: 42.668800000000005
+    - type: nauc_mrr_at_5_std
+      value: 7.3921
+    - type: nauc_mrr_at_5_diff1
+      value: 34.6011
+    - type: nauc_mrr_at_10_max
+      value: 43.473099999999995
+    - type: nauc_mrr_at_10_std
+      value: 8.0841
+    - type: nauc_mrr_at_10_diff1
+      value: 34.679500000000004
+    - type: nauc_mrr_at_20_max
+      value: 43.3626
+    - type: nauc_mrr_at_20_std
+      value: 7.7897
+    - type: nauc_mrr_at_20_diff1
+      value: 35.0828
+    - type: nauc_mrr_at_100_max
+      value: 43.287
+    - type: nauc_mrr_at_100_std
+      value: 7.7234
+    - type: nauc_mrr_at_100_diff1
+      value: 35.169200000000004
+    - type: nauc_mrr_at_1000_max
+      value: 43.2954
+    - type: nauc_mrr_at_1000_std
+      value: 7.7224
+    - type: nauc_mrr_at_1000_diff1
+      value: 35.1808
+    - type: main_score
+      value: 46.141
+    task:
+      type: Retrieval
+  - dataset:
+      config: id
+      name: MTEB MIRACLRetrieval (id)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 46.354
+    - type: ndcg_at_3
+      value: 42.538
+    - type: ndcg_at_5
+      value: 43.717
+    - type: ndcg_at_10
+      value: 47.229
+    - type: ndcg_at_20
+      value: 50.605999999999995
+    - type: ndcg_at_100
+      value: 55.25
+    - type: ndcg_at_1000
+      value: 57.647999999999996
+    - type: map_at_1
+      value: 20.787
+    - type: map_at_3
+      value: 30.721999999999998
+    - type: map_at_5
+      value: 34.096
+    - type: map_at_10
+      value: 36.994
+    - type: map_at_20
+      value: 38.622
+    - type: map_at_100
+      value: 39.872
+    - type: map_at_1000
+      value: 40.056000000000004
+    - type: recall_at_1
+      value: 20.787
+    - type: recall_at_3
+      value: 36.229
+    - type: recall_at_5
+      value: 44.437
+    - type: recall_at_10
+      value: 54.771
+    - type: recall_at_20
+      value: 63.842
+    - type: recall_at_100
+      value: 80.689
+    - type: recall_at_1000
+      value: 94.03200000000001
+    - type: precision_at_1
+      value: 46.354
+    - type: precision_at_3
+      value: 30.625000000000004
+    - type: precision_at_5
+      value: 23.708000000000002
+    - type: precision_at_10
+      value: 15.719
+    - type: precision_at_20
+      value: 9.589
+    - type: precision_at_100
+      value: 2.5700000000000003
+    - type: precision_at_1000
+      value: 0.302
+    - type: mrr_at_1
+      value: 46.3542
+    - type: mrr_at_3
+      value: 54.6875
+    - type: mrr_at_5
+      value: 56.5521
+    - type: mrr_at_10
+      value: 57.6894
+    - type: mrr_at_20
+      value: 58.05630000000001
+    - type: mrr_at_100
+      value: 58.217
+    - type: mrr_at_1000
+      value: 58.2387
+    - type: nauc_ndcg_at_1_max
+      value: 27.987000000000002
+    - type: nauc_ndcg_at_1_std
+      value: 7.784000000000001
+    - type: nauc_ndcg_at_1_diff1
+      value: 29.116799999999998
+    - type: nauc_ndcg_at_3_max
+      value: 25.316899999999997
+    - type: nauc_ndcg_at_3_std
+      value: 3.3255
+    - type: nauc_ndcg_at_3_diff1
+      value: 25.4685
+    - type: nauc_ndcg_at_5_max
+      value: 26.1614
+    - type: nauc_ndcg_at_5_std
+      value: 0.8946000000000001
+    - type: nauc_ndcg_at_5_diff1
+      value: 25.269799999999996
+    - type: nauc_ndcg_at_10_max
+      value: 26.898
+    - type: nauc_ndcg_at_10_std
+      value: 0.505
+    - type: nauc_ndcg_at_10_diff1
+      value: 25.0664
+    - type: nauc_ndcg_at_20_max
+      value: 28.384900000000002
+    - type: nauc_ndcg_at_20_std
+      value: 3.0328
+    - type: nauc_ndcg_at_20_diff1
+      value: 25.011
+    - type: nauc_ndcg_at_100_max
+      value: 29.4682
+    - type: nauc_ndcg_at_100_std
+      value: 8.5929
+    - type: nauc_ndcg_at_100_diff1
+      value: 23.0951
+    - type: nauc_ndcg_at_1000_max
+      value: 29.384900000000002
+    - type: nauc_ndcg_at_1000_std
+      value: 8.7787
+    - type: nauc_ndcg_at_1000_diff1
+      value: 23.454900000000002
+    - type: nauc_map_at_1_max
+      value: 17.6022
+    - type: nauc_map_at_1_std
+      value: -3.9352
+    - type: nauc_map_at_1_diff1
+      value: 31.478
+    - type: nauc_map_at_3_max
+      value: 22.4116
+    - type: nauc_map_at_3_std
+      value: -3.0375
+    - type: nauc_map_at_3_diff1
+      value: 28.6608
+    - type: nauc_map_at_5_max
+      value: 23.4486
+    - type: nauc_map_at_5_std
+      value: -3.7261
+    - type: nauc_map_at_5_diff1
+      value: 27.2458
+    - type: nauc_map_at_10_max
+      value: 24.4413
+    - type: nauc_map_at_10_std
+      value: -2.4634
+    - type: nauc_map_at_10_diff1
+      value: 26.3372
+    - type: nauc_map_at_20_max
+      value: 25.1924
+    - type: nauc_map_at_20_std
+      value: -1.0928
+    - type: nauc_map_at_20_diff1
+      value: 26.028299999999998
+    - type: nauc_map_at_100_max
+      value: 25.7081
+    - type: nauc_map_at_100_std
+      value: 0.6245999999999999
+    - type: nauc_map_at_100_diff1
+      value: 25.599
+    - type: nauc_map_at_1000_max
+      value: 25.714100000000002
+    - type: nauc_map_at_1000_std
+      value: 0.7106
+    - type: nauc_map_at_1000_diff1
+      value: 25.609700000000004
+    - type: nauc_recall_at_1_max
+      value: 17.6022
+    - type: nauc_recall_at_1_std
+      value: -3.9352
+    - type: nauc_recall_at_1_diff1
+      value: 31.478
+    - type: nauc_recall_at_3_max
+      value: 20.314799999999998
+    - type: nauc_recall_at_3_std
+      value: -4.1603
+    - type: nauc_recall_at_3_diff1
+      value: 26.1438
+    - type: nauc_recall_at_5_max
+      value: 22.866500000000002
+    - type: nauc_recall_at_5_std
+      value: -4.755
+    - type: nauc_recall_at_5_diff1
+      value: 22.1412
+    - type: nauc_recall_at_10_max
+      value: 22.900000000000002
+    - type: nauc_recall_at_10_std
+      value: -3.9179
+    - type: nauc_recall_at_10_diff1
+      value: 19.3005
+    - type: nauc_recall_at_20_max
+      value: 26.3519
+    - type: nauc_recall_at_20_std
+      value: 1.1686
+    - type: nauc_recall_at_20_diff1
+      value: 18.94
+    - type: nauc_recall_at_100_max
+      value: 30.2413
+    - type: nauc_recall_at_100_std
+      value: 24.4636
+    - type: nauc_recall_at_100_diff1
+      value: 6.5627
+    - type: nauc_recall_at_1000_max
+      value: 43.778
+    - type: nauc_recall_at_1000_std
+      value: 48.835699999999996
+    - type: nauc_recall_at_1000_diff1
+      value: -1.5112
+    - type: nauc_precision_at_1_max
+      value: 27.987000000000002
+    - type: nauc_precision_at_1_std
+      value: 7.784000000000001
+    - type: nauc_precision_at_1_diff1
+      value: 29.116799999999998
+    - type: nauc_precision_at_3_max
+      value: 24.6393
+    - type: nauc_precision_at_3_std
+      value: 7.932599999999999
+    - type: nauc_precision_at_3_diff1
+      value: 11.9215
+    - type: nauc_precision_at_5_max
+      value: 23.0426
+    - type: nauc_precision_at_5_std
+      value: 8.9273
+    - type: nauc_precision_at_5_diff1
+      value: 5.0737
+    - type: nauc_precision_at_10_max
+      value: 18.0093
+    - type: nauc_precision_at_10_std
+      value: 13.093
+    - type: nauc_precision_at_10_diff1
+      value: -1.5028
+    - type: nauc_precision_at_20_max
+      value: 16.1061
+    - type: nauc_precision_at_20_std
+      value: 18.3582
+    - type: nauc_precision_at_20_diff1
+      value: -4.3066
+    - type: nauc_precision_at_100_max
+      value: 10.9945
+    - type: nauc_precision_at_100_std
+      value: 28.2804
+    - type: nauc_precision_at_100_diff1
+      value: -11.6381
+    - type: nauc_precision_at_1000_max
+      value: 4.9859
+    - type: nauc_precision_at_1000_std
+      value: 26.3117
+    - type: nauc_precision_at_1000_diff1
+      value: -13.819300000000002
+    - type: nauc_mrr_at_1_max
+      value: 27.987000000000002
+    - type: nauc_mrr_at_1_std
+      value: 7.784000000000001
+    - type: nauc_mrr_at_1_diff1
+      value: 29.116799999999998
+    - type: nauc_mrr_at_3_max
+      value: 28.635899999999996
+    - type: nauc_mrr_at_3_std
+      value: 8.309700000000001
+    - type: nauc_mrr_at_3_diff1
+      value: 27.976499999999998
+    - type: nauc_mrr_at_5_max
+      value: 29.8296
+    - type: nauc_mrr_at_5_std
+      value: 9.4775
+    - type: nauc_mrr_at_5_diff1
+      value: 26.685799999999997
+    - type: nauc_mrr_at_10_max
+      value: 29.4522
+    - type: nauc_mrr_at_10_std
+      value: 9.1613
+    - type: nauc_mrr_at_10_diff1
+      value: 26.933600000000002
+    - type: nauc_mrr_at_20_max
+      value: 29.5446
+    - type: nauc_mrr_at_20_std
+      value: 9.3451
+    - type: nauc_mrr_at_20_diff1
+      value: 27.074900000000003
+    - type: nauc_mrr_at_100_max
+      value: 29.4977
+    - type: nauc_mrr_at_100_std
+      value: 9.4252
+    - type: nauc_mrr_at_100_diff1
+      value: 27.0534
+    - type: nauc_mrr_at_1000_max
+      value: 29.499599999999997
+    - type: nauc_mrr_at_1000_std
+      value: 9.4193
+    - type: nauc_mrr_at_1000_diff1
+      value: 27.054000000000002
+    - type: main_score
+      value: 47.229
+    task:
+      type: Retrieval
+  - dataset:
+      config: ja
+      name: MTEB MIRACLRetrieval (ja)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 56.279
+    - type: ndcg_at_3
+      value: 56.226
+    - type: ndcg_at_5
+      value: 58.660000000000004
+    - type: ndcg_at_10
+      value: 62.81
+    - type: ndcg_at_20
+      value: 65.21000000000001
+    - type: ndcg_at_100
+      value: 67.757
+    - type: ndcg_at_1000
+      value: 68.667
+    - type: map_at_1
+      value: 36.647999999999996
+    - type: map_at_3
+      value: 48.154
+    - type: map_at_5
+      value: 51.336999999999996
+    - type: map_at_10
+      value: 53.998000000000005
+    - type: map_at_20
+      value: 55.074
+    - type: map_at_100
+      value: 55.701
+    - type: map_at_1000
+      value: 55.767
+    - type: recall_at_1
+      value: 36.647999999999996
+    - type: recall_at_3
+      value: 55.845
+    - type: recall_at_5
+      value: 63.854
+    - type: recall_at_10
+      value: 74.96000000000001
+    - type: recall_at_20
+      value: 82.326
+    - type: recall_at_100
+      value: 92.461
+    - type: recall_at_1000
+      value: 97.827
+    - type: precision_at_1
+      value: 56.279
+    - type: precision_at_3
+      value: 31.86
+    - type: precision_at_5
+      value: 22.884
+    - type: precision_at_10
+      value: 14.058000000000002
+    - type: precision_at_20
+      value: 7.965
+    - type: precision_at_100
+      value: 1.883
+    - type: precision_at_1000
+      value: 0.203
+    - type: mrr_at_1
+      value: 56.27910000000001
+    - type: mrr_at_3
+      value: 64.7868
+    - type: mrr_at_5
+      value: 65.9496
+    - type: mrr_at_10
+      value: 67.0763
+    - type: mrr_at_20
+      value: 67.3531
+    - type: mrr_at_100
+      value: 67.48920000000001
+    - type: mrr_at_1000
+      value: 67.5016
+    - type: nauc_ndcg_at_1_max
+      value: 34.801300000000005
+    - type: nauc_ndcg_at_1_std
+      value: 3.6539
+    - type: nauc_ndcg_at_1_diff1
+      value: 42.9912
+    - type: nauc_ndcg_at_3_max
+      value: 27.3758
+    - type: nauc_ndcg_at_3_std
+      value: -5.6399
+    - type: nauc_ndcg_at_3_diff1
+      value: 35.0235
+    - type: nauc_ndcg_at_5_max
+      value: 26.5087
+    - type: nauc_ndcg_at_5_std
+      value: -7.2121
+    - type: nauc_ndcg_at_5_diff1
+      value: 34.3684
+    - type: nauc_ndcg_at_10_max
+      value: 27.756199999999996
+    - type: nauc_ndcg_at_10_std
+      value: -6.9499
+    - type: nauc_ndcg_at_10_diff1
+      value: 34.9472
+    - type: nauc_ndcg_at_20_max
+      value: 30.6925
+    - type: nauc_ndcg_at_20_std
+      value: -3.7859
+    - type: nauc_ndcg_at_20_diff1
+      value: 35.833
+    - type: nauc_ndcg_at_100_max
+      value: 31.6641
+    - type: nauc_ndcg_at_100_std
+      value: -1.1897
+    - type: nauc_ndcg_at_100_diff1
+      value: 36.218
+    - type: nauc_ndcg_at_1000_max
+      value: 31.5623
+    - type: nauc_ndcg_at_1000_std
+      value: -1.2468
+    - type: nauc_ndcg_at_1000_diff1
+      value: 36.4007
+    - type: nauc_map_at_1_max
+      value: 13.1087
+    - type: nauc_map_at_1_std
+      value: -13.6324
+    - type: nauc_map_at_1_diff1
+      value: 36.5411
+    - type: nauc_map_at_3_max
+      value: 19.108900000000002
+    - type: nauc_map_at_3_std
+      value: -12.8558
+    - type: nauc_map_at_3_diff1
+      value: 33.797
+    - type: nauc_map_at_5_max
+      value: 20.935100000000002
+    - type: nauc_map_at_5_std
+      value: -11.6525
+    - type: nauc_map_at_5_diff1
+      value: 33.392500000000005
+    - type: nauc_map_at_10_max
+      value: 22.9758
+    - type: nauc_map_at_10_std
+      value: -10.3728
+    - type: nauc_map_at_10_diff1
+      value: 33.8681
+    - type: nauc_map_at_20_max
+      value: 24.357100000000003
+    - type: nauc_map_at_20_std
+      value: -8.9932
+    - type: nauc_map_at_20_diff1
+      value: 34.2437
+    - type: nauc_map_at_100_max
+      value: 24.622700000000002
+    - type: nauc_map_at_100_std
+      value: -8.3079
+    - type: nauc_map_at_100_diff1
+      value: 34.3227
+    - type: nauc_map_at_1000_max
+      value: 24.6436
+    - type: nauc_map_at_1000_std
+      value: -8.280999999999999
+    - type: nauc_map_at_1000_diff1
+      value: 34.3499
+    - type: nauc_recall_at_1_max
+      value: 13.1087
+    - type: nauc_recall_at_1_std
+      value: -13.6324
+    - type: nauc_recall_at_1_diff1
+      value: 36.5411
+    - type: nauc_recall_at_3_max
+      value: 17.369899999999998
+    - type: nauc_recall_at_3_std
+      value: -14.6564
+    - type: nauc_recall_at_3_diff1
+      value: 29.4825
+    - type: nauc_recall_at_5_max
+      value: 18.2446
+    - type: nauc_recall_at_5_std
+      value: -13.422400000000001
+    - type: nauc_recall_at_5_diff1
+      value: 26.5515
+    - type: nauc_recall_at_10_max
+      value: 18.6431
+    - type: nauc_recall_at_10_std
+      value: -13.3386
+    - type: nauc_recall_at_10_diff1
+      value: 25.001299999999997
+    - type: nauc_recall_at_20_max
+      value: 28.248099999999997
+    - type: nauc_recall_at_20_std
+      value: -2.9409
+    - type: nauc_recall_at_20_diff1
+      value: 26.283800000000003
+    - type: nauc_recall_at_100_max
+      value: 38.6213
+    - type: nauc_recall_at_100_std
+      value: 20.5175
+    - type: nauc_recall_at_100_diff1
+      value: 23.8743
+    - type: nauc_recall_at_1000_max
+      value: 54.1945
+    - type: nauc_recall_at_1000_std
+      value: 48.3776
+    - type: nauc_recall_at_1000_diff1
+      value: 21.786
+    - type: nauc_precision_at_1_max
+      value: 34.801300000000005
+    - type: nauc_precision_at_1_std
+      value: 3.6539
+    - type: nauc_precision_at_1_diff1
+      value: 42.9912
+    - type: nauc_precision_at_3_max
+      value: 36.7085
+    - type: nauc_precision_at_3_std
+      value: 13.653799999999999
+    - type: nauc_precision_at_3_diff1
+      value: 16.8438
+    - type: nauc_precision_at_5_max
+      value: 33.541199999999996
+    - type: nauc_precision_at_5_std
+      value: 17.418400000000002
+    - type: nauc_precision_at_5_diff1
+      value: 8.5281
+    - type: nauc_precision_at_10_max
+      value: 32.448100000000004
+    - type: nauc_precision_at_10_std
+      value: 22.8249
+    - type: nauc_precision_at_10_diff1
+      value: 2.5392
+    - type: nauc_precision_at_20_max
+      value: 32.423
+    - type: nauc_precision_at_20_std
+      value: 29.353800000000003
+    - type: nauc_precision_at_20_diff1
+      value: 0.1455
+    - type: nauc_precision_at_100_max
+      value: 25.0045
+    - type: nauc_precision_at_100_std
+      value: 34.6492
+    - type: nauc_precision_at_100_diff1
+      value: -5.5314000000000005
+    - type: nauc_precision_at_1000_max
+      value: 21.319499999999998
+    - type: nauc_precision_at_1000_std
+      value: 33.3312
+    - type: nauc_precision_at_1000_diff1
+      value: -7.0243
+    - type: nauc_mrr_at_1_max
+      value: 34.801300000000005
+    - type: nauc_mrr_at_1_std
+      value: 3.6539
+    - type: nauc_mrr_at_1_diff1
+      value: 42.9912
+    - type: nauc_mrr_at_3_max
+      value: 39.8179
+    - type: nauc_mrr_at_3_std
+      value: 4.4769000000000005
+    - type: nauc_mrr_at_3_diff1
+      value: 42.4358
+    - type: nauc_mrr_at_5_max
+      value: 39.6822
+    - type: nauc_mrr_at_5_std
+      value: 4.7865
+    - type: nauc_mrr_at_5_diff1
+      value: 41.9923
+    - type: nauc_mrr_at_10_max
+      value: 39.2963
+    - type: nauc_mrr_at_10_std
+      value: 4.8511
+    - type: nauc_mrr_at_10_diff1
+      value: 41.994
+    - type: nauc_mrr_at_20_max
+      value: 39.395799999999994
+    - type: nauc_mrr_at_20_std
+      value: 4.9907
+    - type: nauc_mrr_at_20_diff1
+      value: 42.1806
+    - type: nauc_mrr_at_100_max
+      value: 39.3251
+    - type: nauc_mrr_at_100_std
+      value: 4.948
+    - type: nauc_mrr_at_100_diff1
+      value: 42.1769
+    - type: nauc_mrr_at_1000_max
+      value: 39.3153
+    - type: nauc_mrr_at_1000_std
+      value: 4.9384999999999994
+    - type: nauc_mrr_at_1000_diff1
+      value: 42.1768
+    - type: main_score
+      value: 62.81
+    task:
+      type: Retrieval
+  - dataset:
+      config: ko
+      name: MTEB MIRACLRetrieval (ko)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 52.581999999999994
+    - type: ndcg_at_3
+      value: 53.73
+    - type: ndcg_at_5
+      value: 55.886
+    - type: ndcg_at_10
+      value: 59.216
+    - type: ndcg_at_20
+      value: 62.427
+    - type: ndcg_at_100
+      value: 65.093
+    - type: ndcg_at_1000
+      value: 66.204
+    - type: map_at_1
+      value: 30.520999999999997
+    - type: map_at_3
+      value: 42.601
+    - type: map_at_5
+      value: 46.516000000000005
+    - type: map_at_10
+      value: 49.61
+    - type: map_at_20
+      value: 51.359
+    - type: map_at_100
+      value: 52.171
+    - type: map_at_1000
+      value: 52.249
+    - type: recall_at_1
+      value: 30.520999999999997
+    - type: recall_at_3
+      value: 51.5
+    - type: recall_at_5
+      value: 60.709999999999994
+    - type: recall_at_10
+      value: 71.15899999999999
+    - type: recall_at_20
+      value: 80.209
+    - type: recall_at_100
+      value: 90.203
+    - type: recall_at_1000
+      value: 96.714
+    - type: precision_at_1
+      value: 52.581999999999994
+    - type: precision_at_3
+      value: 33.019999999999996
+    - type: precision_at_5
+      value: 25.446
+    - type: precision_at_10
+      value: 16.244
+    - type: precision_at_20
+      value: 9.695
+    - type: precision_at_100
+      value: 2.286
+    - type: precision_at_1000
+      value: 0.248
+    - type: mrr_at_1
+      value: 52.5822
+    - type: mrr_at_3
+      value: 61.9718
+    - type: mrr_at_5
+      value: 63.450700000000005
+    - type: mrr_at_10
+      value: 64.50479999999999
+    - type: mrr_at_20
+      value: 64.7745
+    - type: mrr_at_100
+      value: 64.86840000000001
+    - type: mrr_at_1000
+      value: 64.8792
+    - type: nauc_ndcg_at_1_max
+      value: 57.2789
+    - type: nauc_ndcg_at_1_std
+      value: 34.9863
+    - type: nauc_ndcg_at_1_diff1
+      value: 44.0111
+    - type: nauc_ndcg_at_3_max
+      value: 34.18
+    - type: nauc_ndcg_at_3_std
+      value: 11.1503
+    - type: nauc_ndcg_at_3_diff1
+      value: 40.339999999999996
+    - type: nauc_ndcg_at_5_max
+      value: 34.4364
+    - type: nauc_ndcg_at_5_std
+      value: 8.7133
+    - type: nauc_ndcg_at_5_diff1
+      value: 43.3464
+    - type: nauc_ndcg_at_10_max
+      value: 35.990899999999996
+    - type: nauc_ndcg_at_10_std
+      value: 10.886700000000001
+    - type: nauc_ndcg_at_10_diff1
+      value: 43.3519
+    - type: nauc_ndcg_at_20_max
+      value: 40.259499999999996
+    - type: nauc_ndcg_at_20_std
+      value: 16.305600000000002
+    - type: nauc_ndcg_at_20_diff1
+      value: 43.526900000000005
+    - type: nauc_ndcg_at_100_max
+      value: 44.4663
+    - type: nauc_ndcg_at_100_std
+      value: 21.5157
+    - type: nauc_ndcg_at_100_diff1
+      value: 43.269999999999996
+    - type: nauc_ndcg_at_1000_max
+      value: 44.5037
+    - type: nauc_ndcg_at_1000_std
+      value: 21.6384
+    - type: nauc_ndcg_at_1000_diff1
+      value: 43.5169
+    - type: nauc_map_at_1_max
+      value: 9.6775
+    - type: nauc_map_at_1_std
+      value: -7.5287999999999995
+    - type: nauc_map_at_1_diff1
+      value: 56.714200000000005
+    - type: nauc_map_at_3_max
+      value: 14.175199999999998
+    - type: nauc_map_at_3_std
+      value: -9.251800000000001
+    - type: nauc_map_at_3_diff1
+      value: 47.239
+    - type: nauc_map_at_5_max
+      value: 20.4059
+    - type: nauc_map_at_5_std
+      value: -3.9799
+    - type: nauc_map_at_5_diff1
+      value: 46.5588
+    - type: nauc_map_at_10_max
+      value: 26.7796
+    - type: nauc_map_at_10_std
+      value: 2.3718
+    - type: nauc_map_at_10_diff1
+      value: 45.5976
+    - type: nauc_map_at_20_max
+      value: 30.291400000000003
+    - type: nauc_map_at_20_std
+      value: 6.3573
+    - type: nauc_map_at_20_diff1
+      value: 45.5914
+    - type: nauc_map_at_100_max
+      value: 32.0062
+    - type: nauc_map_at_100_std
+      value: 8.2968
+    - type: nauc_map_at_100_diff1
+      value: 45.6306
+    - type: nauc_map_at_1000_max
+      value: 32.0482
+    - type: nauc_map_at_1000_std
+      value: 8.3688
+    - type: nauc_map_at_1000_diff1
+      value: 45.6447
+    - type: nauc_recall_at_1_max
+      value: 9.6775
+    - type: nauc_recall_at_1_std
+      value: -7.5287999999999995
+    - type: nauc_recall_at_1_diff1
+      value: 56.714200000000005
+    - type: nauc_recall_at_3_max
+      value: 4.7592
+    - type: nauc_recall_at_3_std
+      value: -17.7268
+    - type: nauc_recall_at_3_diff1
+      value: 36.593599999999995
+    - type: nauc_recall_at_5_max
+      value: 11.0166
+    - type: nauc_recall_at_5_std
+      value: -14.832799999999999
+    - type: nauc_recall_at_5_diff1
+      value: 36.6471
+    - type: nauc_recall_at_10_max
+      value: 20.272299999999998
+    - type: nauc_recall_at_10_std
+      value: -3.9745000000000004
+    - type: nauc_recall_at_10_diff1
+      value: 34.875699999999995
+    - type: nauc_recall_at_20_max
+      value: 27.0707
+    - type: nauc_recall_at_20_std
+      value: 5.8709
+    - type: nauc_recall_at_20_diff1
+      value: 34.921600000000005
+    - type: nauc_recall_at_100_max
+      value: 48.045100000000005
+    - type: nauc_recall_at_100_std
+      value: 32.3099
+    - type: nauc_recall_at_100_diff1
+      value: 30.127
+    - type: nauc_recall_at_1000_max
+      value: 60.827299999999994
+    - type: nauc_recall_at_1000_std
+      value: 49.6791
+    - type: nauc_recall_at_1000_diff1
+      value: 32.2816
+    - type: nauc_precision_at_1_max
+      value: 57.2789
+    - type: nauc_precision_at_1_std
+      value: 34.9863
+    - type: nauc_precision_at_1_diff1
+      value: 44.0111
+    - type: nauc_precision_at_3_max
+      value: 55.550900000000006
+    - type: nauc_precision_at_3_std
+      value: 39.1605
+    - type: nauc_precision_at_3_diff1
+      value: 2.1411
+    - type: nauc_precision_at_5_max
+      value: 60.1216
+    - type: nauc_precision_at_5_std
+      value: 49.1925
+    - type: nauc_precision_at_5_diff1
+      value: -4.2296
+    - type: nauc_precision_at_10_max
+      value: 63.53339999999999
+    - type: nauc_precision_at_10_std
+      value: 57.2366
+    - type: nauc_precision_at_10_diff1
+      value: -9.1914
+    - type: nauc_precision_at_20_max
+      value: 63.2997
+    - type: nauc_precision_at_20_std
+      value: 62.778
+    - type: nauc_precision_at_20_diff1
+      value: -11.4618
+    - type: nauc_precision_at_100_max
+      value: 61.345000000000006
+    - type: nauc_precision_at_100_std
+      value: 66.3033
+    - type: nauc_precision_at_100_diff1
+      value: -14.8779
+    - type: nauc_precision_at_1000_max
+      value: 56.28300000000001
+    - type: nauc_precision_at_1000_std
+      value: 62.91290000000001
+    - type: nauc_precision_at_1000_diff1
+      value: -16.6149
+    - type: nauc_mrr_at_1_max
+      value: 57.2789
+    - type: nauc_mrr_at_1_std
+      value: 34.9863
+    - type: nauc_mrr_at_1_diff1
+      value: 44.0111
+    - type: nauc_mrr_at_3_max
+      value: 57.678200000000004
+    - type: nauc_mrr_at_3_std
+      value: 33.5744
+    - type: nauc_mrr_at_3_diff1
+      value: 39.5643
+    - type: nauc_mrr_at_5_max
+      value: 58.668600000000005
+    - type: nauc_mrr_at_5_std
+      value: 33.5118
+    - type: nauc_mrr_at_5_diff1
+      value: 40.888200000000005
+    - type: nauc_mrr_at_10_max
+      value: 58.4754
+    - type: nauc_mrr_at_10_std
+      value: 33.7964
+    - type: nauc_mrr_at_10_diff1
+      value: 41.314
+    - type: nauc_mrr_at_20_max
+      value: 58.434
+    - type: nauc_mrr_at_20_std
+      value: 33.903
+    - type: nauc_mrr_at_20_diff1
+      value: 41.217999999999996
+    - type: nauc_mrr_at_100_max
+      value: 58.4576
+    - type: nauc_mrr_at_100_std
+      value: 33.9478
+    - type: nauc_mrr_at_100_diff1
+      value: 41.172599999999996
+    - type: nauc_mrr_at_1000_max
+      value: 58.444399999999995
+    - type: nauc_mrr_at_1000_std
+      value: 33.9292
+    - type: nauc_mrr_at_1000_diff1
+      value: 41.166199999999996
+    - type: main_score
+      value: 59.216
+    task:
+      type: Retrieval
+  - dataset:
+      config: ru
+      name: MTEB MIRACLRetrieval (ru)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 47.524
+    - type: ndcg_at_3
+      value: 46.812
+    - type: ndcg_at_5
+      value: 48.442
+    - type: ndcg_at_10
+      value: 52.349000000000004
+    - type: ndcg_at_20
+      value: 55.669000000000004
+    - type: ndcg_at_100
+      value: 59.724999999999994
+    - type: ndcg_at_1000
+      value: 61.312999999999995
+    - type: map_at_1
+      value: 24.337
+    - type: map_at_3
+      value: 35.765
+    - type: map_at_5
+      value: 39.153
+    - type: map_at_10
+      value: 42.225
+    - type: map_at_20
+      value: 43.782
+    - type: map_at_100
+      value: 44.887
+    - type: map_at_1000
+      value: 45.013
+    - type: recall_at_1
+      value: 24.337
+    - type: recall_at_3
+      value: 42.927
+    - type: recall_at_5
+      value: 51.258
+    - type: recall_at_10
+      value: 62.437
+    - type: recall_at_20
+      value: 71.411
+    - type: recall_at_100
+      value: 86.489
+    - type: recall_at_1000
+      value: 95.26599999999999
+    - type: precision_at_1
+      value: 47.524
+    - type: precision_at_3
+      value: 31.948999999999998
+    - type: precision_at_5
+      value: 24.121000000000002
+    - type: precision_at_10
+      value: 15.534999999999998
+    - type: precision_at_20
+      value: 9.408999999999999
+    - type: precision_at_100
+      value: 2.407
+    - type: precision_at_1000
+      value: 0.271
+    - type: mrr_at_1
+      value: 47.524
+    - type: mrr_at_3
+      value: 57.6012
+    - type: mrr_at_5
+      value: 59.130700000000004
+    - type: mrr_at_10
+      value: 60.1824
+    - type: mrr_at_20
+      value: 60.507200000000005
+    - type: mrr_at_100
+      value: 60.6675
+    - type: mrr_at_1000
+      value: 60.6789
+    - type: nauc_ndcg_at_1_max
+      value: 32.3091
+    - type: nauc_ndcg_at_1_std
+      value: 10.915700000000001
+    - type: nauc_ndcg_at_1_diff1
+      value: 35.0477
+    - type: nauc_ndcg_at_3_max
+      value: 30.5579
+    - type: nauc_ndcg_at_3_std
+      value: 9.9651
+    - type: nauc_ndcg_at_3_diff1
+      value: 28.537200000000002
+    - type: nauc_ndcg_at_5_max
+      value: 30.7637
+    - type: nauc_ndcg_at_5_std
+      value: 9.7618
+    - type: nauc_ndcg_at_5_diff1
+      value: 28.225699999999996
+    - type: nauc_ndcg_at_10_max
+      value: 32.0146
+    - type: nauc_ndcg_at_10_std
+      value: 9.681099999999999
+    - type: nauc_ndcg_at_10_diff1
+      value: 27.6866
+    - type: nauc_ndcg_at_20_max
+      value: 34.7846
+    - type: nauc_ndcg_at_20_std
+      value: 13.270599999999998
+    - type: nauc_ndcg_at_20_diff1
+      value: 27.8097
+    - type: nauc_ndcg_at_100_max
+      value: 37.1031
+    - type: nauc_ndcg_at_100_std
+      value: 16.512
+    - type: nauc_ndcg_at_100_diff1
+      value: 28.294200000000004
+    - type: nauc_ndcg_at_1000_max
+      value: 36.5248
+    - type: nauc_ndcg_at_1000_std
+      value: 16.1206
+    - type: nauc_ndcg_at_1000_diff1
+      value: 28.6308
+    - type: nauc_map_at_1_max
+      value: 17.363300000000002
+    - type: nauc_map_at_1_std
+      value: -3.3156
+    - type: nauc_map_at_1_diff1
+      value: 33.9402
+    - type: nauc_map_at_3_max
+      value: 23.0235
+    - type: nauc_map_at_3_std
+      value: 1.2713999999999999
+    - type: nauc_map_at_3_diff1
+      value: 28.946499999999997
+    - type: nauc_map_at_5_max
+      value: 25.8014
+    - type: nauc_map_at_5_std
+      value: 3.8541
+    - type: nauc_map_at_5_diff1
+      value: 28.526
+    - type: nauc_map_at_10_max
+      value: 27.6617
+    - type: nauc_map_at_10_std
+      value: 5.2938
+    - type: nauc_map_at_10_diff1
+      value: 28.122700000000002
+    - type: nauc_map_at_20_max
+      value: 29.071399999999997
+    - type: nauc_map_at_20_std
+      value: 7.005
+    - type: nauc_map_at_20_diff1
+      value: 28.075
+    - type: nauc_map_at_100_max
+      value: 29.9533
+    - type: nauc_map_at_100_std
+      value: 8.0838
+    - type: nauc_map_at_100_diff1
+      value: 28.2424
+    - type: nauc_map_at_1000_max
+      value: 29.936200000000003
+    - type: nauc_map_at_1000_std
+      value: 8.0967
+    - type: nauc_map_at_1000_diff1
+      value: 28.259
+    - type: nauc_recall_at_1_max
+      value: 17.363300000000002
+    - type: nauc_recall_at_1_std
+      value: -3.3156
+    - type: nauc_recall_at_1_diff1
+      value: 33.9402
+    - type: nauc_recall_at_3_max
+      value: 20.7272
+    - type: nauc_recall_at_3_std
+      value: 1.9171
+    - type: nauc_recall_at_3_diff1
+      value: 23.505300000000002
+    - type: nauc_recall_at_5_max
+      value: 24.55
+    - type: nauc_recall_at_5_std
+      value: 6.1491999999999996
+    - type: nauc_recall_at_5_diff1
+      value: 21.1769
+    - type: nauc_recall_at_10_max
+      value: 26.6134
+    - type: nauc_recall_at_10_std
+      value: 7.3684
+    - type: nauc_recall_at_10_diff1
+      value: 18.0016
+    - type: nauc_recall_at_20_max
+      value: 33.744
+    - type: nauc_recall_at_20_std
+      value: 17.2573
+    - type: nauc_recall_at_20_diff1
+      value: 17.3872
+    - type: nauc_recall_at_100_max
+      value: 49.5745
+    - type: nauc_recall_at_100_std
+      value: 39.4003
+    - type: nauc_recall_at_100_diff1
+      value: 16.1814
+    - type: nauc_recall_at_1000_max
+      value: 62.5842
+    - type: nauc_recall_at_1000_std
+      value: 64.7392
+    - type: nauc_recall_at_1000_diff1
+      value: 16.9464
+    - type: nauc_precision_at_1_max
+      value: 32.3091
+    - type: nauc_precision_at_1_std
+      value: 10.915700000000001
+    - type: nauc_precision_at_1_diff1
+      value: 35.0477
+    - type: nauc_precision_at_3_max
+      value: 34.9888
+    - type: nauc_precision_at_3_std
+      value: 22.009600000000002
+    - type: nauc_precision_at_3_diff1
+      value: 13.4801
+    - type: nauc_precision_at_5_max
+      value: 34.1539
+    - type: nauc_precision_at_5_std
+      value: 25.2388
+    - type: nauc_precision_at_5_diff1
+      value: 8.622
+    - type: nauc_precision_at_10_max
+      value: 31.194
+    - type: nauc_precision_at_10_std
+      value: 25.397100000000002
+    - type: nauc_precision_at_10_diff1
+      value: 3.4173
+    - type: nauc_precision_at_20_max
+      value: 29.3116
+    - type: nauc_precision_at_20_std
+      value: 28.8229
+    - type: nauc_precision_at_20_diff1
+      value: -0.4374
+    - type: nauc_precision_at_100_max
+      value: 23.853099999999998
+    - type: nauc_precision_at_100_std
+      value: 29.942800000000002
+    - type: nauc_precision_at_100_diff1
+      value: -3.9575
+    - type: nauc_precision_at_1000_max
+      value: 16.5958
+    - type: nauc_precision_at_1000_std
+      value: 25.208599999999997
+    - type: nauc_precision_at_1000_diff1
+      value: -6.1125
+    - type: nauc_mrr_at_1_max
+      value: 32.3091
+    - type: nauc_mrr_at_1_std
+      value: 10.915700000000001
+    - type: nauc_mrr_at_1_diff1
+      value: 35.0477
+    - type: nauc_mrr_at_3_max
+      value: 36.9469
+    - type: nauc_mrr_at_3_std
+      value: 15.4767
+    - type: nauc_mrr_at_3_diff1
+      value: 33.3922
+    - type: nauc_mrr_at_5_max
+      value: 37.7043
+    - type: nauc_mrr_at_5_std
+      value: 16.2089
+    - type: nauc_mrr_at_5_diff1
+      value: 33.3182
+    - type: nauc_mrr_at_10_max
+      value: 37.5403
+    - type: nauc_mrr_at_10_std
+      value: 16.229599999999998
+    - type: nauc_mrr_at_10_diff1
+      value: 33.2431
+    - type: nauc_mrr_at_20_max
+      value: 37.4812
+    - type: nauc_mrr_at_20_std
+      value: 16.278100000000002
+    - type: nauc_mrr_at_20_diff1
+      value: 33.3127
+    - type: nauc_mrr_at_100_max
+      value: 37.43
+    - type: nauc_mrr_at_100_std
+      value: 16.2077
+    - type: nauc_mrr_at_100_diff1
+      value: 33.3439
+    - type: nauc_mrr_at_1000_max
+      value: 37.4133
+    - type: nauc_mrr_at_1000_std
+      value: 16.1859
+    - type: nauc_mrr_at_1000_diff1
+      value: 33.353300000000004
+    - type: main_score
+      value: 52.349000000000004
+    task:
+      type: Retrieval
+  - dataset:
+      config: sw
+      name: MTEB MIRACLRetrieval (sw)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 51.66
+    - type: ndcg_at_3
+      value: 54.827999999999996
+    - type: ndcg_at_5
+      value: 57.382
+    - type: ndcg_at_10
+      value: 61.271
+    - type: ndcg_at_20
+      value: 63.64300000000001
+    - type: ndcg_at_100
+      value: 66.09899999999999
+    - type: ndcg_at_1000
+      value: 66.867
+    - type: map_at_1
+      value: 35.276999999999994
+    - type: map_at_3
+      value: 48.260999999999996
+    - type: map_at_5
+      value: 51.029
+    - type: map_at_10
+      value: 53.405
+    - type: map_at_20
+      value: 54.298
+    - type: map_at_100
+      value: 54.836
+    - type: map_at_1000
+      value: 54.887
+    - type: recall_at_1
+      value: 35.276999999999994
+    - type: recall_at_3
+      value: 56.739
+    - type: recall_at_5
+      value: 64.21
+    - type: recall_at_10
+      value: 74.368
+    - type: recall_at_20
+      value: 81.888
+    - type: recall_at_100
+      value: 92.26100000000001
+    - type: recall_at_1000
+      value: 97.109
+    - type: precision_at_1
+      value: 51.66
+    - type: precision_at_3
+      value: 30.843999999999998
+    - type: precision_at_5
+      value: 21.743000000000002
+    - type: precision_at_10
+      value: 12.988
+    - type: precision_at_20
+      value: 7.364999999999999
+    - type: precision_at_100
+      value: 1.714
+    - type: precision_at_1000
+      value: 0.184
+    - type: mrr_at_1
+      value: 51.6598
+    - type: mrr_at_3
+      value: 60.338899999999995
+    - type: mrr_at_5
+      value: 61.7808
+    - type: mrr_at_10
+      value: 62.751599999999996
+    - type: mrr_at_20
+      value: 63.1412
+    - type: mrr_at_100
+      value: 63.309099999999994
+    - type: mrr_at_1000
+      value: 63.317299999999996
+    - type: nauc_ndcg_at_1_max
+      value: 33.6073
+    - type: nauc_ndcg_at_1_std
+      value: 6.1046000000000005
+    - type: nauc_ndcg_at_1_diff1
+      value: 41.1955
+    - type: nauc_ndcg_at_3_max
+      value: 31.268400000000003
+    - type: nauc_ndcg_at_3_std
+      value: -2.9395000000000002
+    - type: nauc_ndcg_at_3_diff1
+      value: 35.6186
+    - type: nauc_ndcg_at_5_max
+      value: 32.3145
+    - type: nauc_ndcg_at_5_std
+      value: -0.7283999999999999
+    - type: nauc_ndcg_at_5_diff1
+      value: 37.7602
+    - type: nauc_ndcg_at_10_max
+      value: 35.1426
+    - type: nauc_ndcg_at_10_std
+      value: -0.13829999999999998
+    - type: nauc_ndcg_at_10_diff1
+      value: 36.8929
+    - type: nauc_ndcg_at_20_max
+      value: 35.4227
+    - type: nauc_ndcg_at_20_std
+      value: 0.8394999999999999
+    - type: nauc_ndcg_at_20_diff1
+      value: 36.9758
+    - type: nauc_ndcg_at_100_max
+      value: 36.9415
+    - type: nauc_ndcg_at_100_std
+      value: 5.9117999999999995
+    - type: nauc_ndcg_at_100_diff1
+      value: 37.0021
+    - type: nauc_ndcg_at_1000_max
+      value: 37.0195
+    - type: nauc_ndcg_at_1000_std
+      value: 5.5642
+    - type: nauc_ndcg_at_1000_diff1
+      value: 37.1389
+    - type: nauc_map_at_1_max
+      value: 14.893600000000001
+    - type: nauc_map_at_1_std
+      value: -6.9723
+    - type: nauc_map_at_1_diff1
+      value: 47.328399999999995
+    - type: nauc_map_at_3_max
+      value: 25.1304
+    - type: nauc_map_at_3_std
+      value: -5.5777
+    - type: nauc_map_at_3_diff1
+      value: 39.5728
+    - type: nauc_map_at_5_max
+      value: 28.206599999999998
+    - type: nauc_map_at_5_std
+      value: -3.2870000000000004
+    - type: nauc_map_at_5_diff1
+      value: 39.868500000000004
+    - type: nauc_map_at_10_max
+      value: 30.520999999999997
+    - type: nauc_map_at_10_std
+      value: -2.539
+    - type: nauc_map_at_10_diff1
+      value: 39.1287
+    - type: nauc_map_at_20_max
+      value: 30.712899999999998
+    - type: nauc_map_at_20_std
+      value: -2.0093
+    - type: nauc_map_at_20_diff1
+      value: 39.0357
+    - type: nauc_map_at_100_max
+      value: 31.0687
+    - type: nauc_map_at_100_std
+      value: -1.0538
+    - type: nauc_map_at_100_diff1
+      value: 38.9851
+    - type: nauc_map_at_1000_max
+      value: 31.0939
+    - type: nauc_map_at_1000_std
+      value: -1.0348
+    - type: nauc_map_at_1000_diff1
+      value: 38.9719
+    - type: nauc_recall_at_1_max
+      value: 14.893600000000001
+    - type: nauc_recall_at_1_std
+      value: -6.9723
+    - type: nauc_recall_at_1_diff1
+      value: 47.328399999999995
+    - type: nauc_recall_at_3_max
+      value: 25.0525
+    - type: nauc_recall_at_3_std
+      value: -9.808300000000001
+    - type: nauc_recall_at_3_diff1
+      value: 32.9087
+    - type: nauc_recall_at_5_max
+      value: 28.8065
+    - type: nauc_recall_at_5_std
+      value: -4.5512999999999995
+    - type: nauc_recall_at_5_diff1
+      value: 32.9308
+    - type: nauc_recall_at_10_max
+      value: 34.9121
+    - type: nauc_recall_at_10_std
+      value: -5.8499
+    - type: nauc_recall_at_10_diff1
+      value: 29.791
+    - type: nauc_recall_at_20_max
+      value: 35.6729
+    - type: nauc_recall_at_20_std
+      value: -4.3512
+    - type: nauc_recall_at_20_diff1
+      value: 29.087600000000002
+    - type: nauc_recall_at_100_max
+      value: 53.5866
+    - type: nauc_recall_at_100_std
+      value: 49.692
+    - type: nauc_recall_at_100_diff1
+      value: 28.9725
+    - type: nauc_recall_at_1000_max
+      value: 80.23949999999999
+    - type: nauc_recall_at_1000_std
+      value: 86.7359
+    - type: nauc_recall_at_1000_diff1
+      value: 37.333
+    - type: nauc_precision_at_1_max
+      value: 33.6073
+    - type: nauc_precision_at_1_std
+      value: 6.1046000000000005
+    - type: nauc_precision_at_1_diff1
+      value: 41.1955
+    - type: nauc_precision_at_3_max
+      value: 40.2515
+    - type: nauc_precision_at_3_std
+      value: 12.1973
+    - type: nauc_precision_at_3_diff1
+      value: 3.9177999999999997
+    - type: nauc_precision_at_5_max
+      value: 41.7312
+    - type: nauc_precision_at_5_std
+      value: 17.921400000000002
+    - type: nauc_precision_at_5_diff1
+      value: -0.2405
+    - type: nauc_precision_at_10_max
+      value: 39.9025
+    - type: nauc_precision_at_10_std
+      value: 18.9909
+    - type: nauc_precision_at_10_diff1
+      value: -8.5406
+    - type: nauc_precision_at_20_max
+      value: 34.1753
+    - type: nauc_precision_at_20_std
+      value: 21.9853
+    - type: nauc_precision_at_20_diff1
+      value: -13.966700000000001
+    - type: nauc_precision_at_100_max
+      value: 30.461
+    - type: nauc_precision_at_100_std
+      value: 34.063900000000004
+    - type: nauc_precision_at_100_diff1
+      value: -21.1252
+    - type: nauc_precision_at_1000_max
+      value: 26.5512
+    - type: nauc_precision_at_1000_std
+      value: 30.7066
+    - type: nauc_precision_at_1000_diff1
+      value: -22.2902
+    - type: nauc_mrr_at_1_max
+      value: 33.6073
+    - type: nauc_mrr_at_1_std
+      value: 6.1046000000000005
+    - type: nauc_mrr_at_1_diff1
+      value: 41.1955
+    - type: nauc_mrr_at_3_max
+      value: 37.6571
+    - type: nauc_mrr_at_3_std
+      value: 5.2793
+    - type: nauc_mrr_at_3_diff1
+      value: 36.5302
+    - type: nauc_mrr_at_5_max
+      value: 38.6239
+    - type: nauc_mrr_at_5_std
+      value: 7.762700000000001
+    - type: nauc_mrr_at_5_diff1
+      value: 36.525
+    - type: nauc_mrr_at_10_max
+      value: 38.4608
+    - type: nauc_mrr_at_10_std
+      value: 7.131
+    - type: nauc_mrr_at_10_diff1
+      value: 36.4653
+    - type: nauc_mrr_at_20_max
+      value: 38.2783
+    - type: nauc_mrr_at_20_std
+      value: 6.9415000000000004
+    - type: nauc_mrr_at_20_diff1
+      value: 36.5089
+    - type: nauc_mrr_at_100_max
+      value: 38.337199999999996
+    - type: nauc_mrr_at_100_std
+      value: 7.2228
+    - type: nauc_mrr_at_100_diff1
+      value: 36.6891
+    - type: nauc_mrr_at_1000_max
+      value: 38.327600000000004
+    - type: nauc_mrr_at_1000_std
+      value: 7.206300000000001
+    - type: nauc_mrr_at_1000_diff1
+      value: 36.696400000000004
+    - type: main_score
+      value: 61.271
+    task:
+      type: Retrieval
+  - dataset:
+      config: te
+      name: MTEB MIRACLRetrieval (te)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 63.647
+    - type: ndcg_at_3
+      value: 75.98700000000001
+    - type: ndcg_at_5
+      value: 77.86999999999999
+    - type: ndcg_at_10
+      value: 79.149
+    - type: ndcg_at_20
+      value: 79.50399999999999
+    - type: ndcg_at_100
+      value: 80.199
+    - type: ndcg_at_1000
+      value: 80.393
+    - type: map_at_1
+      value: 62.963
+    - type: map_at_3
+      value: 72.94699999999999
+    - type: map_at_5
+      value: 74.042
+    - type: map_at_10
+      value: 74.612
+    - type: map_at_20
+      value: 74.727
+    - type: map_at_100
+      value: 74.831
+    - type: map_at_1000
+      value: 74.839
+    - type: recall_at_1
+      value: 62.963
+    - type: recall_at_3
+      value: 84.15899999999999
+    - type: recall_at_5
+      value: 88.627
+    - type: recall_at_10
+      value: 92.411
+    - type: recall_at_20
+      value: 93.74
+    - type: recall_at_100
+      value: 97.363
+    - type: recall_at_1000
+      value: 98.833
+    - type: precision_at_1
+      value: 63.647
+    - type: precision_at_3
+      value: 28.622999999999998
+    - type: precision_at_5
+      value: 18.163999999999998
+    - type: precision_at_10
+      value: 9.481
+    - type: precision_at_20
+      value: 4.819
+    - type: precision_at_100
+      value: 1.001
+    - type: precision_at_1000
+      value: 0.10200000000000001
+    - type: mrr_at_1
+      value: 63.647299999999994
+    - type: mrr_at_3
+      value: 73.49029999999999
+    - type: mrr_at_5
+      value: 74.4626
+    - type: mrr_at_10
+      value: 74.98280000000001
+    - type: mrr_at_20
+      value: 75.0719
+    - type: mrr_at_100
+      value: 75.1695
+    - type: mrr_at_1000
+      value: 75.1769
+    - type: nauc_ndcg_at_1_max
+      value: 33.3063
+    - type: nauc_ndcg_at_1_std
+      value: -27.609699999999997
+    - type: nauc_ndcg_at_1_diff1
+      value: 64.8293
+    - type: nauc_ndcg_at_3_max
+      value: 42.4738
+    - type: nauc_ndcg_at_3_std
+      value: -23.8921
+    - type: nauc_ndcg_at_3_diff1
+      value: 56.43749999999999
+    - type: nauc_ndcg_at_5_max
+      value: 43.132
+    - type: nauc_ndcg_at_5_std
+      value: -23.2181
+    - type: nauc_ndcg_at_5_diff1
+      value: 55.722899999999996
+    - type: nauc_ndcg_at_10_max
+      value: 43.036
+    - type: nauc_ndcg_at_10_std
+      value: -22.880300000000002
+    - type: nauc_ndcg_at_10_diff1
+      value: 56.22279999999999
+    - type: nauc_ndcg_at_20_max
+      value: 43.1538
+    - type: nauc_ndcg_at_20_std
+      value: -22.7674
+    - type: nauc_ndcg_at_20_diff1
+      value: 56.4893
+    - type: nauc_ndcg_at_100_max
+      value: 42.0908
+    - type: nauc_ndcg_at_100_std
+      value: -22.3071
+    - type: nauc_ndcg_at_100_diff1
+      value: 57.5928
+    - type: nauc_ndcg_at_1000_max
+      value: 41.6223
+    - type: nauc_ndcg_at_1000_std
+      value: -22.747600000000002
+    - type: nauc_ndcg_at_1000_diff1
+      value: 57.6603
+    - type: nauc_map_at_1_max
+      value: 31.9355
+    - type: nauc_map_at_1_std
+      value: -29.4362
+    - type: nauc_map_at_1_diff1
+      value: 64.9802
+    - type: nauc_map_at_3_max
+      value: 39.3304
+    - type: nauc_map_at_3_std
+      value: -25.819
+    - type: nauc_map_at_3_diff1
+      value: 58.8664
+    - type: nauc_map_at_5_max
+      value: 39.659800000000004
+    - type: nauc_map_at_5_std
+      value: -25.3619
+    - type: nauc_map_at_5_diff1
+      value: 58.57449999999999
+    - type: nauc_map_at_10_max
+      value: 39.6121
+    - type: nauc_map_at_10_std
+      value: -25.2399
+    - type: nauc_map_at_10_diff1
+      value: 58.8083
+    - type: nauc_map_at_20_max
+      value: 39.6958
+    - type: nauc_map_at_20_std
+      value: -25.116
+    - type: nauc_map_at_20_diff1
+      value: 58.8995
+    - type: nauc_map_at_100_max
+      value: 39.5617
+    - type: nauc_map_at_100_std
+      value: -25.0319
+    - type: nauc_map_at_100_diff1
+      value: 59.053599999999996
+    - type: nauc_map_at_1000_max
+      value: 39.5469
+    - type: nauc_map_at_1000_std
+      value: -25.0473
+    - type: nauc_map_at_1000_diff1
+      value: 59.0556
+    - type: nauc_recall_at_1_max
+      value: 31.9355
+    - type: nauc_recall_at_1_std
+      value: -29.4362
+    - type: nauc_recall_at_1_diff1
+      value: 64.9802
+    - type: nauc_recall_at_3_max
+      value: 54.57149999999999
+    - type: nauc_recall_at_3_std
+      value: -17.9671
+    - type: nauc_recall_at_3_diff1
+      value: 45.4961
+    - type: nauc_recall_at_5_max
+      value: 61.2002
+    - type: nauc_recall_at_5_std
+      value: -13.9075
+    - type: nauc_recall_at_5_diff1
+      value: 39.1115
+    - type: nauc_recall_at_10_max
+      value: 68.2226
+    - type: nauc_recall_at_10_std
+      value: -7.230200000000001
+    - type: nauc_recall_at_10_diff1
+      value: 34.9241
+    - type: nauc_recall_at_20_max
+      value: 74.08019999999999
+    - type: nauc_recall_at_20_std
+      value: -4.4287
+    - type: nauc_recall_at_20_diff1
+      value: 33.4441
+    - type: nauc_recall_at_100_max
+      value: 80.2462
+    - type: nauc_recall_at_100_std
+      value: 30.9842
+    - type: nauc_recall_at_100_diff1
+      value: 38.0659
+    - type: nauc_recall_at_1000_max
+      value: 77.5197
+    - type: nauc_recall_at_1000_std
+      value: 51.5945
+    - type: nauc_recall_at_1000_diff1
+      value: 22.9724
+    - type: nauc_precision_at_1_max
+      value: 33.3063
+    - type: nauc_precision_at_1_std
+      value: -27.609699999999997
+    - type: nauc_precision_at_1_diff1
+      value: 64.8293
+    - type: nauc_precision_at_3_max
+      value: 56.837199999999996
+    - type: nauc_precision_at_3_std
+      value: -7.5578
+    - type: nauc_precision_at_3_diff1
+      value: 36.4516
+    - type: nauc_precision_at_5_max
+      value: 57.3511
+    - type: nauc_precision_at_5_std
+      value: 2.889
+    - type: nauc_precision_at_5_diff1
+      value: 23.0276
+    - type: nauc_precision_at_10_max
+      value: 56.852999999999994
+    - type: nauc_precision_at_10_std
+      value: 13.305900000000001
+    - type: nauc_precision_at_10_diff1
+      value: 12.1547
+    - type: nauc_precision_at_20_max
+      value: 55.735299999999995
+    - type: nauc_precision_at_20_std
+      value: 20.3483
+    - type: nauc_precision_at_20_diff1
+      value: 6.6423
+    - type: nauc_precision_at_100_max
+      value: 43.358999999999995
+    - type: nauc_precision_at_100_std
+      value: 44.4213
+    - type: nauc_precision_at_100_diff1
+      value: -5.556500000000001
+    - type: nauc_precision_at_1000_max
+      value: 27.974
+    - type: nauc_precision_at_1000_std
+      value: 47.254400000000004
+    - type: nauc_precision_at_1000_diff1
+      value: -21.8157
+    - type: nauc_mrr_at_1_max
+      value: 33.3063
+    - type: nauc_mrr_at_1_std
+      value: -27.609699999999997
+    - type: nauc_mrr_at_1_diff1
+      value: 64.8293
+    - type: nauc_mrr_at_3_max
+      value: 40.129
+    - type: nauc_mrr_at_3_std
+      value: -24.0152
+    - type: nauc_mrr_at_3_diff1
+      value: 58.9134
+    - type: nauc_mrr_at_5_max
+      value: 40.1054
+    - type: nauc_mrr_at_5_std
+      value: -24.0554
+    - type: nauc_mrr_at_5_diff1
+      value: 58.71920000000001
+    - type: nauc_mrr_at_10_max
+      value: 40.0067
+    - type: nauc_mrr_at_10_std
+      value: -23.9912
+    - type: nauc_mrr_at_10_diff1
+      value: 58.964099999999995
+    - type: nauc_mrr_at_20_max
+      value: 39.9983
+    - type: nauc_mrr_at_20_std
+      value: -24.0277
+    - type: nauc_mrr_at_20_diff1
+      value: 59.0425
+    - type: nauc_mrr_at_100_max
+      value: 39.8766
+    - type: nauc_mrr_at_100_std
+      value: -23.9296
+    - type: nauc_mrr_at_100_diff1
+      value: 59.1824
+    - type: nauc_mrr_at_1000_max
+      value: 39.861799999999995
+    - type: nauc_mrr_at_1000_std
+      value: -23.9468
+    - type: nauc_mrr_at_1000_diff1
+      value: 59.1847
+    - type: main_score
+      value: 79.149
+    task:
+      type: Retrieval
+  - dataset:
+      config: th
+      name: MTEB MIRACLRetrieval (th)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 66.712
+    - type: ndcg_at_3
+      value: 67.393
+    - type: ndcg_at_5
+      value: 70.20100000000001
+    - type: ndcg_at_10
+      value: 73.324
+    - type: ndcg_at_20
+      value: 75.24300000000001
+    - type: ndcg_at_100
+      value: 76.633
+    - type: ndcg_at_1000
+      value: 77.119
+    - type: map_at_1
+      value: 47.105999999999995
+    - type: map_at_3
+      value: 60.67700000000001
+    - type: map_at_5
+      value: 63.81099999999999
+    - type: map_at_10
+      value: 65.998
+    - type: map_at_20
+      value: 66.914
+    - type: map_at_100
+      value: 67.258
+    - type: map_at_1000
+      value: 67.293
+    - type: recall_at_1
+      value: 47.105999999999995
+    - type: recall_at_3
+      value: 68.45599999999999
+    - type: recall_at_5
+      value: 75.91499999999999
+    - type: recall_at_10
+      value: 84.294
+    - type: recall_at_20
+      value: 90.08500000000001
+    - type: recall_at_100
+      value: 95.949
+    - type: recall_at_1000
+      value: 98.874
+    - type: precision_at_1
+      value: 66.712
+    - type: precision_at_3
+      value: 36.016
+    - type: precision_at_5
+      value: 25.157
+    - type: precision_at_10
+      value: 14.516000000000002
+    - type: precision_at_20
+      value: 7.994999999999999
+    - type: precision_at_100
+      value: 1.738
+    - type: precision_at_1000
+      value: 0.181
+    - type: mrr_at_1
+      value: 66.71209999999999
+    - type: mrr_at_3
+      value: 74.3747
+    - type: mrr_at_5
+      value: 75.3297
+    - type: mrr_at_10
+      value: 75.9858
+    - type: mrr_at_20
+      value: 76.1819
+    - type: mrr_at_100
+      value: 76.2551
+    - type: mrr_at_1000
+      value: 76.2587
+    - type: nauc_ndcg_at_1_max
+      value: 43.199799999999996
+    - type: nauc_ndcg_at_1_std
+      value: 8.6242
+    - type: nauc_ndcg_at_1_diff1
+      value: 49.3688
+    - type: nauc_ndcg_at_3_max
+      value: 37.9248
+    - type: nauc_ndcg_at_3_std
+      value: -1.3769
+    - type: nauc_ndcg_at_3_diff1
+      value: 39.9588
+    - type: nauc_ndcg_at_5_max
+      value: 38.4241
+    - type: nauc_ndcg_at_5_std
+      value: -1.0533000000000001
+    - type: nauc_ndcg_at_5_diff1
+      value: 40.0453
+    - type: nauc_ndcg_at_10_max
+      value: 40.4105
+    - type: nauc_ndcg_at_10_std
+      value: 1.4455
+    - type: nauc_ndcg_at_10_diff1
+      value: 40.6256
+    - type: nauc_ndcg_at_20_max
+      value: 41.1133
+    - type: nauc_ndcg_at_20_std
+      value: 2.931
+    - type: nauc_ndcg_at_20_diff1
+      value: 40.920899999999996
+    - type: nauc_ndcg_at_100_max
+      value: 41.6336
+    - type: nauc_ndcg_at_100_std
+      value: 4.9768
+    - type: nauc_ndcg_at_100_diff1
+      value: 41.3658
+    - type: nauc_ndcg_at_1000_max
+      value: 41.6223
+    - type: nauc_ndcg_at_1000_std
+      value: 5.2031
+    - type: nauc_ndcg_at_1000_diff1
+      value: 41.4062
+    - type: nauc_map_at_1_max
+      value: 20.7626
+    - type: nauc_map_at_1_std
+      value: -8.0023
+    - type: nauc_map_at_1_diff1
+      value: 44.4569
+    - type: nauc_map_at_3_max
+      value: 32.5175
+    - type: nauc_map_at_3_std
+      value: -7.458099999999999
+    - type: nauc_map_at_3_diff1
+      value: 40.2164
+    - type: nauc_map_at_5_max
+      value: 34.4803
+    - type: nauc_map_at_5_std
+      value: -5.149
+    - type: nauc_map_at_5_diff1
+      value: 39.7814
+    - type: nauc_map_at_10_max
+      value: 36.0112
+    - type: nauc_map_at_10_std
+      value: -2.7143
+    - type: nauc_map_at_10_diff1
+      value: 40.231
+    - type: nauc_map_at_20_max
+      value: 36.574200000000005
+    - type: nauc_map_at_20_std
+      value: -1.718
+    - type: nauc_map_at_20_diff1
+      value: 40.278000000000006
+    - type: nauc_map_at_100_max
+      value: 36.7445
+    - type: nauc_map_at_100_std
+      value: -1.208
+    - type: nauc_map_at_100_diff1
+      value: 40.4046
+    - type: nauc_map_at_1000_max
+      value: 36.770199999999996
+    - type: nauc_map_at_1000_std
+      value: -1.1672
+    - type: nauc_map_at_1000_diff1
+      value: 40.409099999999995
+    - type: nauc_recall_at_1_max
+      value: 20.7626
+    - type: nauc_recall_at_1_std
+      value: -8.0023
+    - type: nauc_recall_at_1_diff1
+      value: 44.4569
+    - type: nauc_recall_at_3_max
+      value: 31.2938
+    - type: nauc_recall_at_3_std
+      value: -12.4723
+    - type: nauc_recall_at_3_diff1
+      value: 35.0524
+    - type: nauc_recall_at_5_max
+      value: 34.4221
+    - type: nauc_recall_at_5_std
+      value: -9.0849
+    - type: nauc_recall_at_5_diff1
+      value: 33.6966
+    - type: nauc_recall_at_10_max
+      value: 40.1481
+    - type: nauc_recall_at_10_std
+      value: -2.4007
+    - type: nauc_recall_at_10_diff1
+      value: 32.398700000000005
+    - type: nauc_recall_at_20_max
+      value: 43.068400000000004
+    - type: nauc_recall_at_20_std
+      value: 0.4869
+    - type: nauc_recall_at_20_diff1
+      value: 31.7169
+    - type: nauc_recall_at_100_max
+      value: 54.1481
+    - type: nauc_recall_at_100_std
+      value: 28.3243
+    - type: nauc_recall_at_100_diff1
+      value: 29.1055
+    - type: nauc_recall_at_1000_max
+      value: 82.51389999999999
+    - type: nauc_recall_at_1000_std
+      value: 88.3602
+    - type: nauc_recall_at_1000_diff1
+      value: 14.9201
+    - type: nauc_precision_at_1_max
+      value: 43.199799999999996
+    - type: nauc_precision_at_1_std
+      value: 8.6242
+    - type: nauc_precision_at_1_diff1
+      value: 49.3688
+    - type: nauc_precision_at_3_max
+      value: 35.1732
+    - type: nauc_precision_at_3_std
+      value: 16.3941
+    - type: nauc_precision_at_3_diff1
+      value: 4.4193999999999996
+    - type: nauc_precision_at_5_max
+      value: 28.2059
+    - type: nauc_precision_at_5_std
+      value: 22.4744
+    - type: nauc_precision_at_5_diff1
+      value: -4.0808
+    - type: nauc_precision_at_10_max
+      value: 22.7955
+    - type: nauc_precision_at_10_std
+      value: 28.8744
+    - type: nauc_precision_at_10_diff1
+      value: -9.9309
+    - type: nauc_precision_at_20_max
+      value: 17.2362
+    - type: nauc_precision_at_20_std
+      value: 30.7132
+    - type: nauc_precision_at_20_diff1
+      value: -13.5708
+    - type: nauc_precision_at_100_max
+      value: 13.3455
+    - type: nauc_precision_at_100_std
+      value: 34.1715
+    - type: nauc_precision_at_100_diff1
+      value: -16.4298
+    - type: nauc_precision_at_1000_max
+      value: 10.639700000000001
+    - type: nauc_precision_at_1000_std
+      value: 33.1325
+    - type: nauc_precision_at_1000_diff1
+      value: -17.5938
+    - type: nauc_mrr_at_1_max
+      value: 43.199799999999996
+    - type: nauc_mrr_at_1_std
+      value: 8.6242
+    - type: nauc_mrr_at_1_diff1
+      value: 49.3688
+    - type: nauc_mrr_at_3_max
+      value: 47.106500000000004
+    - type: nauc_mrr_at_3_std
+      value: 10.3023
+    - type: nauc_mrr_at_3_diff1
+      value: 46.2565
+    - type: nauc_mrr_at_5_max
+      value: 47.151900000000005
+    - type: nauc_mrr_at_5_std
+      value: 11.2485
+    - type: nauc_mrr_at_5_diff1
+      value: 46.4519
+    - type: nauc_mrr_at_10_max
+      value: 47.468700000000005
+    - type: nauc_mrr_at_10_std
+      value: 11.5245
+    - type: nauc_mrr_at_10_diff1
+      value: 46.291399999999996
+    - type: nauc_mrr_at_20_max
+      value: 47.3577
+    - type: nauc_mrr_at_20_std
+      value: 11.3081
+    - type: nauc_mrr_at_20_diff1
+      value: 46.490700000000004
+    - type: nauc_mrr_at_100_max
+      value: 47.3153
+    - type: nauc_mrr_at_100_std
+      value: 11.2816
+    - type: nauc_mrr_at_100_diff1
+      value: 46.5288
+    - type: nauc_mrr_at_1000_max
+      value: 47.308299999999996
+    - type: nauc_mrr_at_1000_std
+      value: 11.2835
+    - type: nauc_mrr_at_1000_diff1
+      value: 46.5276
+    - type: main_score
+      value: 73.324
+    task:
+      type: Retrieval
+  - dataset:
+      config: yo
+      name: MTEB MIRACLRetrieval (yo)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 49.58
+    - type: ndcg_at_3
+      value: 64.793
+    - type: ndcg_at_5
+      value: 66.709
+    - type: ndcg_at_10
+      value: 68.705
+    - type: ndcg_at_20
+      value: 69.8
+    - type: ndcg_at_100
+      value: 70.664
+    - type: ndcg_at_1000
+      value: 71.197
+    - type: map_at_1
+      value: 46.289
+    - type: map_at_3
+      value: 59.921
+    - type: map_at_5
+      value: 61.409000000000006
+    - type: map_at_10
+      value: 62.379
+    - type: map_at_20
+      value: 62.773
+    - type: map_at_100
+      value: 62.907000000000004
+    - type: map_at_1000
+      value: 62.922999999999995
+    - type: recall_at_1
+      value: 46.289
+    - type: recall_at_3
+      value: 75.07000000000001
+    - type: recall_at_5
+      value: 79.202
+    - type: recall_at_10
+      value: 85.154
+    - type: recall_at_20
+      value: 89.076
+    - type: recall_at_100
+      value: 93.557
+    - type: recall_at_1000
+      value: 97.479
+    - type: precision_at_1
+      value: 49.58
+    - type: precision_at_3
+      value: 28.571
+    - type: precision_at_5
+      value: 18.655
+    - type: precision_at_10
+      value: 10.084
+    - type: precision_at_20
+      value: 5.2940000000000005
+    - type: precision_at_100
+      value: 1.109
+    - type: precision_at_1000
+      value: 0.11800000000000001
+    - type: mrr_at_1
+      value: 49.5798
+    - type: mrr_at_3
+      value: 63.025200000000005
+    - type: mrr_at_5
+      value: 63.6134
+    - type: mrr_at_10
+      value: 64.2504
+    - type: mrr_at_20
+      value: 64.5152
+    - type: mrr_at_100
+      value: 64.6281
+    - type: mrr_at_1000
+      value: 64.63839999999999
+    - type: nauc_ndcg_at_1_max
+      value: 18.5119
+    - type: nauc_ndcg_at_1_std
+      value: -26.7799
+    - type: nauc_ndcg_at_1_diff1
+      value: 49.55
+    - type: nauc_ndcg_at_3_max
+      value: 35.6833
+    - type: nauc_ndcg_at_3_std
+      value: -19.023699999999998
+    - type: nauc_ndcg_at_3_diff1
+      value: 51.4553
+    - type: nauc_ndcg_at_5_max
+      value: 34.252700000000004
+    - type: nauc_ndcg_at_5_std
+      value: -16.9909
+    - type: nauc_ndcg_at_5_diff1
+      value: 50.034
+    - type: nauc_ndcg_at_10_max
+      value: 35.115899999999996
+    - type: nauc_ndcg_at_10_std
+      value: -15.454300000000002
+    - type: nauc_ndcg_at_10_diff1
+      value: 51.13419999999999
+    - type: nauc_ndcg_at_20_max
+      value: 36.3127
+    - type: nauc_ndcg_at_20_std
+      value: -13.5123
+    - type: nauc_ndcg_at_20_diff1
+      value: 52.505100000000006
+    - type: nauc_ndcg_at_100_max
+      value: 35.0788
+    - type: nauc_ndcg_at_100_std
+      value: -15.118
+    - type: nauc_ndcg_at_100_diff1
+      value: 52.2994
+    - type: nauc_ndcg_at_1000_max
+      value: 34.1448
+    - type: nauc_ndcg_at_1000_std
+      value: -15.695300000000001
+    - type: nauc_ndcg_at_1000_diff1
+      value: 51.7561
+    - type: nauc_map_at_1_max
+      value: 17.9766
+    - type: nauc_map_at_1_std
+      value: -26.0689
+    - type: nauc_map_at_1_diff1
+      value: 51.3004
+    - type: nauc_map_at_3_max
+      value: 30.426
+    - type: nauc_map_at_3_std
+      value: -21.5618
+    - type: nauc_map_at_3_diff1
+      value: 51.9665
+    - type: nauc_map_at_5_max
+      value: 30.3093
+    - type: nauc_map_at_5_std
+      value: -19.1582
+    - type: nauc_map_at_5_diff1
+      value: 50.9919
+    - type: nauc_map_at_10_max
+      value: 31.1197
+    - type: nauc_map_at_10_std
+      value: -18.5626
+    - type: nauc_map_at_10_diff1
+      value: 51.3278
+    - type: nauc_map_at_20_max
+      value: 31.3984
+    - type: nauc_map_at_20_std
+      value: -17.8214
+    - type: nauc_map_at_20_diff1
+      value: 51.5951
+    - type: nauc_map_at_100_max
+      value: 31.1974
+    - type: nauc_map_at_100_std
+      value: -18.0483
+    - type: nauc_map_at_100_diff1
+      value: 51.51559999999999
+    - type: nauc_map_at_1000_max
+      value: 31.167699999999996
+    - type: nauc_map_at_1000_std
+      value: -18.076800000000002
+    - type: nauc_map_at_1000_diff1
+      value: 51.50130000000001
+    - type: nauc_recall_at_1_max
+      value: 17.9766
+    - type: nauc_recall_at_1_std
+      value: -26.0689
+    - type: nauc_recall_at_1_diff1
+      value: 51.3004
+    - type: nauc_recall_at_3_max
+      value: 48.720200000000006
+    - type: nauc_recall_at_3_std
+      value: -12.1143
+    - type: nauc_recall_at_3_diff1
+      value: 49.863800000000005
+    - type: nauc_recall_at_5_max
+      value: 48.1997
+    - type: nauc_recall_at_5_std
+      value: -5.8457
+    - type: nauc_recall_at_5_diff1
+      value: 46.062599999999996
+    - type: nauc_recall_at_10_max
+      value: 56.5698
+    - type: nauc_recall_at_10_std
+      value: 6.0906
+    - type: nauc_recall_at_10_diff1
+      value: 51.9053
+    - type: nauc_recall_at_20_max
+      value: 73.61569999999999
+    - type: nauc_recall_at_20_std
+      value: 25.8535
+    - type: nauc_recall_at_20_diff1
+      value: 64.7516
+    - type: nauc_recall_at_100_max
+      value: 78.054
+    - type: nauc_recall_at_100_std
+      value: 23.7984
+    - type: nauc_recall_at_100_diff1
+      value: 71.61999999999999
+    - type: nauc_recall_at_1000_max
+      value: 92.5519
+    - type: nauc_recall_at_1000_std
+      value: 59.609100000000005
+    - type: nauc_recall_at_1000_diff1
+      value: 78.6415
+    - type: nauc_precision_at_1_max
+      value: 18.5119
+    - type: nauc_precision_at_1_std
+      value: -26.7799
+    - type: nauc_precision_at_1_diff1
+      value: 49.55
+    - type: nauc_precision_at_3_max
+      value: 45.402100000000004
+    - type: nauc_precision_at_3_std
+      value: -5.331
+    - type: nauc_precision_at_3_diff1
+      value: 20.6481
+    - type: nauc_precision_at_5_max
+      value: 33.7262
+    - type: nauc_precision_at_5_std
+      value: 10.3483
+    - type: nauc_precision_at_5_diff1
+      value: 5.9393
+    - type: nauc_precision_at_10_max
+      value: 35.3715
+    - type: nauc_precision_at_10_std
+      value: 17.0809
+    - type: nauc_precision_at_10_diff1
+      value: 0.9325
+    - type: nauc_precision_at_20_max
+      value: 35.2666
+    - type: nauc_precision_at_20_std
+      value: 26.3214
+    - type: nauc_precision_at_20_diff1
+      value: -1.8064
+    - type: nauc_precision_at_100_max
+      value: 29.0385
+    - type: nauc_precision_at_100_std
+      value: 23.416500000000003
+    - type: nauc_precision_at_100_diff1
+      value: -10.83
+    - type: nauc_precision_at_1000_max
+      value: 13.825299999999999
+    - type: nauc_precision_at_1000_std
+      value: 16.7663
+    - type: nauc_precision_at_1000_diff1
+      value: -24.854200000000002
+    - type: nauc_mrr_at_1_max
+      value: 18.5119
+    - type: nauc_mrr_at_1_std
+      value: -26.7799
+    - type: nauc_mrr_at_1_diff1
+      value: 49.55
+    - type: nauc_mrr_at_3_max
+      value: 29.916500000000003
+    - type: nauc_mrr_at_3_std
+      value: -21.5719
+    - type: nauc_mrr_at_3_diff1
+      value: 50.2057
+    - type: nauc_mrr_at_5_max
+      value: 28.929
+    - type: nauc_mrr_at_5_std
+      value: -21.9015
+    - type: nauc_mrr_at_5_diff1
+      value: 49.6675
+    - type: nauc_mrr_at_10_max
+      value: 28.6377
+    - type: nauc_mrr_at_10_std
+      value: -21.4266
+    - type: nauc_mrr_at_10_diff1
+      value: 50.034800000000004
+    - type: nauc_mrr_at_20_max
+      value: 28.7905
+    - type: nauc_mrr_at_20_std
+      value: -21.192
+    - type: nauc_mrr_at_20_diff1
+      value: 50.3745
+    - type: nauc_mrr_at_100_max
+      value: 28.5717
+    - type: nauc_mrr_at_100_std
+      value: -21.3735
+    - type: nauc_mrr_at_100_diff1
+      value: 50.3333
+    - type: nauc_mrr_at_1000_max
+      value: 28.5655
+    - type: nauc_mrr_at_1000_std
+      value: -21.373
+    - type: nauc_mrr_at_1000_diff1
+      value: 50.3215
+    - type: main_score
+      value: 68.705
+    task:
+      type: Retrieval
+  - dataset:
+      config: zh
+      name: MTEB MIRACLRetrieval (zh)
+      revision: main
+      split: dev
+      type: miracl/mmteb-miracl
+    metrics:
+    - type: ndcg_at_1
+      value: 47.583
+    - type: ndcg_at_3
+      value: 45.839
+    - type: ndcg_at_5
+      value: 48.126999999999995
+    - type: ndcg_at_10
+      value: 52.553000000000004
+    - type: ndcg_at_20
+      value: 55.66799999999999
+    - type: ndcg_at_100
+      value: 60.0
+    - type: ndcg_at_1000
+      value: 61.415
+    - type: map_at_1
+      value: 24.488
+    - type: map_at_3
+      value: 36.202
+    - type: map_at_5
+      value: 39.771
+    - type: map_at_10
+      value: 42.725
+    - type: map_at_20
+      value: 44.163999999999994
+    - type: map_at_100
+      value: 45.269
+    - type: map_at_1000
+      value: 45.372
+    - type: recall_at_1
+      value: 24.488
+    - type: recall_at_3
+      value: 42.827
+    - type: recall_at_5
+      value: 52.081
+    - type: recall_at_10
+      value: 63.659
+    - type: recall_at_20
+      value: 72.652
+    - type: recall_at_100
+      value: 89.702
+    - type: recall_at_1000
+      value: 97.99600000000001
+    - type: precision_at_1
+      value: 47.583
+    - type: precision_at_3
+      value: 30.789
+    - type: precision_at_5
+      value: 23.206
+    - type: precision_at_10
+      value: 14.885000000000002
+    - type: precision_at_20
+      value: 8.803999999999998
+    - type: precision_at_100
+      value: 2.237
+    - type: precision_at_1000
+      value: 0.247
+    - type: mrr_at_1
+      value: 47.5827
+    - type: mrr_at_3
+      value: 56.4461
+    - type: mrr_at_5
+      value: 58.036500000000004
+    - type: mrr_at_10
+      value: 59.2419
+    - type: mrr_at_20
+      value: 59.5684
+    - type: mrr_at_100
+      value: 59.8496
+    - type: mrr_at_1000
+      value: 59.868500000000004
+    - type: nauc_ndcg_at_1_max
+      value: 30.3153
+    - type: nauc_ndcg_at_1_std
+      value: 16.1917
+    - type: nauc_ndcg_at_1_diff1
+      value: 33.1291
+    - type: nauc_ndcg_at_3_max
+      value: 29.9473
+    - type: nauc_ndcg_at_3_std
+      value: 9.9602
+    - type: nauc_ndcg_at_3_diff1
+      value: 26.354899999999997
+    - type: nauc_ndcg_at_5_max
+      value: 27.5364
+    - type: nauc_ndcg_at_5_std
+      value: 9.0106
+    - type: nauc_ndcg_at_5_diff1
+      value: 26.4299
+    - type: nauc_ndcg_at_10_max
+      value: 30.1141
+    - type: nauc_ndcg_at_10_std
+      value: 10.6319
+    - type: nauc_ndcg_at_10_diff1
+      value: 26.1015
+    - type: nauc_ndcg_at_20_max
+      value: 31.864700000000003
+    - type: nauc_ndcg_at_20_std
+      value: 14.376
+    - type: nauc_ndcg_at_20_diff1
+      value: 24.278
+    - type: nauc_ndcg_at_100_max
+      value: 33.8328
+    - type: nauc_ndcg_at_100_std
+      value: 17.1646
+    - type: nauc_ndcg_at_100_diff1
+      value: 24.7582
+    - type: nauc_ndcg_at_1000_max
+      value: 33.0653
+    - type: nauc_ndcg_at_1000_std
+      value: 15.717400000000001
+    - type: nauc_ndcg_at_1000_diff1
+      value: 25.708399999999997
+    - type: nauc_map_at_1_max
+      value: 14.5636
+    - type: nauc_map_at_1_std
+      value: -0.5065
+    - type: nauc_map_at_1_diff1
+      value: 37.5816
+    - type: nauc_map_at_3_max
+      value: 21.752
+    - type: nauc_map_at_3_std
+      value: 0.2942
+    - type: nauc_map_at_3_diff1
+      value: 29.662100000000002
+    - type: nauc_map_at_5_max
+      value: 23.3994
+    - type: nauc_map_at_5_std
+      value: 3.2369000000000003
+    - type: nauc_map_at_5_diff1
+      value: 28.479
+    - type: nauc_map_at_10_max
+      value: 26.969500000000004
+    - type: nauc_map_at_10_std
+      value: 6.4338999999999995
+    - type: nauc_map_at_10_diff1
+      value: 27.548000000000002
+    - type: nauc_map_at_20_max
+      value: 28.2804
+    - type: nauc_map_at_20_std
+      value: 8.3557
+    - type: nauc_map_at_20_diff1
+      value: 26.561600000000002
+    - type: nauc_map_at_100_max
+      value: 28.979899999999997
+    - type: nauc_map_at_100_std
+      value: 9.3446
+    - type: nauc_map_at_100_diff1
+      value: 26.539099999999998
+    - type: nauc_map_at_1000_max
+      value: 28.9572
+    - type: nauc_map_at_1000_std
+      value: 9.3017
+    - type: nauc_map_at_1000_diff1
+      value: 26.6029
+    - type: nauc_recall_at_1_max
+      value: 14.5636
+    - type: nauc_recall_at_1_std
+      value: -0.5065
+    - type: nauc_recall_at_1_diff1
+      value: 37.5816
+    - type: nauc_recall_at_3_max
+      value: 19.8958
+    - type: nauc_recall_at_3_std
+      value: -1.7080000000000002
+    - type: nauc_recall_at_3_diff1
+      value: 24.4885
+    - type: nauc_recall_at_5_max
+      value: 18.8426
+    - type: nauc_recall_at_5_std
+      value: 3.5769
+    - type: nauc_recall_at_5_diff1
+      value: 21.253700000000002
+    - type: nauc_recall_at_10_max
+      value: 25.061299999999996
+    - type: nauc_recall_at_10_std
+      value: 7.1753
+    - type: nauc_recall_at_10_diff1
+      value: 18.7378
+    - type: nauc_recall_at_20_max
+      value: 28.6096
+    - type: nauc_recall_at_20_std
+      value: 18.5789
+    - type: nauc_recall_at_20_diff1
+      value: 11.686
+    - type: nauc_recall_at_100_max
+      value: 45.903
+    - type: nauc_recall_at_100_std
+      value: 46.9916
+    - type: nauc_recall_at_100_diff1
+      value: 9.813600000000001
+    - type: nauc_recall_at_1000_max
+      value: 62.512699999999995
+    - type: nauc_recall_at_1000_std
+      value: 67.9442
+    - type: nauc_recall_at_1000_diff1
+      value: 34.3912
+    - type: nauc_precision_at_1_max
+      value: 30.3153
+    - type: nauc_precision_at_1_std
+      value: 16.1917
+    - type: nauc_precision_at_1_diff1
+      value: 33.1291
+    - type: nauc_precision_at_3_max
+      value: 35.6697
+    - type: nauc_precision_at_3_std
+      value: 18.0247
+    - type: nauc_precision_at_3_diff1
+      value: 7.0163
+    - type: nauc_precision_at_5_max
+      value: 34.0555
+    - type: nauc_precision_at_5_std
+      value: 23.5324
+    - type: nauc_precision_at_5_diff1
+      value: 0.44270000000000004
+    - type: nauc_precision_at_10_max
+      value: 37.8515
+    - type: nauc_precision_at_10_std
+      value: 31.657000000000004
+    - type: nauc_precision_at_10_diff1
+      value: -5.2642
+    - type: nauc_precision_at_20_max
+      value: 36.025
+    - type: nauc_precision_at_20_std
+      value: 35.236000000000004
+    - type: nauc_precision_at_20_diff1
+      value: -10.6916
+    - type: nauc_precision_at_100_max
+      value: 29.678900000000002
+    - type: nauc_precision_at_100_std
+      value: 35.2162
+    - type: nauc_precision_at_100_diff1
+      value: -13.7845
+    - type: nauc_precision_at_1000_max
+      value: 22.2855
+    - type: nauc_precision_at_1000_std
+      value: 27.221600000000002
+    - type: nauc_precision_at_1000_diff1
+      value: -13.4482
+    - type: nauc_mrr_at_1_max
+      value: 30.3153
+    - type: nauc_mrr_at_1_std
+      value: 16.1917
+    - type: nauc_mrr_at_1_diff1
+      value: 33.1291
+    - type: nauc_mrr_at_3_max
+      value: 33.2966
+    - type: nauc_mrr_at_3_std
+      value: 16.9755
+    - type: nauc_mrr_at_3_diff1
+      value: 29.814
+    - type: nauc_mrr_at_5_max
+      value: 32.920300000000005
+    - type: nauc_mrr_at_5_std
+      value: 17.832600000000003
+    - type: nauc_mrr_at_5_diff1
+      value: 29.683300000000003
+    - type: nauc_mrr_at_10_max
+      value: 32.9394
+    - type: nauc_mrr_at_10_std
+      value: 17.5036
+    - type: nauc_mrr_at_10_diff1
+      value: 29.6425
+    - type: nauc_mrr_at_20_max
+      value: 32.852599999999995
+    - type: nauc_mrr_at_20_std
+      value: 17.8307
+    - type: nauc_mrr_at_20_diff1
+      value: 29.4502
+    - type: nauc_mrr_at_100_max
+      value: 32.9242
+    - type: nauc_mrr_at_100_std
+      value: 17.7699
+    - type: nauc_mrr_at_100_diff1
+      value: 29.504399999999997
+    - type: nauc_mrr_at_1000_max
+      value: 32.9303
+    - type: nauc_mrr_at_1000_std
+      value: 17.7636
+    - type: nauc_mrr_at_1000_diff1
+      value: 29.526799999999998
+    - type: main_score
+      value: 52.553000000000004
+    task:
+      type: Retrieval
   - dataset:
       config: default
       name: MTEB MSMARCO (default)
@@ -12795,287 +18045,287 @@ model-index:
       type: mteb/msmarco
     metrics:
     - type: ndcg_at_1
-      value: 15.085999999999999
+      value: 14.155000000000001
     - type: ndcg_at_3
-      value: 23.567
+      value: 22.499
     - type: ndcg_at_5
-      value: 27.066000000000003
+      value: 26.233
     - type: ndcg_at_10
-      value: 30.711
+      value: 29.866999999999997
     - type: ndcg_at_20
-      value: 33.251999999999995
+      value: 32.616
     - type: ndcg_at_100
-      value: 37.221
+      value: 36.301
     - type: ndcg_at_1000
-      value: 39.133
+      value: 38.318999999999996
     - type: map_at_1
-      value: 14.654
+      value: 13.793
     - type: map_at_3
-      value: 21.234
+      value: 20.237
     - type: map_at_5
-      value: 23.189999999999998
+      value: 22.32
     - type: map_at_10
-      value: 24.72
+      value: 23.829
     - type: map_at_20
-      value: 25.433
+      value: 24.596999999999998
     - type: map_at_100
-      value: 25.994
+      value: 25.117
     - type: map_at_1000
-      value: 26.067
+      value: 25.194
     - type: recall_at_1
-      value: 14.654
+      value: 13.793
     - type: recall_at_3
-      value: 29.862
+      value: 28.592000000000002
     - type: recall_at_5
-      value: 38.274
+      value: 37.556
     - type: recall_at_10
-      value: 49.341
+      value: 48.669000000000004
     - type: recall_at_20
-      value: 59.206
+      value: 59.379000000000005
     - type: recall_at_100
-      value: 80.22399999999999
+      value: 78.927
     - type: recall_at_1000
-      value: 95.037
+      value: 94.568
     - type: precision_at_1
-      value: 15.085999999999999
+      value: 14.155000000000001
     - type: precision_at_3
-      value: 10.277
+      value: 9.828000000000001
     - type: precision_at_5
-      value: 7.922999999999999
+      value: 7.785
     - type: precision_at_10
-      value: 5.132
+      value: 5.06
     - type: precision_at_20
-      value: 3.0949999999999998
+      value: 3.097
     - type: precision_at_100
-      value: 0.845
+      value: 0.83
     - type: precision_at_1000
-      value: 0.101
+      value: 0.1
     - type: mrr_at_1
-      value: 15.085999999999999
+      value: 14.1547
     - type: mrr_at_3
-      value: 21.7311
+      value: 20.7139
     - type: mrr_at_5
-      value: 23.6738
+      value: 22.8028
     - type: mrr_at_10
-      value: 25.184099999999997
+      value: 24.3047
     - type: mrr_at_20
-      value: 25.878899999999998
+      value: 25.0548
     - type: mrr_at_100
-      value: 26.4216
+      value: 25.552000000000003
     - type: mrr_at_1000
-      value: 26.4886
+      value: 25.622
     - type: nauc_ndcg_at_1_max
-      value: 3.3686000000000003
+      value: 1.4238
     - type: nauc_ndcg_at_1_std
-      value: -14.960799999999999
+      value: -13.091800000000001
     - type: nauc_ndcg_at_1_diff1
-      value: 30.0257
+      value: 29.1051
     - type: nauc_ndcg_at_3_max
-      value: 4.3222
+      value: 2.6131
     - type: nauc_ndcg_at_3_std
-      value: -15.8473
+      value: -14.6122
     - type: nauc_ndcg_at_3_diff1
-      value: 26.935399999999998
+      value: 24.0988
     - type: nauc_ndcg_at_5_max
-      value: 4.8392
+      value: 2.3456
     - type: nauc_ndcg_at_5_std
-      value: -15.7197
+      value: -15.092500000000001
     - type: nauc_ndcg_at_5_diff1
-      value: 26.1067
+      value: 23.5516
     - type: nauc_ndcg_at_10_max
-      value: 4.8289
+      value: 2.8182
     - type: nauc_ndcg_at_10_std
-      value: -14.713300000000002
+      value: -14.623700000000001
     - type: nauc_ndcg_at_10_diff1
-      value: 25.3576
+      value: 23.1711
     - type: nauc_ndcg_at_20_max
-      value: 5.2264
+      value: 3.5518
     - type: nauc_ndcg_at_20_std
-      value: -13.5723
+      value: -12.931500000000002
     - type: nauc_ndcg_at_20_diff1
-      value: 25.7189
+      value: 23.1818
     - type: nauc_ndcg_at_100_max
-      value: 6.2197000000000005
+      value: 4.7755
     - type: nauc_ndcg_at_100_std
-      value: -10.5613
+      value: -9.851899999999999
     - type: nauc_ndcg_at_100_diff1
-      value: 25.407200000000003
+      value: 23.340700000000002
     - type: nauc_ndcg_at_1000_max
-      value: 6.336899999999999
+      value: 4.5916
     - type: nauc_ndcg_at_1000_std
-      value: -11.2538
+      value: -10.4923
     - type: nauc_ndcg_at_1000_diff1
-      value: 25.8353
+      value: 23.5174
     - type: nauc_map_at_1_max
-      value: 3.4762
+      value: 1.4764
     - type: nauc_map_at_1_std
-      value: -14.829899999999999
+      value: -13.2414
     - type: nauc_map_at_1_diff1
-      value: 30.220200000000002
+      value: 29.1169
     - type: nauc_map_at_3_max
-      value: 4.1498
+      value: 2.3523
     - type: nauc_map_at_3_std
-      value: -15.659699999999999
+      value: -14.453
     - type: nauc_map_at_3_diff1
-      value: 27.6738
+      value: 25.0786
     - type: nauc_map_at_5_max
-      value: 4.457599999999999
+      value: 2.1924
     - type: nauc_map_at_5_std
-      value: -15.593599999999999
+      value: -14.7681
     - type: nauc_map_at_5_diff1
-      value: 27.147399999999998
+      value: 24.7695
     - type: nauc_map_at_10_max
-      value: 4.4191
+      value: 2.3542
     - type: nauc_map_at_10_std
-      value: -15.199599999999998
+      value: -14.6287
     - type: nauc_map_at_10_diff1
-      value: 26.8024
+      value: 24.6169
     - type: nauc_map_at_20_max
-      value: 4.559699999999999
+      value: 2.5815
     - type: nauc_map_at_20_std
-      value: -14.8687
+      value: -14.141699999999998
     - type: nauc_map_at_20_diff1
-      value: 26.929799999999997
+      value: 24.6406
     - type: nauc_map_at_100_max
-      value: 4.709300000000001
+      value: 2.7435
     - type: nauc_map_at_100_std
-      value: -14.430599999999998
+      value: -13.7208
     - type: nauc_map_at_100_diff1
-      value: 26.895200000000003
+      value: 24.6504
     - type: nauc_map_at_1000_max
-      value: 4.7146
+      value: 2.7392
     - type: nauc_map_at_1000_std
-      value: -14.4381
+      value: -13.7302
     - type: nauc_map_at_1000_diff1
-      value: 26.9071
+      value: 24.654300000000003
     - type: nauc_recall_at_1_max
-      value: 3.4762
+      value: 1.4764
     - type: nauc_recall_at_1_std
-      value: -14.829899999999999
+      value: -13.2414
     - type: nauc_recall_at_1_diff1
-      value: 30.220200000000002
+      value: 29.1169
     - type: nauc_recall_at_3_max
-      value: 4.8518
+      value: 3.2174
     - type: nauc_recall_at_3_std
-      value: -16.215
+      value: -15.143300000000002
     - type: nauc_recall_at_3_diff1
-      value: 25.1628
+      value: 21.593899999999998
     - type: nauc_recall_at_5_max
-      value: 5.8279
+      value: 2.6845
     - type: nauc_recall_at_5_std
-      value: -15.9303
+      value: -15.9795
     - type: nauc_recall_at_5_diff1
-      value: 23.544999999999998
+      value: 20.567
     - type: nauc_recall_at_10_max
-      value: 5.7948
+      value: 3.913
     - type: nauc_recall_at_10_std
-      value: -13.1624
+      value: -14.566899999999999
     - type: nauc_recall_at_10_diff1
-      value: 21.5447
+      value: 19.4393
     - type: nauc_recall_at_20_max
-      value: 7.0539000000000005
+      value: 6.5038
     - type: nauc_recall_at_20_std
-      value: -8.9408
+      value: -8.572799999999999
     - type: nauc_recall_at_20_diff1
-      value: 22.4027
+      value: 19.0899
     - type: nauc_recall_at_100_max
-      value: 15.1651
+      value: 16.7968
     - type: nauc_recall_at_100_std
-      value: 16.419
+      value: 15.837200000000001
     - type: nauc_recall_at_100_diff1
-      value: 17.897299999999998
+      value: 18.3296
     - type: nauc_recall_at_1000_max
-      value: 41.646300000000004
+      value: 39.6225
     - type: nauc_recall_at_1000_std
-      value: 54.791000000000004
+      value: 53.9736
     - type: nauc_recall_at_1000_diff1
-      value: 16.4922
+      value: 12.565499999999998
     - type: nauc_precision_at_1_max
-      value: 3.3686000000000003
+      value: 1.4238
     - type: nauc_precision_at_1_std
-      value: -14.960799999999999
+      value: -13.091800000000001
     - type: nauc_precision_at_1_diff1
-      value: 30.0257
+      value: 29.1051
     - type: nauc_precision_at_3_max
-      value: 4.8638
+      value: 3.3477
     - type: nauc_precision_at_3_std
-      value: -16.3
+      value: -14.8784
     - type: nauc_precision_at_3_diff1
-      value: 25.1213
+      value: 21.8029
     - type: nauc_precision_at_5_max
-      value: 5.8399
+      value: 2.8493
     - type: nauc_precision_at_5_std
-      value: -16.1007
+      value: -15.767000000000001
     - type: nauc_precision_at_5_diff1
-      value: 23.4288
+      value: 20.5677
     - type: nauc_precision_at_10_max
-      value: 6.042
+      value: 4.2772
     - type: nauc_precision_at_10_std
-      value: -13.0782
+      value: -14.0627
     - type: nauc_precision_at_10_diff1
-      value: 20.8509
+      value: 19.1205
     - type: nauc_precision_at_20_max
-      value: 7.9528
+      value: 7.135800000000001
     - type: nauc_precision_at_20_std
-      value: -8.2321
+      value: -7.5076
     - type: nauc_precision_at_20_diff1
-      value: 21.0746
+      value: 18.0149
     - type: nauc_precision_at_100_max
-      value: 16.026699999999998
+      value: 16.791
     - type: nauc_precision_at_100_std
-      value: 15.112200000000001
+      value: 16.2346
     - type: nauc_precision_at_100_diff1
-      value: 13.2433
+      value: 13.9316
     - type: nauc_precision_at_1000_max
-      value: 24.8965
+      value: 20.7529
     - type: nauc_precision_at_1000_std
-      value: 24.741
+      value: 27.4859
     - type: nauc_precision_at_1000_diff1
-      value: 2.8078
+      value: 3.9303
     - type: nauc_mrr_at_1_max
-      value: 3.3686000000000003
+      value: 1.4238
     - type: nauc_mrr_at_1_std
-      value: -14.960799999999999
+      value: -13.091800000000001
     - type: nauc_mrr_at_1_diff1
-      value: 30.0257
+      value: 29.1051
     - type: nauc_mrr_at_3_max
-      value: 3.9521
+      value: 2.3397
     - type: nauc_mrr_at_3_std
-      value: -15.6591
+      value: -14.1544
     - type: nauc_mrr_at_3_diff1
-      value: 27.511799999999997
+      value: 25.208799999999997
     - type: nauc_mrr_at_5_max
-      value: 4.3118
+      value: 2.1534
     - type: nauc_mrr_at_5_std
-      value: -15.5244
+      value: -14.4094
     - type: nauc_mrr_at_5_diff1
-      value: 27.024199999999997
+      value: 24.8258
     - type: nauc_mrr_at_10_max
-      value: 4.3529
+      value: 2.4274
     - type: nauc_mrr_at_10_std
-      value: -15.065100000000001
+      value: -14.2121
     - type: nauc_mrr_at_10_diff1
-      value: 26.7106
+      value: 24.6847
     - type: nauc_mrr_at_20_max
-      value: 4.4593
+      value: 2.6235999999999997
     - type: nauc_mrr_at_20_std
-      value: -14.7683
+      value: -13.736400000000001
     - type: nauc_mrr_at_20_diff1
-      value: 26.815099999999997
+      value: 24.6859
     - type: nauc_mrr_at_100_max
-      value: 4.5908999999999995
+      value: 2.7653
     - type: nauc_mrr_at_100_std
-      value: -14.361099999999999
+      value: -13.358600000000001
     - type: nauc_mrr_at_100_diff1
-      value: 26.7866
+      value: 24.7238
     - type: nauc_mrr_at_1000_max
-      value: 4.5903
+      value: 2.7588999999999997
     - type: nauc_mrr_at_1000_std
-      value: -14.3764
+      value: -13.373199999999999
     - type: nauc_mrr_at_1000_diff1
-      value: 26.801000000000002
+      value: 24.7274
     - type: main_score
-      value: 30.711
+      value: 29.866999999999997
     task:
       type: Retrieval
   - dataset:
@@ -13086,13 +18336,13 @@ model-index:
       type: mteb/mtop_domain
     metrics:
     - type: accuracy
-      value: 89.4505
+      value: 89.89970000000001
     - type: f1
-      value: 89.00200000000001
+      value: 89.6705
     - type: f1_weighted
-      value: 89.442
+      value: 89.8682
     - type: main_score
-      value: 89.4505
+      value: 89.89970000000001
     task:
       type: Classification
   - dataset:
@@ -13103,13 +18353,13 @@ model-index:
       type: mteb/mtop_intent
     metrics:
     - type: accuracy
-      value: 56.846799999999995
+      value: 60.26899999999999
     - type: f1
-      value: 39.2152
+      value: 40.8003
     - type: f1_weighted
-      value: 58.797999999999995
+      value: 63.033899999999996
     - type: main_score
-      value: 56.846799999999995
+      value: 60.26899999999999
     task:
       type: Classification
   - dataset:
@@ -13120,13 +18370,13 @@ model-index:
       type: mteb/amazon_massive_intent
     metrics:
     - type: accuracy
-      value: 64.768
+      value: 63.9509
     - type: f1
-      value: 61.9285
+      value: 60.7828
     - type: f1_weighted
-      value: 63.67
+      value: 62.8
     - type: main_score
-      value: 64.768
+      value: 63.9509
     task:
       type: Classification
   - dataset:
@@ -13137,13 +18387,13 @@ model-index:
       type: mteb/amazon_massive_scenario
     metrics:
     - type: accuracy
-      value: 71.3416
+      value: 70.928
     - type: f1
-      value: 69.9576
+      value: 69.4755
     - type: f1_weighted
-      value: 71.19680000000001
+      value: 70.6366
     - type: main_score
-      value: 71.3416
+      value: 70.928
     task:
       type: Classification
   - dataset:
@@ -13154,11 +18404,11 @@ model-index:
       type: mteb/medrxiv-clustering-p2p
     metrics:
     - type: v_measure
-      value: 32.5684
+      value: 31.522
     - type: v_measure_std
-      value: 1.6362999999999999
+      value: 1.5528
     - type: main_score
-      value: 32.5684
+      value: 31.522
     task:
       type: Clustering
   - dataset:
@@ -13169,11 +18419,11 @@ model-index:
       type: mteb/medrxiv-clustering-s2s
     metrics:
     - type: v_measure
-      value: 31.551299999999998
+      value: 28.572599999999998
     - type: v_measure_std
-      value: 1.7208999999999999
+      value: 1.8154
     - type: main_score
-      value: 31.551299999999998
+      value: 28.572599999999998
     task:
       type: Clustering
   - dataset:
@@ -13184,23 +18434,23 @@ model-index:
       type: mteb/mind_small
     metrics:
     - type: map
-      value: 30.883
+      value: 30.5381
     - type: mrr
-      value: 31.923299999999998
+      value: 31.574099999999998
     - type: nAUC_map_max
-      value: -20.072000000000003
+      value: -19.592000000000002
     - type: nAUC_map_std
-      value: -4.8503
+      value: -3.0272
     - type: nAUC_map_diff1
-      value: 14.178099999999999
+      value: 14.0537
     - type: nAUC_mrr_max
-      value: -14.7901
+      value: -13.974900000000002
     - type: nAUC_mrr_std
-      value: -2.8666
+      value: -0.8847
     - type: nAUC_mrr_diff1
-      value: 13.2767
+      value: 13.2721
     - type: main_score
-      value: 30.883
+      value: 30.5381
     task:
       type: Reranking
   - dataset:
@@ -13211,287 +18461,287 @@ model-index:
       type: mteb/nfcorpus
     metrics:
     - type: ndcg_at_1
-      value: 41.486000000000004
+      value: 38.080000000000005
     - type: ndcg_at_3
-      value: 39.324
+      value: 34.405
     - type: ndcg_at_5
-      value: 36.949
+      value: 32.019999999999996
     - type: ndcg_at_10
-      value: 33.737
+      value: 28.903000000000002
     - type: ndcg_at_20
-      value: 31.320999999999998
+      value: 26.693
     - type: ndcg_at_100
-      value: 30.886000000000003
+      value: 26.662999999999997
     - type: ndcg_at_1000
-      value: 40.018
+      value: 35.698
     - type: map_at_1
-      value: 5.452
+      value: 4.423
     - type: map_at_3
-      value: 9.45
+      value: 7.733
     - type: map_at_5
-      value: 10.92
+      value: 9.006
     - type: map_at_10
-      value: 12.758
+      value: 10.366
     - type: map_at_20
-      value: 14.036999999999999
+      value: 11.333
     - type: map_at_100
-      value: 15.93
+      value: 12.811
     - type: map_at_1000
-      value: 17.422
+      value: 14.066
     - type: recall_at_1
-      value: 5.452
+      value: 4.423
     - type: recall_at_3
-      value: 10.732999999999999
+      value: 8.908000000000001
     - type: recall_at_5
-      value: 13.553
+      value: 11.179
     - type: recall_at_10
-      value: 17.119999999999997
+      value: 14.280999999999999
     - type: recall_at_20
-      value: 20.459
+      value: 17.192
     - type: recall_at_100
-      value: 30.719
+      value: 27.685
     - type: recall_at_1000
-      value: 62.766
+      value: 59.108000000000004
     - type: precision_at_1
-      value: 43.344
+      value: 40.248
     - type: precision_at_3
-      value: 37.152
+      value: 33.127
     - type: precision_at_5
-      value: 31.703
+      value: 27.864
     - type: precision_at_10
-      value: 24.799
+      value: 21.053
     - type: precision_at_20
-      value: 18.142
+      value: 15.356
     - type: precision_at_100
-      value: 7.8950000000000005
+      value: 6.709
     - type: precision_at_1000
-      value: 2.091
+      value: 1.9529999999999998
     - type: mrr_at_1
-      value: 43.3437
+      value: 40.247699999999995
     - type: mrr_at_3
-      value: 51.135200000000005
+      value: 47.7812
     - type: mrr_at_5
-      value: 52.15689999999999
+      value: 48.8958
     - type: mrr_at_10
-      value: 52.9277
+      value: 49.4034
     - type: mrr_at_20
-      value: 53.2931
+      value: 49.8468
     - type: mrr_at_100
-      value: 53.467200000000005
+      value: 50.104800000000004
     - type: mrr_at_1000
-      value: 53.5122
+      value: 50.1703
     - type: nauc_ndcg_at_1_max
-      value: 33.6844
+      value: 34.5735
     - type: nauc_ndcg_at_1_std
-      value: 17.6117
+      value: 15.1084
     - type: nauc_ndcg_at_1_diff1
-      value: 37.641999999999996
+      value: 37.779
     - type: nauc_ndcg_at_3_max
-      value: 36.6302
+      value: 38.8071
     - type: nauc_ndcg_at_3_std
-      value: 25.738
+      value: 24.7697
     - type: nauc_ndcg_at_3_diff1
-      value: 29.8566
+      value: 29.5807
     - type: nauc_ndcg_at_5_max
-      value: 39.043099999999995
+      value: 39.128800000000005
     - type: nauc_ndcg_at_5_std
-      value: 28.904999999999998
+      value: 26.398
     - type: nauc_ndcg_at_5_diff1
-      value: 26.129400000000004
+      value: 30.3835
     - type: nauc_ndcg_at_10_max
-      value: 38.935199999999995
+      value: 37.7665
     - type: nauc_ndcg_at_10_std
-      value: 30.338700000000003
+      value: 27.5455
     - type: nauc_ndcg_at_10_diff1
-      value: 23.594
+      value: 30.1575
     - type: nauc_ndcg_at_20_max
-      value: 38.2138
+      value: 36.3537
     - type: nauc_ndcg_at_20_std
-      value: 31.8994
+      value: 28.4047
     - type: nauc_ndcg_at_20_diff1
-      value: 21.583
+      value: 27.9553
     - type: nauc_ndcg_at_100_max
-      value: 39.869
+      value: 39.0086
     - type: nauc_ndcg_at_100_std
-      value: 33.591300000000004
+      value: 28.4221
     - type: nauc_ndcg_at_100_diff1
-      value: 23.0398
+      value: 27.833799999999997
     - type: nauc_ndcg_at_1000_max
-      value: 44.9572
+      value: 44.7295
     - type: nauc_ndcg_at_1000_std
-      value: 38.222
+      value: 35.369
     - type: nauc_ndcg_at_1000_diff1
-      value: 23.7314
+      value: 29.4449
     - type: nauc_map_at_1_max
-      value: 8.0309
+      value: 12.645100000000001
     - type: nauc_map_at_1_std
-      value: -12.6861
+      value: -13.536999999999999
     - type: nauc_map_at_1_diff1
-      value: 45.5924
+      value: 45.0881
     - type: nauc_map_at_3_max
-      value: 11.8264
+      value: 14.6862
     - type: nauc_map_at_3_std
-      value: -7.3325000000000005
+      value: -6.6259
     - type: nauc_map_at_3_diff1
-      value: 35.5714
+      value: 34.2575
     - type: nauc_map_at_5_max
-      value: 15.7483
+      value: 18.6559
     - type: nauc_map_at_5_std
-      value: -2.9122
+      value: -2.8853
     - type: nauc_map_at_5_diff1
-      value: 32.2211
+      value: 32.9187
     - type: nauc_map_at_10_max
-      value: 19.9795
+      value: 22.1906
     - type: nauc_map_at_10_std
-      value: 2.6611
+      value: 1.8654
     - type: nauc_map_at_10_diff1
-      value: 29.047099999999997
+      value: 31.3784
     - type: nauc_map_at_20_max
-      value: 23.1754
+      value: 24.696199999999997
     - type: nauc_map_at_20_std
-      value: 8.0668
+      value: 6.1949
     - type: nauc_map_at_20_diff1
-      value: 27.7477
+      value: 30.9956
     - type: nauc_map_at_100_max
-      value: 26.4818
+      value: 27.2011
     - type: nauc_map_at_100_std
-      value: 15.723
+      value: 12.3619
     - type: nauc_map_at_100_diff1
-      value: 26.5443
+      value: 30.811500000000002
     - type: nauc_map_at_1000_max
-      value: 27.929100000000002
+      value: 27.6972
     - type: nauc_map_at_1000_std
-      value: 19.81
+      value: 15.845999999999998
     - type: nauc_map_at_1000_diff1
-      value: 25.0603
+      value: 30.5315
     - type: nauc_recall_at_1_max
-      value: 8.0309
+      value: 12.645100000000001
     - type: nauc_recall_at_1_std
-      value: -12.6861
+      value: -13.536999999999999
     - type: nauc_recall_at_1_diff1
-      value: 45.5924
+      value: 45.0881
     - type: nauc_recall_at_3_max
-      value: 10.9894
+      value: 14.2305
     - type: nauc_recall_at_3_std
-      value: -7.4279
+      value: -2.4143000000000003
     - type: nauc_recall_at_3_diff1
-      value: 29.917899999999996
+      value: 27.1661
     - type: nauc_recall_at_5_max
-      value: 15.7163
+      value: 20.62
     - type: nauc_recall_at_5_std
-      value: -0.8366
+      value: 3.1332
     - type: nauc_recall_at_5_diff1
-      value: 22.8634
+      value: 26.7813
     - type: nauc_recall_at_10_max
-      value: 19.5902
+      value: 22.0278
     - type: nauc_recall_at_10_std
-      value: 5.3492
+      value: 4.587
     - type: nauc_recall_at_10_diff1
-      value: 19.4157
+      value: 22.0275
     - type: nauc_recall_at_20_max
-      value: 23.1894
+      value: 23.4161
     - type: nauc_recall_at_20_std
-      value: 12.8919
+      value: 8.2901
     - type: nauc_recall_at_20_diff1
-      value: 17.8387
+      value: 20.9799
     - type: nauc_recall_at_100_max
-      value: 30.150399999999998
+      value: 24.5345
     - type: nauc_recall_at_100_std
-      value: 27.5036
+      value: 17.1618
     - type: nauc_recall_at_100_diff1
-      value: 15.4935
+      value: 15.586500000000001
     - type: nauc_recall_at_1000_max
-      value: 32.404500000000006
+      value: 22.3168
     - type: nauc_recall_at_1000_std
-      value: 30.7325
+      value: 22.6961
     - type: nauc_recall_at_1000_diff1
-      value: 13.9299
+      value: 9.9602
     - type: nauc_precision_at_1_max
-      value: 34.747699999999995
+      value: 36.549
     - type: nauc_precision_at_1_std
-      value: 17.5475
+      value: 16.6789
     - type: nauc_precision_at_1_diff1
-      value: 36.0582
+      value: 35.6095
     - type: nauc_precision_at_3_max
-      value: 39.8251
+      value: 42.6539
     - type: nauc_precision_at_3_std
-      value: 34.3835
+      value: 33.0974
     - type: nauc_precision_at_3_diff1
-      value: 19.651699999999998
+      value: 21.9208
     - type: nauc_precision_at_5_max
-      value: 42.796800000000005
+      value: 41.787800000000004
     - type: nauc_precision_at_5_std
-      value: 40.083999999999996
+      value: 35.2286
     - type: nauc_precision_at_5_diff1
-      value: 12.4069
+      value: 21.104899999999997
     - type: nauc_precision_at_10_max
-      value: 41.562599999999996
+      value: 37.7473
     - type: nauc_precision_at_10_std
-      value: 44.7888
+      value: 39.887
     - type: nauc_precision_at_10_diff1
-      value: 5.587000000000001
+      value: 18.9082
     - type: nauc_precision_at_20_max
-      value: 37.000499999999995
+      value: 32.0874
     - type: nauc_precision_at_20_std
-      value: 50.4486
+      value: 44.798100000000005
     - type: nauc_precision_at_20_diff1
-      value: -0.1011
+      value: 12.953000000000001
     - type: nauc_precision_at_100_max
-      value: 24.7635
+      value: 19.108900000000002
     - type: nauc_precision_at_100_std
-      value: 51.001200000000004
+      value: 44.49
     - type: nauc_precision_at_100_diff1
-      value: -7.7414
+      value: 6.4374
     - type: nauc_precision_at_1000_max
-      value: 10.837900000000001
+      value: 2.5292
     - type: nauc_precision_at_1000_std
-      value: 37.2421
+      value: 30.523400000000002
     - type: nauc_precision_at_1000_diff1
-      value: -14.086599999999999
+      value: -0.6787
     - type: nauc_mrr_at_1_max
-      value: 34.747699999999995
+      value: 36.549
     - type: nauc_mrr_at_1_std
-      value: 17.5475
+      value: 16.6789
     - type: nauc_mrr_at_1_diff1
-      value: 36.0582
+      value: 35.6095
     - type: nauc_mrr_at_3_max
-      value: 40.8392
+      value: 43.425599999999996
     - type: nauc_mrr_at_3_std
-      value: 24.9403
+      value: 28.8242
     - type: nauc_mrr_at_3_diff1
-      value: 33.9575
+      value: 33.4411
     - type: nauc_mrr_at_5_max
-      value: 42.2108
+      value: 44.5717
     - type: nauc_mrr_at_5_std
-      value: 26.374799999999997
+      value: 29.5765
     - type: nauc_mrr_at_5_diff1
-      value: 33.8034
+      value: 34.463899999999995
     - type: nauc_mrr_at_10_max
-      value: 42.180800000000005
+      value: 44.6062
     - type: nauc_mrr_at_10_std
-      value: 26.6843
+      value: 29.5773
     - type: nauc_mrr_at_10_diff1
-      value: 33.151
+      value: 34.5158
     - type: nauc_mrr_at_20_max
-      value: 42.4685
+      value: 44.6961
     - type: nauc_mrr_at_20_std
-      value: 27.1065
+      value: 29.5126
     - type: nauc_mrr_at_20_diff1
-      value: 33.0052
+      value: 34.2436
     - type: nauc_mrr_at_100_max
-      value: 42.417
+      value: 44.8207
     - type: nauc_mrr_at_100_std
-      value: 27.069300000000002
+      value: 29.649700000000003
     - type: nauc_mrr_at_100_diff1
-      value: 33.1211
+      value: 34.3576
     - type: nauc_mrr_at_1000_max
-      value: 42.3902
+      value: 44.7763
     - type: nauc_mrr_at_1000_std
-      value: 27.019
+      value: 29.6044
     - type: nauc_mrr_at_1000_diff1
-      value: 33.1177
+      value: 34.3718
     - type: main_score
-      value: 33.737
+      value: 28.903000000000002
     task:
       type: Retrieval
   - dataset:
@@ -13502,287 +18752,287 @@ model-index:
       type: mteb/nq
     metrics:
     - type: ndcg_at_1
-      value: 32.793
+      value: 34.589
     - type: ndcg_at_3
-      value: 42.782
+      value: 45.289
     - type: ndcg_at_5
-      value: 47.554
+      value: 49.919000000000004
     - type: ndcg_at_10
-      value: 51.63100000000001
+      value: 53.410000000000004
     - type: ndcg_at_20
-      value: 54.005
+      value: 55.786
     - type: ndcg_at_100
-      value: 56.287
+      value: 57.75599999999999
     - type: ndcg_at_1000
-      value: 56.949000000000005
+      value: 58.51499999999999
     - type: map_at_1
-      value: 29.022
+      value: 30.503999999999998
     - type: map_at_3
-      value: 39.045
+      value: 41.396
     - type: map_at_5
-      value: 41.86
+      value: 44.216
     - type: map_at_10
-      value: 43.730000000000004
+      value: 45.802
     - type: map_at_20
-      value: 44.478
+      value: 46.542
     - type: map_at_100
-      value: 44.849
+      value: 46.867999999999995
     - type: map_at_1000
-      value: 44.877
+      value: 46.903
     - type: recall_at_1
-      value: 29.022
+      value: 30.503999999999998
     - type: recall_at_3
-      value: 50.40599999999999
+      value: 53.244
     - type: recall_at_5
-      value: 61.45
+      value: 63.912
     - type: recall_at_10
-      value: 73.32499999999999
+      value: 74.06099999999999
     - type: recall_at_20
-      value: 82.06099999999999
+      value: 82.819
     - type: recall_at_100
-      value: 93.455
+      value: 92.51599999999999
     - type: recall_at_1000
-      value: 98.414
+      value: 98.156
     - type: precision_at_1
-      value: 32.793
+      value: 34.589
     - type: precision_at_3
-      value: 19.583000000000002
+      value: 20.693
     - type: precision_at_5
-      value: 14.484
+      value: 15.058
     - type: precision_at_10
-      value: 8.737
+      value: 8.818
     - type: precision_at_20
-      value: 4.928
+      value: 4.9799999999999995
     - type: precision_at_100
-      value: 1.134
+      value: 1.125
     - type: precision_at_1000
-      value: 0.12
+      value: 0.11900000000000001
     - type: mrr_at_1
-      value: 32.821600000000004
+      value: 34.617599999999996
     - type: mrr_at_3
-      value: 42.275
+      value: 44.7277
     - type: mrr_at_5
-      value: 44.7895
+      value: 47.0408
     - type: mrr_at_10
-      value: 46.2574
+      value: 48.335499999999996
     - type: mrr_at_20
-      value: 46.8249
+      value: 48.8925
     - type: mrr_at_100
-      value: 47.0971
+      value: 49.1307
     - type: mrr_at_1000
-      value: 47.1157
+      value: 49.154199999999996
     - type: nauc_ndcg_at_1_max
-      value: 23.167299999999997
+      value: 23.8893
     - type: nauc_ndcg_at_1_std
-      value: -4.5794
+      value: -3.0092
     - type: nauc_ndcg_at_1_diff1
-      value: 31.1021
+      value: 36.789899999999996
     - type: nauc_ndcg_at_3_max
-      value: 27.1071
+      value: 26.161800000000003
     - type: nauc_ndcg_at_3_std
-      value: -4.8229
+      value: -3.6557
     - type: nauc_ndcg_at_3_diff1
-      value: 26.442
+      value: 31.381500000000003
     - type: nauc_ndcg_at_5_max
-      value: 29.579
+      value: 28.4273
     - type: nauc_ndcg_at_5_std
-      value: -3.9125
+      value: -2.6271
     - type: nauc_ndcg_at_5_diff1
-      value: 26.1946
+      value: 30.960700000000003
     - type: nauc_ndcg_at_10_max
-      value: 30.6847
+      value: 29.1744
     - type: nauc_ndcg_at_10_std
-      value: -2.3781
+      value: -0.9882
     - type: nauc_ndcg_at_10_diff1
-      value: 25.9597
+      value: 30.9664
     - type: nauc_ndcg_at_20_max
-      value: 31.4414
+      value: 30.1188
     - type: nauc_ndcg_at_20_std
-      value: -0.6708000000000001
+      value: 0.6556000000000001
     - type: nauc_ndcg_at_20_diff1
-      value: 25.886300000000002
+      value: 30.8734
     - type: nauc_ndcg_at_100_max
-      value: 30.5333
+      value: 29.822
     - type: nauc_ndcg_at_100_std
-      value: -0.605
+      value: 1.1388
     - type: nauc_ndcg_at_100_diff1
-      value: 26.3173
+      value: 31.348300000000002
     - type: nauc_ndcg_at_1000_max
-      value: 29.6714
+      value: 29.1591
     - type: nauc_ndcg_at_1000_std
-      value: -1.4797
+      value: 0.22569999999999998
     - type: nauc_ndcg_at_1000_diff1
-      value: 26.4662
+      value: 31.7286
     - type: nauc_map_at_1_max
-      value: 22.0826
+      value: 22.2587
     - type: nauc_map_at_1_std
-      value: -7.1051
+      value: -4.6109
     - type: nauc_map_at_1_diff1
-      value: 31.398
+      value: 37.0942
     - type: nauc_map_at_3_max
-      value: 26.0631
+      value: 25.3764
     - type: nauc_map_at_3_std
-      value: -5.564100000000001
+      value: -4.1876
     - type: nauc_map_at_3_diff1
-      value: 27.4542
+      value: 32.752700000000004
     - type: nauc_map_at_5_max
-      value: 27.4859
+      value: 26.6367
     - type: nauc_map_at_5_std
-      value: -5.1595
+      value: -3.6224
     - type: nauc_map_at_5_diff1
-      value: 27.4557
+      value: 32.4957
     - type: nauc_map_at_10_max
-      value: 27.9754
+      value: 27.0304
     - type: nauc_map_at_10_std
-      value: -4.4186000000000005
+      value: -2.852
     - type: nauc_map_at_10_diff1
-      value: 27.3476
+      value: 32.548899999999996
     - type: nauc_map_at_20_max
-      value: 28.168
+      value: 27.2991
     - type: nauc_map_at_20_std
-      value: -3.8931
+      value: -2.3765
     - type: nauc_map_at_20_diff1
-      value: 27.333800000000004
+      value: 32.5216
     - type: nauc_map_at_100_max
-      value: 28.020899999999997
+      value: 27.2665
     - type: nauc_map_at_100_std
-      value: -3.8826
+      value: -2.2849999999999997
     - type: nauc_map_at_100_diff1
-      value: 27.411099999999998
+      value: 32.5791
     - type: nauc_map_at_1000_max
-      value: 27.9917
+      value: 27.243499999999997
     - type: nauc_map_at_1000_std
-      value: -3.9068
+      value: -2.3154999999999997
     - type: nauc_map_at_1000_diff1
-      value: 27.4158
+      value: 32.5925
     - type: nauc_recall_at_1_max
-      value: 22.0826
+      value: 22.2587
     - type: nauc_recall_at_1_std
-      value: -7.1051
+      value: -4.6109
     - type: nauc_recall_at_1_diff1
-      value: 31.398
+      value: 37.0942
     - type: nauc_recall_at_3_max
-      value: 29.145500000000002
+      value: 27.0818
     - type: nauc_recall_at_3_std
-      value: -4.3699
+      value: -3.5904
     - type: nauc_recall_at_3_diff1
-      value: 22.868
+      value: 26.6279
     - type: nauc_recall_at_5_max
-      value: 35.4075
+      value: 32.6179
     - type: nauc_recall_at_5_std
-      value: -2.0428
+      value: -1.2186000000000001
     - type: nauc_recall_at_5_diff1
-      value: 21.4863
+      value: 24.7151
     - type: nauc_recall_at_10_max
-      value: 41.0673
+      value: 36.105599999999995
     - type: nauc_recall_at_10_std
-      value: 3.6994
+      value: 4.5315
     - type: nauc_recall_at_10_diff1
-      value: 19.2556
+      value: 23.4044
     - type: nauc_recall_at_20_max
-      value: 50.6702
+      value: 45.2605
     - type: nauc_recall_at_20_std
-      value: 16.162399999999998
+      value: 17.092299999999998
     - type: nauc_recall_at_20_diff1
-      value: 16.9676
+      value: 20.5304
     - type: nauc_recall_at_100_max
-      value: 64.5925
+      value: 57.85829999999999
     - type: nauc_recall_at_100_std
-      value: 42.2234
+      value: 42.517500000000005
     - type: nauc_recall_at_100_diff1
-      value: 12.741
+      value: 19.6591
     - type: nauc_recall_at_1000_max
-      value: 66.29310000000001
+      value: 75.3601
     - type: nauc_recall_at_1000_std
-      value: 61.5236
+      value: 69.4265
     - type: nauc_recall_at_1000_diff1
-      value: -6.1148
+      value: 29.8635
     - type: nauc_precision_at_1_max
-      value: 23.167299999999997
+      value: 23.8893
     - type: nauc_precision_at_1_std
-      value: -4.5794
+      value: -3.0092
     - type: nauc_precision_at_1_diff1
-      value: 31.1021
+      value: 36.789899999999996
     - type: nauc_precision_at_3_max
-      value: 28.3464
+      value: 27.1749
     - type: nauc_precision_at_3_std
-      value: -0.0571
+      value: -0.9776
     - type: nauc_precision_at_3_diff1
-      value: 18.987399999999997
+      value: 22.9551
     - type: nauc_precision_at_5_max
-      value: 30.9637
+      value: 28.6992
     - type: nauc_precision_at_5_std
-      value: 2.3625
+      value: 2.1732
     - type: nauc_precision_at_5_diff1
-      value: 15.912299999999998
+      value: 17.6422
     - type: nauc_precision_at_10_max
-      value: 28.3203
+      value: 27.2755
     - type: nauc_precision_at_10_std
-      value: 8.2947
+      value: 8.4934
     - type: nauc_precision_at_10_diff1
-      value: 10.066899999999999
+      value: 12.1581
     - type: nauc_precision_at_20_max
-      value: 26.2198
+      value: 26.858900000000002
     - type: nauc_precision_at_20_std
-      value: 15.4182
+      value: 15.7942
     - type: nauc_precision_at_20_diff1
-      value: 5.0011
+      value: 5.8980999999999995
     - type: nauc_precision_at_100_max
-      value: 12.721599999999999
+      value: 18.8392
     - type: nauc_precision_at_100_std
-      value: 18.2616
+      value: 19.7054
     - type: nauc_precision_at_100_diff1
-      value: -1.5249000000000001
+      value: -0.8163
     - type: nauc_precision_at_1000_max
-      value: 1.514
+      value: 9.8054
     - type: nauc_precision_at_1000_std
-      value: 12.6332
+      value: 14.4735
     - type: nauc_precision_at_1000_diff1
-      value: -4.8346
+      value: -4.7447
     - type: nauc_mrr_at_1_max
-      value: 23.3079
+      value: 23.8759
     - type: nauc_mrr_at_1_std
-      value: -4.6507
+      value: -3.0908
     - type: nauc_mrr_at_1_diff1
-      value: 31.014999999999997
+      value: 36.7027
     - type: nauc_mrr_at_3_max
-      value: 26.371299999999998
+      value: 25.9165
     - type: nauc_mrr_at_3_std
-      value: -3.6183
+      value: -2.3997
     - type: nauc_mrr_at_3_diff1
-      value: 27.5342
+      value: 32.5473
     - type: nauc_mrr_at_5_max
-      value: 27.4604
+      value: 27.1119
     - type: nauc_mrr_at_5_std
-      value: -2.9482
+      value: -1.8426999999999998
     - type: nauc_mrr_at_5_diff1
-      value: 27.308100000000003
+      value: 32.4999
     - type: nauc_mrr_at_10_max
-      value: 27.6781
+      value: 27.2217
     - type: nauc_mrr_at_10_std
-      value: -2.5515
+      value: -1.3365
     - type: nauc_mrr_at_10_diff1
-      value: 27.338
+      value: 32.5293
     - type: nauc_mrr_at_20_max
-      value: 27.760099999999998
+      value: 27.3157
     - type: nauc_mrr_at_20_std
-      value: -2.2787
+      value: -1.1132
     - type: nauc_mrr_at_20_diff1
-      value: 27.372200000000003
+      value: 32.554300000000005
     - type: nauc_mrr_at_100_max
-      value: 27.6611
+      value: 27.2621
     - type: nauc_mrr_at_100_std
-      value: -2.3218
+      value: -1.0897000000000001
     - type: nauc_mrr_at_100_diff1
-      value: 27.444000000000003
+      value: 32.6073
     - type: nauc_mrr_at_1000_max
-      value: 27.6393
+      value: 27.2409
     - type: nauc_mrr_at_1000_std
-      value: -2.3404000000000003
+      value: -1.1176
     - type: nauc_mrr_at_1000_diff1
-      value: 27.4444
+      value: 32.6192
     - type: main_score
-      value: 51.63100000000001
+      value: 53.410000000000004
     task:
       type: Retrieval
   - dataset:
@@ -13793,287 +19043,287 @@ model-index:
       type: mteb/quora
     metrics:
     - type: ndcg_at_1
-      value: 79.36999999999999
+      value: 79.64
     - type: ndcg_at_3
-      value: 83.545
+      value: 83.67599999999999
     - type: ndcg_at_5
-      value: 85.32
+      value: 85.52
     - type: ndcg_at_10
-      value: 86.696
+      value: 86.871
     - type: ndcg_at_20
-      value: 87.46199999999999
+      value: 87.59
     - type: ndcg_at_100
-      value: 88.103
+      value: 88.211
     - type: ndcg_at_1000
-      value: 88.252
+      value: 88.36
     - type: map_at_1
-      value: 68.961
+      value: 69.133
     - type: map_at_3
-      value: 79.616
+      value: 79.776
     - type: map_at_5
-      value: 81.54
+      value: 81.747
     - type: map_at_10
-      value: 82.65400000000001
+      value: 82.852
     - type: map_at_20
-      value: 83.098
+      value: 83.282
     - type: map_at_100
-      value: 83.33
+      value: 83.5
     - type: map_at_1000
-      value: 83.34899999999999
+      value: 83.519
     - type: recall_at_1
-      value: 68.961
+      value: 69.133
     - type: recall_at_3
-      value: 85.501
+      value: 85.526
     - type: recall_at_5
-      value: 90.379
+      value: 90.596
     - type: recall_at_10
-      value: 94.407
+      value: 94.613
     - type: recall_at_20
-      value: 96.86399999999999
+      value: 96.92699999999999
     - type: recall_at_100
-      value: 99.226
+      value: 99.24300000000001
     - type: recall_at_1000
-      value: 99.958
+      value: 99.96000000000001
     - type: precision_at_1
-      value: 79.36999999999999
+      value: 79.64
     - type: precision_at_3
-      value: 36.35
+      value: 36.516999999999996
     - type: precision_at_5
-      value: 24.048
+      value: 24.194
     - type: precision_at_10
-      value: 13.145000000000001
+      value: 13.203000000000001
     - type: precision_at_20
-      value: 7.007
+      value: 7.02
     - type: precision_at_100
-      value: 1.517
+      value: 1.514
     - type: precision_at_1000
       value: 0.156
     - type: mrr_at_1
-      value: 79.3
+      value: 79.60000000000001
     - type: mrr_at_3
-      value: 84.82169999999999
+      value: 84.955
     - type: mrr_at_5
-      value: 85.6047
+      value: 85.74000000000001
     - type: mrr_at_10
-      value: 85.94500000000001
+      value: 86.0913
     - type: mrr_at_20
-      value: 86.0381
+      value: 86.1768
     - type: mrr_at_100
-      value: 86.0694
+      value: 86.2076
     - type: mrr_at_1000
-      value: 86.0712
+      value: 86.2092
     - type: nauc_ndcg_at_1_max
-      value: 37.962
+      value: 39.4509
     - type: nauc_ndcg_at_1_std
-      value: -32.129999999999995
+      value: -30.6309
     - type: nauc_ndcg_at_1_diff1
-      value: 76.2543
+      value: 76.5171
     - type: nauc_ndcg_at_3_max
-      value: 36.5568
+      value: 37.9586
     - type: nauc_ndcg_at_3_std
-      value: -36.9639
+      value: -35.8174
     - type: nauc_ndcg_at_3_diff1
-      value: 74.33229999999999
+      value: 74.5992
     - type: nauc_ndcg_at_5_max
-      value: 36.6236
+      value: 38.541799999999995
     - type: nauc_ndcg_at_5_std
-      value: -38.3823
+      value: -36.456300000000006
     - type: nauc_ndcg_at_5_diff1
-      value: 74.8725
+      value: 75.0506
     - type: nauc_ndcg_at_10_max
-      value: 37.2726
+      value: 38.996199999999995
     - type: nauc_ndcg_at_10_std
-      value: -37.6889
+      value: -35.6649
     - type: nauc_ndcg_at_10_diff1
-      value: 75.437
+      value: 75.3601
     - type: nauc_ndcg_at_20_max
-      value: 37.3643
+      value: 39.1758
     - type: nauc_ndcg_at_20_std
-      value: -36.4545
+      value: -34.7636
     - type: nauc_ndcg_at_20_diff1
-      value: 75.3032
+      value: 75.3846
     - type: nauc_ndcg_at_100_max
-      value: 37.701
+      value: 39.6116
     - type: nauc_ndcg_at_100_std
-      value: -34.6794
+      value: -33.2361
     - type: nauc_ndcg_at_100_diff1
-      value: 75.1545
+      value: 75.31
     - type: nauc_ndcg_at_1000_max
-      value: 37.7386
+      value: 39.6171
     - type: nauc_ndcg_at_1000_std
-      value: -34.659099999999995
+      value: -33.1588
     - type: nauc_ndcg_at_1000_diff1
-      value: 75.1303
+      value: 75.2929
     - type: nauc_map_at_1_max
-      value: 28.3786
+      value: 28.8061
     - type: nauc_map_at_1_std
-      value: -34.4402
+      value: -33.7016
     - type: nauc_map_at_1_diff1
-      value: 78.58579999999999
+      value: 78.7612
     - type: nauc_map_at_3_max
-      value: 34.1617
+      value: 35.2541
     - type: nauc_map_at_3_std
-      value: -39.0191
+      value: -37.741400000000006
     - type: nauc_map_at_3_diff1
-      value: 75.551
+      value: 75.8173
     - type: nauc_map_at_5_max
-      value: 35.2348
+      value: 36.822500000000005
     - type: nauc_map_at_5_std
-      value: -39.352399999999996
+      value: -37.710300000000004
     - type: nauc_map_at_5_diff1
-      value: 75.45530000000001
+      value: 75.7355
     - type: nauc_map_at_10_max
-      value: 36.0009
+      value: 37.5769
     - type: nauc_map_at_10_std
-      value: -38.389
+      value: -36.5907
     - type: nauc_map_at_10_diff1
-      value: 75.523
+      value: 75.60040000000001
     - type: nauc_map_at_20_max
-      value: 36.167300000000004
+      value: 37.8409
     - type: nauc_map_at_20_std
-      value: -37.5191
+      value: -35.7977
     - type: nauc_map_at_20_diff1
-      value: 75.3798
+      value: 75.4885
     - type: nauc_map_at_100_max
-      value: 36.2928
+      value: 38.0097
     - type: nauc_map_at_100_std
-      value: -36.8001
+      value: -35.1815
     - type: nauc_map_at_100_diff1
-      value: 75.2957
+      value: 75.4349
     - type: nauc_map_at_1000_max
-      value: 36.3027
+      value: 38.0191
     - type: nauc_map_at_1000_std
-      value: -36.7641
+      value: -35.1434
     - type: nauc_map_at_1000_diff1
-      value: 75.29090000000001
+      value: 75.4325
     - type: nauc_recall_at_1_max
-      value: 28.3786
+      value: 28.8061
     - type: nauc_recall_at_1_std
-      value: -34.4402
+      value: -33.7016
     - type: nauc_recall_at_1_diff1
-      value: 78.58579999999999
+      value: 78.7612
     - type: nauc_recall_at_3_max
-      value: 32.1082
+      value: 32.889
     - type: nauc_recall_at_3_std
-      value: -43.2936
+      value: -41.323100000000004
     - type: nauc_recall_at_3_diff1
-      value: 71.4939
+      value: 71.73570000000001
     - type: nauc_recall_at_5_max
-      value: 32.590599999999995
+      value: 34.6917
     - type: nauc_recall_at_5_std
-      value: -48.7416
+      value: -44.5216
     - type: nauc_recall_at_5_diff1
-      value: 70.7945
+      value: 70.42540000000001
     - type: nauc_recall_at_10_max
-      value: 34.755
+      value: 36.0356
     - type: nauc_recall_at_10_std
-      value: -49.398599999999995
+      value: -45.073
     - type: nauc_recall_at_10_diff1
-      value: 71.87219999999999
+      value: 70.1776
     - type: nauc_recall_at_20_max
-      value: 33.879999999999995
+      value: 35.714800000000004
     - type: nauc_recall_at_20_std
-      value: -45.1325
+      value: -44.0962
     - type: nauc_recall_at_20_diff1
-      value: 71.3805
+      value: 71.23620000000001
     - type: nauc_recall_at_100_max
-      value: 37.4684
+      value: 43.105199999999996
     - type: nauc_recall_at_100_std
-      value: -13.0134
+      value: -18.800900000000002
     - type: nauc_recall_at_100_diff1
-      value: 69.963
+      value: 70.7888
     - type: nauc_recall_at_1000_max
-      value: 31.6199
+      value: 64.4844
     - type: nauc_recall_at_1000_std
-      value: 59.0228
+      value: 41.486200000000004
     - type: nauc_recall_at_1000_diff1
-      value: 60.9687
+      value: 69.0643
     - type: nauc_precision_at_1_max
-      value: 37.962
+      value: 39.4509
     - type: nauc_precision_at_1_std
-      value: -32.129999999999995
+      value: -30.6309
     - type: nauc_precision_at_1_diff1
-      value: 76.2543
+      value: 76.5171
     - type: nauc_precision_at_3_max
-      value: 11.419799999999999
+      value: 12.514800000000001
     - type: nauc_precision_at_3_std
-      value: 2.5604999999999998
+      value: 3.2272000000000003
     - type: nauc_precision_at_3_diff1
-      value: -11.505799999999999
+      value: -11.8298
     - type: nauc_precision_at_5_max
-      value: 4.454700000000001
+      value: 6.0901
     - type: nauc_precision_at_5_std
-      value: 11.6986
+      value: 12.6778
     - type: nauc_precision_at_5_diff1
-      value: -26.2868
+      value: -26.570300000000003
     - type: nauc_precision_at_10_max
-      value: -0.4261
+      value: 0.9773999999999999
     - type: nauc_precision_at_10_std
-      value: 20.7877
+      value: 21.1764
     - type: nauc_precision_at_10_diff1
-      value: -34.5624
+      value: -35.2909
     - type: nauc_precision_at_20_max
-      value: -3.7817000000000003
+      value: -2.2387
     - type: nauc_precision_at_20_std
-      value: 27.056599999999996
+      value: 26.571099999999998
     - type: nauc_precision_at_20_diff1
-      value: -39.0052
+      value: -39.0582
     - type: nauc_precision_at_100_max
-      value: -6.4321
+      value: -4.9125000000000005
     - type: nauc_precision_at_100_std
-      value: 33.1245
+      value: 31.9907
     - type: nauc_precision_at_100_diff1
-      value: -41.9135
+      value: -41.5916
     - type: nauc_precision_at_1000_max
-      value: -7.100199999999999
+      value: -6.0841
     - type: nauc_precision_at_1000_std
-      value: 34.0081
+      value: 32.8504
     - type: nauc_precision_at_1000_diff1
-      value: -42.556
+      value: -42.25
     - type: nauc_mrr_at_1_max
-      value: 37.754
+      value: 39.285599999999995
     - type: nauc_mrr_at_1_std
-      value: -32.2644
+      value: -30.799100000000003
     - type: nauc_mrr_at_1_diff1
-      value: 76.4182
+      value: 76.6113
     - type: nauc_mrr_at_3_max
-      value: 38.7583
+      value: 40.7492
     - type: nauc_mrr_at_3_std
-      value: -33.631699999999995
+      value: -31.933699999999998
     - type: nauc_mrr_at_3_diff1
-      value: 75.30369999999999
+      value: 75.593
     - type: nauc_mrr_at_5_max
-      value: 38.675399999999996
+      value: 40.87
     - type: nauc_mrr_at_5_std
-      value: -33.873
+      value: -31.9333
     - type: nauc_mrr_at_5_diff1
-      value: 75.58890000000001
+      value: 75.7331
     - type: nauc_mrr_at_10_max
-      value: 38.7962
+      value: 40.7704
     - type: nauc_mrr_at_10_std
-      value: -33.5451
+      value: -31.839699999999997
     - type: nauc_mrr_at_10_diff1
-      value: 75.7153
+      value: 75.8249
     - type: nauc_mrr_at_20_max
-      value: 38.7213
+      value: 40.7107
     - type: nauc_mrr_at_20_std
-      value: -33.433600000000006
+      value: -31.7701
     - type: nauc_mrr_at_20_diff1
-      value: 75.6934
+      value: 75.8463
     - type: nauc_mrr_at_100_max
-      value: 38.6943
+      value: 40.6937
     - type: nauc_mrr_at_100_std
-      value: -33.4013
+      value: -31.735999999999997
     - type: nauc_mrr_at_100_diff1
-      value: 75.6932
+      value: 75.84309999999999
     - type: nauc_mrr_at_1000_max
-      value: 38.6928
+      value: 40.691
     - type: nauc_mrr_at_1000_std
-      value: -33.4051
+      value: -31.7368
     - type: nauc_mrr_at_1000_diff1
-      value: 75.69369999999999
+      value: 75.84349999999999
     - type: main_score
-      value: 86.696
+      value: 86.871
     task:
       type: Retrieval
   - dataset:
@@ -14084,11 +19334,11 @@ model-index:
       type: mteb/reddit-clustering
     metrics:
     - type: v_measure
-      value: 50.019999999999996
+      value: 45.8568
     - type: v_measure_std
-      value: 4.5914
+      value: 5.685
     - type: main_score
-      value: 50.019999999999996
+      value: 45.8568
     task:
       type: Clustering
   - dataset:
@@ -14099,11 +19349,11 @@ model-index:
       type: mteb/reddit-clustering-p2p
     metrics:
     - type: v_measure
-      value: 53.9756
+      value: 54.9896
     - type: v_measure_std
-      value: 11.6573
+      value: 12.0517
     - type: main_score
-      value: 53.9756
+      value: 54.9896
     task:
       type: Clustering
   - dataset:
@@ -14114,287 +19364,287 @@ model-index:
       type: mteb/scidocs
     metrics:
     - type: ndcg_at_1
-      value: 24.6
+      value: 20.599999999999998
     - type: ndcg_at_3
-      value: 20.896
+      value: 17.214
     - type: ndcg_at_5
-      value: 18.497
+      value: 14.93
     - type: ndcg_at_10
-      value: 22.542
+      value: 17.721
     - type: ndcg_at_20
-      value: 25.812
+      value: 20.619
     - type: ndcg_at_100
-      value: 32.326
+      value: 25.46
     - type: ndcg_at_1000
-      value: 38.279999999999994
+      value: 30.846
     - type: map_at_1
-      value: 4.988
+      value: 4.175
     - type: map_at_3
-      value: 9.439
+      value: 7.611
     - type: map_at_5
-      value: 11.459999999999999
+      value: 8.955
     - type: map_at_10
-      value: 13.553
+      value: 10.360999999999999
     - type: map_at_20
-      value: 14.767
+      value: 11.414
     - type: map_at_100
-      value: 16.136
+      value: 12.3
     - type: map_at_1000
-      value: 16.512
+      value: 12.595999999999998
     - type: recall_at_1
-      value: 4.988
+      value: 4.175
     - type: recall_at_3
-      value: 12.046999999999999
+      value: 9.868
     - type: recall_at_5
-      value: 16.777
+      value: 13.303
     - type: recall_at_10
-      value: 24.212
+      value: 18.397
     - type: recall_at_20
-      value: 31.885
+      value: 25.162000000000003
     - type: recall_at_100
-      value: 53.105000000000004
+      value: 40.99
     - type: recall_at_1000
-      value: 82.02199999999999
+      value: 67.322
     - type: precision_at_1
-      value: 24.6
+      value: 20.599999999999998
     - type: precision_at_3
-      value: 19.8
+      value: 16.2
     - type: precision_at_5
-      value: 16.54
+      value: 13.120000000000001
     - type: precision_at_10
-      value: 11.940000000000001
+      value: 9.06
     - type: precision_at_20
-      value: 7.865
+      value: 6.1899999999999995
     - type: precision_at_100
-      value: 2.616
+      value: 2.017
     - type: precision_at_1000
-      value: 0.404
+      value: 0.331
     - type: mrr_at_1
-      value: 24.6
+      value: 20.599999999999998
     - type: mrr_at_3
-      value: 33.1167
+      value: 28.1833
     - type: mrr_at_5
-      value: 35.1717
+      value: 30.043300000000002
     - type: mrr_at_10
-      value: 36.7925
+      value: 31.1391
     - type: mrr_at_20
-      value: 37.5284
+      value: 31.9095
     - type: mrr_at_100
-      value: 37.9725
+      value: 32.3914
     - type: mrr_at_1000
-      value: 38.0112
+      value: 32.4509
     - type: nauc_ndcg_at_1_max
-      value: 17.8923
+      value: 26.9024
     - type: nauc_ndcg_at_1_std
-      value: 9.1225
+      value: 4.1442
     - type: nauc_ndcg_at_1_diff1
-      value: 22.665399999999998
+      value: 25.9169
     - type: nauc_ndcg_at_3_max
-      value: 23.6866
+      value: 33.2338
     - type: nauc_ndcg_at_3_std
-      value: 15.3093
+      value: 7.0103
     - type: nauc_ndcg_at_3_diff1
-      value: 17.589299999999998
+      value: 24.8464
     - type: nauc_ndcg_at_5_max
-      value: 25.3398
+      value: 33.833999999999996
     - type: nauc_ndcg_at_5_std
-      value: 18.002299999999998
+      value: 8.515
     - type: nauc_ndcg_at_5_diff1
-      value: 16.8155
+      value: 22.7135
     - type: nauc_ndcg_at_10_max
-      value: 28.057399999999998
+      value: 34.6873
     - type: nauc_ndcg_at_10_std
-      value: 22.7388
+      value: 12.3294
     - type: nauc_ndcg_at_10_diff1
-      value: 16.0553
+      value: 20.4198
     - type: nauc_ndcg_at_20_max
-      value: 28.9134
+      value: 36.889
     - type: nauc_ndcg_at_20_std
-      value: 25.389
+      value: 15.5519
     - type: nauc_ndcg_at_20_diff1
-      value: 15.7728
+      value: 20.7428
     - type: nauc_ndcg_at_100_max
-      value: 29.9553
+      value: 39.0403
     - type: nauc_ndcg_at_100_std
-      value: 29.8607
+      value: 20.2488
     - type: nauc_ndcg_at_100_diff1
-      value: 15.526100000000001
+      value: 20.572
     - type: nauc_ndcg_at_1000_max
-      value: 29.088399999999996
+      value: 38.7458
     - type: nauc_ndcg_at_1000_std
-      value: 29.2896
+      value: 21.7088
     - type: nauc_ndcg_at_1000_diff1
-      value: 15.2143
+      value: 20.5603
     - type: nauc_map_at_1_max
-      value: 17.9628
+      value: 27.091199999999997
     - type: nauc_map_at_1_std
-      value: 8.9923
+      value: 4.3355999999999995
     - type: nauc_map_at_1_diff1
-      value: 22.7227
+      value: 25.7587
     - type: nauc_map_at_3_max
-      value: 24.012700000000002
+      value: 33.602900000000005
     - type: nauc_map_at_3_std
-      value: 15.1908
+      value: 5.8709
     - type: nauc_map_at_3_diff1
-      value: 17.7637
+      value: 25.5351
     - type: nauc_map_at_5_max
-      value: 25.0497
+      value: 34.414
     - type: nauc_map_at_5_std
-      value: 17.366300000000003
+      value: 6.914199999999999
     - type: nauc_map_at_5_diff1
-      value: 16.1512
+      value: 23.7741
     - type: nauc_map_at_10_max
-      value: 26.777299999999997
+      value: 35.1586
     - type: nauc_map_at_10_std
-      value: 21.0365
+      value: 10.078800000000001
     - type: nauc_map_at_10_diff1
-      value: 15.0999
+      value: 21.628600000000002
     - type: nauc_map_at_20_max
-      value: 27.6561
+      value: 36.7719
     - type: nauc_map_at_20_std
-      value: 23.031399999999998
+      value: 12.1807
     - type: nauc_map_at_20_diff1
-      value: 14.935300000000002
+      value: 22.0201
     - type: nauc_map_at_100_max
-      value: 28.015800000000002
+      value: 37.5971
     - type: nauc_map_at_100_std
-      value: 24.840899999999998
+      value: 13.828299999999999
     - type: nauc_map_at_100_diff1
-      value: 14.9355
+      value: 21.8011
     - type: nauc_map_at_1000_max
-      value: 27.9646
+      value: 37.6524
     - type: nauc_map_at_1000_std
-      value: 24.9601
+      value: 14.0603
     - type: nauc_map_at_1000_diff1
-      value: 14.886
+      value: 21.87
     - type: nauc_recall_at_1_max
-      value: 17.9628
+      value: 27.091199999999997
     - type: nauc_recall_at_1_std
-      value: 8.9923
+      value: 4.3355999999999995
     - type: nauc_recall_at_1_diff1
-      value: 22.7227
+      value: 25.7587
     - type: nauc_recall_at_3_max
-      value: 25.008399999999998
+      value: 35.0346
     - type: nauc_recall_at_3_std
-      value: 17.1697
+      value: 7.6722
     - type: nauc_recall_at_3_diff1
-      value: 15.1082
+      value: 23.8398
     - type: nauc_recall_at_5_max
-      value: 26.4345
+      value: 34.7429
     - type: nauc_recall_at_5_std
-      value: 20.7923
+      value: 9.8479
     - type: nauc_recall_at_5_diff1
-      value: 13.58
+      value: 19.9693
     - type: nauc_recall_at_10_max
-      value: 29.5057
+      value: 34.1188
     - type: nauc_recall_at_10_std
-      value: 27.8646
+      value: 16.0443
     - type: nauc_recall_at_10_diff1
-      value: 11.8098
+      value: 14.844399999999998
     - type: nauc_recall_at_20_max
-      value: 29.3419
+      value: 36.9825
     - type: nauc_recall_at_20_std
-      value: 31.6086
+      value: 21.5553
     - type: nauc_recall_at_20_diff1
-      value: 10.6491
+      value: 15.4056
     - type: nauc_recall_at_100_max
-      value: 28.8421
+      value: 37.238
     - type: nauc_recall_at_100_std
-      value: 40.2696
+      value: 30.425400000000003
     - type: nauc_recall_at_100_diff1
-      value: 8.1461
+      value: 12.839
     - type: nauc_recall_at_1000_max
-      value: 22.8234
+      value: 30.188599999999997
     - type: nauc_recall_at_1000_std
-      value: 41.6117
+      value: 34.7768
     - type: nauc_recall_at_1000_diff1
-      value: 1.8689999999999998
+      value: 8.337
     - type: nauc_precision_at_1_max
-      value: 17.8923
+      value: 26.9024
     - type: nauc_precision_at_1_std
-      value: 9.1225
+      value: 4.1442
     - type: nauc_precision_at_1_diff1
-      value: 22.665399999999998
+      value: 25.9169
     - type: nauc_precision_at_3_max
-      value: 25.1067
+      value: 35.3949
     - type: nauc_precision_at_3_std
-      value: 17.4066
+      value: 7.818300000000001
     - type: nauc_precision_at_3_diff1
-      value: 15.0583
+      value: 24.4077
     - type: nauc_precision_at_5_max
-      value: 26.6005
+      value: 35.0653
     - type: nauc_precision_at_5_std
-      value: 20.9158
+      value: 10.1252
     - type: nauc_precision_at_5_diff1
-      value: 13.591700000000001
+      value: 20.4485
     - type: nauc_precision_at_10_max
-      value: 29.8091
+      value: 34.5799
     - type: nauc_precision_at_10_std
-      value: 28.0069
+      value: 16.2893
     - type: nauc_precision_at_10_diff1
-      value: 11.675699999999999
+      value: 15.337600000000002
     - type: nauc_precision_at_20_max
-      value: 29.5651
+      value: 37.47
     - type: nauc_precision_at_20_std
-      value: 31.439899999999998
+      value: 21.7447
     - type: nauc_precision_at_20_diff1
-      value: 10.4784
+      value: 15.644
     - type: nauc_precision_at_100_max
-      value: 28.853299999999997
+      value: 37.8956
     - type: nauc_precision_at_100_std
-      value: 39.3115
+      value: 30.6388
     - type: nauc_precision_at_100_diff1
-      value: 7.6562
+      value: 13.5011
     - type: nauc_precision_at_1000_max
-      value: 23.025599999999997
+      value: 30.456699999999998
     - type: nauc_precision_at_1000_std
-      value: 38.554300000000005
+      value: 34.3528
     - type: nauc_precision_at_1000_diff1
-      value: 1.3502999999999998
+      value: 8.963899999999999
     - type: nauc_mrr_at_1_max
-      value: 17.8923
+      value: 26.9024
     - type: nauc_mrr_at_1_std
-      value: 9.1225
+      value: 4.1442
     - type: nauc_mrr_at_1_diff1
-      value: 22.665399999999998
+      value: 25.9169
     - type: nauc_mrr_at_3_max
-      value: 21.2588
+      value: 30.214999999999996
     - type: nauc_mrr_at_3_std
-      value: 12.7528
+      value: 7.4483
     - type: nauc_mrr_at_3_diff1
-      value: 19.808999999999997
+      value: 23.7169
     - type: nauc_mrr_at_5_max
-      value: 22.572200000000002
+      value: 30.1892
     - type: nauc_mrr_at_5_std
-      value: 14.210500000000001
+      value: 8.319
     - type: nauc_mrr_at_5_diff1
-      value: 20.502000000000002
+      value: 23.4187
     - type: nauc_mrr_at_10_max
-      value: 23.372799999999998
+      value: 30.5879
     - type: nauc_mrr_at_10_std
-      value: 15.1215
+      value: 8.9701
     - type: nauc_mrr_at_10_diff1
-      value: 20.8449
+      value: 23.4357
     - type: nauc_mrr_at_20_max
-      value: 23.017599999999998
+      value: 30.579800000000002
     - type: nauc_mrr_at_20_std
-      value: 15.0391
+      value: 9.3186
     - type: nauc_mrr_at_20_diff1
-      value: 20.8233
+      value: 23.2358
     - type: nauc_mrr_at_100_max
-      value: 22.8993
+      value: 30.660500000000003
     - type: nauc_mrr_at_100_std
-      value: 14.8474
+      value: 9.404
     - type: nauc_mrr_at_100_diff1
-      value: 20.8759
+      value: 23.3937
     - type: nauc_mrr_at_1000_max
-      value: 22.8744
+      value: 30.6315
     - type: nauc_mrr_at_1000_std
-      value: 14.8178
+      value: 9.363299999999999
     - type: nauc_mrr_at_1000_diff1
-      value: 20.8635
+      value: 23.392599999999998
     - type: main_score
-      value: 22.542
+      value: 17.721
     task:
       type: Retrieval
   - dataset:
@@ -14405,23 +19655,23 @@ model-index:
       type: mteb/sickr-sts
     metrics:
     - type: pearson
-      value: 77.4874
+      value: 75.5378
     - type: spearman
-      value: 68.79809999999999
+      value: 68.7448
     - type: cosine_pearson
-      value: 77.4874
+      value: 75.5378
     - type: cosine_spearman
-      value: 68.79809999999999
+      value: 68.7448
     - type: manhattan_pearson
-      value: 73.3583
+      value: 72.905
     - type: manhattan_spearman
-      value: 68.6911
+      value: 68.9036
     - type: euclidean_pearson
-      value: 73.82039999999999
+      value: 72.7586
     - type: euclidean_spearman
-      value: 68.79809999999999
+      value: 68.7448
     - type: main_score
-      value: 68.79809999999999
+      value: 68.7448
     task:
       type: STS
   - dataset:
@@ -14432,23 +19682,23 @@ model-index:
       type: mteb/sts12-sts
     metrics:
     - type: pearson
-      value: 67.8391
+      value: 81.6341
     - type: spearman
-      value: 64.77380000000001
+      value: 75.1911
     - type: cosine_pearson
-      value: 67.8391
+      value: 81.6341
     - type: cosine_spearman
-      value: 64.77380000000001
+      value: 75.1911
     - type: manhattan_pearson
-      value: 64.7258
+      value: 78.4046
     - type: manhattan_spearman
-      value: 64.1558
+      value: 75.1706
     - type: euclidean_pearson
-      value: 65.68469999999999
+      value: 78.3649
     - type: euclidean_spearman
-      value: 64.7722
+      value: 75.1934
     - type: main_score
-      value: 64.77380000000001
+      value: 75.1911
     task:
       type: STS
   - dataset:
@@ -14459,23 +19709,23 @@ model-index:
       type: mteb/sts13-sts
     metrics:
     - type: pearson
-      value: 78.8177
+      value: 76.4378
     - type: spearman
-      value: 79.3253
+      value: 77.3053
     - type: cosine_pearson
-      value: 78.8177
+      value: 76.4378
     - type: cosine_spearman
-      value: 79.3253
+      value: 77.3053
     - type: manhattan_pearson
-      value: 78.6048
+      value: 77.1958
     - type: manhattan_spearman
-      value: 79.1874
+      value: 77.2543
     - type: euclidean_pearson
-      value: 78.71010000000001
+      value: 77.2317
     - type: euclidean_spearman
-      value: 79.3253
+      value: 77.3053
     - type: main_score
-      value: 79.3253
+      value: 77.3053
     task:
       type: STS
   - dataset:
@@ -14486,23 +19736,23 @@ model-index:
       type: mteb/sts14-sts
     metrics:
     - type: pearson
-      value: 75.6791
+      value: 78.4342
     - type: spearman
-      value: 70.1701
+      value: 74.9479
     - type: cosine_pearson
-      value: 75.6791
+      value: 78.4342
     - type: cosine_spearman
-      value: 70.1701
+      value: 74.9479
     - type: manhattan_pearson
-      value: 73.85239999999999
+      value: 77.12219999999999
     - type: manhattan_spearman
-      value: 69.9223
+      value: 74.924
     - type: euclidean_pearson
-      value: 74.143
+      value: 77.14800000000001
     - type: euclidean_spearman
-      value: 70.1701
+      value: 74.94800000000001
     - type: main_score
-      value: 70.1701
+      value: 74.9479
     task:
       type: STS
   - dataset:
@@ -14513,23 +19763,23 @@ model-index:
       type: mteb/sts15-sts
     metrics:
     - type: pearson
-      value: 80.4413
+      value: 85.1908
     - type: spearman
-      value: 82.0343
+      value: 86.0174
     - type: cosine_pearson
-      value: 80.4413
+      value: 85.1908
     - type: cosine_spearman
-      value: 82.0343
+      value: 86.0174
     - type: manhattan_pearson
-      value: 81.3627
+      value: 85.4436
     - type: manhattan_spearman
-      value: 81.8838
+      value: 86.0332
     - type: euclidean_pearson
-      value: 81.47569999999999
+      value: 85.4339
     - type: euclidean_spearman
-      value: 82.0343
+      value: 86.0174
     - type: main_score
-      value: 82.0343
+      value: 86.0174
     task:
       type: STS
   - dataset:
@@ -14540,212 +19790,23 @@ model-index:
       type: mteb/sts16-sts
     metrics:
     - type: pearson
-      value: 77.172
+      value: 80.5421
     - type: spearman
-      value: 78.9633
+      value: 81.9568
     - type: cosine_pearson
-      value: 77.172
+      value: 80.5421
     - type: cosine_spearman
-      value: 78.9633
+      value: 81.9568
     - type: manhattan_pearson
-      value: 78.35849999999999
+      value: 81.1013
     - type: manhattan_spearman
-      value: 78.7975
+      value: 81.8165
     - type: euclidean_pearson
-      value: 78.5236
+      value: 81.24510000000001
     - type: euclidean_spearman
-      value: 78.9633
+      value: 81.9568
     - type: main_score
-      value: 78.9633
-    task:
-      type: STS
-  - dataset:
-      config: en-en
-      name: MTEB STS17 (en-en)
-      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
-      split: test
-      type: mteb/sts17-crosslingual-sts
-    metrics:
-    - type: pearson
-      value: 83.5117
-    - type: spearman
-      value: 84.64970000000001
-    - type: cosine_pearson
-      value: 83.5117
-    - type: cosine_spearman
-      value: 84.64970000000001
-    - type: manhattan_pearson
-      value: 84.5137
-    - type: manhattan_spearman
-      value: 84.7848
-    - type: euclidean_pearson
-      value: 84.531
-    - type: euclidean_spearman
-      value: 84.64970000000001
-    - type: main_score
-      value: 84.64970000000001
-    task:
-      type: STS
-  - dataset:
-      config: es-en
-      name: MTEB STS17 (es-en)
-      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
-      split: test
-      type: mteb/sts17-crosslingual-sts
-    metrics:
-    - type: pearson
-      value: 29.0052
-    - type: spearman
-      value: 30.640299999999996
-    - type: cosine_pearson
-      value: 29.0052
-    - type: cosine_spearman
-      value: 30.640299999999996
-    - type: manhattan_pearson
-      value: 25.988099999999996
-    - type: manhattan_spearman
-      value: 26.935399999999998
-    - type: euclidean_pearson
-      value: 28.5366
-    - type: euclidean_spearman
-      value: 30.640299999999996
-    - type: main_score
-      value: 30.640299999999996
-    task:
-      type: STS
-  - dataset:
-      config: nl-en
-      name: MTEB STS17 (nl-en)
-      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
-      split: test
-      type: mteb/sts17-crosslingual-sts
-    metrics:
-    - type: pearson
-      value: 42.0755
-    - type: spearman
-      value: 39.763999999999996
-    - type: cosine_pearson
-      value: 42.0755
-    - type: cosine_spearman
-      value: 39.763999999999996
-    - type: manhattan_pearson
-      value: 40.872
-    - type: manhattan_spearman
-      value: 38.4749
-    - type: euclidean_pearson
-      value: 42.051500000000004
-    - type: euclidean_spearman
-      value: 39.7565
-    - type: main_score
-      value: 39.763999999999996
-    task:
-      type: STS
-  - dataset:
-      config: en-de
-      name: MTEB STS17 (en-de)
-      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
-      split: test
-      type: mteb/sts17-crosslingual-sts
-    metrics:
-    - type: pearson
-      value: 44.2318
-    - type: spearman
-      value: 46.5518
-    - type: cosine_pearson
-      value: 44.2318
-    - type: cosine_spearman
-      value: 46.5518
-    - type: manhattan_pearson
-      value: 43.396699999999996
-    - type: manhattan_spearman
-      value: 46.1132
-    - type: euclidean_pearson
-      value: 43.993500000000004
-    - type: euclidean_spearman
-      value: 46.5518
-    - type: main_score
-      value: 46.5518
-    task:
-      type: STS
-  - dataset:
-      config: fr-en
-      name: MTEB STS17 (fr-en)
-      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
-      split: test
-      type: mteb/sts17-crosslingual-sts
-    metrics:
-    - type: pearson
-      value: 36.716100000000004
-    - type: spearman
-      value: 34.6968
-    - type: cosine_pearson
-      value: 36.716100000000004
-    - type: cosine_spearman
-      value: 34.6968
-    - type: manhattan_pearson
-      value: 35.1918
-    - type: manhattan_spearman
-      value: 33.3692
-    - type: euclidean_pearson
-      value: 36.3921
-    - type: euclidean_spearman
-      value: 34.6968
-    - type: main_score
-      value: 34.6968
-    task:
-      type: STS
-  - dataset:
-      config: en-ar
-      name: MTEB STS17 (en-ar)
-      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
-      split: test
-      type: mteb/sts17-crosslingual-sts
-    metrics:
-    - type: pearson
-      value: 21.2825
-    - type: spearman
-      value: 17.6922
-    - type: cosine_pearson
-      value: 21.2825
-    - type: cosine_spearman
-      value: 17.6922
-    - type: manhattan_pearson
-      value: 19.491
-    - type: manhattan_spearman
-      value: 15.989700000000001
-    - type: euclidean_pearson
-      value: 21.583
-    - type: euclidean_spearman
-      value: 17.6922
-    - type: main_score
-      value: 17.6922
-    task:
-      type: STS
-  - dataset:
-      config: it-en
-      name: MTEB STS17 (it-en)
-      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
-      split: test
-      type: mteb/sts17-crosslingual-sts
-    metrics:
-    - type: pearson
-      value: 32.1584
-    - type: spearman
-      value: 27.9254
-    - type: cosine_pearson
-      value: 32.1584
-    - type: cosine_spearman
-      value: 27.9254
-    - type: manhattan_pearson
-      value: 34.2047
-    - type: manhattan_spearman
-      value: 31.1955
-    - type: euclidean_pearson
-      value: 32.4369
-    - type: euclidean_spearman
-      value: 27.9254
-    - type: main_score
-      value: 27.9254
+      value: 81.9568
     task:
       type: STS
   - dataset:
@@ -14756,50 +19817,212 @@ model-index:
       type: mteb/sts17-crosslingual-sts
     metrics:
     - type: pearson
-      value: 21.0842
+      value: 48.2717
     - type: spearman
-      value: 18.5115
+      value: 44.642900000000004
     - type: cosine_pearson
-      value: 21.0842
+      value: 48.2717
     - type: cosine_spearman
-      value: 18.5115
+      value: 44.642900000000004
     - type: manhattan_pearson
-      value: 23.5904
+      value: 50.314400000000006
     - type: manhattan_spearman
-      value: 21.032400000000003
+      value: 44.982299999999995
     - type: euclidean_pearson
-      value: 21.2805
+      value: 50.1685
     - type: euclidean_spearman
-      value: 18.5115
+      value: 44.642900000000004
     - type: main_score
-      value: 18.5115
+      value: 44.642900000000004
     task:
       type: STS
   - dataset:
-      config: en
-      name: MTEB STS22 (en)
-      revision: de9d86b3b84231dc21f76c7b7af1f28e2f57f6e3
+      config: it-en
+      name: MTEB STS17 (it-en)
+      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
       split: test
-      type: mteb/sts22-crosslingual-sts
+      type: mteb/sts17-crosslingual-sts
     metrics:
     - type: pearson
-      value: 66.9563
+      value: 67.8601
     - type: spearman
-      value: 67.4747
+      value: 68.2763
     - type: cosine_pearson
-      value: 66.9563
+      value: 67.8601
     - type: cosine_spearman
-      value: 67.4747
+      value: 68.2763
     - type: manhattan_pearson
-      value: 68.32629999999999
+      value: 68.1563
     - type: manhattan_spearman
-      value: 66.8163
+      value: 68.4724
     - type: euclidean_pearson
-      value: 68.731
+      value: 68.1026
     - type: euclidean_spearman
-      value: 67.4747
+      value: 68.2763
     - type: main_score
-      value: 67.4747
+      value: 68.2763
+    task:
+      type: STS
+  - dataset:
+      config: en-en
+      name: MTEB STS17 (en-en)
+      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
+      split: test
+      type: mteb/sts17-crosslingual-sts
+    metrics:
+    - type: pearson
+      value: 78.05539999999999
+    - type: spearman
+      value: 78.5929
+    - type: cosine_pearson
+      value: 78.05539999999999
+    - type: cosine_spearman
+      value: 78.5929
+    - type: manhattan_pearson
+      value: 78.408
+    - type: manhattan_spearman
+      value: 78.8622
+    - type: euclidean_pearson
+      value: 78.1413
+    - type: euclidean_spearman
+      value: 78.5929
+    - type: main_score
+      value: 78.5929
+    task:
+      type: STS
+  - dataset:
+      config: en-ar
+      name: MTEB STS17 (en-ar)
+      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
+      split: test
+      type: mteb/sts17-crosslingual-sts
+    metrics:
+    - type: pearson
+      value: 59.4349
+    - type: spearman
+      value: 59.838800000000006
+    - type: cosine_pearson
+      value: 59.4349
+    - type: cosine_spearman
+      value: 59.838800000000006
+    - type: manhattan_pearson
+      value: 60.7565
+    - type: manhattan_spearman
+      value: 60.5824
+    - type: euclidean_pearson
+      value: 60.247099999999996
+    - type: euclidean_spearman
+      value: 59.838800000000006
+    - type: main_score
+      value: 59.838800000000006
+    task:
+      type: STS
+  - dataset:
+      config: fr-en
+      name: MTEB STS17 (fr-en)
+      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
+      split: test
+      type: mteb/sts17-crosslingual-sts
+    metrics:
+    - type: pearson
+      value: 73.84039999999999
+    - type: spearman
+      value: 74.2498
+    - type: cosine_pearson
+      value: 73.84039999999999
+    - type: cosine_spearman
+      value: 74.2498
+    - type: manhattan_pearson
+      value: 74.6784
+    - type: manhattan_spearman
+      value: 74.4608
+    - type: euclidean_pearson
+      value: 74.5596
+    - type: euclidean_spearman
+      value: 74.2498
+    - type: main_score
+      value: 74.2498
+    task:
+      type: STS
+  - dataset:
+      config: nl-en
+      name: MTEB STS17 (nl-en)
+      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
+      split: test
+      type: mteb/sts17-crosslingual-sts
+    metrics:
+    - type: pearson
+      value: 67.9218
+    - type: spearman
+      value: 68.0418
+    - type: cosine_pearson
+      value: 67.9218
+    - type: cosine_spearman
+      value: 68.0418
+    - type: manhattan_pearson
+      value: 68.51
+    - type: manhattan_spearman
+      value: 68.1968
+    - type: euclidean_pearson
+      value: 68.343
+    - type: euclidean_spearman
+      value: 68.0418
+    - type: main_score
+      value: 68.0418
+    task:
+      type: STS
+  - dataset:
+      config: es-en
+      name: MTEB STS17 (es-en)
+      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
+      split: test
+      type: mteb/sts17-crosslingual-sts
+    metrics:
+    - type: pearson
+      value: 70.381
+    - type: spearman
+      value: 69.5729
+    - type: cosine_pearson
+      value: 70.381
+    - type: cosine_spearman
+      value: 69.5729
+    - type: manhattan_pearson
+      value: 70.8688
+    - type: manhattan_spearman
+      value: 69.4406
+    - type: euclidean_pearson
+      value: 71.0267
+    - type: euclidean_spearman
+      value: 69.5729
+    - type: main_score
+      value: 69.5729
+    task:
+      type: STS
+  - dataset:
+      config: en-de
+      name: MTEB STS17 (en-de)
+      revision: faeb762787bd10488a50c8b5be4a3b82e411949c
+      split: test
+      type: mteb/sts17-crosslingual-sts
+    metrics:
+    - type: pearson
+      value: 70.0196
+    - type: spearman
+      value: 69.7175
+    - type: cosine_pearson
+      value: 70.0196
+    - type: cosine_spearman
+      value: 69.7175
+    - type: manhattan_pearson
+      value: 71.40990000000001
+    - type: manhattan_spearman
+      value: 70.1461
+    - type: euclidean_pearson
+      value: 70.88799999999999
+    - type: euclidean_spearman
+      value: 69.7175
+    - type: main_score
+      value: 69.7175
     task:
       type: STS
   - dataset:
@@ -14810,23 +20033,50 @@ model-index:
       type: mteb/sts22-crosslingual-sts
     metrics:
     - type: pearson
-      value: 56.3095
+      value: 65.7536
     - type: spearman
-      value: 54.1005
+      value: 60.04429999999999
     - type: cosine_pearson
-      value: 56.3095
+      value: 65.7536
     - type: cosine_spearman
-      value: 54.1005
+      value: 60.04429999999999
     - type: manhattan_pearson
-      value: 59.4023
+      value: 68.58579999999999
     - type: manhattan_spearman
-      value: 52.6259
+      value: 60.3699
     - type: euclidean_pearson
-      value: 58.6527
+      value: 68.3761
     - type: euclidean_spearman
-      value: 54.1005
+      value: 60.04429999999999
     - type: main_score
-      value: 54.1005
+      value: 60.04429999999999
+    task:
+      type: STS
+  - dataset:
+      config: en
+      name: MTEB STS22 (en)
+      revision: de9d86b3b84231dc21f76c7b7af1f28e2f57f6e3
+      split: test
+      type: mteb/sts22-crosslingual-sts
+    metrics:
+    - type: pearson
+      value: 68.997
+    - type: spearman
+      value: 68.1508
+    - type: cosine_pearson
+      value: 68.997
+    - type: cosine_spearman
+      value: 68.1508
+    - type: manhattan_pearson
+      value: 68.9229
+    - type: manhattan_spearman
+      value: 68.0124
+    - type: euclidean_pearson
+      value: 69.0519
+    - type: euclidean_spearman
+      value: 68.1508
+    - type: main_score
+      value: 68.1508
     task:
       type: STS
   - dataset:
@@ -14837,50 +20087,23 @@ model-index:
       type: mteb/sts22-crosslingual-sts
     metrics:
     - type: pearson
-      value: 62.0575
+      value: 80.2006
     - type: spearman
-      value: 66.9527
+      value: 80.4702
     - type: cosine_pearson
-      value: 62.0575
+      value: 80.2006
     - type: cosine_spearman
-      value: 66.9527
+      value: 80.4702
     - type: manhattan_pearson
-      value: 62.648700000000005
+      value: 80.81009999999999
     - type: manhattan_spearman
-      value: 65.6446
+      value: 80.6037
     - type: euclidean_pearson
-      value: 63.546800000000005
+      value: 80.66290000000001
     - type: euclidean_spearman
-      value: 66.9527
+      value: 80.4702
     - type: main_score
-      value: 66.9527
-    task:
-      type: STS
-  - dataset:
-      config: pl-en
-      name: MTEB STS22 (pl-en)
-      revision: de9d86b3b84231dc21f76c7b7af1f28e2f57f6e3
-      split: test
-      type: mteb/sts22-crosslingual-sts
-    metrics:
-    - type: pearson
-      value: 68.42439999999999
-    - type: spearman
-      value: 69.0444
-    - type: cosine_pearson
-      value: 68.42439999999999
-    - type: cosine_spearman
-      value: 69.0444
-    - type: manhattan_pearson
-      value: 65.1492
-    - type: manhattan_spearman
-      value: 65.2364
-    - type: euclidean_pearson
-      value: 68.4923
-    - type: euclidean_spearman
-      value: 69.0444
-    - type: main_score
-      value: 69.0444
+      value: 80.4702
     task:
       type: STS
   - dataset:
@@ -14891,23 +20114,50 @@ model-index:
       type: mteb/sts22-crosslingual-sts
     metrics:
     - type: pearson
-      value: 34.164699999999996
+      value: 74.0885
     - type: spearman
-      value: 36.1776
+      value: 72.4574
     - type: cosine_pearson
-      value: 34.164699999999996
+      value: 74.0885
     - type: cosine_spearman
-      value: 36.1776
+      value: 72.4574
     - type: manhattan_pearson
-      value: 33.0685
+      value: 75.25659999999999
     - type: manhattan_spearman
-      value: 34.4054
+      value: 71.9695
     - type: euclidean_pearson
-      value: 34.1002
+      value: 75.4999
     - type: euclidean_spearman
-      value: 36.1776
+      value: 72.4574
     - type: main_score
-      value: 36.1776
+      value: 72.4574
+    task:
+      type: STS
+  - dataset:
+      config: pl-en
+      name: MTEB STS22 (pl-en)
+      revision: de9d86b3b84231dc21f76c7b7af1f28e2f57f6e3
+      split: test
+      type: mteb/sts22-crosslingual-sts
+    metrics:
+    - type: pearson
+      value: 74.1794
+    - type: spearman
+      value: 70.6749
+    - type: cosine_pearson
+      value: 74.1794
+    - type: cosine_spearman
+      value: 70.6749
+    - type: manhattan_pearson
+      value: 74.3245
+    - type: manhattan_spearman
+      value: 71.2375
+    - type: euclidean_pearson
+      value: 73.221
+    - type: euclidean_spearman
+      value: 70.6749
+    - type: main_score
+      value: 70.6749
     task:
       type: STS
   - dataset:
@@ -14918,23 +20168,23 @@ model-index:
       type: mteb/stsbenchmark-sts
     metrics:
     - type: pearson
-      value: 78.0802
+      value: 76.7328
     - type: spearman
-      value: 78.0444
+      value: 78.4076
     - type: cosine_pearson
-      value: 78.0802
+      value: 76.7328
     - type: cosine_spearman
-      value: 78.0444
+      value: 78.4076
     - type: manhattan_pearson
-      value: 78.0703
+      value: 78.24950000000001
     - type: manhattan_spearman
-      value: 77.681
+      value: 78.23400000000001
     - type: euclidean_pearson
-      value: 78.4998
+      value: 78.3628
     - type: euclidean_spearman
-      value: 78.0444
+      value: 78.4076
     - type: main_score
-      value: 78.0444
+      value: 78.4076
     task:
       type: STS
   - dataset:
@@ -14945,23 +20195,23 @@ model-index:
       type: mteb/scidocs-reranking
     metrics:
     - type: map
-      value: 86.4489
+      value: 79.6097
     - type: mrr
-      value: 96.0178
+      value: 94.12939999999999
     - type: nAUC_map_max
-      value: 49.2333
+      value: 58.7937
     - type: nAUC_map_std
-      value: 63.6541
+      value: 69.6785
     - type: nAUC_map_diff1
-      value: 0.40959999999999996
+      value: 7.4891
     - type: nAUC_mrr_max
-      value: 83.6216
+      value: 84.7821
     - type: nAUC_mrr_std
-      value: 76.7559
+      value: 77.6636
     - type: nAUC_mrr_diff1
-      value: 42.9429
+      value: 49.763600000000004
     - type: main_score
-      value: 86.4489
+      value: 79.6097
     task:
       type: Reranking
   - dataset:
@@ -14972,287 +20222,287 @@ model-index:
       type: mteb/scifact
     metrics:
     - type: ndcg_at_1
-      value: 59.333000000000006
+      value: 54.0
     - type: ndcg_at_3
-      value: 65.793
+      value: 60.851
     - type: ndcg_at_5
-      value: 69.429
+      value: 63.410999999999994
     - type: ndcg_at_10
-      value: 71.27
+      value: 65.847
     - type: ndcg_at_20
-      value: 72.929
+      value: 66.937
     - type: ndcg_at_100
-      value: 73.88900000000001
+      value: 68.262
     - type: ndcg_at_1000
-      value: 74.41
+      value: 69.341
     - type: map_at_1
-      value: 56.577999999999996
+      value: 51.093999999999994
     - type: map_at_3
-      value: 63.416
+      value: 58.044
     - type: map_at_5
-      value: 65.77
+      value: 59.702999999999996
     - type: map_at_10
-      value: 66.725
+      value: 60.885999999999996
     - type: map_at_20
-      value: 67.24799999999999
+      value: 61.266
     - type: map_at_100
-      value: 67.379
+      value: 61.482000000000006
     - type: map_at_1000
-      value: 67.4
+      value: 61.519
     - type: recall_at_1
-      value: 56.577999999999996
+      value: 51.093999999999994
     - type: recall_at_3
-      value: 70.072
+      value: 66.128
     - type: recall_at_5
-      value: 79.011
+      value: 72.456
     - type: recall_at_10
-      value: 84.2
+      value: 79.3
     - type: recall_at_20
-      value: 90.5
+      value: 83.2
     - type: recall_at_100
-      value: 95.667
+      value: 90.0
     - type: recall_at_1000
-      value: 99.667
+      value: 98.667
     - type: precision_at_1
-      value: 59.333000000000006
+      value: 54.0
     - type: precision_at_3
-      value: 25.556
+      value: 23.778
     - type: precision_at_5
-      value: 17.666999999999998
+      value: 15.933
     - type: precision_at_10
-      value: 9.6
+      value: 8.967
     - type: precision_at_20
-      value: 5.167
+      value: 4.75
     - type: precision_at_100
-      value: 1.087
+      value: 1.03
     - type: precision_at_1000
-      value: 0.11299999999999999
+      value: 0.11199999999999999
     - type: mrr_at_1
-      value: 59.3333
+      value: 54.0
     - type: mrr_at_3
-      value: 64.9444
+      value: 60.3889
     - type: mrr_at_5
-      value: 66.9278
+      value: 61.7556
     - type: mrr_at_10
-      value: 67.5327
+      value: 62.5984
     - type: mrr_at_20
-      value: 67.9354
+      value: 62.85039999999999
     - type: mrr_at_100
-      value: 68.0616
+      value: 63.0155
     - type: mrr_at_1000
-      value: 68.08239999999999
+      value: 63.052699999999994
     - type: nauc_ndcg_at_1_max
-      value: 62.536199999999994
+      value: 56.6373
     - type: nauc_ndcg_at_1_std
-      value: 4.3275
+      value: 2.1765
     - type: nauc_ndcg_at_1_diff1
-      value: 78.2294
+      value: 71.14829999999999
     - type: nauc_ndcg_at_3_max
-      value: 63.0626
+      value: 53.7965
     - type: nauc_ndcg_at_3_std
-      value: 6.0584
+      value: -3.4057999999999997
     - type: nauc_ndcg_at_3_diff1
-      value: 74.4931
+      value: 63.712199999999996
     - type: nauc_ndcg_at_5_max
-      value: 64.73989999999999
+      value: 56.96059999999999
     - type: nauc_ndcg_at_5_std
-      value: 5.6514
+      value: 1.4794
     - type: nauc_ndcg_at_5_diff1
-      value: 73.5498
+      value: 64.65419999999999
     - type: nauc_ndcg_at_10_max
-      value: 65.43090000000001
+      value: 59.4154
     - type: nauc_ndcg_at_10_std
-      value: 9.1274
+      value: 5.2752
     - type: nauc_ndcg_at_10_diff1
-      value: 72.4814
+      value: 64.3098
     - type: nauc_ndcg_at_20_max
-      value: 65.7156
+      value: 59.7717
     - type: nauc_ndcg_at_20_std
-      value: 9.9385
+      value: 6.2032
     - type: nauc_ndcg_at_20_diff1
-      value: 73.0996
+      value: 64.18599999999999
     - type: nauc_ndcg_at_100_max
-      value: 65.5687
+      value: 59.2146
     - type: nauc_ndcg_at_100_std
-      value: 8.818299999999999
+      value: 6.0138
     - type: nauc_ndcg_at_100_diff1
-      value: 73.6361
+      value: 64.0895
     - type: nauc_ndcg_at_1000_max
-      value: 65.1956
+      value: 58.5714
     - type: nauc_ndcg_at_1000_std
-      value: 8.4772
+      value: 4.8872
     - type: nauc_ndcg_at_1000_diff1
-      value: 74.0393
+      value: 64.66969999999999
     - type: nauc_map_at_1_max
-      value: 58.2314
+      value: 51.2417
     - type: nauc_map_at_1_std
-      value: -2.7946
+      value: -5.42
     - type: nauc_map_at_1_diff1
-      value: 78.24940000000001
+      value: 70.0616
     - type: nauc_map_at_3_max
-      value: 61.364200000000004
+      value: 51.9587
     - type: nauc_map_at_3_std
-      value: 2.7072
+      value: -5.3035
     - type: nauc_map_at_3_diff1
-      value: 75.4798
+      value: 65.282
     - type: nauc_map_at_5_max
-      value: 63.1297
+      value: 54.1516
     - type: nauc_map_at_5_std
-      value: 3.9505
+      value: -2.2858
     - type: nauc_map_at_5_diff1
-      value: 74.9693
+      value: 65.86659999999999
     - type: nauc_map_at_10_max
-      value: 63.6643
+      value: 55.5412
     - type: nauc_map_at_10_std
-      value: 5.8328999999999995
+      value: -0.34299999999999997
     - type: nauc_map_at_10_diff1
-      value: 74.5464
+      value: 65.89620000000001
     - type: nauc_map_at_20_max
-      value: 63.8666
+      value: 55.7967
     - type: nauc_map_at_20_std
-      value: 6.1967
+      value: 0.13799999999999998
     - type: nauc_map_at_20_diff1
-      value: 74.7224
+      value: 65.8685
     - type: nauc_map_at_100_max
-      value: 63.8254
+      value: 55.74550000000001
     - type: nauc_map_at_100_std
-      value: 6.0627
+      value: 0.211
     - type: nauc_map_at_100_diff1
-      value: 74.791
+      value: 65.8557
     - type: nauc_map_at_1000_max
-      value: 63.811499999999995
+      value: 55.728
     - type: nauc_map_at_1000_std
-      value: 6.0484
+      value: 0.1875
     - type: nauc_map_at_1000_diff1
-      value: 74.807
+      value: 65.8748
     - type: nauc_recall_at_1_max
-      value: 58.2314
+      value: 51.2417
     - type: nauc_recall_at_1_std
-      value: -2.7946
+      value: -5.42
     - type: nauc_recall_at_1_diff1
-      value: 78.24940000000001
+      value: 70.0616
     - type: nauc_recall_at_3_max
-      value: 61.132299999999994
+      value: 52.4327
     - type: nauc_recall_at_3_std
-      value: 6.1988
+      value: -6.7153
     - type: nauc_recall_at_3_diff1
-      value: 70.7273
+      value: 57.111999999999995
     - type: nauc_recall_at_5_max
-      value: 66.542
+      value: 60.5827
     - type: nauc_recall_at_5_std
-      value: 5.7653
+      value: 7.1365
     - type: nauc_recall_at_5_diff1
-      value: 66.4586
+      value: 58.3449
     - type: nauc_recall_at_10_max
-      value: 69.3605
+      value: 70.24770000000001
     - type: nauc_recall_at_10_std
-      value: 19.6237
+      value: 22.0896
     - type: nauc_recall_at_10_diff1
-      value: 60.2814
+      value: 55.7264
     - type: nauc_recall_at_20_max
-      value: 72.6154
+      value: 73.483
     - type: nauc_recall_at_20_std
-      value: 31.3504
+      value: 29.653299999999998
     - type: nauc_recall_at_20_diff1
-      value: 58.8899
+      value: 53.54750000000001
     - type: nauc_recall_at_100_max
-      value: 78.6002
+      value: 74.0321
     - type: nauc_recall_at_100_std
-      value: 26.484999999999996
+      value: 37.491400000000006
     - type: nauc_recall_at_100_diff1
-      value: 56.4605
+      value: 47.3918
     - type: nauc_recall_at_1000_max
-      value: 55.415499999999994
+      value: 69.5378
     - type: nauc_recall_at_1000_std
-      value: 72.2222
+      value: 60.5042
     - type: nauc_recall_at_1000_diff1
-      value: 35.8077
+      value: 19.5028
     - type: nauc_precision_at_1_max
-      value: 62.536199999999994
+      value: 56.6373
     - type: nauc_precision_at_1_std
-      value: 4.3275
+      value: 2.1765
     - type: nauc_precision_at_1_diff1
-      value: 78.2294
+      value: 71.14829999999999
     - type: nauc_precision_at_3_max
-      value: 53.5524
+      value: 51.811099999999996
     - type: nauc_precision_at_3_std
-      value: 23.5724
+      value: 8.4319
     - type: nauc_precision_at_3_diff1
-      value: 47.5389
+      value: 48.545500000000004
     - type: nauc_precision_at_5_max
-      value: 49.1594
+      value: 55.4685
     - type: nauc_precision_at_5_std
-      value: 32.3563
+      value: 26.387
     - type: nauc_precision_at_5_diff1
-      value: 28.2105
+      value: 39.6201
     - type: nauc_precision_at_10_max
-      value: 41.955799999999996
+      value: 53.2436
     - type: nauc_precision_at_10_std
-      value: 44.039699999999996
+      value: 41.6957
     - type: nauc_precision_at_10_diff1
-      value: 12.0187
+      value: 24.6115
     - type: nauc_precision_at_20_max
-      value: 34.2442
+      value: 48.353699999999996
     - type: nauc_precision_at_20_std
-      value: 50.204899999999995
+      value: 47.253
     - type: nauc_precision_at_20_diff1
-      value: -0.1954
+      value: 15.687599999999998
     - type: nauc_precision_at_100_max
-      value: 26.8264
+      value: 36.771100000000004
     - type: nauc_precision_at_100_std
-      value: 51.4247
+      value: 48.1335
     - type: nauc_precision_at_100_diff1
-      value: -11.9827
+      value: 2.6454
     - type: nauc_precision_at_1000_max
-      value: 17.467
+      value: 23.0391
     - type: nauc_precision_at_1000_std
-      value: 56.435100000000006
+      value: 53.26499999999999
     - type: nauc_precision_at_1000_diff1
-      value: -24.2103
+      value: -15.0974
     - type: nauc_mrr_at_1_max
-      value: 62.536199999999994
+      value: 56.6373
     - type: nauc_mrr_at_1_std
-      value: 4.3275
+      value: 2.1765
     - type: nauc_mrr_at_1_diff1
-      value: 78.2294
+      value: 71.14829999999999
     - type: nauc_mrr_at_3_max
-      value: 64.5911
+      value: 57.6843
     - type: nauc_mrr_at_3_std
-      value: 7.8005
+      value: 2.4692
     - type: nauc_mrr_at_3_diff1
-      value: 75.82140000000001
+      value: 66.10340000000001
     - type: nauc_mrr_at_5_max
-      value: 65.1643
+      value: 59.2453
     - type: nauc_mrr_at_5_std
-      value: 7.258100000000001
+      value: 5.1308
     - type: nauc_mrr_at_5_diff1
-      value: 75.2062
+      value: 66.7377
     - type: nauc_mrr_at_10_max
-      value: 65.3198
+      value: 59.5575
     - type: nauc_mrr_at_10_std
-      value: 8.2173
+      value: 5.7778
     - type: nauc_mrr_at_10_diff1
-      value: 74.9449
+      value: 66.36149999999999
     - type: nauc_mrr_at_20_max
-      value: 65.2169
+      value: 59.466300000000004
     - type: nauc_mrr_at_20_std
-      value: 8.115400000000001
+      value: 5.6867
     - type: nauc_mrr_at_20_diff1
-      value: 75.1765
+      value: 66.37100000000001
     - type: nauc_mrr_at_100_max
-      value: 65.1744
+      value: 59.404999999999994
     - type: nauc_mrr_at_100_std
-      value: 7.994700000000001
+      value: 5.6528
     - type: nauc_mrr_at_100_diff1
-      value: 75.2388
+      value: 66.41040000000001
     - type: nauc_mrr_at_1000_max
-      value: 65.1615
+      value: 59.3919
     - type: nauc_mrr_at_1000_std
-      value: 7.9817
+      value: 5.6358
     - type: nauc_mrr_at_1000_diff1
-      value: 75.2553
+      value: 66.43050000000001
     - type: main_score
-      value: 71.27
+      value: 65.847
     task:
       type: Retrieval
   - dataset:
@@ -15263,87 +20513,87 @@ model-index:
       type: mteb/sprintduplicatequestions-pairclassification
     metrics:
     - type: similarity_accuracy
-      value: 99.7604
+      value: 99.7386
     - type: similarity_accuracy_threshold
-      value: 84.88210000000001
+      value: 84.1442
     - type: similarity_f1
-      value: 87.86359999999999
+      value: 86.41980000000001
     - type: similarity_f1_threshold
-      value: 84.88210000000001
+      value: 84.1442
     - type: similarity_precision
-      value: 88.1288
+      value: 88.98310000000001
     - type: similarity_recall
-      value: 87.6
+      value: 84.0
     - type: similarity_ap
-      value: 94.07140000000001
+      value: 93.50309999999999
     - type: cosine_accuracy
-      value: 99.7604
+      value: 99.7386
     - type: cosine_accuracy_threshold
-      value: 84.88210000000001
+      value: 84.1442
     - type: cosine_f1
-      value: 87.86359999999999
+      value: 86.41980000000001
     - type: cosine_f1_threshold
-      value: 84.88210000000001
+      value: 84.1442
     - type: cosine_precision
-      value: 88.1288
+      value: 88.98310000000001
     - type: cosine_recall
-      value: 87.6
+      value: 84.0
     - type: cosine_ap
-      value: 94.07140000000001
+      value: 93.50309999999999
     - type: manhattan_accuracy
-      value: 99.7644
+      value: 99.7406
     - type: manhattan_accuracy_threshold
-      value: 829.5789
+      value: 1243.0971
     - type: manhattan_f1
-      value: 87.92320000000001
+      value: 86.5641
     - type: manhattan_f1_threshold
-      value: 840.6424
+      value: 1243.0971
     - type: manhattan_precision
-      value: 88.86619999999999
+      value: 88.8421
     - type: manhattan_recall
-      value: 87.0
+      value: 84.39999999999999
     - type: manhattan_ap
-      value: 94.17
+      value: 93.50840000000001
     - type: euclidean_accuracy
-      value: 99.7604
+      value: 99.7386
     - type: euclidean_accuracy_threshold
-      value: 54.986999999999995
+      value: 56.313
     - type: euclidean_f1
-      value: 87.86359999999999
+      value: 86.41980000000001
     - type: euclidean_f1_threshold
-      value: 54.986999999999995
+      value: 56.313
     - type: euclidean_precision
-      value: 88.1288
+      value: 88.98310000000001
     - type: euclidean_recall
-      value: 87.6
+      value: 84.0
     - type: euclidean_ap
-      value: 94.07140000000001
+      value: 93.50309999999999
     - type: dot_accuracy
-      value: 99.7604
+      value: 99.7386
     - type: dot_accuracy_threshold
-      value: 84.88210000000001
+      value: 84.1442
     - type: dot_f1
-      value: 87.86359999999999
+      value: 86.41980000000001
     - type: dot_f1_threshold
-      value: 84.88210000000001
+      value: 84.1442
     - type: dot_precision
-      value: 88.1288
+      value: 88.98310000000001
     - type: dot_recall
-      value: 87.6
+      value: 84.0
     - type: dot_ap
-      value: 94.07140000000001
+      value: 93.50309999999999
     - type: max_accuracy
-      value: 99.7644
+      value: 99.7406
     - type: max_f1
-      value: 87.92320000000001
+      value: 86.5641
     - type: max_precision
-      value: 88.86619999999999
+      value: 88.98310000000001
     - type: max_recall
-      value: 87.6
+      value: 84.39999999999999
     - type: max_ap
-      value: 94.17
+      value: 93.50840000000001
     - type: main_score
-      value: 94.17
+      value: 93.50840000000001
     task:
       type: PairClassification
   - dataset:
@@ -15354,11 +20604,11 @@ model-index:
       type: mteb/stackexchange-clustering
     metrics:
     - type: v_measure
-      value: 64.6589
+      value: 55.9311
     - type: v_measure_std
-      value: 4.734
+      value: 5.0881
     - type: main_score
-      value: 64.6589
+      value: 55.9311
     task:
       type: Clustering
   - dataset:
@@ -15369,11 +20619,11 @@ model-index:
       type: mteb/stackexchange-clustering-p2p
     metrics:
     - type: v_measure
-      value: 32.9388
+      value: 32.9298
     - type: v_measure_std
-      value: 1.6312
+      value: 1.7169
     - type: main_score
-      value: 32.9388
+      value: 32.9298
     task:
       type: Clustering
   - dataset:
@@ -15384,23 +20634,23 @@ model-index:
       type: mteb/stackoverflowdupquestions-reranking
     metrics:
     - type: map
-      value: 52.645399999999995
+      value: 51.7759
     - type: mrr
-      value: 53.5346
+      value: 52.7456
     - type: nAUC_map_max
-      value: 12.8874
+      value: 15.138499999999999
     - type: nAUC_map_std
-      value: 9.2781
+      value: 9.876999999999999
     - type: nAUC_map_diff1
-      value: 39.864
+      value: 37.8337
     - type: nAUC_mrr_max
-      value: 13.278
+      value: 16.128600000000002
     - type: nAUC_mrr_std
-      value: 9.501999999999999
+      value: 10.4175
     - type: nAUC_mrr_diff1
-      value: 39.409499999999994
+      value: 37.3753
     - type: main_score
-      value: 52.645399999999995
+      value: 51.7759
     task:
       type: Reranking
   - dataset:
@@ -15411,287 +20661,287 @@ model-index:
       type: CoIR-Retrieval/stackoverflow-qa
     metrics:
     - type: ndcg_at_1
-      value: 74.97500000000001
+      value: 68.205
     - type: ndcg_at_3
-      value: 81.247
+      value: 75.473
     - type: ndcg_at_5
-      value: 82.921
+      value: 77.118
     - type: ndcg_at_10
-      value: 83.92699999999999
+      value: 78.45
     - type: ndcg_at_20
-      value: 84.57000000000001
+      value: 79.181
     - type: ndcg_at_100
-      value: 85.095
+      value: 80.259
     - type: ndcg_at_1000
-      value: 85.33800000000001
+      value: 80.518
     - type: map_at_1
-      value: 74.97500000000001
+      value: 68.205
     - type: map_at_3
-      value: 79.781
+      value: 73.763
     - type: map_at_5
-      value: 80.711
+      value: 74.68299999999999
     - type: map_at_10
-      value: 81.126
+      value: 75.234
     - type: map_at_20
-      value: 81.308
+      value: 75.43900000000001
     - type: map_at_100
-      value: 81.389
+      value: 75.59
     - type: map_at_1000
-      value: 81.39699999999999
+      value: 75.599
     - type: recall_at_1
-      value: 74.97500000000001
+      value: 68.205
     - type: recall_at_3
-      value: 85.456
+      value: 80.391
     - type: recall_at_5
-      value: 89.519
+      value: 84.353
     - type: recall_at_10
-      value: 92.628
+      value: 88.465
     - type: recall_at_20
-      value: 95.135
+      value: 91.32400000000001
     - type: recall_at_100
-      value: 97.844
+      value: 97.09100000000001
     - type: recall_at_1000
-      value: 99.799
+      value: 99.14699999999999
     - type: precision_at_1
-      value: 74.97500000000001
+      value: 68.205
     - type: precision_at_3
-      value: 28.485
+      value: 26.796999999999997
     - type: precision_at_5
-      value: 17.904
+      value: 16.871
     - type: precision_at_10
-      value: 9.263
+      value: 8.847
     - type: precision_at_20
-      value: 4.757
+      value: 4.566
     - type: precision_at_100
-      value: 0.9780000000000001
+      value: 0.971
     - type: precision_at_1000
-      value: 0.1
+      value: 0.099
     - type: mrr_at_1
-      value: 74.9749
+      value: 68.2046
     - type: mrr_at_3
-      value: 79.781
+      value: 73.763
     - type: mrr_at_5
-      value: 80.7113
+      value: 74.6832
     - type: mrr_at_10
-      value: 81.12610000000001
+      value: 75.23440000000001
     - type: mrr_at_20
-      value: 81.30760000000001
+      value: 75.4389
     - type: mrr_at_100
-      value: 81.38889999999999
+      value: 75.5901
     - type: mrr_at_1000
-      value: 81.3974
+      value: 75.59909999999999
     - type: nauc_ndcg_at_1_max
-      value: 76.1721
+      value: 70.0997
     - type: nauc_ndcg_at_1_std
-      value: -5.5159
+      value: -6.6174
     - type: nauc_ndcg_at_1_diff1
-      value: 84.6697
+      value: 80.8018
     - type: nauc_ndcg_at_3_max
-      value: 78.27629999999999
+      value: 71.8713
     - type: nauc_ndcg_at_3_std
-      value: -1.2
+      value: -5.7584
     - type: nauc_ndcg_at_3_diff1
-      value: 81.1214
+      value: 76.6152
     - type: nauc_ndcg_at_5_max
-      value: 77.7687
+      value: 71.7906
     - type: nauc_ndcg_at_5_std
-      value: -1.8698
+      value: -5.6573
     - type: nauc_ndcg_at_5_diff1
-      value: 80.9252
+      value: 76.6923
     - type: nauc_ndcg_at_10_max
-      value: 77.8029
+      value: 71.4058
     - type: nauc_ndcg_at_10_std
-      value: -1.5579
+      value: -4.8043000000000005
     - type: nauc_ndcg_at_10_diff1
-      value: 81.1043
+      value: 76.4267
     - type: nauc_ndcg_at_20_max
-      value: 77.79310000000001
+      value: 71.5511
     - type: nauc_ndcg_at_20_std
-      value: -1.7669000000000001
+      value: -4.8308
     - type: nauc_ndcg_at_20_diff1
-      value: 81.4121
+      value: 76.49669999999999
     - type: nauc_ndcg_at_100_max
-      value: 77.7522
+      value: 71.5604
     - type: nauc_ndcg_at_100_std
-      value: -1.4502
+      value: -4.8645000000000005
     - type: nauc_ndcg_at_100_diff1
-      value: 81.684
+      value: 77.022
     - type: nauc_ndcg_at_1000_max
-      value: 77.6032
+      value: 71.4953
     - type: nauc_ndcg_at_1000_std
-      value: -2.0256
+      value: -4.8631
     - type: nauc_ndcg_at_1000_diff1
-      value: 81.7641
+      value: 77.1952
     - type: nauc_map_at_1_max
-      value: 76.1721
+      value: 70.0997
     - type: nauc_map_at_1_std
-      value: -5.5159
+      value: -6.6174
     - type: nauc_map_at_1_diff1
-      value: 84.6697
+      value: 80.8018
     - type: nauc_map_at_3_max
-      value: 77.6991
+      value: 71.46329999999999
     - type: nauc_map_at_3_std
-      value: -2.3189
+      value: -5.9901
     - type: nauc_map_at_3_diff1
-      value: 82.0708
+      value: 77.7281
     - type: nauc_map_at_5_max
-      value: 77.4286
+      value: 71.4046
     - type: nauc_map_at_5_std
-      value: -2.721
+      value: -5.9794
     - type: nauc_map_at_5_diff1
-      value: 82.0265
+      value: 77.8163
     - type: nauc_map_at_10_max
-      value: 77.4212
+      value: 71.2618
     - type: nauc_map_at_10_std
-      value: -2.633
+      value: -5.702999999999999
     - type: nauc_map_at_10_diff1
-      value: 82.109
+      value: 77.73780000000001
     - type: nauc_map_at_20_max
-      value: 77.4188
+      value: 71.30330000000001
     - type: nauc_map_at_20_std
-      value: -2.6752000000000002
+      value: -5.691
     - type: nauc_map_at_20_diff1
-      value: 82.19340000000001
+      value: 77.7683
     - type: nauc_map_at_100_max
-      value: 77.4169
+      value: 71.3035
     - type: nauc_map_at_100_std
-      value: -2.6487
+      value: -5.680000000000001
     - type: nauc_map_at_100_diff1
-      value: 82.2353
+      value: 77.8324
     - type: nauc_map_at_1000_max
-      value: 77.413
+      value: 71.3013
     - type: nauc_map_at_1000_std
-      value: -2.6639
+      value: -5.6772
     - type: nauc_map_at_1000_diff1
-      value: 82.238
+      value: 77.837
     - type: nauc_recall_at_1_max
-      value: 76.1721
+      value: 70.0997
     - type: nauc_recall_at_1_std
-      value: -5.5159
+      value: -6.6174
     - type: nauc_recall_at_1_diff1
-      value: 84.6697
+      value: 80.8018
     - type: nauc_recall_at_3_max
-      value: 80.4678
+      value: 73.3015
     - type: nauc_recall_at_3_std
-      value: 3.0113000000000003
+      value: -4.9247
     - type: nauc_recall_at_3_diff1
-      value: 77.5303
+      value: 72.6201
     - type: nauc_recall_at_5_max
-      value: 79.2732
+      value: 73.3818
     - type: nauc_recall_at_5_std
-      value: 2.0842
+      value: -4.196
     - type: nauc_recall_at_5_diff1
-      value: 75.5155
+      value: 71.8984
     - type: nauc_recall_at_10_max
-      value: 80.2527
+      value: 71.8002
     - type: nauc_recall_at_10_std
-      value: 5.7078
+      value: 1.0328
     - type: nauc_recall_at_10_diff1
-      value: 74.4861
+      value: 69.0552
     - type: nauc_recall_at_20_max
-      value: 81.29950000000001
+      value: 72.9934
     - type: nauc_recall_at_20_std
-      value: 6.5553
+      value: 2.0923000000000003
     - type: nauc_recall_at_20_diff1
-      value: 74.5628
+      value: 67.3481
     - type: nauc_recall_at_100_max
-      value: 83.8742
+      value: 76.0971
     - type: nauc_recall_at_100_std
-      value: 28.4213
+      value: 12.4217
     - type: nauc_recall_at_100_diff1
-      value: 74.4027
+      value: 66.6112
     - type: nauc_recall_at_1000_max
-      value: 60.9178
+      value: 76.7462
     - type: nauc_recall_at_1000_std
-      value: -2.6599
+      value: 50.754200000000004
     - type: nauc_recall_at_1000_diff1
-      value: 47.6074
+      value: 69.8675
     - type: nauc_precision_at_1_max
-      value: 76.1721
+      value: 70.0997
     - type: nauc_precision_at_1_std
-      value: -5.5159
+      value: -6.6174
     - type: nauc_precision_at_1_diff1
-      value: 84.6697
+      value: 80.8018
     - type: nauc_precision_at_3_max
-      value: 80.4678
+      value: 73.3015
     - type: nauc_precision_at_3_std
-      value: 3.0113000000000003
+      value: -4.9247
     - type: nauc_precision_at_3_diff1
-      value: 77.5303
+      value: 72.6201
     - type: nauc_precision_at_5_max
-      value: 79.2732
+      value: 73.3818
     - type: nauc_precision_at_5_std
-      value: 2.0842
+      value: -4.196
     - type: nauc_precision_at_5_diff1
-      value: 75.5155
+      value: 71.8984
     - type: nauc_precision_at_10_max
-      value: 80.2527
+      value: 71.8002
     - type: nauc_precision_at_10_std
-      value: 5.7078
+      value: 1.0328
     - type: nauc_precision_at_10_diff1
-      value: 74.4861
+      value: 69.0552
     - type: nauc_precision_at_20_max
-      value: 81.29950000000001
+      value: 72.9934
     - type: nauc_precision_at_20_std
-      value: 6.5553
+      value: 2.0923000000000003
     - type: nauc_precision_at_20_diff1
-      value: 74.5628
+      value: 67.3481
     - type: nauc_precision_at_100_max
-      value: 83.8742
+      value: 76.0971
     - type: nauc_precision_at_100_std
-      value: 28.4213
+      value: 12.4217
     - type: nauc_precision_at_100_diff1
-      value: 74.4027
+      value: 66.6112
     - type: nauc_precision_at_1000_max
-      value: 60.9178
+      value: 76.7462
     - type: nauc_precision_at_1000_std
-      value: -2.6599
+      value: 50.754200000000004
     - type: nauc_precision_at_1000_diff1
-      value: 47.6074
+      value: 69.8675
     - type: nauc_mrr_at_1_max
-      value: 76.1721
+      value: 70.0997
     - type: nauc_mrr_at_1_std
-      value: -5.5159
+      value: -6.6174
     - type: nauc_mrr_at_1_diff1
-      value: 84.6697
+      value: 80.8018
     - type: nauc_mrr_at_3_max
-      value: 77.6991
+      value: 71.46329999999999
     - type: nauc_mrr_at_3_std
-      value: -2.3189
+      value: -5.9901
     - type: nauc_mrr_at_3_diff1
-      value: 82.0708
+      value: 77.7281
     - type: nauc_mrr_at_5_max
-      value: 77.4286
+      value: 71.4046
     - type: nauc_mrr_at_5_std
-      value: -2.721
+      value: -5.9794
     - type: nauc_mrr_at_5_diff1
-      value: 82.0265
+      value: 77.8163
     - type: nauc_mrr_at_10_max
-      value: 77.4212
+      value: 71.2618
     - type: nauc_mrr_at_10_std
-      value: -2.633
+      value: -5.702999999999999
     - type: nauc_mrr_at_10_diff1
-      value: 82.109
+      value: 77.73780000000001
     - type: nauc_mrr_at_20_max
-      value: 77.4188
+      value: 71.30330000000001
     - type: nauc_mrr_at_20_std
-      value: -2.6752000000000002
+      value: -5.691
     - type: nauc_mrr_at_20_diff1
-      value: 82.19340000000001
+      value: 77.7683
     - type: nauc_mrr_at_100_max
-      value: 77.4169
+      value: 71.3035
     - type: nauc_mrr_at_100_std
-      value: -2.6487
+      value: -5.680000000000001
     - type: nauc_mrr_at_100_diff1
-      value: 82.2353
+      value: 77.8324
     - type: nauc_mrr_at_1000_max
-      value: 77.413
+      value: 71.3013
     - type: nauc_mrr_at_1000_std
-      value: -2.6639
+      value: -5.6772
     - type: nauc_mrr_at_1000_diff1
-      value: 82.238
+      value: 77.837
     - type: main_score
-      value: 83.92699999999999
+      value: 78.45
     task:
       type: Retrieval
   - dataset:
@@ -15702,19 +20952,19 @@ model-index:
       type: mteb/summeval
     metrics:
     - type: pearson
-      value: 29.8395
+      value: 31.7097
     - type: spearman
-      value: 29.383
+      value: 32.0256
     - type: cosine_spearman
-      value: 29.383
+      value: 32.0256
     - type: cosine_pearson
-      value: 29.8395
+      value: 31.7097
     - type: dot_spearman
-      value: 29.383
+      value: 32.0256
     - type: dot_pearson
-      value: 29.8395
+      value: 31.7097
     - type: main_score
-      value: 29.383
+      value: 32.0256
     task:
       type: Summarization
   - dataset:
@@ -15725,287 +20975,287 @@ model-index:
       type: CoIR-Retrieval/synthetic-text2sql
     metrics:
     - type: ndcg_at_1
-      value: 4.222
+      value: 3.5549999999999997
     - type: ndcg_at_3
-      value: 38.329
+      value: 41.534
     - type: ndcg_at_5
-      value: 42.076
+      value: 44.847
     - type: ndcg_at_10
-      value: 44.775
+      value: 47.344
     - type: ndcg_at_20
-      value: 46.528999999999996
+      value: 48.826
     - type: ndcg_at_100
-      value: 48.554
+      value: 50.442
     - type: ndcg_at_1000
-      value: 49.143
+      value: 50.937
     - type: map_at_1
-      value: 4.222
+      value: 3.5549999999999997
     - type: map_at_3
-      value: 30.676
+      value: 33.083
     - type: map_at_5
-      value: 32.76
+      value: 34.928
     - type: map_at_10
-      value: 33.898
+      value: 35.964
     - type: map_at_20
-      value: 34.386
+      value: 36.376
     - type: map_at_100
-      value: 34.677
+      value: 36.61
     - type: map_at_1000
-      value: 34.701
+      value: 36.63
     - type: recall_at_1
-      value: 4.222
+      value: 3.5549999999999997
     - type: recall_at_3
-      value: 60.178
+      value: 65.63
     - type: recall_at_5
-      value: 69.253
+      value: 73.646
     - type: recall_at_10
-      value: 77.474
+      value: 81.337
     - type: recall_at_20
-      value: 84.36200000000001
+      value: 87.165
     - type: recall_at_100
-      value: 95.12899999999999
+      value: 95.71
     - type: recall_at_1000
-      value: 99.675
+      value: 99.556
     - type: precision_at_1
-      value: 4.222
+      value: 3.5549999999999997
     - type: precision_at_3
-      value: 20.058999999999997
+      value: 21.877
     - type: precision_at_5
-      value: 13.850999999999999
+      value: 14.729000000000001
     - type: precision_at_10
-      value: 7.747
+      value: 8.134
     - type: precision_at_20
-      value: 4.218
+      value: 4.358
     - type: precision_at_100
-      value: 0.951
+      value: 0.9570000000000001
     - type: precision_at_1000
       value: 0.1
     - type: mrr_at_1
-      value: 27.3287
+      value: 31.721100000000003
     - type: mrr_at_3
-      value: 43.8956
+      value: 48.6754
     - type: mrr_at_5
-      value: 45.656
+      value: 50.3093
     - type: mrr_at_10
-      value: 46.6697
+      value: 51.2454
     - type: mrr_at_20
-      value: 47.1331
+      value: 51.629999999999995
     - type: mrr_at_100
-      value: 47.4153
+      value: 51.8552
     - type: mrr_at_1000
-      value: 47.4391
+      value: 51.8747
     - type: nauc_ndcg_at_1_max
-      value: 16.045
+      value: 6.543
     - type: nauc_ndcg_at_1_std
-      value: -8.7715
+      value: -11.0614
     - type: nauc_ndcg_at_1_diff1
-      value: 48.4886
+      value: 77.4191
     - type: nauc_ndcg_at_3_max
-      value: 30.771500000000003
+      value: 35.9842
     - type: nauc_ndcg_at_3_std
-      value: -16.2537
+      value: -16.258200000000002
     - type: nauc_ndcg_at_3_diff1
-      value: -59.0158
+      value: -62.2219
     - type: nauc_ndcg_at_5_max
-      value: 30.354
+      value: 35.0885
     - type: nauc_ndcg_at_5_std
-      value: -16.576
+      value: -14.935699999999999
     - type: nauc_ndcg_at_5_diff1
-      value: -55.0555
+      value: -58.3931
     - type: nauc_ndcg_at_10_max
-      value: 30.0579
+      value: 33.7926
     - type: nauc_ndcg_at_10_std
-      value: -16.3765
+      value: -14.2862
     - type: nauc_ndcg_at_10_diff1
-      value: -52.5829
+      value: -55.5325
     - type: nauc_ndcg_at_20_max
-      value: 29.8131
+      value: 33.631899999999995
     - type: nauc_ndcg_at_20_std
-      value: -15.7493
+      value: -14.061499999999999
     - type: nauc_ndcg_at_20_diff1
-      value: -51.1605
+      value: -53.7148
     - type: nauc_ndcg_at_100_max
-      value: 29.9313
+      value: 32.736900000000006
     - type: nauc_ndcg_at_100_std
-      value: -14.9786
+      value: -13.7486
     - type: nauc_ndcg_at_100_diff1
-      value: -49.6997
+      value: -52.0744
     - type: nauc_ndcg_at_1000_max
-      value: 29.7154
+      value: 32.941500000000005
     - type: nauc_ndcg_at_1000_std
-      value: -15.2567
+      value: -14.186099999999998
     - type: nauc_ndcg_at_1000_diff1
-      value: -49.660399999999996
+      value: -51.6402
     - type: nauc_map_at_1_max
-      value: 16.045
+      value: 6.543
     - type: nauc_map_at_1_std
-      value: -8.7715
+      value: -11.0614
     - type: nauc_map_at_1_diff1
-      value: 48.4886
+      value: 77.4191
     - type: nauc_map_at_3_max
-      value: 29.6122
+      value: 33.901399999999995
     - type: nauc_map_at_3_std
-      value: -15.509500000000001
+      value: -15.789
     - type: nauc_map_at_3_diff1
-      value: -52.033300000000004
+      value: -53.5257
     - type: nauc_map_at_5_max
-      value: 29.3076
+      value: 33.1725
     - type: nauc_map_at_5_std
-      value: -15.7
+      value: -14.948400000000001
     - type: nauc_map_at_5_diff1
-      value: -49.1839
+      value: -50.5361
     - type: nauc_map_at_10_max
-      value: 29.1468
+      value: 32.5273
     - type: nauc_map_at_10_std
-      value: -15.564400000000001
+      value: -14.648
     - type: nauc_map_at_10_diff1
-      value: -47.7791
+      value: -48.928
     - type: nauc_map_at_20_max
-      value: 29.0578
+      value: 32.4474
     - type: nauc_map_at_20_std
-      value: -15.3635
+      value: -14.6155
     - type: nauc_map_at_20_diff1
-      value: -47.2635
+      value: -48.2673
     - type: nauc_map_at_100_max
-      value: 29.0523
+      value: 32.2692
     - type: nauc_map_at_100_std
-      value: -15.2602
+      value: -14.5789
     - type: nauc_map_at_100_diff1
-      value: -46.9875
+      value: -47.9677
     - type: nauc_map_at_1000_max
-      value: 29.048299999999998
+      value: 32.2805
     - type: nauc_map_at_1000_std
-      value: -15.2626
+      value: -14.594999999999999
     - type: nauc_map_at_1000_diff1
-      value: -46.98
+      value: -47.944700000000005
     - type: nauc_recall_at_1_max
-      value: 16.045
+      value: 6.543
     - type: nauc_recall_at_1_std
-      value: -8.7715
+      value: -11.0614
     - type: nauc_recall_at_1_diff1
-      value: 48.4886
+      value: 77.4191
     - type: nauc_recall_at_3_max
-      value: 32.8552
+      value: 39.704899999999995
     - type: nauc_recall_at_3_std
-      value: -17.6374
+      value: -17.1274
     - type: nauc_recall_at_3_diff1
-      value: -71.1273
+      value: -77.3937
     - type: nauc_recall_at_5_max
-      value: 32.378299999999996
+      value: 38.8786
     - type: nauc_recall_at_5_std
-      value: -18.411
+      value: -14.7304
     - type: nauc_recall_at_5_diff1
-      value: -65.7517
+      value: -73.366
     - type: nauc_recall_at_10_max
-      value: 32.041799999999995
+      value: 36.2642
     - type: nauc_recall_at_10_std
-      value: -18.4057
+      value: -12.828800000000001
     - type: nauc_recall_at_10_diff1
-      value: -62.019999999999996
+      value: -69.7955
     - type: nauc_recall_at_20_max
-      value: 31.663999999999998
+      value: 36.5493
     - type: nauc_recall_at_20_std
-      value: -16.352800000000002
+      value: -10.9359
     - type: nauc_recall_at_20_diff1
-      value: -59.1186
+      value: -66.8099
     - type: nauc_recall_at_100_max
-      value: 37.872499999999995
+      value: 29.1291
     - type: nauc_recall_at_100_std
-      value: -4.3914
+      value: 0.3365
     - type: nauc_recall_at_100_diff1
-      value: -51.8363
+      value: -63.8938
     - type: nauc_recall_at_1000_max
-      value: 59.5105
+      value: 37.589800000000004
     - type: nauc_recall_at_1000_std
-      value: 23.3375
+      value: 17.3579
     - type: nauc_recall_at_1000_diff1
-      value: -73.9075
+      value: -68.429
     - type: nauc_precision_at_1_max
-      value: 16.045
+      value: 6.543
     - type: nauc_precision_at_1_std
-      value: -8.7715
+      value: -11.0614
     - type: nauc_precision_at_1_diff1
-      value: 48.4886
+      value: 77.4191
     - type: nauc_precision_at_3_max
-      value: 32.8552
+      value: 39.704899999999995
     - type: nauc_precision_at_3_std
-      value: -17.6374
+      value: -17.1274
     - type: nauc_precision_at_3_diff1
-      value: -71.1273
+      value: -77.3937
     - type: nauc_precision_at_5_max
-      value: 32.378299999999996
+      value: 38.8786
     - type: nauc_precision_at_5_std
-      value: -18.411
+      value: -14.7304
     - type: nauc_precision_at_5_diff1
-      value: -65.7517
+      value: -73.366
     - type: nauc_precision_at_10_max
-      value: 32.041799999999995
+      value: 36.2642
     - type: nauc_precision_at_10_std
-      value: -18.4057
+      value: -12.828800000000001
     - type: nauc_precision_at_10_diff1
-      value: -62.019999999999996
+      value: -69.7955
     - type: nauc_precision_at_20_max
-      value: 31.663999999999998
+      value: 36.5493
     - type: nauc_precision_at_20_std
-      value: -16.352800000000002
+      value: -10.9359
     - type: nauc_precision_at_20_diff1
-      value: -59.1186
+      value: -66.8099
     - type: nauc_precision_at_100_max
-      value: 37.872499999999995
+      value: 29.1291
     - type: nauc_precision_at_100_std
-      value: -4.3914
+      value: 0.3365
     - type: nauc_precision_at_100_diff1
-      value: -51.8363
+      value: -63.8938
     - type: nauc_precision_at_1000_max
-      value: 59.5105
+      value: 37.589800000000004
     - type: nauc_precision_at_1000_std
-      value: 23.3375
+      value: 17.3579
     - type: nauc_precision_at_1000_diff1
-      value: -73.9075
+      value: -68.429
     - type: nauc_mrr_at_1_max
-      value: 15.1452
+      value: 18.7616
     - type: nauc_mrr_at_1_std
-      value: -9.760399999999999
+      value: -9.332600000000001
     - type: nauc_mrr_at_1_diff1
-      value: -39.2235
+      value: -38.775
     - type: nauc_mrr_at_3_max
-      value: 23.6826
+      value: 27.9627
     - type: nauc_mrr_at_3_std
-      value: -13.300899999999999
+      value: -12.1163
     - type: nauc_mrr_at_3_diff1
-      value: -55.17809999999999
+      value: -56.172900000000006
     - type: nauc_mrr_at_5_max
-      value: 23.3754
+      value: 27.385900000000003
     - type: nauc_mrr_at_5_std
-      value: -13.306299999999998
+      value: -11.7823
     - type: nauc_mrr_at_5_diff1
-      value: -53.744499999999995
+      value: -55.085300000000004
     - type: nauc_mrr_at_10_max
-      value: 23.0703
+      value: 26.9297
     - type: nauc_mrr_at_10_std
-      value: -13.1632
+      value: -11.5899
     - type: nauc_mrr_at_10_diff1
-      value: -53.2374
+      value: -54.352900000000005
     - type: nauc_mrr_at_20_max
-      value: 22.9496
+      value: 26.8231
     - type: nauc_mrr_at_20_std
-      value: -13.031
+      value: -11.5438
     - type: nauc_mrr_at_20_diff1
-      value: -53.016
+      value: -54.101
     - type: nauc_mrr_at_100_max
-      value: 22.9044
+      value: 26.6888
     - type: nauc_mrr_at_100_std
-      value: -12.9409
+      value: -11.5184
     - type: nauc_mrr_at_100_diff1
-      value: -52.9092
+      value: -53.9839
     - type: nauc_mrr_at_1000_max
-      value: 22.897100000000002
+      value: 26.691399999999998
     - type: nauc_mrr_at_1000_std
-      value: -12.940399999999999
+      value: -11.5244
     - type: nauc_mrr_at_1000_diff1
-      value: -52.9095
+      value: -53.976
     - type: main_score
-      value: 44.775
+      value: 47.344
     task:
       type: Retrieval
   - dataset:
@@ -16018,285 +21268,285 @@ model-index:
     - type: ndcg_at_1
       value: 70.0
     - type: ndcg_at_3
-      value: 68.704
+      value: 70.877
     - type: ndcg_at_5
-      value: 67.533
+      value: 70.735
     - type: ndcg_at_10
-      value: 63.098
+      value: 68.573
     - type: ndcg_at_20
-      value: 60.507999999999996
+      value: 65.635
     - type: ndcg_at_100
-      value: 49.847
+      value: 53.501
     - type: ndcg_at_1000
-      value: 48.394999999999996
+      value: 49.288
     - type: map_at_1
-      value: 0.211
+      value: 0.207
     - type: map_at_3
-      value: 0.555
+      value: 0.551
     - type: map_at_5
-      value: 0.873
+      value: 0.8909999999999999
     - type: map_at_10
-      value: 1.526
+      value: 1.635
     - type: map_at_20
-      value: 2.731
+      value: 2.952
     - type: map_at_100
-      value: 8.863
+      value: 9.713
     - type: map_at_1000
-      value: 23.162
+      value: 24.064
     - type: recall_at_1
-      value: 0.211
+      value: 0.207
     - type: recall_at_3
-      value: 0.5930000000000001
+      value: 0.602
     - type: recall_at_5
-      value: 0.962
+      value: 0.992
     - type: recall_at_10
-      value: 1.748
+      value: 1.9009999999999998
     - type: recall_at_20
-      value: 3.318
+      value: 3.5709999999999997
     - type: recall_at_100
-      value: 12.447999999999999
+      value: 13.297999999999998
     - type: recall_at_1000
-      value: 46.794999999999995
+      value: 47.067
     - type: precision_at_1
-      value: 76.0
+      value: 80.0
     - type: precision_at_3
-      value: 72.667
+      value: 76.667
     - type: precision_at_5
-      value: 71.6
+      value: 76.4
     - type: precision_at_10
-      value: 66.0
+      value: 73.2
     - type: precision_at_20
-      value: 63.6
+      value: 70.1
     - type: precision_at_100
-      value: 51.339999999999996
+      value: 55.04
     - type: precision_at_1000
-      value: 21.68
+      value: 22.046
     - type: mrr_at_1
-      value: 76.0
+      value: 80.0
     - type: mrr_at_3
-      value: 84.0
+      value: 88.66669999999999
     - type: mrr_at_5
-      value: 84.39999999999999
+      value: 89.16669999999999
     - type: mrr_at_10
-      value: 84.85000000000001
+      value: 89.16669999999999
     - type: mrr_at_20
-      value: 84.85000000000001
+      value: 89.16669999999999
     - type: mrr_at_100
-      value: 84.85000000000001
+      value: 89.16669999999999
     - type: mrr_at_1000
-      value: 84.85000000000001
+      value: 89.16669999999999
     - type: nauc_ndcg_at_1_max
-      value: 48.710300000000004
+      value: 9.0505
     - type: nauc_ndcg_at_1_std
-      value: 72.6125
+      value: 17.7341
     - type: nauc_ndcg_at_1_diff1
-      value: -19.9816
+      value: -17.272399999999998
     - type: nauc_ndcg_at_3_max
-      value: 44.8032
+      value: 27.3702
     - type: nauc_ndcg_at_3_std
-      value: 64.7227
+      value: 43.432500000000005
     - type: nauc_ndcg_at_3_diff1
-      value: -25.933899999999998
+      value: -5.716600000000001
     - type: nauc_ndcg_at_5_max
-      value: 44.7004
+      value: 24.6447
     - type: nauc_ndcg_at_5_std
-      value: 65.05330000000001
+      value: 48.0114
     - type: nauc_ndcg_at_5_diff1
-      value: -26.0531
+      value: -7.0447999999999995
     - type: nauc_ndcg_at_10_max
-      value: 49.5716
+      value: 31.5589
     - type: nauc_ndcg_at_10_std
-      value: 66.18730000000001
+      value: 60.242
     - type: nauc_ndcg_at_10_diff1
-      value: -22.3525
+      value: -4.827
     - type: nauc_ndcg_at_20_max
-      value: 49.0212
+      value: 39.195600000000006
     - type: nauc_ndcg_at_20_std
-      value: 71.2387
+      value: 67.9313
     - type: nauc_ndcg_at_20_diff1
-      value: -21.6522
+      value: -10.0317
     - type: nauc_ndcg_at_100_max
-      value: 47.3029
+      value: 43.8896
     - type: nauc_ndcg_at_100_std
-      value: 82.31819999999999
+      value: 76.6623
     - type: nauc_ndcg_at_100_diff1
-      value: -27.5265
+      value: -14.7694
     - type: nauc_ndcg_at_1000_max
-      value: 38.8474
+      value: 46.935
     - type: nauc_ndcg_at_1000_std
-      value: 77.1578
+      value: 79.9247
     - type: nauc_ndcg_at_1000_diff1
-      value: -29.350700000000003
+      value: -12.9885
     - type: nauc_map_at_1_max
-      value: 16.4698
+      value: 5.587899999999999
     - type: nauc_map_at_1_std
-      value: 9.657300000000001
+      value: -6.5333000000000006
     - type: nauc_map_at_1_diff1
-      value: -4.3484
+      value: 7.8414
     - type: nauc_map_at_3_max
-      value: 25.183299999999996
+      value: 14.21
     - type: nauc_map_at_3_std
-      value: 16.8245
+      value: 7.9614
     - type: nauc_map_at_3_diff1
-      value: -7.1254
+      value: 11.9467
     - type: nauc_map_at_5_max
-      value: 24.5899
+      value: 14.514299999999999
     - type: nauc_map_at_5_std
-      value: 19.8027
+      value: 10.6974
     - type: nauc_map_at_5_diff1
-      value: -9.8547
+      value: 11.732800000000001
     - type: nauc_map_at_10_max
-      value: 34.9032
+      value: 17.5629
     - type: nauc_map_at_10_std
-      value: 26.435599999999997
+      value: 21.4707
     - type: nauc_map_at_10_diff1
-      value: -8.833499999999999
+      value: 10.9138
     - type: nauc_map_at_20_max
-      value: 40.551700000000004
+      value: 23.891399999999997
     - type: nauc_map_at_20_std
-      value: 34.6141
+      value: 32.5254
     - type: nauc_map_at_20_diff1
-      value: -8.578199999999999
+      value: 5.6072999999999995
     - type: nauc_map_at_100_max
-      value: 51.403299999999994
+      value: 37.247
     - type: nauc_map_at_100_std
-      value: 68.4083
+      value: 66.2197
     - type: nauc_map_at_100_diff1
-      value: -17.7135
+      value: -6.0896
     - type: nauc_map_at_1000_max
-      value: 48.9955
+      value: 51.590599999999995
     - type: nauc_map_at_1000_std
-      value: 82.9784
+      value: 83.3358
     - type: nauc_map_at_1000_diff1
-      value: -26.473000000000003
+      value: -18.7689
     - type: nauc_recall_at_1_max
-      value: 16.4698
+      value: 5.587899999999999
     - type: nauc_recall_at_1_std
-      value: 9.657300000000001
+      value: -6.5333000000000006
     - type: nauc_recall_at_1_diff1
-      value: -4.3484
+      value: 7.8414
     - type: nauc_recall_at_3_max
-      value: 21.4136
+      value: 10.6036
     - type: nauc_recall_at_3_std
-      value: 11.4801
+      value: 8.7269
     - type: nauc_recall_at_3_diff1
-      value: -7.1396
+      value: 13.296
     - type: nauc_recall_at_5_max
-      value: 18.0314
+      value: 9.3121
     - type: nauc_recall_at_5_std
-      value: 12.7486
+      value: 9.9978
     - type: nauc_recall_at_5_diff1
-      value: -9.7349
+      value: 12.5994
     - type: nauc_recall_at_10_max
-      value: 27.8032
+      value: 10.0265
     - type: nauc_recall_at_10_std
-      value: 18.7061
+      value: 16.8073
     - type: nauc_recall_at_10_diff1
-      value: -9.2739
+      value: 10.8776
     - type: nauc_recall_at_20_max
-      value: 30.878299999999996
+      value: 16.3788
     - type: nauc_recall_at_20_std
-      value: 26.0295
+      value: 23.7003
     - type: nauc_recall_at_20_diff1
-      value: -7.8001000000000005
+      value: 7.832
     - type: nauc_recall_at_100_max
-      value: 39.4065
+      value: 25.289
     - type: nauc_recall_at_100_std
-      value: 56.112399999999994
+      value: 51.6757
     - type: nauc_recall_at_100_diff1
-      value: -17.8753
+      value: 0.4044
     - type: nauc_recall_at_1000_max
-      value: 31.571199999999997
+      value: 42.1531
     - type: nauc_recall_at_1000_std
-      value: 65.3181
+      value: 72.10419999999999
     - type: nauc_recall_at_1000_diff1
-      value: -26.398899999999998
+      value: -12.410499999999999
     - type: nauc_precision_at_1_max
-      value: 59.8382
+      value: 31.203799999999998
     - type: nauc_precision_at_1_std
-      value: 66.9075
+      value: 23.1918
     - type: nauc_precision_at_1_diff1
-      value: -5.1873000000000005
+      value: -32.057900000000004
     - type: nauc_precision_at_3_max
-      value: 55.787600000000005
+      value: 40.368300000000005
     - type: nauc_precision_at_3_std
-      value: 64.1127
+      value: 50.225699999999996
     - type: nauc_precision_at_3_diff1
-      value: -24.3791
+      value: -2.2047
     - type: nauc_precision_at_5_max
-      value: 50.0544
+      value: 29.592200000000002
     - type: nauc_precision_at_5_std
-      value: 61.812599999999996
+      value: 49.6822
     - type: nauc_precision_at_5_diff1
-      value: -24.5456
+      value: -4.1202000000000005
     - type: nauc_precision_at_10_max
-      value: 57.4695
+      value: 41.876400000000004
     - type: nauc_precision_at_10_std
-      value: 63.7448
+      value: 67.3955
     - type: nauc_precision_at_10_diff1
-      value: -22.6982
+      value: 1.8023
     - type: nauc_precision_at_20_max
-      value: 57.3052
+      value: 49.011500000000005
     - type: nauc_precision_at_20_std
-      value: 72.00619999999999
+      value: 72.0322
     - type: nauc_precision_at_20_diff1
-      value: -18.2329
+      value: -8.0818
     - type: nauc_precision_at_100_max
-      value: 50.0873
+      value: 49.385200000000005
     - type: nauc_precision_at_100_std
-      value: 84.9689
+      value: 79.20660000000001
     - type: nauc_precision_at_100_diff1
-      value: -27.625300000000003
+      value: -12.9969
     - type: nauc_precision_at_1000_max
-      value: 29.3103
+      value: 41.5596
     - type: nauc_precision_at_1000_std
-      value: 57.898700000000005
+      value: 51.89470000000001
     - type: nauc_precision_at_1000_diff1
-      value: -28.8765
+      value: -24.5507
     - type: nauc_mrr_at_1_max
-      value: 59.8382
+      value: 31.203799999999998
     - type: nauc_mrr_at_1_std
-      value: 66.9075
+      value: 23.1918
     - type: nauc_mrr_at_1_diff1
-      value: -5.1873000000000005
+      value: -32.057900000000004
     - type: nauc_mrr_at_3_max
-      value: 58.4682
+      value: 37.7018
     - type: nauc_mrr_at_3_std
-      value: 64.6751
+      value: 31.9141
     - type: nauc_mrr_at_3_diff1
-      value: -5.9737
+      value: -22.4835
     - type: nauc_mrr_at_5_max
-      value: 59.099999999999994
+      value: 35.284
     - type: nauc_mrr_at_5_std
-      value: 63.6902
+      value: 28.569899999999997
     - type: nauc_mrr_at_5_diff1
-      value: -6.482499999999999
+      value: -26.309700000000003
     - type: nauc_mrr_at_10_max
-      value: 57.9638
+      value: 35.284
     - type: nauc_mrr_at_10_std
-      value: 63.716300000000004
+      value: 28.569899999999997
     - type: nauc_mrr_at_10_diff1
-      value: -5.6598999999999995
+      value: -26.309700000000003
     - type: nauc_mrr_at_20_max
-      value: 57.9638
+      value: 35.284
     - type: nauc_mrr_at_20_std
-      value: 63.716300000000004
+      value: 28.569899999999997
     - type: nauc_mrr_at_20_diff1
-      value: -5.6598999999999995
+      value: -26.309700000000003
     - type: nauc_mrr_at_100_max
-      value: 57.9638
+      value: 35.284
     - type: nauc_mrr_at_100_std
-      value: 63.716300000000004
+      value: 28.569899999999997
     - type: nauc_mrr_at_100_diff1
-      value: -5.6598999999999995
+      value: -26.309700000000003
     - type: nauc_mrr_at_1000_max
-      value: 57.9638
+      value: 35.284
     - type: nauc_mrr_at_1000_std
-      value: 63.716300000000004
+      value: 28.569899999999997
     - type: nauc_mrr_at_1000_diff1
-      value: -5.6598999999999995
+      value: -26.309700000000003
     - type: main_score
-      value: 63.098
+      value: 68.573
     task:
       type: Retrieval
   - dataset:
@@ -16307,287 +21557,287 @@ model-index:
       type: mteb/touche2020
     metrics:
     - type: ndcg_at_1
-      value: 23.469
+      value: 41.837
     - type: ndcg_at_3
-      value: 25.522
+      value: 34.675
     - type: ndcg_at_5
-      value: 24.333
+      value: 30.017
     - type: ndcg_at_10
-      value: 24.029
+      value: 27.306
     - type: ndcg_at_20
-      value: 24.573
+      value: 27.009
     - type: ndcg_at_100
-      value: 34.425
+      value: 38.037
     - type: ndcg_at_1000
-      value: 46.907
+      value: 49.413000000000004
     - type: map_at_1
-      value: 1.976
+      value: 3.304
     - type: map_at_3
-      value: 4.589
+      value: 6.0569999999999995
     - type: map_at_5
-      value: 6.555999999999999
+      value: 7.856000000000001
     - type: map_at_10
-      value: 9.687999999999999
+      value: 10.869
     - type: map_at_20
-      value: 11.926
+      value: 12.824
     - type: map_at_100
-      value: 15.116999999999999
+      value: 16.631999999999998
     - type: map_at_1000
-      value: 16.769000000000002
+      value: 18.138
     - type: recall_at_1
-      value: 1.976
+      value: 3.304
     - type: recall_at_3
-      value: 6.101
+      value: 7.13
     - type: recall_at_5
-      value: 9.68
+      value: 9.995999999999999
     - type: recall_at_10
-      value: 16.633
+      value: 16.766000000000002
     - type: recall_at_20
-      value: 23.589
+      value: 22.933
     - type: recall_at_100
-      value: 45.61
+      value: 47.427
     - type: recall_at_1000
-      value: 82.48100000000001
+      value: 81.527
     - type: precision_at_1
-      value: 26.531
+      value: 42.857
     - type: precision_at_3
-      value: 27.891
+      value: 35.374
     - type: precision_at_5
-      value: 25.714
+      value: 28.163
     - type: precision_at_10
-      value: 22.448999999999998
+      value: 23.061
     - type: precision_at_20
-      value: 16.837
+      value: 16.633
     - type: precision_at_100
-      value: 7.122000000000001
+      value: 7.632999999999999
     - type: precision_at_1000
-      value: 1.5270000000000001
+      value: 1.51
     - type: mrr_at_1
-      value: 26.5306
+      value: 42.857099999999996
     - type: mrr_at_3
-      value: 39.1156
+      value: 54.4218
     - type: mrr_at_5
-      value: 41.1565
+      value: 54.4218
     - type: mrr_at_10
-      value: 43.863
+      value: 56.431
     - type: mrr_at_20
-      value: 44.5963
+      value: 56.880900000000004
     - type: mrr_at_100
-      value: 44.766600000000004
+      value: 57.0526
     - type: mrr_at_1000
-      value: 44.766600000000004
+      value: 57.0526
     - type: nauc_ndcg_at_1_max
-      value: -31.661099999999998
+      value: -44.2104
     - type: nauc_ndcg_at_1_std
-      value: 2.8871
+      value: -2.3875
     - type: nauc_ndcg_at_1_diff1
-      value: 3.4787
+      value: -23.4197
     - type: nauc_ndcg_at_3_max
-      value: -34.6673
+      value: -40.1986
     - type: nauc_ndcg_at_3_std
-      value: -3.8882
+      value: -4.3845
     - type: nauc_ndcg_at_3_diff1
-      value: 0.6512
+      value: -26.881100000000004
     - type: nauc_ndcg_at_5_max
-      value: -33.815
+      value: -37.8693
     - type: nauc_ndcg_at_5_std
-      value: 0.20209999999999997
+      value: -5.817
     - type: nauc_ndcg_at_5_diff1
-      value: -6.4072000000000005
+      value: -30.292599999999997
     - type: nauc_ndcg_at_10_max
-      value: -26.9953
+      value: -35.0514
     - type: nauc_ndcg_at_10_std
-      value: -3.6511
+      value: -12.628
     - type: nauc_ndcg_at_10_diff1
-      value: -3.8763
+      value: -28.5171
     - type: nauc_ndcg_at_20_max
-      value: -30.218600000000002
+      value: -36.829499999999996
     - type: nauc_ndcg_at_20_std
-      value: -1.4384
+      value: -10.9047
     - type: nauc_ndcg_at_20_diff1
-      value: -8.5927
+      value: -25.590200000000003
     - type: nauc_ndcg_at_100_max
-      value: -32.1409
+      value: -33.1224
     - type: nauc_ndcg_at_100_std
-      value: 20.1662
+      value: 14.3094
     - type: nauc_ndcg_at_100_diff1
-      value: -12.0591
+      value: -17.6544
     - type: nauc_ndcg_at_1000_max
-      value: -31.6892
+      value: -30.8819
     - type: nauc_ndcg_at_1000_std
-      value: 32.1464
+      value: 22.3523
     - type: nauc_ndcg_at_1000_diff1
-      value: -8.3651
+      value: -19.5741
     - type: nauc_map_at_1_max
-      value: -41.9612
+      value: -38.6863
     - type: nauc_map_at_1_std
-      value: -11.0332
+      value: -15.0366
     - type: nauc_map_at_1_diff1
-      value: -5.2508
+      value: -8.5063
     - type: nauc_map_at_3_max
-      value: -30.4968
+      value: -38.9161
     - type: nauc_map_at_3_std
-      value: -11.138
+      value: -16.71
     - type: nauc_map_at_3_diff1
-      value: -0.8447
+      value: -21.3221
     - type: nauc_map_at_5_max
-      value: -24.7543
+      value: -35.0036
     - type: nauc_map_at_5_std
-      value: -10.302
+      value: -18.4668
     - type: nauc_map_at_5_diff1
-      value: -10.0762
+      value: -27.6758
     - type: nauc_map_at_10_max
-      value: -20.420099999999998
+      value: -29.7816
     - type: nauc_map_at_10_std
-      value: -10.485
+      value: -20.890900000000002
     - type: nauc_map_at_10_diff1
-      value: -10.3134
+      value: -27.380100000000002
     - type: nauc_map_at_20_max
-      value: -20.8606
+      value: -29.3362
     - type: nauc_map_at_20_std
-      value: -6.3984
+      value: -18.9281
     - type: nauc_map_at_20_diff1
-      value: -10.8605
+      value: -27.058500000000002
     - type: nauc_map_at_100_max
-      value: -22.6385
+      value: -27.9555
     - type: nauc_map_at_100_std
-      value: 3.8738
+      value: -7.222
     - type: nauc_map_at_100_diff1
-      value: -12.9055
+      value: -22.7849
     - type: nauc_map_at_1000_max
-      value: -23.0823
+      value: -26.954
     - type: nauc_map_at_1000_std
-      value: 8.6942
+      value: -4.0097000000000005
     - type: nauc_map_at_1000_diff1
-      value: -13.1715
+      value: -22.855
     - type: nauc_recall_at_1_max
-      value: -41.9612
+      value: -38.6863
     - type: nauc_recall_at_1_std
-      value: -11.0332
+      value: -15.0366
     - type: nauc_recall_at_1_diff1
-      value: -5.2508
+      value: -8.5063
     - type: nauc_recall_at_3_max
-      value: -25.9715
+      value: -42.2532
     - type: nauc_recall_at_3_std
-      value: -14.9623
+      value: -20.399
     - type: nauc_recall_at_3_diff1
-      value: -4.2583
+      value: -23.8415
     - type: nauc_recall_at_5_max
-      value: -24.5848
+      value: -35.3457
     - type: nauc_recall_at_5_std
-      value: -14.258299999999998
+      value: -20.0969
     - type: nauc_recall_at_5_diff1
-      value: -13.1162
+      value: -29.5907
     - type: nauc_recall_at_10_max
-      value: -22.3834
+      value: -31.7181
     - type: nauc_recall_at_10_std
-      value: -15.274199999999999
+      value: -22.9559
     - type: nauc_recall_at_10_diff1
-      value: -10.8836
+      value: -22.564400000000003
     - type: nauc_recall_at_20_max
-      value: -22.8634
+      value: -34.5273
     - type: nauc_recall_at_20_std
-      value: -4.8215
+      value: -15.6335
     - type: nauc_recall_at_20_diff1
-      value: -11.1747
+      value: -22.9889
     - type: nauc_recall_at_100_max
-      value: -25.9537
+      value: -28.2509
     - type: nauc_recall_at_100_std
-      value: 29.75
+      value: 30.481399999999997
     - type: nauc_recall_at_100_diff1
-      value: -15.512799999999999
+      value: -6.9437999999999995
     - type: nauc_recall_at_1000_max
-      value: -18.9449
+      value: -12.5952
     - type: nauc_recall_at_1000_std
-      value: 69.619
+      value: 69.9957
     - type: nauc_recall_at_1000_diff1
-      value: -5.629300000000001
+      value: 2.2129
     - type: nauc_precision_at_1_max
-      value: -33.7627
+      value: -45.3657
     - type: nauc_precision_at_1_std
-      value: 1.8065000000000002
+      value: -4.4435
     - type: nauc_precision_at_1_diff1
-      value: 5.3592
+      value: -18.6647
     - type: nauc_precision_at_3_max
-      value: -30.7992
+      value: -39.1078
     - type: nauc_precision_at_3_std
-      value: -6.285399999999999
+      value: -8.047600000000001
     - type: nauc_precision_at_3_diff1
-      value: 1.1098000000000001
+      value: -27.322200000000002
     - type: nauc_precision_at_5_max
-      value: -27.8949
+      value: -32.8848
     - type: nauc_precision_at_5_std
-      value: -1.8754
+      value: -8.5508
     - type: nauc_precision_at_5_diff1
-      value: -8.0528
+      value: -31.567600000000002
     - type: nauc_precision_at_10_max
-      value: -19.659299999999998
+      value: -28.719499999999996
     - type: nauc_precision_at_10_std
-      value: -0.9809999999999999
+      value: -14.498800000000001
     - type: nauc_precision_at_10_diff1
-      value: -2.0972999999999997
+      value: -27.8402
     - type: nauc_precision_at_20_max
-      value: -25.810899999999997
+      value: -26.466
     - type: nauc_precision_at_20_std
-      value: 19.5577
+      value: 3.3133000000000004
     - type: nauc_precision_at_20_diff1
-      value: -8.879199999999999
+      value: -31.5367
     - type: nauc_precision_at_100_max
-      value: -21.1488
+      value: -5.4186
     - type: nauc_precision_at_100_std
-      value: 65.00200000000001
+      value: 61.58709999999999
     - type: nauc_precision_at_100_diff1
-      value: -11.740499999999999
+      value: -8.8049
     - type: nauc_precision_at_1000_max
-      value: 20.7392
+      value: 37.745400000000004
     - type: nauc_precision_at_1000_std
-      value: 38.2851
+      value: 48.7776
     - type: nauc_precision_at_1000_diff1
-      value: 17.4954
+      value: 6.4595
     - type: nauc_mrr_at_1_max
-      value: -33.7627
+      value: -45.3657
     - type: nauc_mrr_at_1_std
-      value: 1.8065000000000002
+      value: -4.4435
     - type: nauc_mrr_at_1_diff1
-      value: 5.3592
+      value: -18.6647
     - type: nauc_mrr_at_3_max
-      value: -39.837
+      value: -52.9035
     - type: nauc_mrr_at_3_std
-      value: -5.3861
+      value: -13.174800000000001
     - type: nauc_mrr_at_3_diff1
-      value: -4.1776
+      value: -20.045299999999997
     - type: nauc_mrr_at_5_max
-      value: -39.756099999999996
+      value: -52.9035
     - type: nauc_mrr_at_5_std
-      value: -5.3674
+      value: -13.174800000000001
     - type: nauc_mrr_at_5_diff1
-      value: -2.4693
+      value: -20.045299999999997
     - type: nauc_mrr_at_10_max
-      value: -37.7379
+      value: -51.358599999999996
     - type: nauc_mrr_at_10_std
-      value: -6.2844
+      value: -11.266
     - type: nauc_mrr_at_10_diff1
-      value: -0.6525000000000001
+      value: -19.4274
     - type: nauc_mrr_at_20_max
-      value: -38.4522
+      value: -51.648799999999994
     - type: nauc_mrr_at_20_std
-      value: -5.0927
+      value: -10.9663
     - type: nauc_mrr_at_20_diff1
-      value: -0.2814
+      value: -19.5931
     - type: nauc_mrr_at_100_max
-      value: -38.1599
+      value: -51.669200000000004
     - type: nauc_mrr_at_100_std
-      value: -5.2147
+      value: -10.9424
     - type: nauc_mrr_at_100_diff1
-      value: -0.7001000000000001
+      value: -19.7412
     - type: nauc_mrr_at_1000_max
-      value: -38.1599
+      value: -51.669200000000004
     - type: nauc_mrr_at_1000_std
-      value: -5.2147
+      value: -10.9424
     - type: nauc_mrr_at_1000_diff1
-      value: -0.7001000000000001
+      value: -19.7412
     - type: main_score
-      value: 24.029
+      value: 27.306
     task:
       type: Retrieval
   - dataset:
@@ -16598,17 +21848,17 @@ model-index:
       type: mteb/toxic_conversations_50k
     metrics:
     - type: accuracy
-      value: 62.9395
+      value: 62.480500000000006
     - type: f1
-      value: 47.7133
+      value: 48.201100000000004
     - type: f1_weighted
-      value: 71.0525
+      value: 70.8591
     - type: ap
-      value: 10.306600000000001
+      value: 10.9948
     - type: ap_weighted
-      value: 10.306600000000001
+      value: 10.9948
     - type: main_score
-      value: 62.9395
+      value: 62.480500000000006
     task:
       type: Classification
   - dataset:
@@ -16619,13 +21869,13 @@ model-index:
       type: mteb/tweet_sentiment_extraction
     metrics:
     - type: accuracy
-      value: 52.8721
+      value: 58.3616
     - type: f1
-      value: 53.034800000000004
+      value: 58.5596
     - type: f1_weighted
-      value: 52.4319
+      value: 57.801
     - type: main_score
-      value: 52.8721
+      value: 58.3616
     task:
       type: Classification
   - dataset:
@@ -16636,11 +21886,11 @@ model-index:
       type: mteb/twentynewsgroups-clustering
     metrics:
     - type: v_measure
-      value: 44.9227
+      value: 38.6199
     - type: v_measure_std
-      value: 1.1638000000000002
+      value: 2.3855999999999997
     - type: main_score
-      value: 44.9227
+      value: 38.6199
     task:
       type: Clustering
   - dataset:
@@ -16651,87 +21901,87 @@ model-index:
       type: mteb/twittersemeval2015-pairclassification
     metrics:
     - type: similarity_accuracy
-      value: 82.04090000000001
+      value: 82.9886
     - type: similarity_accuracy_threshold
-      value: 86.6147
+      value: 86.3901
     - type: similarity_f1
-      value: 57.258399999999995
+      value: 60.866200000000006
     - type: similarity_f1_threshold
-      value: 82.9233
+      value: 83.9821
     - type: similarity_precision
-      value: 52.1456
+      value: 59.333499999999994
     - type: similarity_recall
-      value: 63.4828
+      value: 62.480199999999996
     - type: similarity_ap
-      value: 60.0317
+      value: 64.413
     - type: cosine_accuracy
-      value: 82.04090000000001
+      value: 82.9886
     - type: cosine_accuracy_threshold
-      value: 86.6147
+      value: 86.3901
     - type: cosine_f1
-      value: 57.258399999999995
+      value: 60.866200000000006
     - type: cosine_f1_threshold
-      value: 82.9233
+      value: 83.9821
     - type: cosine_precision
-      value: 52.1456
+      value: 59.333499999999994
     - type: cosine_recall
-      value: 63.4828
+      value: 62.480199999999996
     - type: cosine_ap
-      value: 60.0317
+      value: 64.413
     - type: manhattan_accuracy
-      value: 81.9574
+      value: 82.9409
     - type: manhattan_accuracy_threshold
-      value: 794.4433
+      value: 1144.7468000000001
     - type: manhattan_f1
-      value: 57.1936
+      value: 60.760400000000004
     - type: manhattan_f1_threshold
-      value: 898.9445
+      value: 1291.7232999999999
     - type: manhattan_precision
-      value: 51.91480000000001
+      value: 54.7126
     - type: manhattan_recall
-      value: 63.6675
+      value: 68.3113
     - type: manhattan_ap
-      value: 59.9255
+      value: 64.3592
     - type: euclidean_accuracy
-      value: 82.04090000000001
+      value: 82.9886
     - type: euclidean_accuracy_threshold
-      value: 51.7403
+      value: 52.1726
     - type: euclidean_f1
-      value: 57.258399999999995
+      value: 60.866200000000006
     - type: euclidean_f1_threshold
-      value: 58.440999999999995
+      value: 56.6001
     - type: euclidean_precision
-      value: 52.1456
+      value: 59.333499999999994
     - type: euclidean_recall
-      value: 63.4828
+      value: 62.480199999999996
     - type: euclidean_ap
-      value: 60.0317
+      value: 64.4131
     - type: dot_accuracy
-      value: 82.04090000000001
+      value: 82.9886
     - type: dot_accuracy_threshold
-      value: 86.6147
+      value: 86.3901
     - type: dot_f1
-      value: 57.258399999999995
+      value: 60.866200000000006
     - type: dot_f1_threshold
-      value: 82.9233
+      value: 83.9821
     - type: dot_precision
-      value: 52.1456
+      value: 59.333499999999994
     - type: dot_recall
-      value: 63.4828
+      value: 62.480199999999996
     - type: dot_ap
-      value: 60.0317
+      value: 64.413
     - type: max_accuracy
-      value: 82.04090000000001
+      value: 82.9886
     - type: max_f1
-      value: 57.258399999999995
+      value: 60.866200000000006
     - type: max_precision
-      value: 52.1456
+      value: 59.333499999999994
     - type: max_recall
-      value: 63.6675
+      value: 68.3113
     - type: max_ap
-      value: 60.0317
+      value: 64.4131
     - type: main_score
-      value: 60.0317
+      value: 64.4131
     task:
       type: PairClassification
   - dataset:
@@ -16742,95 +21992,95 @@ model-index:
       type: mteb/twitterurlcorpus-pairclassification
     metrics:
     - type: similarity_accuracy
-      value: 87.3035
+      value: 88.95100000000001
     - type: similarity_accuracy_threshold
-      value: 85.4123
+      value: 82.18520000000001
     - type: similarity_f1
-      value: 74.5555
+      value: 77.9051
     - type: similarity_f1_threshold
-      value: 83.7581
+      value: 80.3369
     - type: similarity_precision
-      value: 72.55369999999999
+      value: 76.07310000000001
     - type: similarity_recall
-      value: 76.6708
+      value: 79.8275
     - type: similarity_ap
-      value: 82.42930000000001
+      value: 86.1545
     - type: cosine_accuracy
-      value: 87.3035
+      value: 88.95100000000001
     - type: cosine_accuracy_threshold
-      value: 85.4123
+      value: 82.18520000000001
     - type: cosine_f1
-      value: 74.5555
+      value: 77.9051
     - type: cosine_f1_threshold
-      value: 83.7581
+      value: 80.3369
     - type: cosine_precision
-      value: 72.55369999999999
+      value: 76.07310000000001
     - type: cosine_recall
-      value: 76.6708
+      value: 79.8275
     - type: cosine_ap
-      value: 82.42930000000001
+      value: 86.1545
     - type: manhattan_accuracy
-      value: 87.3249
+      value: 88.9277
     - type: manhattan_accuracy_threshold
-      value: 831.9304999999999
+      value: 1338.2836
     - type: manhattan_f1
-      value: 74.8665
+      value: 77.8186
     - type: manhattan_f1_threshold
-      value: 893.9980999999999
+      value: 1372.5978
     - type: manhattan_precision
-      value: 70.8502
+      value: 76.5745
     - type: manhattan_recall
-      value: 79.3656
+      value: 79.1038
     - type: manhattan_ap
-      value: 82.5792
+      value: 86.114
     - type: euclidean_accuracy
-      value: 87.3035
+      value: 88.95100000000001
     - type: euclidean_accuracy_threshold
-      value: 54.014300000000006
+      value: 59.6905
     - type: euclidean_f1
-      value: 74.5555
+      value: 77.9051
     - type: euclidean_f1_threshold
-      value: 56.9946
+      value: 62.71060000000001
     - type: euclidean_precision
-      value: 72.55369999999999
+      value: 76.07310000000001
     - type: euclidean_recall
-      value: 76.6708
+      value: 79.8275
     - type: euclidean_ap
-      value: 82.42920000000001
+      value: 86.1544
     - type: dot_accuracy
-      value: 87.3035
+      value: 88.95100000000001
     - type: dot_accuracy_threshold
-      value: 85.4123
+      value: 82.18520000000001
     - type: dot_f1
-      value: 74.5555
+      value: 77.9051
     - type: dot_f1_threshold
-      value: 83.7581
+      value: 80.3369
     - type: dot_precision
-      value: 72.55369999999999
+      value: 76.07310000000001
     - type: dot_recall
-      value: 76.6708
+      value: 79.8275
     - type: dot_ap
-      value: 82.42920000000001
+      value: 86.1544
     - type: max_accuracy
-      value: 87.3249
+      value: 88.95100000000001
     - type: max_f1
-      value: 74.8665
+      value: 77.9051
     - type: max_precision
-      value: 72.55369999999999
+      value: 76.5745
     - type: max_recall
-      value: 79.3656
+      value: 79.8275
     - type: max_ap
-      value: 82.5792
+      value: 86.1545
     - type: main_score
-      value: 82.5792
+      value: 86.1545
     task:
       type: PairClassification
 pipeline_tag: sentence-similarity
 ---
-# Granite-Embedding-30m-English
+# Granite-Embedding-278m-multilingual
 
 **Model Summary:**
-Granite-Embedding-30m-English is a 30M parameter dense biencoder embedding model from the Granite Embeddings suite that can be used to generate high quality text embeddings. This model produces embedding vectors of size 384 and is trained using a combination of open source relevance-pair datasets with permissive, enterprise-friendly license, and IBM collected and generated datasets. While maintaining competitive scores on academic benchmarks such as BEIR, this model also performs well on many enterprise use cases. This model is developed using retrieval oriented pretraining, contrastive finetuning, knowledge distillation and model merging for improved performance.
+Granite-Embedding-278M-Multilingual is a 278M parameter model from the Granite Embeddings suite that can be used to generate high quality text embeddings. This model produces embedding vectors of size 768 and is trained using a combination of open source relevance-pair datasets with permissive, enterprise-friendly license, and IBM collected and generated datasets. This model is developed using contrastive finetuning, knowledge distillation and model merging for improved performance.
 
 - **Developers:** Granite Embedding Team, IBM
 - **GitHub Repository:** [ibm-granite/granite-embedding-models](https://github.com/ibm-granite/granite-embedding-models)
@@ -16840,7 +22090,7 @@ Granite-Embedding-30m-English is a 30M parameter dense biencoder embedding model
 - **License:** [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 
 **Supported Languages:** 
-English.
+English, German, Spanish, French, Japanese, Portuguese, Arabic, Czech, Italian, Korean, Dutch, and Chinese. Users may finetune Granite-Embedding-278M-Multilingual for languages beyond these 12 languages.
 
 **Intended use:** 
 The model is designed to produce fixed length vector representations for a given text, which can be used for text similarity, retrieval, and search applications.
@@ -16858,7 +22108,7 @@ The model can then be used to encode pairs of text and find the similarity betwe
 ```python
 from sentence_transformers import SentenceTransformer, util
 
-model_path = "ibm-granite/granite-embedding-30m-english"
+model_path = "ibm-granite/granite-embedding-278m-multilingual"
 # Load the Sentence Transformer model
 model = SentenceTransformer(model_path)
 
@@ -16881,7 +22131,7 @@ print(util.cos_sim(query_embeddings, passage_embeddings))
 ```
 
 **Usage with Huggingface Transformers:** 
-This is a simple example of how to use the Granite-Embedding-30m-English model with the Transformers library and PyTorch.
+This is a simple example of how to use the Granite-Embedding-278m-Multilingual model with the Transformers library and PyTorch.
 
 First, install the required libraries
 ```shell
@@ -16894,7 +22144,7 @@ The model can then be used to encode pairs of text
 import torch
 from transformers import AutoModel, AutoTokenizer
 
-model_path = "ibm-granite/granite-embedding-30m-english"
+model_path = "ibm-granite/granite-embedding-278m-multilingual"
 
 # Load the model and tokenizer
 model = AutoModel.from_pretrained(model_path)
@@ -16913,68 +22163,78 @@ tokenized_queries = tokenizer(input_queries, padding=True, truncation=True, retu
 with torch.no_grad():
     # Queries
     model_output = model(**tokenized_queries)
-    # Perform pooling. granite-embedding-30m-english uses CLS Pooling
+    # Perform pooling. granite-embedding-278m-multilingual uses CLS Pooling
     query_embeddings = model_output[0][:, 0]
 
 # normalize the embeddings
 query_embeddings = torch.nn.functional.normalize(query_embeddings, dim=1)
 
 ```
+
 **Evaluation:**
+The average performance of the Granite-Embedding-278M-Multilingual on Multilingual Miracl (across 18 langauges), Mintaka Retrieval (across 8 languages) and MTEB Retrieval for English (across 15 tasks), German (across 4 tasks), Spanish (across 2 tasks), Frenc (across 5 tasks), Japanese (across 2 tasks), Arabic (1 task), Korean (1 task) and Chinese (across 8 tasks) is reported below. 
 
-Granite-Embedding-30M-English is twice as fast as other models with similar embedding dimensions, while maintaining competitive performance. The performance of the Granite-Embedding-30M-English model on MTEB Retrieval (i.e., BEIR) and code retrieval (CoIR) benchmarks is reported below. 
-
-| Model                           | Paramters (M)| Embedding Dimension |  MTEB Retrieval (15) |  CoIR (10) | 
-|---------------------------------|:------------:|:-------------------:|:-------------------: |:----------:|
-|granite-embedding-30m-english    |30            |384                  |49.1                  |47.0        | 
-
+| Model                              | Paramters (M)| Embedding Dimension | Miracl (18)   |  Mintaka Retrieval (8) | MTEB English (15) | MTEB German (4) |MTEB Spanish (2) | MTEB French (5) | MTEB Japanese (2) |  MTEB Arabic (1) | MTEB Korean (1) | MTEB Chinese (8) | 
+|:-----------------------------------|:------------:|:-------------------:|:-------------:| :---------------------:|:-----------------:|:---------------:|:---------------:|:---------------:|:----------------:|:----------------:|:---------------:|:----------------:|
+|granite-embedding-278M-multilingual | 278 | 768 | 58.3 | 23.2 | 48.2 | 71.2 | 52.6 | 54.1 | 61.7 | 64.2 | 71.8 | 45.2 | 
 
 **Model Architecture:**
-Granite-Embedding-30m-English is based on an encoder-only RoBERTa like transformer architecture, trained internally at IBM Research.
+Granite-Embedding-278m-Multilingual is based on an encoder-only XLM-RoBERTa like transformer architecture, trained internally at IBM Research.
 
-| Model                     | granite-embedding-30m-english | granite-embedding-125m-english    | granite-embedding-107m-multilingual | granite-embedding-278m-multilingual |
-| :---------                | :-------:| :--------:   | :-----:| :-----:|
-| Embedding size            | **384**  | 768          | 384    | 768    |
-| Number of layers          | **6**    | 12           | 6      | 12     |
-| Number of attention heads | **12**   | 12           | 12     | 12     |
-| Intermediate size         | **1536** | 3072         | 1536   | 3072   |
-| Activation Function       | **GeLU** | GeLU         | GeLU   | GeLU   |
-| Vocabulary Size           | **50265**| 50265        | 250002 | 250002 |
-| Max. Sequence Length      | **512**  | 512          | 512    | 512    |
-| # Parameters              | **30M**  | 125M         | 107M   | 278M   |
+| Model                     | granite-embedding-30m-english | granite-embedding-125m-english    | granite-embedding-107M-multilingual | granite-embedding-278m-multilingual |
+| :--------                 | :-------:| :-------:    | :---------:| :-----:|
+| Embedding size            | 384      | 768          | 384    | **768**    |
+| Number of layers          | 6        | 12           | 6      | **12**     |
+| Number of attention heads | 12       | 12           | 12     | **12**     |
+| Intermediate size         | 1536     | 3072         | 1536   | **3072**   |
+| Activation Function       | GeLU     | GeLU         | GeLU   | **GeLU**   |
+| Vocabulary Size           | 50265    | 50265        | 250002 | **250002** |
+| Max. Sequence Length      | 512      | 512          | 512    | **512**    |
+| # Parameters              | 30M      | 125M         | 107M   | **278M**   |
 
 
 **Training Data:**
 Overall, the training data consists of four key sources: (1) unsupervised title-body paired data scraped from the web, (2) publicly available paired with permissive, enterprise-friendly license, (3) IBM-internal paired data targetting specific technical domains, and (4) IBM-generated synthetic data. The data is listed below:
 
-| **Dataset**                                        | **Num. Pairs** | 
-|----------------------------------------------------|:---------------:|
-| SPECTER citation triplets                          | 684,100         | 
-| Stack Exchange Duplicate questions (titles)        | 304,525         | 
-| Stack Exchange Duplicate questions (bodies)        | 250,519         | 
-| Stack Exchange Duplicate questions (titles+bodies) | 250,460         | 
-| Natural Questions (NQ)                             | 100,231         | 
-| SQuAD2.0                                           | 87,599          | 
-| PAQ (Question, Answer) pairs                       | 64,371,441       | 
-| Stack Exchange (Title, Answer) pairs               | 4,067,139        | 
-| Stack Exchange (Title, Body) pairs                 | 23,978,013       | 
-| Stack Exchange (Title+Body, Answer) pairs          | 187,195         | 
-| S2ORC Citation pairs (Titles)                      | 52,603,982       | 
-| S2ORC (Title, Abstract)                            | 41,769,185       | 
-| S2ORC (Citations, abstracts)                       | 52,603,982       | 
-| WikiAnswers Duplicate question pairs               | 77,427,422       | 
-| SearchQA                                           | 582,261         | 
-| HotpotQA                                           | 85,000          | 
-| Fever                                              | 109,810         | 
-| Arxiv                                              | 2,358,545        | 
-| Wikipedia                                          | 20,745,403       | 
-| PubMed                                             | 20,000,000       | 
-| Miracl En Pairs                                    | 9,016           | 
-| DBPedia Title-Body Pairs                           | 4,635,922        | 
-| Synthetic: Query-Wikipedia Passage                 | 1,879,093        | 
-| Synthetic: Fact Verification                       | 9,888           | 
-| IBM Internal Triples                               | 40,290          | 
-| IBM Internal Title-Body Pairs                      | 1,524,586        | 
+| **Dataset**                                                               | **Num. Pairs** | 
+|:--------------------------------------------------------------------------|:--------------:|
+| Multilingual MC4                                                          | 52,823,484     |
+| Multilingual Webhose                                                      | 12,369,322     | 
+| English Wikipedia                                                         | 20,745,403     | 
+| Multilingual Wikimedia                                                    | 2,911,090      |
+| Miracl Corpus (Title-Body)                                                | 10,120,398     |
+| Stack Exchange Duplicate questions (titles)                               | 304,525        | 
+| Stack Exchange Duplicate questions (titles)                               | 304,525        | 
+| Stack Exchange Duplicate questions (bodies)                               | 250,519        | 
+| Machine Translations of Stack Exchange Duplicate questions (titles)       | 187,195        | 
+| Stack Exchange (Title, Answer) pairs                                      | 4,067,139      | 
+| Stack Exchange (Title, Body) pairs                                        | 23,978,013     | 
+| Stack Exchange (Title, Body) pairs                                        | 23,978,013     | 
+| Machine Translations of Stack Exchange (Title+Body, Answer) pairs         | 1,827,15       | 
+| SearchQA                                                                  | 582,261        | 
+| S2ORC (Title, Abstract)                                                   | 41,769,185     | 
+| WikiAnswers Duplicate question pairs                                      | 77,427,422     | 
+| CCNews                                                                    | 614,664        |
+| XSum                                                                      | 226,711        |
+| SimpleWiki                                                                | 102,225        |
+| Machine Translated Cross Lingual Parallel Corpora                         | 28,376,115     |
+| SPECTER citation triplets                                                 | 684,100        | 
+| Machine Translations of SPECTER citation triplets                         | 4,104,600      | 
+| Natural Questions (NQ)                                                    | 100,231        | 
+| SQuAD2.0                                                                  | 87,599         | 
+| HotpotQA                                                                  | 85,000         | 
+| Fever                                                                     | 109,810        | 
+| PubMed                                                                    | 20,000,000     | 
+| Multilingual Miracl Triples                                               | 81,409         | 
+| Multilingual MrTydi Triples                                               | 48,715         | 
+| Sadeeem Question Asnwering                                                | 4,037          | 
+| DBPedia Title-Body Pairs                                                  | 4,635,922      | 
+| Synthetic: English Query-Wikipedia Passage                                | 1,879,093      | 
+| Synthetic: English Fact Verification                                      | 9,888          | 
+| Synthetic: Multilingual Query-Wikipedia Passage                           | 300,266        |
+| Synthetic: Multilingual News Summaries                                    | 37,489         |
+| IBM Internal Triples                                                      | 40,290         | 
+| IBM Internal Title-Body Pairs                                             | 1,524,586      |
 
 Notably, we do not use the popular MS-MARCO retrieval dataset in our training corpus due to its non-commercial license, while other open-source models train on this dataset due to its high quality.
 
@@ -16982,7 +22242,7 @@ Notably, we do not use the popular MS-MARCO retrieval dataset in our training co
 We train Granite Embedding Models using IBM's computing cluster, Cognitive Compute Cluster, which is outfitted with NVIDIA A100 80gb GPUs. This cluster provides a scalable and efficient infrastructure for training our models over multiple GPUs.
 
 **Ethical Considerations and Limitations:** 
-The data used to train the base language model was filtered to remove text containing hate, abuse, and profanity. Granite-Embedding-30m-English is trained only for English texts, and has a context length of 512 tokens (longer texts will be truncated to this size).
+The data used to train the base language model was filtered to remove text containing hate, abuse, and profanity. Granite-Embedding-278m-Multilingual is finetuned on 12 languages, and has a context length of 512 tokens (longer texts will be truncated to this size).
 
 **Resources**
 - ⭐️ Learn about the latest updates with Granite: https://www.ibm.com/granite
