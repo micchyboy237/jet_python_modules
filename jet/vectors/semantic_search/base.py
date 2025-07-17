@@ -1,6 +1,6 @@
 from typing import Optional, TypedDict, List, Dict, Union
 import numpy as np
-from jet.data.header_utils._prepare_for_rag import preprocess_text
+from jet.wordnet.keywords.utils import preprocess_text
 from jet.data.utils import generate_unique_id
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
