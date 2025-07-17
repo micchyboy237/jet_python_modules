@@ -1,6 +1,8 @@
 from huggingface_hub import snapshot_download
 import os
 
+from jet.models.config import MODELS_CACHE_DIR
+
 
 def download_tokenizer_files(repo_id, cache_dir):
     """Download only tokenizer-related files from a Hugging Face repository."""
@@ -17,8 +19,8 @@ def download_tokenizer_files(repo_id, cache_dir):
 
 
 # Configuration
-repo_id = "Qwen/Qwen3-Reranker-0.6B"
-cache_dir = "/Users/jethroestrada/.cache/huggingface/hub"
+repo_id = "tomaarsen/static-retrieval-mrl-en-v1"
+cache_dir = MODELS_CACHE_DIR
 
 # Download tokenizer files
 downloaded_path = download_tokenizer_files(repo_id, cache_dir)

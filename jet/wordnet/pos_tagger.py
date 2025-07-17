@@ -2,7 +2,7 @@ from enum import Enum
 import spacy
 import json
 from collections import defaultdict
-from jet.wordnet.sentence import adaptive_split
+from jet.wordnet.sentence import split_sentences
 from jet.file.utils import load_data
 from typing import Literal, Optional, Set, TypedDict, Union
 
@@ -84,7 +84,7 @@ class POSTagger:
 
     def process_and_tag(self, text) -> list[POSItem]:
         # Split text into sentences
-        sentences = adaptive_split(text)
+        sentences = split_sentences(text)
 
         combined_pos_results = []
         for sentence in sentences:

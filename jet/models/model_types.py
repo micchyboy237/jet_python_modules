@@ -229,7 +229,7 @@ LLMModelValue = Literal[
     "sentence-transformers/distilbert-base-nli-stsb-mean-tokens",
     "sentence-transformers/paraphrase-MiniLM-L12-v2",
     "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
-    "sentence-transformers/static-retrieval-mrl-en-v1",
+    "tomaarsen/static-retrieval-mrl-en-v1",
 ]
 
 
@@ -389,7 +389,7 @@ EmbedModelValue = Literal[
     "sentence-transformers/distilbert-base-nli-stsb-mean-tokens",
     "sentence-transformers/paraphrase-MiniLM-L12-v2",
     "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
-    "sentence-transformers/static-retrieval-mrl-en-v1",
+    "tomaarsen/static-retrieval-mrl-en-v1",
     "cross-encoder/ms-marco-MiniLM-L-6-v2",
     "cross-encoder/ms-marco-MiniLM-L6-v2",
     "cross-encoder/ms-marco-MiniLM-L-12-v2",

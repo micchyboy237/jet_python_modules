@@ -74,7 +74,6 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
             repo_id=model_path,
             cache_dir=cache_dir,
             ignore_patterns=[
-                "*.safetensors",
                 "*.bin",
                 "*.h5",
                 "onnx/model*.onnx",  # Simplified pattern to cover all ONNX variants
@@ -98,7 +97,7 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
 
 
 if __name__ == "__main__":
-    repo_id = "sentence-transformers/paraphrase-MiniLM-L12-v2"
+    repo_id = "tomaarsen/static-retrieval-mrl-en-v1"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")

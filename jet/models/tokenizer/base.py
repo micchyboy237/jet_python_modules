@@ -436,31 +436,6 @@ def get_string_detokenizer_fn(
     return _detokenizer
 
 
-# Example usage
-if __name__ == "__main__":
-    # Example tokenizer setup
-    model_name = "bert-base-uncased"  # Replace with your model
-    tokenizer_fn = get_string_tokenizer_fn(model_name)
-    detokenizer_fn = get_string_detokenizer_fn(model_name)
-
-    # Example text
-    text = "Hello, world!"
-    # Tokenize
-    tokens = tokenizer_fn(text)  # e.g., ['hello', ',', 'world', '!']
-    print("Tokens:", tokens)
-    # Detokenize
-    detokenized_text = detokenizer_fn(tokens)
-    print("Detokenized:", detokenized_text)
-
-    # Batch example
-    texts = ["Hello, world!", "How are you?"]
-    # e.g., [['hello', ',', 'world', '!'], ['how', 'are', 'you', '?']]
-    batch_tokens = tokenizer_fn(texts)
-    print("Batch Tokens:", batch_tokens)
-    detokenized_texts = detokenizer_fn(batch_tokens)
-    print("Detokenized Batch:", detokenized_texts)
-
-
 def tokenize(
     texts: Union[str, List[str]],
     tokenizer: Union[ModelType, PreTrainedTokenizerBase],

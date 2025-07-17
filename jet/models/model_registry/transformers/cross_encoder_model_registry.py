@@ -73,10 +73,19 @@ class CrossEncoderRegistry(BaseModelRegistry):
                 f"Could not load CrossEncoder model {resolved_model_id}: {str(e)}")
 
     def _load_model(self, model_id: EmbedModelType, max_length: Optional[int] = None, **kwargs) -> Optional[CrossEncoder]:
-        device = "mps" if torch.backends.mps.is_available(
-        ) else "cuda" if torch.cuda.is_available() else "cpu"
-        model_instance = CrossEncoder(
-            model_id, device=device, max_length=max_length)
+        try:
+            device = "mps" if torch.backends.mps.is_available(
+            ) else "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(
+                f"Loading embedding model on {device.upper()}: {model_id}")
+            model_instance = CrossEncoder(
+                model_id, device=device, max_length=max_length)
+        except Exception as e:
+            logger.warning(
+                f"Falling back to CPU (onnx) for CrossEncoder model due to: {e}")
+            model_instance = CrossEncoder(
+                model_id, device="cpu", max_length=max_length, backend="onnx",
+                model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'})
         return model_instance
 
     @staticmethod
