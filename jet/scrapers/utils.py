@@ -415,7 +415,6 @@ def clean_punctuations(content: str) -> str:
     Returns:
         String with cleaned punctuation and punctuation between words replaced by spaces.
     """
-    logger.debug(f"Input content: '{content}'")
 
     # Preserve decimal points in numbers and version numbers
     number_pattern = r'(\d+\.\d+(\.\d+)*)'
@@ -424,27 +423,22 @@ def clean_punctuations(content: str) -> str:
     def store_number(match):
         key = f"__NUMBER_{len(numbers)}__"
         numbers[key] = match.group(0)
-        logger.debug(f"Stored number: '{match.group(0)}' as '{key}'")
         return key
 
     content = re.sub(number_pattern, store_number, content)
-    logger.debug(f"After number preservation: '{content}'")
 
     # Replace single punctuation between words with a space
     content = re.sub(r'(?<=\w)[.,!?;:-](?=\w)', ' ', content)
 
     # Replace consecutive punctuation with the last punctuation mark
     content = re.sub(r'([.?!]+)', lambda match: match.group()[-1], content)
-    logger.debug(f"After consecutive punctuation cleanup: '{content}'")
 
     # Restore preserved numbers
     for key, value in numbers.items():
         content = content.replace(key, value)
-    logger.debug(f"After restoring numbers: '{content}'")
 
     # Remove any extra spaces that may have been introduced
     content = re.sub(r'\s+', ' ', content).strip()
-    logger.debug(f"Final content after space cleanup: '{content}'")
 
     return content
 
