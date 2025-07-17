@@ -82,7 +82,7 @@ def preprocess_texts(texts: str | list[str]) -> list[str]:
         texts = [texts]
 
     # Lowercase
-    # texts = [text.lower() for text in texts]
+    texts = [text.lower() for text in texts]
     preprocessed_texts: list[str] = texts.copy()
     stop_words = set(stopwords.words('english'))
 
