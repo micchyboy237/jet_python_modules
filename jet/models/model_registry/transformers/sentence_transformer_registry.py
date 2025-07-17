@@ -93,8 +93,9 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             logger.warning(
                 f"Falling back to CPU (onnx) for embed model due to: {e}")
             model_instance = SentenceTransformer(
-                model_id, device="cpu", backend="onnx", truncate_dim=truncate_dim, prompts=prompts,
-                model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'})
+                model_id, device="cpu", backend="onnx", trust_remote_code=True, truncate_dim=truncate_dim, prompts=prompts,
+                # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
+            )
         return model_instance
 
     @staticmethod
