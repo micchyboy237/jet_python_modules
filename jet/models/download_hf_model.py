@@ -74,14 +74,19 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
             repo_id=model_path,
             cache_dir=cache_dir,
             ignore_patterns=[
+                "*.safetensors",
                 "*.bin",
                 "*.h5",
-                "onnx/model*.onnx",  # Simplified pattern to cover all ONNX variants
+                "onnx/*.onnx",
+                "onnx/*/*.onnx",
                 "openvino/*",
             ],
-            local_dir_use_symlinks=False,
-            force_download=True,
-            etag_timeout=20.0,  # Set timeout for ETag fetching
+            allow_patterns=None,  # only if you want fine-grained control
+            force_download=False,
+            etag_timeout=20.0,
+            local_dir_use_symlinks="auto",
+            max_workers=4,
+            resume_download=True,
         )
     except HfHubHTTPError as e:
         logger.error(f"Failed to download model from {model_path}: {str(e)}")
@@ -97,7 +102,7 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
 
 
 if __name__ == "__main__":
-    repo_id = "tomaarsen/static-retrieval-mrl-en-v1"
+    repo_id = "nomic-ai/nomic-embed-text-v1.5"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")

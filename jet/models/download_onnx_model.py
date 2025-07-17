@@ -75,7 +75,7 @@ def download_onnx_model(
         # Define priority order for model files
         model_file_candidates = [
             "onnx/model_qint8_arm64.onnx",
-            "onnxai_file_quantized.onnx",
+            "onnx/model_quantized.onnx",
             "onnx/model.onnx"
         ]
         selected_model_file = None
