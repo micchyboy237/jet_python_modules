@@ -97,6 +97,15 @@ def rerank_by_keywords(
     extraction_vectorizer = CountVectorizer(
         vocabulary=valid_keywords) if valid_keywords else count_vectorizer
 
+    # Flatten seed_keywords if it's a list of lists
+    flat_seed_keywords = []
+    if seed_keywords:
+        if isinstance(seed_keywords[0], list):
+            flat_seed_keywords = [
+                keyword for sublist in seed_keywords for keyword in sublist]
+        else:
+            flat_seed_keywords = seed_keywords
+
     try:
         if use_embeddings:
             doc_embeddings = generate_embeddings(
@@ -111,14 +120,14 @@ def rerank_by_keywords(
                 doc_embeddings=doc_embeddings,
                 word_embeddings=word_embeddings,
                 vectorizer=extraction_vectorizer,
-                top_n=top_n,
+                top_n=top_n * 2,  # Extract more to allow filtering
             )
         elif candidates:
             keywords = keybert_model.extract_keywords(
                 docs=processed_texts,
                 candidates=candidates,
                 seed_keywords=seed_keywords,
-                top_n=top_n,
+                top_n=top_n * 2,
                 keyphrase_ngram_range=keyphrase_ngram_range,
                 stop_words=stop_words,
             )
@@ -127,19 +136,35 @@ def rerank_by_keywords(
                 docs=processed_texts,
                 seed_keywords=seed_keywords,
                 vectorizer=extraction_vectorizer,
-                top_n=top_n,
+                top_n=top_n * 2,
             )
         else:
             keywords = keybert_model.extract_keywords(
                 docs=processed_texts,
                 seed_keywords=seed_keywords,
-                top_n=top_n,
+                top_n=top_n * 2,
                 use_mmr=use_mmr,
                 diversity=diversity,
                 keyphrase_ngram_range=keyphrase_ngram_range,
                 stop_words=stop_words,
                 vectorizer=extraction_vectorizer,
             )
+
+        # Filter keywords to only include those containing any seed keyword
+        if flat_seed_keywords:
+            filtered_keywords = []
+            for doc_keywords in keywords:
+                filtered_doc_keywords = [
+                    (kw, score) for kw, score in doc_keywords
+                    if any(seed.lower() in kw.lower() for seed in flat_seed_keywords)
+                ]
+                # Ensure we return up to top_n keywords after filtering
+                filtered_keywords.append(filtered_doc_keywords[:top_n])
+            keywords = filtered_keywords
+        else:
+            # Trim back to top_n if no filtering applied
+            keywords = [doc_keywords[:top_n] for doc_keywords in keywords]
+
     except Exception as e:
         logger.error(f"Error during keyword extraction: {e}")
         return []
