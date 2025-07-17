@@ -116,14 +116,14 @@ def rerank_by_keywords(
     extraction_vectorizer = CountVectorizer(
         vocabulary=valid_keywords) if valid_keywords else count_vectorizer
 
-    # Handle seed_keywords for matrix input
-    flat_seed_keywords = []
-    if seed_keywords:
-        if isinstance(seed_keywords[0], list):
-            flat_seed_keywords = [
-                keyword for sublist in seed_keywords for keyword in sublist]
-        else:
-            flat_seed_keywords = seed_keywords
+    # # Handle seed_keywords for matrix input
+    # flat_seed_keywords = []
+    # if seed_keywords:
+    #     if isinstance(seed_keywords[0], list):
+    #         flat_seed_keywords = [
+    #             keyword for sublist in seed_keywords for keyword in sublist]
+    #     else:
+    #         flat_seed_keywords = seed_keywords
 
     try:
         if use_embeddings:
@@ -169,18 +169,18 @@ def rerank_by_keywords(
                 vectorizer=extraction_vectorizer,
             )
 
-        # Filter keywords to only include those containing any seed keyword
-        if flat_seed_keywords:
-            filtered_keywords = []
-            for doc_keywords in keywords:
-                filtered_doc_keywords = [
-                    (kw, score) for kw, score in doc_keywords
-                    if any(seed.lower() in kw.lower() for seed in flat_seed_keywords)
-                ]
-                filtered_keywords.append(filtered_doc_keywords[:top_n])
-            keywords = filtered_keywords
-        else:
-            keywords = [doc_keywords[:top_n] for doc_keywords in keywords]
+        # # Filter keywords to only include those containing any seed keyword
+        # if flat_seed_keywords:
+        #     filtered_keywords = []
+        #     for doc_keywords in keywords:
+        #         filtered_doc_keywords = [
+        #             (kw, score) for kw, score in doc_keywords
+        #             if any(seed.lower() in kw.lower() for seed in flat_seed_keywords)
+        #         ]
+        #         filtered_keywords.append(filtered_doc_keywords[:top_n])
+        #     keywords = filtered_keywords
+        # else:
+        #     keywords = [doc_keywords[:top_n] for doc_keywords in keywords]
 
         # Apply threshold filtering if specified
         if threshold is not None:
