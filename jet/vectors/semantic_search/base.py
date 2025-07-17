@@ -6,6 +6,12 @@ from jet.models.model_types import EmbedModelType
 from jet.wordnet.keywords.helpers import preprocess_texts
 
 
+class Match(TypedDict):
+    text: str
+    start_idx: int
+    end_idx: int
+
+
 class Metadata(TypedDict, total=False):
     query_scores: Dict[str, float]
 
@@ -17,6 +23,7 @@ class SearchResult(TypedDict):
     content: str
     id: str
     metadata: Metadata
+    matches: List[Match]
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -58,7 +65,7 @@ def vector_search(
     for doc_idx, (text, doc_id, metadata) in enumerate(zip(texts, ids, metadatas)):
         chunk_to_doc.append((doc_idx, text, doc_id, metadata))
 
-    # Preprocess texts
+    # Preprocess texts and queries
     preprocessed_texts = preprocess_texts(texts)
     preprocessed_queries = preprocess_texts(queries)
 
@@ -74,43 +81,68 @@ def vector_search(
     query_embeddings = embeddings[:len(queries)]
     chunk_embeddings = embeddings[len(queries):]
 
-    # Calculate similarities for each query and store individual scores
+    # Calculate similarities and collect matches
     similarities = []
     for chunk_emb, (doc_idx, orig_text, doc_id, metadata) in zip(chunk_embeddings, chunk_to_doc):
         # Compute similarity for each query
         scores = [cosine_similarity(query_emb, chunk_emb)
                   for query_emb in query_embeddings]
-        max_score = float(np.max(scores))  # Use max instead of average
+        max_score = float(np.max(scores))
         # Create a new metadata dict with individual scores if query is a list
         new_metadata = metadata.copy()
         if isinstance(query, List):
             new_metadata['query_scores'] = {
                 q: float(score) for q, score in zip(queries, scores)}
+
+        # Find matches for query words/phrases in preprocessed text
+        preprocessed_text = preprocessed_texts[doc_idx]
+        matches: List[Match] = []
+        for q in preprocessed_queries:
+            # Split query into words for single-word matching
+            query_words = q.split()
+            text_lower = preprocessed_text.lower()
+            for word in query_words:
+                word_lower = word.lower()
+                start_idx = 0
+                while True:
+                    start_idx = text_lower.find(word_lower, start_idx)
+                    if start_idx == -1:
+                        break
+                    end_idx = start_idx + len(word_lower)
+                    matches.append(Match(
+                        text=word,
+                        start_idx=start_idx,
+                        end_idx=end_idx
+                    ))
+                    start_idx = end_idx
         similarities.append(
-            (max_score, doc_idx, orig_text, doc_id, new_metadata))
+            (max_score, doc_idx, orig_text, doc_id, new_metadata, matches))
 
     # Aggregate scores by document (take max score across chunks)
     doc_scores = {}
-    for score, doc_idx, orig_text, doc_id, metadata in similarities:
+    for score, doc_idx, orig_text, doc_id, metadata, matches in similarities:
         if doc_idx not in doc_scores or score > doc_scores[doc_idx][0]:
-            doc_scores[doc_idx] = (score, orig_text, doc_id, metadata)
+            doc_scores[doc_idx] = (score, orig_text, doc_id, metadata, matches)
 
     # Sort by score and create results
     if not top_k:
         top_k = len(texts)
     results = []
-    for rank, (doc_idx, (score, content, doc_id, metadata)) in enumerate(
+    for rank, (doc_idx, (score, orig_text, doc_id, metadata, matches)) in enumerate(
         sorted(doc_scores.items(), key=lambda x: x[1][0], reverse=True)[
             :top_k], 1
     ):
-        header = content.splitlines()[0] if content.splitlines() else ""
+        text_lines = orig_text.splitlines()
+        header = text_lines[0] if text_lines else ""
+        content = "\n".join(text_lines[1:]).strip()
         results.append(SearchResult(
             rank=rank,
             score=float(score),
             header=header,
             content=content,
             id=doc_id,
-            metadata=metadata
+            metadata=metadata,
+            matches=matches
         ))
 
     return results
