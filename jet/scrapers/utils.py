@@ -398,24 +398,54 @@ def clean_punctuations(content: str) -> str:
     """
     Replace consecutive and mixed punctuation marks (.?!), ensuring that each valid group
     is replaced with its last occurring punctuation, and replace all punctuation between words with spaces.
+    Preserve decimal points in numbers (e.g., 3.14) and version numbers (e.g., 1.2.3) while treating standalone decimal points as punctuation.
 
     Example:
         "Hello!!! How are you???" -> "Hello! How are you?"
         "Wait... What.!?" -> "Wait. What?"
-        "Really...?!? Are you sure???" -> "Really. Are you sure?"
+        "Really...?!? Are you sure???" -> "Really? Are you sure?"
         "anime-strongest" -> "anime strongest"
         "data.test.123" -> "data test 123"
         "summer,2024" -> "summer 2024"
+        "Price: 3.14 dollars" -> "Price 3.14 dollars"
+        "Version...1.2.3" -> "Version.1.2.3"
 
     Args:
         content: Input string with possible consecutive punctuations and punctuation between words.
     Returns:
         String with cleaned punctuation and punctuation between words replaced by spaces.
     """
-    # Replace punctuation between words with a space
-    content = re.sub(r'(?<=\w)[.,!?;:-]+(?=\w)', ' ', content)
+    logger.debug(f"Input content: '{content}'")
+
+    # Preserve decimal points in numbers and version numbers
+    number_pattern = r'(\d+\.\d+(\.\d+)*)'
+    numbers = {}
+
+    def store_number(match):
+        key = f"__NUMBER_{len(numbers)}__"
+        numbers[key] = match.group(0)
+        logger.debug(f"Stored number: '{match.group(0)}' as '{key}'")
+        return key
+
+    content = re.sub(number_pattern, store_number, content)
+    logger.debug(f"After number preservation: '{content}'")
+
+    # Replace single punctuation between words with a space
+    content = re.sub(r'(?<=\w)[.,!?;:-](?=\w)', ' ', content)
+
     # Replace consecutive punctuation with the last punctuation mark
     content = re.sub(r'([.?!]+)', lambda match: match.group()[-1], content)
+    logger.debug(f"After consecutive punctuation cleanup: '{content}'")
+
+    # Restore preserved numbers
+    for key, value in numbers.items():
+        content = content.replace(key, value)
+    logger.debug(f"After restoring numbers: '{content}'")
+
+    # Remove any extra spaces that may have been introduced
+    content = re.sub(r'\s+', ' ', content).strip()
+    logger.debug(f"Final content after space cleanup: '{content}'")
+
     return content
 
 

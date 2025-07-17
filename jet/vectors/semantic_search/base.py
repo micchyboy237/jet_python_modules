@@ -1,9 +1,9 @@
 from typing import Optional, TypedDict, List, Dict, Union
 import numpy as np
-from jet.wordnet.keywords.utils import preprocess_text
 from jet.data.utils import generate_unique_id
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
+from jet.wordnet.keywords.helpers import preprocess_texts
 
 
 class Metadata(TypedDict, total=False):
@@ -59,8 +59,8 @@ def vector_search(
         chunk_to_doc.append((doc_idx, text, doc_id, metadata))
 
     # Preprocess texts
-    preprocessed_texts = [preprocess_text(text) for text in texts]
-    preprocessed_queries = [preprocess_text(q) for q in queries]
+    preprocessed_texts = preprocess_texts(texts)
+    preprocessed_queries = preprocess_texts(queries)
 
     # Generate embeddings for queries and all chunks
     embeddings = generate_embeddings(

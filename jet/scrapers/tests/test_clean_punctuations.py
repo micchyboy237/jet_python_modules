@@ -22,9 +22,9 @@ class TestCleanPunctuations:
             ),
             (
                 # Given: A string with punctuation between words
-                "anime-strongest",
+                "anime-strongest:of:all",
                 # Then: Should replace punctuation with a space
-                "anime strongest"
+                "anime strongest of all"
             ),
             (
                 # Given: A string with multiple types of punctuation between words
@@ -49,6 +49,20 @@ class TestCleanPunctuations:
                 "Hello world",
                 # Then: Should return unchanged
                 "Hello world"
+            ),
+            (
+                "Price: 3.14 dollars",
+                "Price: 3.14 dollars",
+                # Given: A string with a colon before a decimal number
+                # When: clean_punctuations is called
+                # Then: The colon and the decimal number is preserved
+            ),
+            (
+                "Version...1.2.3",
+                "Version.1.2.3",
+                # Given: A string with consecutive dots and a version number
+                # When: clean_punctuations is called
+                # Then: Consecutive dots are reduced to one, and decimal points in version are preserved
             ),
             (
                 # Given: An empty string

@@ -16,17 +16,3 @@ def expand_tokens_with_subtokens(tokens: Set[str]) -> Set[str]:
                 {w for w in sub_tokens if w not in en_stopwords})
 
     return results
-
-
-def preprocess_text(text: str) -> str:
-    """Preprocess text for keyword extraction by removing all punctuation."""
-    # Remove all punctuation except for decimal points in numbers
-    # First, preserve decimal points by temporarily replacing them
-    text = re.sub(r'(\d)\.(\d)', r'\1DECIMALPOINT\2', text)
-    # Remove all punctuation
-    cleaned = re.sub(r'[^\w\s]', '', text)
-    # Restore decimal points
-    cleaned = cleaned.replace('DECIMALPOINT', '.')
-    # Remove excessive whitespace and normalize spaces
-    cleaned = re.sub(r'\s+', ' ', cleaned.strip())
-    return cleaned

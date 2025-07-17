@@ -4,7 +4,8 @@ import uuid
 from sklearn.feature_extraction.text import CountVectorizer
 from jet.models.model_registry.transformers.cross_encoder_model_registry import CrossEncoderRegistry
 from jet.models.model_types import EmbedModelType
-from jet.wordnet.keywords.keyword_extraction import preprocess_text, SimilarityResult, _count_tokens
+from jet.wordnet.keywords.helpers import preprocess_texts
+from jet.wordnet.keywords.keyword_extraction import SimilarityResult, _count_tokens
 from jet.logger import logger
 import spacy
 
@@ -54,7 +55,7 @@ def extract_keywords_cross_encoder(
 
     doc_ids = ids if ids and len(ids) == len(texts) else [
         str(uuid.uuid4()) for _ in texts]
-    processed_texts = [preprocess_text(text) for text in texts]
+    processed_texts = preprocess_texts(texts)
 
     # Use provided candidates or generate new ones
     final_candidates = candidates
