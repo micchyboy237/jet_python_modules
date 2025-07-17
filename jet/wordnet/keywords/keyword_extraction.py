@@ -34,6 +34,8 @@ def rerank_by_keywords(
     keybert_model: Optional[KeyBERT] = None,
     min_count: int = 1,
     show_progress: bool = True,
+    top_k: Optional[int] = None,
+    threshold: Optional[float] = None,
 ) -> List[SimilarityResult]:
     nlp = spacy.load("en_core_web_sm")
     keybert_model = keybert_model or setup_keybert(embed_model)
@@ -41,6 +43,10 @@ def rerank_by_keywords(
     if use_mmr and not (0.0 <= diversity <= 1.0):
         raise ValueError(
             "Diversity must be between 0.0 and 1.0 when use_mmr is True")
+
+    if threshold is not None and not (0.0 <= threshold <= 1.0):
+        raise ValueError(
+            "Threshold must be between 0.0 and 1.0")
 
     if not texts:
         logger.warning("Empty text list provided. Returning empty results.")
@@ -165,6 +171,14 @@ def rerank_by_keywords(
             # Trim back to top_n if no filtering applied
             keywords = [doc_keywords[:top_n] for doc_keywords in keywords]
 
+        # Apply threshold filtering if specified
+        if threshold is not None:
+            keywords = [
+                [(kw, score)
+                 for kw, score in doc_keywords if score >= threshold]
+                for doc_keywords in keywords
+            ]
+
     except Exception as e:
         logger.error(f"Error during keyword extraction: {e}")
         return []
@@ -189,6 +203,11 @@ def rerank_by_keywords(
         result.append(result_entry)
 
     sorted_results = sorted(result, key=lambda x: x['score'], reverse=True)
+
+    # Apply top_k filtering if specified
+    if top_k is not None:
+        sorted_results = sorted_results[:top_k]
+
     for rank, res in enumerate(sorted_results, 1):
         res['rank'] = rank
 

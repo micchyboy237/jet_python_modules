@@ -5,7 +5,7 @@ from jet.data.utils import generate_unique_id
 from jet.models.tokenizer.base import TokenizerWrapper, EncodingWrapper
 
 
-class Metadata(TypedDict):
+class ChunkMetadata(TypedDict):
     start_idx: int
     end_idx: int
 
@@ -22,7 +22,7 @@ class ChunkResult(TypedDict):
     content: str
     level: int
     parent_level: Optional[int]
-    metadata: Metadata
+    metadata: ChunkMetadata
 
 
 def chunk_headers_by_hierarchy(
