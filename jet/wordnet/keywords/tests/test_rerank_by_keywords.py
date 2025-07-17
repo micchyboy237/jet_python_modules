@@ -1,10 +1,12 @@
 from typing import List, Optional, Tuple, Union
 from unittest import mock
+
 import pytest
 import numpy as np
 from unittest.mock import patch, MagicMock
 from jet.wordnet.keywords.keyword_extraction import rerank_by_keywords, SimilarityResult
 from sklearn.feature_extraction.text import CountVectorizer
+from scipy.sparse import csr_matrix  # Add this import for sparse matrix support
 
 
 @pytest.fixture
@@ -328,29 +330,43 @@ class TestRerankByKeywordsCandidates:
             {
                 "id": mock.ANY,
                 "rank": 1,
-                "doc_index": 1,
-                "score": 0.9,
-                "text": "A fast cat climbs steep hills",
-                "tokens": mock.ANY,
-                "keywords": [{"text": "fast cat", "score": 0.9}]
-            },
-            {
-                "id": mock.ANY,
-                "rank": 2,
                 "doc_index": 0,
                 "score": 0.8,
                 "text": "The quick brown fox jumps over the lazy dog",
                 "tokens": mock.ANY,
-                "keywords": [{"text": "quick fox", "score": 0.8}, {"text": "lazy dog", "score": 0.7}]
+                "keywords": [
+                    {
+                        "text": "quick fox",
+                        "score": 0.8
+                    },
+                    {
+                        "text": "lazy dog",
+                        "score": 0.7
+                    }
+                ]
             },
             {
                 "id": mock.ANY,
-                "rank": 3,
+                "rank": 2,
                 "doc_index": 2,
                 "score": 0.6,
                 "text": "The dog sleeps by the fire",
                 "tokens": mock.ANY,
-                "keywords": [{"text": "lazy dog", "score": 0.6}]
+                "keywords": [
+                    {
+                        "text": "lazy dog",
+                        "score": 0.6
+                    }
+                ]
+            },
+            {
+                "id": mock.ANY,
+                "rank": 3,
+                "doc_index": 1,
+                "score": 0.0,
+                "text": "A fast cat climbs steep hills",
+                "tokens": mock.ANY,
+                "keywords": []
             }
         ]
         mock_keybert.extract_keywords.return_value = expected_keywords
@@ -392,10 +408,10 @@ class TestRerankByKeywordsCandidates:
         candidates = ["quick fox", "lazy dog", "rare term"]
         seed_keywords = ["fox", "dog"]
         # Simulate CountVectorizer output for min_count filtering
-        mock_vectorizer = CountVectorizer()
+        mock_vectorizer = MagicMock()
         mock_vectorizer.get_feature_names_out.return_value = [
             "quick fox", "lazy dog"]  # "rare term" filtered out
-        mock_vectorizer.fit_transform.return_value = np.array(
+        mock_vectorizer.fit_transform.return_value = csr_matrix(
             [[1, 1, 0], [0, 0, 0], [0, 1, 0]])
         expected_keywords = [
             [("quick fox", 0.8), ("lazy dog", 0.7)],
