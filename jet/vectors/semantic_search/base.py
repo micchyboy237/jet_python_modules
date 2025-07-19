@@ -1,3 +1,4 @@
+import re
 from typing import Optional, TypedDict, List, Dict, Union
 import numpy as np
 from jet.data.utils import generate_unique_id
@@ -51,6 +52,7 @@ def vector_search(
     query_embeddings = embeddings[:len(queries)]
     chunk_embeddings = embeddings[len(queries):]
     similarities = []
+    # Inside the loop for each chunk
     for chunk_emb, (doc_idx, orig_text, doc_id, metadata) in zip(chunk_embeddings, chunk_to_doc):
         scores = [cosine_similarity(query_emb, chunk_emb)
                   for query_emb in query_embeddings]
@@ -77,8 +79,6 @@ def vector_search(
             max_words = len(get_words(q))
             ngrams = generate_ngrams(q, max_words)
             all_search_terms.extend([(ngram, len(ngram)) for ngram in ngrams])
-            # Remove the full query match to prevent over-matching
-            # all_search_terms.append((q, len(q)))
         all_search_terms = sorted(
             all_search_terms, key=lambda x: x[1], reverse=True)
         logger.debug(f"Chunk {doc_id}: search_terms={all_search_terms}")
@@ -87,18 +87,16 @@ def vector_search(
         text_lower = preprocessed_text.lower()
         for term, term_len in all_search_terms:
             term_lower = term.lower()
-            start_idx = 0
-            while True:
-                start_idx = text_lower.find(term_lower, start_idx)
-                if start_idx == -1:
-                    break
-                end_idx = start_idx + len(term_lower)
+            # Use regex with word boundaries to ensure exact term matches
+            pattern = rf'\b{re.escape(term_lower)}\b'
+            for match in re.finditer(pattern, text_lower):
+                start_idx = match.start()
+                end_idx = match.end()
                 matches.append(Match(
                     text=term,
                     start_idx=start_idx,
                     end_idx=end_idx
                 ))
-                start_idx = end_idx
 
         matches.sort(key=lambda m: (m["start_idx"], -m["end_idx"]))
         filtered_matches: List[Match] = []
@@ -108,12 +106,13 @@ def vector_search(
                 filtered_matches.append(match)
                 last_end = match["end_idx"]
         logger.debug(f"Chunk {doc_id}: matches={filtered_matches}")
-        # Apply n-gram boost to the score
+
         boosted_score = boost_ngram_score(filtered_matches, max_score)
         logger.debug(
             f"Chunk {doc_id}: boosted_score={boosted_score}, max_score={max_score}, match_lengths={[m['end_idx'] - m['start_idx'] for m in filtered_matches]}")
         similarities.append(
             (boosted_score, doc_idx, orig_text, doc_id, new_metadata, filtered_matches))
+
     doc_scores = {}
     for score, doc_idx, orig_text, doc_id, metadata, matches in similarities:
         logger.debug(f"Doc {doc_idx}: score={score}, id={doc_id}")
