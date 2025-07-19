@@ -83,8 +83,7 @@ def preprocess_texts(texts: str | list[str]) -> list[str]:
         texts = [texts]
 
     # Lowercase
-    texts = [text.lower() for text in texts]
-    preprocessed_texts: list[str] = texts.copy()
+    preprocessed_texts = [text.lower() for text in texts]
     stop_words = set(stopwords.words('english'))
 
     tagger = POSTagger()
