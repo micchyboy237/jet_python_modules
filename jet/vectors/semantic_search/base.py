@@ -78,26 +78,35 @@ def vector_search(
         # Find matches for query words/phrases in preprocessed text
         preprocessed_text = preprocessed_texts[doc_idx]
         matches: List[Match] = []
-        for q in preprocessed_queries:
-            # Split query into words for single-word matching
-            query_words = q.split()
-            text_lower = preprocessed_text.lower()
-            for word in query_words:
-                word_lower = word.lower()
-                start_idx = 0
-                while True:
-                    start_idx = text_lower.find(word_lower, start_idx)
-                    if start_idx == -1:
-                        break
-                    end_idx = start_idx + len(word_lower)
-                    matches.append(Match(
-                        text=word,
-                        start_idx=start_idx,
-                        end_idx=end_idx
-                    ))
-                    start_idx = end_idx
+        text_lower = preprocessed_text.lower()
+        # Process longer queries first
+        for q in sorted(preprocessed_queries, key=len, reverse=True):
+            query_lower = q.lower()
+            start_idx = 0
+            while True:
+                start_idx = text_lower.find(query_lower, start_idx)
+                if start_idx == -1:
+                    break
+                end_idx = start_idx + len(query_lower)
+                matches.append(Match(
+                    text=q,
+                    start_idx=start_idx,
+                    end_idx=end_idx
+                ))
+                start_idx = end_idx
+
+        # Remove overlapping matches, keeping the longest match
+        # Sort by start_idx, then longer matches
+        matches.sort(key=lambda m: (m["start_idx"], -m["end_idx"]))
+        filtered_matches: List[Match] = []
+        last_end = -1
+        for match in matches:
+            if match["start_idx"] >= last_end:  # Non-overlapping match
+                filtered_matches.append(match)
+                last_end = match["end_idx"]
+
         similarities.append(
-            (max_score, doc_idx, orig_text, doc_id, new_metadata, matches))
+            (max_score, doc_idx, orig_text, doc_id, new_metadata, filtered_matches))
 
     # Aggregate scores by document (take max score across chunks)
     doc_scores = {}

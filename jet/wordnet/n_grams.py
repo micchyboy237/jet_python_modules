@@ -1,6 +1,6 @@
 from typing import Iterable, Tuple, Iterator
 from jet.logger import logger
-from jet.wordnet.pos_tagger import POSItem, POSTagEnum, POSTagType, POSTagger
+from jet.wordnet.pos_tagger_light import POSItem, POSTagEnum, POSTagType, POSTagger
 from itertools import tee, islice
 from typing import List, Set
 from jet.wordnet.sentence import split_by_punctuations, split_sentences

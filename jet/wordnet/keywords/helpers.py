@@ -122,18 +122,50 @@ def setup_keybert(model_name: EmbedModelType = DEFAULT_EMBED_MODEL) -> KeyBERT:
 
 
 def extract_query_candidates(query: Union[str, List[str]], ngram_range: Tuple[int, int] = (1, 2)) -> List[str]:
-    """Extract candidate keywords from a query using spaCy NLP, including years."""
+    """Extract candidate keywords from a query using spaCy NLP, including years, with overlap resolution."""
     if isinstance(query, str):
         query = [query]
     texts = preprocess_texts(query)
     min_words, max_words = ngram_range
-    all_ngrams = count_ngrams([text.lower()
-                               for text in texts], min_words=min_words, max_words=max_words)
-    # Sort candidates by ngram count in descending order, then alphabetically
-    sorted_candidates = sorted(
-        all_ngrams.items(), key=lambda x: (-x[1], x[0])
-    )
-    candidates = [ngram for ngram, count in sorted_candidates]
+    all_ngrams = count_ngrams(
+        [text.lower() for text in texts], min_words=min_words, max_words=max_words)
+
+    # Collect n-grams with their positions in the text
+    ngram_positions = []
+    for text in texts:
+        text_lower = text.lower()
+        for ngram, count in all_ngrams.items():
+            start_idx = 0
+            while True:
+                start_idx = text_lower.find(ngram, start_idx)
+                if start_idx == -1:
+                    break
+                end_idx = start_idx + len(ngram)
+                ngram_positions.append({
+                    "text": ngram,
+                    "start_idx": start_idx,
+                    "end_idx": end_idx,
+                    "count": count
+                })
+                start_idx = end_idx
+
+    # Sort by start_idx and then by length (descending) to prioritize longer n-grams
+    ngram_positions.sort(key=lambda x: (
+        x["start_idx"], -x["end_idx"] + x["start_idx"]))
+
+    # Filter out overlapping n-grams, keeping the longest at each position
+    filtered_ngrams = []
+    last_end = -1
+    for ngram in ngram_positions:
+        if ngram["start_idx"] >= last_end:
+            filtered_ngrams.append(ngram)
+            last_end = ngram["end_idx"]
+
+    # Sort filtered n-grams by count (descending) and then alphabetically
+    filtered_ngrams.sort(key=lambda x: (-x["count"], x["text"]))
+
+    # Extract just the n-gram texts
+    candidates = [ngram["text"] for ngram in filtered_ngrams]
     return candidates
 
 
