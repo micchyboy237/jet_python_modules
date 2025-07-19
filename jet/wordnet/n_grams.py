@@ -1,3 +1,4 @@
+from typing import Iterable, Tuple, Iterator
 from jet.logger import logger
 from jet.wordnet.pos_tagger import POSItem, POSTagEnum, POSTagType, POSTagger
 from itertools import tee, islice
@@ -377,12 +378,39 @@ def filter_texts_by_multi_ngram_count(
     return filtered_texts
 
 
-def nwise(iterable, n=1):
-    "Returns a sliding window (of width n) over data from the iterable"
-    iters = tee(iterable, n)
-    for i, it in enumerate(iters):
-        next(islice(it, i, i), None)
-    return zip(*iters)
+def nwise(iterable: Iterable[str], n: int = 1) -> Iterator[Tuple[str, ...]]:
+    """
+    Returns a sliding window (of width n) over data from the iterable, treating
+    newlines as separators so words on different lines are not considered adjacent.
+
+    Args:
+        iterable: An iterable of strings (e.g., a string split into words or lines)
+        n: Size of the sliding window
+
+    Returns:
+        An iterator of tuples, each containing n consecutive items from the same line
+    """
+    if n < 1:
+        return
+
+    # Check if input is a string or an iterable of strings
+    if isinstance(iterable, str):
+        lines = iterable.splitlines()
+    else:
+        # Convert iterable to list to handle non-string iterables
+        lines = [' '.join(iterable)] if iterable else []
+
+    # Process each line independently
+    for line in lines:
+        words = line.split()
+        if len(words) < n:
+            continue
+
+        # Apply sliding window to words in current line
+        iters = tee(words, n)
+        for i, it in enumerate(iters):
+            next(islice(it, i, i), None)
+        yield from zip(*iters)
 
 
 def get_common_texts(texts, min_words: int = 1, min_count: int = 2, max_words: Optional[int] = None, includes_pos=["PROPN", "NOUN", "VERB", "ADJ"]):

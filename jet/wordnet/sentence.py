@@ -331,7 +331,7 @@ def get_sentences(text: str, n: int) -> list[str]:
 
 def split_by_punctuations(text: str, punctuations: list[str]) -> list[str]:
     if not text:
-        raise ValueError("Text cannot be empty or None.")
+        return []
     if not punctuations:
         raise ValueError("Punctuation list cannot be empty or None.")
 
