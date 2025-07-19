@@ -4,26 +4,7 @@ from jet.data.utils import generate_unique_id
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
 from jet.wordnet.keywords.helpers import preprocess_texts
-
-
-class Match(TypedDict):
-    text: str
-    start_idx: int
-    end_idx: int
-
-
-class Metadata(TypedDict, total=False):
-    query_scores: Dict[str, float]
-
-
-class SearchResult(TypedDict):
-    rank: int
-    score: float
-    header: str
-    content: str
-    id: str
-    metadata: Metadata
-    matches: List[Match]
+from .search_types import Match, SearchResult
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:

@@ -1,6 +1,7 @@
 from tqdm import tqdm
 from jet.wordnet.n_grams import count_ngrams
-from jet.wordnet.pos_tagger import POSTagger
+# from jet.wordnet.pos_tagger import POSTagger
+from jet.wordnet.pos_tagger_light import POSTagger
 from jet.scrapers.utils import clean_newlines, clean_punctuations, clean_spaces
 from jet.search.formatters import clean_string
 from jet.wordnet.lemmatizer import lemmatize_text
