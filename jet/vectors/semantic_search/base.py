@@ -2,6 +2,7 @@ from typing import Optional, TypedDict, List, Dict, Union
 import numpy as np
 from jet.data.utils import generate_unique_id
 from jet.models.embeddings.base import generate_embeddings
+from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 from jet.wordnet.keywords.helpers import preprocess_texts
 
@@ -39,6 +40,7 @@ def vector_search(
     ids: Optional[List[str]] = None,
     metadatas: Optional[List[Dict]] = None,
     batch_size: int = 32,
+    truncate_dim: Optional[int] = None,
 ) -> List[SearchResult]:
     """Perform vector search with chunking and return ranked results. Supports single query or list of queries."""
     # Validate inputs
@@ -51,6 +53,9 @@ def vector_search(
     queries = [query] if isinstance(query, str) else query
     if not queries:
         raise ValueError("Query list cannot be empty")
+
+    SentenceTransformerRegistry.load_model(
+        embed_model, truncate_dim=truncate_dim)
 
     # Generate IDs if not provided
     if ids is None:

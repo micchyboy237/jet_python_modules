@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
@@ -9,10 +9,11 @@ from jet.models.model_types import EmbedModelType
 class VectorSearch:
     """A vector search engine using sentence transformers."""
 
-    def __init__(self, model_name: EmbedModelType = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: EmbedModelType = "all-MiniLM-L6-v2", truncate_dim: Optional[int] = None):
         self.documents: List[str] = []
         self.vectors: np.ndarray = None
-        self.model = SentenceTransformerRegistry.load_model(model_name)
+        self.model = SentenceTransformerRegistry.load_model(
+            model_name, truncate_dim=truncate_dim)
 
     def add_documents(self, documents: List[str]) -> None:
         """Add documents and their vector representations."""
