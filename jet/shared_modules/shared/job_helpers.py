@@ -1,9 +1,10 @@
 from typing import List, Dict, Optional
 import numpy as np
+from numpy.typing import NDArray
 from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
-from shared.data_types.job import JobData, JobSearchResult
+from shared.data_types.job import JobData, JobMetadata, JobSearchResult
 from jet.db.postgres.pgvector import PgVectorClient, VectorInput, SearchResult
 from jet.models.embeddings.chunking import chunk_docs_by_hierarchy, DocChunkResult
 from jet.models.tokenizer.base import TokenizerWrapper
@@ -14,40 +15,90 @@ DEFAULT_TABLE_NAME = "embeddings"
 DEFAULT_CHUNK_SIZE = 512
 
 
-def load_jobs_metadata(
-    chunk_ids: List[str],
+def load_job_embeddings(
+    chunk_ids: Optional[List[str]] = None,
     db_client: Optional[PgVectorClient] = None
-) -> List[Dict]:
+) -> Dict[str, NDArray[np.float64]]:
     """
-    Load job metadata for given chunk IDs from the metadata table.
+    Load job embeddings for given chunk IDs or all embeddings if no IDs provided.
 
     Args:
-        chunk_ids: List of chunk IDs to retrieve metadata for
+        chunk_ids: Optional list of chunk IDs to retrieve embeddings for
         db_client: Optional PgVectorClient instance
 
     Returns:
-        List of dictionaries containing job metadata
+        Dictionary mapping chunk IDs to their embedding vectors as numpy arrays
     """
-    if not chunk_ids:
-        return []
-
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
-    metadata: List[Dict] = []
+    embeddings: Dict[str, NDArray[np.float64]] = {}
     with db_client:
         with db_client.conn.cursor() as cur:
-            query = f"""
-                SELECT 
-                    chunk_id, doc_id, header_doc_id, parent_id, doc_index,
-                    chunk_index, num_tokens, header, parent_header, content,
-                    level, parent_level, start_idx, end_idx
-                FROM {DEFAULT_TABLE_NAME}_metadata 
-                WHERE chunk_id = ANY(%s);
-            """
-            cur.execute(query, (chunk_ids,))
-            rows = cur.fetchall()
+            if chunk_ids:
+                query = f"""
+                    SELECT id, embedding
+                    FROM {DEFAULT_TABLE_NAME}
+                    WHERE id = ANY(%s);
+                """
+                cur.execute(query, (chunk_ids,))
+            else:
+                query = f"""
+                    SELECT id, embedding
+                    FROM {DEFAULT_TABLE_NAME};
+                """
+                cur.execute(query)
 
+            rows = cur.fetchall()
+            for row in rows:
+                embeddings[row["id"]] = np.array(
+                    row["embedding"], dtype=np.float64)
+
+    logger.debug("Loaded %d job embeddings", len(embeddings))
+    return embeddings
+
+
+def load_jobs_metadata(
+    chunk_ids: Optional[List[str]] = None,
+    db_client: Optional[PgVectorClient] = None
+) -> List[JobMetadata]:
+    """
+    Load job metadata for given chunk IDs or all metadata if no IDs provided.
+
+    Args:
+        chunk_ids: Optional list of chunk IDs to retrieve metadata for
+        db_client: Optional PgVectorClient instance
+
+    Returns:
+        List of JobMetadata dictionaries containing job metadata
+    """
+    if not db_client:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+
+    metadata: List[JobMetadata] = []
+    with db_client:
+        with db_client.conn.cursor() as cur:
+            if chunk_ids:
+                query = f"""
+                    SELECT 
+                        chunk_id, doc_id, header_doc_id, parent_id, doc_index,
+                        chunk_index, num_tokens, header, parent_header, content,
+                        level, parent_level, start_idx, end_idx
+                    FROM {DEFAULT_TABLE_NAME}_metadata 
+                    WHERE chunk_id = ANY(%s);
+                """
+                cur.execute(query, (chunk_ids,))
+            else:
+                query = f"""
+                    SELECT 
+                        chunk_id, doc_id, header_doc_id, parent_id, doc_index,
+                        chunk_index, num_tokens, header, parent_header, content,
+                        level, parent_level, start_idx, end_idx
+                    FROM {DEFAULT_TABLE_NAME}_metadata;
+                """
+                cur.execute(query)
+
+            rows = cur.fetchall()
             for row in rows:
                 metadata.append({
                     "id": row["chunk_id"],

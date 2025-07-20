@@ -202,6 +202,16 @@ class CustomLogger:
             if level_map.get(level.upper(), 10) < level_map.get(self.console_level, 10):
                 return  # Skip logging if level is below console_level
 
+            # Handle % formatting if message contains format specifiers and args are provided
+            if "%" in message and args:
+                try:
+                    message = message % args
+                    args = ()  # Clear args after formatting to avoid duplicate processing
+                except (TypeError, ValueError) as e:
+                    # If formatting fails, log the error and proceed with original message
+                    self.warning(
+                        f"Failed to format message '{message}' with args {args}: {str(e)}")
+
             # Prepare colors list
             if colors is None:
                 colors = [f"BRIGHT_{level}" if bright else level]

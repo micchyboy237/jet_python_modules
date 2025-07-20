@@ -33,6 +33,23 @@ class JobData(TypedDict):
     hours_per_week: Optional[int]
 
 
+class JobMetadata(TypedDict):
+    id: str
+    doc_id: str
+    header_doc_id: str
+    parent_id: Optional[str]
+    doc_index: int
+    chunk_index: int
+    num_tokens: int
+    header: str
+    parent_header: Optional[str]
+    content: str
+    level: int
+    parent_level: Optional[int]
+    start_idx: int
+    end_idx: int
+
+
 class JobSearchResult(TypedDict):
     rank: int
     score: float
