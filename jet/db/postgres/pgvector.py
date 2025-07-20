@@ -641,7 +641,8 @@ class PgVectorClient:
         self,
         table_name: str,
         query_embedding: EmbeddingInput,
-        top_k: int = 5
+        top_k: Optional[int] = None,
+        threshold: Optional[float] = None
     ) -> List[SearchResult]:
         with self.conn.cursor() as cur:
             # Get all column names except embedding
@@ -658,16 +659,20 @@ class PgVectorClient:
 
             columns = list(column_info.keys())
             # Build query with dynamic columns and distance calculation
-            query = sql.SQL(
+            query_template = (
                 "SELECT {}, embedding <=> %s::vector as distance "
-                "FROM {} ORDER BY distance LIMIT %s;"
-            ).format(
+                "FROM {} ORDER BY distance"
+            )
+            if top_k is not None:
+                query_template += " LIMIT %s"
+            query = sql.SQL(query_template).format(
                 sql.SQL(", ").join(map(sql.Identifier, columns + ["id"])),
-                sql.Identifier(table_name),
-                sql.Literal(top_k)
+                sql.Identifier(table_name)
             )
             formatted_embedding = f"[{', '.join(map(str, self._to_list(query_embedding)))}]"
-            cur.execute(query, (formatted_embedding, top_k))
+            params = (formatted_embedding,) if top_k is None else (
+                formatted_embedding, top_k)
+            cur.execute(query, params)
             db_results = cur.fetchall()
 
             # Process results
@@ -689,9 +694,11 @@ class PgVectorClient:
             scores = calculate_vector_scores(distances)
             logger.debug("Transformed similarity scores: %s", scores)
 
-            # Build final results with rank and score
+            # Build final results with rank and score, applying threshold if specified
             final_results: List[SearchResult] = []
             for rank, (res, score) in enumerate(zip(results, scores), start=1):
+                if threshold is not None and score < threshold:
+                    continue
                 # Ensure 'rank' and 'score' are the first keys in the result dict
                 ordered_entry = {"rank": rank, "score": score, "id": res["id"]}
                 for col in columns:

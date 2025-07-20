@@ -2,7 +2,7 @@ import math
 from collections import Counter
 from typing import List
 import numpy as np
-from jet.wordnet.keywords.helpers import preprocess_texts
+from jet.wordnet.keywords.helpers import extract_query_candidates, preprocess_texts
 from jet.wordnet.similarity import filter_highest_similarity
 from jet.wordnet.sentence import adaptive_split, split_sentences
 from jet.utils.text import remove_non_alphanumeric
@@ -33,6 +33,15 @@ class Match(TypedDict):
 
 
 class SimilarityResult(TypedDict):
+    rank: int
+    id: str  # Document ID
+    score: float  # Normalized similarity score
+    similarity: Optional[float]  # Raw BM25 similarity score
+    text: str  # The document's content/text
+    matched: dict[str, int]  # Query match counts
+
+
+class SimilarityResultOld(TypedDict):
     id: str  # Document ID
     text: str  # The document's content/text
     score: float  # Normalized similarity score
@@ -62,34 +71,39 @@ class SimilarityResultData(TypedDict):
     data: List[SimilarityResult]
 
 
-def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> SimilarityResultData:
-    """Processes BM25+ similarity search by handling cache, cleaning data, generating n-grams, and computing similarities."""
-    if not queries:  # Handle empty queries explicitly
-        return {
-            "queries": queries,
-            "count": 0,
-            "matched": {},
-            "data": [],
-        }
-    similarity_results = get_bm25_similarities(queries, sentences, ids)
-    similarity_results = [
-        result for result in similarity_results if result["matched"]]
-    matched = {query.lower(): 0 for query in queries}
-    for result in similarity_results:
-        result_matched = result["matched"]
-        for match_query, match in result_matched.items():
-            matched[match_query] += 1
-    return {
-        "queries": queries,
-        "count": len(similarity_results),
-        "matched": matched,
-        "data": similarity_results,
-    }
+def rerank_bm25(query: str, documents: List[str], ids: list[str]) -> List[SimilarityResult]:
+    query_candidates = extract_query_candidates(query)
+    results = get_bm25_similarities(query_candidates, documents, ids=ids)
+    return results
+
+# def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> SimilarityResultData:
+#     """Processes BM25+ similarity search by handling cache, cleaning data, generating n-grams, and computing similarities."""
+#     if not queries:  # Handle empty queries explicitly
+#         return {
+#             "queries": queries,
+#             "count": 0,
+#             "matched": {},
+#             "data": [],
+#         }
+#     similarity_results = get_bm25_similarities(queries, sentences, ids=)
+#     similarity_results = [
+#         result for result in similarity_results if result["matched"]]
+#     matched = {query.lower(): 0 for query in queries}
+#     for result in similarity_results:
+#         result_matched = result["matched"]
+#         for match_query, match in result_matched.items():
+#             matched[match_query] += 1
+#     return {
+#         "queries": queries,
+#         "count": len(similarity_results),
+#         "matched": matched,
+#         "data": similarity_results,
+#     }
 
 
 def get_bm25_similarities(
     queries: List[str], documents: List[str], *, ids: Optional[List[str]] = None, k1=1.2, b=0.75, delta=1.0
-) -> List[Dict]:
+) -> List[SimilarityResult]:
     """
     Compute BM25+ similarities between queries and a list of documents.
 
@@ -102,7 +116,7 @@ def get_bm25_similarities(
         delta (float): BM25+ correction factor to reduce the bias against short documents.
 
     Returns:
-        List[Dict]: A list of similarity results with rank, scores, and match details.
+        List[SimilarityResult]: A list of similarity results with rank, scores, and match details.
     """
     if not queries or not documents:
         raise ValueError("queries and documents must not be empty")
@@ -127,14 +141,13 @@ def get_bm25_similarities(
 
     idf = {term: math.log((total_docs - freq + 0.5) / (freq + 0.5) + 1)
            for term, freq in df.items()}
-    all_scores: List[Dict] = []
+    all_scores: List[SimilarityResult] = []
 
     for idx, doc in enumerate(tokenized_docs):
         doc_length = doc_lengths[idx]
         term_frequencies = Counter(doc)
         score = 0
         matched: Dict[str, int] = {}
-        matched_sentences: Dict[str, List[Dict]] = {}
 
         for query in queries:
             query_terms = get_words(query)
@@ -162,36 +175,41 @@ def get_bm25_similarities(
 
         if score > 0:
             all_scores.append({
+                "rank": 0,
                 "id": ids[idx],
                 "score": score,
                 "similarity": score,
                 "matched": matched,
-                "matched_sentences": matched_sentences,
                 "text": original_documents[idx],  # Use original document text
             })
 
+    # Normalize scores if there are any non-zero scores
     if all_scores:
         max_similarity = max(entry["score"] for entry in all_scores)
         for entry in all_scores:
             entry["score"] = entry["score"] / \
                 max_similarity if max_similarity > 0 else 0
 
-    sorted_scores = sorted(
-        all_scores,
-        key=lambda x: (len(x["matched"]), x["score"]),
-        reverse=True
-    )
+    # # Sort scores by number of matched queries and score
+    # sorted_scores = sorted(
+    #     all_scores,
+    #     key=lambda x: (len(x["matched"]), x["score"]),
+    #     reverse=True
+    # )
+    # all_scores = sorted_scores
 
-    for rank, entry in enumerate(sorted_scores, 1):
-        ranked_entry = {"rank": rank}
-        ranked_entry.update(entry)
-        entry.clear()
-        entry.update(ranked_entry)
+    # Sort by length of keys in matched in desc
+    # Sort by number of matched queries (descending) only, do not sort by score
+    all_scores.sort(key=lambda x: len(x["matched"]), reverse=True)
 
-    return sorted_scores
+    # Assign ranks directly to sorted entries
+    for rank, entry in enumerate(all_scores, 1):
+        entry["rank"] = rank
+
+    return all_scores
 
 
-def get_bm25_similarities_old(queries: List[str], documents: List[str], ids: Optional[List[str]] = None, *, k1=1.2, b=0.75, delta=1.0) -> List[SimilarityResult]:
+def get_bm25_similarities_old(queries: List[str], documents: List[str], ids: Optional[List[str]] = None, *, k1=1.2, b=0.75, delta=1.0) -> List[SimilarityResultOld]:
     if not queries or not documents:
         raise ValueError("queries and documents must not be empty")
 
@@ -216,7 +234,7 @@ def get_bm25_similarities_old(queries: List[str], documents: List[str], ids: Opt
 
     idf = {term: math.log((total_docs - freq + 0.5) / (freq + 0.5) + 1)
            for term, freq in df.items()}
-    all_scores: List[SimilarityResult] = []
+    all_scores: List[SimilarityResultOld] = []
 
     for idx, doc_text in tqdm(enumerate(lowered_documents), total=len(lowered_documents), unit="doc"):
         orig_doc_text = documents[idx]
@@ -291,7 +309,7 @@ def get_bm25_similarities_old(queries: List[str], documents: List[str], ids: Opt
                 idf=idf
             )
 
-            all_scores.append(SimilarityResult(
+            all_scores.append(SimilarityResultOld(
                 id=doc_id,
                 score=adjusted_score,
                 similarity=score,
@@ -311,7 +329,7 @@ def get_bm25_similarities_old(queries: List[str], documents: List[str], ids: Opt
 
 def get_bm25_similarities_oldest(
     queries: List[str], documents: List[str], *, ids: Optional[List[str]] = None, k1=1.2, b=0.75, delta=1.0
-) -> List[SimilarityResult]:
+) -> List[SimilarityResultOld]:
     """
     Compute BM25+ similarities between queries and a list of documents.
 
@@ -324,7 +342,7 @@ def get_bm25_similarities_oldest(
         delta (float): BM25+ correction factor to reduce the bias against short documents.
 
     Returns:
-        List[SimilarityResult]: A list of similarity results with scores and match details.
+        List[SimilarityResultOld]: A list of similarity results with scores and match details.
     """
 
     if not queries or not documents:
@@ -348,7 +366,7 @@ def get_bm25_similarities_oldest(
 
     idf = {term: math.log((total_docs - freq + 0.5) / (freq + 0.5) + 1)
            for term, freq in df.items()}
-    all_scores: List[SimilarityResult] = []
+    all_scores: List[SimilarityResultOld] = []
 
     for idx, doc in enumerate(tokenized_docs):
         doc_length = doc_lengths[idx]
@@ -376,7 +394,7 @@ def get_bm25_similarities_oldest(
             score += query_score
 
         if score > 0:
-            all_scores.append(SimilarityResult(
+            all_scores.append(SimilarityResultOld(
                 id=ids[idx],
                 score=score,
                 similarity=score,

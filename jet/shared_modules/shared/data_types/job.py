@@ -25,7 +25,8 @@ class JobData(TypedDict):
     posted_date: str
     keywords: list[str]
     details: str
-    entities: JobEntity
+    # entities: JobEntity
+    entities: JobEntities
     tags: list[str]
     domain: str
     salary: Optional[str]
@@ -50,20 +51,6 @@ class JobMetadata(TypedDict):
     end_idx: int
 
 
-class JobSearchResult(TypedDict):
+class JobSearchResult(JobData):
     rank: int
     score: float
-    id: str
-    doc_id: str
-    header_doc_id: str
-    parent_id: Optional[str]
-    doc_index: int
-    chunk_index: int
-    num_tokens: int
-    header: str
-    parent_header: Optional[str]
-    content: str
-    level: int
-    parent_level: Optional[int]
-    start_idx: int
-    end_idx: int

@@ -283,12 +283,13 @@ def save_job_embeddings(
 
 def search_jobs(
     query: str,
-    top_k: int = 5,
+    top_k: Optional[int] = None,
+    threshold: Optional[float] = None,
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
     db_client: Optional[PgVectorClient] = None
 ) -> List[JobSearchResult]:
     """
-    Search for jobs based on a query string and return ranked results with metadata.
+    Search for jobs based on a query string and return ranked results with data.
 
     Args:
         query: Search query string
@@ -297,7 +298,7 @@ def search_jobs(
         db_client: Optional PgVectorClient instance
 
     Returns:
-        List of JobSearchResult dictionaries containing rank, score, and job metadata
+        List of JobSearchResult dictionaries containing rank, score, and job data
     """
     query_embedding = generate_embeddings(
         [query],
@@ -313,7 +314,8 @@ def search_jobs(
         results = db_client.search(
             table_name=DEFAULT_TABLE_NAME,
             query_embedding=query_embedding,
-            top_k=top_k
+            top_k=top_k,
+            threshold=threshold,
         )
 
         return results
