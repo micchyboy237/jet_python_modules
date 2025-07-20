@@ -22,6 +22,32 @@ class SearchResult(TypedDict):
     score: float
 
 
+class DatabaseMetadata(TypedDict):
+    dbname: str
+    owner: str
+    encoding: str
+    collation: Optional[str]
+    ctype: Optional[str]
+    size_mb: float
+
+
+class ColumnMetadata(TypedDict):
+    column_name: str
+    data_type: str
+    is_nullable: str
+    character_maximum_length: Optional[int]
+    numeric_precision: Optional[int]
+    numeric_scale: Optional[int]
+
+
+class TableMetadata(TypedDict):
+    table_name: str
+    table_type: str
+    schema_name: str
+    row_count: int
+    columns: List[ColumnMetadata]
+
+
 class PgVectorClient:
     def __init__(
         self,
@@ -91,7 +117,6 @@ class PgVectorClient:
             try:
                 cur.execute("SHOW dynamic_library_path;")
                 libdir = cur.fetchone()["dynamic_library_path"]
-                print(f"Debug: Dynamic library path: {libdir}")
                 cur.execute(
                     "SELECT 1 FROM pg_extension WHERE extname = 'vector';")
                 exists = cur.fetchone()
@@ -111,6 +136,17 @@ class PgVectorClient:
                     f"Failed to initialize pgvector extension: {str(e)}"
                 ) from e
 
+    def _ensure_table_exists(self, table_name: str, dimension: int) -> None:
+        """Check if table exists, create it with the specified dimension if it doesn't."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = %s;",
+                (table_name,)
+            )
+            table_exists = cur.fetchone()
+            if not table_exists:
+                self.create_table(table_name, dimension)
+
     def __enter__(self):
         """Begin transaction when entering 'with' block."""
         self.conn.execute("BEGIN;")
@@ -118,10 +154,16 @@ class PgVectorClient:
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Handle commit or rollback when exiting 'with' block."""
+        if self.conn is None or self.conn.closed:
+            return
         if exc_type is None:
             self.conn.execute("COMMIT;")
         else:
             self.conn.execute("ROLLBACK;")
+
+    def close(self) -> None:
+        """Close the database connection."""
+        self.conn.close()
 
     def begin_transaction(self) -> None:
         """Explicitly begin a new transaction."""
@@ -184,8 +226,11 @@ class PgVectorClient:
             results = cur.fetchall()
             return {row["id"]: np.array(row["embedding"]).tolist() for row in results}
 
-    def insert_vector(self, table_name: str, vector: VectorInput) -> str:
-        """Insert a vector into the table with a hash-based ID."""
+    def insert_vector(self, table_name: str, vector: VectorInput, dimension: Optional[int] = None) -> str:
+        """Insert a vector into the table with a hash-based ID, creating the table if needed."""
+        if dimension is None:
+            dimension = len(self._to_list(vector))
+        self._ensure_table_exists(table_name, dimension)
         vector_id = self.generate_unique_hash()
         vector_list = self._to_list(vector)
         query = f"INSERT INTO {table_name} (id, embedding) VALUES (%s, %s);"
@@ -193,8 +238,13 @@ class PgVectorClient:
             cur.execute(query, (vector_id, vector_list))
         return vector_id
 
-    def insert_vectors(self, table_name: str, vectors: List[VectorInput]) -> List[str]:
-        """Insert multiple vectors into the table and return their generated hash-based IDs."""
+    def insert_vectors(self, table_name: str, vectors: List[VectorInput], dimension: Optional[int] = None) -> List[str]:
+        """Insert multiple vectors into the table and return their generated hash-based IDs, creating the table if needed."""
+        if not vectors:
+            raise ValueError("Cannot insert empty vector list")
+        if dimension is None:
+            dimension = len(self._to_list(vectors[0]))
+        self._ensure_table_exists(table_name, dimension)
         vector_ids = [self.generate_unique_hash() for _ in vectors]
         formatted_vectors = [
             f"[{', '.join(map(str, self._to_list(v)))}]" for v in vectors]
@@ -203,15 +253,23 @@ class PgVectorClient:
             cur.execute(query, (vector_ids, formatted_vectors))
         return vector_ids
 
-    def insert_vector_by_id(self, table_name: str, vector_id: str, vector: VectorInput) -> None:
-        """Insert a vector with a specific ID."""
+    def insert_vector_by_id(self, table_name: str, vector_id: str, vector: VectorInput, dimension: Optional[int] = None) -> None:
+        """Insert a vector with a specific ID, creating the table if needed."""
+        if dimension is None:
+            dimension = len(self._to_list(vector))
+        self._ensure_table_exists(table_name, dimension)
         formatted_vector = f"[{', '.join(map(str, self._to_list(vector)))}]"
         query = f"INSERT INTO {table_name} (id, embedding) VALUES (%s, %s::vector);"
         with self.conn.cursor() as cur:
             cur.execute(query, (vector_id, formatted_vector))
 
-    def insert_vector_by_ids(self, table_name: str, vector_data: Dict[str, VectorInput]) -> None:
-        """Insert multiple vectors with specific IDs."""
+    def insert_vector_by_ids(self, table_name: str, vector_data: Dict[str, VectorInput], dimension: Optional[int] = None) -> None:
+        """Insert multiple vectors with specific IDs, creating the table if needed."""
+        if not vector_data:
+            raise ValueError("Cannot insert empty vector data")
+        if dimension is None:
+            dimension = len(self._to_list(next(iter(vector_data.values()))))
+        self._ensure_table_exists(table_name, dimension)
         ids = list(vector_data.keys())
         formatted_vectors = [
             f"[{', '.join(map(str, self._to_list(v)))}]" for v in vector_data.values()]
@@ -287,9 +345,160 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query)
 
-    def close(self) -> None:
-        """Close the database connection."""
-        self.conn.close()
+    def delete_db(self, confirm: bool = False) -> None:
+        """Drop the entire database after terminating active connections, requires explicit confirmation.
+
+        Args:
+            confirm: Must be True to proceed with deletion to prevent accidental database drops.
+
+        Raises:
+            ValueError: If confirm is False.
+            RuntimeError: If database deletion fails.
+        """
+        if not confirm:
+            raise ValueError(
+                "Database deletion requires explicit confirmation by setting confirm=True")
+
+        dbname = self.conn.info.dbname
+        user = self.conn.info.user
+        password = self.conn.info.password
+        host = self.conn.info.host
+        port = self.conn.info.port
+
+        if not self.conn.closed:
+            self.close()
+
+        try:
+            with connect(
+                dbname="postgres",
+                user=user,
+                password=password,
+                host=host,
+                port=port,
+                autocommit=True
+            ) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        sql.SQL(
+                            "SELECT pg_terminate_backend(pg_stat_activity.pid) "
+                            "FROM pg_stat_activity "
+                            "WHERE pg_stat_activity.datname = %s AND pid <> pg_backend_pid();"
+                        ),
+                        (dbname,)
+                    )
+                    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                        sql.Identifier(dbname)))
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to delete database {dbname}: {str(e)}") from e
+
+        self.conn = None
+
+    def get_database_metadata(self) -> DatabaseMetadata:
+        """Retrieve metadata for the current database."""
+        query = """
+            SELECT 
+                d.datname AS dbname,
+                r.rolname AS owner,
+                pg_encoding_to_char(d.encoding) AS encoding,
+                d.datcollate AS collation,
+                d.datctype AS ctype,
+                (pg_database_size(d.datname) / 1024.0 / 1024.0) AS size_mb
+            FROM pg_database d
+            JOIN pg_roles r ON d.datdba = r.oid
+            WHERE d.datname = %s;
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(query, (self.conn.info.dbname,))
+            result = cur.fetchone()
+            if not result:
+                raise RuntimeError(
+                    f"Database {self.conn.info.dbname} not found")
+            return {
+                "dbname": result["dbname"],
+                "owner": result["owner"],
+                "encoding": result["encoding"],
+                "collation": result["collation"],
+                "ctype": result["ctype"],
+                "size_mb": round(result["size_mb"], 2),
+            }
+
+    def get_all_tables(self) -> List[str]:
+        """Retrieve a list of all table names in the public schema."""
+        query = """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+            AND table_type = 'BASE TABLE'
+            ORDER BY table_name;
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(query)
+            results = cur.fetchall()
+            return [row["table_name"] for row in results]
+
+    def get_table_metadata(self, table_name: str) -> TableMetadata:
+        """Retrieve detailed metadata for a specific table."""
+        # Get table info
+        table_query = """
+            SELECT 
+                t.table_name,
+                t.table_type,
+                t.table_schema AS schema_name,
+                (SELECT COUNT(*) FROM {table_name}) AS row_count
+            FROM information_schema.tables t
+            WHERE t.table_schema = 'public' AND t.table_name = %s;
+        """
+        # Get column info
+        column_query = """
+            SELECT 
+                c.column_name,
+                c.data_type,
+                c.is_nullable,
+                c.character_maximum_length,
+                c.numeric_precision,
+                c.numeric_scale
+            FROM information_schema.columns c
+            WHERE c.table_schema = 'public' AND c.table_name = %s
+            ORDER BY c.ordinal_position;
+        """
+        with self.conn.cursor() as cur:
+            # Execute table query with proper parameter handling
+            formatted_table_query = sql.SQL(table_query).format(
+                table_name=sql.Identifier(table_name))
+            cur.execute(formatted_table_query, (table_name,))
+            table_result = cur.fetchone()
+            if not table_result:
+                raise RuntimeError(
+                    f"Table {table_name} not found in public schema")
+
+            # Execute column query
+            cur.execute(column_query, (table_name,))
+            columns = [{
+                "column_name": row["column_name"],
+                "data_type": row["data_type"],
+                "is_nullable": row["is_nullable"],
+                "character_maximum_length": row["character_maximum_length"],
+                "numeric_precision": row["numeric_precision"],
+                "numeric_scale": row["numeric_scale"],
+            } for row in cur.fetchall()]
+
+            return {
+                "table_name": table_result["table_name"],
+                "table_type": table_result["table_type"],
+                "schema_name": table_result["schema_name"],
+                "row_count": table_result["row_count"],
+                "columns": columns,
+            }
+
+    def get_database_summary(self) -> Dict[str, Union[DatabaseMetadata, List[TableMetadata]]]:
+        """Retrieve a comprehensive summary of the database including metadata and all tables."""
+        tables = self.get_all_tables()
+        table_metadata = [self.get_table_metadata(table) for table in tables]
+        return {
+            "database_metadata": self.get_database_metadata(),
+            "tables": table_metadata,
+        }
 
 
 __all__ = [
