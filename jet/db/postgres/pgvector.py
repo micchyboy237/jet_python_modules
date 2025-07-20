@@ -1,4 +1,4 @@
-from psycopg import connect, sql
+from psycopg import connect, sql, errors
 from pgvector.psycopg import register_vector
 import numpy as np
 import uuid
@@ -30,7 +30,6 @@ class PgVectorClient:
     ) -> None:
         """Ensure database exists, then connect and initialize."""
         self._ensure_database_exists(dbname, user, password, host, port)
-
         self.conn = connect(
             dbname=dbname,
             user=user,
@@ -62,9 +61,30 @@ class PgVectorClient:
                         sql.Identifier(dbname)))
 
     def _initialize_extension(self) -> None:
-        """Ensure the pgvector extension is enabled."""
+        """Ensure the pgvector extension is enabled only if not already present."""
         with self.conn.cursor() as cur:
-            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+            try:
+                cur.execute("SHOW dynamic_library_path;")
+                libdir = cur.fetchone()["dynamic_library_path"]
+                print(f"Debug: Dynamic library path: {libdir}")
+                cur.execute(
+                    "SELECT 1 FROM pg_extension WHERE extname = 'vector';")
+                exists = cur.fetchone()
+                if not exists:
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+            except errors.UndefinedFile as e:
+                raise RuntimeError(
+                    f"pgvector extension is not installed on the PostgreSQL server. "
+                    f"Dynamic library path: {libdir}. "
+                    f"Ensure vector.dylib is in /opt/homebrew/opt/postgresql@16/lib/postgresql. "
+                    "Please install it using 'brew install pgvector' or compile from source: "
+                    "https://github.com/pgvector/pgvector. "
+                    f"Error: {str(e)}"
+                ) from e
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to initialize pgvector extension: {str(e)}"
+                ) from e
 
     def __enter__(self):
         """Begin transaction when entering 'with' block."""
@@ -92,12 +112,14 @@ class PgVectorClient:
 
     def create_table(self, table_name: str, dimension: int) -> None:
         """Create a table with a vector column using hash-based IDs."""
-        query = f"""
-        CREATE TABLE IF NOT EXISTS {table_name} (
-            id TEXT PRIMARY KEY,
-            embedding VECTOR({dimension})
-        );
-        """
+        query = sql.SQL(
+            """
+            CREATE TABLE IF NOT EXISTS {} (
+                id TEXT PRIMARY KEY,
+                embedding VECTOR({})
+            );
+            """
+        ).format(sql.Identifier(table_name), sql.Literal(dimension))
         with self.conn.cursor() as cur:
             cur.execute(query)
 
