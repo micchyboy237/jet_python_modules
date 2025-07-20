@@ -279,24 +279,16 @@ class PgVectorClient:
                 values.append(value)
                 placeholders.append("%s")
 
-        logger.debug("Inserting row into %s with columns: %s",
-                     table_name, columns)
-        logger.debug("Values: %s", values)
-        logger.debug("Placeholders: %s", placeholders)
-
         query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING id;").format(
             sql.Identifier(table_name),
             sql.SQL(", ").join(map(sql.Identifier, columns)),
             sql.SQL(", ").join(map(sql.SQL, placeholders))
         )
 
-        logger.debug("Generated SQL query: %s", query.as_string(self.conn))
-
         with self.conn.cursor() as cur:
             try:
                 cur.execute(query, values)
                 result = cur.fetchone()
-                logger.debug("Insert result: %s", result)
                 return result["id"]
             except Exception as e:
                 logger.error("Failed to insert row into %s: %s",
