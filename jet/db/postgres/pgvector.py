@@ -44,17 +44,17 @@ class TableRow(TypedDict):
     __annotations__: Dict[str, Any]
 
 
+class SearchResult(TableRow):
+    rank: int
+    score: float
+
+
 class TableMetadata(TypedDict):
     table_name: str
     table_type: str
     schema_name: str
     row_count: int
     columns: List[ColumnMetadata]
-
-
-class SearchResult(TypedDict):
-    id: str
-    score: float
 
 
 class PgVectorClient:
@@ -511,30 +511,67 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, embeddings))
 
-    def search_similar(
+    def search(
         self,
         table_name: str,
         query_embedding: EmbeddingInput,
         top_k: int = 5
     ) -> List[SearchResult]:
-        query = f"SELECT id, embedding <=> %s::vector as distance FROM {table_name} ORDER BY distance LIMIT {top_k};"
-        formatted_embedding = f"[{', '.join(map(str, self._to_list(query_embedding)))}]"
         with self.conn.cursor() as cur:
-            cur.execute(query, (formatted_embedding,))
+            # Get all column names except embedding
+            cur.execute(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
+                (table_name,)
+            )
+            column_info = {row["column_name"]: row["data_type"]
+                           for row in cur.fetchall()}
+            if not column_info:
+                raise ValueError(
+                    f"No columns found for table {table_name} (excluding embedding)")
+
+            columns = list(column_info.keys())
+            # Build query with dynamic columns and distance calculation
+            query = sql.SQL(
+                "SELECT {}, embedding <=> %s::vector as distance "
+                "FROM {} ORDER BY distance LIMIT %s;"
+            ).format(
+                sql.SQL(", ").join(map(sql.Identifier, columns + ["id"])),
+                sql.Identifier(table_name),
+                sql.Literal(top_k)
+            )
+            formatted_embedding = f"[{', '.join(map(str, self._to_list(query_embedding)))}]"
+            cur.execute(query, (formatted_embedding, top_k))
             db_results = cur.fetchall()
-            results = [{"id": row["id"], "distance": row["distance"]}
-                       for row in db_results]
-        distances = [res["distance"] for res in results]
-        logger.debug("Raw cosine distances from %s: %s", table_name, distances)
-        scores = calculate_vector_scores(distances)
-        logger.debug("Transformed similarity scores: %s", scores)
-        final_results: List[SearchResult] = []
-        for res, score in zip(results, scores):
-            final_results.append({
-                "id": res["id"],
-                "score": score
-            })
-        return final_results
+
+            # Process results
+            results = [
+                {
+                    "id": row["id"],
+                    "distance": row["distance"],
+                    **{
+                        col: row[col] if not (column_info[col] == "jsonb" and isinstance(row[col], str))
+                        else json.loads(row[col]) if row[col] else None
+                        for col in columns
+                    }
+                }
+                for row in db_results
+            ]
+            distances = [res["distance"] for res in results]
+            logger.debug("Raw cosine distances from %s: %s",
+                         table_name, distances)
+            scores = calculate_vector_scores(distances)
+            logger.debug("Transformed similarity scores: %s", scores)
+
+            # Build final results with rank and score
+            final_results: List[SearchResult] = []
+            for rank, (res, score) in enumerate(zip(results, scores), start=1):
+                # Ensure 'rank' and 'score' are the first keys in the result dict
+                ordered_entry = {"rank": rank, "score": score, "id": res["id"]}
+                for col in columns:
+                    ordered_entry[col] = res[col]
+                final_results.append(ordered_entry)
+            return final_results
 
     def drop_all_rows(self, table_name: Optional[str] = None) -> None:
         """Delete all rows from a specific table or all tables if no table is provided."""

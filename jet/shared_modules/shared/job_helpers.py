@@ -170,9 +170,13 @@ def save_job_embeddings(
             f"Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})"
         )
 
-    vector_data: Dict[str, EmbeddingInput] = {
-        chunk["id"]: embedding for chunk, embedding in zip(chunks, embeddings)
-    }
+    rows_data = [
+        {
+            **chunk,
+            "embedding": embedding
+        }
+        for chunk, embedding in zip(chunks, embeddings)
+    ]
 
     if not db_client:
         db_client = PgVectorClient(
@@ -181,88 +185,88 @@ def save_job_embeddings(
         )
 
     logger.info(
-        f"Inserting {len(vector_data)} chunked job embeddings into '{DEFAULT_TABLE_NAME}' table..."
+        f"Inserting {len(rows_data)} chunked job embeddings into '{DEFAULT_TABLE_NAME}' table..."
     )
     with db_client:
-        db_client.insert_embeddings_by_ids(DEFAULT_TABLE_NAME, vector_data)
-        # Store chunk metadata in a separate table
-        metadata_query = f"""
-        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_METADATA_NAME} (
-            chunk_id TEXT PRIMARY KEY,
-            doc_id TEXT,
-            header_doc_id TEXT,
-            parent_id TEXT,
-            doc_index INTEGER,
-            chunk_index INTEGER,
-            num_tokens INTEGER,
-            header TEXT,
-            parent_header TEXT,
-            content TEXT,
-            level INTEGER,
-            parent_level INTEGER,
-            start_idx INTEGER,
-            end_idx INTEGER
-        );
-        """
-        try:
-            with db_client.conn.cursor() as cur:
-                cur.execute(metadata_query)
-                logger.info(
-                    f"Created or verified '{DEFAULT_TABLE_METADATA_NAME}' table.")
-                for chunk in chunks:
-                    # Validate chunk metadata
-                    required_keys = [
-                        "id", "doc_id", "header_doc_id", "parent_id", "doc_index",
-                        "chunk_index", "num_tokens", "header", "parent_header",
-                        "content", "level", "parent_level", "metadata"
-                    ]
-                    missing_keys = [
-                        key for key in required_keys if key not in chunk]
-                    if missing_keys:
-                        logger.error(f"Missing keys in chunk: {missing_keys}")
-                        raise ValueError(
-                            f"Chunk missing required keys: {missing_keys}")
-                    if "start_idx" not in chunk["metadata"] or "end_idx" not in chunk["metadata"]:
-                        logger.error(
-                            f"Chunk metadata missing start_idx or end_idx: {chunk['id']}")
-                        raise ValueError(
-                            f"Chunk metadata missing start_idx or end_idx for chunk {chunk['id']}")
+        db_client.create_rows(DEFAULT_TABLE_NAME, rows_data)
+        # # Store chunk metadata in a separate table
+        # metadata_query = f"""
+        # CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_METADATA_NAME} (
+        #     chunk_id TEXT PRIMARY KEY,
+        #     doc_id TEXT,
+        #     header_doc_id TEXT,
+        #     parent_id TEXT,
+        #     doc_index INTEGER,
+        #     chunk_index INTEGER,
+        #     num_tokens INTEGER,
+        #     header TEXT,
+        #     parent_header TEXT,
+        #     content TEXT,
+        #     level INTEGER,
+        #     parent_level INTEGER,
+        #     start_idx INTEGER,
+        #     end_idx INTEGER
+        # );
+        # """
+        # try:
+        #     with db_client.conn.cursor() as cur:
+        #         cur.execute(metadata_query)
+        #         logger.info(
+        #             f"Created or verified '{DEFAULT_TABLE_METADATA_NAME}' table.")
+        #         for chunk in chunks:
+        #             # Validate chunk metadata
+        #             required_keys = [
+        #                 "id", "doc_id", "header_doc_id", "parent_id", "doc_index",
+        #                 "chunk_index", "num_tokens", "header", "parent_header",
+        #                 "content", "level", "parent_level", "metadata"
+        #             ]
+        #             missing_keys = [
+        #                 key for key in required_keys if key not in chunk]
+        #             if missing_keys:
+        #                 logger.error(f"Missing keys in chunk: {missing_keys}")
+        #                 raise ValueError(
+        #                     f"Chunk missing required keys: {missing_keys}")
+        #             if "start_idx" not in chunk["metadata"] or "end_idx" not in chunk["metadata"]:
+        #                 logger.error(
+        #                     f"Chunk metadata missing start_idx or end_idx: {chunk['id']}")
+        #                 raise ValueError(
+        #                     f"Chunk metadata missing start_idx or end_idx for chunk {chunk['id']}")
 
-                    cur.execute(
-                        f"""
-                        INSERT INTO {DEFAULT_TABLE_METADATA_NAME} (
-                            chunk_id, doc_id, header_doc_id, parent_id, doc_index, chunk_index,
-                            num_tokens, header, parent_header, content, level, parent_level,
-                            start_idx, end_idx
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (chunk_id) DO NOTHING;
-                        """,
-                        (
-                            chunk["id"],
-                            chunk["doc_id"],
-                            chunk["header_doc_id"],
-                            chunk["parent_id"],
-                            chunk["doc_index"],
-                            chunk["chunk_index"],
-                            chunk["num_tokens"],
-                            chunk["header"],
-                            chunk["parent_header"],
-                            chunk["content"],
-                            chunk["level"],
-                            chunk["parent_level"],
-                            chunk["metadata"]["start_idx"],
-                            chunk["metadata"]["end_idx"]
-                        )
-                    )
-                db_client.conn.commit()  # Explicitly commit the transaction
-                logger.info(
-                    f"Inserted {len(chunks)} metadata records into '{DEFAULT_TABLE_METADATA_NAME}' table.")
-        except Exception as e:
-            logger.error(f"Failed to insert metadata: {str(e)}")
-            db_client.conn.rollback()  # Rollback on error
-            raise
+        #             cur.execute(
+        #                 f"""
+        #                 INSERT INTO {DEFAULT_TABLE_METADATA_NAME} (
+        #                     chunk_id, doc_id, header_doc_id, parent_id, doc_index, chunk_index,
+        #                     num_tokens, header, parent_header, content, level, parent_level,
+        #                     start_idx, end_idx
+        #                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        #                 ON CONFLICT (chunk_id) DO NOTHING;
+        #                 """,
+        #                 (
+        #                     chunk["id"],
+        #                     chunk["doc_id"],
+        #                     chunk["header_doc_id"],
+        #                     chunk["parent_id"],
+        #                     chunk["doc_index"],
+        #                     chunk["chunk_index"],
+        #                     chunk["num_tokens"],
+        #                     chunk["header"],
+        #                     chunk["parent_header"],
+        #                     chunk["content"],
+        #                     chunk["level"],
+        #                     chunk["parent_level"],
+        #                     chunk["metadata"]["start_idx"],
+        #                     chunk["metadata"]["end_idx"]
+        #                 )
+        #             )
+        #         db_client.conn.commit()  # Explicitly commit the transaction
+        #         logger.info(
+        #             f"Inserted {len(chunks)} metadata records into '{DEFAULT_TABLE_METADATA_NAME}' table.")
+        # except Exception as e:
+        #     logger.error(f"Failed to insert metadata: {str(e)}")
+        #     db_client.conn.rollback()  # Rollback on error
+        #     raise
         logger.success(
-            f"Saved {len(vector_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table."
+            f"Saved {len(rows_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table."
         )
 
 
@@ -308,75 +312,12 @@ def search_jobs(
                 logger.warning(
                     "Metadata table was created during search, indicating potential data inconsistency")
 
-        results = db_client.search_similar(
+        results = db_client.search(
             table_name=DEFAULT_TABLE_NAME,
-            query_vector=query_embedding,
-            top_k=top_k * 2
+            query_embedding=query_embedding,
+            top_k=top_k
         )
         logger.debug("Retrieved %d similar results: %s",
                      len(results), [r["id"] for r in results])
 
-        chunk_ids = [result["id"] for result in results]
-        metadata_list = load_jobs_metadata(chunk_ids, db_client)
-        logger.debug("Retrieved %d metadata records: %s", len(
-            metadata_list), [m["id"] for m in metadata_list])
-
-        # Create a lookup dictionary for metadata to ensure order and matching
-        metadata_dict = {m["id"]: m for m in metadata_list}
-
-        job_results: Dict[str, Dict] = {}
-        for result in results:
-            chunk_id = result["id"]
-            metadata = metadata_dict.get(chunk_id)
-            if not metadata:
-                logger.warning("No metadata found for chunk_id: %s", chunk_id)
-                continue
-
-            if metadata["id"] != chunk_id:
-                logger.error(
-                    "Metadata ID %s does not match result ID %s", metadata["id"], chunk_id)
-                continue
-
-            doc_id = metadata["doc_id"]
-            if doc_id not in job_results:
-                job_results[doc_id] = {
-                    "score": result["score"],
-                    "chunk_count": 1,
-                    **metadata
-                }
-            else:
-                job_results[doc_id]["score"] = max(
-                    job_results[doc_id]["score"], result["score"]
-                )
-                job_results[doc_id]["chunk_count"] += 1
-
-        final_results = sorted(
-            job_results.values(),
-            key=lambda x: x["score"],
-            reverse=True
-        )[:top_k]
-
-        logger.debug("Found %d unique jobs in search results",
-                     len(final_results))
-
-        return [
-            {
-                "rank": idx + 1,
-                "score": result["score"],
-                "id": result["id"],
-                "doc_id": result["doc_id"],
-                "header_doc_id": result["header_doc_id"],
-                "parent_id": result["parent_id"],
-                "doc_index": result["doc_index"],
-                "chunk_index": result["chunk_index"],
-                "num_tokens": result["num_tokens"],
-                "header": result["header"],
-                "parent_header": result["parent_header"],
-                "content": result["content"],
-                "level": result["level"],
-                "parent_level": result["parent_level"],
-                "start_idx": result["start_idx"],
-                "end_idx": result["end_idx"]
-            }
-            for idx, result in enumerate(final_results)
-        ]
+        return results
