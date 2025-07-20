@@ -2,7 +2,7 @@ from psycopg import connect, sql, errors
 from pgvector.psycopg import register_vector
 import numpy as np
 import uuid
-from typing import List, Dict, Optional, Tuple, TypedDict
+from typing import List, Dict, Optional, Tuple, TypedDict, Union
 from psycopg.rows import dict_row
 from jet.db.postgres.scoring import calculate_vector_scores
 from .config import (
@@ -12,6 +12,8 @@ from .config import (
     DEFAULT_HOST,
     DEFAULT_PORT,
 )
+
+VectorInput = Union[List[float], np.ndarray]
 
 
 class SearchResult(TypedDict):
@@ -41,6 +43,12 @@ class PgVectorClient:
         )
         self._initialize_extension()
         register_vector(self.conn)
+
+    def _to_list(self, vector: VectorInput) -> List[float]:
+        """Convert vector input to list of floats."""
+        if isinstance(vector, np.ndarray):
+            return vector.tolist()
+        return vector
 
     def _ensure_database_exists(self, dbname, user, password, host, port):
         """Connect to default DB and create the target DB if it doesn't exist."""
@@ -159,94 +167,73 @@ class PgVectorClient:
             results = cur.fetchall()
             return {row["id"]: np.array(row["embedding"]).tolist() for row in results}
 
-    def insert_vector(self, table_name: str, vector: List[float]) -> str:
+    def insert_vector(self, table_name: str, vector: VectorInput) -> str:
         """Insert a vector into the table with a hash-based ID."""
         vector_id = self.generate_unique_hash()
+        vector_list = self._to_list(vector)
         query = f"INSERT INTO {table_name} (id, embedding) VALUES (%s, %s);"
         with self.conn.cursor() as cur:
-            cur.execute(query, (vector_id, vector))
+            cur.execute(query, (vector_id, vector_list))
         return vector_id
 
-    def insert_vectors(self, table_name: str, vectors: List[List[float]]) -> List[str]:
+    def insert_vectors(self, table_name: str, vectors: List[VectorInput]) -> List[str]:
         """Insert multiple vectors into the table and return their generated hash-based IDs."""
         vector_ids = [self.generate_unique_hash() for _ in vectors]
-        formatted_vectors = [f"[{', '.join(map(str, v))}]" for v in vectors]
-
+        formatted_vectors = [
+            f"[{', '.join(map(str, self._to_list(v)))}]" for v in vectors]
         query = f"INSERT INTO {table_name} (id, embedding) SELECT UNNEST(%s::text[]), UNNEST(%s::vector[]);"
-
         with self.conn.cursor() as cur:
             cur.execute(query, (vector_ids, formatted_vectors))
-
         return vector_ids
 
-    def insert_vector_by_id(self, table_name: str, vector_id: str, vector: List[float]) -> None:
+    def insert_vector_by_id(self, table_name: str, vector_id: str, vector: VectorInput) -> None:
         """Insert a vector with a specific ID."""
-        formatted_vector = f"[{', '.join(map(str, vector))}]"
-
+        formatted_vector = f"[{', '.join(map(str, self._to_list(vector)))}]"
         query = f"INSERT INTO {table_name} (id, embedding) VALUES (%s, %s::vector);"
-
         with self.conn.cursor() as cur:
             cur.execute(query, (vector_id, formatted_vector))
 
-    def insert_vector_by_ids(self, table_name: str, vector_data: Dict[str, List[float]]) -> None:
+    def insert_vector_by_ids(self, table_name: str, vector_data: Dict[str, VectorInput]) -> None:
         """Insert multiple vectors with specific IDs."""
         ids = list(vector_data.keys())
         formatted_vectors = [
-            f"[{', '.join(map(str, v))}]" for v in vector_data.values()]
-
+            f"[{', '.join(map(str, self._to_list(v)))}]" for v in vector_data.values()]
         query = f"INSERT INTO {table_name} (id, embedding) SELECT UNNEST(%s::text[]), UNNEST(%s::vector[]);"
-
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, formatted_vectors))
 
-    def update_vector_by_id(self, table_name: str, vector_id: str, new_vector: List[float]) -> None:
+    def update_vector_by_id(self, table_name: str, vector_id: str, new_vector: VectorInput) -> None:
         """Update a vector by its hash ID."""
         query = f"UPDATE {table_name} SET embedding = %s WHERE id = %s;"
         with self.conn.cursor() as cur:
-            cur.execute(query, (new_vector, vector_id))
+            cur.execute(query, (self._to_list(new_vector), vector_id))
 
-    def update_vector_by_ids(self, table_name: str, updates: Dict[str, List[float]]) -> None:
+    def update_vector_by_ids(self, table_name: str, updates: Dict[str, VectorInput]) -> None:
         """Update multiple vectors by their hash-based IDs."""
-        query = f"""
-        UPDATE {table_name} 
-        SET embedding = data.embedding
-        FROM (SELECT UNNEST(%s::text[]) AS id, UNNEST(%s::text[])::vector AS embedding) AS data 
-        WHERE {table_name}.id = data.id;
-        """
-
         ids = list(updates.keys())
-        # Convert list to proper vector format
-        embeddings = [f"[{', '.join(map(str, v))}]" for v in updates.values()]
-
+        embeddings = [
+            f"[{', '.join(map(str, self._to_list(v)))}]" for v in updates.values()]
+        query = f"UPDATE {table_name} SET embedding = data.embedding FROM (SELECT UNNEST(%s::text[]) AS id, UNNEST(%s::vector[]) AS embedding) AS data WHERE {table_name}.id = data.id;"
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, embeddings))
 
-    def search_similar(self, table_name: str, query_vector: List[float], top_k: int = 5) -> List[SearchResult]:
+    def search_similar(self, table_name: str, query_vector: VectorInput, top_k: int = 5) -> List[SearchResult]:
         """Find the top-K most similar vectors using L2 distance."""
-        query = f"""
-        SELECT id, embedding <-> %s::vector AS distance
-        FROM {table_name}
-        ORDER BY distance
-        LIMIT {top_k};
-        """
+        query = f"SELECT id, embedding <-> %s::vector as distance FROM {table_name} ORDER BY distance LIMIT {top_k};"
+        formatted_vector = f"[{', '.join(map(str, self._to_list(query_vector)))}]"
         with self.conn.cursor() as cur:
-            cur.execute(query, (query_vector,))
+            cur.execute(query, (formatted_vector,))
             db_results = cur.fetchall()
             results = [{"id": row["id"], "distance": row["distance"]}
                        for row in db_results]
-
-        # Compute similarity scores
         distances = [res["distance"] for res in results]
         scores = calculate_vector_scores(distances)
-
-        # Attach scores to results
         final_results: List[SearchResult] = []
         for res, score in zip(results, scores):
             final_results.append({
                 "id": res["id"],
                 "score": score
             })
-
         return sorted(final_results, key=lambda x: x['score'], reverse=True)
 
     def drop_all_rows(self, table_name: Optional[str] = None) -> None:
