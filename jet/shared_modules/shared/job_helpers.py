@@ -315,15 +315,28 @@ def search_jobs(
             query_vector=query_embedding,
             top_k=top_k * 2
         )
+        logger.debug("Retrieved %d similar results: %s",
+                     len(results), [r["id"] for r in results])
 
         chunk_ids = [result["id"] for result in results]
         metadata_list = load_jobs_metadata(chunk_ids, db_client)
+        logger.debug("Retrieved %d metadata records: %s", len(
+            metadata_list), [m["id"] for m in metadata_list])
+
+        # Create a lookup dictionary for metadata to ensure order and matching
+        metadata_dict = {m["id"]: m for m in metadata_list}
 
         job_results: Dict[str, Dict] = {}
-        for result, metadata in zip(results, metadata_list):
-            if metadata["id"] != result["id"]:
-                logger.warning("Metadata ID %s does not match result ID %s",
-                               metadata["id"], result["id"])
+        for result in results:
+            chunk_id = result["id"]
+            metadata = metadata_dict.get(chunk_id)
+            if not metadata:
+                logger.warning("No metadata found for chunk_id: %s", chunk_id)
+                continue
+
+            if metadata["id"] != chunk_id:
+                logger.error(
+                    "Metadata ID %s does not match result ID %s", metadata["id"], chunk_id)
                 continue
 
             doc_id = metadata["doc_id"]

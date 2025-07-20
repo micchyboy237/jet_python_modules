@@ -6,6 +6,7 @@ from pgvector.psycopg import register_vector
 from typing import List, Dict, Optional, Tuple, TypedDict, Union
 from psycopg.rows import dict_row
 from jet.db.postgres.scoring import calculate_vector_scores
+from jet.logger import logger
 from .config import (
     DEFAULT_DB,
     DEFAULT_USER,
@@ -292,24 +293,47 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, embeddings))
 
-    def search_similar(self, table_name: str, query_vector: VectorInput, top_k: int = 5) -> List[SearchResult]:
-        """Find the top-K most similar vectors using L2 distance."""
-        query = f"SELECT id, embedding <-> %s::vector as distance FROM {table_name} ORDER BY distance LIMIT {top_k};"
+    def search_similar(
+        self,
+        table_name: str,
+        query_vector: VectorInput,
+        top_k: int = 5
+    ) -> List[SearchResult]:
+        """
+        Find the top-K most similar vectors using cosine similarity.
+
+        Args:
+            table_name: Name of the table containing vectors
+            query_vector: Query vector for similarity search
+            top_k: Number of top results to return
+
+        Returns:
+            List of SearchResult dictionaries with IDs and similarity scores in [0, 1]
+        """
+        query = f"SELECT id, embedding <=> %s::vector as distance FROM {table_name} ORDER BY distance LIMIT {top_k};"
         formatted_vector = f"[{', '.join(map(str, self._to_list(query_vector)))}]"
         with self.conn.cursor() as cur:
             cur.execute(query, (formatted_vector,))
             db_results = cur.fetchall()
             results = [{"id": row["id"], "distance": row["distance"]}
                        for row in db_results]
+
         distances = [res["distance"] for res in results]
+        logger.debug("Raw cosine distances from %s: %s", table_name, distances)
+
         scores = calculate_vector_scores(distances)
+        logger.debug("Transformed similarity scores: %s", scores)
+
         final_results: List[SearchResult] = []
         for res, score in zip(results, scores):
             final_results.append({
                 "id": res["id"],
                 "score": score
             })
-        return sorted(final_results, key=lambda x: x['score'], reverse=True)
+
+        # No need to sort, as database ORDER BY distance ensures correct order
+        # and calculate_vector_scores preserves this (smaller distance -> higher score)
+        return final_results
 
     def drop_all_rows(self, table_name: Optional[str] = None) -> None:
         """Delete all rows from a specific table or all tables if no table is provided."""
