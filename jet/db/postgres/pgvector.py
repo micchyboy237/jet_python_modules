@@ -258,6 +258,16 @@ class PgVectorClient:
         self._ensure_table_exists(table_name, dimension or 1536)
         self._ensure_columns_exist(table_name, row_data)
 
+        # Get column data types
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s;",
+                (table_name,)
+            )
+            column_types = {row["column_name"]: row["data_type"]
+                            for row in cur.fetchall()}
+
         row_id = row_data.get("id", self.generate_unique_hash())
         columns = ["id"] + [col for col in row_data.keys() if col != "id"]
         values = []
@@ -290,9 +300,10 @@ class PgVectorClient:
                 cur.execute(query, values)
                 result = cur.fetchone()
                 return {
-                    col: result[col] if not (col == "details" and isinstance(
-                        result[col], str)) else json.loads(result[col]) if result[col] else None
-                    for col in columns
+                    col: result[col].tolist() if col == "embedding" and isinstance(result[col], np.ndarray)
+                    else json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                    else result[col]
+                    for col in result.keys()
                 }
             except Exception as e:
                 logger.error("Failed to insert row into %s: %s",
@@ -353,6 +364,16 @@ class PgVectorClient:
         self._ensure_table_exists(table_name, dimension or 1536)
         self._ensure_columns_exist(table_name, row_data)
 
+        # Get column data types
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s;",
+                (table_name,)
+            )
+            column_types = {row["column_name"]: row["data_type"]
+                            for row in cur.fetchall()}
+
         columns = [col for col in row_data.keys()]
         values = []
         set_clauses = []
@@ -383,8 +404,9 @@ class PgVectorClient:
                     raise ValueError(
                         f"No row found with id {row_id} in table {table_name}")
                 return {
-                    col: result[col] if not (col == "details" and isinstance(
-                        result[col], str)) else json.loads(result[col]) if result[col] else None
+                    col: result[col].tolist() if col == "embedding" and isinstance(result[col], np.ndarray)
+                    else json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                    else result[col]
                     for col in result.keys()
                 }
             except Exception as e:

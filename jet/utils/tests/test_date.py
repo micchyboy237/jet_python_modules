@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, date
 from jet.logger import logger
 from typing import Union
-from jet.utils.date import is_date_greater, is_date_greater_or_equal, is_date_lesser, is_date_lesser_or_equal
+from jet.utils.date_utils import is_date_greater, is_date_greater_or_equal, is_date_lesser, is_date_lesser_or_equal
 
 
 class TestIsDateGreaterOrEqualThan(unittest.TestCase):
