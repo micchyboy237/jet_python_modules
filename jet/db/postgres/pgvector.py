@@ -238,7 +238,7 @@ class PgVectorClient:
         """Generate a unique UUID v4 string."""
         return str(uuid.uuid4())
 
-    def create_row(self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None) -> str:
+    def create_row(self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None) -> TableRow:
         """Insert a single row into the specified table with arbitrary column values, creating the table and columns if needed.
 
         Args:
@@ -247,7 +247,7 @@ class PgVectorClient:
             dimension: Dimension of the embedding if applicable
 
         Returns:
-            Generated or provided ID of the inserted row
+            TableRow dictionary containing the inserted row data including the generated or provided ID
         """
         if not row_data:
             raise ValueError("Cannot insert empty row data")
@@ -279,7 +279,7 @@ class PgVectorClient:
                 values.append(value)
                 placeholders.append("%s")
 
-        query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING id;").format(
+        query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING *;").format(
             sql.Identifier(table_name),
             sql.SQL(", ").join(map(sql.Identifier, columns)),
             sql.SQL(", ").join(map(sql.SQL, placeholders))
@@ -289,13 +289,17 @@ class PgVectorClient:
             try:
                 cur.execute(query, values)
                 result = cur.fetchone()
-                return result["id"]
+                return {
+                    col: result[col] if not (col == "details" and isinstance(
+                        result[col], str)) else json.loads(result[col]) if result[col] else None
+                    for col in columns
+                }
             except Exception as e:
                 logger.error("Failed to insert row into %s: %s",
                              table_name, str(e))
                 raise
 
-    def create_rows(self, table_name: str, rows_data: List[Dict[str, Any]], dimension: Optional[int] = None) -> List[str]:
+    def create_rows(self, table_name: str, rows_data: List[Dict[str, Any]], dimension: Optional[int] = None) -> List[TableRow]:
         """Insert multiple rows into the specified table with arbitrary column values, creating the table and columns if needed.
 
         Args:
@@ -304,7 +308,7 @@ class PgVectorClient:
             dimension: Dimension of the embedding if applicable
 
         Returns:
-            List of generated or provided IDs of the inserted rows
+            List of TableRow dictionaries containing the inserted row data including generated or provided IDs
         """
         if not rows_data:
             raise ValueError("Cannot insert empty rows data")
@@ -315,16 +319,16 @@ class PgVectorClient:
         self._ensure_columns_exist(table_name, rows_data[0])
         if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
             raise ValueError("All rows must have the same columns")
-        row_ids = []
+        row_results = []
         for row in rows_data:
             try:
-                row_id = self.create_row(table_name, row, dimension)
-                row_ids.append(row_id)
+                row_result = self.create_row(table_name, row, dimension)
+                row_results.append(row_result)
             except Exception as e:
                 logger.error("Failed to insert row into %s: %s",
                              table_name, str(e))
                 raise
-        return row_ids
+        return row_results
 
     def get_row(self, table_name: str, row_id: str) -> Optional[TableRow]:
         """Retrieve a single row by ID from the specified table, excluding embedding column.
@@ -340,7 +344,7 @@ class PgVectorClient:
             # Get all column names except embedding
             cur.execute(
                 "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
+                "WHERE table_schema = 'public' AND table_name = %s;",
                 (table_name,)
             )
             columns = [row["column_name"] for row in cur.fetchall()]
@@ -377,7 +381,7 @@ class PgVectorClient:
             # Get all column names and their types except embedding
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
+                "WHERE table_schema = 'public' AND table_name = %s;",
                 (table_name,)
             )
             column_info = {row["column_name"]: row["data_type"]

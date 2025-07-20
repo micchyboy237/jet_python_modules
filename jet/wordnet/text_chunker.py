@@ -1,12 +1,14 @@
 from typing import Union, List, Tuple, Optional
 from nltk.tokenize import sent_tokenize
 from jet.logger import logger
+from jet.models.utils import get_context_size
 from jet.vectors.document_types import HeaderDocument, HeaderMetadata
-from jet.models.tokenizer.base import detokenize, get_tokenizer_fn, Tokenizer
+from jet.models.tokenizer.base import detokenize, get_tokenizer_fn, get_tokenizer
 from jet.models.model_types import ModelType
 import re
 import numpy as np
 
+from jet.wordnet.sentence import split_sentences
 from jet.wordnet.words import get_words
 
 
@@ -307,38 +309,36 @@ def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Opti
     return chunked_docs
 
 
-def truncate_texts(
-    texts: Union[str, List[str]],
-    max_words: int,
-    model: Optional[ModelType] = None
-) -> Union[str, List[str]]:
-    """Truncate texts to a maximum number of words or tokens.
+def truncate_texts(texts: str | list[str], model: ModelType, max_tokens: Optional[int] = None) -> list[str]:
+    """
+    Truncates texts that exceed the max_tokens limit.
 
     Args:
-        texts: Single string or list of strings to truncate.
-        max_words: Maximum number of words or tokens to keep.
-        model: Optional LLM model name for token-based truncation.
+        texts (str | list[str]): A list of texts to be truncated.
+        model (str): The model name for tokenization.
+        max_tokens (int): The maximum number of tokens allowed per text.
+
+    Returns:
+        list[str]: A list of truncated texts.
     """
-    def truncate_single(text: str) -> str:
-        if model:
-            tokenize_fn = get_tokenizer_fn(model)
-            token_ids = tokenize_fn(text)
-            if len(token_ids) <= max_words:
-                return text
-            truncated_tokens = token_ids[:max_words]
-            return detokenize(truncated_tokens, model)
-        else:
-            sentences = sent_tokenize(text)
-            truncated = []
-            word_count = 0
-            for sentence in sentences:
-                words = sentence.split()
-                if word_count + len(words) > max_words:
-                    break
-                truncated.append(sentence)
-                word_count += len(words)
-            return " ".join(truncated)
+    tokenizer = get_tokenizer(model)
+
+    if not max_tokens:
+        max_tokens = get_context_size(model)
 
     if isinstance(texts, str):
-        return truncate_single(texts)
-    return [truncate_single(t) for t in texts]
+        texts = [texts]
+
+    tokenized_texts = tokenizer.batch_encode_plus(texts, return_tensors=None)
+    tokenized_texts = tokenized_texts["input_ids"]
+    truncated_texts = []
+
+    for text, tokens in zip(texts, tokenized_texts):
+        if len(tokens) > max_tokens:
+            truncated_text = tokenizer.decode(
+                tokens[:max_tokens], skip_special_tokens=True)
+            truncated_texts.append(truncated_text)
+        else:
+            truncated_texts.append(text)
+
+    return truncated_texts

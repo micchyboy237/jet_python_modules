@@ -4,6 +4,7 @@ from numpy.typing import NDArray
 from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
+from jet.wordnet.text_chunker import truncate_texts
 from shared.data_types.job import JobData, JobMetadata, JobSearchResult
 from jet.db.postgres.pgvector import PgVectorClient, EmbeddingInput, SearchResult
 from jet.models.embeddings.chunking import chunk_docs_by_hierarchy, DocChunkResult
@@ -52,7 +53,6 @@ def load_jobs_embeddings(
     with db_client:
         embeddings = db_client.get_embeddings(DEFAULT_JOBS_DB_NAME, chunk_ids)
 
-        logger.debug("Loaded %d job embeddings", len(embeddings))
         return embeddings
 
 
@@ -115,7 +115,6 @@ def load_jobs_metadata(
                     "end_idx": row["end_idx"]
                 })
 
-    logger.debug("Loaded metadata for %d chunks", len(metadata))
     return metadata
 
 
@@ -134,8 +133,7 @@ def save_job_embeddings(
     db_client: Optional[PgVectorClient] = None,
     overwrite_db: bool = True,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
-    tokenizer: Optional[TokenizerWrapper] = None
-) -> None:
+) -> Dict:
     """
     Save job embeddings to the database after chunking the job descriptions.
 
@@ -145,37 +143,44 @@ def save_job_embeddings(
         db_client: Optional database client
         overwrite_db: Whether to overwrite the database
         chunk_size: Maximum number of tokens per chunk
-        tokenizer: Optional tokenizer for chunking
     """
     # Existing code for chunking and embedding generation
-    job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
-    chunks = chunk_docs_by_hierarchy(
-        markdown_texts=job_texts,
-        chunk_size=chunk_size,
-        tokenizer=tokenizer,
-        ids=[job["id"] for job in jobs]
-    )
+    # job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
+    # chunks = chunk_docs_by_hierarchy(
+    #     markdown_texts=job_texts,
+    #     chunk_size=chunk_size,
+    #     ids=[job["id"] for job in jobs]
+    # )
 
-    chunk_texts = [
-        f"{chunk['header']}\n{chunk['content']}" for chunk in chunks]
+    # chunk_texts = [
+    #     f"{chunk['header']}\n{chunk['content']}" for chunk in chunks]
+
+    job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
+    truncated_job_texts = truncate_texts(job_texts, embed_model, chunk_size)
     embeddings = generate_embeddings(
-        chunk_texts,
+        truncated_job_texts,
         embed_model,
         show_progress=True,
         return_format="numpy"
     )
 
-    if len(chunks) != len(embeddings):
+    # if len(chunks) != len(embeddings):
+    #     raise ValueError(
+    #         f"Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})"
+    #     )
+    if len(job_texts) != len(embeddings):
         raise ValueError(
-            f"Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})"
+            f"Mismatch between job_texts ({len(job_texts)}) and embeddings ({len(embeddings)})"
         )
 
     rows_data = [
         {
-            **chunk,
+            # **chunk,
+            **job,
             "embedding": embedding
         }
-        for chunk, embedding in zip(chunks, embeddings)
+        # for chunk, embedding in zip(chunks, embeddings)
+        for job, embedding in zip(jobs, embeddings)
     ]
 
     if not db_client:
@@ -268,6 +273,12 @@ def save_job_embeddings(
         logger.success(
             f"Saved {len(rows_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table."
         )
+        return {
+            "job_texts": job_texts,
+            "truncated_job_texts": truncated_job_texts,
+            "embeddings": embeddings,
+            "rows": rows_data,
+        }
 
 
 def search_jobs(
@@ -288,7 +299,6 @@ def search_jobs(
     Returns:
         List of JobSearchResult dictionaries containing rank, score, and job metadata
     """
-    logger.debug("Starting job search with query: %s", query)
     query_embedding = generate_embeddings(
         [query],
         embed_model,
@@ -300,24 +310,10 @@ def search_jobs(
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
     with db_client:
-        with db_client.conn.cursor() as cur:
-            logger.debug("Ensuring metadata table exists")
-            cur.execute(
-                f"SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = %s;",
-                (f"{DEFAULT_TABLE_METADATA_NAME}",)
-            )
-            table_exists = cur.fetchone()
-            logger.debug("Metadata table exists: %s", bool(table_exists))
-            if not table_exists:
-                logger.warning(
-                    "Metadata table was created during search, indicating potential data inconsistency")
-
         results = db_client.search(
             table_name=DEFAULT_TABLE_NAME,
             query_embedding=query_embedding,
             top_k=top_k
         )
-        logger.debug("Retrieved %d similar results: %s",
-                     len(results), [r["id"] for r in results])
 
         return results
