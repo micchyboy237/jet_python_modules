@@ -309,6 +309,92 @@ def get_bm25_similarities_old(queries: List[str], documents: List[str], ids: Opt
     return sorted(all_scores, key=lambda x: x["score"], reverse=True)
 
 
+def get_bm25_similarities_oldest(
+    queries: List[str], documents: List[str], *, ids: Optional[List[str]] = None, k1=1.2, b=0.75, delta=1.0
+) -> List[SimilarityResult]:
+    """
+    Compute BM25+ similarities between queries and a list of documents.
+
+    Args:
+        queries (List[str]): List of query strings.
+        documents (List[str]): List of document strings.
+        ids (List[str]): List of document ids corresponding to the documents.
+        k1 (float): Term frequency scaling factor.
+        b (float): Length normalization parameter.
+        delta (float): BM25+ correction factor to reduce the bias against short documents.
+
+    Returns:
+        List[SimilarityResult]: A list of similarity results with scores and match details.
+    """
+
+    if not queries or not documents:
+        raise ValueError("queries and documents must not be empty")
+
+    if ids is None:
+        ids = [generate_unique_hash() for _ in documents]
+    elif len(documents) != len(ids):
+        raise ValueError("documents and ids must have the same lengths")
+
+    tokenized_docs = [doc.split() for doc in documents]
+    doc_lengths = [len(doc) for doc in tokenized_docs]
+    avg_doc_len = sum(doc_lengths) / len(doc_lengths)
+
+    df = {}
+    total_docs = len(documents)
+    for doc in tokenized_docs:
+        unique_terms = set(doc)
+        for term in unique_terms:
+            df[term] = df.get(term, 0) + 1
+
+    idf = {term: math.log((total_docs - freq + 0.5) / (freq + 0.5) + 1)
+           for term, freq in df.items()}
+    all_scores: List[SimilarityResult] = []
+
+    for idx, doc in enumerate(tokenized_docs):
+        doc_length = doc_lengths[idx]
+        term_frequencies = Counter(doc)
+        score = 0
+        matched: dict[str, int] = {}
+        matched_sentences: dict[str, List[Match]] = {}
+
+        for query in queries:
+            query_terms = query.split()
+            query_score = 0
+
+            for term in query_terms:
+                if term in idf:
+                    tf = term_frequencies[term]
+                    numerator = tf * (k1 + 1)
+                    denominator = tf + k1 * \
+                        (1 - b + b * (doc_length / avg_doc_len)) + delta
+                    query_score += idf[term] * (numerator / denominator)
+
+            if query_score > 0:
+                matched[query] = matched.get(
+                    query, 0) + 1  # Count query occurrences
+
+            score += query_score
+
+        if score > 0:
+            all_scores.append(SimilarityResult(
+                id=ids[idx],
+                score=score,
+                similarity=score,
+                matched=matched,
+                # Empty since old version lacks sentence matching
+                matched_sentences=matched_sentences,
+                text=documents[idx],
+            ))
+
+    if all_scores:
+        max_similarity = max(entry["score"] for entry in all_scores)
+        for entry in all_scores:
+            entry["score"] = entry["score"] / \
+                max_similarity if max_similarity > 0 else 0
+
+    return sorted(all_scores, key=lambda x: x["score"], reverse=True)
+
+
 def adjust_score_with_rewards_and_penalties(base_score: float, matched_terms: dict[str, int], query_terms: List[str], idf: dict[str, float]) -> float:
     """Adjusts the base score with rewards for matched terms and penalties for missing terms."""
     if not query_terms:
