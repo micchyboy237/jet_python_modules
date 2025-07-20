@@ -172,11 +172,17 @@ def generate_embeddings(
                 return [] if return_format == "list" else np.array([])
 
             embeddings = []
+            total_texts = len(input_data)
             total_batches = (len(input_data) + batch_size - 1) // batch_size
-            for i in tqdm(range(0, len(input_data), batch_size),
-                          desc="Embedding texts",
-                          total=total_batches,
-                          disable=not show_progress):
+            for i in tqdm(
+                range(0, len(input_data), batch_size),
+                total=total_batches,
+                disable=not show_progress,
+                bar_format="{l_bar}{bar}| {n}/{total} batches [{elapsed}<{remaining}]"
+            ):
+                if show_progress:
+                    tqdm.write(
+                        f"Embedding texts ({i}/{total_texts} processed)")
                 batch = input_data[i:i + batch_size]
                 batch_embeddings = embedder.encode(
                     batch,

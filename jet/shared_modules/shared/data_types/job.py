@@ -31,3 +31,22 @@ class JobData(TypedDict):
     salary: Optional[str]
     job_type: Optional[str]
     hours_per_week: Optional[int]
+
+
+class JobSearchResult(TypedDict):
+    rank: int
+    score: float
+    id: str
+    doc_id: str
+    header_doc_id: str
+    parent_id: Optional[str]
+    doc_index: int
+    chunk_index: int
+    num_tokens: int
+    header: str
+    parent_header: Optional[str]
+    content: str
+    level: int
+    parent_level: Optional[int]
+    start_idx: int
+    end_idx: int

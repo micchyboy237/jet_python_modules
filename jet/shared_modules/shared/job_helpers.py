@@ -3,15 +3,71 @@ import numpy as np
 from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
-from shared.data_types.job import JobData
+from shared.data_types.job import JobData, JobSearchResult
 from jet.db.postgres.pgvector import PgVectorClient, VectorInput, SearchResult
 from jet.models.embeddings.chunking import chunk_docs_by_hierarchy, DocChunkResult
 from jet.models.tokenizer.base import TokenizerWrapper
 
 DEFAULT_EMBED_MODEL: EmbedModelType = "mxbai-embed-large"
-DEFAULT_DB_NAME = "jobs_db1"
+DEFAULT_JOBS_DB_NAME = "jobs_db1"
 DEFAULT_TABLE_NAME = "embeddings"
 DEFAULT_CHUNK_SIZE = 512
+
+
+def load_jobs_metadata(
+    chunk_ids: List[str],
+    db_client: Optional[PgVectorClient] = None
+) -> List[Dict]:
+    """
+    Load job metadata for given chunk IDs from the metadata table.
+
+    Args:
+        chunk_ids: List of chunk IDs to retrieve metadata for
+        db_client: Optional PgVectorClient instance
+
+    Returns:
+        List of dictionaries containing job metadata
+    """
+    if not chunk_ids:
+        return []
+
+    if not db_client:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+
+    metadata: List[Dict] = []
+    with db_client:
+        with db_client.conn.cursor() as cur:
+            query = f"""
+                SELECT 
+                    chunk_id, doc_id, header_doc_id, parent_id, doc_index,
+                    chunk_index, num_tokens, header, parent_header, content,
+                    level, parent_level, start_idx, end_idx
+                FROM {DEFAULT_TABLE_NAME}_metadata 
+                WHERE chunk_id = ANY(%s);
+            """
+            cur.execute(query, (chunk_ids,))
+            rows = cur.fetchall()
+
+            for row in rows:
+                metadata.append({
+                    "id": row["chunk_id"],
+                    "doc_id": row["doc_id"],
+                    "header_doc_id": row["header_doc_id"],
+                    "parent_id": row["parent_id"],
+                    "doc_index": row["doc_index"],
+                    "chunk_index": row["chunk_index"],
+                    "num_tokens": row["num_tokens"],
+                    "header": row["header"],
+                    "parent_header": row["parent_header"],
+                    "content": row["content"],
+                    "level": row["level"],
+                    "parent_level": row["parent_level"],
+                    "start_idx": row["start_idx"],
+                    "end_idx": row["end_idx"]
+                })
+
+    logger.debug("Loaded metadata for %d chunks", len(metadata))
+    return metadata
 
 
 def generate_job_embeddings(data: List[JobData], embed_model: EmbedModelType = DEFAULT_EMBED_MODEL) -> np.ndarray:
@@ -42,7 +98,7 @@ def save_job_embeddings(
         chunk_size: Maximum number of tokens per chunk
         tokenizer: Optional tokenizer for chunking
     """
-    # Generate chunks for all job descriptions
+    # Existing code for chunking and embedding generation
     job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
     chunks = chunk_docs_by_hierarchy(
         markdown_texts=job_texts,
@@ -51,7 +107,6 @@ def save_job_embeddings(
         ids=[job["id"] for job in jobs]
     )
 
-    # Generate embeddings for all chunks
     chunk_texts = [
         f"{chunk['header']}\n{chunk['content']}" for chunk in chunks]
     embeddings = generate_embeddings(
@@ -66,14 +121,13 @@ def save_job_embeddings(
             f"Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})"
         )
 
-    # Prepare vector data with chunk IDs
     vector_data: Dict[str, VectorInput] = {
         chunk["id"]: embedding for chunk, embedding in zip(chunks, embeddings)
     }
 
     if not db_client:
         db_client = PgVectorClient(
-            dbname=DEFAULT_DB_NAME,
+            dbname=DEFAULT_JOBS_DB_NAME,
             overwrite_db=overwrite_db
         )
 
@@ -101,34 +155,63 @@ def save_job_embeddings(
             end_idx INTEGER
         );
         """
-        with db_client.conn.cursor() as cur:
-            cur.execute(metadata_query)
-            for chunk in chunks:
-                cur.execute(
-                    f"""
-                    INSERT INTO {DEFAULT_TABLE_NAME}_metadata (
-                        chunk_id, doc_id, header_doc_id, parent_id, doc_index, chunk_index,
-                        num_tokens, header, parent_header, content, level, parent_level,
-                        start_idx, end_idx
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-                    """,
-                    (
-                        chunk["id"],
-                        chunk["doc_id"],
-                        chunk["header_doc_id"],
-                        chunk["parent_id"],
-                        chunk["doc_index"],
-                        chunk["chunk_index"],
-                        chunk["num_tokens"],
-                        chunk["header"],
-                        chunk["parent_header"],
-                        chunk["content"],
-                        chunk["level"],
-                        chunk["parent_level"],
-                        chunk["metadata"]["start_idx"],
-                        chunk["metadata"]["end_idx"]
+        try:
+            with db_client.conn.cursor() as cur:
+                cur.execute(metadata_query)
+                logger.info(
+                    f"Created or verified '{DEFAULT_TABLE_NAME}_metadata' table.")
+                for chunk in chunks:
+                    # Validate chunk metadata
+                    required_keys = [
+                        "id", "doc_id", "header_doc_id", "parent_id", "doc_index",
+                        "chunk_index", "num_tokens", "header", "parent_header",
+                        "content", "level", "parent_level", "metadata"
+                    ]
+                    missing_keys = [
+                        key for key in required_keys if key not in chunk]
+                    if missing_keys:
+                        logger.error(f"Missing keys in chunk: {missing_keys}")
+                        raise ValueError(
+                            f"Chunk missing required keys: {missing_keys}")
+                    if "start_idx" not in chunk["metadata"] or "end_idx" not in chunk["metadata"]:
+                        logger.error(
+                            f"Chunk metadata missing start_idx or end_idx: {chunk['id']}")
+                        raise ValueError(
+                            f"Chunk metadata missing start_idx or end_idx for chunk {chunk['id']}")
+
+                    cur.execute(
+                        f"""
+                        INSERT INTO {DEFAULT_TABLE_NAME}_metadata (
+                            chunk_id, doc_id, header_doc_id, parent_id, doc_index, chunk_index,
+                            num_tokens, header, parent_header, content, level, parent_level,
+                            start_idx, end_idx
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (chunk_id) DO NOTHING;
+                        """,
+                        (
+                            chunk["id"],
+                            chunk["doc_id"],
+                            chunk["header_doc_id"],
+                            chunk["parent_id"],
+                            chunk["doc_index"],
+                            chunk["chunk_index"],
+                            chunk["num_tokens"],
+                            chunk["header"],
+                            chunk["parent_header"],
+                            chunk["content"],
+                            chunk["level"],
+                            chunk["parent_level"],
+                            chunk["metadata"]["start_idx"],
+                            chunk["metadata"]["end_idx"]
+                        )
                     )
-                )
+                db_client.conn.commit()  # Explicitly commit the transaction
+                logger.info(
+                    f"Inserted {len(chunks)} metadata records into '{DEFAULT_TABLE_NAME}_metadata' table.")
+        except Exception as e:
+            logger.error(f"Failed to insert metadata: {str(e)}")
+            db_client.conn.rollback()  # Rollback on error
+            raise
         logger.success(
             f"Saved {len(vector_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table."
         )
@@ -139,22 +222,20 @@ def search_jobs(
     top_k: int = 5,
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
     db_client: Optional[PgVectorClient] = None
-) -> List[Dict]:
+) -> List[JobSearchResult]:
     """
-    Search for jobs based on a query string using vector similarity.
+    Search for jobs based on a query string and return ranked results with metadata.
 
     Args:
         query: Search query string
-        top_k: Number of results to return
-        embed_model: Embedding model to use for query
-        db_client: Optional database client
+        top_k: Number of top results to return
+        embed_model: Embedding model to use
+        db_client: Optional PgVectorClient instance
 
     Returns:
-        List of dictionaries containing job IDs and similarity scores
+        List of JobSearchResult dictionaries containing rank, score, and job metadata
     """
     logger.debug("Starting job search with query: %s", query)
-
-    # Generate embedding for the query
     query_embedding = generate_embeddings(
         [query],
         embed_model,
@@ -163,32 +244,11 @@ def search_jobs(
     )[0]
 
     if not db_client:
-        db_client = PgVectorClient(dbname=DEFAULT_DB_NAME)
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
-    # Search for similar vectors
     with db_client:
-        # Ensure metadata table exists using a custom query
-        metadata_query = f"""
-        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_NAME}_metadata (
-            chunk_id TEXT PRIMARY KEY,
-            doc_id TEXT,
-            header_doc_id TEXT,
-            parent_id TEXT,
-            doc_index INTEGER,
-            chunk_index INTEGER,
-            num_tokens INTEGER,
-            header TEXT,
-            parent_header TEXT,
-            content TEXT,
-            level INTEGER,
-            parent_level INTEGER,
-            start_idx INTEGER,
-            end_idx INTEGER
-        );
-        """
         with db_client.conn.cursor() as cur:
             logger.debug("Ensuring metadata table exists")
-            cur.execute(metadata_query)
             cur.execute(
                 f"SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = %s;",
                 (f"{DEFAULT_TABLE_NAME}_metadata",)
@@ -202,40 +262,32 @@ def search_jobs(
         results = db_client.search_similar(
             table_name=DEFAULT_TABLE_NAME,
             query_vector=query_embedding,
-            top_k=top_k * 2  # Get extra results to account for multiple chunks per job
+            top_k=top_k * 2
         )
 
-        # Aggregate results by doc_id
-        job_results: Dict[str, Dict] = {}
-        with db_client.conn.cursor() as cur:
-            for result in results:
-                logger.debug(
-                    "Querying metadata for chunk_id: %s", result["id"])
-                cur.execute(
-                    f"SELECT doc_id FROM {DEFAULT_TABLE_NAME}_metadata WHERE chunk_id = %s;",
-                    (result["id"],)
-                )
-                row = cur.fetchone()
-                if row:
-                    doc_id = row["doc_id"]
-                    logger.debug("Found chunk_id %s with doc_id %s",
-                                 result["id"], doc_id)
-                    if doc_id not in job_results:
-                        job_results[doc_id] = {
-                            "id": doc_id,
-                            "score": result["score"],
-                            "chunk_count": 1
-                        }
-                    else:
-                        job_results[doc_id]["score"] = max(
-                            job_results[doc_id]["score"], result["score"]
-                        )
-                        job_results[doc_id]["chunk_count"] += 1
-                else:
-                    logger.warning(
-                        "No metadata found for chunk_id: %s", result["id"])
+        chunk_ids = [result["id"] for result in results]
+        metadata_list = load_jobs_metadata(chunk_ids, db_client)
 
-        # Sort by score and limit to top_k
+        job_results: Dict[str, Dict] = {}
+        for result, metadata in zip(results, metadata_list):
+            if metadata["id"] != result["id"]:
+                logger.warning("Metadata ID %s does not match result ID %s",
+                               metadata["id"], result["id"])
+                continue
+
+            doc_id = metadata["doc_id"]
+            if doc_id not in job_results:
+                job_results[doc_id] = {
+                    "score": result["score"],
+                    "chunk_count": 1,
+                    **metadata
+                }
+            else:
+                job_results[doc_id]["score"] = max(
+                    job_results[doc_id]["score"], result["score"]
+                )
+                job_results[doc_id]["chunk_count"] += 1
+
         final_results = sorted(
             job_results.values(),
             key=lambda x: x["score"],
@@ -244,8 +296,25 @@ def search_jobs(
 
         logger.debug("Found %d unique jobs in search results",
                      len(final_results))
-        # Remove chunk_count from final output
+
         return [
-            {"id": result["id"], "score": result["score"]}
-            for result in final_results
+            {
+                "rank": idx + 1,
+                "score": result["score"],
+                "id": result["id"],
+                "doc_id": result["doc_id"],
+                "header_doc_id": result["header_doc_id"],
+                "parent_id": result["parent_id"],
+                "doc_index": result["doc_index"],
+                "chunk_index": result["chunk_index"],
+                "num_tokens": result["num_tokens"],
+                "header": result["header"],
+                "parent_header": result["parent_header"],
+                "content": result["content"],
+                "level": result["level"],
+                "parent_level": result["parent_level"],
+                "start_idx": result["start_idx"],
+                "end_idx": result["end_idx"]
+            }
+            for idx, result in enumerate(final_results)
         ]
