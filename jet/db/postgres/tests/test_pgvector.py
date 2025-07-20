@@ -45,7 +45,8 @@ def test_create_and_insert_vector(pgvector_client):
     # When: Creating a table and inserting a vector
     pgvector_client.create_table(table_name, vector_dim)
     vector_id = pgvector_client.insert_vector(table_name, expected_vector)
-    retrieved_vector = pgvector_client.get_vector_by_id(table_name, vector_id)
+    retrieved_vector = pgvector_client.get_embedding_by_id(
+        table_name, vector_id)
 
     # Then: The retrieved vector matches the inserted vector
     result = retrieved_vector

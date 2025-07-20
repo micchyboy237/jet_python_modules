@@ -5,7 +5,7 @@ from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
 from shared.data_types.job import JobData, JobMetadata, JobSearchResult
-from jet.db.postgres.pgvector import PgVectorClient, VectorInput, SearchResult
+from jet.db.postgres.pgvector import PgVectorClient, EmbeddingInput, SearchResult
 from jet.models.embeddings.chunking import chunk_docs_by_hierarchy, DocChunkResult
 from jet.models.tokenizer.base import TokenizerWrapper
 
@@ -15,7 +15,7 @@ DEFAULT_TABLE_NAME = "embeddings"
 DEFAULT_CHUNK_SIZE = 512
 
 
-def load_job_embeddings(
+def load_jobs_embeddings(
     chunk_ids: Optional[List[str]] = None,
     db_client: Optional[PgVectorClient] = None
 ) -> Dict[str, NDArray[np.float64]]:
@@ -34,25 +34,7 @@ def load_job_embeddings(
 
     embeddings: Dict[str, NDArray[np.float64]] = {}
     with db_client:
-        with db_client.conn.cursor() as cur:
-            if chunk_ids:
-                query = f"""
-                    SELECT id, embedding
-                    FROM {DEFAULT_TABLE_NAME}
-                    WHERE id = ANY(%s);
-                """
-                cur.execute(query, (chunk_ids,))
-            else:
-                query = f"""
-                    SELECT id, embedding
-                    FROM {DEFAULT_TABLE_NAME};
-                """
-                cur.execute(query)
-
-            rows = cur.fetchall()
-            for row in rows:
-                embeddings[row["id"]] = np.array(
-                    row["embedding"], dtype=np.float64)
+        embeddings = db_client.get_embeddings(DEFAULT_JOBS_DB_NAME, chunk_ids)
 
     logger.debug("Loaded %d job embeddings", len(embeddings))
     return embeddings
@@ -172,7 +154,7 @@ def save_job_embeddings(
             f"Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})"
         )
 
-    vector_data: Dict[str, VectorInput] = {
+    vector_data: Dict[str, EmbeddingInput] = {
         chunk["id"]: embedding for chunk, embedding in zip(chunks, embeddings)
     }
 
