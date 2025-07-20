@@ -12,7 +12,24 @@ from jet.models.tokenizer.base import TokenizerWrapper
 DEFAULT_EMBED_MODEL: EmbedModelType = "mxbai-embed-large"
 DEFAULT_JOBS_DB_NAME = "jobs_db1"
 DEFAULT_TABLE_NAME = "embeddings"
+DEFAULT_TABLE_METADATA_NAME = f"{DEFAULT_TABLE_NAME}_metadata"
 DEFAULT_CHUNK_SIZE = 512
+
+
+def load_jobs(
+    chunk_ids: Optional[List[str]] = None,
+    db_client: Optional[PgVectorClient] = None
+) -> List[JobData]:
+    if not db_client:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+
+    jobs: List[JobData] = []
+    with db_client:
+        rows = db_client.get_rows(DEFAULT_TABLE_METADATA_NAME, chunk_ids)
+        row_ids = [row["id"] for row in rows]
+
+    logger.debug("Loaded %d jobs", len(jobs))
+    return jobs
 
 
 def load_jobs_embeddings(
@@ -32,12 +49,11 @@ def load_jobs_embeddings(
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
-    embeddings: Dict[str, NDArray[np.float64]] = {}
     with db_client:
         embeddings = db_client.get_embeddings(DEFAULT_JOBS_DB_NAME, chunk_ids)
 
-    logger.debug("Loaded %d job embeddings", len(embeddings))
-    return embeddings
+        logger.debug("Loaded %d job embeddings", len(embeddings))
+        return embeddings
 
 
 def load_jobs_metadata(
@@ -66,7 +82,7 @@ def load_jobs_metadata(
                         chunk_id, doc_id, header_doc_id, parent_id, doc_index,
                         chunk_index, num_tokens, header, parent_header, content,
                         level, parent_level, start_idx, end_idx
-                    FROM {DEFAULT_TABLE_NAME}_metadata 
+                    FROM {DEFAULT_TABLE_METADATA_NAME} 
                     WHERE chunk_id = ANY(%s);
                 """
                 cur.execute(query, (chunk_ids,))
@@ -76,7 +92,7 @@ def load_jobs_metadata(
                         chunk_id, doc_id, header_doc_id, parent_id, doc_index,
                         chunk_index, num_tokens, header, parent_header, content,
                         level, parent_level, start_idx, end_idx
-                    FROM {DEFAULT_TABLE_NAME}_metadata;
+                    FROM {DEFAULT_TABLE_METADATA_NAME};
                 """
                 cur.execute(query)
 
@@ -168,10 +184,10 @@ def save_job_embeddings(
         f"Inserting {len(vector_data)} chunked job embeddings into '{DEFAULT_TABLE_NAME}' table..."
     )
     with db_client:
-        db_client.insert_vector_by_ids(DEFAULT_TABLE_NAME, vector_data)
+        db_client.insert_embeddings_by_ids(DEFAULT_TABLE_NAME, vector_data)
         # Store chunk metadata in a separate table
         metadata_query = f"""
-        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_NAME}_metadata (
+        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_METADATA_NAME} (
             chunk_id TEXT PRIMARY KEY,
             doc_id TEXT,
             header_doc_id TEXT,
@@ -192,7 +208,7 @@ def save_job_embeddings(
             with db_client.conn.cursor() as cur:
                 cur.execute(metadata_query)
                 logger.info(
-                    f"Created or verified '{DEFAULT_TABLE_NAME}_metadata' table.")
+                    f"Created or verified '{DEFAULT_TABLE_METADATA_NAME}' table.")
                 for chunk in chunks:
                     # Validate chunk metadata
                     required_keys = [
@@ -214,7 +230,7 @@ def save_job_embeddings(
 
                     cur.execute(
                         f"""
-                        INSERT INTO {DEFAULT_TABLE_NAME}_metadata (
+                        INSERT INTO {DEFAULT_TABLE_METADATA_NAME} (
                             chunk_id, doc_id, header_doc_id, parent_id, doc_index, chunk_index,
                             num_tokens, header, parent_header, content, level, parent_level,
                             start_idx, end_idx
@@ -240,7 +256,7 @@ def save_job_embeddings(
                     )
                 db_client.conn.commit()  # Explicitly commit the transaction
                 logger.info(
-                    f"Inserted {len(chunks)} metadata records into '{DEFAULT_TABLE_NAME}_metadata' table.")
+                    f"Inserted {len(chunks)} metadata records into '{DEFAULT_TABLE_METADATA_NAME}' table.")
         except Exception as e:
             logger.error(f"Failed to insert metadata: {str(e)}")
             db_client.conn.rollback()  # Rollback on error
@@ -284,7 +300,7 @@ def search_jobs(
             logger.debug("Ensuring metadata table exists")
             cur.execute(
                 f"SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = %s;",
-                (f"{DEFAULT_TABLE_NAME}_metadata",)
+                (f"{DEFAULT_TABLE_METADATA_NAME}",)
             )
             table_exists = cur.fetchone()
             logger.debug("Metadata table exists: %s", bool(table_exists))

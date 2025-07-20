@@ -1,9 +1,10 @@
+import json
 import numpy as np
 import uuid
 from numpy.typing import NDArray
 from psycopg import connect, sql, errors
 from pgvector.psycopg import register_vector
-from typing import List, Dict, Optional, Tuple, TypedDict, Union
+from typing import Any, List, Dict, Optional, Tuple, TypedDict, Union
 from psycopg.rows import dict_row
 from jet.db.postgres.scoring import calculate_vector_scores
 from jet.logger import logger
@@ -17,11 +18,6 @@ from .config import (
 
 Embedding = NDArray[np.float64]
 EmbeddingInput = Union[List[float], Embedding]
-
-
-class SearchResult(TypedDict):
-    id: str
-    score: float
 
 
 class DatabaseMetadata(TypedDict):
@@ -42,12 +38,23 @@ class ColumnMetadata(TypedDict):
     numeric_scale: Optional[int]
 
 
+class TableRow(TypedDict):
+    id: str
+    # Allow any additional columns with arbitrary key-value pairs
+    __annotations__: Dict[str, Any]
+
+
 class TableMetadata(TypedDict):
     table_name: str
     table_type: str
     schema_name: str
     row_count: int
     columns: List[ColumnMetadata]
+
+
+class SearchResult(TypedDict):
+    id: str
+    score: float
 
 
 class PgVectorClient:
@@ -146,6 +153,46 @@ class PgVectorClient:
             if not table_exists:
                 self.create_table(table_name, dimension)
 
+    def _ensure_columns_exist(self, table_name: str, row_data: Dict[str, Any]) -> None:
+        """Ensure all columns in row_data exist in the table, adding them if necessary."""
+        with self.conn.cursor() as cur:
+            # Get existing columns
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s;",
+                (table_name,)
+            )
+            existing_columns = {row["column_name"] for row in cur.fetchall()}
+            logger.debug("Existing columns in %s: %s",
+                         table_name, existing_columns)
+
+            # Define column types for new columns
+            for column, value in row_data.items():
+                if column not in existing_columns and column != "id" and column != "embedding":
+                    if isinstance(value, (dict, list)):
+                        col_type = "jsonb"
+                    elif isinstance(value, bool):
+                        col_type = "boolean"
+                    elif isinstance(value, (int, float)):
+                        col_type = "numeric"
+                    else:
+                        col_type = "text"
+                    logger.debug(
+                        "Creating new column %s with type %s for table %s", column, col_type, table_name)
+                    query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {};").format(
+                        sql.Identifier(table_name),
+                        sql.Identifier(column),
+                        sql.SQL(col_type)
+                    )
+                    try:
+                        cur.execute(query)
+                        logger.debug(
+                            "Successfully created column %s in table %s", column, table_name)
+                    except Exception as e:
+                        logger.error(
+                            "Failed to create column %s in table %s: %s", column, table_name, str(e))
+                        raise
+
     def __enter__(self):
         """Begin transaction when entering 'with' block."""
         self.conn.execute("BEGIN;")
@@ -191,29 +238,180 @@ class PgVectorClient:
         """Generate a unique UUID v4 string."""
         return str(uuid.uuid4())
 
-    def get_rows(self, table_name: str, ids: Optional[List[str]] = None) -> List[Dict[str, Union[str, Embedding]]]:
-        """Retrieve rows from the specified table, optionally filtered by IDs.
+    def create_row(self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None) -> str:
+        """Insert a single row into the specified table with arbitrary column values, creating the table and columns if needed.
+
+        Args:
+            table_name: Name of the table to insert into
+            row_data: Dictionary of column names and their values, including nested dicts
+            dimension: Dimension of the embedding if applicable
+
+        Returns:
+            Generated or provided ID of the inserted row
+        """
+        if not row_data:
+            raise ValueError("Cannot insert empty row data")
+
+        if "embedding" in row_data and dimension is None:
+            dimension = len(self._to_list(row_data["embedding"]))
+        # Default dimension if not specified
+        self._ensure_table_exists(table_name, dimension or 1536)
+        self._ensure_columns_exist(table_name, row_data)
+
+        row_id = row_data.get("id", self.generate_unique_hash())
+        columns = ["id"] + [col for col in row_data.keys() if col != "id"]
+        values = []
+        placeholders = []
+
+        # Always include id in values and placeholders
+        values.append(row_id)
+        placeholders.append("%s")
+
+        for col in columns[1:]:  # Skip id, already handled
+            value = row_data[col]
+            if col == "embedding":
+                values.append(self._to_list(value))
+                placeholders.append("%s::vector")
+            elif isinstance(value, (dict, list)):
+                values.append(json.dumps(value))
+                placeholders.append("%s::jsonb")
+            else:
+                values.append(value)
+                placeholders.append("%s")
+
+        logger.debug("Inserting row into %s with columns: %s",
+                     table_name, columns)
+        logger.debug("Values: %s", values)
+        logger.debug("Placeholders: %s", placeholders)
+
+        query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING id;").format(
+            sql.Identifier(table_name),
+            sql.SQL(", ").join(map(sql.Identifier, columns)),
+            sql.SQL(", ").join(map(sql.SQL, placeholders))
+        )
+
+        logger.debug("Generated SQL query: %s", query.as_string(self.conn))
+
+        with self.conn.cursor() as cur:
+            try:
+                cur.execute(query, values)
+                result = cur.fetchone()
+                logger.debug("Insert result: %s", result)
+                return result["id"]
+            except Exception as e:
+                logger.error("Failed to insert row into %s: %s",
+                             table_name, str(e))
+                raise
+
+    def create_rows(self, table_name: str, rows_data: List[Dict[str, Any]], dimension: Optional[int] = None) -> List[str]:
+        """Insert multiple rows into the specified table with arbitrary column values, creating the table and columns if needed.
+
+        Args:
+            table_name: Name of the table to insert into
+            rows_data: List of dictionaries containing column names and their values, including nested dicts
+            dimension: Dimension of the embedding if applicable
+
+        Returns:
+            List of generated or provided IDs of the inserted rows
+        """
+        if not rows_data:
+            raise ValueError("Cannot insert empty rows data")
+        if any("embedding" in row for row in rows_data) and dimension is None:
+            dimension = len(self._to_list(
+                next(row["embedding"] for row in rows_data if "embedding" in row)))
+        self._ensure_table_exists(table_name, dimension or 1536)
+        self._ensure_columns_exist(table_name, rows_data[0])
+        if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
+            raise ValueError("All rows must have the same columns")
+        row_ids = []
+        for row in rows_data:
+            try:
+                row_id = self.create_row(table_name, row, dimension)
+                row_ids.append(row_id)
+            except Exception as e:
+                logger.error("Failed to insert row into %s: %s",
+                             table_name, str(e))
+                raise
+        return row_ids
+
+    def get_row(self, table_name: str, row_id: str) -> Optional[TableRow]:
+        """Retrieve a single row by ID from the specified table, excluding embedding column.
+
+        Args:
+            table_name: Name of the table to query
+            row_id: ID of the row to retrieve
+
+        Returns:
+            Dictionary containing all columns except embedding for the row, or None if not found
+        """
+        with self.conn.cursor() as cur:
+            # Get all column names except embedding
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
+                (table_name,)
+            )
+            columns = [row["column_name"] for row in cur.fetchall()]
+            if not columns:
+                raise ValueError(
+                    f"No columns found for table {table_name} (excluding embedding)")
+
+            # Build query with dynamic columns
+            query = sql.SQL("SELECT {} FROM {} WHERE id = %s").format(
+                sql.SQL(", ").join(map(sql.Identifier, columns)),
+                sql.Identifier(table_name)
+            )
+            cur.execute(query, (row_id,))
+            result = cur.fetchone()
+            if not result:
+                return None
+            return {
+                col: result[col] if not (col == "details" and isinstance(
+                    result[col], str)) else json.loads(result[col]) if result[col] else None
+                for col in columns
+            }
+
+    def get_rows(self, table_name: str, ids: Optional[List[str]] = None) -> List[TableRow]:
+        """Retrieve rows from the specified table, optionally filtered by IDs, excluding embedding column.
 
         Args:
             table_name: Name of the table to query
             ids: Optional list of IDs to filter results
 
         Returns:
-            List of dictionaries containing id and embedding for each row
+            List of dictionaries containing all columns except embedding for each row
         """
-        query = f"SELECT id, embedding FROM {table_name}"
-        params = ()
-        if ids is not None:
-            query += " WHERE id = ANY(%s)"
-            params = (ids,)
-
         with self.conn.cursor() as cur:
+            # Get all column names and their types except embedding
+            cur.execute(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
+                (table_name,)
+            )
+            column_info = {row["column_name"]: row["data_type"]
+                           for row in cur.fetchall()}
+            if not column_info:
+                raise ValueError(
+                    f"No columns found for table {table_name} (excluding embedding)")
+
+            columns = list(column_info.keys())
+            # Build query with dynamic columns
+            query = sql.SQL("SELECT {} FROM {}").format(
+                sql.SQL(", ").join(map(sql.Identifier, columns)),
+                sql.Identifier(table_name)
+            )
+            params = []
+            if ids is not None:
+                query = sql.SQL("{} WHERE id = ANY(%s)").format(query)
+                params.append(ids)
+
             cur.execute(query, params)
             results = cur.fetchall()
             return [
                 {
-                    "id": row["id"],
-                    "embedding": np.array(row["embedding"])
+                    col: row[col] if not (column_info[col] == "jsonb" and isinstance(
+                        row[col], str)) else json.loads(row[col]) if row[col] else None
+                    for col in columns
                 }
                 for row in results
             ]
@@ -292,7 +490,7 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query, (embedding_id, formatted_embedding))
 
-    def insert_embedding_by_ids(self, table_name: str, embedding_data: Dict[str, EmbeddingInput], dimension: Optional[int] = None) -> None:
+    def insert_embeddings_by_ids(self, table_name: str, embedding_data: Dict[str, EmbeddingInput], dimension: Optional[int] = None) -> None:
         """Insert multiple embeddings with specific IDs, creating the table if needed."""
         if not embedding_data:
             raise ValueError("Cannot insert empty embedding data")
