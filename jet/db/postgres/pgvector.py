@@ -330,6 +330,106 @@ class PgVectorClient:
                 raise
         return row_results
 
+    def update_row(self, table_name: str, row_id: str, row_data: Dict[str, Any], dimension: Optional[int] = None) -> TableRow:
+        """Update a single row in the specified table with new column values, creating new columns if needed.
+
+        Args:
+            table_name: Name of the table to update
+            row_id: ID of the row to update
+            row_data: Dictionary of column names and their new values, including nested dicts
+            dimension: Dimension of the embedding if applicable
+
+        Returns:
+            TableRow dictionary containing the updated row data
+
+        Raises:
+            ValueError: If row_data is empty or row_id does not exist
+        """
+        if not row_data:
+            raise ValueError("Cannot update with empty row data")
+
+        if "embedding" in row_data and dimension is None:
+            dimension = len(self._to_list(row_data["embedding"]))
+        self._ensure_table_exists(table_name, dimension or 1536)
+        self._ensure_columns_exist(table_name, row_data)
+
+        columns = [col for col in row_data.keys()]
+        values = []
+        set_clauses = []
+
+        for col in columns:
+            value = row_data[col]
+            if col == "embedding":
+                values.append(self._to_list(value))
+                set_clauses.append(f"{col} = %s::vector")
+            elif isinstance(value, (dict, list)):
+                values.append(json.dumps(value))
+                set_clauses.append(f"{col} = %s::jsonb")
+            else:
+                values.append(value)
+                set_clauses.append(f"{col} = %s")
+
+        values.append(row_id)  # For WHERE clause
+        query = sql.SQL("UPDATE {} SET {} WHERE id = %s RETURNING *;").format(
+            sql.Identifier(table_name),
+            sql.SQL(", ").join(map(sql.SQL, set_clauses))
+        )
+
+        with self.conn.cursor() as cur:
+            try:
+                cur.execute(query, values)
+                result = cur.fetchone()
+                if not result:
+                    raise ValueError(
+                        f"No row found with id {row_id} in table {table_name}")
+                return {
+                    col: result[col] if not (col == "details" and isinstance(
+                        result[col], str)) else json.loads(result[col]) if result[col] else None
+                    for col in result.keys()
+                }
+            except Exception as e:
+                logger.error("Failed to update row %s in %s: %s",
+                             row_id, table_name, str(e))
+                raise
+
+    def update_rows(self, table_name: str, rows_data: List[Dict[str, Any]], dimension: Optional[int] = None) -> List[TableRow]:
+        """Update multiple rows in the specified table with new column values, creating new columns if needed.
+
+        Args:
+            table_name: Name of the table to update
+            rows_data: List of dictionaries containing 'id' and column names with their new values
+            dimension: Dimension of the embedding if applicable
+
+        Returns:
+            List of TableRow dictionaries containing the updated row data
+
+        Raises:
+            ValueError: If rows_data is empty, any row lacks an 'id', or rows have inconsistent columns
+        """
+        if not rows_data:
+            raise ValueError("Cannot update empty rows data")
+        if not all("id" in row for row in rows_data):
+            raise ValueError("All rows must include an 'id' field")
+        if any("embedding" in row for row in rows_data) and dimension is None:
+            dimension = len(self._to_list(
+                next(row["embedding"] for row in rows_data if "embedding" in row)))
+        self._ensure_table_exists(table_name, dimension or 1536)
+        self._ensure_columns_exist(table_name, rows_data[0])
+        if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
+            raise ValueError("All rows must have the same columns")
+
+        updated_rows = []
+        for row in rows_data:
+            try:
+                updated_row = self.update_row(
+                    table_name, row["id"], row, dimension)
+                updated_rows.append(updated_row)
+            except Exception as e:
+                logger.error("Failed to update row %s in %s: %s",
+                             row["id"], table_name, str(e))
+                raise
+        return updated_rows
+
     def get_row(self, table_name: str, row_id: str) -> Optional[TableRow]:
         """Retrieve a single row by ID from the specified table, excluding embedding column.
 
