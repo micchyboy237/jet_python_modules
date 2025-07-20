@@ -1,4 +1,3 @@
 
-
-
-## Full Model Architecture
+This model was trained with Matryoshka loss, allowing this model to be used with lower dimensionalities with minimal performance loss (See [Matryoshka Evaluations](#matryoshka-evaluations) for evaluations).
+Notably, a lower dimensionality allows for much faster and cheaper information retrieval. You can specify a lower dimensionality with the `truncate_dim` argument when initializing the Sentence Transformer model:

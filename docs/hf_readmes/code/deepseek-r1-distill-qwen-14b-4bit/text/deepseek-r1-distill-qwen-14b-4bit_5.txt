@@ -1,1 +1,0 @@
-mistral-chat $HOME/mistral_models/7B-Instruct-v0.3 --instruct --max_tokens 256

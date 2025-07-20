@@ -1,13 +1,11 @@
-from mlx_lm import load, generate
+from transformers import AutoModelForMaskedLM, AutoConfig, AutoTokenizer, pipeline
 
-model, tokenizer = load("mlx-community/dolphin3.0-llama3.2-3B-4Bit")
+tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased') # `nomic-bert-2048` uses the standard BERT tokenizer
 
-prompt = "hello"
+config = AutoConfig.from_pretrained('nomic-ai/nomic-bert-2048', trust_remote_code=True) # the config needs to be passed in
+model = AutoModelForMaskedLM.from_pretrained('nomic-ai/nomic-bert-2048',config=config, trust_remote_code=True)
 
-if tokenizer.chat_template is not None:
-    messages = [{"role": "user", "content": prompt}]
-    prompt = tokenizer.apply_chat_template(
-        messages, add_generation_prompt=True
-    )
+# To use this model directly for masked language modeling
+classifier = pipeline('fill-mask', model=model, tokenizer=tokenizer,device="cpu")
 
-response = generate(model, tokenizer, prompt=prompt, verbose=True)
+print(classifier("I [MASK] to the store yesterday."))

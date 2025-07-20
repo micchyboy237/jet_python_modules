@@ -1,2 +1,6 @@
 
-Then you can use the model like this:
+## Usage
+
+### Direct Usage (Sentence Transformers)
+
+First install the Sentence Transformers library:

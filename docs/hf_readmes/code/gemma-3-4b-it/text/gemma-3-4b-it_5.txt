@@ -1,15 +1,3 @@
 
-This bias will also affect all fine-tuned versions of this model.
 
-## Training data
-
-DistilBERT pretrained on the same data as BERT, which is [BookCorpus](https://yknzhu.wixsite.com/mbweb), a dataset
-consisting of 11,038 unpublished books and [English Wikipedia](https://en.wikipedia.org/wiki/English_Wikipedia)
-(excluding lists, tables and headers).
-
-## Training procedure
-
-### Preprocessing
-
-The texts are lowercased and tokenized using WordPiece and a vocabulary size of 30,000. The inputs of the model are
-then of the form:
+### Citation

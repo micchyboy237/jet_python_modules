@@ -1,18 +1,13 @@
 ---
-license: apache-2.0
-base_model: mistralai/Mistral-7B-v0.3
-extra_gated_description: If you want to learn more about how we process your personal data, please read our <a href="https://mistral.ai/terms/">Privacy Policy</a>.
+base_model: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
+tags:
+- mlx
 ---
 
-# Model Card for Mistral-7B-Instruct-v0.3
+# mlx-community/DeepSeek-R1-Distill-Qwen-14B-4bit
 
-The Mistral-7B-Instruct-v0.3 Large Language Model (LLM) is an instruct fine-tuned version of the Mistral-7B-v0.3.
+The Model [mlx-community/DeepSeek-R1-Distill-Qwen-14B-4bit](https://huggingface.co/mlx-community/DeepSeek-R1-Distill-Qwen-14B-4bit) was
+converted to MLX format from [deepseek-ai/DeepSeek-R1-Distill-Qwen-14B](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B)
+using mlx-lm version **0.21.1**.
 
-Mistral-7B-v0.3 has the following changes compared to [Mistral-7B-v0.2](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.2/edit/main/README.md)
-- Extended vocabulary to 32768
-- Supports v3 Tokenizer
-- Supports function calling
-
-## Installation
-
-It is recommended to use `mistralai/Mistral-7B-Instruct-v0.3` with [mistral-inference](https://github.com/mistralai/mistral-inference). For HF transformers code snippets, please keep scrolling.
+## Use with mlx

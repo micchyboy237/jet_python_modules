@@ -1,2 +1,2 @@
 
-and in TensorFlow:
+With instruction-tuned models, you need to use chat templates to process our inputs first. Then, you can pass it to the pipeline.

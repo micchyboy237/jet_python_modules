@@ -1,1 +1,2 @@
-huggingface-cli download meta-llama/Llama-3.2-3B --include "original/*" --local-dir Llama-3.2-3B
+
+## Download

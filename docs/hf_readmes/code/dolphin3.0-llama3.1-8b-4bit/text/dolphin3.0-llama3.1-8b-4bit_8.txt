@@ -1,4 +1,0 @@
-
-### Using API
-
-You can use the model via our API as follows:

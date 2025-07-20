@@ -1,5 +1,1 @@
-
-**Usage with Huggingface Transformers:** 
-This is a simple example of how to use the Granite-Embedding-30m-English model with the Transformers library and PyTorch.
-
-First, install the required libraries
+huggingface-cli download meta-llama/Llama-3.2-1B --include "original/*" --local-dir Llama-3.2-1B

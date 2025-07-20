@@ -1,4 +1,0 @@
-
-### Chat
-
-After installing `mistral_inference`, a `mistral-chat` CLI command should be available in your environment. You can chat with the model using

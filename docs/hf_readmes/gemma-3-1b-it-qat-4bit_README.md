@@ -1,63 +1,41 @@
 ---
-language: en
-license: apache-2.0
-library_name: sentence-transformers
+license: gemma
+library_name: transformers
+pipeline_tag: text-generation
+extra_gated_heading: Access Gemma on Hugging Face
+extra_gated_prompt: To access Gemma on Hugging Face, you’re required to review and
+  agree to Google’s usage license. To do this, please ensure you’re logged in to Hugging
+  Face and click below. Requests are processed immediately.
+extra_gated_button_content: Acknowledge license
+base_model: google/gemma-3-1b-it
 tags:
-- sentence-transformers
-- feature-extraction
-- sentence-similarity
-- transformers
 - mlx
-datasets:
-- s2orc
-- flax-sentence-embeddings/stackexchange_xml
-- ms_marco
-- gooaq
-- yahoo_answers_topics
-- code_search_net
-- search_qa
-- eli5
-- snli
-- multi_nli
-- wikihow
-- natural_questions
-- trivia_qa
-- embedding-data/sentence-compression
-- embedding-data/flickr30k-captions
-- embedding-data/altlex
-- embedding-data/simple-wiki
-- embedding-data/QQP
-- embedding-data/SPECTER
-- embedding-data/PAQ_pairs
-- embedding-data/WikiAnswers
-pipeline_tag: sentence-similarity
 ---
 
-# mlx-community/all-MiniLM-L6-v2-8bit
+# mlx-community/gemma-3-1b-it-qat-4bit
 
-The Model [mlx-community/all-MiniLM-L6-v2-8bit](https://huggingface.co/mlx-community/all-MiniLM-L6-v2-8bit) was converted to MLX format from [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) using mlx-lm version **0.0.3**.
+The Model [mlx-community/gemma-3-1b-it-qat-4bit](https://huggingface.co/mlx-community/gemma-3-1b-it-qat-4bit) was
+converted to MLX format from [google/gemma-3-1b-it-qat-q4_0](https://huggingface.co/google/gemma-3-1b-it-qat-q4_0)
+using mlx-lm version **0.22.5**.
 
 ## Use with mlx
 
 ```bash
-pip install mlx-embeddings
+pip install mlx-lm
 ```
 
 ```python
-from mlx_embeddings import load, generate
-import mlx.core as mx
+from mlx_lm import load, generate
 
-model, tokenizer = load("mlx-community/all-MiniLM-L6-v2-8bit")
+model, tokenizer = load("mlx-community/gemma-3-1b-it-qat-4bit")
 
-# For text embeddings
-output = generate(model, processor, texts=["I like grapes", "I like fruits"])
-embeddings = output.text_embeds  # Normalized embeddings
+prompt = "hello"
 
-# Compute dot product between normalized embeddings
-similarity_matrix = mx.matmul(embeddings, embeddings.T)
+if tokenizer.chat_template is not None:
+    messages = [{"role": "user", "content": prompt}]
+    prompt = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True
+    )
 
-print("Similarity matrix between texts:")
-print(similarity_matrix)
-
-
+response = generate(model, tokenizer, prompt=prompt, verbose=True)
 ```

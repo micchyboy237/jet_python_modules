@@ -1,5 +1,0 @@
-
-### Limitations and bias
-
-Even if the training data used for this model could be characterized as fairly neutral, this model can have biased
-predictions:

@@ -1,24 +1,24 @@
->>> from transformers import pipeline
->>> unmasker = pipeline('fill-mask', model='roberta-large')
->>> unmasker("Hello I'm a <mask> model.")
+from sentence_transformers import SentenceTransformer, util
 
-[{'sequence': "<s>Hello I'm a male model.</s>",
-  'score': 0.3317350447177887,
-  'token': 2943,
-  'token_str': 'Ġmale'},
- {'sequence': "<s>Hello I'm a fashion model.</s>",
-  'score': 0.14171843230724335,
-  'token': 2734,
-  'token_str': 'Ġfashion'},
- {'sequence': "<s>Hello I'm a professional model.</s>",
-  'score': 0.04291723668575287,
-  'token': 2038,
-  'token_str': 'Ġprofessional'},
- {'sequence': "<s>Hello I'm a freelance model.</s>",
-  'score': 0.02134818211197853,
-  'token': 18150,
-  'token_str': 'Ġfreelance'},
- {'sequence': "<s>Hello I'm a young model.</s>",
-  'score': 0.021098261699080467,
-  'token': 664,
-  'token_str': 'Ġyoung'}]
+query = "How many people live in London?"
+docs = ["Around 9 Million people live in London", "London is known for its financial district"]
+
+#Load the model
+model = SentenceTransformer('sentence-transformers/multi-qa-MiniLM-L6-cos-v1')
+
+#Encode query and documents
+query_emb = model.encode(query)
+doc_emb = model.encode(docs)
+
+#Compute dot score between query and all document embeddings
+scores = util.dot_score(query_emb, doc_emb)[0].cpu().tolist()
+
+#Combine docs & scores
+doc_score_pairs = list(zip(docs, scores))
+
+#Sort by decreasing score
+doc_score_pairs = sorted(doc_score_pairs, key=lambda x: x[1], reverse=True)
+
+#Output passages & scores
+for doc, score in doc_score_pairs:
+    print(score, doc)

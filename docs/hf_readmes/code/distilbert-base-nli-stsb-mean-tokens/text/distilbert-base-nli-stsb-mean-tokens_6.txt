@@ -1,4 +1,4 @@
-
-<a href="https://huggingface.co/exbert/?model=roberta-base">
-	<img width="300px" src="https://cdn-media.huggingface.co/exbert/button.png">
-</a>
+SentenceTransformer(
+  (0): Transformer({'max_seq_length': 128, 'do_lower_case': False}) with Transformer model: DistilBertModel 
+  (1): Pooling({'word_embedding_dimension': 768, 'pooling_mode_cls_token': False, 'pooling_mode_mean_tokens': True, 'pooling_mode_max_tokens': False, 'pooling_mode_mean_sqrt_len_tokens': False})
+)

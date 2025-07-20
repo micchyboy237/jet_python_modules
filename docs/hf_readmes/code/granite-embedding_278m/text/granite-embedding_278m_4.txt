@@ -1,2 +1,2 @@
 
-#### Running the model on a single/multi GPU
+The model can then be used to encode pairs of text

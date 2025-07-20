@@ -1,2 +1,6 @@
 
-Here is how to use this model to get the features of a given text in PyTorch:
+Then, copy the snippet from the section that is relevant for your use case.
+
+#### Running with the `pipeline` API
+
+You can initialize the model and processor for inference with `pipeline` as follows.

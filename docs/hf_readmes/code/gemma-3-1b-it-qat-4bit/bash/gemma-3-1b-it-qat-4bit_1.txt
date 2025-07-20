@@ -1,1 +1,1 @@
-pip install mlx-embeddings
+pip install mlx-lm

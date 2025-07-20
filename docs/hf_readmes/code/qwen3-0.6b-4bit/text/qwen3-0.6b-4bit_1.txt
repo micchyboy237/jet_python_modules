@@ -1,17 +1,17 @@
 ---
-base_model: Qwen/Qwen2.5-7B
-language:
-- en
+library_name: mlx
 license: apache-2.0
-license_link: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/main/LICENSE
+license_link: https://huggingface.co/Qwen/Qwen3-0.6B/blob/main/LICENSE
 pipeline_tag: text-generation
+base_model: Qwen/Qwen3-0.6B
 tags:
-- chat
 - mlx
 ---
 
-# mlx-community/Qwen2.5-7B-Instruct-4bit
+# mlx-community/Qwen3-0.6B-4bit
 
-The Model [mlx-community/Qwen2.5-7B-Instruct-4bit](https://huggingface.co/mlx-community/Qwen2.5-7B-Instruct-4bit) was converted to MLX format from [Qwen/Qwen2.5-7B-Instruct](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct) using mlx-lm version **0.18.1**.
+This model [mlx-community/Qwen3-0.6B-4bit](https://huggingface.co/mlx-community/Qwen3-0.6B-4bit) was
+converted to MLX format from [Qwen/Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B)
+using mlx-lm version **0.24.0**.
 
 ## Use with mlx

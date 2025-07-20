@@ -290,30 +290,42 @@ def download_huggingface_repo(
     return path
 
 
-def download_readme(model_id: str | ModelValue, model_name: ModelType, output_dir: Union[str, Path], overwrite: bool = False) -> bool:
+def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite: bool = False, extract_code: bool = False) -> bool:
     """
     Download README.md for a Hugging Face model using API, fallback to web scraping if necessary.
+    Optionally extract code blocks from the downloaded README.
 
     Args:
         model_id (str | ModelValue): Full HF model repo ID or model name.
-        model_name (str): Local name for saved README.
         output_dir (str | Path): Directory to save README.
         overwrite (bool): Force overwrite if file exists.
+        extract_code (bool): Whether to extract code blocks from the README.
 
     Returns:
-        bool: True if successful, False otherwise.
+        bool: True if download is successful, False otherwise.
     """
-    from jet.models.utils import resolve_model_key, resolve_model_value
+    from jet.models.utils import resolve_model_key
+    from jet.models.extract_hf_readme_code import extract_code_from_hf_readmes
 
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    model_key = resolve_model_key(model_name)
+    try:
+        model_key = resolve_model_key(model_id)
+    except ValueError as e:
+        logger.warning(
+            f"Could not resolve model key for model_name='{model_id}': {e}")
+        return False
+
     readme_path = output_dir / f"{model_key}_README.md"
 
     if readme_path.exists() and not overwrite:
         print(f"README for {model_key} already exists, skipping...")
+        if extract_code:
+            code_output_dir = output_dir / "code"
+            extract_code_from_hf_readmes(
+                str(output_dir), str(code_output_dir), model_id, include_text=True)
         return True
 
     # Use temporary directory with model_key as suffix
@@ -330,7 +342,11 @@ def download_readme(model_id: str | ModelValue, model_name: ModelType, output_di
             if downloaded_file.exists():
                 downloaded_file.rename(readme_path)
                 logger.success(
-                    f"Downloaded README for {model_key} via API:\n{str(readme_path)}")
+                    f"Downloaded README for {model_key} via API: {str(readme_path)}")
+                if extract_code:
+                    code_output_dir = output_dir / "code"
+                    extract_code_from_hf_readmes(
+                        str(output_dir), str(code_output_dir), model_id, include_text=True)
                 return True
     except Exception as e:
         logger.error(f"API failed for {model_key}: {e}")
@@ -343,6 +359,10 @@ def download_readme(model_id: str | ModelValue, model_name: ModelType, output_di
             with open(readme_path, "w", encoding="utf-8") as f:
                 f.write(response.text)
             print(f"Downloaded README for {model_key} via web")
+            if extract_code:
+                code_output_dir = output_dir / "code"
+                extract_code_from_hf_readmes(
+                    str(output_dir), str(code_output_dir), model_id, include_text=True)
             return True
         else:
             print(
@@ -353,13 +373,14 @@ def download_readme(model_id: str | ModelValue, model_name: ModelType, output_di
     return False
 
 
-def download_model_readmes(output_dir: str = "hf_readmes", overwrite: bool = False) -> None:
+def download_model_readmes(output_dir: str = "hf_readmes", overwrite: bool = False, extract_code: bool = True) -> None:
     """
-    Download READMEs for all models in ALL_MODELS dictionary.
+    Download READMEs for all models in MODEL_VALUES_LIST dictionary and optionally extract code blocks.
 
     Args:
         output_dir (str): Directory to store downloaded READMEs.
         overwrite (bool): Whether to overwrite existing files.
+        extract_code (bool): Whether to extract code blocks from downloaded READMEs.
     """
     from .utils import resolve_model_key
     from .constants import MODEL_VALUES_LIST
@@ -367,15 +388,12 @@ def download_model_readmes(output_dir: str = "hf_readmes", overwrite: bool = Fal
     output_dir_path = Path(output_dir)
     output_dir_path.mkdir(parents=True, exist_ok=True)
 
-    # local_models = ALL_MODELS
     model_values = scan_local_hf_models()
     filtered_model_values = [
         model_value for model_value in model_values if model_value]
-    model_keys = [resolve_model_key(
-        model_path) for model_path in model_values if model_path in AVAILABLE_EMBED_MODELS.values()]
-    for model_key, model_value in zip(model_keys, filtered_model_values):
-        print(f"Processing {model_key} ({model_value})...")
-        download_readme(model_value, model_key, output_dir_path, overwrite)
+    for model_value in filtered_model_values:
+        print(f"Processing ({model_value})...")
+        download_readme(model_value, output_dir_path, overwrite, extract_code)
 
     print(f"All READMEs saved to {output_dir_path}")
 

@@ -1,19 +1,27 @@
-messages = [
-    {
-        "role": "system",
-        "content": [{"type": "text", "text": "You are a helpful assistant."}]
-    },
-    {
-        "role": "user",
-        "content": [
-            {"type": "image", "url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"},
-            {"type": "text", "text": "What animal is on the candy?"}
-        ]
-    }
-]
+import torch
+from transformers import AutoModel, AutoTokenizer
 
-output = pipe(text=messages, max_new_tokens=200)
-print(output[0]["generated_text"][-1]["content"])
-# Okay, let's take a look! 
-# Based on the image, the animal on the candy is a **turtle**. 
-# You can see the shell shape and the head and legs.
+model_path = "ibm-granite/granite-embedding-278m-multilingual"
+
+# Load the model and tokenizer
+model = AutoModel.from_pretrained(model_path)
+tokenizer = AutoTokenizer.from_pretrained(model_path)
+model.eval()
+
+input_queries = [
+    ' Who made the song My achy breaky heart? ',
+    'summit define'
+    ]
+
+# tokenize inputs
+tokenized_queries = tokenizer(input_queries, padding=True, truncation=True, return_tensors='pt')
+
+# encode queries
+with torch.no_grad():
+    # Queries
+    model_output = model(**tokenized_queries)
+    # Perform pooling. granite-embedding-278m-multilingual uses CLS Pooling
+    query_embeddings = model_output[0][:, 0]
+
+# normalize the embeddings
+query_embeddings = torch.nn.functional.normalize(query_embeddings, dim=1)

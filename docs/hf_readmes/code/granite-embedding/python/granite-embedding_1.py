@@ -1,10 +1,22 @@
->>> from transformers import pipeline, set_seed
->>> generator = pipeline('text-generation', model='gpt2')
->>> set_seed(42)
->>> generator("Hello, I'm a language model,", max_length=30, num_return_sequences=5)
+from sentence_transformers import SentenceTransformer, util
 
-[{'generated_text': "Hello, I'm a language model, a language for thinking, a language for expressing thoughts."},
- {'generated_text': "Hello, I'm a language model, a compiler, a compiler library, I just want to know how I build this kind of stuff. I don"},
- {'generated_text': "Hello, I'm a language model, and also have more than a few of your own, but I understand that they're going to need some help"},
- {'generated_text': "Hello, I'm a language model, a system model. I want to know my language so that it might be more interesting, more user-friendly"},
- {'generated_text': 'Hello, I\'m a language model, not a language model"\n\nThe concept of "no-tricks" comes in handy later with new'}]
+model_path = "ibm-granite/granite-embedding-30m-english"
+# Load the Sentence Transformer model
+model = SentenceTransformer(model_path)
+
+input_queries = [
+    ' Who made the song My achy breaky heart? ',
+    'summit define'
+    ]
+
+input_passages = [
+    "Achy Breaky Heart is a country song written by Don Von Tress. Originally titled Don't Tell My Heart and performed by The Marcy Brothers in 1991. ",
+    "Definition of summit for English Language Learners. : 1 the highest point of a mountain : the top of a mountain. : 2 the highest level. : 3 a meeting or series of meetings between the leaders of two or more governments."
+    ]
+
+# encode queries and passages
+query_embeddings = model.encode(input_queries)
+passage_embeddings = model.encode(input_passages)
+
+# calculate cosine similarity
+print(util.cos_sim(query_embeddings, passage_embeddings))

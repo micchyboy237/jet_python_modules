@@ -1,6 +1,1 @@
-
-### `search_query`
-
-#### Purpose: embed texts as questions to answer
-
-This prefix is used for embedding texts as questions that documents from a dataset could resolve, for example as queries to be answered by a RAG application.
+pip install -U sentence-transformers

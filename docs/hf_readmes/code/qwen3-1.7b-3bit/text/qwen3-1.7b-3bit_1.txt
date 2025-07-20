@@ -1,17 +1,17 @@
 ---
 library_name: mlx
 license: apache-2.0
-license_link: https://huggingface.co/Qwen/Qwen3-0.6B/blob/main/LICENSE
+license_link: https://huggingface.co/Qwen/Qwen3-1.7B/blob/main/LICENSE
 pipeline_tag: text-generation
-base_model: Qwen/Qwen3-0.6B
+base_model: Qwen/Qwen3-1.7B
 tags:
 - mlx
 ---
 
-# mlx-community/Qwen3-0.6B-4bit
+# mlx-community/Qwen3-1.7B-3bit
 
-This model [mlx-community/Qwen3-0.6B-4bit](https://huggingface.co/mlx-community/Qwen3-0.6B-4bit) was
-converted to MLX format from [Qwen/Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B)
+This model [mlx-community/Qwen3-1.7B-3bit](https://huggingface.co/mlx-community/Qwen3-1.7B-3bit) was
+converted to MLX format from [Qwen/Qwen3-1.7B](https://huggingface.co/Qwen/Qwen3-1.7B)
 using mlx-lm version **0.24.0**.
 
 ## Use with mlx

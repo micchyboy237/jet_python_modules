@@ -1,63 +1,49 @@
 ---
-license: gemma
-library_name: transformers
-pipeline_tag: text-generation
-extra_gated_heading: Access Gemma on Hugging Face
-extra_gated_prompt: To access Gemma on Hugging Face, you’re required to review and
-  agree to Google’s usage license. To do this, please ensure you’re logged in to Hugging
-  Face and click below. Requests are processed immediately.
-extra_gated_button_content: Acknowledge license
-base_model: google/gemma-3-1b-pt
+language: en
+tags:
+- exbert
+
+license: mit
 ---
 
-# Gemma 3 model card
 
-**Model Page**: [Gemma](https://ai.google.dev/gemma/docs/core)
+# GPT-2
 
-**Resources and Technical Documentation**:
+Test the whole generation capabilities here: https://transformer.huggingface.co/doc/gpt2-large
 
-* [Gemma 3 Technical Report][g3-tech-report]
-* [Responsible Generative AI Toolkit][rai-toolkit]
-* [Gemma on Kaggle][kaggle-gemma]
-* [Gemma on Vertex Model Garden][vertex-mg-gemma3]
+Pretrained model on English language using a causal language modeling (CLM) objective. It was introduced in
+[this paper](https://d4mucfpksywv.cloudfront.net/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)
+and first released at [this page](https://openai.com/blog/better-language-models/).
 
-**Terms of Use**: [Terms][terms]
+Disclaimer: The team releasing GPT-2 also wrote a
+[model card](https://github.com/openai/gpt-2/blob/master/model_card.md) for their model. Content from this model card
+has been written by the Hugging Face team to complete the information they provided and give specific examples of bias.
 
-**Authors**: Google DeepMind
+## Model description
 
-## Model Information
+GPT-2 is a transformers model pretrained on a very large corpus of English data in a self-supervised fashion. This
+means it was pretrained on the raw texts only, with no humans labelling them in any way (which is why it can use lots
+of publicly available data) with an automatic process to generate inputs and labels from those texts. More precisely,
+it was trained to guess the next word in sentences.
 
-Summary description and brief definition of inputs and outputs.
+More precisely, inputs are sequences of continuous text of a certain length and the targets are the same sequence,
+shifted one token (word or piece of word) to the right. The model uses internally a mask-mechanism to make sure the
+predictions for the token `i` only uses the inputs from `1` to `i` but not the future tokens.
 
-### Description
+This way, the model learns an inner representation of the English language that can then be used to extract features
+useful for downstream tasks. The model is best at what it was pretrained for however, which is generating texts from a
+prompt.
 
-Gemma is a family of lightweight, state-of-the-art open models from Google,
-built from the same research and technology used to create the Gemini models.
-Gemma 3 models are multimodal, handling text and image input and generating text
-output, with open weights for both pre-trained variants and instruction-tuned
-variants. Gemma 3 has a large, 128K context window, multilingual support in over
-140 languages, and is available in more sizes than previous versions. Gemma 3
-models are well-suited for a variety of text generation and image understanding
-tasks, including question answering, summarization, and reasoning. Their
-relatively small size makes it possible to deploy them in environments with
-limited resources such as laptops, desktops or your own cloud infrastructure,
-democratizing access to state of the art AI models and helping foster innovation
-for everyone.
+This is the **smallest** version of GPT-2, with 124M parameters. 
 
-### Inputs and outputs
+**Related Models:** [GPT-Large](https://huggingface.co/gpt2-large), [GPT-Medium](https://huggingface.co/gpt2-medium) and [GPT-XL](https://huggingface.co/gpt2-xl)
 
--   **Input:**
-    -  Text string, such as a question, a prompt, or a document to be summarized
-    -  Images, normalized to 896 x 896 resolution and encoded to 256 tokens
-       each
-    -  Total input context of 128K tokens for the 4B, 12B, and 27B sizes, and
-       32K tokens for the 1B size
+## Intended uses & limitations
 
--   **Output:**
-    -   Generated text in response to the input, such as an answer to a
-        question, analysis of image content, or a summary of a document
-    -   Total output context of 8192 tokens
+You can use the raw model for text generation or fine-tune it to a downstream task. See the
+[model hub](https://huggingface.co/models?filter=gpt2) to look for fine-tuned versions on a task that interests you.
 
-### Usage
+### How to use
 
-Below, there are some code snippets on how to get quickly started with running the model. First, install the Transformers library. Gemma 3 is supported starting from transformers 4.50.0.
+You can use this model directly with a pipeline for text generation. Since the generation relies on some randomness, we
+set a seed for reproducibility:

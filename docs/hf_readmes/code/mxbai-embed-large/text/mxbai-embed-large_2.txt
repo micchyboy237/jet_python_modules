@@ -1,4 +1,1 @@
-
-### Citation
-
-If you find DeBERTa useful for your work, please cite the following papers:
+python -m pip install -U sentence-transformers

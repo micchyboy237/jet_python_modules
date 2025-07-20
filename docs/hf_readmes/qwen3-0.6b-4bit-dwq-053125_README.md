@@ -1,23 +1,18 @@
 ---
-base_model: Qwen/Qwen2.5-Coder-14B-Instruct
-language:
-- en
-library_name: transformers
+library_name: mlx
 license: apache-2.0
-license_link: https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct/blob/main/LICENSE
+license_link: https://huggingface.co/Qwen/Qwen3-0.6B/blob/main/LICENSE
 pipeline_tag: text-generation
+base_model: Qwen/Qwen3-0.6B
 tags:
-- code
-- codeqwen
-- chat
-- qwen
-- qwen-coder
 - mlx
 ---
 
-# mlx-community/Qwen2.5-Coder-14B-Instruct-4bit
+# mlx-community/Qwen3-0.6B-4bit-DWQ-053125
 
-The Model [mlx-community/Qwen2.5-Coder-14B-Instruct-4bit](https://huggingface.co/mlx-community/Qwen2.5-Coder-14B-Instruct-4bit) was converted to MLX format from [Qwen/Qwen2.5-Coder-14B-Instruct](https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct) using mlx-lm version **0.19.3**.
+This model [mlx-community/Qwen3-0.6B-4bit-DWQ-053125](https://huggingface.co/mlx-community/Qwen3-0.6B-4bit-DWQ-053125) was
+converted to MLX format from [Qwen/Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B)
+using mlx-lm version **0.24.1**.
 
 ## Use with mlx
 
@@ -28,14 +23,14 @@ pip install mlx-lm
 ```python
 from mlx_lm import load, generate
 
-model, tokenizer = load("mlx-community/Qwen2.5-Coder-14B-Instruct-4bit")
+model, tokenizer = load("mlx-community/Qwen3-0.6B-4bit-DWQ-053125")
 
-prompt="hello"
+prompt = "hello"
 
-if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
+if tokenizer.chat_template is not None:
     messages = [{"role": "user", "content": prompt}]
     prompt = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
+        messages, add_generation_prompt=True
     )
 
 response = generate(model, tokenizer, prompt=prompt, verbose=True)

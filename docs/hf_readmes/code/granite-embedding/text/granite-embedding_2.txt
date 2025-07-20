@@ -1,2 +1,2 @@
 
-Here is how to use this model to get the features of a given text in PyTorch:
+The model can then be used to encode pairs of text and find the similarity between their representations

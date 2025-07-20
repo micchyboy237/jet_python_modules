@@ -1,234 +1,103 @@
 ---
-language: en
+license: apache-2.0
+library_name: sentence-transformers
 tags:
-- exbert
-license: mit
-datasets:
-- bookcorpus
-- wikipedia
+- sentence-transformers
+- feature-extraction
+- sentence-similarity
+- transformers
+pipeline_tag: sentence-similarity
 ---
 
-# RoBERTa base model
+**⚠️ This model is deprecated. Please don't use it as it produces sentence embeddings of low quality. You can find recommended sentence embedding models here: [SBERT.net - Pretrained Models](https://www.sbert.net/docs/pretrained_models.html)**
 
-Pretrained model on English language using a masked language modeling (MLM) objective. It was introduced in
-[this paper](https://arxiv.org/abs/1907.11692) and first released in
-[this repository](https://github.com/pytorch/fairseq/tree/master/examples/roberta). This model is case-sensitive: it
-makes a difference between english and English.
 
-Disclaimer: The team releasing RoBERTa did not write a model card for this model so this model card has been written by
-the Hugging Face team.
+# sentence-transformers/distilbert-base-nli-stsb-mean-tokens
 
-## Model description
+This is a [sentence-transformers](https://www.SBERT.net) model: It maps sentences & paragraphs to a 768 dimensional dense vector space and can be used for tasks like clustering or semantic search.
 
-RoBERTa is a transformers model pretrained on a large corpus of English data in a self-supervised fashion. This means
-it was pretrained on the raw texts only, with no humans labelling them in any way (which is why it can use lots of
-publicly available data) with an automatic process to generate inputs and labels from those texts. 
 
-More precisely, it was pretrained with the Masked language modeling (MLM) objective. Taking a sentence, the model
-randomly masks 15% of the words in the input then run the entire masked sentence through the model and has to predict
-the masked words. This is different from traditional recurrent neural networks (RNNs) that usually see the words one
-after the other, or from autoregressive models like GPT which internally mask the future tokens. It allows the model to
-learn a bidirectional representation of the sentence.
 
-This way, the model learns an inner representation of the English language that can then be used to extract features
-useful for downstream tasks: if you have a dataset of labeled sentences for instance, you can train a standard
-classifier using the features produced by the BERT model as inputs.
+## Usage (Sentence-Transformers)
 
-## Intended uses & limitations
+Using this model becomes easy when you have [sentence-transformers](https://www.SBERT.net) installed:
 
-You can use the raw model for masked language modeling, but it's mostly intended to be fine-tuned on a downstream task.
-See the [model hub](https://huggingface.co/models?filter=roberta) to look for fine-tuned versions on a task that
-interests you.
-
-Note that this model is primarily aimed at being fine-tuned on tasks that use the whole sentence (potentially masked)
-to make decisions, such as sequence classification, token classification or question answering. For tasks such as text
-generation you should look at a model like GPT2.
-
-### How to use
-
-You can use this model directly with a pipeline for masked language modeling:
-
-```python
->>> from transformers import pipeline
->>> unmasker = pipeline('fill-mask', model='roberta-base')
->>> unmasker("Hello I'm a <mask> model.")
-
-[{'sequence': "<s>Hello I'm a male model.</s>",
-  'score': 0.3306540250778198,
-  'token': 2943,
-  'token_str': 'Ġmale'},
- {'sequence': "<s>Hello I'm a female model.</s>",
-  'score': 0.04655390977859497,
-  'token': 2182,
-  'token_str': 'Ġfemale'},
- {'sequence': "<s>Hello I'm a professional model.</s>",
-  'score': 0.04232972860336304,
-  'token': 2038,
-  'token_str': 'Ġprofessional'},
- {'sequence': "<s>Hello I'm a fashion model.</s>",
-  'score': 0.037216778844594955,
-  'token': 2734,
-  'token_str': 'Ġfashion'},
- {'sequence': "<s>Hello I'm a Russian model.</s>",
-  'score': 0.03253649175167084,
-  'token': 1083,
-  'token_str': 'ĠRussian'}]
+```
+pip install -U sentence-transformers
 ```
 
-Here is how to use this model to get the features of a given text in PyTorch:
+Then you can use the model like this:
 
 ```python
-from transformers import RobertaTokenizer, RobertaModel
-tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-model = RobertaModel.from_pretrained('roberta-base')
-text = "Replace me by any text you'd like."
-encoded_input = tokenizer(text, return_tensors='pt')
-output = model(**encoded_input)
+from sentence_transformers import SentenceTransformer
+sentences = ["This is an example sentence", "Each sentence is converted"]
+
+model = SentenceTransformer('sentence-transformers/distilbert-base-nli-stsb-mean-tokens')
+embeddings = model.encode(sentences)
+print(embeddings)
 ```
 
-and in TensorFlow:
+
+
+## Usage (HuggingFace Transformers)
+Without [sentence-transformers](https://www.SBERT.net), you can use the model like this: First, you pass your input through the transformer model, then you have to apply the right pooling-operation on-top of the contextualized word embeddings.
 
 ```python
-from transformers import RobertaTokenizer, TFRobertaModel
-tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-model = TFRobertaModel.from_pretrained('roberta-base')
-text = "Replace me by any text you'd like."
-encoded_input = tokenizer(text, return_tensors='tf')
-output = model(encoded_input)
+from transformers import AutoTokenizer, AutoModel
+import torch
+
+
+#Mean Pooling - Take attention mask into account for correct averaging
+def mean_pooling(model_output, attention_mask):
+    token_embeddings = model_output[0] #First element of model_output contains all token embeddings
+    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+
+# Sentences we want sentence embeddings for
+sentences = ['This is an example sentence', 'Each sentence is converted']
+
+# Load model from HuggingFace Hub
+tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/distilbert-base-nli-stsb-mean-tokens')
+model = AutoModel.from_pretrained('sentence-transformers/distilbert-base-nli-stsb-mean-tokens')
+
+# Tokenize sentences
+encoded_input = tokenizer(sentences, padding=True, truncation=True, return_tensors='pt')
+
+# Compute token embeddings
+with torch.no_grad():
+    model_output = model(**encoded_input)
+
+# Perform pooling. In this case, max pooling.
+sentence_embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
+
+print("Sentence embeddings:")
+print(sentence_embeddings)
 ```
 
-### Limitations and bias
 
-The training data used for this model contains a lot of unfiltered content from the internet, which is far from
-neutral. Therefore, the model can have biased predictions:
 
-```python
->>> from transformers import pipeline
->>> unmasker = pipeline('fill-mask', model='roberta-base')
->>> unmasker("The man worked as a <mask>.")
-
-[{'sequence': '<s>The man worked as a mechanic.</s>',
-  'score': 0.08702439814805984,
-  'token': 25682,
-  'token_str': 'Ġmechanic'},
- {'sequence': '<s>The man worked as a waiter.</s>',
-  'score': 0.0819653645157814,
-  'token': 38233,
-  'token_str': 'Ġwaiter'},
- {'sequence': '<s>The man worked as a butcher.</s>',
-  'score': 0.073323555290699,
-  'token': 32364,
-  'token_str': 'Ġbutcher'},
- {'sequence': '<s>The man worked as a miner.</s>',
-  'score': 0.046322137117385864,
-  'token': 18678,
-  'token_str': 'Ġminer'},
- {'sequence': '<s>The man worked as a guard.</s>',
-  'score': 0.040150221437215805,
-  'token': 2510,
-  'token_str': 'Ġguard'}]
-
->>> unmasker("The Black woman worked as a <mask>.")
-
-[{'sequence': '<s>The Black woman worked as a waitress.</s>',
-  'score': 0.22177888453006744,
-  'token': 35698,
-  'token_str': 'Ġwaitress'},
- {'sequence': '<s>The Black woman worked as a prostitute.</s>',
-  'score': 0.19288744032382965,
-  'token': 36289,
-  'token_str': 'Ġprostitute'},
- {'sequence': '<s>The Black woman worked as a maid.</s>',
-  'score': 0.06498628109693527,
-  'token': 29754,
-  'token_str': 'Ġmaid'},
- {'sequence': '<s>The Black woman worked as a secretary.</s>',
-  'score': 0.05375480651855469,
-  'token': 2971,
-  'token_str': 'Ġsecretary'},
- {'sequence': '<s>The Black woman worked as a nurse.</s>',
-  'score': 0.05245552211999893,
-  'token': 9008,
-  'token_str': 'Ġnurse'}]
+## Full Model Architecture
+```
+SentenceTransformer(
+  (0): Transformer({'max_seq_length': 128, 'do_lower_case': False}) with Transformer model: DistilBertModel 
+  (1): Pooling({'word_embedding_dimension': 768, 'pooling_mode_cls_token': False, 'pooling_mode_mean_tokens': True, 'pooling_mode_max_tokens': False, 'pooling_mode_mean_sqrt_len_tokens': False})
+)
 ```
 
-This bias will also affect all fine-tuned versions of this model.
+## Citing & Authors
 
-## Training data
-
-The RoBERTa model was pretrained on the reunion of five datasets:
-- [BookCorpus](https://yknzhu.wixsite.com/mbweb), a dataset consisting of 11,038 unpublished books;
-- [English Wikipedia](https://en.wikipedia.org/wiki/English_Wikipedia) (excluding lists, tables and headers) ;
-- [CC-News](https://commoncrawl.org/2016/10/news-dataset-available/), a dataset containing 63 millions English news
-  articles crawled between September 2016 and February 2019.
-- [OpenWebText](https://github.com/jcpeterson/openwebtext), an opensource recreation of the WebText dataset used to
-  train GPT-2,
-- [Stories](https://arxiv.org/abs/1806.02847) a dataset containing a subset of CommonCrawl data filtered to match the
-  story-like style of Winograd schemas.
-
-Together these datasets weigh 160GB of text.
-
-## Training procedure
-
-### Preprocessing
-
-The texts are tokenized using a byte version of Byte-Pair Encoding (BPE) and a vocabulary size of 50,000. The inputs of
-the model take pieces of 512 contiguous tokens that may span over documents. The beginning of a new document is marked
-with `<s>` and the end of one by `</s>`
-
-The details of the masking procedure for each sentence are the following:
-- 15% of the tokens are masked.
-- In 80% of the cases, the masked tokens are replaced by `<mask>`.
-- In 10% of the cases, the masked tokens are replaced by a random token (different) from the one they replace.
-- In the 10% remaining cases, the masked tokens are left as is.
-
-Contrary to BERT, the masking is done dynamically during pretraining (e.g., it changes at each epoch and is not fixed).
-
-### Pretraining
-
-The model was trained on 1024 V100 GPUs for 500K steps with a batch size of 8K and a sequence length of 512. The
-optimizer used is Adam with a learning rate of 6e-4, \\(\beta_{1} = 0.9\\), \\(\beta_{2} = 0.98\\) and
-\\(\epsilon = 1e-6\\), a weight decay of 0.01, learning rate warmup for 24,000 steps and linear decay of the learning
-rate after.
-
-## Evaluation results
-
-When fine-tuned on downstream tasks, this model achieves the following results:
-
-Glue test results:
-
-| Task | MNLI | QQP  | QNLI | SST-2 | CoLA | STS-B | MRPC | RTE  |
-|:----:|:----:|:----:|:----:|:-----:|:----:|:-----:|:----:|:----:|
-|      | 87.6 | 91.9 | 92.8 | 94.8  | 63.6 | 91.2  | 90.2 | 78.7 |
-
-
-### BibTeX entry and citation info
-
-```bibtex
-@article{DBLP:journals/corr/abs-1907-11692,
-  author    = {Yinhan Liu and
-               Myle Ott and
-               Naman Goyal and
-               Jingfei Du and
-               Mandar Joshi and
-               Danqi Chen and
-               Omer Levy and
-               Mike Lewis and
-               Luke Zettlemoyer and
-               Veselin Stoyanov},
-  title     = {RoBERTa: {A} Robustly Optimized {BERT} Pretraining Approach},
-  journal   = {CoRR},
-  volume    = {abs/1907.11692},
-  year      = {2019},
-  url       = {http://arxiv.org/abs/1907.11692},
-  archivePrefix = {arXiv},
-  eprint    = {1907.11692},
-  timestamp = {Thu, 01 Aug 2019 08:59:33 +0200},
-  biburl    = {https://dblp.org/rec/journals/corr/abs-1907-11692.bib},
-  bibsource = {dblp computer science bibliography, https://dblp.org}
+This model was trained by [sentence-transformers](https://www.sbert.net/). 
+        
+If you find this model helpful, feel free to cite our publication [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084):
+```bibtex 
+@inproceedings{reimers-2019-sentence-bert,
+    title = "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks",
+    author = "Reimers, Nils and Gurevych, Iryna",
+    booktitle = "Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing",
+    month = "11",
+    year = "2019",
+    publisher = "Association for Computational Linguistics",
+    url = "http://arxiv.org/abs/1908.10084",
 }
 ```
-
-<a href="https://huggingface.co/exbert/?model=roberta-base">
-	<img width="300px" src="https://cdn-media.huggingface.co/exbert/button.png">
-</a>

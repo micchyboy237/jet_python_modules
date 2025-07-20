@@ -1,4 +1,8 @@
-
-<a href="https://huggingface.co/exbert/?model=gpt2">
-	<img width="300px" src="https://cdn-media.huggingface.co/exbert/button.png">
-</a>
+@misc{granite-embedding-models,
+  author = {author 1, author2, ...},
+  title = {},
+  journal = {},
+  volume = {},
+  year = {2024},
+  url = {https://arxiv.org/abs/0000.00000},
+}

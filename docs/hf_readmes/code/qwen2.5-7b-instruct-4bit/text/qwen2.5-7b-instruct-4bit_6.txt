@@ -1,1 +1,0 @@
-[CLS] Sentence A [SEP] Sentence B [SEP]

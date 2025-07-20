@@ -1,2 +1,2 @@
 
-#### Running the model on a single / multi GPU
+and in TensorFlow:

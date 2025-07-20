@@ -2,6 +2,8 @@ import re
 from typing import List, Optional, TypedDict
 from pathlib import Path
 from jet.logger import logger
+from jet.models.model_types import ModelType
+from jet.models.utils import resolve_model_key
 
 # MarkdownCodeExtractor and related definitions
 CODE_BLOCK_PATTERN = r"```[ \t]*(\w+)?[ \t]*\n(.*?)\n```"
@@ -127,71 +129,65 @@ class MarkdownCodeExtractor:
         return code_blocks
 
 
-def extract_code_from_hf_readmes(input_dir: str, output_dir: str, include_text: bool = False):
-    """Process all .md files in input_dir and extract code blocks."""
+def extract_code_from_hf_readmes(
+    input_dir: str, output_dir: str, model_id: ModelType, include_text: bool = True
+):
+    """Process the .md file for the specified model_id and extract code blocks."""
     input_path = Path(input_dir)
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
     extractor = MarkdownCodeExtractor()
 
-    # Find all .md files
-    md_files = input_path.rglob("*.md")
+    # Construct the expected README filename for the model
+    model_key = resolve_model_key(model_id)
+    md_file = input_path / f"{model_key}_README.md"
 
-    for md_file in md_files:
-        model_name = md_file.stem.replace("_README", "")
-        # Replace colons with underscores in model_name for paths
-        sanitized_model_name = model_name.replace(":", "_")
-        print(f"Processing {md_file.name}...")
+    if not md_file.exists():
+        logger.error(f"README file not found for {model_id}: {md_file}")
+        return
 
-        # Read Markdown content
-        with open(md_file, "r", encoding="utf-8") as f:
-            markdown_content = f.read()
+    model_name = md_file.stem.replace("_README", "")
+    sanitized_model_name = model_name.replace(":", "_")
+    print(f"Processing {md_file.name}...")
 
-        # Extract code blocks
-        code_blocks = extractor.extract_code_blocks(
-            markdown_content, with_text=include_text)
+    with open(md_file, "r", encoding="utf-8") as f:
+        markdown_content = f.read()
 
-        # Create model-specific directory using sanitized model_name
-        model_dir = output_path / sanitized_model_name
-        model_dir.mkdir(exist_ok=True)
+    code_blocks = extractor.extract_code_blocks(
+        markdown_content, with_text=include_text
+    )
 
-        # Initialize language-specific counters
-        lang_counters = {}
+    model_dir = output_path / sanitized_model_name
+    model_dir.mkdir(exist_ok=True)
+    lang_counters = {}
 
-        # Save each code block to a file
-        for block in code_blocks:
-            lang = block["language"].lower()
-            ext = block["extension"] or ".txt"
-            code = block["code"]
-            file_path = block["file_path"]
-            preceding_text = block["preceding_text"]
+    for block in code_blocks:
+        lang = block["language"].lower()
+        ext = block["extension"] or ".txt"
+        code = block["code"]
+        file_path = block["file_path"]
+        preceding_text = block["preceding_text"]
+        lang_counters[lang] = lang_counters.get(lang, 0) + 1
+        counter = lang_counters[lang]
+        lang_dir = model_dir / lang
+        lang_dir.mkdir(exist_ok=True)
 
-            # Increment language-specific counter
-            lang_counters[lang] = lang_counters.get(lang, 0) + 1
-            counter = lang_counters[lang]
+        if file_path:
+            filename = Path(file_path).name
+        else:
+            filename = f"{sanitized_model_name}_{counter}{ext}"
 
-            # Create language-specific subdirectory
-            lang_dir = model_dir / lang
-            lang_dir.mkdir(exist_ok=True)
+        filename = "".join(
+            c for c in filename if c.isalnum() or c in (".", "_", "-")
+        )
+        output_file = lang_dir / filename
 
-            # Use file_path if provided, else generate a name
-            if file_path:
-                filename = Path(file_path).name
-            else:
-                filename = f"{sanitized_model_name}_{counter}{ext}"
+        with open(output_file, "w", encoding="utf-8") as f:
+            if preceding_text and lang != "text":
+                f.write(f"/* {preceding_text} */\n")
+            f.write(code)
 
-            # Sanitize filename to avoid invalid characters
-            filename = "".join(
-                c for c in filename if c.isalnum() or c in (".", "_", "-"))
-            output_file = lang_dir / filename
+        logger.success(f"  Saved ({lang}): {output_file}")
 
-            # Write code block to file with preceding text if applicable
-            with open(output_file, "w", encoding="utf-8") as f:
-                if preceding_text and lang != "text":
-                    f.write(
-                        f"# Preceding text:\n# {preceding_text.replace('\n', '\n# ')}\n\n")
-                f.write(code)
-            logger.success(f"  Saved ({lang}): {output_file}")
-
-        if not code_blocks:
-            logger.debug(f"  No code blocks found in {md_file.name}")
+    if not code_blocks:
+        logger.debug(f"  No code blocks found in {md_file.name}")

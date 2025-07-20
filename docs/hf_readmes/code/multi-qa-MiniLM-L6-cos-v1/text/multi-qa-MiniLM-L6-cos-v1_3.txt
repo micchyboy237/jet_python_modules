@@ -1,2 +1,2 @@
 
-and in TensorFlow:
+Then you can use the model like this:

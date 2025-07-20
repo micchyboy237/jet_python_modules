@@ -1,19 +1,10 @@
-from transformers import pipeline
-import torch
+>>> from transformers import pipeline, set_seed
+>>> generator = pipeline('text-generation', model='gpt2')
+>>> set_seed(42)
+>>> generator("Hello, I'm a language model,", max_length=30, num_return_sequences=5)
 
-pipe = pipeline("text-generation", model="google/gemma-3-1b-it", device="cuda", torch_dtype=torch.bfloat16)
-
-messages = [
-    [
-        {
-            "role": "system",
-            "content": [{"type": "text", "text": "You are a helpful assistant."},]
-        },
-        {
-            "role": "user",
-            "content": [{"type": "text", "text": "Write a poem on Hugging Face, the company"},]
-        },
-    ],
-]
-
-output = pipe(messages, max_new_tokens=50)
+[{'generated_text': "Hello, I'm a language model, a language for thinking, a language for expressing thoughts."},
+ {'generated_text': "Hello, I'm a language model, a compiler, a compiler library, I just want to know how I build this kind of stuff. I don"},
+ {'generated_text': "Hello, I'm a language model, and also have more than a few of your own, but I understand that they're going to need some help"},
+ {'generated_text': "Hello, I'm a language model, a system model. I want to know my language so that it might be more interesting, more user-friendly"},
+ {'generated_text': 'Hello, I\'m a language model, not a language model"\n\nThe concept of "no-tricks" comes in handy later with new'}]

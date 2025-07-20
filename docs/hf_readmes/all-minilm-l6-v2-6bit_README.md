@@ -1,37 +1,63 @@
 ---
-library_name: mlx
+language: en
 license: apache-2.0
-license_link: https://huggingface.co/Qwen/Qwen3-4B/blob/main/LICENSE
-pipeline_tag: text-generation
-base_model: Qwen/Qwen3-4B
+library_name: sentence-transformers
 tags:
+- sentence-transformers
+- feature-extraction
+- sentence-similarity
+- transformers
 - mlx
+datasets:
+- s2orc
+- flax-sentence-embeddings/stackexchange_xml
+- ms_marco
+- gooaq
+- yahoo_answers_topics
+- code_search_net
+- search_qa
+- eli5
+- snli
+- multi_nli
+- wikihow
+- natural_questions
+- trivia_qa
+- embedding-data/sentence-compression
+- embedding-data/flickr30k-captions
+- embedding-data/altlex
+- embedding-data/simple-wiki
+- embedding-data/QQP
+- embedding-data/SPECTER
+- embedding-data/PAQ_pairs
+- embedding-data/WikiAnswers
+pipeline_tag: sentence-similarity
 ---
 
-# mlx-community/Qwen3-4B-4bit-DWQ
+# mlx-community/all-MiniLM-L6-v2-6bit
 
-This model [mlx-community/Qwen3-4B-4bit-DWQ](https://huggingface.co/mlx-community/Qwen3-4B-4bit-DWQ) was
-converted to MLX format from [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B)
-using mlx-lm version **0.24.1**.
+The Model [mlx-community/all-MiniLM-L6-v2-6bit](https://huggingface.co/mlx-community/all-MiniLM-L6-v2-6bit) was converted to MLX format from [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) using mlx-lm version **0.0.3**.
 
 ## Use with mlx
 
 ```bash
-pip install mlx-lm
+pip install mlx-embeddings
 ```
 
 ```python
-from mlx_lm import load, generate
+from mlx_embeddings import load, generate
+import mlx.core as mx
 
-model, tokenizer = load("mlx-community/Qwen3-4B-4bit-DWQ")
+model, tokenizer = load("mlx-community/all-MiniLM-L6-v2-6bit")
 
-prompt = "hello"
+# For text embeddings
+output = generate(model, processor, texts=["I like grapes", "I like fruits"])
+embeddings = output.text_embeds  # Normalized embeddings
 
-if tokenizer.chat_template is not None:
-    messages = [{"role": "user", "content": prompt}]
-    prompt = tokenizer.apply_chat_template(
-        messages, add_generation_prompt=True
-    )
+# Compute dot product between normalized embeddings
+similarity_matrix = mx.matmul(embeddings, embeddings.T)
 
-response = generate(model, tokenizer, prompt=prompt, verbose=True)
+print("Similarity matrix between texts:")
+print(similarity_matrix)
+
+
 ```

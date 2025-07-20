@@ -1,2 +1,0 @@
-
-The model can then be used to encode pairs of text

@@ -1,14 +1,13 @@
-from mlx_embeddings import load, generate
-import mlx.core as mx
+from mlx_lm import load, generate
 
-model, tokenizer = load("mlx-community/all-MiniLM-L6-v2-4bit")
+model, tokenizer = load("mlx-community/dolphin3.0-llama3.2-3B-4Bit")
 
-# For text embeddings
-output = generate(model, processor, texts=["I like grapes", "I like fruits"])
-embeddings = output.text_embeds  # Normalized embeddings
+prompt = "hello"
 
-# Compute dot product between normalized embeddings
-similarity_matrix = mx.matmul(embeddings, embeddings.T)
+if tokenizer.chat_template is not None:
+    messages = [{"role": "user", "content": prompt}]
+    prompt = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True
+    )
 
-print("Similarity matrix between texts:")
-print(similarity_matrix)
+response = generate(model, tokenizer, prompt=prompt, verbose=True)

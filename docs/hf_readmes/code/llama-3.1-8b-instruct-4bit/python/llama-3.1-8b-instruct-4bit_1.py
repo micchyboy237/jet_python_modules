@@ -1,6 +1,6 @@
 from mlx_lm import load, generate
 
-model, tokenizer = load("mlx-community/DeepSeek-R1-Distill-Qwen-14B-4bit")
+model, tokenizer = load("mlx-community/Llama-3.1-8B-Instruct-4bit")
 
 prompt = "hello"
 

@@ -1,22 +1,18 @@
 ---
+base_model: Qwen/Qwen2.5-7B
 language:
 - en
-- fr
-- de
-- es
-- it
-- pt
-- ru
-- zh
-- ja
 license: apache-2.0
+license_link: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/main/LICENSE
+pipeline_tag: text-generation
 tags:
+- chat
 - mlx
 ---
 
-# mlx-community/Mistral-Nemo-Instruct-2407-4bit
+# mlx-community/Qwen2.5-7B-Instruct-4bit
 
-The Model [mlx-community/Mistral-Nemo-Instruct-2407-4bit](https://huggingface.co/mlx-community/Mistral-Nemo-Instruct-2407-4bit) was converted to MLX format from [mistralai/Mistral-Nemo-Instruct-2407](https://huggingface.co/mistralai/Mistral-Nemo-Instruct-2407) using mlx-lm version **0.16.0**.
+The Model [mlx-community/Qwen2.5-7B-Instruct-4bit](https://huggingface.co/mlx-community/Qwen2.5-7B-Instruct-4bit) was converted to MLX format from [Qwen/Qwen2.5-7B-Instruct](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct) using mlx-lm version **0.18.1**.
 
 ## Use with mlx
 
@@ -27,6 +23,6 @@ pip install mlx-lm
 ```python
 from mlx_lm import load, generate
 
-model, tokenizer = load("mlx-community/Mistral-Nemo-Instruct-2407-4bit")
+model, tokenizer = load("mlx-community/Qwen2.5-7B-Instruct-4bit")
 response = generate(model, tokenizer, prompt="hello", verbose=True)
 ```

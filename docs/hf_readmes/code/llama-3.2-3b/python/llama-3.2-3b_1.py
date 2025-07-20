@@ -1,10 +1,13 @@
-import transformers
 import torch
+from transformers import pipeline
 
-model_id = "meta-llama/Llama-3.1-8B"
+model_id = "meta-llama/Llama-3.2-3B"
 
-pipeline = transformers.pipeline(
-    "text-generation", model=model_id, model_kwargs={"torch_dtype": torch.bfloat16}, device_map="auto"
+pipe = pipeline(
+    "text-generation", 
+    model=model_id, 
+    torch_dtype=torch.bfloat16, 
+    device_map="auto"
 )
 
-pipeline("Hey how are you doing today?")
+pipe("The key to life is")

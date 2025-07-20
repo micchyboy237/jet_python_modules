@@ -1,6 +1,2 @@
 
-# Join the Nomic Community
-
-- Nomic: [https://nomic.ai](https://nomic.ai)
-- Discord: [https://discord.gg/myY5YDR8z8](https://discord.gg/myY5YDR8z8)
-- Twitter: [https://twitter.com/nomic_ai](https://twitter.com/nomic_ai)
+Then you can use the model like this:

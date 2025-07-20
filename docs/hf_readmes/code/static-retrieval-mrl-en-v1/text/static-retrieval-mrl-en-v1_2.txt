@@ -1,1 +1,5 @@
-pip install -U sentence-transformers
+SentenceTransformer(
+  (0): StaticEmbedding(
+    (embedding): EmbeddingBag(30522, 1024, mode='mean')
+  )
+)

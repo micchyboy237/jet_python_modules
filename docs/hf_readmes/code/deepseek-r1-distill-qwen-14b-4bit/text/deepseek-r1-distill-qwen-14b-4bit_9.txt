@@ -1,7 +1,0 @@
-
-
-## Function calling with `transformers`
-
-To use this example, you'll need `transformers` version 4.42.0 or higher. Please see the 
-[function calling guide](https://huggingface.co/docs/transformers/main/chat_templating#advanced-tool-use--function-calling)
-in the `transformers` docs for more information.

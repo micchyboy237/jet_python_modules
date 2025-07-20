@@ -1,2 +1,5 @@
 
-With instruction-tuned models, you need to use chat templates to process our inputs first. Then, you can pass it to the pipeline.
+**Usage with Huggingface Transformers:** 
+This is a simple example of how to use the Granite-Embedding-278m-Multilingual model with the Transformers library and PyTorch.
+
+First, install the required libraries
