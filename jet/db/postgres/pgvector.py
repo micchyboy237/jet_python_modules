@@ -1,7 +1,8 @@
-from psycopg import connect, sql, errors
-from pgvector.psycopg import register_vector
 import numpy as np
 import uuid
+from numpy.typing import NDArray
+from psycopg import connect, sql, errors
+from pgvector.psycopg import register_vector
 from typing import List, Dict, Optional, Tuple, TypedDict, Union
 from psycopg.rows import dict_row
 from jet.db.postgres.scoring import calculate_vector_scores
@@ -13,7 +14,7 @@ from .config import (
     DEFAULT_PORT,
 )
 
-VectorInput = Union[List[float], np.ndarray]
+VectorInput = Union[List[float], NDArray[np.float64]]
 
 
 class SearchResult(TypedDict):
@@ -28,10 +29,12 @@ class PgVectorClient:
         user: str = DEFAULT_USER,
         password: str = DEFAULT_PASSWORD,
         host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT
+        port: int = DEFAULT_PORT,
+        overwrite_db: bool = False
     ) -> None:
         """Ensure database exists, then connect and initialize."""
-        self._ensure_database_exists(dbname, user, password, host, port)
+        self._ensure_database_exists(
+            dbname, user, password, host, port, overwrite_db)
         self.conn = connect(
             dbname=dbname,
             user=user,
@@ -50,8 +53,8 @@ class PgVectorClient:
             return vector.tolist()
         return vector
 
-    def _ensure_database_exists(self, dbname, user, password, host, port):
-        """Connect to default DB and create the target DB if it doesn't exist."""
+    def _ensure_database_exists(self, dbname: str, user: str, password: str, host: str, port: int, overwrite_db: bool) -> None:
+        """Drop the target database if it exists and overwrite_db is True, then create a new one."""
         with connect(
             dbname="postgres",
             user=user,
@@ -64,7 +67,21 @@ class PgVectorClient:
                 cur.execute(
                     "SELECT 1 FROM pg_database WHERE datname = %s;", (dbname,))
                 exists = cur.fetchone()
-                if not exists:
+                if exists and overwrite_db:
+                    # Terminate any active connections to the database before dropping
+                    cur.execute(
+                        sql.SQL(
+                            "SELECT pg_terminate_backend(pg_stat_activity.pid) "
+                            "FROM pg_stat_activity "
+                            "WHERE pg_stat_activity.datname = %s AND pid <> pg_backend_pid();"
+                        ),
+                        (dbname,)
+                    )
+                    # Drop the existing database
+                    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                        sql.Identifier(dbname)))
+                if not exists or overwrite_db:
+                    # Create the new database
                     cur.execute(sql.SQL("CREATE DATABASE {}").format(
                         sql.Identifier(dbname)))
 

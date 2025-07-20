@@ -3,7 +3,7 @@ import time
 import numpy as np
 from sentence_transformers import CrossEncoder, SentenceTransformer
 from tokenizers import Tokenizer
-from typing import Callable, Literal, Union, List, Optional, TypeAlias
+from typing import Callable, Literal, TypeVar, Union, List, Optional, TypeAlias
 import psutil
 import math
 from tqdm import tqdm
@@ -119,6 +119,10 @@ def embed_chunks_parallel(chunk_texts: Union[str, List[str]], embed_model: Union
     return embeddings if return_format == "list" else np.vstack(embeddings)
 
 
+# Define generic type variables
+T = TypeVar('T', List[float], np.ndarray)
+
+
 def generate_embeddings(
     input_data: Union[str, List[str]],
     model: Union[SentenceTransformer,
@@ -127,21 +131,25 @@ def generate_embeddings(
     show_progress: bool = False,
     return_format: Literal["list", "numpy"] = "list",
     truncate_dim: Optional[int] = None,
-) -> Union[List[float], List[List[float]], np.ndarray]:
+) -> T:
     """
     Generate embeddings for a single string or list of strings using SentenceTransformer.
 
     Args:
         input_data: A single string or list of strings to embed.
-        model: Model name (str), SentenceTransformer instance to use for embedding.
+        model: Model name (EmbedModelType) or SentenceTransformer instance to use for embedding.
         batch_size: Batch size for embedding multiple strings.
         show_progress: Whether to display a progress bar for batch processing.
         return_format: Format of the returned embeddings ("list" or "numpy").
         truncate_dim: Optional dimension to truncate embeddings to.
 
     Returns:
-        List[float] or np.ndarray for a single string input, or List[List[float]] or np.ndarray
-        for a list of strings, based on return_format.
+        - If input_data is str:
+            - List[float] if return_format="list"
+            - np.ndarray if return_format="numpy"
+        - If input_data is List[str]:
+            - List[List[float]] if return_format="list"
+            - np.ndarray if return_format="numpy"
     """
     if return_format not in ["list", "numpy"]:
         raise ValueError("return_format must be 'list' or 'numpy'")
