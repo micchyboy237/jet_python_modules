@@ -1,10 +1,13 @@
-from typing import List, TypedDict
-from bs4 import BeautifulSoup, Comment
 import re
 import os
-from pathlib import Path
-import subprocess
 import tempfile
+import subprocess
+import cssutils
+
+from typing import Dict, List, TypedDict
+from bs4 import BeautifulSoup, Comment
+from pathlib import Path
+
 from jet.logger import logger
 
 
@@ -26,31 +29,31 @@ PRETTIER_CONFIG = """\
 """
 
 COMPONENT_CODE_TEMPLATE = """\
-import React from 'react';
-{css_import}
 const {component_name} = () => {{
   return (
     {component_html}
   );
 }};
-export default {component_name};
+window.{component_name} = {component_name};
 """
 
-HTML_TEMPLATE = """<!DOCTYPE html>
+HTML_TEMPLATE = """\
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>React Components Preview</title>
-    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.15/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+    {css_links}
 </head>
 <body>
     <div id="root" class="p-4"></div>
+    {component_scripts}
     <script type="text/babel">
-        {component_imports}
         function App() {{
             return (
                 <div className="space-y-4">
@@ -64,6 +67,47 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </body>
 </html>
 """
+
+
+def parse_style_to_object(style: str) -> str:
+    """Convert a CSS style string to a JavaScript object string for React using cssutils."""
+    if not style:
+        return "{}"
+
+    # Initialize cssutils stylesheet
+    cssutils.ser.prefs.useMinified()  # Minimize output for cleaner parsing
+    # Wrap in dummy selector for parsing
+    sheet = cssutils.parseString(f"dummy {{ {style} }}")
+
+    style_dict: Dict[str, str] = {}
+    try:
+        for rule in sheet:
+            if rule.type == rule.STYLE_RULE:
+                for property in rule.style:
+                    # Convert CSS property to camelCase (e.g., background-color -> backgroundColor)
+                    prop = property.name
+                    camel_prop = "".join(
+                        word.capitalize() if i > 0 else word
+                        for i, word in enumerate(prop.split("-"))
+                    )
+                    value = property.value
+                    if not value:
+                        logger.debug(
+                            f"Skipping empty value for property: {prop}")
+                        continue
+                    # Quote non-numeric values
+                    try:
+                        float(value)  # Check if value is numeric
+                        style_dict[camel_prop] = value  # Keep numbers unquoted
+                    except ValueError:
+                        style_dict[camel_prop] = f"'{value}'"  # Quote strings
+    except Exception as e:
+        logger.error(f"Error parsing CSS with cssutils: {e}")
+        return "{}"
+
+    # Format as JavaScript object
+    style_items = [f"{key}: {value}" for key, value in style_dict.items()]
+    return "{" + ", ".join(style_items) + "}"
 
 
 def format_with_prettier(content: str, parser: str, config_path: str, file_suffix: str) -> str:
@@ -96,7 +140,7 @@ def format_with_prettier(content: str, parser: str, config_path: str, file_suffi
 
 
 def generate_react_components(html: str, output_dir: str, component_code_template: str = COMPONENT_CODE_TEMPLATE) -> List[Component]:
-    """Generate React components from HTML content with unique component names."""
+    """Generate React components from HTML content with unique component names and valid JSX styles."""
     output_dir_path = Path(output_dir).resolve()
     components_dir = output_dir_path / "components"
     components_dir.mkdir(parents=True, exist_ok=True)
@@ -112,12 +156,18 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
         comment.extract()
 
     components: List[Component] = []
-    tags = soup.find_all(["header", "footer", "section", "div"])
+    tags = soup.find_all(["header", "footer", "section", "div", "a"])
     seen_class_names = {}  # Track class names to ensure uniqueness
+
+    def replace_style(match):
+        style_str = match.group(1)
+        style_object = parse_style_to_object(style_str)
+        logger.debug(f"Converting style: {style_str} to {{ {style_object} }}")
+        # Ensure double curly braces for JSX
+        return f'style={{ {style_object} }}'
 
     for idx, tag in enumerate(tags):
         class_name = tag.get("class", [f"component{idx}"])[0]
-        # Generate a unique component name
         base_component_name = ''.join(word.capitalize()
                                       for word in class_name.split('-'))
         if class_name in seen_class_names:
@@ -150,9 +200,20 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
             styles = ";".join(class_styles).strip()
 
         component_html = str(tag)
-        if tag.get("class"):
-            component_html = component_html.replace('class=', 'className=')
-        else:
+        # Convert HTML attributes to JSX
+        component_html = component_html.replace('class=', 'className=')
+        component_html = component_html.replace(
+            'autocomplete=', 'autoComplete=')
+        component_html = component_html.replace('for=', 'htmlFor=')
+        component_html = component_html.replace('onclick=', 'onClick=')
+        if styles:
+            component_html = re.sub(
+                r'style="([^"]*)"', replace_style, component_html)
+        elif 'style="' in component_html:
+            component_html = re.sub(
+                r'style="([^"]*)"', replace_style, component_html)
+
+        if not tag.get("class") and not tag.get("className"):
             tag_name = tag.name
             component_html = re.sub(
                 rf'<{tag_name}\b', f'<{tag_name} className="{class_name}"', component_html, 1)
@@ -163,10 +224,9 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
             "styles": styles
         })
 
-        css_import = f"import './{component_name}.css';" if styles else ""
         component_code = component_code_template.format(
             component_name=component_name,
-            css_import=css_import,
+            css_import="",  # No CSS imports
             component_html=component_html
         )
 
@@ -204,9 +264,14 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
         f.write(prettier_config.rstrip())
     logger.success(f"Generated Prettier config file at {prettier_config_path}")
 
-    # Use relative paths for imports to ensure browser compatibility
-    component_imports = "\n".join(
-        f"import {component['name']} from './components/{component['name']}.jsx';"
+    # Include CSS files as <link> tags only if they exist
+    css_links = "\n".join(
+        f'<link rel="stylesheet" href="./components/{component["name"]}.css">'
+        for component in components
+        if component["styles"] and (components_dir / f"{component['name']}.css").exists()
+    )
+    component_scripts = "\n".join(
+        f'<script type="text/babel" src="./components/{component["name"]}.jsx"></script>'
         for component in components
     )
     component_renders = "\n".join(
@@ -215,7 +280,8 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
     )
 
     html_content = html_template.format(
-        component_imports=component_imports,
+        css_links=css_links,
+        component_scripts=component_scripts,
         component_renders=component_renders
     )
 
@@ -228,8 +294,7 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
         f.write(formatted_html.rstrip())
     logger.success(f"Generated entry point file at {index_path}")
 
-    # Log a warning about file:// access
     logger.warning(
-        "To view index.html, serve it via a local web server (e.g., 'python -m http.server') "
+        "To view index.html, serve it via a local web server (e.g., 'python -m http.server 8000') "
         "instead of opening directly with file:// to avoid module resolution errors."
     )
