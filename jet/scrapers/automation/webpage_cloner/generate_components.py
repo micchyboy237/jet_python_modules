@@ -14,7 +14,8 @@ class Component(TypedDict):
 def generate_react_components(html: str, output_dir: str) -> List[Component]:
     """Generate React components from HTML content."""
     output_dir_path = Path(output_dir).resolve()
-    output_dir_path.mkdir(parents=True, exist_ok=True)
+    components_dir = output_dir_path / "components"
+    components_dir.mkdir(parents=True, exist_ok=True)
     soup = BeautifulSoup(html, "html.parser")
     components: List[Component] = []
 
@@ -48,9 +49,10 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
             "styles": styles
         })
 
-        # Write component to file
+        # Include CSS import only if styles exist
+        css_import = f"import './{component_name}.css';" if styles else ""
         component_code = f"""import React from 'react';
-import './{component_name}.css';
+{css_import}
 
 const {component_name} = () => {{
   return (
@@ -60,13 +62,13 @@ const {component_name} = () => {{
 
 export default {component_name};
 """
-        component_path = os.path.join(output_dir_path, f"{component_name}.jsx")
+        component_path = components_dir / f"{component_name}.jsx"
         with open(component_path, "w", encoding="utf-8") as f:
             f.write(component_code)
 
-        # Write styles to CSS file
+        # Write styles to CSS file only if styles exist
         if styles:
-            css_path = os.path.join(output_dir_path, f"{component_name}.css")
+            css_path = components_dir / f"{component_name}.css"
             with open(css_path, "w", encoding="utf-8") as f:
                 f.write(f".{component_name.lower()} {{{styles}}}")
 

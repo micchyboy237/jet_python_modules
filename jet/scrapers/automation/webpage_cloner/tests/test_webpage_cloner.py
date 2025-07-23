@@ -28,35 +28,6 @@ async def test_clone_after_render():
 
 
 @pytest.mark.asyncio
-async def test_generate_react_components():
-    # Given: Sample HTML with a styled div
-    html = """
-    <div class="card" style="color: blue;">Hello</div>
-    """
-    output_dir = "test_components"
-    expected_component_name = "Card"
-    expected_html = "<div class=\"card\" style=\"color: blue;\">Hello</div>"
-    expected_styles = "color: blue;"
-
-    # When: Generating React components
-    components = generate_react_components(html, output_dir)
-
-    # Then: Component is generated with correct HTML and styles
-    result_component = components[0]
-    assert result_component["name"] == expected_component_name
-    assert result_component["html"] == expected_html
-    assert result_component["styles"] == expected_styles
-
-    component_path = Path(output_dir) / f"{expected_component_name}.jsx"
-    css_path = Path(output_dir) / f"{expected_component_name}.css"
-    assert component_path.exists(), "Component file not created"
-    assert css_path.exists(), "CSS file not created"
-
-    # Cleanup
-    shutil.rmtree(output_dir)
-
-
-@pytest.mark.asyncio
 async def test_clone_after_render_with_random_user_agent():
     # Given: A simple webpage and a random user agent
     url = "http://example.com"
@@ -66,9 +37,19 @@ async def test_clone_after_render_with_random_user_agent():
     expected_user_agent = ua.random
 
     # When: Cloning the webpage with a random user agent
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(user_agent=expected_user_agent)
+        page = await context.new_page()
+        await page.goto(url, wait_until="domcontentloaded")
+        result_user_agent = await page.evaluate("() => navigator.userAgent")
+        await context.close()
+        await browser.close()
+
     await clone_after_render(url, output_dir, headless=True, timeout=10000, user_agent_type="random", max_retries=3)
 
-    # Then: HTML is saved (user agent tested in separate test)
+    # Then: User agent is applied and HTML is saved
+    assert result_user_agent == expected_user_agent, "Random user agent not applied"
     html_path = Path(output_dir) / "index.html"
     result_html = html_path.read_text(encoding="utf-8")
     assert expected_html in result_html, "HTML content not captured"
@@ -168,6 +149,48 @@ async def test_clone_after_render_with_retries_and_delays():
     html_path = Path(output_dir) / "index.html"
     result_html = html_path.read_text(encoding="utf-8")
     assert expected_html in result_html, "HTML content not captured"
+
+    # Cleanup
+    shutil.rmtree(output_dir)
+
+
+@pytest.mark.asyncio
+async def test_generate_react_components_no_styles():
+    # Given: Sample HTML with no styles
+    html = """
+    <div>Hello, World!</div>
+    """
+    output_dir = "test_output"
+    expected_component_name = "Component0"
+    expected_html = "<div>Hello, World!</div>"
+    expected_jsx_content = f"""import React from 'react';
+
+const {expected_component_name} = () => {{
+  return (
+    {expected_html}
+  );
+}};
+
+export default {expected_component_name};
+"""
+
+    # When: Generating React components
+    components = generate_react_components(html, output_dir)
+
+    # Then: Component is generated without CSS import
+    result_component = components[0]
+    assert result_component["name"] == expected_component_name, "Component name incorrect"
+    assert result_component["html"] == expected_html, "Component HTML incorrect"
+    assert result_component["styles"] == "", "Styles should be empty"
+
+    component_path = Path(output_dir) / "components" / \
+        f"{expected_component_name}.jsx"
+    assert component_path.exists(), "Component file not created"
+    result_jsx_content = component_path.read_text(encoding="utf-8")
+    assert result_jsx_content == expected_jsx_content, "JSX content incorrect"
+    css_path = Path(output_dir) / "components" / \
+        f"{expected_component_name}.css"
+    assert not css_path.exists(), "CSS file should not be created"
 
     # Cleanup
     shutil.rmtree(output_dir)
