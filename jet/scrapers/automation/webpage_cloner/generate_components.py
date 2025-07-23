@@ -82,20 +82,33 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
         if tag.get("style"):
             styles = tag["style"].strip()
         elif tag.get("class"):
-            css_files = [
-                os.path.join(output_dir_path, "assets", f)
-                for f in os.listdir(os.path.join(output_dir_path, "assets"))
-                if f.endswith(".css")
-            ]
+            assets_dir = output_dir_path / "assets"
+            css_files = []
+            if assets_dir.exists():
+                css_files = [
+                    os.path.join(assets_dir, f)
+                    for f in os.listdir(assets_dir)
+                    if f.endswith(".css")
+                ]
             for css_file in css_files:
                 with open(css_file, "r", encoding="utf-8") as f:
                     css_content = f.read()
-                    for cls in tag["class"]:
-                        pattern = rf"\.{cls}\s*{{([^}}]*)}}"
-                        matches = re.findall(pattern, css_content, re.DOTALL)
-                        styles += "\n".join(match.strip() for match in matches)
-        # Convert class to className for React
-        component_html = str(tag).replace('class=', 'className=')
+                    # Only extract styles for the primary class
+                    primary_class = tag["class"][0]
+                    pattern = rf"\.{re.escape(primary_class)}\s*{{([^}}]*)}}"
+                    matches = re.findall(pattern, css_content, re.DOTALL)
+                    styles += "\n".join(match.strip() for match in matches)
+
+        # Add default className if none exists, otherwise convert class to className
+        component_html = str(tag)
+        if tag.get("class"):
+            component_html = component_html.replace('class=', 'className=')
+        else:
+            # Insert className after the tag name, before any attributes
+            tag_name = tag.name
+            component_html = re.sub(
+                rf'<{tag_name}\b', f'<{tag_name} className="{class_name}"', component_html, 1)
+
         components.append({
             "name": component_name,
             "html": component_html,
