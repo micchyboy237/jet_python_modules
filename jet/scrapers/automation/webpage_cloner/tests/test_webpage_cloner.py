@@ -7,16 +7,6 @@ import shutil
 from jet.scrapers.automation.webpage_cloner import clone_after_render, generate_react_components
 
 
-@pytest.fixture
-async def setup_browser():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
-        page = await context.new_page()
-        yield page
-        await browser.close()
-
-
 @pytest.mark.asyncio
 async def test_clone_after_render():
     # Given: A simple webpage that may or may not have a CSS file
