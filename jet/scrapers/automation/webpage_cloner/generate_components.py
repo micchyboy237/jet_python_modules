@@ -8,7 +8,6 @@ import cssutils
 from bs4 import BeautifulSoup, Comment
 from pathlib import Path
 from jet.logger import logger
-from jet.transformers.formatters import format_html
 
 
 class Component(TypedDict):
@@ -48,6 +47,7 @@ HTML_TEMPLATE = """\
     <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
     {css_links}
+    {js_links}
 </head>
 <body>
     <div id="root"></div>
@@ -142,8 +142,13 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
     # Save original HTML as original.html
     original_html_path = output_dir_path / "original.html"
     with open(original_html_path, "w", encoding="utf-8") as f:
-        f.write(format_html(html))
+        f.write(html)
     logger.success(f"Saved original HTML at {original_html_path}")
+
+    # Check for incomplete HTML
+    if not html.strip().endswith("</html>"):
+        logger.warning(
+            "Original HTML is incomplete; may result in missing components. Check HTML capture process.")
 
     prettier_config = PRETTIER_CONFIG
     prettier_config_path = components_dir / ".prettierrc"
@@ -151,18 +156,38 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
         f.write(prettier_config.rstrip())
     logger.success(f"Generated Prettier config file at {prettier_config_path}")
 
-    # Copy assets/iana_website.css to components directory
-    assets_dir = output_dir_path / "assets"
-    if assets_dir.exists():
-        css_files = [f for f in assets_dir.glob("*.css")]
-        for css_file in css_files:
-            dest_path = components_dir / css_file.name
-            shutil.copy(css_file, dest_path)
-            logger.success(f"Copied {css_file} to {dest_path}")
+    # Copy assets/*.css, *.js, and js/* to components directory, skip zero-byte files
+    for dir_path in [output_dir_path / "assets", output_dir_path / "js"]:
+        if dir_path.exists():
+            for file in dir_path.glob("*"):
+                if file.suffix in [".css", ".js", ".png", ".jpeg"]:
+                    if file.stat().st_size == 0:
+                        logger.warning(
+                            f"Skipping zero-byte file: {file} (possible download failure)")
+                        continue
+                    dest_path = components_dir / file.name
+                    shutil.copy(file, dest_path)
+                    logger.success(f"Copied {file} to {dest_path}")
 
-    soup = BeautifulSoup(html, "html.parser")
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception as e:
+        logger.error(f"Failed to parse original HTML: {e}")
+        soup = BeautifulSoup("", "html.parser")
+
     for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
         comment.extract()
+
+    # Check for SPA characteristics
+    root_div = soup.find("div", id="root")
+    noscript = soup.find("noscript")
+    noscript_content = noscript.get_text(strip=True) if noscript else ""
+    if root_div and not root_div.get_text(strip=True) and soup.find("script", src=True):
+        logger.warning(
+            "Detected single-page application (SPA) with empty <div id='root'>. "
+            "Content may be dynamically loaded by JavaScript. To capture rendered content, "
+            "modify the HTML capture process to wait for JavaScript execution (e.g., use Puppeteer with page.content())."
+        )
 
     components: List[Component] = []
     seen_html_content = set()
@@ -185,10 +210,16 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
         return f'style={{ {style_object} }}'
 
     for idx, tag in enumerate(tags):
-        # Skip nested tags to avoid duplicates
+        # Skip nested tags
         if is_nested_tag(tag, processed_tags):
             logger.debug(
                 f"Skipping nested tag: {tag.name} with class {tag.get('class', [])}")
+            continue
+
+        # Skip empty tags (no text or children with content)
+        if not tag.get_text(strip=True) and not any(child for child in tag.children if child.name):
+            logger.debug(
+                f"Skipping empty tag: {tag.name} with class {tag.get('class', [])}")
             continue
 
         class_names = tag.get("class", [f"component{idx}"])
@@ -205,8 +236,8 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
 
         styles = tag.get("style", "").strip()
         if not styles and tag.get("class"):
-            css_files = [
-                components_dir / f for f in os.listdir(components_dir) if f.endswith(".css")]
+            css_files = [components_dir / f for f in os.listdir(
+                components_dir) if f.endswith(".css") and f.stat().st_size > 0]
             class_styles = []
             primary_class = base_class_name
             for css_file in css_files:
@@ -225,10 +256,6 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
             logger.debug(f"Applied default styles for {tag.name}: {styles}")
 
         component_html = str(tag)
-        if not component_html.strip():
-            logger.warning(
-                f"Skipping empty tag: {tag.name} with class {base_class_name}")
-            continue
         if component_html in seen_html_content:
             logger.debug(
                 f"Skipping duplicate HTML content for tag: {tag.name} with class {base_class_name}")
@@ -296,15 +323,28 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
             logger.success(f"Generated CSS file at {css_path}")
         else:
             logger.debug(
-                f"No specific styles generated for {component_name}; relying on iana_website.css")
+                f"No specific styles generated for {component_name}; relying on copied CSS files")
 
     # Log missing JavaScript dependencies
     js_files = soup.find_all("script", src=True)
+    js_includes = []
     for js in js_files:
         src = js.get("src")
-        if src and not (components_dir / src).exists():
-            logger.warning(
-                f"JavaScript dependency {src} not processed; may affect dynamic functionality")
+        if src:
+            if src.startswith("http"):
+                js_includes.append(f'<script src="{src}"></script>')
+            elif (components_dir / Path(src).name).exists():
+                js_includes.append(
+                    f'<script src="./components/{Path(src).name}"></script>')
+            else:
+                logger.warning(
+                    f"JavaScript dependency {src} not found in components directory; may affect dynamic content rendering")
+
+    # Include inline scripts
+    inline_scripts = [script.get_text() for script in soup.find_all(
+        "script") if not script.get("src")]
+    js_includes.extend(
+        [f"<script>{script}</script>" for script in inline_scripts if script.strip()])
 
     # Generate App.jsx
     app_jsx_content = """\
@@ -312,6 +352,7 @@ const App = () => {{
   return (
     <div>
       {component_renders}
+      {noscript_content}
     </div>
   );
 }};
@@ -320,10 +361,12 @@ window.App = App;
     component_renders = "\n      ".join(
         f'<window.{component["name"]} />'
         for component in components
-    )
+    ) or "<div>Generated content is empty; original page may rely on JavaScript rendering. To see the full content, ensure the HTML capture includes the rendered DOM after JavaScript execution.</div>"
+    noscript_content = f"<div>{noscript_content}</div>" if noscript_content else ""
     try:
         formatted_app_jsx = format_with_prettier(
-            app_jsx_content.format(component_renders=component_renders),
+            app_jsx_content.format(
+                component_renders=component_renders, noscript_content=noscript_content),
             "babel",
             str(prettier_config_path),
             ".jsx"
@@ -332,7 +375,7 @@ window.App = App;
         logger.error(f"Error formatting App.jsx: {e}")
         logger.debug(f"Problematic App.jsx content: {app_jsx_content}")
         formatted_app_jsx = app_jsx_content.format(
-            component_renders=component_renders)
+            component_renders=component_renders, noscript_content=noscript_content)
 
     app_path = components_dir / "App.jsx"
     with open(app_path, "w", encoding="utf-8") as f:
@@ -359,8 +402,13 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
         for component in components
         if component["styles"] and (components_dir / f"{component["name"]}.css").exists()
     )
-    if (components_dir / "iana_website.css").exists():
-        css_links += '\n<link rel="stylesheet" href="./components/iana_website.css">'
+    css_files = [f for f in components_dir.glob(
+        "*.css") if f.stat().st_size > 0]
+    css_links += "\n".join(
+        f'<link rel="stylesheet" href="./components/{f.name}">'
+        for f in css_files
+        if f.name not in [f"{component['name']}.css" for component in components]
+    )
 
     component_scripts = "\n".join(
         f'<script type="text/babel" src="./components/{component["name"]}.jsx"></script>'
@@ -368,8 +416,21 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
     )
     component_scripts += '\n<script type="text/babel" src="./components/App.jsx"></script>'
 
+    soup = BeautifulSoup(
+        open(output_dir_path / "original.html"), "html.parser")
+    js_links = "\n".join(
+        f'<script src="{js.get("src")}"></script>'
+        for js in soup.find_all("script", src=True)
+        if js.get("src").startswith("http") or (components_dir / Path(js.get("src")).name).exists()
+    )
+    inline_scripts = [script.get_text() for script in soup.find_all(
+        "script") if not script.get("src")]
+    js_links += "\n".join(
+        [f"<script>{script}</script>" for script in inline_scripts if script.strip()])
+
     html_content = html_template.format(
         css_links=css_links,
+        js_links=js_links,
         component_scripts=component_scripts
     )
 
