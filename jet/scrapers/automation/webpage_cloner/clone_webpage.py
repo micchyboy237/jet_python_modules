@@ -1,5 +1,7 @@
+import asyncio
 import os
 from pathlib import Path
+import random
 from typing import List, Literal, TypedDict
 from urllib.parse import urljoin, urlparse
 import aiofiles
@@ -19,7 +21,7 @@ async def download_resource(page: Page, resource_url: str, output_dir: str) -> R
     """Download a resource and save it to the output directory."""
     logger.debug(f"Attempting to download resource: {resource_url}")
     try:
-        response = await page.context.request.get(resource_url, timeout=30000)
+        response = await page.context.request.get(resource_url, timeout=10000)
         content = await response.body()
         logger.debug(
             f"Downloaded {resource_url}, content length: {len(content)} bytes")
@@ -44,40 +46,66 @@ async def clone_after_render(
     url: str,
     output_dir: str,
     headless: bool = True,
-    timeout: int = 30000,
-    user_agent_type: Literal["web", "mobile", "random"] = "random"
+    timeout: int = 10000,
+    user_agent_type: Literal["web", "mobile", "random"] = "random",
+    max_retries: int = 3
 ) -> None:
     """Clone a webpage's HTML and its resources after rendering."""
     logger.debug(
-        f"Starting clone for URL: {url}, output_dir: {output_dir}, user_agent_type: {user_agent_type}")
+        f"Starting clone for URL: {url}, output_dir: {output_dir}, user_agent_type: {user_agent_type}, max_retries: {max_retries}")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as p:
         browser = None
+        context = None
+        page = None
         try:
             browser = await p.chromium.launch(headless=headless)
-            # Set random user agent based on type
             ua = UserAgent()
-            if user_agent_type == "web":
-                random_user_agent = ua.chrome  # Desktop Chrome user agent
-            elif user_agent_type == "mobile":
-                random_user_agent = ua.random  # Fallback to random, filtered for mobile
-                while "Mobile" not in random_user_agent and "Android" not in random_user_agent and "iPhone" not in random_user_agent:
+
+            for attempt in range(max_retries + 1):
+                # Add random delay before retry (skip for first attempt)
+                if attempt > 0:
+                    # Random delay between 1 and 5 seconds
+                    delay = random.uniform(1, 5)
+                    logger.debug(
+                        f"Waiting for {delay:.2f} seconds before retry attempt {attempt + 1}")
+                    await asyncio.sleep(delay)
+
+                # Create new context for each attempt
+                if context:
+                    await context.close()
+                    logger.debug(f"Closed context for attempt {attempt}")
+
+                # Set random user agent based on type
+                if user_agent_type == "web":
+                    random_user_agent = ua.chrome
+                elif user_agent_type == "mobile":
                     random_user_agent = ua.random
-            else:  # random
-                random_user_agent = ua.random
-            logger.debug(f"Using user agent: {random_user_agent}")
-            context = await browser.new_context(user_agent=random_user_agent)
-            page = await context.new_page()
+                    while "Mobile" not in random_user_agent and "Android" not in random_user_agent and "iPhone" not in random_user_agent:
+                        random_user_agent = ua.random
+                else:  # random
+                    random_user_agent = ua.random
+                logger.debug(
+                    f"Attempt {attempt + 1}/{max_retries + 1} with user agent: {random_user_agent}")
 
-            logger.debug(f"Navigating to {url}")
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
-                logger.debug("Navigation completed")
-            except Exception as e:
-                logger.error(f"Navigation failed: {e}")
-                raise
+                context = await browser.new_context(user_agent=random_user_agent)
+                page = await context.new_page()
 
+                logger.debug(f"Navigating to {url} on attempt {attempt + 1}")
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                    logger.debug("Navigation completed")
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    logger.warning(
+                        f"Navigation failed on attempt {attempt + 1}: {e}")
+                    if attempt == max_retries:
+                        logger.error(f"All {max_retries + 1} attempts failed")
+                        raise Exception(
+                            f"Failed to navigate to {url} after {max_retries + 1} attempts")
+
+            # Extract HTML after successful navigation
             html = await page.content()
             logger.debug(f"HTML content length: {len(html)} characters")
 
@@ -106,6 +134,9 @@ async def clone_after_render(
             logger.error(f"Error in clone_after_render: {e}")
             raise
         finally:
+            if context:
+                await context.close()
+                logger.debug("Context closed")
             if browser:
                 await browser.close()
                 logger.debug("Browser closed")
