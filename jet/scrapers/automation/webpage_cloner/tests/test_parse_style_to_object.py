@@ -113,18 +113,6 @@ class TestParseStyleToObject:
         # Then it should treat the variable as a quoted string
         assert result == expected, f"Expected {expected}, but got {result}"
 
-    def test_missing_semicolon(self):
-        """Test handling of style string with missing semicolon."""
-        # Given a style string with a missing semicolon
-        style_input = "color: red font-size: 12px;"
-        expected = "{color: 'red', fontSize: '12px'}"
-
-        # When parsing the style
-        result = parse_style_to_object(style_input)
-
-        # Then it should correctly parse properties despite the missing semicolon
-        assert result == expected, f"Expected {expected}, but got {result}"
-
     def test_unicode_value(self):
         """Test parsing a CSS value with Unicode characters."""
         # Given a style string with a Unicode value
@@ -135,6 +123,66 @@ class TestParseStyleToObject:
         result = parse_style_to_object(style_input)
 
         # Then it should handle Unicode characters correctly
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_standard_css_properties(self):
+        """Test parsing standard CSS properties with various value types."""
+        # Given: A CSS string with mixed property types
+        css_input = "background-color: rgba(255, 255, 255, .5); font-size: 16px; z-index: 1000;"
+        expected = "{ backgroundColor: 'rgba(255, 255, 255, 0.5)', fontSize: '16px', zIndex: 1000 }"
+
+        # When: Parsing the CSS string
+        result = parse_style_to_object(css_input)
+
+        # Then: The output matches the expected JavaScript object
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_missing_semicolon(self):
+        """Test parsing CSS with missing semicolon."""
+        # Given: A CSS string missing a semicolon
+        css_input = "color: red; font-size: 14px"
+        expected = "{ color: 'red', fontSize: '14px' }"
+
+        # When: Parsing the CSS string
+        result = parse_style_to_object(css_input)
+
+        # Then: The output correctly handles the missing semicolon
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_empty_value(self):
+        """Test parsing CSS with empty property value."""
+        # Given: A CSS string with an empty value
+        css_input = "color:; font-size: 14px;"
+        expected = "{ fontSize: '14px' }"
+
+        # When: Parsing the CSS string
+        result = parse_style_to_object(css_input)
+
+        # Then: The output skips the empty value
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_empty_string(self):
+        """Test parsing empty CSS input."""
+        # Given: An empty CSS string
+        css_input = ""
+        expected = "{}"
+
+        # When: Parsing the empty string
+        result = parse_style_to_object(css_input)
+
+        # Then: The output is an empty object
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_complex_values(self):
+        """Test parsing CSS with complex values like calc and url."""
+        # Given: A CSS string with complex values
+        css_input = "width: calc(100% - 20px); background: url('image.jpg');"
+        expected = "{ width: 'calc(100% - 20px)', background: 'url(image.jpg)' }"
+
+        # When: Parsing the CSS string
+        result = parse_style_to_object(css_input)
+
+        # Then: The output correctly handles complex values
         assert result == expected, f"Expected {expected}, but got {result}"
 
 
