@@ -321,6 +321,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
 
 
 class HeaderDoc(TypedDict):
+    doc_index: int
     doc_id: str
     header: str
     content: str
@@ -337,6 +338,7 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
     current_section: Optional[HeaderDoc] = None
     header_stack = []  # Stack to track (header, level, section_idx)
     current_tokens = []  # Track tokens for the current section
+    section_index = 0  # Track the index for doc_index
 
     for token in tokens:
         token_type = token.get("type")
@@ -350,6 +352,7 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
                     current_section["content"])
                 current_section["tokens"] = current_tokens
                 sections.append(current_section)
+                section_index += 1  # Increment index for the next section
             # Reset tokens for the new section
             current_tokens = [token]
             # Determine parent_header and parent_level using header_stack
@@ -360,8 +363,9 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
             if header_stack:
                 parent_header = header_stack[-1][0]
                 parent_level = header_stack[-1][1]
-            # Create new section with unique doc_id
+            # Create new section with unique doc_id and doc_index
             current_section = {
+                "doc_index": section_index,  # Assign current index
                 "doc_id": generate_unique_id(),
                 "header": token_content.splitlines()[0] if token_content else "",
                 "content": [],  # Start with empty list for content
@@ -372,12 +376,13 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
             }
             # Push this header onto the stack
             header_stack.append(
-                (current_section["header"], token_level, len(sections)))
+                (current_section["header"], token_level, section_index))
         else:
             # Non-header: add to current section's content and tokens
             if current_section is None:
-                # If no header yet, create a dummy section with unique doc_id
+                # If no header yet, create a dummy section with unique doc_id and doc_index
                 current_section = {
+                    "doc_index": section_index,
                     "doc_id": generate_unique_id(),
                     "header": "",
                     "content": [],
