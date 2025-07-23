@@ -234,7 +234,53 @@ DEFAULT_STYLES: Dict[str, str] = {
 }
 
 
-def generate_react_components(html: str, output_dir: str, component_code_template: str = COMPONENT_CODE_TEMPLATE, base_url: str = "") -> List[Component]:
+def generate_component_name(tag, idx: int, seen_identifiers: Dict[str, int]) -> tuple[str, str]:
+    """Generate a unique component name based on ID, class, or index."""
+    if tag.get("id"):
+        base_name = tag["id"]
+        component_name = ''.join(word.capitalize()
+                                 for word in base_name.split('-'))
+        identifier = base_name
+        logger.debug(
+            f"Using ID '{base_name}' for component name: {component_name}")
+    else:
+        class_names = tag.get("class", [f"component{idx}"])
+        base_name = class_names[0]
+        component_name = ''.join(word.capitalize()
+                                 for word in base_name.split('-'))
+        identifier = base_name
+        logger.debug(
+            f"Using class or default '{base_name}' for component name: {component_name}")
+
+    if base_name in seen_identifiers:
+        seen_identifiers[base_name] += 1
+        return f"{component_name}{seen_identifiers[base_name]}", identifier
+    else:
+        seen_identifiers[base_name] = 0
+        return component_name, identifier
+
+
+def is_nested_tag(tag, processed_tags: List) -> bool:
+    """Check if a tag or any of its ancestors is already processed."""
+    # Check if the tag itself is in processed_tags
+    if tag in processed_tags:
+        logger.debug(
+            f"Skipping already processed tag: {tag.name} with id {tag.get('id', 'no-id')}")
+        return True
+
+    # Check if any ancestor is in processed_tags
+    parent = tag.parent
+    while parent and parent.name != "[document]":
+        if parent in processed_tags:
+            logger.debug(
+                f"Skipping nested tag: {tag.name} with id {tag.get('id', 'no-id')} inside processed parent {parent.name}")
+            return True
+        parent = parent.parent
+
+    return False
+
+
+def generate_react_components(html: str, output_dir: str, component_code_template: str = COMPONENT_CODE_TEMPLATE, base_url: str = "") -> tuple[List[Component], List[str]]:
     output_dir_path = Path(output_dir).resolve()
     components_dir = output_dir_path / "components"
     components_dir.mkdir(parents=True, exist_ok=True)
@@ -301,16 +347,9 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
     components: List[Component] = []
     seen_html_content = set()
     tags = soup.find_all(["header", "footer", "section", "div", "a"])
-    seen_class_names = {}
-
-    def is_nested_tag(tag, processed_tags):
-        """Check if a tag is a child of any processed tag."""
-        for processed_tag in processed_tags:
-            if tag in processed_tag.find_all(recursive=True):
-                return True
-        return False
-
-    processed_tags = []
+    seen_identifiers: Dict[str, int] = {}
+    processed_tags: List = []
+    logger.debug("Initialized processed_tags for tracking processed elements")
 
     def replace_style(match):
         style_str = match.group(1)
@@ -319,10 +358,8 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
         return f'style={{ {style_object} }}'
 
     for idx, tag in enumerate(tags):
-        # Skip nested tags
+        # Skip nested tags or tags already processed
         if is_nested_tag(tag, processed_tags):
-            logger.debug(
-                f"Skipping nested tag: {tag.name} with class {tag.get('class', [])}")
             continue
 
         # Skip empty tags (no text or children with content)
@@ -331,33 +368,40 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
                 f"Skipping empty tag: {tag.name} with class {tag.get('class', [])}")
             continue
 
-        class_names = tag.get("class", [f"component{idx}"])
-        base_class_name = class_names[0]
-        base_component_name = ''.join(word.capitalize()
-                                      for word in base_class_name.split('-'))
-
-        if base_class_name in seen_class_names:
-            seen_class_names[base_class_name] += 1
-            component_name = f"{base_component_name}{seen_class_names[base_class_name]}"
-        else:
-            seen_class_names[base_class_name] = 0
-            component_name = base_component_name
+        component_name, identifier = generate_component_name(
+            tag, idx, seen_identifiers)
 
         styles = tag.get("style", "").strip()
-        if not styles and tag.get("class"):
+        if not styles:
             css_files = [components_dir / f for f in os.listdir(
-                components_dir) if f.endswith(".css") and f.stat().st_size > 0]
+                components_dir) if f.endswith(".css") and os.path.getsize(components_dir / f) > 0]
             class_styles = []
-            primary_class = base_class_name
-            for css_file in css_files:
-                with open(css_file, "r", encoding="utf-8") as f:
-                    css_content = f.read()
-                    pattern = rf"\.{re.escape(primary_class)}\s*{{([^}}]*)}}"
-                    matches = re.findall(pattern, css_content, re.DOTALL)
-                    for match in matches:
-                        cleaned_style = match.strip()
-                        if cleaned_style and cleaned_style not in class_styles:
-                            class_styles.append(cleaned_style)
+            if tag.get("id"):
+                # Extract styles for ID
+                for css_file in css_files:
+                    with open(css_file, "r", encoding="utf-8") as f:
+                        css_content = f.read()
+                        pattern = rf"#{re.escape(tag['id'])}\s*{{([^}}]*)}}"
+                        matches = re.findall(pattern, css_content, re.DOTALL)
+                        for match in matches:
+                            cleaned_style = match.strip()
+                            if cleaned_style and cleaned_style not in class_styles:
+                                class_styles.append(cleaned_style)
+                                logger.debug(
+                                    f"Extracted ID-based style for #{tag['id']}: {cleaned_style}")
+            if tag.get("class"):
+                primary_class = tag.get("class")[0]
+                for css_file in css_files:
+                    with open(css_file, "r", encoding="utf-8") as f:
+                        css_content = f.read()
+                        pattern = rf"\.{re.escape(primary_class)}\s*{{([^}}]*)}}"
+                        matches = re.findall(pattern, css_content, re.DOTALL)
+                        for match in matches:
+                            cleaned_style = match.strip()
+                            if cleaned_style and cleaned_style not in class_styles:
+                                class_styles.append(cleaned_style)
+                                logger.debug(
+                                    f"Extracted class-based style for .{primary_class}: {cleaned_style}")
             styles = ";".join(class_styles).strip()
 
         if not styles and tag.name in DEFAULT_STYLES:
@@ -365,11 +409,13 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
             logger.debug(f"Applied default styles for {tag.name}: {styles}")
 
         component_html = str(tag)
-        if component_html in seen_html_content:
+        # Enhance duplicate check to include ID
+        html_with_id = f"{tag.get('id', '')}:{component_html}"
+        if html_with_id in seen_html_content:
             logger.debug(
-                f"Skipping duplicate HTML content for tag: {tag.name} with class {base_class_name}")
+                f"Skipping duplicate HTML content for tag: {tag.name} with identifier {identifier}")
             continue
-        seen_html_content.add(component_html)
+        seen_html_content.add(html_with_id)
 
         if tag.name == "nav" and not tag.get_text(strip=True):
             logger.warning(
@@ -377,7 +423,7 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
 
         component_html = re.sub(r'\bclass=', 'className=', component_html)
         component_html = re.sub(r'\bclassName="[^"]*"\s*className="[^"]*"',
-                                f'className="{base_class_name}"', component_html, flags=re.IGNORECASE)
+                                f'className="{identifier}"', component_html, flags=re.IGNORECASE)
         component_html = component_html.replace(
             'autocomplete=', 'autoComplete=')
         component_html = component_html.replace('for=', 'htmlFor=')
@@ -390,10 +436,10 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
             component_html = re.sub(
                 r'style="([^"]*)"', replace_style, component_html)
 
-        if not tag.get("class") and not tag.get("className"):
+        if not tag.get("class") and not tag.get("className") and not tag.get("id"):
             tag_name = tag.name
             component_html = re.sub(
-                rf'<{tag_name}\b', f'<{tag_name} className="{base_class_name}"', component_html, 1)
+                rf'<{tag_name}\b', f'<{tag_name} className="{identifier}"', component_html, 1)
 
         components.append({
             "name": component_name,
@@ -402,6 +448,8 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
         })
 
         processed_tags.append(tag)
+        logger.debug(
+            f"Processed tag: {tag.name} with id {tag.get('id', 'no-id')} as component {component_name}")
 
         component_code = component_code_template.format(
             component_name=component_name,
@@ -419,8 +467,9 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
         logger.success(f"Generated React component file at {component_path}")
 
         if styles:
-            css_class_name = base_class_name
-            css_content = f".{css_class_name} {{{styles}}}"
+            css_class_name = identifier
+            css_content = f".{css_class_name} {{{styles}}}" if not tag.get(
+                "id") else f"#{css_class_name} {{{styles}}}"
             logger.debug(
                 f"Generating CSS file for {component_name} with content: {css_content}")
             formatted_styles = format_with_prettier(
