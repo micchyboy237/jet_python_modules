@@ -64,17 +64,12 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
     prettier_config_path = components_dir / ".prettierrc"
     with open(prettier_config_path, "w", encoding="utf-8") as f:
         f.write(prettier_config.rstrip())
-
     soup = BeautifulSoup(html, "html.parser")
-    # Remove all HTML comments
     for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
         comment.extract()
-
     components: List[Component] = []
     tags = soup.find_all(["header", "footer", "section", "div"])
-
     for idx, tag in enumerate(tags):
-        # Normalize class name to PascalCase for component name
         class_name = tag.get("class", [f"component{idx}"])[0]
         component_name = ''.join(word.capitalize()
                                  for word in class_name.split('-'))
@@ -93,26 +88,23 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
             for css_file in css_files:
                 with open(css_file, "r", encoding="utf-8") as f:
                     css_content = f.read()
-                    # Only extract styles for the primary class
-                    primary_class = tag["class"][0]
-                    pattern = rf"\.{re.escape(primary_class)}\s*{{([^}}]*)}}"
-                    matches = re.findall(pattern, css_content, re.DOTALL)
-                    styles += "\n".join(match.strip() for match in matches)
-
-        # Add default className if none exists, otherwise convert class to className
+                    for class_name in tag["class"]:  # Iterate over all classes
+                        pattern = rf"\.{re.escape(class_name)}\s*{{([^}}]*)}}"
+                        matches = re.findall(pattern, css_content, re.DOTALL)
+                        styles += "\n".join(match.strip()
+                                            for match in matches) + "\n"
+            styles = styles.strip()  # Remove trailing newlines
         component_html = str(tag)
         if tag.get("class"):
             component_html = component_html.replace('class=', 'className=')
         else:
-            # Insert className after the tag name, before any attributes
             tag_name = tag.name
             component_html = re.sub(
                 rf'<{tag_name}\b', f'<{tag_name} className="{class_name}"', component_html, 1)
-
         components.append({
             "name": component_name,
             "html": component_html,
-            "styles": styles.strip()
+            "styles": styles
         })
         css_import = f"import './{component_name}.css';" if styles else ""
         component_code = f"""\
@@ -131,22 +123,16 @@ export default {component_name};
         formatted_component_code = format_with_prettier(
             component_code, "babel", str(prettier_config_path), ".jsx"
         )
-
         component_path = components_dir / f"{component_name}.jsx"
         with open(component_path, "w", encoding="utf-8") as f:
             f.write(formatted_component_code.rstrip())
-
         if styles:
-            # Use original class name for CSS selector
             css_class_name = class_name
             css_content = f".{css_class_name} {{{styles}}}"
-            # Format CSS using Prettier
             formatted_styles = format_with_prettier(
                 css_content, "css", str(prettier_config_path), ".css"
             )
-
             css_path = components_dir / f"{component_name}.css"
             with open(css_path, "w", encoding="utf-8") as f:
                 f.write(formatted_styles.rstrip())
-
     return components
