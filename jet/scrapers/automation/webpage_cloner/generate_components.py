@@ -15,6 +15,31 @@ class Component(TypedDict):
     styles: str
 
 
+PRETTIER_CONFIG = """\
+{
+  "singleQuote": true,
+  "trailingComma": "es5",
+  "printWidth": 80,
+  "tabWidth": 2,
+  "useTabs": false,
+  "bracketSpacing": true
+}
+"""
+
+COMPONENT_CODE_TEMPLATE = """\
+import React from 'react';
+{css_import}
+
+const {component_name} = () => {{
+  return (
+    {component_html}
+  );
+}};
+
+export default {component_name};
+"""
+
+
 def format_with_prettier(content: str, parser: str, config_path: str, file_suffix: str) -> str:
     """Format content using Prettier CLI with fallback to original content."""
     try:
@@ -51,16 +76,7 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
     components_dir.mkdir(parents=True, exist_ok=True)
 
     # Write .prettierrc to components directory
-    prettier_config = """\
-{
-  "singleQuote": true,
-  "trailingComma": "es5",
-  "printWidth": 80,
-  "tabWidth": 2,
-  "useTabs": false,
-  "bracketSpacing": true
-}
-"""
+    prettier_config = PRETTIER_CONFIG
     prettier_config_path = components_dir / ".prettierrc"
     with open(prettier_config_path, "w", encoding="utf-8") as f:
         f.write(prettier_config.rstrip())
@@ -107,18 +123,11 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
             "styles": styles
         })
         css_import = f"import './{component_name}.css';" if styles else ""
-        component_code = f"""\
-import React from 'react';
-{css_import}
-
-const {component_name} = () => {{
-  return (
-    {component_html}
-  );
-}};
-
-export default {component_name};
-"""
+        component_code = COMPONENT_CODE_TEMPLATE.format(
+            component_name=component_name,
+            css_import=css_import,
+            component_html=component_html
+        )
         # Format JSX using Prettier
         formatted_component_code = format_with_prettier(
             component_code, "babel", str(prettier_config_path), ".jsx"
