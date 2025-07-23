@@ -4,6 +4,9 @@ from sentence_transformers import SentenceTransformer, util
 import numpy as np
 import logging
 
+from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
+from jet.models.model_types import EmbedModelType
+
 # Set up debug logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -16,10 +19,10 @@ class SearchResult(TypedDict):
 
 
 class SpellCorrectedSearchEngine:
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: EmbedModelType = "all-MiniLM-L6-v2"):
         """Initialize spell checker and sentence transformer model."""
         self.spell_checker = SpellChecker()
-        self.model = SentenceTransformer(model_name)
+        self.model = SentenceTransformerRegistry.load_model(model_name)
         self.documents: List[Dict[str, Any]] = []
         self.corrected_documents: List[Dict[str, Any]] = []
         self.corrections: List[List[Dict[str, str]]] = []
