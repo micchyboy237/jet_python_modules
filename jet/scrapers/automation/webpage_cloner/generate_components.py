@@ -204,6 +204,7 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
         f.write(prettier_config.rstrip())
     logger.success(f"Generated Prettier config file at {prettier_config_path}")
 
+    # Use relative paths for imports to ensure browser compatibility
     component_imports = "\n".join(
         f"import {component['name']} from './components/{component['name']}.jsx';"
         for component in components
@@ -213,7 +214,6 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
         for component in components
     )
 
-    # Use f-string to avoid curly brace conflicts
     html_content = html_template.format(
         component_imports=component_imports,
         component_renders=component_renders
@@ -222,7 +222,14 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
     formatted_html = format_with_prettier(
         html_content, "html", str(prettier_config_path), ".html"
     )
+
     index_path = output_dir_path / "index.html"
     with open(index_path, "w", encoding="utf-8") as f:
         f.write(formatted_html.rstrip())
     logger.success(f"Generated entry point file at {index_path}")
+
+    # Log a warning about file:// access
+    logger.warning(
+        "To view index.html, serve it via a local web server (e.g., 'python -m http.server') "
+        "instead of opening directly with file:// to avoid module resolution errors."
+    )
