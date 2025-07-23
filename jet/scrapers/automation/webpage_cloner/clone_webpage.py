@@ -47,7 +47,7 @@ async def clone_after_render(
     output_dir: str,
     headless: bool = True,
     timeout: int = 10000,
-    user_agent_type: Literal["web", "mobile", "random"] = "random",
+    user_agent_type: Literal["web", "mobile", "random"] = "web",
     max_retries: int = 3
 ) -> None:
     """Clone a webpage's HTML and its resources after rendering."""
