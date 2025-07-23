@@ -74,8 +74,6 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
     output_dir_path = Path(output_dir).resolve()
     components_dir = output_dir_path / "components"
     components_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write .prettierrc to components directory
     prettier_config = PRETTIER_CONFIG
     prettier_config_path = components_dir / ".prettierrc"
     with open(prettier_config_path, "w", encoding="utf-8") as f:
@@ -101,15 +99,30 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
                     for f in os.listdir(assets_dir)
                     if f.endswith(".css")
                 ]
+            class_styles = []
+            primary_class = class_name
+            all_classes = tag.get("class", [])
+            compound_class = ".".join(all_classes) if len(
+                all_classes) > 1 else None
             for css_file in css_files:
                 with open(css_file, "r", encoding="utf-8") as f:
                     css_content = f.read()
-                    for class_name in tag["class"]:  # Iterate over all classes
-                        pattern = rf"\.{re.escape(class_name)}\s*{{([^}}]*)}}"
+                    # Match primary class
+                    pattern = rf"\.{re.escape(primary_class)}\s*{{([^}}]*)}}"
+                    matches = re.findall(pattern, css_content, re.DOTALL)
+                    for match in matches:
+                        cleaned_style = match.strip()
+                        if cleaned_style and cleaned_style not in class_styles:
+                            class_styles.append(cleaned_style)
+                    # Match compound class if multiple classes exist
+                    if compound_class:
+                        pattern = rf"\.{re.escape(compound_class)}\s*{{([^}}]*)}}"
                         matches = re.findall(pattern, css_content, re.DOTALL)
-                        styles += "\n".join(match.strip()
-                                            for match in matches) + "\n"
-            styles = styles.strip()  # Remove trailing newlines
+                        for match in matches:
+                            cleaned_style = match.strip()
+                            if cleaned_style and cleaned_style not in class_styles:
+                                class_styles.append(cleaned_style)
+            styles = "\n".join(class_styles).strip()
         component_html = str(tag)
         if tag.get("class"):
             component_html = component_html.replace('class=', 'className=')
@@ -128,7 +141,6 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
             css_import=css_import,
             component_html=component_html
         )
-        # Format JSX using Prettier
         formatted_component_code = format_with_prettier(
             component_code, "babel", str(prettier_config_path), ".jsx"
         )
