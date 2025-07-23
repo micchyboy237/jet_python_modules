@@ -96,7 +96,7 @@ def format_with_prettier(content: str, parser: str, config_path: str, file_suffi
 
 
 def generate_react_components(html: str, output_dir: str, component_code_template: str = COMPONENT_CODE_TEMPLATE) -> List[Component]:
-    """Generate React components from HTML content."""
+    """Generate React components from HTML content with unique component names."""
     output_dir_path = Path(output_dir).resolve()
     components_dir = output_dir_path / "components"
     components_dir.mkdir(parents=True, exist_ok=True)
@@ -105,6 +105,7 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
     prettier_config_path = components_dir / ".prettierrc"
     with open(prettier_config_path, "w", encoding="utf-8") as f:
         f.write(prettier_config.rstrip())
+    logger.success(f"Generated Prettier config file at {prettier_config_path}")
 
     soup = BeautifulSoup(html, "html.parser")
     for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
@@ -112,10 +113,20 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
 
     components: List[Component] = []
     tags = soup.find_all(["header", "footer", "section", "div"])
+    seen_class_names = {}  # Track class names to ensure uniqueness
+
     for idx, tag in enumerate(tags):
         class_name = tag.get("class", [f"component{idx}"])[0]
-        component_name = ''.join(word.capitalize()
-                                 for word in class_name.split('-'))
+        # Generate a unique component name
+        base_component_name = ''.join(word.capitalize()
+                                      for word in class_name.split('-'))
+        if class_name in seen_class_names:
+            seen_class_names[class_name] += 1
+            component_name = f"{base_component_name}{seen_class_names[class_name]}"
+        else:
+            seen_class_names[class_name] = 0
+            component_name = base_component_name
+
         styles = ""
         if tag.get("style"):
             styles = tag["style"].strip()
@@ -136,8 +147,8 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
                         cleaned_style = match.strip()
                         if cleaned_style and cleaned_style not in class_styles:
                             class_styles.append(cleaned_style)
-            # Use semicolon to join styles, no newlines
             styles = ";".join(class_styles).strip()
+
         component_html = str(tag)
         if tag.get("class"):
             component_html = component_html.replace('class=', 'className=')
@@ -145,23 +156,28 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
             tag_name = tag.name
             component_html = re.sub(
                 rf'<{tag_name}\b', f'<{tag_name} className="{class_name}"', component_html, 1)
+
         components.append({
             "name": component_name,
             "html": component_html,
             "styles": styles
         })
+
         css_import = f"import './{component_name}.css';" if styles else ""
         component_code = component_code_template.format(
             component_name=component_name,
             css_import=css_import,
             component_html=component_html
         )
+
         formatted_component_code = format_with_prettier(
             component_code, "babel", str(prettier_config_path), ".jsx"
         )
         component_path = components_dir / f"{component_name}.jsx"
         with open(component_path, "w", encoding="utf-8") as f:
             f.write(formatted_component_code.rstrip())
+        logger.success(f"Generated React component file at {component_path}")
+
         if styles:
             css_class_name = class_name
             css_content = f".{css_class_name} {{{styles}}}"
@@ -171,6 +187,8 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
             css_path = components_dir / f"{component_name}.css"
             with open(css_path, "w", encoding="utf-8") as f:
                 f.write(formatted_styles.rstrip())
+            logger.success(f"Generated CSS file at {css_path}")
+
     return components
 
 
@@ -184,6 +202,7 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
     prettier_config_path = components_dir / ".prettierrc"
     with open(prettier_config_path, "w", encoding="utf-8") as f:
         f.write(prettier_config.rstrip())
+    logger.success(f"Generated Prettier config file at {prettier_config_path}")
 
     component_imports = "\n".join(
         f"import {component['name']} from './components/{component['name']}.jsx';"
@@ -195,8 +214,10 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
     )
 
     # Use f-string to avoid curly brace conflicts
-    html_content = HTML_TEMPLATE.replace("{component_imports}", component_imports).replace(
-        "{component_renders}", component_renders)
+    html_content = html_template.format(
+        component_imports=component_imports,
+        component_renders=component_renders
+    )
 
     formatted_html = format_with_prettier(
         html_content, "html", str(prettier_config_path), ".html"
@@ -204,3 +225,4 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
     index_path = output_dir_path / "index.html"
     with open(index_path, "w", encoding="utf-8") as f:
         f.write(formatted_html.rstrip())
+    logger.success(f"Generated entry point file at {index_path}")
