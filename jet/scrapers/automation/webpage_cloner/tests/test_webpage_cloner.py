@@ -4,7 +4,7 @@ from typing import List
 from playwright.async_api import async_playwright
 from pathlib import Path
 import shutil
-from jet.scrapers.automation.grok_website_cloner import clone_after_render, generate_react_components
+from jet.scrapers.automation.webpage_cloner import clone_after_render, generate_react_components
 
 
 @pytest.fixture
