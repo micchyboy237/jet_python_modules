@@ -8,6 +8,7 @@ import cssutils
 from bs4 import BeautifulSoup, Comment
 from pathlib import Path
 from jet.logger import logger
+from jet.transformers.formatters import format_html
 
 
 class Component(TypedDict):
@@ -141,7 +142,7 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
     # Save original HTML as original.html
     original_html_path = output_dir_path / "original.html"
     with open(original_html_path, "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(format_html(html))
     logger.success(f"Saved original HTML at {original_html_path}")
 
     prettier_config = PRETTIER_CONFIG
