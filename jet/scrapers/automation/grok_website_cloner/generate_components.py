@@ -1,7 +1,8 @@
-from typing import List, Dict, TypedDict
+from typing import List, TypedDict
 from bs4 import BeautifulSoup
 import re
 import os
+from pathlib import Path
 
 
 class Component(TypedDict):
@@ -12,6 +13,8 @@ class Component(TypedDict):
 
 def generate_react_components(html: str, output_dir: str) -> List[Component]:
     """Generate React components from HTML content."""
+    output_dir_path = Path(output_dir).resolve()
+    output_dir_path.mkdir(parents=True, exist_ok=True)
     soup = BeautifulSoup(html, "html.parser")
     components: List[Component] = []
 
@@ -27,8 +30,8 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
             styles = tag["style"]
         elif tag.get("class"):
             # Extract CSS rules for the class
-            css_files = [os.path.join(output_dir, "assets", f) for f in os.listdir(
-                os.path.join(output_dir, "assets")) if f.endswith(".css")]
+            css_files = [os.path.join(output_dir_path, "assets", f) for f in os.listdir(
+                os.path.join(output_dir_path, "assets")) if f.endswith(".css")]
             for css_file in css_files:
                 with open(css_file, "r", encoding="utf-8") as f:
                     css_content = f.read()
@@ -57,13 +60,13 @@ const {component_name} = () => {{
 
 export default {component_name};
 """
-        component_path = os.path.join(output_dir, f"{component_name}.jsx")
+        component_path = os.path.join(output_dir_path, f"{component_name}.jsx")
         with open(component_path, "w", encoding="utf-8") as f:
             f.write(component_code)
 
         # Write styles to CSS file
         if styles:
-            css_path = os.path.join(output_dir, f"{component_name}.css")
+            css_path = os.path.join(output_dir_path, f"{component_name}.css")
             with open(css_path, "w", encoding="utf-8") as f:
                 f.write(f".{component_name.lower()} {{{styles}}}")
 
