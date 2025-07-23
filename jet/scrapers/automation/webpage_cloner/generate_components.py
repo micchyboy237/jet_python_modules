@@ -5,8 +5,11 @@ import shutil
 import tempfile
 import subprocess
 import cssutils
+import urllib.request
+import logging
 from bs4 import BeautifulSoup, Comment
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 from jet.logger import logger
 
 
@@ -47,6 +50,7 @@ HTML_TEMPLATE = """\
     <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
     {css_links}
+    {font_links}
     {js_links}
 </head>
 <body>
@@ -66,7 +70,8 @@ def parse_style_to_object(style: str) -> str:
     if not style:
         return "{}"
     cssutils.ser.prefs.useMinified()
-    sheet = cssutils.parseString(f"dummy {{ {style} }}")
+    cssutils.log.setLevel(logging.ERROR)  # Suppress CSS parsing warnings
+    sheet = cssutils.parseString(f"dummy {{ {style} }}", validate=False)
     style_dict: Dict[str, str] = {}
     try:
         for rule in sheet:
@@ -82,22 +87,117 @@ def parse_style_to_object(style: str) -> str:
                         logger.debug(
                             f"Skipping empty value for property: {prop}")
                         continue
-                    no_quote_values = {"flex", "block",
-                                       "inline", "none", "inherit", "initial"}
-                    if value in no_quote_values:
-                        style_dict[camel_prop] = value
+                    if prop in {"flex", "flex-direction", "flex-grow", "flex-basis", "grid", "grid-gap",
+                                "grid-template-columns", "grid-auto-flow", "justify-content", "align-items",
+                                "flex-wrap", "gap", "transform", "transition", "transition-delay", "align-self",
+                                "inline-size", "block-size", "animation"}:
+                        style_dict[camel_prop] = f"'{value}'"
+                    elif prop == "font-color":
+                        style_dict["fontColor"] = f"'{value}'"
+                    elif prop == "x-border-bottom":
+                        style_dict["borderBottom"] = f"'{value}'"
+                    elif value.startswith("linear-gradient"):
+                        style_dict[camel_prop] = f"'{value}'"
+                    elif value.startswith("calc") or "rem" in value or value in {"max-content", "unset", "inline-flex"}:
+                        style_dict[camel_prop] = f"'{value}'"
+                    elif prop in {"border-radius", "border", "border-bottom"} and value == "inherit":
+                        style_dict[camel_prop] = "'inherit'"
+                    elif prop == "vertical-align" and value in {"base", "center"}:
+                        style_dict[camel_prop] = f"'{value}'"
+                    elif prop == "unicode-bidi" and value == "isolate":
+                        style_dict[camel_prop] = "'isolate'"
+                    elif prop == "text-decoration" and value.startswith("underline"):
+                        style_dict[camel_prop] = f"'{value}'"
+                    elif "rgb(" in value and not re.match(r'rgb\(\d+,\s*\d+,\s*\d+\)', value):
+                        style_dict[camel_prop] = f"'{value}'"
+                    elif prop == "box-shadow" and (value.startswith("#fc0") or value.startswith("rgba(")):
+                        style_dict[camel_prop] = f"'{value}'"
                     else:
-                        try:
-                            float(value)
+                        no_quote_values = {"flex", "block",
+                                           "inline", "none", "inherit", "initial"}
+                        if value in no_quote_values:
                             style_dict[camel_prop] = value
-                        except ValueError:
-                            style_dict[camel_prop] = f"'{value}'"
+                        else:
+                            try:
+                                float(value)
+                                style_dict[camel_prop] = value
+                            except ValueError:
+                                style_dict[camel_prop] = f"'{value}'"
     except Exception as e:
-        logger.error(f"Error parsing CSS with cssutils: {e}")
+        logger.error(f"Error parsing CSS: {e}")
         return "{}"
     style_items = [f"{key}: {value}" for key, value in style_dict.items()]
     logger.debug(f"Parsed style object: {{ {', '.join(style_items)} }}")
     return "{" + ", ".join(style_items) + "}"
+
+
+def download_font(url: str, dest_path: Path, base_url: str = "") -> bool:
+    """Download a font file from a URL to the destination path."""
+    if not base_url:
+        logger.warning(
+            f"Base URL not provided; cannot resolve font URL: {url}")
+        return False
+    try:
+        # Handle absolute and root-relative URLs
+        parsed_url = urlparse(url)
+        if not parsed_url.scheme and url.startswith("/"):
+            # Use original hostname for root-relative URLs
+            parsed_base = urlparse(base_url)
+            font_url = f"{parsed_base.scheme}://{parsed_base.netloc}{url}"
+        elif not parsed_url.scheme:
+            font_url = urljoin(base_url.rstrip("/"), url.lstrip("/"))
+        else:
+            font_url = url
+        parsed_url = urlparse(font_url)
+
+        if not parsed_url.scheme or not parsed_url.netloc:
+            logger.warning(f"Invalid font URL after resolving: {font_url}")
+            return False
+
+        font_path = dest_path / Path(parsed_url.path).name
+        font_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with urllib.request.urlopen(font_url) as response:
+            if response.status != 200:
+                logger.warning(
+                    f"Failed to download font from {font_url}: HTTP {response.status}")
+                return False
+            content = response.read()
+            if len(content) == 0:
+                logger.warning(f"Downloaded font from {font_url} is empty")
+                return False
+            with open(font_path, "wb") as f:
+                f.write(content)
+            logger.success(f"Downloaded font to {font_path} from {font_url}")
+            return True
+    except Exception as e:
+        logger.error(f"Error downloading font from {font_url}: {e}")
+        return False
+
+
+def extract_fonts_from_css(css_content: str, components_dir: Path, base_url: str = "") -> List[str]:
+    """Extract and download font files from CSS @font-face rules."""
+    font_urls = []
+    try:
+        cssutils.log.setLevel(logging.ERROR)  # Suppress CSS parsing warnings
+        sheet = cssutils.parseString(css_content, validate=False)
+        for rule in sheet:
+            if rule.type == rule.FONT_FACE_RULE:
+                for property in rule.style:
+                    if property.name == "src":
+                        urls = re.findall(r'url\((.*?)\)', property.value)
+                        for url in urls:
+                            url = url.strip().strip("'\"")
+                            if url and url.endswith((".woff", ".woff2", ".ttf", ".otf")):
+                                if download_font(url, components_dir, base_url):
+                                    font_urls.append(
+                                        f"./components/{Path(urlparse(url).path).name}")
+                                else:
+                                    # Keep original URL as fallback
+                                    font_urls.append(url)
+    except Exception as e:
+        logger.error(f"Error parsing CSS for fonts: {e}")
+    return font_urls
 
 
 def format_with_prettier(content: str, parser: str, config_path: str, file_suffix: str) -> str:
@@ -134,7 +234,7 @@ DEFAULT_STYLES: Dict[str, str] = {
 }
 
 
-def generate_react_components(html: str, output_dir: str, component_code_template: str = COMPONENT_CODE_TEMPLATE) -> List[Component]:
+def generate_react_components(html: str, output_dir: str, component_code_template: str = COMPONENT_CODE_TEMPLATE, base_url: str = "") -> List[Component]:
     output_dir_path = Path(output_dir).resolve()
     components_dir = output_dir_path / "components"
     components_dir.mkdir(parents=True, exist_ok=True)
@@ -148,7 +248,7 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
     # Check for incomplete HTML
     if not html.strip().endswith("</html>"):
         logger.warning(
-            "Original HTML is incomplete; may result in missing components. Check HTML capture process.")
+            "Original HTML is incomplete; may result in missing components. Check HTML capture process in run_grok_webpage_cloner.py.")
 
     prettier_config = PRETTIER_CONFIG
     prettier_config_path = components_dir / ".prettierrc"
@@ -156,7 +256,10 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
         f.write(prettier_config.rstrip())
     logger.success(f"Generated Prettier config file at {prettier_config_path}")
 
-    # Copy assets/*.css, *.js, and js/* to components directory, skip zero-byte files
+    # Initialize font_urls
+    font_urls = []
+
+    # Copy assets/*.css, *.js, *.png, *.jpeg, and js/* to components directory, skip zero-byte files
     for dir_path in [output_dir_path / "assets", output_dir_path / "js"]:
         if dir_path.exists():
             for file in dir_path.glob("*"):
@@ -168,6 +271,11 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
                     dest_path = components_dir / file.name
                     shutil.copy(file, dest_path)
                     logger.success(f"Copied {file} to {dest_path}")
+                    if file.suffix == ".css":
+                        with open(file, "r", encoding="utf-8") as f:
+                            css_content = f.read()
+                            font_urls.extend(extract_fonts_from_css(
+                                css_content, components_dir, base_url))
 
     try:
         soup = BeautifulSoup(html, "html.parser")
@@ -186,7 +294,8 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
         logger.warning(
             "Detected single-page application (SPA) with empty <div id='root'>. "
             "Content may be dynamically loaded by JavaScript. To capture rendered content, "
-            "modify the HTML capture process to wait for JavaScript execution (e.g., use Puppeteer with page.content())."
+            "modify run_grok_webpage_cloner.py to use a headless browser with page.content() "
+            "after waiting for JavaScript execution (e.g., waitUntil: 'networkidle2')."
         )
 
     components: List[Component] = []
@@ -361,7 +470,7 @@ window.App = App;
     component_renders = "\n      ".join(
         f'<window.{component["name"]} />'
         for component in components
-    ) or "<div>Generated content is empty; original page may rely on JavaScript rendering. To see the full content, ensure the HTML capture includes the rendered DOM after JavaScript execution.</div>"
+    ) or "<div>Generated content is empty; original page may rely on JavaScript rendering. To see the full content, ensure run_grok_webpage_cloner.py captures the rendered DOM after JavaScript execution (e.g., use Puppeteer with page.content() and waitUntil: 'networkidle2').</div>"
     noscript_content = f"<div>{noscript_content}</div>" if noscript_content else ""
     try:
         formatted_app_jsx = format_with_prettier(
@@ -382,10 +491,10 @@ window.App = App;
         f.write(formatted_app_jsx.rstrip())
     logger.success(f"Generated App.jsx file at {app_path}")
 
-    return components
+    return components, font_urls
 
 
-def generate_entry_point(components: List[Component], output_dir: str, html_template: str = HTML_TEMPLATE) -> None:
+def generate_entry_point(components: List[Component], output_dir: str, font_urls: List[str], html_template: str = HTML_TEMPLATE, base_url: str = "") -> None:
     """Generate an index.html file to preview all React components using App.jsx."""
     output_dir_path = Path(output_dir).resolve()
     components_dir = output_dir_path / "components"
@@ -410,6 +519,12 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
         if f.name not in [f"{component['name']}.css" for component in components]
     )
 
+    font_links = "\n".join(
+        f'<link rel="stylesheet" href="{url}">' if url.startswith(
+            "http") else f'<link rel="stylesheet" href="./components/{Path(urlparse(url).path).name}">'
+        for url in set(font_urls)
+    )
+
     component_scripts = "\n".join(
         f'<script type="text/babel" src="./components/{component["name"]}.jsx"></script>'
         for component in components
@@ -430,6 +545,7 @@ def generate_entry_point(components: List[Component], output_dir: str, html_temp
 
     html_content = html_template.format(
         css_links=css_links,
+        font_links=font_links,
         js_links=js_links,
         component_scripts=component_scripts
     )
