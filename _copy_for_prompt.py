@@ -29,28 +29,17 @@ exclude_files = [
     "jupyter",
     ".*",
     "_*",
+    # "generated",
     # Custom
+    "*response*",
+    "*.sh"
 ]
 include_files = [
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/_temp_test.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/llm/mlx/models.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/llm/mlx/server/app.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/llm/mlx/server/task_manager.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/executor/command.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/llm/mlx/mlx_types.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/llm/mlx/base.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/html/index.html",
-
-    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-lm/mlx_lm/LORA.md",
-    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-lm/mlx_lm/lora.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-lm/mlx_lm/tuner/trainer.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/mlx/train/fine_tune_llama_3_2_1b.sh",
-
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/llm/mlx/train/data/sample_chat",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/_copy_for_prompt.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/_copy_file_structure.py",
 ]
 structure_include = [
-    # "*.py"
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/llm/mlx/tasks/*.py",
 ]
 structure_exclude = []
 
@@ -62,10 +51,109 @@ SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_QUERY_MESSAGE = """
-Update rerun_pending to rerun the appropriate task ID with the same args. Make sure it updates the responses as well in index.html (for stream or non-stream).
+Fix why this is not copying global variables to clipboard. The code below is not copying HTML_TEMPLATE to clipboard.
+
+What I meant was its not copying global variables. For ex.
+```sample_code.py
+from typing import TypedDict
+import os
+import subprocess
+import tempfile
+
+from jet.logger import logger
+
+
+HTML_TEMPLATE = \"\"\"<!DOCTYPE html>
+{html_str}
+\"\"\"
+
+
+class Component(TypedDict):
+    name: str
+    html: str
+    styles: str
+
+
+def format_with_prettier(content: str, parser: str, config_path: str, file_suffix: str) -> str:
+    \"\"\"Format content using Prettier CLI with fallback to original content.\"\"\"
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=file_suffix, delete=False, encoding="utf-8") as temp_file:
+            temp_file.write(content)
+            temp_file_path = temp_file.name
+        result = subprocess.run(
+            ["prettier", "--config",
+                str(config_path), "--parser", parser, temp_file_path],
+            capture_output=True, text=True, check=True
+        )
+        formatted_content = result.stdout
+        return formatted_content
+    except subprocess.CalledProcessError as e:
+        logger.warning(
+            f"Failed to format with Prettier (parser: {parser}): {e}, stderr: {e.stderr}")
+        return content
+    except FileNotFoundError:
+        logger.warning(f"Prettier CLI not found for {parser} formatting")
+        return content
+    finally:
+        if 'temp_file_path' in locals():
+            try:
+                os.unlink(temp_file_path)
+            except OSError as e:
+                logger.warning(
+                    f"Failed to delete temporary file {temp_file_path}: {e}")
+
+```
+
+```copied_clipboard
+SYSTEM
+Dont use prior artifact knowledge and memory.
+
+QUERY
+Temporary code for sample.
+
+Existing Files Contents
+# JetScripts/test/_temp.py
+from typing import TypedDict
+import os
+import subprocess
+import tempfile
+from jet.logger import logger
+class Component(TypedDict):
+    name: str
+    html: str
+    styles: str
+def format_with_prettier(content: str, parser: str, config_path: str, file_suffix: str) -> str:
+    \"\"\"Format content using Prettier CLI with fallback to original content.\"\"\"
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=file_suffix, delete=False, encoding="utf-8") as temp_file:
+            temp_file.write(content)
+            temp_file_path = temp_file.name
+        result = subprocess.run(
+            ["prettier", "--config",
+                str(config_path), "--parser", parser, temp_file_path],
+            capture_output=True, text=True, check=True
+        )
+        formatted_content = result.stdout
+        return formatted_content
+    except subprocess.CalledProcessError as e:
+        logger.warning(
+            f"Failed to format with Prettier (parser: {parser}): {e}, stderr: {e.stderr}")
+        return content
+    except FileNotFoundError:
+        logger.warning(f"Prettier CLI not found for {parser} formatting")
+        return content
+    finally:
+        if 'temp_file_path' in locals():
+            try:
+                os.unlink(temp_file_path)
+            except OSError as e:
+                logger.warning(
+                    f"Failed to delete temporary file {temp_file_path}: {e}")
+```
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """
+Dont use prior artifact knowledge and memory.
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
@@ -74,7 +162,7 @@ DEFAULT_INSTRUCTIONS_MESSAGE = """
 # For existing projects
 # DEFAULT_INSTRUCTIONS_MESSAGE += (
 #     "\n- Only respond with parts of the code that have been added or updated to keep it short and concise."
-# )
+# )z
 
 # For creating projects
 # DEFAULT_INSTRUCTIONS_MESSAGE += (
@@ -197,7 +285,7 @@ def main():
             cleaned_rel_path = remove_parent_paths(rel_path)
 
             prefix = (
-                f"\n// {cleaned_rel_path}\n" if not filenames_only else f"{file}\n")
+                f"\n# {cleaned_rel_path}\n" if not filenames_only else f"{file}\n")
             if filenames_only:
                 clipboard_content += f"{prefix}"
             else:

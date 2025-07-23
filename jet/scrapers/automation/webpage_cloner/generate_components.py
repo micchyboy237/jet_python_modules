@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
-
 from jet.logger import logger
 
 
@@ -29,14 +28,41 @@ PRETTIER_CONFIG = """\
 COMPONENT_CODE_TEMPLATE = """\
 import React from 'react';
 {css_import}
-
 const {component_name} = () => {{
   return (
     {component_html}
   );
 }};
-
 export default {component_name};
+"""
+
+HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>React Components Preview</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.15/babel.min.js"></script>
+</head>
+<body>
+    <div id="root" class="p-4"></div>
+    <script type="text/babel">
+        {component_imports}
+        function App() {{
+            return (
+                <div className="space-y-4">
+                    {component_renders}
+                </div>
+            );
+        }}
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
 """
 
 
@@ -69,18 +95,21 @@ def format_with_prettier(content: str, parser: str, config_path: str, file_suffi
                     f"Failed to delete temporary file {temp_file_path}: {e}")
 
 
-def generate_react_components(html: str, output_dir: str) -> List[Component]:
+def generate_react_components(html: str, output_dir: str, component_code_template: str = COMPONENT_CODE_TEMPLATE) -> List[Component]:
     """Generate React components from HTML content."""
     output_dir_path = Path(output_dir).resolve()
     components_dir = output_dir_path / "components"
     components_dir.mkdir(parents=True, exist_ok=True)
+
     prettier_config = PRETTIER_CONFIG
     prettier_config_path = components_dir / ".prettierrc"
     with open(prettier_config_path, "w", encoding="utf-8") as f:
         f.write(prettier_config.rstrip())
+
     soup = BeautifulSoup(html, "html.parser")
     for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
         comment.extract()
+
     components: List[Component] = []
     tags = soup.find_all(["header", "footer", "section", "div"])
     for idx, tag in enumerate(tags):
@@ -94,35 +123,21 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
             assets_dir = output_dir_path / "assets"
             css_files = []
             if assets_dir.exists():
-                css_files = [
-                    os.path.join(assets_dir, f)
-                    for f in os.listdir(assets_dir)
-                    if f.endswith(".css")
-                ]
+                css_files = [os.path.join(assets_dir, f) for f in os.listdir(
+                    assets_dir) if f.endswith(".css")]
             class_styles = []
             primary_class = class_name
-            all_classes = tag.get("class", [])
-            compound_class = ".".join(all_classes) if len(
-                all_classes) > 1 else None
             for css_file in css_files:
                 with open(css_file, "r", encoding="utf-8") as f:
                     css_content = f.read()
-                    # Match primary class
                     pattern = rf"\.{re.escape(primary_class)}\s*{{([^}}]*)}}"
                     matches = re.findall(pattern, css_content, re.DOTALL)
                     for match in matches:
                         cleaned_style = match.strip()
                         if cleaned_style and cleaned_style not in class_styles:
                             class_styles.append(cleaned_style)
-                    # Match compound class if multiple classes exist
-                    if compound_class:
-                        pattern = rf"\.{re.escape(compound_class)}\s*{{([^}}]*)}}"
-                        matches = re.findall(pattern, css_content, re.DOTALL)
-                        for match in matches:
-                            cleaned_style = match.strip()
-                            if cleaned_style and cleaned_style not in class_styles:
-                                class_styles.append(cleaned_style)
-            styles = "\n".join(class_styles).strip()
+            # Use semicolon to join styles, no newlines
+            styles = ";".join(class_styles).strip()
         component_html = str(tag)
         if tag.get("class"):
             component_html = component_html.replace('class=', 'className=')
@@ -136,7 +151,7 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
             "styles": styles
         })
         css_import = f"import './{component_name}.css';" if styles else ""
-        component_code = COMPONENT_CODE_TEMPLATE.format(
+        component_code = component_code_template.format(
             component_name=component_name,
             css_import=css_import,
             component_html=component_html
@@ -157,3 +172,35 @@ def generate_react_components(html: str, output_dir: str) -> List[Component]:
             with open(css_path, "w", encoding="utf-8") as f:
                 f.write(formatted_styles.rstrip())
     return components
+
+
+def generate_entry_point(components: List[Component], output_dir: str, html_template: str = HTML_TEMPLATE) -> None:
+    """Generate an index.html file to preview all React components."""
+    output_dir_path = Path(output_dir).resolve()
+    components_dir = output_dir_path / "components"
+    components_dir.mkdir(parents=True, exist_ok=True)
+
+    prettier_config = PRETTIER_CONFIG
+    prettier_config_path = components_dir / ".prettierrc"
+    with open(prettier_config_path, "w", encoding="utf-8") as f:
+        f.write(prettier_config.rstrip())
+
+    component_imports = "\n".join(
+        f"import {component['name']} from './components/{component['name']}.jsx';"
+        for component in components
+    )
+    component_renders = "\n".join(
+        f"<{component['name']} />"
+        for component in components
+    )
+
+    # Use f-string to avoid curly brace conflicts
+    html_content = HTML_TEMPLATE.replace("{component_imports}", component_imports).replace(
+        "{component_renders}", component_renders)
+
+    formatted_html = format_with_prettier(
+        html_content, "html", str(prettier_config_path), ".html"
+    )
+    index_path = output_dir_path / "index.html"
+    with open(index_path, "w", encoding="utf-8") as f:
+        f.write(formatted_html.rstrip())

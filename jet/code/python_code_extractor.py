@@ -16,55 +16,47 @@ def preprocess_content(content: str):
     return processed_content
 
 
-def strip_comments(content):
+def strip_comments(content: str) -> str:
     """
-    Remove all comments except lines starting with '#' that are inside triple-quoted strings.
+    Remove comments outside of triple-quoted strings.
+    Preserves entire triple-quoted strings including any inline `#` comments within.
     """
-    content = preprocess_content(content)
-    lines = content.split('\n')
-    triple_quoted_lines = set()
-
-    # Find all triple-quoted blocks (both ''' and """)
-    triple_quote_pattern = re.compile(r'([\'"]{3})')
+    triple_quote_pattern = re.compile(r"('''|\"\"\")")
+    lines = content.splitlines()
+    result_lines = []
     in_triple_quote = False
-    quote_type = ''
-    start_line = 0
+    current_quote = ""
 
-    for idx, line in enumerate(lines):
+    for line in lines:
         if not in_triple_quote:
             match = triple_quote_pattern.search(line)
             if match:
-                quote_type = match.group(1)
-                if line.count(quote_type) == 2:
-                    # Opening and closing on same line — skip it
+                current_quote = match.group(1)
+                if line.count(current_quote) == 2:
+                    # Opening and closing on the same line — preserve entire line
+                    result_lines.append(line)
                     continue
                 in_triple_quote = True
-                start_line = idx
-        else:
-            if quote_type in line:
-                for i in range(start_line, idx + 1):
-                    triple_quoted_lines.add(i)
-                in_triple_quote = False
-
-    result_lines = []
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if i in triple_quoted_lines:
-            if stripped.startswith('#'):
-                # Preserve comment inside triple-quoted block
                 result_lines.append(line)
-            continue  # Skip everything else in triple-quoted strings
-        elif stripped.startswith('#'):
-            continue  # Remove regular comment
-        elif '#' in line:
-            code_part = line.split('#')[0].rstrip()
-            if code_part:
-                result_lines.append(code_part)
+            else:
+                stripped = line.strip()
+                if stripped.startswith('#'):
+                    continue  # remove full-line comment
+                elif '#' in line:
+                    code = line.split('#', 1)[0].rstrip()
+                    if code:
+                        result_lines.append(code)
+                else:
+                    result_lines.append(line)
         else:
             result_lines.append(line)
+            if current_quote in line:
+                if line.count(current_quote) % 2 == 1:
+                    in_triple_quote = False
 
-    content = '\n'.join(result_lines)
-    return re.sub(r'\n\s*\n', '\n', content).strip()
+    # Clean up multiple blank lines
+    cleaned = re.sub(r'\n\s*\n', '\n', '\n'.join(result_lines)).strip()
+    return cleaned
 
 
 def remove_comments(source):

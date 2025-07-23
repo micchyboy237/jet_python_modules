@@ -2,8 +2,9 @@
 import os
 import shutil
 from pathlib import Path
+from typing import List
 import pytest
-from jet.scrapers.automation.webpage_cloner.generate_components import generate_react_components, Component
+from jet.scrapers.automation.webpage_cloner.generate_components import generate_entry_point, generate_react_components, Component
 
 
 @pytest.fixture
@@ -293,3 +294,160 @@ export default TestClass;
         css_path = Path(temp_output_dir_no_assets) / \
             "components" / "TestClass.css"
         assert not css_path.exists()
+
+
+class TestGenerateEntryPoint:
+    def test_generates_index_html_with_single_component(self, temp_output_dir: str) -> None:
+        """Test generating index.html with a single component."""
+        # Given: HTML input with a single component and an output directory
+        input_html = '<div class="test-class">Test Content</div>'
+        expected_components: List[Component] = [{
+            "name": "TestClass",
+            "html": '<div className="test-class">Test Content</div>',
+            "styles": "color: blue; font-size: 16px;"
+        }]
+        expected_index_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>React Components Preview</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.15/babel.min.js"></script>
+</head>
+<body>
+    <div id="root" class="p-4"></div>
+    <script type="text/babel">
+        import TestClass from './components/TestClass.jsx';
+
+        function App() {
+            return (
+                <div className="space-y-4">
+                    <TestClass />
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>"""
+
+        # When: Generating components and entry point
+        components = generate_react_components(input_html, temp_output_dir)
+        assert components == expected_components, "Generated components do not match expected"
+        generate_entry_point(components, temp_output_dir)
+
+        # Then: Verify index.html exists and contains the expected content
+        index_path = Path(temp_output_dir) / "index.html"
+        assert index_path.exists()
+        with open(index_path, "r", encoding="utf-8") as f:
+            result_content = f.read()
+        assert result_content == expected_index_content.rstrip()
+
+    def test_generates_index_html_with_multiple_components(self, temp_output_dir: str) -> None:
+        """Test generating index.html with multiple components."""
+        # Given: HTML input with multiple components and an output directory
+        input_html = """
+        <div class="test-class">Test Content</div>
+        <section class="multi-class">Multi Content</section>
+        """
+        expected_components: List[Component] = [
+            {
+                "name": "TestClass",
+                "html": '<div className="test-class">Test Content</div>',
+                "styles": "color: blue; font-size: 16px;"
+            },
+            {
+                "name": "MultiClass",
+                "html": '<section className="multi-class">Multi Content</section>',
+                "styles": "background-color: red;"
+            }
+        ]
+        expected_index_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>React Components Preview</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.15/babel.min.js"></script>
+</head>
+<body>
+    <div id="root" class="p-4"></div>
+    <script type="text/babel">
+        import TestClass from './components/TestClass.jsx';
+        import MultiClass from './components/MultiClass.jsx';
+
+        function App() {
+            return (
+                <div className="space-y-4">
+                    <TestClass />
+                    <MultiClass />
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>"""
+
+        # When: Generating components and entry point
+        components = generate_react_components(input_html, temp_output_dir)
+        assert components == expected_components, "Generated components do not match expected"
+        generate_entry_point(components, temp_output_dir)
+
+        # Then: Verify index.html exists and contains the expected content
+        index_path = Path(temp_output_dir) / "index.html"
+        assert index_path.exists()
+        with open(index_path, "r", encoding="utf-8") as f:
+            result_content = f.read()
+        assert result_content == expected_index_content.rstrip()
+
+    def test_generates_index_html_no_components(self, temp_output_dir: str) -> None:
+        """Test generating index.html with no components."""
+        # Given: Empty components list and an output directory
+        expected_components: List[Component] = []
+        expected_index_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>React Components Preview</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.15/babel.min.js"></script>
+</head>
+<body>
+    <div id="root" class="p-4"></div>
+    <script type="text/babel">
+        function App() {
+            return (
+                <div className="space-y-4">
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>"""
+
+        # When: Generating entry point with no components
+        generate_entry_point(expected_components, temp_output_dir)
+
+        # Then: Verify index.html exists and contains the expected content
+        index_path = Path(temp_output_dir) / "index.html"
+        assert index_path.exists()
+        with open(index_path, "r", encoding="utf-8") as f:
+            result_content = f.read()
+        assert result_content == expected_index_content.rstrip()
