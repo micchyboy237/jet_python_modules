@@ -1,26 +1,19 @@
-import asyncio
-import os
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
-
-from jet.file.utils import save_file
+import os
 
 
-async def clone_after_render(url: str, out_folder: str = 'playwright_mirror') -> None:
+def clone_after_render(url, out_folder='selenium_mirror'):
     os.makedirs(out_folder, exist_ok=True)
-
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-        await page.goto(url, wait_until="networkidle")
-        html = await page.content()
-        await browser.close()
-
+    opts = Options()
+    opts.add_argument('--headless')
+    driver = webdriver.Chrome(options=opts)
+    driver.get(url)
+    html = driver.page_source
+    driver.quit()
     soup = BeautifulSoup(html, 'html.parser')
 
     # Similar rewrite_links usage here...
-    save_file(soup.prettify(), os.path.join(out_folder, 'index.html'))
-
-
-def run_clone_after_render(url: str, out_folder: str = 'playwright_mirror') -> None:
-    asyncio.run(clone_after_render(url, out_folder))
+    with open(os.path.join(out_folder, 'index.html'), 'w', encoding='utf-8') as f:
+        f.write(soup.prettify())

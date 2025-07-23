@@ -1,3 +1,4 @@
+import asyncio
 import os
 from pathlib import Path
 from playwright.async_api import async_playwright
@@ -19,3 +20,7 @@ async def clone_after_render(url: str, output_dir: str) -> None:
             f.write(html)
 
         await browser.close()
+
+
+def run_clone_after_render(url: str, out_folder: str = 'playwright_mirror') -> None:
+    asyncio.run(clone_after_render(url, out_folder))
