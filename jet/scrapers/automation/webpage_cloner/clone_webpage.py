@@ -27,7 +27,6 @@ async def download_resource(page: Page, resource_url: str, output_dir: str) -> R
         parsed_url = urlparse(resource_url)
         filename = os.path.basename(
             parsed_url.path) or f"resource_{random.randint(0, 100000)}"
-        # Ensure unique filenames for assets
         resource_path = os.path.join("assets", filename)
         output_path = os.path.join(output_dir, resource_path)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -96,8 +95,6 @@ async def clone_after_render(
             html = await page.content()
             logger.debug(f"HTML content length: {len(html)} characters")
             resources: List[Resource] = []
-
-            # Download CSS files
             css_links = await page.query_selector_all('link[rel="stylesheet"]')
             logger.debug(f"Found {len(css_links)} CSS links")
             for link in css_links:
@@ -110,8 +107,6 @@ async def clone_after_render(
                     logger.debug(
                         f"Updating HTML, replacing {href} with {resource['relative_path']}")
                     html = html.replace(href, resource["relative_path"])
-
-            # Download images
             img_elements = await page.query_selector_all('img')
             logger.debug(f"Found {len(img_elements)} image elements")
             for img in img_elements:
@@ -124,7 +119,20 @@ async def clone_after_render(
                     logger.debug(
                         f"Updating HTML, replacing {src} with {resource['relative_path']}")
                     html = html.replace(src, resource["relative_path"])
-
+            script_elements = await page.query_selector_all('script[src]')
+            logger.debug(
+                f"Found {len(script_elements)} script elements with src")
+            for script in script_elements:
+                src = await script.get_attribute("src")
+                logger.debug(f"Processing script: {src}")
+                if src and not src.startswith(("http://", "https://")):
+                    absolute_url = urljoin(url, src)
+                    if absolute_url.endswith(".js"):
+                        resource = await download_resource(page, absolute_url, output_dir)
+                        resources.append(resource)
+                        logger.debug(
+                            f"Updating HTML, replacing {src} with {resource['relative_path']}")
+                        html = html.replace(src, resource["relative_path"])
             output_path = os.path.join(output_dir, "index.html")
             logger.debug(f"Saving HTML to: {output_path}")
             async with aiofiles.open(output_path, "w", encoding="utf-8") as f:
