@@ -1643,7 +1643,7 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
     :return: A list of SignificantNode objects for matching nodes.
     """
     significant_tags = {"footer", "aside", "header",
-                        "main", "nav", "article", "section", "button"}
+                        "main", "nav", "article", "section", "button", "form"}
     result: List[SignificantNode] = []
 
     def traverse(node: TreeNode) -> None:
