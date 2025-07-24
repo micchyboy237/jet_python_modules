@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from jet.code.html_utils import format_html
 from jet.code.markdown_utils._markdown_parser import parse_markdown
@@ -1752,6 +1753,110 @@ def get_leaf_nodes(root: TreeNode) -> List[SignificantNode]:
     return result
 
 
+class ParentWithSharedClass(TreeNode):
+    """Represents a parent node with its shared class name and matching children, extending TreeNode."""
+
+    def __init__(
+        self,
+        tag: str,
+        text: Optional[str],
+        depth: int,
+        id: str,
+        parent: Optional[str] = None,
+        class_names: List[str] = [],
+        link: Optional[str] = None,
+        children: List[TreeNode] = [],
+        line: int = 0,
+        shared_class: str = "",
+        matching_children_count: int = 0
+    ):
+        super().__init__(tag, text, depth, id, parent, class_names, link, children, line)
+        self.shared_class = shared_class
+        self.matching_children_count = matching_children_count
+
+
+def get_parents_with_shared_class(root: TreeNode, class_name: Optional[str] = None) -> List[ParentWithSharedClass]:
+    """
+    Finds parent nodes with direct children sharing a specified or common class, excluding parents with children having different classes.
+
+    :param root: The root TreeNode of the tree to search.
+    :param class_name: Optional class name to match in child nodes. If None, finds parents with any shared class among children.
+    :return: A list of ParentWithSharedClass objects sorted by number of matching children (descending).
+    """
+    result = []
+
+    def traverse(node: TreeNode):
+        if not node.has_children():
+            return
+
+        children = node.get_children()
+
+        if class_name:
+            # Count direct children with the specified class
+            matching_children = [
+                child for child in children if class_name in child.class_names]
+            # Check if any child has a different class
+            has_different_class = any(
+                child.class_names and class_name not in child.class_names for child in children)
+            if matching_children and not has_different_class:
+                result.append(ParentWithSharedClass(
+                    tag=node.tag,
+                    text=node.text,
+                    depth=node.depth,
+                    id=node.id,
+                    parent=node.parent,
+                    class_names=node.class_names,
+                    link=node.link,
+                    line=node.line,
+                    shared_class=class_name,
+                    matching_children_count=len(matching_children),
+                    children=matching_children
+                ))
+        else:
+            # Collect all classes from direct children
+            child_classes = {}
+            for child in children:
+                for cls in child.class_names:
+                    child_classes[cls] = child_classes.get(cls, 0) + 1
+
+            # Find classes shared by multiple children
+            for cls, count in child_classes.items():
+                if count > 1:
+                    # Check if all children either have the shared class or no classes
+                    has_different_class = any(
+                        child.class_names and cls not in child.class_names
+                        for child in children
+                    )
+                    if not has_different_class:
+                        matching_children = [
+                            child for child in children if cls in child.class_names]
+                        result.append(ParentWithSharedClass(
+                            tag=node.tag,
+                            text=node.text,
+                            depth=node.depth,
+                            id=node.id,
+                            parent=node.parent,
+                            class_names=node.class_names,
+                            link=node.link,
+                            line=node.line,
+                            shared_class=cls,
+                            matching_children_count=len(matching_children),
+                            children=matching_children
+                        ))
+
+        # Recursively check all children nodes
+        for child in children:
+            traverse(child)
+
+    # Start traversal from root
+    traverse(root)
+
+    # Sort results by number of matching children (descending)
+    result.sort(key=lambda x: x.matching_children_count, reverse=True)
+
+    return result
+
+
 __all__ = [
     "get_max_prompt_char_length",
     "clean_tags",
@@ -1771,6 +1876,8 @@ __all__ = [
     "extract_tree_with_text",
     "print_html",
     "get_significant_nodes",
+    "get_leaf_nodes",
+    "get_parents_with_shared_class",
 ]
 
 
