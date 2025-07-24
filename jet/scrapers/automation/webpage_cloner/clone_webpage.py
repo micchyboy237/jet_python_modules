@@ -8,12 +8,14 @@ import aiofiles
 from playwright.async_api import async_playwright, Page
 from fake_useragent import UserAgent
 from jet.logger import logger
+import re
 
 
 class Resource(TypedDict):
     url: str
     content: bytes
     relative_path: str
+    is_module: bool
 
 
 async def download_resource(page: Page, resource_url: str, output_dir: str) -> Resource:
@@ -34,10 +36,16 @@ async def download_resource(page: Page, resource_url: str, output_dir: str) -> R
         async with aiofiles.open(output_path, "wb") as f:
             await f.write(content)
         logger.debug(f"Resource saved successfully: {resource_path}")
-        return {"url": resource_url, "content": content, "relative_path": resource_path}
+        is_module = False
+        if resource_url.endswith(".js"):
+            content_str = content.decode("utf-8", errors="ignore")
+            if re.search(r'\b(import|export)\b', content_str):
+                is_module = True
+                logger.debug(f"Detected ES module in {resource_url}")
+        return {"url": resource_url, "content": content, "relative_path": resource_path, "is_module": is_module}
     except Exception as e:
         logger.error(f"Failed to download {resource_url}: {e}")
-        return {"url": resource_url, "content": b"", "relative_path": ""}
+        return {"url": resource_url, "content": b"", "relative_path": "", "is_module": False}
 
 
 async def clone_after_render(

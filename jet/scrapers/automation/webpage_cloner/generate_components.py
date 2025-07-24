@@ -52,10 +52,10 @@ HTML_TEMPLATE = """\
     <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
     {css_links}
     {font_links}
-    {js_links}
 </head>
 <body>
     <div id="root"></div>
+    {js_links}
     {component_scripts}
     <script type="text/babel">
         const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -518,19 +518,36 @@ def generate_entry_point(components: List[Component], output_dir: str, font_urls
     component_scripts += '\n<script type="text/babel" src="./components/App.jsx"></script>'
     soup = BeautifulSoup(
         open(output_dir_path / "original.html"), "html.parser")
-    js_links = "\n".join(
-        f'<script src="{js.get("src")}"></script>'
-        for js in soup.find_all("script", src=True)
-        if js.get("src").startswith("http") or (assets_dir / Path(js.get("src")).name).exists()
-    )
+    js_links = []
+    for js in soup.find_all("script", src=True):
+        src = js.get("src")
+        if src:
+            if src.startswith(("http://", "https://")):
+                js_links.append(f'<script src="{src}" defer></script>')
+            else:
+                asset_path = assets_dir / Path(src).name
+                if asset_path.exists() and asset_path.suffix == ".js":
+                    with open(asset_path, "rb") as f:
+                        content = f.read()
+                        is_module = re.search(
+                            r'\b(import|export)\b', content.decode("utf-8", errors="ignore"))
+                    script_type = 'type="module"' if is_module else 'defer'
+                    js_links.append(
+                        f'<script {script_type} src="./assets/{Path(src).name}"></script>')
     inline_scripts = [script.get_text() for script in soup.find_all(
         "script") if not script.get("src")]
-    js_links += "\n".join(
-        [f"<script>{script}</script>" for script in inline_scripts if script.strip()])
+    js_links += [
+        f"""<script>
+document.addEventListener('DOMContentLoaded', function() {{
+    {script}
+}});
+</script>""" for script in inline_scripts if script.strip()
+    ]
+    js_links_str = "\n".join(js_links)
     html_content = html_template.format(
         css_links=css_links,
         font_links=font_links,
-        js_links=js_links,
+        js_links=js_links_str,
         component_scripts=component_scripts
     )
     formatted_html = format_with_prettier(
