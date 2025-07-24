@@ -1657,7 +1657,9 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
     Returns a list of SignificantNode objects for nodes that either have a non-auto-generated ID
     or are one of the specified tags: footer, aside, header, main, nav, article, section.
     Each node includes its full outer HTML including all nested children and has_significant_descendants flag
-    indicating if it has significant descendants. The parent field references the nearest significant ancestor.
+    indicating if it has significant descendants. The parent field references the nearest significant ancestor,
+    explicitly set to None for the root significant node. Nodes without an ID attribute are assigned a generated
+    unique ID based on their tag and a counter to handle multiple instances.
 
     :param root: The root TreeNode of the tree to traverse.
     :return: A list of SignificantNode objects for matching nodes.
@@ -1665,14 +1667,23 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
     significant_tags = {"footer", "aside", "header",
                         "main", "nav", "article", "section"}
     result: List[SignificantNode] = []
+    id_counter = {}  # Track counts for generated IDs per tag
 
-    def traverse(node: TreeNode, significant_ancestor_id: Optional[str] = None) -> bool:
+    def traverse(node: TreeNode, significant_ancestor_id: Optional[str]) -> bool:
         # Check if node is significant (non-auto-generated ID or significant tag)
         is_significant = (node.id and not node.id.startswith(
             "auto_")) or node.tag.lower() in significant_tags
 
-        # Update significant ancestor ID for children
-        current_significant_ancestor_id = node.id if is_significant and node.id and not node.id.startswith(
+        # Determine the ID for the SignificantNode
+        node_id = node.id
+        if is_significant and (node.id is None or node.id == ""):
+            # Generate a unique ID for nodes in significant_tags without an ID
+            tag = node.tag.lower()
+            id_counter[tag] = id_counter.get(tag, 0) + 1
+            node_id = f"generated_{tag}_{id_counter[tag]}"
+
+        # Set the significant ancestor ID for children: use node's ID if significant and non-auto-generated, else keep ancestor
+        current_significant_ancestor_id = node_id if is_significant and node_id and not node_id.startswith(
             "auto_") else significant_ancestor_id
 
         # Check if any descendants are significant
@@ -1687,7 +1698,8 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
                 tag=node.tag,
                 text=node.text,
                 depth=node.depth,
-                id=node.id,
+                id=node_id,
+                # Explicitly None for root significant node, else nearest significant ancestor
                 parent=significant_ancestor_id,
                 class_names=node.class_names,
                 link=node.link,
@@ -1700,6 +1712,7 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
         # Return True if the node or any of its descendants are significant
         return is_significant or has_significant_descendants
 
+    # Start with None to ensure root significant node has parent=None
     traverse(root, None)
     return result
 
