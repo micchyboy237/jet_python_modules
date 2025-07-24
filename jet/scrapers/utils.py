@@ -1024,11 +1024,20 @@ def extract_search_inputs(source: str, timeout_ms: int = 1000) -> List[str]:
         return search_inputs
 
 
-class TreeNode:
-    def __init__(self, tag: str, text: Optional[str], depth: int, id: str,
-                 parent: Optional[str], class_names: List[str] = [],
-                 link: Optional[str] = None, children: Optional[List['TreeNode']] = None,
-                 line: int = 0):
+class BaseNode:
+    """Base class for nodes with common attributes."""
+
+    def __init__(
+        self,
+        tag: str,
+        text: Optional[str],
+        depth: int,
+        id: str,
+        parent: Optional[str],
+        class_names: List[str] = [],
+        link: Optional[str] = None,
+        line: int = 0
+    ):
         self.tag = tag
         self.text = text
         self.depth = depth
@@ -1036,9 +1045,27 @@ class TreeNode:
         self.parent = parent
         self.class_names = class_names
         self.link = link
+        self.line = line
+
+
+class TreeNode(BaseNode):
+    """A node representing an HTML element with its children."""
+
+    def __init__(
+        self,
+        tag: str,
+        text: Optional[str],
+        depth: int,
+        id: str,
+        parent: Optional[str],
+        class_names: List[str] = [],
+        link: Optional[str] = None,
+        children: Optional[List['TreeNode']] = None,
+        line: int = 0
+    ):
+        super().__init__(tag, text, depth, id, parent, class_names, link, line)
         self.children: List['TreeNode'] = children if children is not None else [
         ]
-        self.line = line
 
     def get_content(self) -> str:
         content = self.text or ""
@@ -1063,7 +1090,7 @@ def extract_tree_with_text(
     source: str,
     excludes: List[str] = ["nav", "footer", "script", "style"],
     timeout_ms: int = 1000
-) -> Optional[TreeNode]:
+) -> TreeNode:
     """
     Extracts a tree structure from HTML with id, parent, link attributes, and actual line numbers from formatted HTML.
     """
@@ -1554,6 +1581,131 @@ def validate_headers(html: str, min_count: int = 5, min_avg_word_count: int = 20
     # return header_count >= min_count and avg_word_count >= min_avg_word_count
 
 
+class SignificantNode(BaseNode):
+    """A node representing a significant element with its outer HTML."""
+
+    def __init__(
+        self,
+        tag: str,
+        text: Optional[str],
+        depth: int,
+        id: str,
+        parent: Optional[str],
+        class_names: List[str] = [],
+        link: Optional[str] = None,
+        line: int = 0,
+        html: str = ""
+    ):
+        super().__init__(tag, text, depth, id, parent, class_names, link, line)
+        self.html = html  # Outer HTML of the node including all children
+
+
+def _node_to_outer_html(node: TreeNode) -> str:
+    """
+    Converts a TreeNode to its outer HTML representation, including all nested children.
+
+    :param node: The TreeNode to convert.
+    :return: The outer HTML string for the node and its descendants.
+    """
+    attributes = []
+    if node.id:
+        attributes.append(f'id="{node.id}"')
+    if node.class_names:
+        attributes.append(f'class="{" ".join(node.class_names)}"')
+
+    attr_str = " ".join(attributes).strip()
+    tag_open = f"<{node.tag.lower()}" + (f" {attr_str}" if attr_str else "")
+
+    # For void elements that don't have closing tags
+    void_elements = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+        "meta", "param", "source", "track", "wbr"
+    }
+
+    if node.tag.lower() in void_elements:
+        return f"{tag_open} />"
+
+    # Include text and recursively process children
+    content = node.text or ""
+    for child in node.children:
+        content += _node_to_outer_html(child)
+
+    return f"{tag_open}>{content}</{node.tag.lower()}>"
+
+
+def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
+    """
+    Returns a list of SignificantNode objects for nodes that either have an ID attribute or
+    are one of the specified tags: footer, aside, header, main, nav, article, section.
+    Each node includes its full outer HTML including all nested children.
+
+    :param root: The root TreeNode of the tree to traverse.
+    :return: A list of SignificantNode objects for matching nodes.
+    """
+    significant_tags = {"footer", "aside", "header",
+                        "main", "nav", "article", "section", "button"}
+    result: List[SignificantNode] = []
+
+    def traverse(node: TreeNode) -> None:
+        # Check if node has an ID (not auto-generated) or is in significant tags
+        if (node.id and not node.id.startswith("auto_")) or node.tag.lower() in significant_tags:
+            html = _node_to_outer_html(node)
+            significant_node = SignificantNode(
+                tag=node.tag,
+                text=node.text,
+                depth=node.depth,
+                id=node.id,
+                parent=node.parent,
+                class_names=node.class_names,
+                link=node.link,
+                line=node.line,
+                html=html
+            )
+            result.append(significant_node)
+
+        # Recursively traverse children
+        for child in node.children:
+            traverse(child)
+
+    traverse(root)
+    return result
+
+
+def get_leaf_nodes(root: TreeNode) -> List[SignificantNode]:
+    """
+    Returns a list of SignificantNode objects for leaf nodes (nodes with no children).
+    Each node includes its outer HTML.
+
+    :param root: The root TreeNode of the tree to traverse.
+    :return: A list of SignificantNode objects for leaf nodes.
+    """
+    result: List[SignificantNode] = []
+
+    def traverse(node: TreeNode) -> None:
+        # Check if the node is a leaf (no children)
+        if not node.children:
+            html = _node_to_outer_html(node)
+            significant_node = SignificantNode(
+                tag=node.tag,
+                text=node.text,
+                depth=node.depth,
+                id=node.id,
+                parent=node.parent,
+                class_names=node.class_names,
+                link=node.link,
+                line=node.line,
+                html=html
+            )
+            result.append(significant_node)
+
+        # Recursively traverse children
+        for child in node.children:
+            traverse(child)
+
+    traverse(root)
+    return result
+
+
 __all__ = [
     "get_max_prompt_char_length",
     "clean_tags",
@@ -1572,6 +1724,7 @@ __all__ = [
     "extract_text_elements",
     "extract_tree_with_text",
     "print_html",
+    "get_significant_nodes",
 ]
 
 
