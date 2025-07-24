@@ -1033,7 +1033,7 @@ class BaseNode:
         text: Optional[str],
         depth: int,
         id: str,
-        parent: Optional[str],
+        parent: Optional[str] = None,
         class_names: List[str] = [],
         link: Optional[str] = None,
         line: int = 0
@@ -1072,6 +1072,22 @@ class TreeNode(BaseNode):
         for child in self.children:
             content += child.get_content()
         return content.strip()
+
+    def has_children(self) -> bool:
+        """
+        Checks if the node has any children.
+
+        :return: True if the node has children, False otherwise.
+        """
+        return len(self.children) > 0
+
+    def get_children(self) -> List['TreeNode']:
+        """
+        Returns the list of child nodes.
+
+        :return: A list of TreeNode objects representing the children.
+        """
+        return self.children
 
 
 def exclude_elements(doc: pq, excludes: List[str]) -> None:
@@ -1590,14 +1606,17 @@ class SignificantNode(BaseNode):
         text: Optional[str],
         depth: int,
         id: str,
-        parent: Optional[str],
+        parent: Optional[str] = None,
         class_names: List[str] = [],
         link: Optional[str] = None,
         line: int = 0,
-        html: str = ""
+        html: str = "",
+        has_significant_descendants: bool = False
     ):
         super().__init__(tag, text, depth, id, parent, class_names, link, line)
         self.html = html  # Outer HTML of the node including all children
+        # Indicates if the node has children
+        self.has_significant_descendants = has_significant_descendants
 
 
 def _node_to_outer_html(node: TreeNode) -> str:
@@ -1635,39 +1654,53 @@ def _node_to_outer_html(node: TreeNode) -> str:
 
 def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
     """
-    Returns a list of SignificantNode objects for nodes that either have an ID attribute or
-    are one of the specified tags: footer, aside, header, main, nav, article, section.
-    Each node includes its full outer HTML including all nested children.
+    Returns a list of SignificantNode objects for nodes that either have a non-auto-generated ID
+    or are one of the specified tags: footer, aside, header, main, nav, article, section.
+    Each node includes its full outer HTML including all nested children and has_significant_descendants flag
+    indicating if it has significant descendants. The parent field references the nearest significant ancestor.
 
     :param root: The root TreeNode of the tree to traverse.
     :return: A list of SignificantNode objects for matching nodes.
     """
     significant_tags = {"footer", "aside", "header",
-                        "main", "nav", "article", "section", "button", "form"}
+                        "main", "nav", "article", "section"}
     result: List[SignificantNode] = []
 
-    def traverse(node: TreeNode) -> None:
-        # Check if node has an ID (not auto-generated) or is in significant tags
-        if (node.id and not node.id.startswith("auto_")) or node.tag.lower() in significant_tags:
+    def traverse(node: TreeNode, significant_ancestor_id: Optional[str] = None) -> bool:
+        # Check if node is significant (non-auto-generated ID or significant tag)
+        is_significant = (node.id and not node.id.startswith(
+            "auto_")) or node.tag.lower() in significant_tags
+
+        # Update significant ancestor ID for children
+        current_significant_ancestor_id = node.id if is_significant and node.id and not node.id.startswith(
+            "auto_") else significant_ancestor_id
+
+        # Check if any descendants are significant
+        has_significant_descendants = False
+        for child in node.children:
+            if traverse(child, current_significant_ancestor_id):
+                has_significant_descendants = True
+
+        if is_significant:
             html = _node_to_outer_html(node)
             significant_node = SignificantNode(
                 tag=node.tag,
                 text=node.text,
                 depth=node.depth,
                 id=node.id,
-                parent=node.parent,
+                parent=significant_ancestor_id,
                 class_names=node.class_names,
                 link=node.link,
                 line=node.line,
-                html=html
+                html=html,
+                has_significant_descendants=has_significant_descendants
             )
             result.append(significant_node)
 
-        # Recursively traverse children
-        for child in node.children:
-            traverse(child)
+        # Return True if the node or any of its descendants are significant
+        return is_significant or has_significant_descendants
 
-    traverse(root)
+    traverse(root, None)
     return result
 
 
