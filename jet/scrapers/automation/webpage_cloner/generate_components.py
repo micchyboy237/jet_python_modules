@@ -55,12 +55,7 @@ HTML_TEMPLATE = """\
 </head>
 <body>
     <div id="root"></div>
-    {js_links}
     {component_scripts}
-    <script type="text/babel">
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<window.App />);
-    </script>
 </body>
 </html>
 """
@@ -499,8 +494,7 @@ def generate_entry_point(components: List[Component], output_dir: str, font_urls
         for component in components
         if component["styles"] and (components_dir / f"{component["name"]}.css").exists()
     )
-    css_files = [f for f in assets_dir.glob(
-        "*.css") if f.stat().st_size > 0]
+    css_files = [f for f in assets_dir.glob("*.css") if f.stat().st_size > 0]
     css_links += "\n".join(
         f'<link rel="stylesheet" href="./assets/{f.name}">'
         for f in css_files
@@ -519,6 +513,8 @@ def generate_entry_point(components: List[Component], output_dir: str, font_urls
     soup = BeautifulSoup(
         open(output_dir_path / "original.html"), "html.parser")
     js_links = []
+    module_js_links = []
+    element_selectors = {'ids': set(), 'selectors': set()}
     for js in soup.find_all("script", src=True):
         src = js.get("src")
         if src:
@@ -528,26 +524,208 @@ def generate_entry_point(components: List[Component], output_dir: str, font_urls
                 asset_path = assets_dir / Path(src).name
                 if asset_path.exists() and asset_path.suffix == ".js":
                     with open(asset_path, "rb") as f:
-                        content = f.read()
-                        is_module = re.search(
-                            r'\b(import|export)\b', content.decode("utf-8", errors="ignore"))
-                    script_type = 'type="module"' if is_module else 'defer'
-                    js_links.append(
-                        f'<script {script_type} src="./assets/{Path(src).name}"></script>')
-    inline_scripts = [script.get_text() for script in soup.find_all(
-        "script") if not script.get("src")]
-    js_links += [
-        f"""<script>
-document.addEventListener('DOMContentLoaded', function() {{
-    {script}
-}});
-</script>""" for script in inline_scripts if script.strip()
-    ]
+                        content = f.read().decode("utf-8", errors="ignore")
+                        is_module = re.search(r'\b(import|export)\b', content)
+                    if is_module:
+                        module_js_links.append(f'./assets/{Path(src).name}')
+                        # Extract document.getElementById IDs
+                        id_matches = re.findall(
+                            r'document\.getElementById\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', content)
+                        element_selectors['ids'].update(id_matches)
+                        # Extract document.querySelector and querySelectorAll selectors
+                        selector_matches = re.findall(
+                            r'document\.querySelector\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', content)
+                        element_selectors['selectors'].update(selector_matches)
+                        selector_all_matches = re.findall(
+                            r'document\.querySelectorAll\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', content)
+                        element_selectors['selectors'].update(
+                            selector_all_matches)
+                    else:
+                        js_links.append(
+                            f'<script defer src="./assets/{Path(src).name}"></script>')
+    inline_scripts = [script.get_text().strip() for script in soup.find_all(
+        "script") if not script.get("src") and script.get_text().strip()]
+    # Separate module and non-module inline scripts
+    module_scripts = []
+    non_module_scripts = []
+    for script in inline_scripts:
+        lines = script.split('\n')
+        import_lines = []
+        non_import_lines = []
+        for line in lines:
+            line = line.strip()
+            if line and re.search(r'\bimport\b', line):
+                import_lines.append(line)
+            elif line:
+                non_import_lines.append(line)
+        for import_line in import_lines:
+            match = re.match(
+                r'import\s+({.*?})\s+from\s+[\'"](.+?)[\'"];', import_line)
+            if match:
+                variables, module_path = match.groups()
+                if not module_path.startswith(('http://', 'https://', './', '../')):
+                    module_path = f'./assets/{Path(module_path).name}'
+                dynamic_import = f'import("{module_path}").then(module => {{ const {variables} = module; }});'
+                module_scripts.append(dynamic_import)
+        processed_lines = []
+        for line in non_import_lines:
+            if (
+                line.startswith('//') or
+                line.startswith('/*') or
+                line.endswith(('{', '}', ';', '*/')) or
+                not line.strip() or
+                re.match(r'^\s*\w+\s*:\s*[^;]+\s*$', line)
+            ):
+                processed_lines.append(line)
+            else:
+                processed_lines.append(f'{line};')
+        if processed_lines:
+            non_module_scripts.append('\n'.join(processed_lines))
+    module_scripts_content = "\n".join(module_scripts)
+    non_module_scripts_content = "\n".join(non_module_scripts)
+    logger.debug(f"Module scripts content: {module_scripts_content}")
+    logger.debug(f"Non-module scripts content: {non_module_scripts_content}")
+    logger.debug(f"External js_links: {js_links}")
+    logger.debug(f"External module_js_links: {module_js_links}")
+    logger.debug(f"Extracted element selectors: {element_selectors}")
     js_links_str = "\n".join(js_links)
+    # Construct wrapper for module scripts with enhanced MutationObserver
+    if module_js_links:
+        module_js_links_content = "\n".join(
+            f"""
+            let {Path(path).stem.replace('-', '_')}_loaded = false;
+            function load_{Path(path).stem.replace('-', '_')}() {{
+                if ({Path(path).stem.replace('-', '_')}_loaded) return;
+                import("{path}").then(module => {{
+                    console.log("Loaded module: {path}");
+                    {Path(path).stem.replace('-', '_')}_loaded = true;
+                }}).catch(error => {{
+                    console.error(`Failed to load module {path}:`, error);
+                }});
+            }}
+            load_{Path(path).stem.replace('-', '_')}();
+            """
+            for path in module_js_links
+        )
+        element_checks = f"""
+        const elementIds = {list(element_selectors['ids'])};
+        const elementSelectors = {list(element_selectors['selectors'])};
+        // Inject fallback elements
+        elementIds.forEach(id => {{
+            if (!document.getElementById(id)) {{
+                console.warn(`Injecting fallback element with ID "${{id}}"`);
+                const fallback = document.createElement('div');
+                fallback.id = id;
+                fallback.style.display = 'none';
+                document.getElementById('root').appendChild(fallback);
+            }}
+        }});
+        elementSelectors.forEach(selector => {{
+            if (!document.querySelector(selector) && selector.startsWith('#')) {{
+                console.warn(`Injecting fallback element with ID "${{selector.slice(1)}}"`);
+                const fallback = document.createElement('div');
+                fallback.id = selector.slice(1);
+                fallback.style.display = 'none';
+                document.getElementById('root').appendChild(fallback);
+            }}
+        }});
+        // Check elements
+        function checkElements() {{
+            let allElementsPresent = true;
+            elementIds.forEach(id => {{
+                if (!document.getElementById(id)) {{
+                    allElementsPresent = false;
+                    console.warn(`Element with ID "${{id}}" not found in DOM`);
+                }}
+            }});
+            elementSelectors.forEach(selector => {{
+                if (!document.querySelector(selector)) {{
+                    allElementsPresent = false;
+                    console.warn(`Element with selector "${{selector}}" not found in DOM`);
+                }}
+            }});
+            return allElementsPresent;
+        }}
+        // MutationObserver with retry
+        const observer = new MutationObserver((mutations, obs) => {{
+            if (checkElements()) {{
+                console.log('All expected elements present, re-executing scripts');
+                {''.join(f'load_{Path(path).stem.replace('-', '_')}();' for path in module_js_links)}
+                obs.disconnect();
+            }}
+        }});
+        if (!checkElements()) {{
+            console.log('Starting MutationObserver for missing elements');
+            observer.observe(document.getElementById('root'), {{
+                childList: true,
+                subtree: true
+            }});
+            setTimeout(() => {{
+                if (observer.active) {{
+                    console.warn('Timeout waiting for DOM elements, some may be missing');
+                    observer.disconnect();
+                }}
+            }}, 10000); // 10-second timeout
+        }} else {{
+            console.log('All expected elements present on initial check');
+        }}
+        """ if element_selectors['ids'] or element_selectors['selectors'] else ""
+        module_js_links_wrapper = f"""
+        <script type="module">
+            document.addEventListener('reactRendered', function() {{
+                console.log('Executing external module scripts after reactRendered');
+                {module_js_links_content}
+                {element_checks}
+            }});
+        </script>
+        """
+    else:
+        module_js_links_wrapper = ""
+    # Construct the component_scripts section
+    component_scripts += f"""
+    <script type="text/babel">
+        if (!window.App) {{
+            console.error('App component is not defined. Check App.jsx and other component files.');
+        }} else {{
+            console.log('App component loaded successfully.');
+        }}
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        try {{
+            root.render(<window.App />);
+            console.log('React rendering completed.');
+            document.dispatchEvent(new Event('reactRendered'));
+        }} catch (error) {{
+            console.error('Error during React rendering:', error);
+        }}
+    </script>
+    """
+    if non_module_scripts_content:
+        component_scripts += f"""
+        <script>
+            document.addEventListener('reactRendered', function() {{
+                console.log('Executing non-module scripts after reactRendered');
+                {non_module_scripts_content}
+            }});
+        </script>
+        """
+    if module_scripts_content:
+        component_scripts += f"""
+        <script type="module">
+            document.addEventListener('reactRendered', function() {{
+                console.log('Executing module scripts after reactRendered');
+                {module_scripts_content}
+            }});
+        </script>
+        """
+    if module_js_links_wrapper:
+        component_scripts += module_js_links_wrapper
+    if js_links_str:
+        component_scripts += f"""
+        {js_links_str}
+        """
     html_content = html_template.format(
         css_links=css_links,
         font_links=font_links,
-        js_links=js_links_str,
         component_scripts=component_scripts
     )
     formatted_html = format_with_prettier(

@@ -141,6 +141,65 @@ async def clone_after_render(
                         logger.debug(
                             f"Updating HTML, replacing {src} with {resource['relative_path']}")
                         html = html.replace(src, resource["relative_path"])
+            # Process inline scripts for import statements
+            inline_scripts = await page.query_selector_all('script:not([src])')
+            logger.debug(f"Found {len(inline_scripts)} inline scripts")
+            for script in inline_scripts:
+                script_content = await script.inner_text()
+                if not script_content.strip():
+                    continue
+                # Find all import statements with relative paths
+                import_matches = re.findall(
+                    r'import\s+.*?\s+from\s+[\'"](?!https?://)(.+?)[\'"]', script_content)
+                for import_path in import_matches:
+                    logger.debug(f"Found import path: {import_path}")
+                    absolute_url = urljoin(url, import_path)
+                    resource = await download_resource(page, absolute_url, output_dir)
+                    if resource["relative_path"]:
+                        logger.debug(
+                            f"Updating import path {import_path} to {resource['relative_path']}")
+                        html = html.replace(
+                            f'from "{import_path}"',
+                            f'from "./{resource["relative_path"]}"'
+                        )
+                        html = html.replace(
+                            f"from '{import_path}'",
+                            f"from './{resource['relative_path']}'"
+                        )
+            # Process module scripts with src attributes
+            module_scripts = await page.query_selector_all('script[type="module"]')
+            logger.debug(f"Found {len(module_scripts)} module scripts")
+            for script in module_scripts:
+                src = await script.get_attribute("src")
+                if src and not src.startswith(("http://", "https://")):
+                    absolute_url = urljoin(url, src)
+                    resource = await download_resource(page, absolute_url, output_dir)
+                    resources.append(resource)
+                    logger.debug(
+                        f"Updating module script src {src} to {resource['relative_path']}")
+                    html = html.replace(src, resource["relative_path"])
+                else:
+                    script_content = await script.inner_text()
+                    if not script_content.strip():
+                        continue
+                    import_matches = re.findall(
+                        r'import\s+.*?\s+from\s+[\'"](?!https?://)(.+?)[\'"]', script_content)
+                    for import_path in import_matches:
+                        logger.debug(
+                            f"Found import path in module script: {import_path}")
+                        absolute_url = urljoin(url, import_path)
+                        resource = await download_resource(page, absolute_url, output_dir)
+                        if resource["relative_path"]:
+                            logger.debug(
+                                f"Updating module import path {import_path} to {resource['relative_path']}")
+                            html = html.replace(
+                                f'from "{import_path}"',
+                                f'from "./{resource["relative_path"]}"'
+                            )
+                            html = html.replace(
+                                f"from '{import_path}'",
+                                f"from './{resource['relative_path']}'"
+                            )
             output_path = os.path.join(output_dir, "index.html")
             logger.debug(f"Saving HTML to: {output_path}")
             async with aiofiles.open(output_path, "w", encoding="utf-8") as f:
