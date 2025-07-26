@@ -51,6 +51,7 @@ class HeaderDoc(TypedDict):
     header: str
     content: str
     level: Optional[int]
+    parent_headers: List[str]
     parent_header: Optional[str]
     parent_level: Optional[int]
     tokens: List[MarkdownToken]

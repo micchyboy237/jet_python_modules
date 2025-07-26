@@ -25,9 +25,9 @@ def read_md_content(input: Union[str, Path], ignore_links: bool = False) -> str:
             with open(input, 'r', encoding='utf-8') as file:
                 md_content = file.read()
 
-            # if str(input).endswith('.html'):
-            #     md_content = convert_html_to_markdown(
-            #         md_content, ignore_links=ignore_links)
+            if str(input).endswith('.html'):
+                md_content = convert_html_to_markdown(
+                    input, ignore_links=ignore_links)
     except OSError:
         md_content = str(input)
 

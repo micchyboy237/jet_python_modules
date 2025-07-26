@@ -90,11 +90,11 @@ def collect_header_chunks(
         doc_index = header_doc['doc_index']
         original_header = header_doc['header']
         header = preprocess_text(original_header)
-        original_parent = header_doc.get('parent_header', '')
-        parent_header = preprocess_text(
-            original_parent) if original_parent else ""
+        # Concatenate all parent headers from parent_headers list
+        original_parents = header_doc.get('parent_headers', [])
+        parent_text = '\n'.join(original_parents) if original_parents else ''
+        parent_header = preprocess_text(parent_text) if parent_text else ""
         original_content = header_doc['content']
-        content = preprocess_text(original_content)
         doc_indices.append(doc_index)
         headers.append(header)
         parent_headers.append(parent_header)
@@ -120,7 +120,7 @@ def compute_weighted_similarity(
     Args:
         query_vector: Encoded query vector
         header_vector: Encoded header vector
-        parent_vector: Encoded parent header vector
+        parent_vector: Encoded concatenated parent headers vector
         content_vector: Encoded content vector (if available)
     Returns:
         Tuple of (weighted_similarity, header_similarity, parent_similarity, content_similarity)
@@ -131,7 +131,8 @@ def compute_weighted_similarity(
     content_sim = 0.0
     if content_vector is not None:
         content_sim = cosine_similarity(query_vector, content_vector)
-    weighted_sim = 0.4 * header_sim + 0.2 * parent_sim + 0.4 * content_sim
+    # weighted_sim = 0.2 * header_sim + 0.4 * parent_sim + 0.4 * content_sim
+    weighted_sim = 0.5 * parent_sim + 0.5 * content_sim
     return weighted_sim, header_sim, parent_sim, content_sim
 
 
@@ -330,6 +331,7 @@ def search_headers(
                     "doc_id": header_doc['doc_id'],
                     "header": header_doc['header'],
                     "level": header_doc['level'],
+                    # Keep for compatibility
                     "parent_header": header_doc['parent_header'],
                     "parent_level": header_doc['parent_level'],
                     "start_idx": start_idx,

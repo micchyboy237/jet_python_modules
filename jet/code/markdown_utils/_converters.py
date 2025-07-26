@@ -10,6 +10,7 @@ from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
 from jet.code.markdown_types.converter_types import MarkdownExtensions
 from jet.code.markdown_utils._preprocessors import clean_markdown_links, preprocess_markdown
 from jet.decorators.timer import timeout
+from jet.file.utils import load_file
 from jet.transformers.object import convert_dict_keys_to_snake_case, make_serializable
 from jet.utils.text import fix_and_unidecode
 import markdown
@@ -19,11 +20,11 @@ from jet.logger import logger
 
 def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = False) -> str:
     """Convert HTML to Markdown with enhanced noise removal."""
-    if isinstance(html_input, Path):
-        with html_input.open('r', encoding='utf-8') as f:
-            html_content = preprocess_html(f.read())
+    if Path(str(html_input)).is_file():
+        html_content = load_file(str(html_input))
+        html_content = preprocess_html(html_content)
     else:
-        html_content = preprocess_html(html_input)
+        html_content = preprocess_html(str(html_input))
 
     html_content = format_html(html_content)
 

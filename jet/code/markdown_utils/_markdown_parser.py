@@ -267,22 +267,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         TimeoutError: If parsing takes too long.
     """
     try:
-        input_str = str(input)
-        if input_str.endswith('.html'):
-            html = read_html_content(input)
-            html = add_list_table_header_placeholders(html)
-            md_content = convert_html_to_markdown(
-                html, ignore_links=ignore_links)
-        elif input_str.endswith('.md'):
-            md_content = read_md_content(input, ignore_links=ignore_links)
-        else:
-            try:
-                html = read_html_content(input)
-                html = add_list_table_header_placeholders(html)
-                md_content = convert_html_to_markdown(
-                    html, ignore_links=ignore_links)
-            except ValueError:
-                md_content = read_md_content(input, ignore_links=ignore_links)
+        md_content = read_md_content(input, ignore_links=ignore_links)
 
         def prepend_hashtags_to_headers(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
             """Prepend hashtags to header tokens based on their level."""
@@ -327,13 +312,15 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
         md_content, merge_headers=False, merge_contents=False, ignore_links=ignore_links)
     sections: List[HeaderDoc] = []
     current_section: Optional[HeaderDoc] = None
-    header_stack = []
+    header_stack: List[tuple[str, int, int]] = []
     current_tokens = []
     section_index = 0
+
     for token in tokens:
         token_type = token.get("type")
         token_content = token.get("content", "")
         token_level = token.get("level", None)
+
         if token_type == "header":
             if current_section:
                 current_section["content"] = "\n".join(
@@ -341,7 +328,11 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
                 current_section["tokens"] = current_tokens
                 sections.append(current_section)
                 section_index += 1
+
             current_tokens = [token]
+
+            # Build parent_headers list
+            parent_headers = []
             parent_header = None
             parent_level = None
             while header_stack and header_stack[-1][1] >= token_level:
@@ -349,12 +340,16 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
             if header_stack:
                 parent_header = header_stack[-1][0]
                 parent_level = header_stack[-1][1]
+                # Collect all parent headers up to root
+                parent_headers = [h[0] for h in header_stack]
+
             current_section = {
                 "doc_index": section_index,
                 "doc_id": generate_unique_id(),
                 "header": token_content.splitlines()[0] if token_content else "",
                 "content": [],
                 "level": token_level,
+                "parent_headers": parent_headers,
                 "parent_header": parent_header,
                 "parent_level": parent_level,
                 "tokens": [],
@@ -369,22 +364,25 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
                     "header": "",
                     "content": [],
                     "level": 0,
+                    "parent_headers": [],
                     "parent_header": None,
                     "parent_level": None,
                     "tokens": [],
                 }
             current_section["content"].extend(token_content.splitlines())
             current_tokens.append(token)
+
     if current_section:
         current_section["content"] = "\n".join(current_section["content"])
         current_section["tokens"] = current_tokens
         sections.append(current_section)
-    # Filter out sections that do not contain any content
+
     sections = [section for section in sections if section.get(
-        "content", "").strip()]
-    # Update doc_index to be sequential after filtering
+        "content", "").strip() or section.get("header", "").strip()]
+
     for idx, section in enumerate(sections):
         section["doc_index"] = idx
+
     return sections
 
 
