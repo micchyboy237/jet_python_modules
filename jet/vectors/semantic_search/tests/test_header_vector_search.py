@@ -10,7 +10,8 @@ from jet.vectors.semantic_search.header_vector_search import (
     search_headers,
     HeaderSearchResult,
     DEFAULT_EMBED_MODEL,
-    MAX_CONTENT_SIZE
+    MAX_CONTENT_SIZE,
+    preprocess_text
 )
 from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, MarkdownToken
 import logging
@@ -56,26 +57,37 @@ def test_cosine_similarity():
 
 
 def test_collect_header_chunks(sample_header_doc):
+    # Given a header document with original text
     def custom_tokenizer(text): return len(text.split())
-    expected_content = "this is a test content"
-    expected_doc_index = 0
-    expected_header = "test header"
-    expected_parent = "parent header"
-    expected_chunk = (0, expected_header, expected_content, 0, 22, 5)
-    expected_chunk_custom = (0, expected_header, expected_content, 0, 22, 5)
+    original_content = "This is a test content"
+    original_header = "Test Header"
+    original_parent = "Parent Header"
+    expected_content = preprocess_text(original_content)
+    expected_header = preprocess_text(original_header)
+    expected_parent = preprocess_text(original_parent)
+    expected_chunk = (0, expected_header, expected_content,
+                      original_content, 0, 22, 5)
+    expected_chunk_custom = (
+        0, expected_header, expected_content, original_content, 0, 22, 5)
 
+    # When collecting header chunks
     doc_indices, headers, parent_headers, chunks = collect_header_chunks([
                                                                          sample_header_doc])
+
+    # Then the chunks should contain preprocessed texts for embeddings and original texts for results
     assert len(doc_indices) == 1
-    assert doc_indices[0] == expected_doc_index
+    assert doc_indices[0] == 0
     assert headers[0] == expected_header
     assert parent_headers[0] == expected_parent
     assert len(chunks) == 1
     assert chunks[0] == expected_chunk
 
+    # When using a custom tokenizer
     doc_indices, headers, parent_headers, chunks = collect_header_chunks(
         [sample_header_doc], tokenizer=custom_tokenizer)
-    assert chunks[0][5] == expected_chunk_custom[5]
+
+    # Then the token count should reflect the custom tokenizer
+    assert chunks[0][6] == expected_chunk_custom[6]
 
 
 def test_compute_weighted_similarity_with_content():
@@ -107,34 +119,48 @@ def test_compute_weighted_similarity_no_content():
 
 
 def test_search_headers(mock_sentence_transformer, sample_header_doc):
-    query = "test query"
-    expected_content = "this is a test content"
+    # Given a query and a header document
+    query = "Test Query"
+    original_content = "This is a test content"
+    original_header = "Test Header"
+    original_parent = "Parent Header"
     expected_doc_index = 0
     top_k = 1
     def custom_tokenizer(text): return len(text.split())
     expected_num_tokens_default = 5
     expected_num_tokens_custom = 5
 
+    # When searching headers
     results = list(search_headers([sample_header_doc], query, top_k=top_k))
+
+    # Then the results should contain original texts and correct metadata
     assert len(results) == 1
     assert results[0]['rank'] == 1
     assert isinstance(results[0]['score'], float)
-    assert results[0]['content'] == expected_content
+    assert results[0]['content'] == original_content
     assert results[0]['metadata']['doc_index'] == expected_doc_index
+    assert results[0]['metadata']['header'] == original_header
+    assert results[0]['metadata']['parent_header'] == original_parent
     assert results[0]['metadata']['chunk_idx'] == 0
     assert isinstance(results[0]['metadata']['header_similarity'], float)
     assert isinstance(results[0]['metadata']['parent_similarity'], float)
     assert isinstance(results[0]['metadata']['content_similarity'], float)
     assert results[0]['metadata']['num_tokens'] == expected_num_tokens_default
 
+    # When using a custom tokenizer
     results = list(search_headers(
         [sample_header_doc], query, top_k=top_k, tokenizer=custom_tokenizer))
+
+    # Then the token count should reflect the custom tokenizer
     assert results[0]['metadata']['num_tokens'] == expected_num_tokens_custom
 
+    # When returning split chunks
     results = list(search_headers(
         [sample_header_doc], query, top_k=top_k, split_chunks=True))
+
+    # Then the results should still contain original texts
     assert len(results) == 1
-    assert results[0]['content'] == expected_content
+    assert results[0]['content'] == original_content
     assert results[0]['metadata']['num_tokens'] == expected_num_tokens_default
 
 
@@ -144,57 +170,74 @@ def test_search_headers_no_results(mock_sentence_transformer):
 
 
 def test_search_headers_chunking(mock_sentence_transformer):
+    # Given a header document with long content
     header_doc = {
         "doc_index": 0,
         "doc_id": "doc1",
         "header": "Test Header",
-        "content": "word " * 200,
+        "content": "Word " * 200,
         "level": 1,
         "parent_header": "Parent Header",
         "parent_level": 0,
         "tokens": []
     }
-    content = "word " * 200
+    original_content = "Word " * 200
     def custom_tokenizer(text): return len(text.split())
     chunk_size = 200
     chunk_overlap = 50
 
+    # When searching with merged chunks
     results_default = list(search_headers(
         [header_doc], "test query", chunk_size=chunk_size, chunk_overlap=chunk_overlap))
+
+    # Then the results should contain the original merged content
     assert len(results_default) == 1
-    assert results_default[0]['content'] == content.lower()
+    assert results_default[0]['content'] == original_content
     expected_tokens_merged = len(re.findall(
-        r'\b\w+\b|[^\w\s]', content.lower()))
+        r'\b\w+\b|[^\w\s]', original_content))
     assert results_default[0]['metadata']['num_tokens'] == expected_tokens_merged
     assert results_default[0]['metadata']['chunk_idx'] == 0
+    assert results_default[0]['metadata']['header'] == "Test Header"
+    assert results_default[0]['metadata']['parent_header'] == "Parent Header"
 
+    # When using a custom tokenizer
     results_custom = list(search_headers(
         [header_doc], "test query", chunk_size=chunk_size, chunk_overlap=chunk_overlap, tokenizer=custom_tokenizer))
-    expected_tokens_merged_custom = len(content.lower().split())
+
+    # Then the token count should reflect the custom tokenizer
+    expected_tokens_merged_custom = len(original_content.split())
     assert results_custom[0]['metadata']['num_tokens'] == expected_tokens_merged_custom
 
+    # When returning split chunks
     results_split = list(search_headers(
         [header_doc], "test query", chunk_size=chunk_size, chunk_overlap=chunk_overlap, split_chunks=True))
+
+    # Then each chunk should contain original text portions
     assert len(results_split) > 1
     assert all(r['metadata']['end_idx'] - r['metadata']
                ['start_idx'] <= chunk_size for r in results_split)
     assert [r['metadata']['chunk_idx']
             for r in results_split] == list(range(len(results_split)))
+    assert all(r['content'].strip() in original_content for r in results_split)
+    assert all(r['metadata']['header'] == "Test Header" for r in results_split)
+    assert all(r['metadata']['parent_header'] ==
+               "Parent Header" for r in results_split)
 
 
 class TestMergeResults:
     def test_merge_adjacent_chunks(self):
+        # Given adjacent chunks from the same document
         results = [
             {
                 "rank": 1,
                 "score": 0.8,
-                "content": "first chunk ",
+                "content": "First chunk ",
                 "metadata": {
                     "doc_index": 0,
                     "doc_id": "doc1",
-                    "header": "test header",
+                    "header": "Test Header",
                     "level": 1,
-                    "parent_header": "parent header",
+                    "parent_header": "Parent Header",
                     "parent_level": 0,
                     "start_idx": 0,
                     "end_idx": 12,
@@ -208,13 +251,13 @@ class TestMergeResults:
             {
                 "rank": 2,
                 "score": 0.7,
-                "content": "second chunk",
+                "content": "Second chunk",
                 "metadata": {
                     "doc_index": 0,
                     "doc_id": "doc1",
-                    "header": "test header",
+                    "header": "Test Header",
                     "level": 1,
-                    "parent_header": "parent header",
+                    "parent_header": "Parent Header",
                     "parent_level": 0,
                     "start_idx": 12,
                     "end_idx": 23,
@@ -230,13 +273,13 @@ class TestMergeResults:
             {
                 "rank": 1,
                 "score": 0.75,
-                "content": "first chunk second chunk",
+                "content": "First chunk Second chunk",
                 "metadata": {
                     "doc_index": 0,
                     "doc_id": "doc1",
-                    "header": "test header",
+                    "header": "Test Header",
                     "level": 1,
-                    "parent_header": "parent header",
+                    "parent_header": "Parent Header",
                     "parent_level": 0,
                     "start_idx": 0,
                     "end_idx": 23,
@@ -248,7 +291,11 @@ class TestMergeResults:
                 }
             }
         ]
+
+        # When merging results
         merged = merge_results(results)
+
+        # Then the merged result should contain original texts and correct metadata
         assert len(merged) == 1
         assert merged[0]["content"] == expected[0]["content"]
         assert merged[0]["metadata"]["start_idx"] == expected[0]["metadata"]["start_idx"]
@@ -257,19 +304,22 @@ class TestMergeResults:
         assert abs(merged[0]["score"] - expected[0]["score"]) < 1e-10
         assert abs(merged[0]["metadata"]["content_similarity"] -
                    expected[0]["metadata"]["content_similarity"]) < 1e-10
+        assert merged[0]["metadata"]["header"] == "Test Header"
+        assert merged[0]["metadata"]["parent_header"] == "Parent Header"
 
     def test_non_adjacent_chunks(self):
+        # Given non-adjacent chunks from the same document
         results = [
             {
                 "rank": 1,
                 "score": 0.8,
-                "content": "first chunk",
+                "content": "First chunk",
                 "metadata": {
                     "doc_index": 0,
                     "doc_id": "doc1",
-                    "header": "test header",
+                    "header": "Test Header",
                     "level": 1,
-                    "parent_header": "parent header",
+                    "parent_header": "Parent Header",
                     "parent_level": 0,
                     "start_idx": 0,
                     "end_idx": 11,
@@ -282,13 +332,13 @@ class TestMergeResults:
             {
                 "rank": 2,
                 "score": 0.7,
-                "content": "second chunk",
+                "content": "Second chunk",
                 "metadata": {
                     "doc_index": 0,
                     "doc_id": "doc1",
-                    "header": "test header",
+                    "header": "Test Header",
                     "level": 1,
-                    "parent_header": "parent header",
+                    "parent_header": "Parent Header",
                     "parent_level": 0,
                     "start_idx": 20,
                     "end_idx": 31,
@@ -303,13 +353,13 @@ class TestMergeResults:
             {
                 "rank": 1,
                 "score": 0.8,
-                "content": "first chunk",
+                "content": "First chunk",
                 "metadata": {
                     "doc_index": 0,
                     "doc_id": "doc1",
-                    "header": "test header",
+                    "header": "Test Header",
                     "level": 1,
-                    "parent_header": "parent header",
+                    "parent_header": "Parent Header",
                     "parent_level": 0,
                     "start_idx": 0,
                     "end_idx": 11,
@@ -322,13 +372,13 @@ class TestMergeResults:
             {
                 "rank": 2,
                 "score": 0.7,
-                "content": "second chunk",
+                "content": "Second chunk",
                 "metadata": {
                     "doc_index": 0,
                     "doc_id": "doc1",
-                    "header": "test header",
+                    "header": "Test Header",
                     "level": 1,
-                    "parent_header": "parent header",
+                    "parent_header": "Parent Header",
                     "parent_level": 0,
                     "start_idx": 20,
                     "end_idx": 31,
@@ -339,7 +389,11 @@ class TestMergeResults:
                 }
             }
         ]
+
+        # When merging results
         merged = merge_results(results)
+
+        # Then the results should remain separate with original texts
         assert len(merged) == 2
         for i in range(2):
             assert merged[i]["content"] == expected[i]["content"]
@@ -347,19 +401,22 @@ class TestMergeResults:
             assert merged[i]["metadata"]["end_idx"] == expected[i]["metadata"]["end_idx"]
             assert merged[i]["metadata"]["chunk_idx"] == expected[i]["metadata"]["chunk_idx"]
             assert merged[i]["score"] == expected[i]["score"]
+            assert merged[i]["metadata"]["header"] == "Test Header"
+            assert merged[i]["metadata"]["parent_header"] == "Parent Header"
 
     def test_multiple_headers(self):
+        # Given chunks from different headers
         results = [
             {
                 "rank": 1,
                 "score": 0.8,
-                "content": "header1 content",
+                "content": "Header1 content",
                 "metadata": {
                     "doc_index": 0,
                     "doc_id": "doc1",
-                    "header": "header1",
+                    "header": "Header1",
                     "level": 1,
-                    "parent_header": "parent1",
+                    "parent_header": "Parent1",
                     "parent_level": 0,
                     "start_idx": 0,
                     "end_idx": 14,
@@ -372,13 +429,13 @@ class TestMergeResults:
             {
                 "rank": 2,
                 "score": 0.7,
-                "content": "header2 content",
+                "content": "Header2 content",
                 "metadata": {
                     "doc_index": 1,
                     "doc_id": "doc2",
-                    "header": "header2",
+                    "header": "Header2",
                     "level": 1,
-                    "parent_header": "parent2",
+                    "parent_header": "Parent2",
                     "parent_level": 0,
                     "start_idx": 0,
                     "end_idx": 14,
@@ -393,13 +450,13 @@ class TestMergeResults:
             {
                 "rank": 1,
                 "score": 0.8,
-                "content": "header1 content",
+                "content": "Header1 content",
                 "metadata": {
                     "doc_index": 0,
                     "doc_id": "doc1",
-                    "header": "header1",
+                    "header": "Header1",
                     "level": 1,
-                    "parent_header": "parent1",
+                    "parent_header": "Parent1",
                     "parent_level": 0,
                     "start_idx": 0,
                     "end_idx": 14,
@@ -412,13 +469,13 @@ class TestMergeResults:
             {
                 "rank": 2,
                 "score": 0.7,
-                "content": "header2 content",
+                "content": "Header2 content",
                 "metadata": {
                     "doc_index": 1,
                     "doc_id": "doc2",
-                    "header": "header2",
+                    "header": "Header2",
                     "level": 1,
-                    "parent_header": "parent2",
+                    "parent_header": "Parent2",
                     "parent_level": 0,
                     "start_idx": 0,
                     "end_idx": 14,
@@ -429,15 +486,26 @@ class TestMergeResults:
                 }
             }
         ]
+
+        # When merging results
         merged = merge_results(results)
+
+        # Then each header's content and metadata should be preserved
         assert len(merged) == 2
         for i in range(2):
             assert merged[i]["content"] == expected[i]["content"]
             assert merged[i]["metadata"]["doc_index"] == expected[i]["metadata"]["doc_index"]
             assert merged[i]["score"] == expected[i]["score"]
+            assert merged[i]["metadata"]["header"] == expected[i]["metadata"]["header"]
+            assert merged[i]["metadata"]["parent_header"] == expected[i]["metadata"]["parent_header"]
 
     def test_empty_results(self):
+        # Given an empty list of results
         results = []
         expected = []
+
+        # When merging results
         merged = merge_results(results)
+
+        # Then the result should be empty
         assert merged == expected
