@@ -13,6 +13,7 @@ from jet.vectors.semantic_search.file_vector_search import (
     DEFAULT_EMBED_MODEL,
     MAX_CONTENT_SIZE
 )
+import logging
 
 
 @pytest.fixture
@@ -34,7 +35,6 @@ def temp_file(tmp_path):
 
 def test_get_file_vectors_valid_file(mock_sentence_transformer, temp_file):
     name_vector, dir_vector, content_vector = get_file_vectors(temp_file)
-
     assert isinstance(name_vector, np.ndarray)
     assert isinstance(dir_vector, np.ndarray)
     assert isinstance(content_vector, np.ndarray)
@@ -48,7 +48,6 @@ def test_get_file_vectors_non_text_file(mock_sentence_transformer, tmp_path):
     file_path = tmp_path / "test.bin"
     file_path.write_bytes(b"\x00\x01\x02")
     name_vector, dir_vector, content_vector = get_file_vectors(str(file_path))
-
     assert isinstance(name_vector, np.ndarray)
     assert isinstance(dir_vector, np.ndarray)
     assert content_vector is None
@@ -65,12 +64,10 @@ def test_cosine_similarity():
     vec2 = np.array([0.0, 1.0])
     sim = cosine_similarity(vec1, vec2)
     assert abs(sim) < 1e-10
-
     vec1 = np.array([1.0, 1.0])
     vec2 = np.array([1.0, 1.0])
     sim = cosine_similarity(vec1, vec2)
     assert abs(sim - 1.0) < 1e-10
-
     vec1 = np.array([0.0, 0.0])
     vec2 = np.array([1.0, 1.0])
     sim = cosine_similarity(vec1, vec2)
@@ -78,19 +75,12 @@ def test_cosine_similarity():
 
 
 def test_collect_file_chunks_single_file(temp_file):
-    # Given: A single text file with known content in a temporary directory
     file_paths, file_names, parent_dirs, chunks = collect_file_chunks(
-        temp_file, extensions={'.txt'})
+        temp_file, extensions=['.txt'])
     expected_file_path = temp_file
     expected_file_name = 'test.txt'
     expected_parent_dir = Path(temp_file).parent.name.lower()
-    # Updated to remove newline and set end_idx=22
     expected_chunk = ('this is a test content', 0, 22)
-
-    # When: Collecting file chunks
-    # (already done in collect_file_chunks call)
-
-    # Then: Verify the collected file paths, names, directories, and chunks
     assert len(file_paths) == 1, "Expected exactly one file path"
     assert file_paths[0] == expected_file_path, f"Expected file path {expected_file_path}, got {file_paths[0]}"
     assert file_names[0] == expected_file_name, f"Expected file name {expected_file_name}, got {file_names[0]}"
@@ -116,9 +106,8 @@ def test_collect_file_chunks_with_extensions(tmp_path):
     bin_file = tmp_path / "test.bin"
     txt_file.write_text("text content")
     bin_file.write_bytes(b"binary content")
-
     file_paths, _, _, _ = collect_file_chunks(
-        str(tmp_path), extensions={'.txt'})
+        str(tmp_path), extensions=['.txt'])
     assert len(file_paths) == 1
     assert file_paths[0].endswith('test.txt')
 
@@ -128,11 +117,9 @@ def test_compute_weighted_similarity_with_content():
     name_vec = np.array([1.0, 0.0, 0.0])
     dir_vec = np.array([0.0, 1.0, 0.0])
     content_vec = np.array([0.0, 0.0, 1.0])
-
     weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
         query_vec, name_vec, dir_vec, content_vec
     )
-
     assert abs(name_sim - 1.0) < 1e-10
     assert abs(dir_sim) < 1e-10
     assert abs(content_sim) < 1e-10
@@ -143,31 +130,30 @@ def test_compute_weighted_similarity_no_content():
     query_vec = np.array([1.0, 0.0, 0.0])
     name_vec = np.array([1.0, 0.0, 0.0])
     dir_vec = np.array([0.0, 1.0, 0.0])
-
     weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
         query_vec, name_vec, dir_vec, None
     )
-
     assert abs(name_sim - 1.0) < 1e-10
     assert abs(dir_sim) < 1e-10
     assert content_sim == 0.0
     assert abs(weighted_sim - (0.5 * 1.0 + 0.3 * 0.0)) < 1e-10
 
 
-def test_search_files(temp_file):
+def test_search_files(mock_sentence_transformer, temp_file):
     """
     Given: A temporary text file with known content
     When: Searching with a query and specific extensions
     Then: Returns a list of up to top_k results with expected structure
     """
-
+    logging.debug("Starting test_search_files")
     query = "test query"
     expected_content = "this is a test content"
     expected_file_path = temp_file
     top_k = 1
 
     results = list(search_files(temp_file, query,
-                   extensions={'.txt'}, top_k=top_k))
+                   extensions=['.txt'], top_k=top_k))
+    logging.debug(f"Collected results: {results}")
 
     assert isinstance(results, list)
     assert len(
@@ -184,14 +170,16 @@ def test_search_files(temp_file):
     assert isinstance(results[0]['metadata']['content_similarity'], float)
 
 
-def test_search_files_no_results(tmp_path):
+def test_search_files_no_results(mock_sentence_transformer, tmp_path):
     """
     Given: An empty directory with no matching files
     When: Searching with a query and specific extensions
     Then: Returns an empty list
     """
+    logging.debug("Starting test_search_files_no_results")
     results = list(search_files(
-        str(tmp_path), "test query", extensions={'.bin'}))
+        str(tmp_path), "test query", extensions=['.bin']))
+    logging.debug(f"Collected results: {results}")
 
     assert results == []
 
@@ -202,12 +190,13 @@ def test_search_files_chunking(temp_file):
     When: Searching with a query and specific chunk parameters
     Then: Returns multiple chunked results with correct sizes and chunk indices
     """
-
+    logging.debug("Starting test_search_files_chunking")
     with open(temp_file, 'w') as f:
         f.write("a" * 1000)
 
     results = list(search_files(temp_file, "test query",
                    chunk_size=200, chunk_overlap=50))
+    logging.debug(f"Collected results: {results}")
 
     assert len(results) > 1
     assert all(r['metadata']['end_idx'] - r['metadata']
@@ -218,13 +207,13 @@ def test_search_files_chunking(temp_file):
         results))), f"Expected chunk indices 0 to {len(results)-1}, got {[r['metadata']['chunk_idx'] for r in results]}"
 
 
-def test_search_files_with_threshold_and_yielding(temp_file):
+def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, temp_file):
     """
     Given: A temporary text file with known content
     When: Searching with a query, specific threshold, top_k, and iterating results
     Then: Only up to top_k results above threshold are yielded with expected structure
     """
-
+    logging.debug("Starting test_search_files_with_threshold_and_yielding")
     query = "test query"
     expected_threshold = 0.1
     expected_content = "this is a test content"
@@ -232,8 +221,8 @@ def test_search_files_with_threshold_and_yielding(temp_file):
     top_k = 1
 
     results = []
-    for result in search_files(temp_file, query, extensions={'.txt'}, top_k=top_k, threshold=expected_threshold):
-
+    for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold):
+        logging.debug(f"Yielded result: {result}")
         results.append(result)
 
     assert len(

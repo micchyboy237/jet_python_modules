@@ -1,14 +1,14 @@
-from typing import List, Optional, Set, Union, Tuple, TypedDict, Iterator
+from typing import List, Optional, Union, Tuple, TypedDict, Iterator
 import os
 from pathlib import Path
 import numpy as np
 from sentence_transformers import SentenceTransformer
-
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
+import logging
 
 DEFAULT_EMBED_MODEL: EmbedModelType = 'all-MiniLM-L6-v2'
-MAX_CONTENT_SIZE = 1000  # Max characters to read from file content
+MAX_CONTENT_SIZE = 1000
 
 
 class FileSearchMetadata(TypedDict):
@@ -64,41 +64,34 @@ def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
 
 def collect_file_chunks(
     paths: Union[str, List[str]],
-    extensions: Optional[Set[str]] = None,
+    extensions: List[str] = None,
     chunk_size: int = 500,
     chunk_overlap: int = 100
 ) -> Tuple[List[str], List[str], List[str], List[Tuple[str, str, int, int]]]:
     """
     Collect chunked contents for each file along with file paths, names, and dirs.
-
     Returns:
         Tuple of (file_paths, file_names, parent_dirs, contents_with_indices)
         where contents_with_indices = List of (file_path, content_chunk, start_idx, end_idx)
     """
     file_paths, file_names, parent_dirs = [], [], []
     contents_with_indices = []
-
     path_list = [paths] if isinstance(paths, str) else paths
-
     for path in path_list:
         if not os.path.exists(path):
             raise ValueError(f"Path {path} does not exist")
-
         paths_to_scan = [path] if os.path.isfile(path) else [
             os.path.join(root, f)
             for root, _, files in os.walk(path)
             for f in files
         ]
-
         for file_path in paths_to_scan:
             if extensions and not any(file_path.lower().endswith(ext) for ext in extensions):
                 continue
-
             file_path_obj = Path(file_path)
             file_paths.append(file_path)
             file_names.append(file_path_obj.name.lower())
             parent_dirs.append(file_path_obj.parent.name.lower() or "root")
-
             try:
                 if file_path_obj.suffix.lower() in {'.txt', '.py', '.md', '.json', '.csv'}:
                     with open(file_path, 'r', encoding='utf-8') as f:
@@ -111,7 +104,6 @@ def collect_file_chunks(
                                     (file_path, chunk, start, end))
             except (UnicodeDecodeError, IOError):
                 continue
-
     return file_paths, file_names, parent_dirs, contents_with_indices
 
 
@@ -123,13 +115,11 @@ def compute_weighted_similarity(
 ) -> Tuple[float, float, float, float]:
     """
     Compute weighted similarity score and individual scores for a file based on its components.
-
     Args:
         query_vector: Encoded query vector
         name_vector: Encoded file name vector
         dir_vector: Encoded parent directory vector
         content_vector: Encoded content vector (if available)
-
     Returns:
         Tuple of (weighted_similarity, name_similarity, dir_similarity, content_similarity)
     """
@@ -138,7 +128,6 @@ def compute_weighted_similarity(
     content_sim = 0.0
     if content_vector is not None:
         content_sim = cosine_similarity(query_vector, content_vector)
-    # Weighted average: 50% file name, 30% directory, 20% content
     weighted_sim = 0.5 * name_sim + 0.3 * dir_sim + 0.2 * content_sim
     return weighted_sim, name_sim, dir_sim, content_sim
 
@@ -146,7 +135,7 @@ def compute_weighted_similarity(
 def search_files(
     paths: Union[str, List[str]],
     query: str,
-    extensions: Optional[Set[str]] = None,
+    extensions: List[str] = None,
     top_k: int = 5,
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
@@ -159,7 +148,7 @@ def search_files(
     Args:
         paths: Single path or list of paths to search
         query: Search query string
-        extensions: Set of file extensions to include
+        extensions: List of file extensions to include
         top_k: Maximum number of results to yield
         embed_model: Embedding model to use
         chunk_size: Size of content chunks
@@ -197,6 +186,8 @@ def search_files(
         weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
             query_vector, name_vectors[file_index], dir_vectors[file_index], content_vector
         )
+        logging.debug(
+            f"Similarity scores for {file_path}: name={name_sim}, dir={dir_sim}, content={content_sim}, weighted={weighted_sim}")
         if weighted_sim >= threshold:
             chunk_counts[file_path] = chunk_counts.get(file_path, -1) + 1
             result = {
@@ -218,4 +209,5 @@ def search_files(
     results.sort(key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(results[:top_k], 1):
         result["rank"] = i
+        logging.debug(f"Yielding result: {result}")
         yield result
