@@ -1,231 +1,173 @@
 import pytest
-import nltk
-from typing import List, TypedDict, Optional
-from jet.vectors.vector_search_web import chunk_with_overlap, SentenceTransformer
-import uuid
-import re
-
-
-@pytest.fixture(scope="module")
-def setup_nltk():
-    nltk.download('punkt', quiet=True)
+import numpy as np
+from pathlib import Path
+import os
+from unittest.mock import patch, Mock
+from jet_python_modules.jet.vectors.semantic_search.file_vector_search import (
+    get_file_vectors,
+    cosine_similarity,
+    collect_file_chunks,
+    compute_weighted_similarity,
+    search_files,
+    FileSearchResult,
+    DEFAULT_EMBED_MODEL,
+    MAX_CONTENT_SIZE
+)
 
 
 @pytest.fixture
-def model():
-    return SentenceTransformer('all-MiniLM-L6-v2')
+def mock_sentence_transformer():
+    with patch('jet_python_modules.jet.vectors.semantic_search.file_vector_search.SentenceTransformerRegistry') as mock_registry:
+        mock_model = Mock()
+        mock_model.encode.side_effect = lambda x, **kwargs: np.array(
+            [0.1, 0.2, 0.3]) if isinstance(x, str) else np.array([[0.1, 0.2, 0.3]] * len(x))
+        mock_registry.load_model.return_value = mock_model
+        yield mock_model
 
 
-class Chunk(TypedDict):
-    chunk_id: str
-    text: str
-    token_count: int
-    header: Optional[str]
-    header_level: Optional[str]
-    xpath: Optional[str]
+@pytest.fixture
+def temp_file(tmp_path):
+    file_path = tmp_path / "test.txt"
+    file_path.write_text("This is a test content")
+    return str(file_path)
 
 
-class TestChunkWithOverlap:
-    def test_chunk_with_overlap_typical_case(self, setup_nltk, model):
-        # Given: A section with a header and content within max_tokens
-        section = {
-            "header": "Python Basics",
-            "header_level": "h2",
-            "content": [
-                "Python is a high-level programming language.",
-                "It is used for web development and data science."
-            ],
-            "xpath": "//h2"
-        }
-        max_tokens = 200
-        overlap_tokens = 50
-        expected = [
-            {
-                "chunk_id": None,  # Will be checked separately
-                "text": "Python is a high-level programming language. It is used for web development and data science.",
-                "token_count": 17,
-                "header": "Python Basics",
-                "header_level": "h2",
-                "xpath": "//h2"
-            }
-        ]
+def test_get_file_vectors_valid_file(mock_sentence_transformer, temp_file):
+    name_vector, dir_vector, content_vector = get_file_vectors(temp_file)
 
-        # When: Chunking the section
-        results: List[Chunk] = chunk_with_overlap(
-            section, max_tokens, overlap_tokens, model)
+    assert isinstance(name_vector, np.ndarray)
+    assert isinstance(dir_vector, np.ndarray)
+    assert isinstance(content_vector, np.ndarray)
+    assert name_vector.shape == (3,)
+    assert dir_vector.shape == (3,)
+    assert content_vector.shape == (3,)
+    assert mock_sentence_transformer.encode.call_count == 3
 
-        # Then: Expect one chunk with combined content
-        assert len(results) == 1, "Expected exactly one chunk"
-        result = results[0]
-        assert isinstance(result["chunk_id"],
-                          str), "Chunk ID should be a string"
-        assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-                        result["chunk_id"]), "Chunk ID should be a valid UUID"
-        assert result["text"] == expected[0]["text"], f"Expected text {expected[0]['text']}"
-        assert result["token_count"] == expected[0][
-            "token_count"], f"Expected token_count {expected[0]['token_count']}"
-        assert result["header"] == expected[0][
-            "header"], f"Expected header {expected[0]['header']}"
-        assert result["header_level"] == expected[0][
-            "header_level"], f"Expected header_level {expected[0]['header_level']}"
-        assert result["xpath"] == expected[0][
-            "xpath"], f"Expected xpath {expected[0]['xpath']}"
 
-    def test_chunk_with_overlap_exceeds_max_tokens(self, setup_nltk, model):
-        # Given: A section with content exceeding max_tokens, requiring overlap
-        section = {
-            "header": "Python Overview",
-            "header_level": "h1",
-            "content": [
-                "Python is a high-level, interpreted programming language known for its simplicity and readability.",
-                "It supports multiple programming paradigms, including object-oriented, functional, and procedural styles.",
-                "Python is widely used in web development, data science, automation, and machine learning applications."
-            ],
-            "xpath": "//h1"
-        }
-        max_tokens = 20
-        overlap_tokens = 5
-        expected = [
-            {
-                "chunk_id": None,  # Will be checked separately
-                "text": "Python is a high-level, interpreted programming language known for its simplicity and readability.",
-                "token_count": 15,
-                "header": "Python Overview",
-                "header_level": "h1",
-                "xpath": "//h1"
-            },
-            {
-                "chunk_id": None,
-                "text": "readability. It supports multiple programming paradigms, including object-oriented, functional, and procedural styles.",
-                "token_count": 17,
-                "header": "Python Overview",
-                "header_level": "h1",
-                "xpath": "//h1"
-            },
-            {
-                "chunk_id": None,
-                "text": "procedural styles. Python is widely used in web development, data science, automation, and machine learning applications.",
-                "token_count": 18,
-                "header": "Python Overview",
-                "header_level": "h1",
-                "xpath": "//h1"
-            }
-        ]
+def test_get_file_vectors_non_text_file(mock_sentence_transformer, tmp_path):
+    file_path = tmp_path / "test.bin"
+    file_path.write_bytes(b"\x00\x01\x02")
+    name_vector, dir_vector, content_vector = get_file_vectors(str(file_path))
 
-        # When: Chunking the section
-        results: List[Chunk] = chunk_with_overlap(
-            section, max_tokens, overlap_tokens, model)
+    assert isinstance(name_vector, np.ndarray)
+    assert isinstance(dir_vector, np.ndarray)
+    assert content_vector is None
+    assert mock_sentence_transformer.encode.call_count == 2
 
-        # Then: Expect three chunks with overlap
-        assert len(results) == 3, "Expected three chunks due to token limit"
-        for i, result in enumerate(results):
-            assert isinstance(result["chunk_id"],
-                              str), f"Chunk ID {i} should be a string"
-            assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-                            result["chunk_id"]), f"Chunk ID {i} should be a valid UUID"
-            assert result["text"] == expected[i][
-                "text"], f"Expected text {expected[i]['text']} for chunk {i}"
-            assert result["token_count"] == expected[i][
-                "token_count"], f"Expected token_count {expected[i]['token_count']} for chunk {i}"
-            assert result["header"] == expected[i][
-                "header"], f"Expected header {expected[i]['header']} for chunk {i}"
-            assert result["header_level"] == expected[i][
-                "header_level"], f"Expected header_level {expected[i]['header_level']} for chunk {i}"
-            assert result["xpath"] == expected[i][
-                "xpath"], f"Expected xpath {expected[i]['xpath']} for chunk {i}"
 
-    def test_chunk_with_overlap_no_header(self, setup_nltk, model):
-        # Given: A section with no header and short content
-        section = {
-            "header": None,
-            "header_level": None,
-            "content": ["Python is a versatile language."],
-            "xpath": None
-        }
-        max_tokens = 200
-        overlap_tokens = 50
-        expected = [
-            {
-                "chunk_id": None,  # Will be checked separately
-                "text": "Python is a versatile language.",
-                "token_count": 6,
-                "header": None,
-                "header_level": None,
-                "xpath": None
-            }
-        ]
+def test_get_file_vectors_nonexistent_file(mock_sentence_transformer):
+    with pytest.raises(FileNotFoundError):
+        get_file_vectors("nonexistent.txt")
 
-        # When: Chunking the section
-        results: List[Chunk] = chunk_with_overlap(
-            section, max_tokens, overlap_tokens, model)
 
-        # Then: Expect one chunk without header
-        assert len(results) == 1, "Expected exactly one chunk"
-        result = results[0]
-        assert isinstance(result["chunk_id"],
-                          str), "Chunk ID should be a string"
-        assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-                        result["chunk_id"]), "Chunk ID should be a valid UUID"
-        assert result["text"] == expected[0]["text"], f"Expected text {expected[0]['text']}"
-        assert result["token_count"] == expected[0][
-            "token_count"], f"Expected token_count {expected[0]['token_count']}"
-        assert result["header"] is None, "Expected no header"
-        assert result["header_level"] is None, "Expected no header_level"
-        assert result["xpath"] is None, "Expected no xpath"
+def test_cosine_similarity():
+    vec1 = np.array([1.0, 0.0])
+    vec2 = np.array([0.0, 1.0])
+    sim = cosine_similarity(vec1, vec2)
+    assert abs(sim) < 1e-10
 
-    def test_chunk_with_overlap_short_content(self, setup_nltk, model):
-        # Given: A section with content too short to chunk
-        section = {
-            "header": "Short Section",
-            "header_level": "h3",
-            "content": ["Short."],
-            "xpath": "//h3"
-        }
-        max_tokens = 200
-        overlap_tokens = 50
-        expected: List[Chunk] = []
+    vec1 = np.array([1.0, 1.0])
+    vec2 = np.array([1.0, 1.0])
+    sim = cosine_similarity(vec1, vec2)
+    assert abs(sim - 1.0) < 1e-10
 
-        # When: Chunking the section
-        results: List[Chunk] = chunk_with_overlap(
-            section, max_tokens, overlap_tokens, model)
+    vec1 = np.array([0.0, 0.0])
+    vec2 = np.array([1.0, 1.0])
+    sim = cosine_similarity(vec1, vec2)
+    assert sim == 0.0
 
-        # Then: Expect no chunks due to minimum length (5 tokens)
-        assert results == expected, "Expected no chunks due to short content"
 
-    def test_chunk_with_overlap_low_similarity(self, setup_nltk, model):
-        # Given: A section with content unrelated to the header
-        section = {
-            "header": "Python Programming",
-            "header_level": "h2",
-            "content": ["This is about Java programming, not Python."],
-            "xpath": "//h2"
-        }
-        max_tokens = 200
-        overlap_tokens = 50
-        expected: List[Chunk] = []
+def test_collect_file_chunks_single_file(temp_file):
+    file_paths, file_names, parent_dirs, chunks = collect_file_chunks(
+        temp_file, extensions={'.txt'})
 
-        # When: Chunking the section
-        results: List[Chunk] = chunk_with_overlap(
-            section, max_tokens, overlap_tokens, model)
+    assert len(file_paths) == 1
+    assert file_paths[0] == temp_file
+    assert file_names[0] == 'test.txt'
+    assert parent_dirs[0].endswith('tmp') or parent_dirs[0] == 'root'
+    assert len(chunks) == 1
+    assert chunks[0][0] == temp_file
+    assert chunks[0][1] == 'this is a test content'
+    assert chunks[0][2] == 0
+    assert chunks[0][3] == 21
 
-        # Then: Expect no chunks due to low similarity
-        assert results == expected, "Expected no chunks due to low header-content similarity"
 
-    def test_chunk_with_overlap_empty_content(self, setup_nltk, model):
-        # Given: A section with a header but no content
-        section = {
-            "header": "Python Introduction",
-            "header_level": "h1",
-            "content": [],
-            "xpath": "//h1"
-        }
-        max_tokens = 200
-        overlap_tokens = 50
-        expected: List[Chunk] = []
+def test_collect_file_chunks_invalid_path():
+    with pytest.raises(ValueError, match="Path nonexistent does not exist"):
+        collect_file_chunks("nonexistent")
 
-        # When: Chunking the section
-        results: List[Chunk] = chunk_with_overlap(
-            section, max_tokens, overlap_tokens, model)
 
-        # Then: Expect no chunks due to empty content
-        assert results == expected, "Expected no chunks due to empty content"
+def test_collect_file_chunks_with_extensions(tmp_path):
+    txt_file = tmp_path / "test.txt"
+    bin_file = tmp_path / "test.bin"
+    txt_file.write_text("text content")
+    bin_file.write_bytes(b"binary content")
+
+    file_paths, _, _, _ = collect_file_chunks(
+        str(tmp_path), extensions={'.txt'})
+    assert len(file_paths) == 1
+    assert file_paths[0].endswith('test.txt')
+
+
+def test_compute_weighted_similarity_with_content():
+    query_vec = np.array([1.0, 0.0, 0.0])
+    name_vec = np.array([1.0, 0.0, 0.0])
+    dir_vec = np.array([0.0, 1.0, 0.0])
+    content_vec = np.array([0.0, 0.0, 1.0])
+
+    weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
+        query_vec, name_vec, dir_vec, content_vec
+    )
+
+    assert abs(name_sim - 1.0) < 1e-10
+    assert abs(dir_sim) < 1e-10
+    assert abs(content_sim) < 1e-10
+    assert abs(weighted_sim - (0.5 * 1.0 + 0.3 * 0.0 + 0.2 * 0.0)) < 1e-10
+
+
+def test_compute_weighted_similarity_no_content():
+    query_vec = np.array([1.0, 0.0, 0.0])
+    name_vec = np.array([1.0, 0.0, 0.0])
+    dir_vec = np.array([0.0, 1.0, 0.0])
+
+    weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
+        query_vec, name_vec, dir_vec, None
+    )
+
+    assert abs(name_sim - 1.0) < 1e-10
+    assert abs(dir_sim) < 1e-10
+    assert content_sim == 0.0
+    assert abs(weighted_sim - (0.5 * 1.0 + 0.3 * 0.0)) < 1e-10
+
+
+def test_search_files(mock_sentence_transformer, temp_file):
+    results = search_files(temp_file, "test query",
+                           extensions={'.txt'}, top_k=1)
+
+    assert isinstance(results, list)
+    assert len(results) == 1
+    assert isinstance(results[0], dict)
+    assert results[0]['rank'] == 1
+    assert isinstance(results[0]['score'], float)
+    assert results[0]['code'] == 'this is a test content'
+    assert results[0]['metadata']['file_path'] == temp_file
+    assert isinstance(results[0]['metadata']['name_similarity'], float)
+    assert isinstance(results[0]['metadata']['dir_similarity'], float)
+    assert isinstance(results[0]['metadata']['content_similarity'], float)
+
+
+def test_search_files_no_results(mock_sentence_transformer, tmp_path):
+    results = search_files(str(tmp_path), "test query", extensions={'.bin'})
+    assert results == []
+
+
+def test_search_files_chunking(temp_file):
+    # Test with small chunk size to force multiple chunks
+    with open(temp_file, 'w') as f:
+        f.write("a" * 1000)
+
+    results = search_files(temp_file, "test query",
+                           chunk_size=200, chunk_overlap=50)
+    assert len(results) > 1
+    assert all(r['metadata']['end_idx'] - r['metadata']
+               ['start_idx'] <= 200 for r in results)
