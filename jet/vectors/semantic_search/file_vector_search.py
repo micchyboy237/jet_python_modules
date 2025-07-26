@@ -130,7 +130,7 @@ def compute_weighted_similarity(
     content_sim = 0.0
     if content_vector is not None:
         content_sim = cosine_similarity(query_vector, content_vector)
-    weighted_sim = 0.5 * name_sim + 0.3 * dir_sim + 0.2 * content_sim
+    weighted_sim = 0.4 * name_sim + 0.2 * dir_sim + 0.4 * content_sim
     return weighted_sim, name_sim, dir_sim, content_sim
 
 
