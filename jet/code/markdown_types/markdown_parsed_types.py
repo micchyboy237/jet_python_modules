@@ -59,9 +59,7 @@ class HeaderSearchMetadata(TypedDict):
     """Typed dictionary for search result metadata."""
     doc_index: int
     doc_id: str
-    header: str
     level: Optional[int]
-    parent_header: Optional[str]
     parent_level: Optional[int]
     start_idx: int
     end_idx: int
@@ -79,8 +77,10 @@ class HeaderSearchResult(TypedDict):
     """Typed dictionary for search result structure."""
     rank: int
     score: float
-    metadata: HeaderSearchMetadata
+    header: str
+    parent_header: Optional[str]
     content: str
+    metadata: HeaderSearchMetadata
 
 
 __all__ = [

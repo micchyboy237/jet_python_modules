@@ -201,12 +201,13 @@ def merge_results(
                 merged_results.append({
                     "rank": current_chunk["rank"],
                     "score": avg_score,
+                    "header": current_chunk["header"],
+                    "parent_header": current_chunk["parent_header"],
+                    "content": merged_content,
                     "metadata": {
                         "doc_index": doc_index,
                         "doc_id": current_chunk["metadata"]["doc_id"],
-                        "header": current_chunk["metadata"]["header"],
                         "level": current_chunk["metadata"]["level"],
-                        "parent_header": current_chunk["metadata"]["parent_header"],
                         "parent_level": current_chunk["metadata"]["parent_level"],
                         "start_idx": start_idx,
                         "end_idx": end_idx,
@@ -219,7 +220,6 @@ def merge_results(
                         "preprocessed_headers_context": preprocessed_headers_context,
                         "preprocessed_content": preprocessed_content
                     },
-                    "content": merged_content,
                 })
                 current_chunk = next_chunk
                 merged_content = current_chunk["content"]
@@ -240,12 +240,13 @@ def merge_results(
         merged_results.append({
             "rank": current_chunk["rank"],
             "score": avg_score,
+            "header": current_chunk["header"],
+            "parent_header": current_chunk["parent_header"],
+            "content": merged_content,
             "metadata": {
                 "doc_index": doc_index,
                 "doc_id": current_chunk["metadata"]["doc_id"],
-                "header": current_chunk["metadata"]["header"],
                 "level": current_chunk["metadata"]["level"],
-                "parent_header": current_chunk["metadata"]["parent_header"],
                 "parent_level": current_chunk["metadata"]["parent_level"],
                 "start_idx": start_idx,
                 "end_idx": end_idx,
@@ -258,7 +259,6 @@ def merge_results(
                 "preprocessed_headers_context": preprocessed_headers_context,
                 "preprocessed_content": preprocessed_content
             },
-            "content": merged_content,
         })
     merged_results.sort(key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(merged_results, 1):
@@ -288,6 +288,7 @@ def search_headers(
     doc_indices, headers, headers_context, chunk_data = collect_header_chunks(
         header_docs, chunk_size, chunk_overlap, tokenizer)
     if not chunk_data:
+        logger.debug("No chunk data available, returning empty iterator")
         return
     unique_docs = list(dict.fromkeys(doc_indices))
     header_texts = [headers[doc_indices.index(idx)] for idx in unique_docs]
@@ -295,6 +296,9 @@ def search_headers(
         headers_context[doc_indices.index(idx)] for idx in unique_docs]
     chunk_texts = [chunk for _, _, chunk, _, _, _, _, _, _ in chunk_data]
     all_texts = [query_processed] + header_texts + parent_texts + chunk_texts
+    logger.debug(
+        f"Text counts: query=1, headers={len(header_texts)}, parents={len(parent_texts)}, chunks={len(chunk_texts)}"
+    )
     logger.info(
         f"Generating embeddings for {len(all_texts)} texts:\n"
         f"  1 query\n"
@@ -328,15 +332,16 @@ def search_headers(
         )
         if weighted_sim >= threshold:
             chunk_counts[doc_index] = chunk_counts.get(doc_index, -1) + 1
-            result = {
+            result: HeaderSearchResult = {
                 "rank": 0,
                 "score": float(weighted_sim),
+                "header": header_doc['header'],
+                "parent_header": header_doc['parent_header'],
+                "content": original_chunk,
                 "metadata": {
                     "doc_index": doc_index,
                     "doc_id": header_doc['doc_id'],
-                    "header": header_doc['header'],
                     "level": header_doc['level'],
-                    "parent_header": header_doc['parent_header'],
                     "parent_level": header_doc['parent_level'],
                     "start_idx": start_idx,
                     "end_idx": end_idx,
@@ -349,7 +354,6 @@ def search_headers(
                     "preprocessed_headers_context": preprocessed_headers_context,
                     "preprocessed_content": chunk
                 },
-                "content": original_chunk,
             }
             results.append(result)
     results.sort(key=lambda x: x["score"], reverse=True)
