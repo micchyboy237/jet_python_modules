@@ -198,15 +198,15 @@ def search_files(
         if weighted_sim >= threshold:
             result = {
                 "rank": 0,
-                "score": weighted_sim,
+                "score": float(weighted_sim),
                 "code": chunk,
                 "metadata": {
                     "file_path": file_path,
                     "start_idx": start_idx,
                     "end_idx": end_idx,
-                    "name_similarity": name_sim,
-                    "dir_similarity": dir_sim,
-                    "content_similarity": content_sim
+                    "name_similarity": float(name_sim),
+                    "dir_similarity": float(dir_sim),
+                    "content_similarity": float(content_sim)
                 }
             }
             results.append(result)
