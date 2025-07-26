@@ -16,6 +16,7 @@ class FileSearchMetadata(TypedDict):
     file_path: str
     start_idx: int
     end_idx: int
+    chunk_idx: int
     name_similarity: float
     dir_similarity: float
     content_similarity: float
@@ -189,6 +190,7 @@ def search_files(
         chunk_texts, convert_to_numpy=True, batch_size=32, show_progress_bar=True)
 
     results: List[FileSearchResult] = []
+    chunk_counts = {}  # Track chunk index per file
     for i, (file_path, chunk, start_idx, end_idx) in enumerate(chunk_data):
         file_index = unique_files.index(file_path)
         content_vector = content_vectors[i]
@@ -196,6 +198,7 @@ def search_files(
             query_vector, name_vectors[file_index], dir_vectors[file_index], content_vector
         )
         if weighted_sim >= threshold:
+            chunk_counts[file_path] = chunk_counts.get(file_path, -1) + 1
             result = {
                 "rank": 0,
                 "score": float(weighted_sim),
@@ -204,6 +207,7 @@ def search_files(
                     "file_path": file_path,
                     "start_idx": start_idx,
                     "end_idx": end_idx,
+                    "chunk_idx": chunk_counts[file_path],
                     "name_similarity": float(name_sim),
                     "dir_similarity": float(dir_sim),
                     "content_similarity": float(content_sim)

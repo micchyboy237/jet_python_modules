@@ -160,6 +160,7 @@ def test_search_files(temp_file):
     When: Searching with a query and specific extensions
     Then: Returns a list of up to top_k results with expected structure
     """
+
     query = "test query"
     expected_content = "this is a test content"
     expected_file_path = temp_file
@@ -177,6 +178,7 @@ def test_search_files(temp_file):
     assert isinstance(results[0]['score'], float)
     assert results[0]['code'] == expected_content
     assert results[0]['metadata']['file_path'] == expected_file_path
+    assert results[0]['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for single chunk"
     assert isinstance(results[0]['metadata']['name_similarity'], float)
     assert isinstance(results[0]['metadata']['dir_similarity'], float)
     assert isinstance(results[0]['metadata']['content_similarity'], float)
@@ -198,8 +200,9 @@ def test_search_files_chunking(temp_file):
     """
     Given: A temporary text file with content exceeding chunk size
     When: Searching with a query and specific chunk parameters
-    Then: Returns multiple chunked results with correct sizes
+    Then: Returns multiple chunked results with correct sizes and chunk indices
     """
+
     with open(temp_file, 'w') as f:
         f.write("a" * 1000)
 
@@ -209,6 +212,10 @@ def test_search_files_chunking(temp_file):
     assert len(results) > 1
     assert all(r['metadata']['end_idx'] - r['metadata']
                ['start_idx'] <= 200 for r in results)
+    assert all(isinstance(r['metadata']['chunk_idx'], int)
+               for r in results), "All chunk_idx should be integers"
+    assert [r['metadata']['chunk_idx'] for r in results] == list(range(len(
+        results))), f"Expected chunk indices 0 to {len(results)-1}, got {[r['metadata']['chunk_idx'] for r in results]}"
 
 
 def test_search_files_with_threshold_and_yielding(temp_file):
@@ -217,6 +224,7 @@ def test_search_files_with_threshold_and_yielding(temp_file):
     When: Searching with a query, specific threshold, top_k, and iterating results
     Then: Only up to top_k results above threshold are yielded with expected structure
     """
+
     query = "test query"
     expected_threshold = 0.1
     expected_content = "this is a test content"
@@ -225,6 +233,7 @@ def test_search_files_with_threshold_and_yielding(temp_file):
 
     results = []
     for result in search_files(temp_file, query, extensions={'.txt'}, top_k=top_k, threshold=expected_threshold):
+
         results.append(result)
 
     assert len(
@@ -236,6 +245,7 @@ def test_search_files_with_threshold_and_yielding(temp_file):
     assert results[0]['code'] == expected_content, f"Expected content {expected_content}, got {results[0]['code']}"
     assert results[0]['metadata'][
         'file_path'] == expected_file_path, f"Expected file path {expected_file_path}, got {results[0]['metadata']['file_path']}"
+    assert results[0]['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for single chunk"
     assert isinstance(results[0]['metadata']['name_similarity'],
                       float), "Name similarity should be float"
     assert isinstance(results[0]['metadata']['dir_similarity'],
