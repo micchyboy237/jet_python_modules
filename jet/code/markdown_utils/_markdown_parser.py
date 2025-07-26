@@ -481,34 +481,25 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
     after_non_paragraph = False  # Track if we're after a non-paragraph, non-header token
 
     for token in tokens:
-        logger.debug(
-            f"Processing token: {token['type']}, content: {token['content'][:30]}")
         # Create a copy of the token to modify its line number
         token_copy = token.copy()
 
         if token["type"] == "header":
             last_header = token["content"]
-            logger.debug(f"Updated last_header: {last_header}")
             # Append any pending paragraphs before the header
             for para in pending_paragraphs:
                 para_copy = para.copy()
                 para_copy["line"] = current_line
-                logger.debug(
-                    f"Appending paragraph before header: {para_copy['content'][:30]}, line: {current_line}")
                 result.append(para_copy)
                 current_line += 1
             pending_paragraphs = []
             token_copy["line"] = current_line
             result.append(token_copy)
-            logger.debug(
-                f"Appended header: {token_copy['content']}, line: {current_line}")
             current_line += 1
             after_non_paragraph = False
 
         elif token["type"] == "paragraph":
             pending_paragraphs.append(token_copy)
-            logger.debug(
-                f"Added to pending paragraphs: {token_copy['content'][:30]}")
 
         else:  # Non-header, non-paragraph token
             # If we're not after a non-paragraph token, append paragraphs before the new header
@@ -516,8 +507,6 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
                 for para in pending_paragraphs:
                     para_copy = para.copy()
                     para_copy["line"] = current_line
-                    logger.debug(
-                        f"Appending paragraph before {token['type']}: {para_copy['content'][:30]}, line: {current_line}")
                     result.append(para_copy)
                     current_line += 1
                 pending_paragraphs = []
@@ -531,8 +520,6 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
                     "level": 2,
                     "meta": {}
                 }
-                logger.debug(
-                    f"Inserting new header: {new_header['content']}, line: {current_line}")
                 result.append(new_header)
                 current_line += 1
 
@@ -540,16 +527,12 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
             for para in pending_paragraphs:
                 para_copy = para.copy()
                 para_copy["line"] = current_line
-                logger.debug(
-                    f"Appending paragraph after {token['type']} header: {para_copy['content'][:30]}, line: {current_line}")
                 result.append(para_copy)
                 current_line += 1
             pending_paragraphs = []
 
             token_copy["line"] = current_line
             result.append(token_copy)
-            logger.debug(
-                f"Appended {token['type']}: {token_copy['content'][:30]}, line: {current_line}")
             current_line += 1
             after_non_paragraph = True
 
@@ -557,13 +540,9 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
     for para in pending_paragraphs:
         para_copy = para.copy()
         para_copy["line"] = current_line
-        logger.debug(
-            f"Appending remaining paragraph: {para_copy['content'][:30]}, line: {current_line}")
         result.append(para_copy)
         current_line += 1
 
-    logger.debug(
-        f"Final result: {[f'{t['type']}: {t['content'][:30]} (line {t['line']})' for t in result]}")
     return result
 
 
