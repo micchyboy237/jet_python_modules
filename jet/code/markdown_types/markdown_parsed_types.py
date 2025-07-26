@@ -45,6 +45,17 @@ class MarkdownToken(TypedDict):
     line: int
 
 
+class HeaderDoc(TypedDict):
+    doc_index: int
+    doc_id: str
+    header: str
+    content: str
+    level: Optional[int]
+    parent_header: Optional[str]
+    parent_level: Optional[int]
+    tokens: List[MarkdownToken]
+
+
 __all__ = [
     "ListItem",
     "CodeMeta",
@@ -53,4 +64,5 @@ __all__ = [
     "MetaType",
     "ContentType",
     "MarkdownToken",
+    "HeaderDoc",
 ]

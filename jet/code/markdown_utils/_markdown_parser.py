@@ -11,7 +11,7 @@ from jet.data.utils import generate_unique_id
 from jet.transformers.object import make_serializable
 from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
 
-from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
+from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict, HeaderDoc
 from jet.code.markdown_utils import read_md_content, preprocess_markdown
 
 from jet.logger import logger
@@ -322,17 +322,6 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         raise
 
 
-class HeaderDoc(TypedDict):
-    doc_index: int
-    doc_id: str
-    header: str
-    content: str
-    level: Optional[int]
-    parent_header: Optional[str]
-    parent_level: Optional[int]
-    tokens: List[MarkdownToken]
-
-
 def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> List[HeaderDoc]:
     tokens = parse_markdown(
         md_content, merge_headers=False, merge_contents=False, ignore_links=ignore_links)
@@ -390,6 +379,12 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
         current_section["content"] = "\n".join(current_section["content"])
         current_section["tokens"] = current_tokens
         sections.append(current_section)
+    # Filter out sections that do not contain any content
+    sections = [section for section in sections if section.get(
+        "content", "").strip()]
+    # Update doc_index to be sequential after filtering
+    for idx, section in enumerate(sections):
+        section["doc_index"] = idx
     return sections
 
 
