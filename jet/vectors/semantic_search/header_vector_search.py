@@ -25,8 +25,8 @@ class HeaderSearchMetadata(TypedDict):
     start_idx: int
     end_idx: int
     chunk_idx: int
-    header_similarity: float
-    parent_similarity: float
+    header_content_similarity: float
+    headers_similarity: float
     content_similarity: float
     num_tokens: int
 
@@ -78,62 +78,91 @@ def collect_header_chunks(
         chunk_overlap: Overlap between chunks
         tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
     Returns:
-        Tuple of (doc_indices, headers, parent_headers, contents_with_indices)
+        Tuple of (doc_indices, headers, headers_context, contents_with_indices)
         where contents_with_indices = List of (doc_index, header, content_chunk, original_content_chunk, start_idx, end_idx, num_tokens)
     """
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
-    doc_indices, headers, parent_headers = [], [], []
+    doc_indices, headers, headers_context = [], [], []
     contents_with_indices = []
     for header_doc in header_docs:
         doc_index = header_doc['doc_index']
         original_header = header_doc['header']
         header = preprocess_text(original_header)
-        # Concatenate all parent headers from parent_headers list
+        # Concatenate immediate header with parent headers for headers_sim
         original_parents = header_doc.get('parent_headers', [])
         parent_text = '\n'.join(original_parents) if original_parents else ''
-        parent_header = preprocess_text(parent_text) if parent_text else ""
+        headers_context_text = f"{original_header}\n{parent_text}" if parent_text else original_header
+        headers_context_processed = preprocess_text(
+            headers_context_text) if headers_context_text else ""
+        if not headers_context_processed:
+            logger.warning(f"Empty headers context for doc_index {doc_index}")
         original_content = header_doc['content']
         doc_indices.append(doc_index)
         headers.append(header)
-        parent_headers.append(parent_header)
+        headers_context.append(headers_context_processed)
         for start in range(0, len(original_content), chunk_size - chunk_overlap):
             original_chunk = original_content[start:start + chunk_size]
             chunk = preprocess_text(original_chunk)
             if chunk.strip():
                 end = start + len(original_chunk)
                 num_tokens = tokenizer(original_chunk)
+                if num_tokens < 50:
+                    logger.warning(
+                        f"Short content chunk ({num_tokens} tokens) for doc_index {doc_index}, start_idx {start}")
+                if num_tokens > 512:
+                    original_chunk = original_chunk[:512]
+                    chunk = preprocess_text(original_chunk)
+                    num_tokens = tokenizer(original_chunk)
+                    logger.info(
+                        f"Truncated content chunk to 512 tokens for doc_index {doc_index}, start_idx {start}")
                 contents_with_indices.append(
                     (doc_index, header, chunk, original_chunk, start, end, num_tokens))
-    return doc_indices, headers, parent_headers, contents_with_indices
+    return doc_indices, headers, headers_context, contents_with_indices
 
 
 def compute_weighted_similarity(
     query_vector: np.ndarray,
     header_vector: np.ndarray,
     parent_vector: np.ndarray,
-    content_vector: Optional[np.ndarray]
+    content_vector: Optional[np.ndarray],
+    content_tokens: int = 0,
+    header_level: Optional[int] = None
 ) -> Tuple[float, float, float, float]:
     """
     Compute weighted similarity score and individual scores for a header based on its components.
     Args:
         query_vector: Encoded query vector
         header_vector: Encoded header vector
-        parent_vector: Encoded concatenated parent headers vector
+        parent_vector: Encoded concatenated headers context vector
         content_vector: Encoded content vector (if available)
+        content_tokens: Number of tokens in the content chunk
+        header_level: Level of the header (for dynamic weighting)
     Returns:
-        Tuple of (weighted_similarity, header_similarity, parent_similarity, content_similarity)
+        Tuple of (weighted_similarity, header_content_similarity, headers_similarity, content_similarity)
     """
-    header_sim = cosine_similarity(query_vector, header_vector)
-    parent_sim = cosine_similarity(
+    header_content_sim = cosine_similarity(
+        header_vector, content_vector) if content_vector is not None else 0.0
+    headers_sim = cosine_similarity(
         query_vector, parent_vector) if np.any(parent_vector) else 0.0
     content_sim = 0.0
     if content_vector is not None:
         content_sim = cosine_similarity(query_vector, content_vector)
-    # weighted_sim = 0.2 * header_sim + 0.4 * parent_sim + 0.4 * content_sim
-    weighted_sim = 0.5 * parent_sim + 0.5 * content_sim
-    return weighted_sim, header_sim, parent_sim, content_sim
+    # Dynamic weighting based on content length and header depth
+    content_weight = 0.4 if content_tokens >= 100 else 0.4
+    headers_weight = 0.3 if header_level is None or header_level <= 2 else 0.4
+    header_content_weight = 0.3 if content_tokens >= 100 else 0.3
+    # Ensure weights sum to 1.0
+    total = content_weight + headers_weight + header_content_weight
+    content_weight /= total
+    headers_weight /= total
+    header_content_weight /= total
+    weighted_sim = header_content_weight * header_content_sim + \
+        headers_weight * headers_sim + content_weight * content_sim
+    logger.debug(
+        f"Weights: header_content={header_content_weight:.2f}, headers={headers_weight:.2f}, content={content_weight:.2f}")
+    return weighted_sim, header_content_sim, headers_sim, content_sim
 
 
 def merge_results(
@@ -167,8 +196,8 @@ def merge_results(
         start_idx = current_chunk["metadata"]["start_idx"]
         end_idx = current_chunk["metadata"]["end_idx"]
         total_score = current_chunk["score"]
-        header_sim = current_chunk["metadata"]["header_similarity"]
-        parent_sim = current_chunk["metadata"]["parent_similarity"]
+        header_content_sim = current_chunk["metadata"]["header_content_similarity"]
+        headers_sim = current_chunk["metadata"]["headers_similarity"]
         content_sims = [current_chunk["metadata"]["content_similarity"]]
         chunk_count = 1
         tokens = tokenizer(merged_content)
@@ -204,8 +233,8 @@ def merge_results(
                         "start_idx": start_idx,
                         "end_idx": end_idx,
                         "chunk_idx": 0,
-                        "header_similarity": header_sim,
-                        "parent_similarity": parent_sim,
+                        "header_content_similarity": header_content_sim,
+                        "headers_similarity": headers_sim,
                         "content_similarity": avg_content_sim,
                         "num_tokens": tokens
                     },
@@ -216,8 +245,8 @@ def merge_results(
                 start_idx = current_chunk["metadata"]["start_idx"]
                 end_idx = current_chunk["metadata"]["end_idx"]
                 total_score = current_chunk["score"]
-                header_sim = current_chunk["metadata"]["header_similarity"]
-                parent_sim = current_chunk["metadata"]["parent_similarity"]
+                header_content_sim = current_chunk["metadata"]["header_content_similarity"]
+                headers_sim = current_chunk["metadata"]["headers_similarity"]
                 content_sims = [current_chunk["metadata"]
                                 ["content_similarity"]]
                 chunk_count = 1
@@ -237,8 +266,8 @@ def merge_results(
                 "start_idx": start_idx,
                 "end_idx": end_idx,
                 "chunk_idx": 0,
-                "header_similarity": header_sim,
-                "parent_similarity": parent_sim,
+                "header_content_similarity": header_content_sim,
+                "headers_similarity": headers_sim,
                 "content_similarity": avg_content_sim,
                 "num_tokens": tokens
             },
@@ -264,38 +293,26 @@ def search_headers(
     """
     Search headers using vector similarity on chunked contents + header metadata.
     Yields up to top_k results iteratively that meet the threshold, preserving original texts.
-    Args:
-        header_docs: List of HeaderDoc objects to search
-        query: Search query string
-        top_k: Maximum number of results to yield
-        embed_model: Embedding model to use
-        chunk_size: Size of content chunks
-        chunk_overlap: Overlap between chunks
-        threshold: Minimum similarity score for results
-        tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
-        split_chunks: If True, return individual chunks; if False, merge adjacent chunks from the same header.
-    Returns:
-        Iterator of HeaderSearchResult dictionaries (ranked by similarity)
     """
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
     query_processed = preprocess_text(query)
-    doc_indices, headers, parent_headers, chunk_data = collect_header_chunks(
+    doc_indices, headers, headers_context, chunk_data = collect_header_chunks(
         header_docs, chunk_size, chunk_overlap, tokenizer)
     if not chunk_data:
         return
     unique_docs = list(dict.fromkeys(doc_indices))
     header_texts = [headers[doc_indices.index(idx)] for idx in unique_docs]
     parent_texts = [
-        parent_headers[doc_indices.index(idx)] for idx in unique_docs]
+        headers_context[doc_indices.index(idx)] for idx in unique_docs]
     chunk_texts = [chunk for _, _, chunk, _, _, _, _ in chunk_data]
     all_texts = [query_processed] + header_texts + parent_texts + chunk_texts
     logger.info(
         f"Generating embeddings for {len(all_texts)} texts:\n"
         f"  1 query\n"
         f"  {len(header_texts)} headers\n"
-        f"  {len(parent_texts)} parent headers\n"
+        f"  {len(parent_texts)} headers context\n"
         f"  {len(chunk_texts)} chunks"
     )
     all_vectors = generate_embeddings(
@@ -318,8 +335,9 @@ def search_headers(
         header_doc = next(
             hd for hd in header_docs if hd['doc_index'] == doc_index)
         content_vector = content_vectors[i]
-        weighted_sim, header_sim, parent_sim, content_sim = compute_weighted_similarity(
-            query_vector, header_vectors[unique_doc_idx], parent_vectors[unique_doc_idx], content_vector
+        weighted_sim, header_content_sim, headers_sim, content_sim = compute_weighted_similarity(
+            query_vector, header_vectors[unique_doc_idx], parent_vectors[
+                unique_doc_idx], content_vector, num_tokens, header_doc['level']
         )
         if weighted_sim >= threshold:
             chunk_counts[doc_index] = chunk_counts.get(doc_index, -1) + 1
@@ -331,14 +349,13 @@ def search_headers(
                     "doc_id": header_doc['doc_id'],
                     "header": header_doc['header'],
                     "level": header_doc['level'],
-                    # Keep for compatibility
                     "parent_header": header_doc['parent_header'],
                     "parent_level": header_doc['parent_level'],
                     "start_idx": start_idx,
                     "end_idx": end_idx,
                     "chunk_idx": chunk_counts[doc_index],
-                    "header_similarity": float(header_sim),
-                    "parent_similarity": float(parent_sim),
+                    "header_content_similarity": float(header_content_sim),
+                    "headers_similarity": float(headers_sim),
                     "content_similarity": float(content_sim),
                     "num_tokens": num_tokens
                 },
