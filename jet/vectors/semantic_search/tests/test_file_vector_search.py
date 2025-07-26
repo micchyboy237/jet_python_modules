@@ -123,20 +123,21 @@ def test_compute_weighted_similarity_with_content():
     assert abs(name_sim - 1.0) < 1e-10
     assert abs(dir_sim) < 1e-10
     assert abs(content_sim) < 1e-10
-    assert abs(weighted_sim - (0.5 * 1.0 + 0.3 * 0.0 + 0.2 * 0.0)) < 1e-10
+    assert abs(weighted_sim - (0.4 * 1.0 + 0.2 * 0.0 + 0.4 * 0.0)) < 1e-10
 
 
 def test_compute_weighted_similarity_no_content():
     query_vec = np.array([1.0, 0.0, 0.0])
     name_vec = np.array([1.0, 0.0, 0.0])
     dir_vec = np.array([0.0, 1.0, 0.0])
+    content_vec = None
     weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
-        query_vec, name_vec, dir_vec, None
+        query_vec, name_vec, dir_vec, content_vec
     )
     assert abs(name_sim - 1.0) < 1e-10
     assert abs(dir_sim) < 1e-10
-    assert content_sim == 0.0
-    assert abs(weighted_sim - (0.5 * 1.0 + 0.3 * 0.0)) < 1e-10
+    assert abs(content_sim) < 1e-10
+    assert abs(weighted_sim - (0.4 * 1.0 + 0.2 * 0.0)) < 1e-10
 
 
 def test_search_files(mock_sentence_transformer, temp_file):
