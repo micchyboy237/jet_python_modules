@@ -208,7 +208,7 @@ def test_search_files_chunking(temp_file):
                ['start_idx'] <= 200 for r in results)
 
 
-def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, temp_file):
+def test_search_files_with_threshold_and_yielding(temp_file):
     """
     Given: A temporary text file with known content
     When: Searching with a query, specific threshold, and iterating results
