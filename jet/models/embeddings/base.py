@@ -1,4 +1,5 @@
 from functools import lru_cache
+import sys
 import time
 import numpy as np
 from sentence_transformers import CrossEncoder, SentenceTransformer
@@ -120,7 +121,7 @@ def embed_chunks_parallel(chunk_texts: Union[str, List[str]], embed_model: Union
 
 
 # Define generic type variables
-T = TypeVar('T', List[float], np.ndarray)
+T = TypeVar('T', np.ndarray, List[List[float]])
 
 
 def generate_embeddings(
@@ -129,28 +130,9 @@ def generate_embeddings(
                  EmbedModelType] = "static-retrieval-mrl-en-v1",
     batch_size: int = 32,
     show_progress: bool = False,
-    return_format: Literal["list", "numpy"] = "list",
+    return_format: Literal["list", "numpy"] = "numpy",
     truncate_dim: Optional[int] = None,
 ) -> T:
-    """
-    Generate embeddings for a single string or list of strings using SentenceTransformer.
-
-    Args:
-        input_data: A single string or list of strings to embed.
-        model: Model name (EmbedModelType) or SentenceTransformer instance to use for embedding.
-        batch_size: Batch size for embedding multiple strings.
-        show_progress: Whether to display a progress bar for batch processing.
-        return_format: Format of the returned embeddings ("list" or "numpy").
-        truncate_dim: Optional dimension to truncate embeddings to.
-
-    Returns:
-        - If input_data is str:
-            - List[float] if return_format="list"
-            - np.ndarray if return_format="numpy"
-        - If input_data is List[str]:
-            - List[List[float]] if return_format="list"
-            - np.ndarray if return_format="numpy"
-    """
     if return_format not in ["list", "numpy"]:
         raise ValueError("return_format must be 'list' or 'numpy'")
     try:
@@ -161,7 +143,8 @@ def generate_embeddings(
         )
 
         if isinstance(input_data, str):
-            embedding = embedder.encode(input_data, convert_to_numpy=True)
+            embedding = embedder.encode(
+                input_data, convert_to_numpy=True, show_progress_bar=False)
             embedding = np.ascontiguousarray(embedding.astype(np.float32))
             if truncate_dim is not None and embedding.shape[-1] > truncate_dim:
                 embedding = embedding[:truncate_dim]
@@ -172,22 +155,20 @@ def generate_embeddings(
                 return [] if return_format == "list" else np.array([])
 
             embeddings = []
-            total_texts = len(input_data)
-            total_batches = (len(input_data) + batch_size - 1) // batch_size
-            for i in tqdm(
-                range(0, len(input_data), batch_size),
-                total=total_batches,
-                disable=not show_progress,
-                bar_format="{l_bar}{bar}| {n}/{total} batches [{elapsed}<{remaining}]"
-            ):
-                if show_progress:
-                    tqdm.write(
-                        f"Embedding texts ({i}/{total_texts} processed)")
+            total_batches = math.ceil(len(input_data) / batch_size)
+
+            if show_progress:
+                print(
+                    f"Total texts: {len(input_data)}, Batch size: {batch_size}, Total batches: {total_batches}")
+                sys.stdout.flush()
+
+            for i in range(0, len(input_data), batch_size):
                 batch = input_data[i:i + batch_size]
                 batch_embeddings = embedder.encode(
                     batch,
                     convert_to_numpy=True,
-                    batch_size=batch_size
+                    batch_size=batch_size,
+                    show_progress_bar=False
                 )
                 batch_embeddings = np.ascontiguousarray(
                     batch_embeddings.astype(np.float32))
@@ -195,8 +176,20 @@ def generate_embeddings(
                     batch_embeddings = batch_embeddings[:, :truncate_dim]
                 embeddings.extend(batch_embeddings.tolist())
 
+                if show_progress:
+                    batch_num = i // batch_size + 1
+                    print(
+                        f"\rProcessing batch {batch_num}/{total_batches} (indices {i}:{i + batch_size})", end="")
+                    print(
+                        f"\rProgress bar updated to {batch_num}/{total_batches}", end="")
+                    sys.stdout.flush()
+
+            if show_progress:
+                print()  # Newline after progress to finalize output
+                sys.stdout.flush()
+
             embeddings = np.array(embeddings, dtype=np.float32)
-            return embeddings if return_format == "numpy" else embeddings.tolist()
+            return embeddings.tolist() if return_format == "list" else embeddings
 
         else:
             logger.error(

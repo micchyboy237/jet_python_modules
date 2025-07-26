@@ -136,7 +136,7 @@ def compute_weighted_similarity(
 def search_files(
     paths: Union[str, List[str]],
     query: str,
-    extensions: List[str] = None,
+    extensions: Optional[List[str]] = None,
     top_k: int = 5,
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
@@ -161,6 +161,7 @@ def search_files(
     SentenceTransformerRegistry.load_model(embed_model)
     query_vector = generate_embeddings(
         query, embed_model, return_format="numpy")
+
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
         paths, extensions, chunk_size, chunk_overlap)
 
@@ -168,17 +169,26 @@ def search_files(
         return
 
     unique_files = list(dict.fromkeys(file_paths))
-    name_vectors = generate_embeddings(
-        [Path(p).name.lower() for p in unique_files],
-        embed_model, return_format="numpy", batch_size=32
-    )
-    dir_vectors = generate_embeddings(
-        [Path(p).parent.name.lower() or "root" for p in unique_files],
-        embed_model, return_format="numpy", batch_size=32
-    )
+    name_texts = [Path(p).name.lower() for p in unique_files]
+    dir_texts = [Path(p).parent.name.lower() or "root" for p in unique_files]
     chunk_texts = [chunk for _, chunk, _, _ in chunk_data]
-    content_vectors = generate_embeddings(
-        chunk_texts, embed_model, return_format="numpy", batch_size=32, show_progress=True)
+
+    # Combine all texts into a single list for one embedding call
+    all_texts = name_texts + dir_texts + chunk_texts
+    all_vectors = generate_embeddings(
+        all_texts,
+        embed_model,
+        return_format="numpy",
+        batch_size=32,
+        show_progress=True
+    )
+
+    # Split embeddings back into respective groups
+    num_names = len(name_texts)
+    num_dirs = len(dir_texts)
+    name_vectors = all_vectors[:num_names]
+    dir_vectors = all_vectors[num_names:num_names + num_dirs]
+    content_vectors = all_vectors[num_names + num_dirs:]
 
     results: List[FileSearchResult] = []
     chunk_counts = {}  # Track chunk index per file
@@ -188,8 +198,6 @@ def search_files(
         weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
             query_vector, name_vectors[file_index], dir_vectors[file_index], content_vector
         )
-        logging.debug(
-            f"Similarity scores for {file_path}: name={name_sim}, dir={dir_sim}, content={content_sim}, weighted={weighted_sim}")
         if weighted_sim >= threshold:
             chunk_counts[file_path] = chunk_counts.get(file_path, -1) + 1
             result = {
@@ -211,5 +219,4 @@ def search_files(
     results.sort(key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(results[:top_k], 1):
         result["rank"] = i
-        logging.debug(f"Yielding result: {result}")
         yield result
