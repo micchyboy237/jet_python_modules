@@ -226,7 +226,6 @@ def merge_results(
                 merged_results.append({
                     "rank": current_chunk["rank"],
                     "score": avg_score,
-                    "code": merged_code,
                     "metadata": {
                         "file_path": file_path,
                         "start_idx": start_idx,
@@ -236,7 +235,8 @@ def merge_results(
                         "dir_similarity": dir_sim,
                         "content_similarity": avg_content_sim,
                         "num_tokens": tokens
-                    }
+                    },
+                    "code": merged_code,
                 })
                 logger.debug(
                     f"Finalized chunk: start_idx={start_idx}, end_idx={end_idx}, tokens={tokens}")
@@ -261,7 +261,6 @@ def merge_results(
         merged_results.append({
             "rank": current_chunk["rank"],
             "score": avg_score,
-            "code": merged_code,
             "metadata": {
                 "file_path": file_path,
                 "start_idx": start_idx,
@@ -271,7 +270,8 @@ def merge_results(
                 "dir_similarity": dir_sim,
                 "content_similarity": avg_content_sim,
                 "num_tokens": tokens
-            }
+            },
+            "code": merged_code,
         })
         logger.debug(
             f"Appended final chunk: start_idx={start_idx}, end_idx={end_idx}, tokens={tokens}")
