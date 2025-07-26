@@ -6,37 +6,12 @@ from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
-from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, MarkdownToken
+from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, MarkdownToken, HeaderSearchMetadata, HeaderSearchResult
 import logging
 from jet.utils.text_constants import TEXT_CONTRACTIONS_EN
 
 DEFAULT_EMBED_MODEL: EmbedModelType = 'all-MiniLM-L6-v2'
 MAX_CONTENT_SIZE = 1000
-
-
-class HeaderSearchMetadata(TypedDict):
-    """Typed dictionary for search result metadata."""
-    doc_index: int
-    doc_id: str
-    header: str
-    level: Optional[int]
-    parent_header: Optional[str]
-    parent_level: Optional[int]
-    start_idx: int
-    end_idx: int
-    chunk_idx: int
-    header_content_similarity: float
-    headers_similarity: float
-    content_similarity: float
-    num_tokens: int
-
-
-class HeaderSearchResult(TypedDict):
-    """Typed dictionary for search result structure."""
-    rank: int
-    score: float
-    metadata: HeaderSearchMetadata
-    content: str
 
 
 def preprocess_text(
@@ -69,7 +44,7 @@ def collect_header_chunks(
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     tokenizer: Optional[Callable[[str], int]] = None
-) -> Tuple[List[int], List[str], List[str], List[Tuple[int, str, str, str, int, int, int]]]:
+) -> Tuple[List[int], List[str], List[str], List[Tuple[int, str, str, str, str, str, int, int, int]]]:
     """
     Collect chunked contents for each header along with metadata, preserving original texts.
     Args:
@@ -79,7 +54,7 @@ def collect_header_chunks(
         tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
     Returns:
         Tuple of (doc_indices, headers, headers_context, contents_with_indices)
-        where contents_with_indices = List of (doc_index, header, content_chunk, original_content_chunk, start_idx, end_idx, num_tokens)
+        where contents_with_indices = List of (doc_index, header, content_chunk, original_content_chunk, preprocessed_header, preprocessed_headers_context, start_idx, end_idx, num_tokens)
     """
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
@@ -90,7 +65,6 @@ def collect_header_chunks(
         doc_index = header_doc['doc_index']
         original_header = header_doc['header']
         header = preprocess_text(original_header)
-        # Concatenate immediate header with parent headers for headers_sim
         original_parents = header_doc.get('parent_headers', [])
         parent_text = '\n'.join(original_parents) if original_parents else ''
         headers_context_text = f"{original_header}\n{parent_text}" if parent_text else original_header
@@ -118,7 +92,7 @@ def collect_header_chunks(
                     logger.info(
                         f"Truncated content chunk to 512 tokens for doc_index {doc_index}, start_idx {start}")
                 contents_with_indices.append(
-                    (doc_index, header, chunk, original_chunk, start, end, num_tokens))
+                    (doc_index, header, chunk, original_chunk, header, headers_context_processed, start, end, num_tokens))
     return doc_indices, headers, headers_context, contents_with_indices
 
 
@@ -149,11 +123,9 @@ def compute_weighted_similarity(
     content_sim = 0.0
     if content_vector is not None:
         content_sim = cosine_similarity(query_vector, content_vector)
-    # Dynamic weighting based on content length and header depth
     content_weight = 0.4 if content_tokens >= 100 else 0.4
     headers_weight = 0.3 if header_level is None or header_level <= 2 else 0.4
     header_content_weight = 0.3 if content_tokens >= 100 else 0.3
-    # Ensure weights sum to 1.0
     total = content_weight + headers_weight + header_content_weight
     content_weight /= total
     headers_weight /= total
@@ -201,16 +173,22 @@ def merge_results(
         content_sims = [current_chunk["metadata"]["content_similarity"]]
         chunk_count = 1
         tokens = tokenizer(merged_content)
+        preprocessed_header = current_chunk["metadata"]["preprocessed_header"]
+        preprocessed_headers_context = current_chunk["metadata"]["preprocessed_headers_context"]
+        preprocessed_content = current_chunk["metadata"]["preprocessed_content"]
         for next_chunk in chunks[1:]:
             next_start = next_chunk["metadata"]["start_idx"]
             next_end = next_chunk["metadata"]["end_idx"]
             next_content = next_chunk["content"]
+            next_preprocessed_content = next_chunk["metadata"]["preprocessed_content"]
             if next_start <= end_idx:
                 new_end = max(end_idx, next_end)
                 overlap = end_idx - next_start
                 additional_content = next_content[overlap:
                                                   ] if overlap > 0 else next_content
                 merged_content += additional_content
+                preprocessed_content += " " + \
+                    next_preprocessed_content[overlap:] if overlap > 0 else next_preprocessed_content
                 end_idx = new_end
                 total_score += next_chunk["score"]
                 content_sims.append(
@@ -236,7 +214,10 @@ def merge_results(
                         "header_content_similarity": header_content_sim,
                         "headers_similarity": headers_sim,
                         "content_similarity": avg_content_sim,
-                        "num_tokens": tokens
+                        "num_tokens": tokens,
+                        "preprocessed_header": preprocessed_header,
+                        "preprocessed_headers_context": preprocessed_headers_context,
+                        "preprocessed_content": preprocessed_content
                     },
                     "content": merged_content,
                 })
@@ -251,6 +232,9 @@ def merge_results(
                                 ["content_similarity"]]
                 chunk_count = 1
                 tokens = tokenizer(merged_content)
+                preprocessed_header = current_chunk["metadata"]["preprocessed_header"]
+                preprocessed_headers_context = current_chunk["metadata"]["preprocessed_headers_context"]
+                preprocessed_content = current_chunk["metadata"]["preprocessed_content"]
         avg_score = total_score / chunk_count
         avg_content_sim = sum(content_sims) / chunk_count
         merged_results.append({
@@ -269,7 +253,10 @@ def merge_results(
                 "header_content_similarity": header_content_sim,
                 "headers_similarity": headers_sim,
                 "content_similarity": avg_content_sim,
-                "num_tokens": tokens
+                "num_tokens": tokens,
+                "preprocessed_header": preprocessed_header,
+                "preprocessed_headers_context": preprocessed_headers_context,
+                "preprocessed_content": preprocessed_content
             },
             "content": merged_content,
         })
@@ -306,7 +293,7 @@ def search_headers(
     header_texts = [headers[doc_indices.index(idx)] for idx in unique_docs]
     parent_texts = [
         headers_context[doc_indices.index(idx)] for idx in unique_docs]
-    chunk_texts = [chunk for _, _, chunk, _, _, _, _ in chunk_data]
+    chunk_texts = [chunk for _, _, chunk, _, _, _, _, _, _ in chunk_data]
     all_texts = [query_processed] + header_texts + parent_texts + chunk_texts
     logger.info(
         f"Generating embeddings for {len(all_texts)} texts:\n"
@@ -330,7 +317,7 @@ def search_headers(
     content_vectors = all_vectors[num_headers + 1 + num_parents:]
     results: List[HeaderSearchResult] = []
     chunk_counts = {}
-    for i, (doc_index, header, chunk, original_chunk, start_idx, end_idx, num_tokens) in enumerate(chunk_data):
+    for i, (doc_index, header, chunk, original_chunk, preprocessed_header, preprocessed_headers_context, start_idx, end_idx, num_tokens) in enumerate(chunk_data):
         unique_doc_idx = unique_docs.index(doc_index)
         header_doc = next(
             hd for hd in header_docs if hd['doc_index'] == doc_index)
@@ -357,7 +344,10 @@ def search_headers(
                     "header_content_similarity": float(header_content_sim),
                     "headers_similarity": float(headers_sim),
                     "content_similarity": float(content_sim),
-                    "num_tokens": num_tokens
+                    "num_tokens": num_tokens,
+                    "preprocessed_header": preprocessed_header,
+                    "preprocessed_headers_context": preprocessed_headers_context,
+                    "preprocessed_content": chunk
                 },
                 "content": original_chunk,
             }

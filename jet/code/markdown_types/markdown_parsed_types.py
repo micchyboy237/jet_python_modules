@@ -1,7 +1,5 @@
 from typing import TypedDict, List, Optional, Literal, Union
 
-# For parse_markdown
-
 
 class ListItem(TypedDict, total=False):
     text: str
@@ -41,7 +39,7 @@ class MarkdownToken(TypedDict):
     type: ContentType
     content: str
     level: Optional[int]
-    meta: Optional[MetaType]  # Allow None for meta
+    meta: Optional[MetaType]
     line: int
 
 
@@ -57,6 +55,34 @@ class HeaderDoc(TypedDict):
     tokens: List[MarkdownToken]
 
 
+class HeaderSearchMetadata(TypedDict):
+    """Typed dictionary for search result metadata."""
+    doc_index: int
+    doc_id: str
+    header: str
+    level: Optional[int]
+    parent_header: Optional[str]
+    parent_level: Optional[int]
+    start_idx: int
+    end_idx: int
+    chunk_idx: int
+    header_content_similarity: float
+    headers_similarity: float
+    content_similarity: float
+    num_tokens: int
+    preprocessed_header: str
+    preprocessed_headers_context: str
+    preprocessed_content: str
+
+
+class HeaderSearchResult(TypedDict):
+    """Typed dictionary for search result structure."""
+    rank: int
+    score: float
+    metadata: HeaderSearchMetadata
+    content: str
+
+
 __all__ = [
     "ListItem",
     "CodeMeta",
@@ -66,4 +92,6 @@ __all__ = [
     "ContentType",
     "MarkdownToken",
     "HeaderDoc",
+    "HeaderSearchMetadata",
+    "HeaderSearchResult",
 ]
