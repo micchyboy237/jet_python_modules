@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 import logging
@@ -157,8 +158,9 @@ def search_files(
     Returns:
         Iterator of FileSearchResult dictionaries (ranked by similarity)
     """
-    model = SentenceTransformerRegistry.load_model(embed_model)
-    query_vector = model.encode(query, convert_to_numpy=True)
+    SentenceTransformerRegistry.load_model(embed_model)
+    query_vector = generate_embeddings(
+        query, embed_model, return_format="numpy")
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
         paths, extensions, chunk_size, chunk_overlap)
 
@@ -166,17 +168,17 @@ def search_files(
         return
 
     unique_files = list(dict.fromkeys(file_paths))
-    name_vectors = model.encode(
+    name_vectors = generate_embeddings(
         [Path(p).name.lower() for p in unique_files],
-        convert_to_numpy=True, batch_size=32
+        embed_model, return_format="numpy", batch_size=32
     )
-    dir_vectors = model.encode(
+    dir_vectors = generate_embeddings(
         [Path(p).parent.name.lower() or "root" for p in unique_files],
-        convert_to_numpy=True, batch_size=32
+        embed_model, return_format="numpy", batch_size=32
     )
     chunk_texts = [chunk for _, chunk, _, _ in chunk_data]
-    content_vectors = model.encode(
-        chunk_texts, convert_to_numpy=True, batch_size=32, show_progress_bar=True)
+    content_vectors = generate_embeddings(
+        chunk_texts, embed_model, return_format="numpy", batch_size=32, show_progress=True)
 
     results: List[FileSearchResult] = []
     chunk_counts = {}  # Track chunk index per file
