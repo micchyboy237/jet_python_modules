@@ -8,6 +8,7 @@ from jet.vectors.semantic_search.file_vector_search import (
     cosine_similarity,
     collect_file_chunks,
     compute_weighted_similarity,
+    merge_results,
     search_files,
     FileSearchResult,
     DEFAULT_EMBED_MODEL,
@@ -242,3 +243,237 @@ def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, tem
                       float), "Dir similarity should be float"
     assert isinstance(results[0]['metadata']['content_similarity'],
                       float), "Content similarity should be float"
+
+
+class TestMergeResults:
+    def test_merge_adjacent_chunks(self, tmp_path):
+        """
+        Given: Multiple adjacent chunks from the same file
+        When: Merging results
+        Then: Combines into a single result with correct content and metadata
+        """
+        file_path = str(tmp_path / "test.txt")
+        content = "first chunk second chunk"
+        with open(file_path, 'w') as f:
+            f.write(content)
+
+        results = [
+            {
+                "rank": 1,
+                "score": 0.8,
+                "code": "first chunk ",
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": 0,
+                    "end_idx": 12,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.9
+                }
+            },
+            {
+                "rank": 2,
+                "score": 0.7,
+                "code": "second chunk",
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": 12,
+                    "end_idx": 23,
+                    "chunk_idx": 1,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.8
+                }
+            }
+        ]
+        expected = [
+            {
+                "rank": 1,
+                "score": 0.75,  # Average of 0.8 and 0.7
+                "code": "first chunk second chunk",
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": 0,
+                    "end_idx": 23,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.85  # Average of 0.9 and 0.8
+                }
+            }
+        ]
+        merged = merge_results(results)
+        assert len(merged) == 1
+        assert merged[0]["code"] == expected[0]["code"]
+        assert merged[0]["metadata"]["start_idx"] == expected[0]["metadata"]["start_idx"]
+        assert merged[0]["metadata"]["end_idx"] == expected[0]["metadata"]["end_idx"]
+        assert merged[0]["metadata"]["chunk_idx"] == expected[0]["metadata"]["chunk_idx"]
+        assert abs(merged[0]["score"] - expected[0]["score"]) < 1e-10
+        assert abs(merged[0]["metadata"]["content_similarity"] -
+                   expected[0]["metadata"]["content_similarity"]) < 1e-10
+        assert merged[0]["metadata"]["name_similarity"] == expected[0]["metadata"]["name_similarity"]
+        assert merged[0]["metadata"]["dir_similarity"] == expected[0]["metadata"]["dir_similarity"]
+
+    def test_non_adjacent_chunks(self, tmp_path):
+        """
+        Given: Non-adjacent chunks from the same file
+        When: Merging results
+        Then: Keeps chunks separate with correct metadata
+        """
+        file_path = str(tmp_path / "test.txt")
+        results = [
+            {
+                "rank": 1,
+                "score": 0.8,
+                "code": "first chunk",
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": 0,
+                    "end_idx": 11,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.9
+                }
+            },
+            {
+                "rank": 2,
+                "score": 0.7,
+                "code": "second chunk",
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": 20,
+                    "end_idx": 31,
+                    "chunk_idx": 1,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.8
+                }
+            }
+        ]
+        expected = [
+            {
+                "rank": 1,
+                "score": 0.8,
+                "code": "first chunk",
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": 0,
+                    "end_idx": 11,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.9
+                }
+            },
+            {
+                "rank": 2,
+                "score": 0.7,
+                "code": "second chunk",
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": 20,
+                    "end_idx": 31,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.8
+                }
+            }
+        ]
+        merged = merge_results(results)
+        assert len(merged) == 2
+        for i in range(2):
+            assert merged[i]["code"] == expected[i]["code"]
+            assert merged[i]["metadata"]["start_idx"] == expected[i]["metadata"]["start_idx"]
+            assert merged[i]["metadata"]["end_idx"] == expected[i]["metadata"]["end_idx"]
+            assert merged[i]["metadata"]["chunk_idx"] == expected[i]["metadata"]["chunk_idx"]
+            assert merged[i]["score"] == expected[i]["score"]
+            assert merged[i]["metadata"]["content_similarity"] == expected[i]["metadata"]["content_similarity"]
+
+    def test_multiple_files(self, tmp_path):
+        """
+        Given: Chunks from different files
+        When: Merging results
+        Then: Groups by file and merges adjacent chunks correctly
+        """
+        file1 = str(tmp_path / "file1.txt")
+        file2 = str(tmp_path / "file2.txt")
+        results = [
+            {
+                "rank": 1,
+                "score": 0.8,
+                "code": "file1 chunk1",
+                "metadata": {
+                    "file_path": file1,
+                    "start_idx": 0,
+                    "end_idx": 12,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.9
+                }
+            },
+            {
+                "rank": 2,
+                "score": 0.7,
+                "code": "file2 chunk1",
+                "metadata": {
+                    "file_path": file2,
+                    "start_idx": 0,
+                    "end_idx": 12,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.6,
+                    "dir_similarity": 0.5,
+                    "content_similarity": 0.8
+                }
+            }
+        ]
+        expected = [
+            {
+                "rank": 1,
+                "score": 0.8,
+                "code": "file1 chunk1",
+                "metadata": {
+                    "file_path": file1,
+                    "start_idx": 0,
+                    "end_idx": 12,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.9
+                }
+            },
+            {
+                "rank": 2,
+                "score": 0.7,
+                "code": "file2 chunk1",
+                "metadata": {
+                    "file_path": file2,
+                    "start_idx": 0,
+                    "end_idx": 12,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.6,
+                    "dir_similarity": 0.5,
+                    "content_similarity": 0.8
+                }
+            }
+        ]
+        merged = merge_results(results)
+        assert len(merged) == 2
+        for i in range(2):
+            assert merged[i]["code"] == expected[i]["code"]
+            assert merged[i]["metadata"]["file_path"] == expected[i]["metadata"]["file_path"]
+            assert merged[i]["score"] == expected[i]["score"]
+
+    def test_empty_results(self):
+        """
+        Given: An empty list of results
+        When: Merging results
+        Then: Returns an empty list
+        """
+        results = []
+        expected = []
+        merged = merge_results(results)
+        assert merged == expected

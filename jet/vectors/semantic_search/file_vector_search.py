@@ -134,6 +134,109 @@ def compute_weighted_similarity(
     return weighted_sim, name_sim, dir_sim, content_sim
 
 
+def merge_results(results: List[FileSearchResult]) -> List[FileSearchResult]:
+    """
+    Merge adjacent chunks from the same file into a single result, preserving order and metadata.
+    Args:
+        results: List of FileSearchResult dictionaries, potentially containing adjacent chunks.
+    Returns:
+        List of FileSearchResult dictionaries with adjacent chunks merged.
+    """
+    if not results:
+        return []
+
+    # Group results by file_path
+    grouped: dict[str, List[FileSearchResult]] = {}
+    for result in results:
+        file_path = result["metadata"]["file_path"]
+        if file_path not in grouped:
+            grouped[file_path] = []
+        grouped[file_path].append(result)
+
+    merged_results: List[FileSearchResult] = []
+    for file_path, chunks in grouped.items():
+        # Sort chunks by start_idx to ensure correct order
+        chunks.sort(key=lambda x: x["metadata"]["start_idx"])
+
+        current_chunk = chunks[0]
+        merged_code = current_chunk["code"]
+        start_idx = current_chunk["metadata"]["start_idx"]
+        end_idx = current_chunk["metadata"]["end_idx"]
+        total_score = current_chunk["score"]
+        name_sim = current_chunk["metadata"]["name_similarity"]
+        dir_sim = current_chunk["metadata"]["dir_similarity"]
+        content_sims = [current_chunk["metadata"]["content_similarity"]]
+        chunk_count = 1
+
+        for next_chunk in chunks[1:]:
+            # Check if chunks are adjacent or overlapping
+            if next_chunk["metadata"]["start_idx"] <= end_idx:
+                # Extend the merged content
+                new_end = max(end_idx, next_chunk["metadata"]["end_idx"])
+                additional_content = next_chunk["code"][end_idx -
+                                                        next_chunk["metadata"]["start_idx"]:]
+                merged_code += additional_content
+                end_idx = new_end
+                total_score += next_chunk["score"]
+                content_sims.append(
+                    next_chunk["metadata"]["content_similarity"])
+                chunk_count += 1
+            else:
+                # Finalize current merged chunk
+                avg_score = total_score / chunk_count
+                avg_content_sim = sum(content_sims) / chunk_count
+                merged_results.append({
+                    "rank": current_chunk["rank"],
+                    "score": avg_score,
+                    "code": merged_code,
+                    "metadata": {
+                        "file_path": file_path,
+                        "start_idx": start_idx,
+                        "end_idx": end_idx,
+                        "chunk_idx": 0,  # Merged chunk gets index 0
+                        "name_similarity": name_sim,
+                        "dir_similarity": dir_sim,
+                        "content_similarity": avg_content_sim
+                    }
+                })
+                # Start new merged chunk
+                current_chunk = next_chunk
+                merged_code = current_chunk["code"]
+                start_idx = current_chunk["metadata"]["start_idx"]
+                end_idx = current_chunk["metadata"]["end_idx"]
+                total_score = current_chunk["score"]
+                name_sim = current_chunk["metadata"]["name_similarity"]
+                dir_sim = current_chunk["metadata"]["dir_similarity"]
+                content_sims = [current_chunk["metadata"]
+                                ["content_similarity"]]
+                chunk_count = 1
+
+        # Append the last merged chunk for this file
+        avg_score = total_score / chunk_count
+        avg_content_sim = sum(content_sims) / chunk_count
+        merged_results.append({
+            "rank": current_chunk["rank"],
+            "score": avg_score,
+            "code": merged_code,
+            "metadata": {
+                "file_path": file_path,
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+                "chunk_idx": 0,
+                "name_similarity": name_sim,
+                "dir_similarity": dir_sim,
+                "content_similarity": avg_content_sim
+            }
+        })
+
+    # Re-sort by score to maintain ranking
+    merged_results.sort(key=lambda x: x["score"], reverse=True)
+    for i, result in enumerate(merged_results, 1):
+        result["rank"] = i
+
+    return merged_results
+
+
 def search_files(
     paths: Union[str, List[str]],
     query: str,
