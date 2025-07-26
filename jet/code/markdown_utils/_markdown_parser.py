@@ -20,32 +20,43 @@ from jet.logger import logger
 # @timeout(3)
 def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> List[MarkdownToken]:
     md_content = read_md_content(input, ignore_links=ignore_links)
-    # Preprocess markdown
     md_content = preprocess_markdown(md_content)
     parser = MarkdownParser(md_content)
     md_tokens: List[MarkdownToken] = make_serializable(parser.parse())
-    # Ensure all tokens have required attributes with defaults
+
+    # Split paragraph tokens by newlines to ensure each line is a separate token
+    split_tokens: List[MarkdownToken] = []
     for token in md_tokens:
-        # Ensure type is present
+        if token.get('type', 'paragraph') == 'paragraph' and '\n' in token.get('content', ''):
+            lines = token['content'].split('\n')
+            for i, line in enumerate(lines):
+                if line.strip():  # Only include non-empty lines
+                    split_tokens.append({
+                        'type': 'paragraph',
+                        'content': line,
+                        'level': None,
+                        'meta': token.get('meta', {}),
+                        'line': token.get('line', 1) + i
+                    })
+        else:
+            split_tokens.append(token)
+
+    # Ensure all tokens have required fields
+    for token in split_tokens:
         if 'type' not in token:
             token['type'] = 'paragraph'
-
-        # Ensure content is present
         if 'content' not in token:
             token['content'] = ''
-
-        # Ensure level is present (can be None for non-header tokens)
         if 'level' not in token:
             token['level'] = None
-
-        # Ensure meta is present
         if 'meta' not in token:
             token['meta'] = {}
-
-        # Ensure line is present
         if 'line' not in token:
             token['line'] = 1
-    return md_tokens
+
+    tokens_with_new_headers_by_type = prepend_missing_headers_by_type(
+        split_tokens)
+    return tokens_with_new_headers_by_type
 
 
 def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
@@ -184,15 +195,12 @@ def remove_header_placeholders(markdown_tokens: List[MarkdownToken]) -> List[Mar
 
 
 def remove_leading_non_headers(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
-    """Remove all tokens at the start until the first header token is encountered."""
-
+    """Remove all tokens at the start until the first header token is encountered, unless no headers exist."""
     for i, token in enumerate(markdown_tokens):
         if token['type'] == 'header':
             filtered_tokens = markdown_tokens[i:]
             return filtered_tokens
-
-    # If no header is found, return empty list
-    return []
+    return markdown_tokens.copy()
 
 
 def merge_headers_with_content(markdown_tokens: List[MarkdownToken]) -> List[MarkdownToken]:
@@ -247,22 +255,18 @@ def merge_headers_with_content(markdown_tokens: List[MarkdownToken]) -> List[Mar
 def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_headers: bool = True, ignore_links: bool = False) -> List[MarkdownToken]:
     """
     Parse markdown content into a list of structured tokens using MarkdownParser.
-
     Args:
         input: Either a string containing markdown content or a Path to a markdown file.
         merge_contents: If True, merge consecutive paragraph and unordered list tokens into single tokens. Defaults to True.
         merge_headers: If True, merge headers with their succeeding non-header tokens into single header tokens. Defaults to False.
         ignore_links: If True, remove or ignore links during HTML to Markdown conversion. Defaults to False.
-
     Returns:
         A list of dictionaries representing parsed markdown tokens with their type, content, and metadata.
-
     Raises:
         OSError: If the input file does not exist.
         TimeoutError: If parsing takes too long.
     """
     try:
-        # Check if input ends with .html or .md
         input_str = str(input)
         if input_str.endswith('.html'):
             html = read_html_content(input)
@@ -272,7 +276,6 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         elif input_str.endswith('.md'):
             md_content = read_md_content(input, ignore_links=ignore_links)
         else:
-            # Try HTML first, fallback to markdown
             try:
                 html = read_html_content(input)
                 html = add_list_table_header_placeholders(html)
@@ -285,7 +288,6 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
             """Prepend hashtags to header tokens based on their level."""
             for token in markdown_tokens:
                 if token['type'] == 'header' and token['level']:
-                    # Add the appropriate number of hashtags based on header level
                     hashtags = '#' * token['level']
                     if not token['content'].startswith(hashtags):
                         token['content'] = f"{hashtags} {token['content']}"
@@ -312,7 +314,6 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
             for token in tokens
         ]
         return parsed_tokens
-
     except TimeoutError as e:
         logger.error(f"Parsing timed out: {str(e)}")
         raise
@@ -337,26 +338,21 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
         md_content, merge_headers=False, merge_contents=False, ignore_links=ignore_links)
     sections: List[HeaderDoc] = []
     current_section: Optional[HeaderDoc] = None
-    header_stack = []  # Stack to track (header, level, section_idx)
-    current_tokens = []  # Track tokens for the current section
-    section_index = 0  # Track the index for doc_index
-
+    header_stack = []
+    current_tokens = []
+    section_index = 0
     for token in tokens:
         token_type = token.get("type")
         token_content = token.get("content", "")
         token_level = token.get("level", None)
-
         if token_type == "header":
-            # Before starting a new section, finalize the current one
             if current_section:
                 current_section["content"] = "\n".join(
                     current_section["content"])
                 current_section["tokens"] = current_tokens
                 sections.append(current_section)
-                section_index += 1  # Increment index for the next section
-            # Reset tokens for the new section
+                section_index += 1
             current_tokens = [token]
-            # Determine parent_header and parent_level using header_stack
             parent_header = None
             parent_level = None
             while header_stack and header_stack[-1][1] >= token_level:
@@ -364,24 +360,20 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
             if header_stack:
                 parent_header = header_stack[-1][0]
                 parent_level = header_stack[-1][1]
-            # Create new section with unique doc_id and doc_index
             current_section = {
-                "doc_index": section_index,  # Assign current index
+                "doc_index": section_index,
                 "doc_id": generate_unique_id(),
                 "header": token_content.splitlines()[0] if token_content else "",
-                "content": [],  # Start with empty list for content
+                "content": [],
                 "level": token_level,
                 "parent_header": parent_header,
                 "parent_level": parent_level,
-                "tokens": [],  # Will be populated when section is finalized
+                "tokens": [],
             }
-            # Push this header onto the stack
             header_stack.append(
                 (current_section["header"], token_level, section_index))
         else:
-            # Non-header: add to current section's content and tokens
             if current_section is None:
-                # If no header yet, create a dummy section with unique doc_id and doc_index
                 current_section = {
                     "doc_index": section_index,
                     "doc_id": generate_unique_id(),
@@ -394,13 +386,10 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
                 }
             current_section["content"].extend(token_content.splitlines())
             current_tokens.append(token)
-
-    # Add the last section if it exists
     if current_section:
         current_section["content"] = "\n".join(current_section["content"])
         current_section["tokens"] = current_tokens
         sections.append(current_section)
-
     return sections
 
 
@@ -489,6 +478,100 @@ def add_list_table_header_placeholders(html: str) -> str:
     return re.sub(r'</(ol|ul|table)>', r'</\1><h1>placeholder</h1>', html, flags=re.IGNORECASE)
 
 
+def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
+    result: List[MarkdownToken] = []
+    last_header = None
+    pending_paragraphs: List[MarkdownToken] = []
+    current_line = 1  # Start at line 1
+    after_non_paragraph = False  # Track if we're after a non-paragraph, non-header token
+
+    for token in tokens:
+        logger.debug(
+            f"Processing token: {token['type']}, content: {token['content'][:30]}")
+        # Create a copy of the token to modify its line number
+        token_copy = token.copy()
+
+        if token["type"] == "header":
+            last_header = token["content"]
+            logger.debug(f"Updated last_header: {last_header}")
+            # Append any pending paragraphs before the header
+            for para in pending_paragraphs:
+                para_copy = para.copy()
+                para_copy["line"] = current_line
+                logger.debug(
+                    f"Appending paragraph before header: {para_copy['content'][:30]}, line: {current_line}")
+                result.append(para_copy)
+                current_line += 1
+            pending_paragraphs = []
+            token_copy["line"] = current_line
+            result.append(token_copy)
+            logger.debug(
+                f"Appended header: {token_copy['content']}, line: {current_line}")
+            current_line += 1
+            after_non_paragraph = False
+
+        elif token["type"] == "paragraph":
+            pending_paragraphs.append(token_copy)
+            logger.debug(
+                f"Added to pending paragraphs: {token_copy['content'][:30]}")
+
+        else:  # Non-header, non-paragraph token
+            # If we're not after a non-paragraph token, append paragraphs before the new header
+            if not after_non_paragraph:
+                for para in pending_paragraphs:
+                    para_copy = para.copy()
+                    para_copy["line"] = current_line
+                    logger.debug(
+                        f"Appending paragraph before {token['type']}: {para_copy['content'][:30]}, line: {current_line}")
+                    result.append(para_copy)
+                    current_line += 1
+                pending_paragraphs = []
+
+            if last_header:
+                # Insert new header before the token
+                new_header = {
+                    "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
+                    "line": current_line,
+                    "type": "header",
+                    "level": 2,
+                    "meta": {}
+                }
+                logger.debug(
+                    f"Inserting new header: {new_header['content']}, line: {current_line}")
+                result.append(new_header)
+                current_line += 1
+
+            # Append any remaining paragraphs after the header but before the token
+            for para in pending_paragraphs:
+                para_copy = para.copy()
+                para_copy["line"] = current_line
+                logger.debug(
+                    f"Appending paragraph after {token['type']} header: {para_copy['content'][:30]}, line: {current_line}")
+                result.append(para_copy)
+                current_line += 1
+            pending_paragraphs = []
+
+            token_copy["line"] = current_line
+            result.append(token_copy)
+            logger.debug(
+                f"Appended {token['type']}: {token_copy['content'][:30]}, line: {current_line}")
+            current_line += 1
+            after_non_paragraph = True
+
+    # Append any remaining paragraphs
+    for para in pending_paragraphs:
+        para_copy = para.copy()
+        para_copy["line"] = current_line
+        logger.debug(
+            f"Appending remaining paragraph: {para_copy['content'][:30]}, line: {current_line}")
+        result.append(para_copy)
+        current_line += 1
+
+    logger.debug(
+        f"Final result: {[f'{t['type']}: {t['content'][:30]} (line {t['line']})' for t in result]}")
+    return result
+
+
 __all__ = [
     "base_parse_markdown",
     "merge_tokens",
@@ -497,4 +580,5 @@ __all__ = [
     "merge_headers_with_content",
     "parse_markdown",
     "derive_text",
+    "prepend_missing_headers_by_type",
 ]
