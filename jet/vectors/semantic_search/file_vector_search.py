@@ -30,8 +30,8 @@ class FileSearchResult(TypedDict):
     """Typed dictionary for search result structure."""
     rank: int
     score: float
-    code: str
     metadata: FileSearchMetadata
+    code: str
 
 
 def get_file_vectors(file_path: str, embed_model: EmbedModelType = DEFAULT_EMBED_MODEL) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
@@ -361,7 +361,6 @@ def search_files(
             result = {
                 "rank": 0,
                 "score": float(weighted_sim),
-                "code": chunk,
                 "metadata": {
                     "file_path": file_path,
                     "start_idx": start_idx,
@@ -371,7 +370,8 @@ def search_files(
                     "dir_similarity": float(dir_sim),
                     "content_similarity": float(content_sim),
                     "num_tokens": num_tokens
-                }
+                },
+                "code": chunk,
             }
             results.append(result)
     results.sort(key=lambda x: x["score"], reverse=True)
