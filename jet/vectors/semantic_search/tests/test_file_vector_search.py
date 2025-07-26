@@ -166,7 +166,7 @@ def test_compute_weighted_similarity_no_content():
 def test_search_files(mock_sentence_transformer, temp_file):
     """
     Given: A temporary text file with known content
-    When: Searching with a query, specific extensions, and optional tokenizer
+    When: Searching with a query, specific extensions, optional tokenizer, and split_chunks
     Then: Returns a list of up to top_k results with expected structure and token count
     """
     query = "test query"
@@ -178,7 +178,7 @@ def test_search_files(mock_sentence_transformer, temp_file):
     expected_num_tokens_default = 5  # "this", "is", "a", "test", "content"
     expected_num_tokens_custom = 5   # Same for this content with space-based tokenizer
 
-    # Test with default tokenizer
+    # Test with default tokenizer, merging chunks (split_chunks=False)
     results = list(search_files(temp_file, query,
                    extensions=['.txt'], top_k=top_k))
     assert isinstance(results, list)
@@ -197,11 +197,18 @@ def test_search_files(mock_sentence_transformer, temp_file):
     assert results[0]['metadata'][
         'num_tokens'] == expected_num_tokens_default, f"Expected {expected_num_tokens_default} tokens, got {results[0]['metadata']['num_tokens']}"
 
-    # Test with custom tokenizer
+    # Test with custom tokenizer, merging chunks (split_chunks=False)
     results = list(search_files(temp_file, query, extensions=[
                    '.txt'], top_k=top_k, tokenizer=custom_tokenizer))
     assert results[0]['metadata'][
         'num_tokens'] == expected_num_tokens_custom, f"Expected {expected_num_tokens_custom} tokens with custom tokenizer, got {results[0]['metadata']['num_tokens']}"
+
+    # Test with split_chunks=True (single chunk, so same result)
+    results = list(search_files(temp_file, query, extensions=[
+                   '.txt'], top_k=top_k, split_chunks=True))
+    assert len(results) == 1
+    assert results[0]['code'] == expected_content
+    assert results[0]['metadata']['num_tokens'] == expected_num_tokens_default
 
 
 def test_search_files_no_results(mock_sentence_transformer, tmp_path):
@@ -221,7 +228,7 @@ def test_search_files_no_results(mock_sentence_transformer, tmp_path):
 def test_search_files_chunking(temp_file):
     """
     Given: A temporary text file with content exceeding chunk size
-    When: Searching with a query, chunk parameters, optional tokenizer, and merge_chunks
+    When: Searching with a query, chunk parameters, optional tokenizer, and split_chunks
     Then: Returns chunked or merged results with correct sizes, indices, and token counts
     """
     content = "word " * 200  # 200 words + 199 spaces
@@ -232,42 +239,42 @@ def test_search_files_chunking(temp_file):
     chunk_size = 200
     chunk_overlap = 50
 
-    # Test with default tokenizer, no merging
+    # Test with default tokenizer, merging chunks (split_chunks=False)
     results_default = list(search_files(
         temp_file, "test query", chunk_size=chunk_size, chunk_overlap=chunk_overlap))
-    assert len(results_default) > 1
-    assert all(r['metadata']['end_idx'] - r['metadata']
-               ['start_idx'] <= chunk_size for r in results_default)
-    assert all(isinstance(r['metadata']['chunk_idx'], int)
-               for r in results_default), "All chunk_idx should be integers"
-    assert [r['metadata']['chunk_idx'] for r in results_default] == list(range(len(
-        results_default))), f"Expected chunk indices 0 to {len(results_default)-1}, got {[r['metadata']['chunk_idx'] for r in results_default]}"
-    for r in results_default:
-        expected_tokens = len(re.findall(r'\b\w+\b|[^\w\s]', r['code']))
-        assert r['metadata']['num_tokens'] == expected_tokens, f"Expected {expected_tokens} tokens, got {r['metadata']['num_tokens']}"
+    assert len(results_default) == 1, "Expected one merged result"
+    assert results_default[0]['code'] == content, "Expected full content after merging"
+    expected_tokens_merged = len(re.findall(r'\b\w+\b|[^\w\s]', content))
+    assert results_default[0]['metadata'][
+        'num_tokens'] == expected_tokens_merged, f"Expected {expected_tokens_merged} tokens, got {results_default[0]['metadata']['num_tokens']}"
+    assert results_default[0]['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for merged result"
 
-    # Test with custom tokenizer, no merging
+    # Test with custom tokenizer, merging chunks (split_chunks=False)
     results_custom = list(search_files(temp_file, "test query", chunk_size=chunk_size,
                           chunk_overlap=chunk_overlap, tokenizer=custom_tokenizer))
-    for r in results_custom:
-        expected_tokens = len(r['code'].split())
-        assert r['metadata']['num_tokens'] == expected_tokens, f"Expected {expected_tokens} tokens with custom tokenizer, got {r['metadata']['num_tokens']}"
+    expected_tokens_merged_custom = len(content.split())
+    assert results_custom[0]['metadata'][
+        'num_tokens'] == expected_tokens_merged_custom, f"Expected {expected_tokens_merged_custom} tokens with custom tokenizer, got {results_custom[0]['metadata']['num_tokens']}"
 
-    # Test with merge_chunks=True
-    results_merged = list(search_files(temp_file, "test query",
-                          chunk_size=chunk_size, chunk_overlap=chunk_overlap, merge_chunks=True))
-    assert len(results_merged) == 1, "Expected one merged result"
-    assert results_merged[0]['code'] == content, "Expected full content after merging"
-    expected_tokens_merged = len(re.findall(r'\b\w+\b|[^\w\s]', content))
-    assert results_merged[0]['metadata'][
-        'num_tokens'] == expected_tokens_merged, f"Expected {expected_tokens_merged} tokens, got {results_merged[0]['metadata']['num_tokens']}"
-    assert results_merged[0]['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for merged result"
+    # Test with split_chunks=True
+    results_split = list(search_files(temp_file, "test query",
+                         chunk_size=chunk_size, chunk_overlap=chunk_overlap, split_chunks=True))
+    assert len(results_split) > 1
+    assert all(r['metadata']['end_idx'] - r['metadata']
+               ['start_idx'] <= chunk_size for r in results_split)
+    assert all(isinstance(r['metadata']['chunk_idx'], int)
+               for r in results_split), "All chunk_idx should be integers"
+    assert [r['metadata']['chunk_idx'] for r in results_split] == list(range(len(
+        results_split))), f"Expected chunk indices 0 to {len(results_split)-1}, got {[r['metadata']['chunk_idx'] for r in results_split]}"
+    for r in results_split:
+        expected_tokens = len(re.findall(r'\b\w+\b|[^\w\s]', r['code']))
+        assert r['metadata']['num_tokens'] == expected_tokens, f"Expected {expected_tokens} tokens, got {r['metadata']['num_tokens']}"
 
 
 def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, temp_file):
     """
     Given: A temporary text file with known content
-    When: Searching with a query, threshold, top_k, optional tokenizer, and merge_chunks
+    When: Searching with a query, threshold, top_k, optional tokenizer, and split_chunks
     Then: Yields up to top_k results above threshold with expected structure and token count
     """
     query = "test query"
@@ -279,7 +286,7 @@ def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, tem
     expected_num_tokens_default = 5  # "this", "is", "a", "test", "content"
     expected_num_tokens_custom = 5
 
-    # Test with default tokenizer, no merging
+    # Test with default tokenizer, merging chunks (split_chunks=False)
     results = []
     for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold):
         results.append(result)
@@ -302,16 +309,16 @@ def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, tem
     assert results[0]['metadata'][
         'num_tokens'] == expected_num_tokens_default, f"Expected {expected_num_tokens_default} tokens, got {results[0]['metadata']['num_tokens']}"
 
-    # Test with custom tokenizer, no merging
+    # Test with custom tokenizer, merging chunks (split_chunks=False)
     results = []
     for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold, tokenizer=custom_tokenizer):
         results.append(result)
     assert results[0]['metadata'][
         'num_tokens'] == expected_num_tokens_custom, f"Expected {expected_num_tokens_custom} tokens with custom tokenizer, got {results[0]['metadata']['num_tokens']}"
 
-    # Test with merge_chunks=True (single chunk, so same result)
+    # Test with split_chunks=True (single chunk, so same result)
     results = []
-    for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold, merge_chunks=True):
+    for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold, split_chunks=True):
         results.append(result)
     assert len(results) == 1
     assert results[0]['code'] == expected_content

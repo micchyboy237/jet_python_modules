@@ -295,7 +295,7 @@ def search_files(
     chunk_overlap: int = 100,
     threshold: float = 0.0,
     tokenizer: Optional[Callable[[str], int]] = None,
-    merge_chunks: bool = False
+    split_chunks: bool = False
 ) -> Iterator[FileSearchResult]:
     """
     Search files using vector similarity on chunked contents + file metadata.
@@ -310,7 +310,7 @@ def search_files(
         chunk_overlap: Overlap between chunks
         threshold: Minimum similarity score for results
         tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
-        merge_chunks: If True, merge adjacent chunks from the same file using merge_results.
+        split_chunks: If True, return individual chunks; if False, merge adjacent chunks from the same file.
     Returns:
         Iterator of FileSearchResult dictionaries (ranked by similarity)
     """
@@ -375,7 +375,7 @@ def search_files(
             }
             results.append(result)
     results.sort(key=lambda x: x["score"], reverse=True)
-    if merge_chunks:
+    if not split_chunks:
         results = merge_results(results, tokenizer)
     for i, result in enumerate(results[:top_k], 1):
         result["rank"] = i
