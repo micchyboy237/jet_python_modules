@@ -154,21 +154,24 @@ def test_compute_weighted_similarity_no_content():
     assert abs(weighted_sim - (0.5 * 1.0 + 0.3 * 0.0)) < 1e-10
 
 
-def test_search_files(mock_sentence_transformer, temp_file):
+def test_search_files(temp_file):
     """
     Given: A temporary text file with known content
     When: Searching with a query and specific extensions
-    Then: Returns a list of results with expected structure
+    Then: Returns a list of up to top_k results with expected structure
     """
     query = "test query"
     expected_content = "this is a test content"
     expected_file_path = temp_file
+    top_k = 1
 
     results = list(search_files(temp_file, query,
-                   extensions={'.txt'}, top_k=1))
+                   extensions={'.txt'}, top_k=top_k))
 
     assert isinstance(results, list)
-    assert len(results) == 1
+    assert len(
+        results) <= top_k, f"Expected at most {top_k} results, got {len(results)}"
+    assert len(results) == 1, "Expected exactly one result"
     assert isinstance(results[0], dict)
     assert results[0]['rank'] == 1
     assert isinstance(results[0]['score'], float)
@@ -179,7 +182,7 @@ def test_search_files(mock_sentence_transformer, temp_file):
     assert isinstance(results[0]['metadata']['content_similarity'], float)
 
 
-def test_search_files_no_results(mock_sentence_transformer, tmp_path):
+def test_search_files_no_results(tmp_path):
     """
     Given: An empty directory with no matching files
     When: Searching with a query and specific extensions
@@ -211,18 +214,21 @@ def test_search_files_chunking(temp_file):
 def test_search_files_with_threshold_and_yielding(temp_file):
     """
     Given: A temporary text file with known content
-    When: Searching with a query, specific threshold, and iterating results
-    Then: Only results above threshold are yielded, and they are returned immediately
+    When: Searching with a query, specific threshold, top_k, and iterating results
+    Then: Only up to top_k results above threshold are yielded with expected structure
     """
     query = "test query"
     expected_threshold = 0.1
     expected_content = "this is a test content"
     expected_file_path = temp_file
+    top_k = 1
 
     results = []
-    for result in search_files(temp_file, query, extensions={'.txt'}, top_k=1, threshold=expected_threshold):
+    for result in search_files(temp_file, query, extensions={'.txt'}, top_k=top_k, threshold=expected_threshold):
         results.append(result)
 
+    assert len(
+        results) <= top_k, f"Expected at most {top_k} results, got {len(results)}"
     assert len(results) == 1, "Expected exactly one result"
     assert isinstance(results[0], dict), "Result should be a dictionary"
     assert results[0]['rank'] == 1, "Rank should be 1 after sorting"

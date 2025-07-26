@@ -154,7 +154,7 @@ def search_files(
 ) -> Iterator[FileSearchResult]:
     """
     Search files using vector similarity on chunked contents + file metadata.
-    Yields results iteratively that meet the threshold.
+    Yields up to top_k results iteratively that meet the threshold.
     Args:
         paths: Single path or list of paths to search
         query: Search query string
@@ -210,8 +210,8 @@ def search_files(
                 }
             }
             results.append(result)
-            yield result
 
     results.sort(key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(results[:top_k], 1):
         result["rank"] = i
+        yield result
