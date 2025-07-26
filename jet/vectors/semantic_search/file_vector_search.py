@@ -34,30 +34,6 @@ class FileSearchResult(TypedDict):
     code: str
 
 
-def get_file_vectors(file_path: str, embed_model: EmbedModelType = DEFAULT_EMBED_MODEL) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
-    """Generate vector representations for file name, parent directory, and content using SentenceTransformer."""
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File {file_path} does not exist")
-    model = SentenceTransformerRegistry.load_model(embed_model)
-    file_path_obj = Path(file_path)
-    file_name = file_path_obj.name.lower()
-    parent_dir = file_path_obj.parent.name.lower(
-    ) if file_path_obj.parent.name else "root"
-    file_name_vector = model.encode(file_name, convert_to_numpy=True)
-    parent_dir_vector = model.encode(parent_dir, convert_to_numpy=True)
-    content_vector = None
-    try:
-        if file_path_obj.suffix.lower() in {'.txt', '.py', '.md', '.json', '.csv'}:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read(MAX_CONTENT_SIZE).lower()
-                if content.strip():
-                    content_vector = model.encode(
-                        content, convert_to_numpy=True)
-    except (UnicodeDecodeError, IOError):
-        pass
-    return file_name_vector, parent_dir_vector, content_vector
-
-
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     """Calculate cosine similarity between two vectors."""
     dot_product = np.dot(vec1, vec2)

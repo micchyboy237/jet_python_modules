@@ -5,7 +5,6 @@ from pathlib import Path
 import os
 from unittest.mock import patch, Mock
 from jet.vectors.semantic_search.file_vector_search import (
-    get_file_vectors,
     cosine_similarity,
     collect_file_chunks,
     compute_weighted_similarity,
@@ -33,32 +32,6 @@ def temp_file(tmp_path):
     file_path = tmp_path / "test.txt"
     file_path.write_text("This is a test content")
     return str(file_path)
-
-
-def test_get_file_vectors_valid_file(mock_sentence_transformer, temp_file):
-    name_vector, dir_vector, content_vector = get_file_vectors(temp_file)
-    assert isinstance(name_vector, np.ndarray)
-    assert isinstance(dir_vector, np.ndarray)
-    assert isinstance(content_vector, np.ndarray)
-    assert name_vector.shape == (3,)
-    assert dir_vector.shape == (3,)
-    assert content_vector.shape == (3,)
-    assert mock_sentence_transformer.encode.call_count == 3
-
-
-def test_get_file_vectors_non_text_file(mock_sentence_transformer, tmp_path):
-    file_path = tmp_path / "test.bin"
-    file_path.write_bytes(b"\x00\x01\x02")
-    name_vector, dir_vector, content_vector = get_file_vectors(str(file_path))
-    assert isinstance(name_vector, np.ndarray)
-    assert isinstance(dir_vector, np.ndarray)
-    assert content_vector is None
-    assert mock_sentence_transformer.encode.call_count == 2
-
-
-def test_get_file_vectors_nonexistent_file(mock_sentence_transformer):
-    with pytest.raises(FileNotFoundError):
-        get_file_vectors("nonexistent.txt")
 
 
 def test_cosine_similarity():
