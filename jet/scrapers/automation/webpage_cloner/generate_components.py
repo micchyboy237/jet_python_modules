@@ -610,25 +610,7 @@ def generate_entry_point(components: List[Component], output_dir: str, font_urls
         element_checks = f"""
         const elementIds = {list(element_selectors['ids'])};
         const elementSelectors = {list(element_selectors['selectors'])};
-        // Inject fallback elements
-        elementIds.forEach(id => {{
-            if (!document.getElementById(id)) {{
-                console.warn(`Injecting fallback element with ID "${{id}}"`);
-                const fallback = document.createElement('div');
-                fallback.id = id;
-                fallback.style.display = 'none';
-                document.getElementById('root').appendChild(fallback);
-            }}
-        }});
-        elementSelectors.forEach(selector => {{
-            if (!document.querySelector(selector) && selector.startsWith('#')) {{
-                console.warn(`Injecting fallback element with ID "${{selector.slice(1)}}"`);
-                const fallback = document.createElement('div');
-                fallback.id = selector.slice(1);
-                fallback.style.display = 'none';
-                document.getElementById('root').appendChild(fallback);
-            }}
-        }});
+      
         // Check elements
         function checkElements() {{
             let allElementsPresent = true;
@@ -674,8 +656,6 @@ def generate_entry_point(components: List[Component], output_dir: str, font_urls
         <script type="module">
             document.addEventListener('reactRendered', function() {{
                 console.log('Executing external module scripts after reactRendered');
-                {module_js_links_content}
-                {element_checks}
             }});
         </script>
         """
@@ -699,29 +679,28 @@ def generate_entry_point(components: List[Component], output_dir: str, font_urls
         }}
     </script>
     """
-    if non_module_scripts_content:
-        component_scripts += f"""
-        <script>
-            document.addEventListener('reactRendered', function() {{
-                console.log('Executing non-module scripts after reactRendered');
-                {non_module_scripts_content}
-            }});
-        </script>
-        """
-    if module_scripts_content:
-        component_scripts += f"""
-        <script type="module">
-            document.addEventListener('reactRendered', function() {{
-                console.log('Executing module scripts after reactRendered');
-                {module_scripts_content}
-            }});
-        </script>
-        """
+    # if non_module_scripts_content:
+    #     component_scripts += f"""
+    #     <script>
+    #         document.addEventListener('reactRendered', function() {{
+    #             console.log('Executing non-module scripts after reactRendered');
+    #             {non_module_scripts_content}
+    #         }});
+    #     </script>
+    #     """
+    # if module_scripts_content:
+    #     component_scripts += f"""
+    #     <script type="module">
+    #         document.addEventListener('reactRendered', function() {{
+    #             console.log('Executing module scripts after reactRendered');
+    #             {module_scripts_content}
+    #         }});
+    #     </script>
+    #     """
     if module_js_links_wrapper:
         component_scripts += module_js_links_wrapper
     if js_links_str:
         component_scripts += f"""
-        {js_links_str}
         """
     html_content = html_template.format(
         css_links=css_links,
