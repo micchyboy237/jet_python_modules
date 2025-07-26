@@ -1,4 +1,4 @@
-from typing import List, Optional, Set, Union, Tuple, TypedDict
+from typing import List, Optional, Set, Union, Tuple, TypedDict, Iterator
 import os
 from pathlib import Path
 import numpy as np
@@ -149,23 +149,32 @@ def search_files(
     top_k: int = 5,
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
-    chunk_overlap: int = 100
-) -> List[FileSearchResult]:
+    chunk_overlap: int = 100,
+    threshold: float = 0.0
+) -> Iterator[FileSearchResult]:
     """
     Search files using vector similarity on chunked contents + file metadata.
-
+    Yields results iteratively that meet the threshold.
+    Args:
+        paths: Single path or list of paths to search
+        query: Search query string
+        extensions: Set of file extensions to include
+        top_k: Maximum number of results to yield
+        embed_model: Embedding model to use
+        chunk_size: Size of content chunks
+        chunk_overlap: Overlap between chunks
+        threshold: Minimum similarity score for results
     Returns:
-        List of FileSearchResult dictionaries (ranked by similarity).
+        Iterator of FileSearchResult dictionaries (ranked by similarity)
     """
     model = SentenceTransformerRegistry.load_model(embed_model)
     query_vector = model.encode(query, convert_to_numpy=True)
-
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
         paths, extensions, chunk_size, chunk_overlap)
-    if not chunk_data:
-        return []
 
-    # De-dupe for global vectors
+    if not chunk_data:
+        return
+
     unique_files = list(dict.fromkeys(file_paths))
     name_vectors = model.encode(
         [Path(p).name.lower() for p in unique_files],
@@ -175,37 +184,34 @@ def search_files(
         [Path(p).parent.name.lower() or "root" for p in unique_files],
         convert_to_numpy=True, batch_size=32
     )
-
     chunk_texts = [chunk for _, chunk, _, _ in chunk_data]
     content_vectors = model.encode(
         chunk_texts, convert_to_numpy=True, batch_size=32, show_progress_bar=True)
 
-    # Score per chunk
     results: List[FileSearchResult] = []
     for i, (file_path, chunk, start_idx, end_idx) in enumerate(chunk_data):
         file_index = unique_files.index(file_path)
         content_vector = content_vectors[i]
-
         weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
             query_vector, name_vectors[file_index], dir_vectors[file_index], content_vector
         )
-
-        results.append({
-            "rank": 0,  # to be assigned
-            "score": weighted_sim,
-            "code": chunk,
-            "metadata": {
-                "file_path": file_path,
-                "start_idx": start_idx,
-                "end_idx": end_idx,
-                "name_similarity": name_sim,
-                "dir_similarity": dir_sim,
-                "content_similarity": content_sim
+        if weighted_sim >= threshold:
+            result = {
+                "rank": 0,
+                "score": weighted_sim,
+                "code": chunk,
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": start_idx,
+                    "end_idx": end_idx,
+                    "name_similarity": name_sim,
+                    "dir_similarity": dir_sim,
+                    "content_similarity": content_sim
+                }
             }
-        })
+            results.append(result)
+            yield result
 
     results.sort(key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(results[:top_k], 1):
         result["rank"] = i
-
-    return results[:top_k]

@@ -155,33 +155,84 @@ def test_compute_weighted_similarity_no_content():
 
 
 def test_search_files(mock_sentence_transformer, temp_file):
-    results = search_files(temp_file, "test query",
-                           extensions={'.txt'}, top_k=1)
+    """
+    Given: A temporary text file with known content
+    When: Searching with a query and specific extensions
+    Then: Returns a list of results with expected structure
+    """
+    query = "test query"
+    expected_content = "this is a test content"
+    expected_file_path = temp_file
+
+    results = list(search_files(temp_file, query,
+                   extensions={'.txt'}, top_k=1))
 
     assert isinstance(results, list)
     assert len(results) == 1
     assert isinstance(results[0], dict)
     assert results[0]['rank'] == 1
     assert isinstance(results[0]['score'], float)
-    assert results[0]['code'] == 'this is a test content'
-    assert results[0]['metadata']['file_path'] == temp_file
+    assert results[0]['code'] == expected_content
+    assert results[0]['metadata']['file_path'] == expected_file_path
     assert isinstance(results[0]['metadata']['name_similarity'], float)
     assert isinstance(results[0]['metadata']['dir_similarity'], float)
     assert isinstance(results[0]['metadata']['content_similarity'], float)
 
 
 def test_search_files_no_results(mock_sentence_transformer, tmp_path):
-    results = search_files(str(tmp_path), "test query", extensions={'.bin'})
+    """
+    Given: An empty directory with no matching files
+    When: Searching with a query and specific extensions
+    Then: Returns an empty list
+    """
+    results = list(search_files(
+        str(tmp_path), "test query", extensions={'.bin'}))
+
     assert results == []
 
 
 def test_search_files_chunking(temp_file):
-    # Test with small chunk size to force multiple chunks
+    """
+    Given: A temporary text file with content exceeding chunk size
+    When: Searching with a query and specific chunk parameters
+    Then: Returns multiple chunked results with correct sizes
+    """
     with open(temp_file, 'w') as f:
         f.write("a" * 1000)
 
-    results = search_files(temp_file, "test query",
-                           chunk_size=200, chunk_overlap=50)
+    results = list(search_files(temp_file, "test query",
+                   chunk_size=200, chunk_overlap=50))
+
     assert len(results) > 1
     assert all(r['metadata']['end_idx'] - r['metadata']
                ['start_idx'] <= 200 for r in results)
+
+
+def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, temp_file):
+    """
+    Given: A temporary text file with known content
+    When: Searching with a query, specific threshold, and iterating results
+    Then: Only results above threshold are yielded, and they are returned immediately
+    """
+    query = "test query"
+    expected_threshold = 0.1
+    expected_content = "this is a test content"
+    expected_file_path = temp_file
+
+    results = []
+    for result in search_files(temp_file, query, extensions={'.txt'}, top_k=1, threshold=expected_threshold):
+        results.append(result)
+
+    assert len(results) == 1, "Expected exactly one result"
+    assert isinstance(results[0], dict), "Result should be a dictionary"
+    assert results[0]['rank'] == 1, "Rank should be 1 after sorting"
+    assert results[0]['score'] >= expected_threshold, f"Score {results[0]['score']} should meet threshold {expected_threshold}"
+    assert results[0]['code'] == expected_content, f"Expected content {expected_content}, got {results[0]['code']}"
+    assert results[0]['metadata'][
+        'file_path'] == expected_file_path, f"Expected file path {expected_file_path}, got {results[0]['metadata']['file_path']}"
+    assert isinstance(results[0]['metadata']['name_similarity'],
+                      float), "Name similarity should be float"
+    assert isinstance(results[0]['metadata']['dir_similarity'],
+                      float), "Dir similarity should be float"
+    assert isinstance(results[0]['metadata']['content_similarity'],
+                      float), "Content similarity should be float"
