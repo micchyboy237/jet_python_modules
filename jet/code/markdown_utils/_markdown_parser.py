@@ -1,3 +1,4 @@
+from jet.wordnet.sentence import is_list_sentence, is_ordered_list_marker
 import os
 import tempfile
 import re
@@ -425,10 +426,21 @@ def derive_text(token: MarkdownToken) -> str:
                     'task_item', False) else ''
                 prefix_str = prefix(
                     i) if token['type'] == 'ordered_list' else prefix
-                line = f"{prefix_str} {checkbox}{' ' if checkbox else ''}{item['text']}".strip(
-                )
-                if token['type'] == 'unordered_list' and prefix_str == '*':
-                    # Replace asterisk with dash for unordered lists
+                item_text = item['text'].strip()
+                # Check if item text already starts with a list marker
+                if token['type'] == 'ordered_list' and not is_ordered_list_marker(item_text.split()[0]):
+                    # Prepend prefix for ordered list if no ordered marker exists
+                    line = f"{prefix_str} {checkbox}{' ' if checkbox else ''}{item_text}".strip(
+                    )
+                elif token['type'] == 'unordered_list' and not is_list_sentence(item_text):
+                    # Prepend prefix for unordered list if no list marker exists
+                    line = f"{prefix_str} {checkbox}{' ' if checkbox else ''}{item_text}".strip(
+                    )
+                else:
+                    # Use item text as is, ensuring checkbox is included if present
+                    line = f"{checkbox}{' ' if checkbox else ''}{item_text}".strip()
+                if token['type'] == 'unordered_list' and prefix_str == '*' and not is_list_sentence(item_text):
+                    # Replace asterisk with dash for unordered lists if no marker exists
                     line = line.replace('* ', '- ')
                 lines.append(line)
             result = '\n'.join(lines)
