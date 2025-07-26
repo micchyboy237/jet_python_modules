@@ -58,8 +58,8 @@ class TokenizerWrapper:
     def __init__(
         self,
         tokenizer: PreTrainedTokenizerBase,
-        remove_pad_tokens: bool = False,
-        add_special_tokens: bool = True,
+        remove_pad_tokens: bool = True,
+        add_special_tokens: bool = False,
         pad_token_id: Optional[int] = None,
         max_length: Optional[int] = None,
         truncation_side: str = "right"
@@ -227,8 +227,8 @@ def get_tokenizer(
     if max_length is None and documents is not None:
         tokenizer_wrapper = TokenizerWrapper(
             tokenizer,
-            remove_pad_tokens=False,
-            add_special_tokens=True,
+            remove_pad_tokens=True,
+            add_special_tokens=False,
             pad_token_id=pad_token_id,
             max_length=None  # Temporarily set to None to get raw token counts
         )
@@ -248,7 +248,7 @@ def get_tokenizer(
 
 def get_tokenizer_fn(
     model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase, TokenizerWrapper],
-    remove_pad_tokens: bool = False,
+    remove_pad_tokens: bool = True,
     add_special_tokens: bool = False,
     disable_cache: bool = False,
     documents: Optional[Union[str, List[str]]] = None,
@@ -297,8 +297,8 @@ def get_tokenizer_fn(
 
 def get_detokenizer_fn(
     model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase, TokenizerWrapper],
-    remove_pad_tokens: bool = False,
-    add_special_tokens: bool = True,
+    remove_pad_tokens: bool = True,
+    add_special_tokens: bool = False,
     disable_cache: bool = False,
     documents: Optional[Union[str, List[str]]] = None,
     **kwargs,
@@ -319,8 +319,8 @@ def get_detokenizer_fn(
         if documents is not None and tokenizer.model_max_length == int(1e30):
             tokenizer_wrapper = TokenizerWrapper(
                 tokenizer,
-                remove_pad_tokens=False,
-                add_special_tokens=True,
+                remove_pad_tokens=remove_pad_tokens,
+                add_special_tokens=add_special_tokens,
                 pad_token_id=tokenizer.pad_token_id,
                 max_length=None
             )
@@ -439,8 +439,8 @@ def get_string_detokenizer_fn(
 def tokenize(
     texts: Union[str, List[str]],
     tokenizer: Union[ModelType, PreTrainedTokenizerBase],
-    remove_pad_tokens: bool = False,
-    add_special_tokens: bool = True,
+    remove_pad_tokens: bool = True,
+    add_special_tokens: bool = False,
     disable_cache: bool = False,
 ) -> Union[List[int], List[List[int]]]:
     """Tokenize texts using a TokenizerWrapper."""
@@ -505,7 +505,7 @@ def count_tokens_dim(
         messages = [str(t) for t in messages]
 
     tokenize = get_tokenizer_fn(
-        model_name_or_tokenizer, remove_pad_tokens=False, add_special_tokens=True)
+        model_name_or_tokenizer, remove_pad_tokens=True, add_special_tokens=False)
     tokenized = tokenize(messages)
     if isinstance(messages, str):
         return len(tokenized)
@@ -564,7 +564,7 @@ def merge_texts(
     skip_special_tokens: bool = True,
     max_length: Optional[int] = None,
     split_fn: Optional[Callable[[str], List[str]]] = None,
-    remove_pad_tokens: bool = False
+    remove_pad_tokens: bool = True
 ) -> MergeResult:
     # Encode the text into token IDs
     token_ids: List[int] = tokenizer.encode(text, add_special_tokens=False)
