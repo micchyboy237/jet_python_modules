@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
@@ -158,10 +159,6 @@ def search_files(
     Returns:
         Iterator of FileSearchResult dictionaries (ranked by similarity)
     """
-    SentenceTransformerRegistry.load_model(embed_model)
-    query_vector = generate_embeddings(
-        query, embed_model, return_format="numpy")
-
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
         paths, extensions, chunk_size, chunk_overlap)
 
@@ -173,8 +170,15 @@ def search_files(
     dir_texts = [Path(p).parent.name.lower() or "root" for p in unique_files]
     chunk_texts = [chunk for _, chunk, _, _ in chunk_data]
 
-    # Combine all texts into a single list for one embedding call
-    all_texts = name_texts + dir_texts + chunk_texts
+    # Combine query with all texts for one embedding call
+    all_texts = [query] + name_texts + dir_texts + chunk_texts
+    logger.info(
+        f"Generating embeddings for {len(all_texts)} texts:\n"
+        f"  1 query\n"
+        f"  {len(name_texts)} names\n"
+        f"  {len(dir_texts)} dirs\n"
+        f"  {len(chunk_texts)} chunks"
+    )
     all_vectors = generate_embeddings(
         all_texts,
         embed_model,
@@ -184,11 +188,12 @@ def search_files(
     )
 
     # Split embeddings back into respective groups
+    query_vector = all_vectors[0]
     num_names = len(name_texts)
     num_dirs = len(dir_texts)
-    name_vectors = all_vectors[:num_names]
-    dir_vectors = all_vectors[num_names:num_names + num_dirs]
-    content_vectors = all_vectors[num_names + num_dirs:]
+    name_vectors = all_vectors[1:num_names + 1]
+    dir_vectors = all_vectors[num_names + 1:num_names + 1 + num_dirs]
+    content_vectors = all_vectors[num_names + 1 + num_dirs:]
 
     results: List[FileSearchResult] = []
     chunk_counts = {}  # Track chunk index per file
