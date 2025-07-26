@@ -1,3 +1,4 @@
+import re
 import pytest
 import numpy as np
 from pathlib import Path
@@ -76,25 +77,46 @@ def test_cosine_similarity():
 
 
 def test_collect_file_chunks_single_file(temp_file):
-    file_paths, file_names, parent_dirs, chunks = collect_file_chunks(
-        temp_file, extensions=['.txt'])
+    """
+    Given: A temporary text file with known content
+    When: Collecting chunks with specific extensions and optional tokenizer
+    Then: Returns expected file metadata and chunk data with correct token counts
+    """
+    def custom_tokenizer(text): return len(text.split())
+    expected_content = "this is a test content"
     expected_file_path = temp_file
     expected_file_name = 'test.txt'
     expected_parent_dir = Path(temp_file).parent.name.lower()
-    expected_chunk = ('this is a test content', 0, 22)
+    # 5 tokens: "this", "is", "a", "test", "content"
+    expected_chunk = (expected_file_path, expected_content, 0, 22, 5)
+    # Same for space-based tokenizer
+    expected_chunk_custom = (expected_file_path, expected_content, 0, 22, 5)
+
+    # Test with default tokenizer
+    file_paths, file_names, parent_dirs, chunks = collect_file_chunks(
+        temp_file, extensions=['.txt'])
     assert len(file_paths) == 1, "Expected exactly one file path"
     assert file_paths[0] == expected_file_path, f"Expected file path {expected_file_path}, got {file_paths[0]}"
     assert file_names[0] == expected_file_name, f"Expected file name {expected_file_name}, got {file_names[0]}"
     assert parent_dirs[
         0] == expected_parent_dir, f"Expected parent directory {expected_parent_dir}, got {parent_dirs[0]}"
     assert len(chunks) == 1, "Expected exactly one chunk"
-    assert chunks[0][0] == expected_file_path, f"Expected chunk file path {expected_file_path}, got {chunks[0][0]}"
+    assert chunks[0][0] == expected_chunk[
+        0], f"Expected chunk file path {expected_chunk[0]}, got {chunks[0][0]}"
     assert chunks[0][1] == expected_chunk[
-        0], f"Expected chunk content {expected_chunk[0]}, got {chunks[0][1]}"
+        1], f"Expected chunk content {expected_chunk[1]}, got {chunks[0][1]}"
     assert chunks[0][2] == expected_chunk[
-        1], f"Expected chunk start index {expected_chunk[1]}, got {chunks[0][2]}"
+        2], f"Expected chunk start index {expected_chunk[2]}, got {chunks[0][2]}"
     assert chunks[0][3] == expected_chunk[
-        2], f"Expected chunk end index {expected_chunk[2]}, got {chunks[0][3]}"
+        3], f"Expected chunk end index {expected_chunk[3]}, got {chunks[0][3]}"
+    assert chunks[0][4] == expected_chunk[
+        4], f"Expected chunk num_tokens {expected_chunk[4]}, got {chunks[0][4]}"
+
+    # Test with custom tokenizer
+    file_paths, file_names, parent_dirs, chunks = collect_file_chunks(
+        temp_file, extensions=['.txt'], tokenizer=custom_tokenizer)
+    assert chunks[0][4] == expected_chunk_custom[
+        4], f"Expected chunk num_tokens {expected_chunk_custom[4]} with custom tokenizer, got {chunks[0][4]}"
 
 
 def test_collect_file_chunks_invalid_path():
@@ -144,19 +166,21 @@ def test_compute_weighted_similarity_no_content():
 def test_search_files(mock_sentence_transformer, temp_file):
     """
     Given: A temporary text file with known content
-    When: Searching with a query and specific extensions
-    Then: Returns a list of up to top_k results with expected structure
+    When: Searching with a query, specific extensions, and optional tokenizer
+    Then: Returns a list of up to top_k results with expected structure and token count
     """
-    logging.debug("Starting test_search_files")
     query = "test query"
     expected_content = "this is a test content"
     expected_file_path = temp_file
     top_k = 1
+    def custom_tokenizer(text): return len(
+        text.split())  # Simple space-based tokenizer
+    expected_num_tokens_default = 5  # "this", "is", "a", "test", "content"
+    expected_num_tokens_custom = 5   # Same for this content with space-based tokenizer
 
+    # Test with default tokenizer
     results = list(search_files(temp_file, query,
                    extensions=['.txt'], top_k=top_k))
-    logging.debug(f"Collected results: {results}")
-
     assert isinstance(results, list)
     assert len(
         results) <= top_k, f"Expected at most {top_k} results, got {len(results)}"
@@ -170,6 +194,14 @@ def test_search_files(mock_sentence_transformer, temp_file):
     assert isinstance(results[0]['metadata']['name_similarity'], float)
     assert isinstance(results[0]['metadata']['dir_similarity'], float)
     assert isinstance(results[0]['metadata']['content_similarity'], float)
+    assert results[0]['metadata'][
+        'num_tokens'] == expected_num_tokens_default, f"Expected {expected_num_tokens_default} tokens, got {results[0]['metadata']['num_tokens']}"
+
+    # Test with custom tokenizer
+    results = list(search_files(temp_file, query, extensions=[
+                   '.txt'], top_k=top_k, tokenizer=custom_tokenizer))
+    assert results[0]['metadata'][
+        'num_tokens'] == expected_num_tokens_custom, f"Expected {expected_num_tokens_custom} tokens with custom tokenizer, got {results[0]['metadata']['num_tokens']}"
 
 
 def test_search_files_no_results(mock_sentence_transformer, tmp_path):
@@ -189,44 +221,68 @@ def test_search_files_no_results(mock_sentence_transformer, tmp_path):
 def test_search_files_chunking(temp_file):
     """
     Given: A temporary text file with content exceeding chunk size
-    When: Searching with a query and specific chunk parameters
-    Then: Returns multiple chunked results with correct sizes and chunk indices
+    When: Searching with a query, chunk parameters, optional tokenizer, and merge_chunks
+    Then: Returns chunked or merged results with correct sizes, indices, and token counts
     """
-    logging.debug("Starting test_search_files_chunking")
+    content = "word " * 200  # 200 words + 199 spaces
     with open(temp_file, 'w') as f:
-        f.write("a" * 1000)
+        f.write(content)
 
-    results = list(search_files(temp_file, "test query",
-                   chunk_size=200, chunk_overlap=50))
-    logging.debug(f"Collected results: {results}")
+    def custom_tokenizer(text): return len(text.split())
+    chunk_size = 200
+    chunk_overlap = 50
 
-    assert len(results) > 1
+    # Test with default tokenizer, no merging
+    results_default = list(search_files(
+        temp_file, "test query", chunk_size=chunk_size, chunk_overlap=chunk_overlap))
+    assert len(results_default) > 1
     assert all(r['metadata']['end_idx'] - r['metadata']
-               ['start_idx'] <= 200 for r in results)
+               ['start_idx'] <= chunk_size for r in results_default)
     assert all(isinstance(r['metadata']['chunk_idx'], int)
-               for r in results), "All chunk_idx should be integers"
-    assert [r['metadata']['chunk_idx'] for r in results] == list(range(len(
-        results))), f"Expected chunk indices 0 to {len(results)-1}, got {[r['metadata']['chunk_idx'] for r in results]}"
+               for r in results_default), "All chunk_idx should be integers"
+    assert [r['metadata']['chunk_idx'] for r in results_default] == list(range(len(
+        results_default))), f"Expected chunk indices 0 to {len(results_default)-1}, got {[r['metadata']['chunk_idx'] for r in results_default]}"
+    for r in results_default:
+        expected_tokens = len(re.findall(r'\b\w+\b|[^\w\s]', r['code']))
+        assert r['metadata']['num_tokens'] == expected_tokens, f"Expected {expected_tokens} tokens, got {r['metadata']['num_tokens']}"
+
+    # Test with custom tokenizer, no merging
+    results_custom = list(search_files(temp_file, "test query", chunk_size=chunk_size,
+                          chunk_overlap=chunk_overlap, tokenizer=custom_tokenizer))
+    for r in results_custom:
+        expected_tokens = len(r['code'].split())
+        assert r['metadata']['num_tokens'] == expected_tokens, f"Expected {expected_tokens} tokens with custom tokenizer, got {r['metadata']['num_tokens']}"
+
+    # Test with merge_chunks=True
+    results_merged = list(search_files(temp_file, "test query",
+                          chunk_size=chunk_size, chunk_overlap=chunk_overlap, merge_chunks=True))
+    assert len(results_merged) == 1, "Expected one merged result"
+    assert results_merged[0]['code'] == content, "Expected full content after merging"
+    expected_tokens_merged = len(re.findall(r'\b\w+\b|[^\w\s]', content))
+    assert results_merged[0]['metadata'][
+        'num_tokens'] == expected_tokens_merged, f"Expected {expected_tokens_merged} tokens, got {results_merged[0]['metadata']['num_tokens']}"
+    assert results_merged[0]['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for merged result"
 
 
 def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, temp_file):
     """
     Given: A temporary text file with known content
-    When: Searching with a query, specific threshold, top_k, and iterating results
-    Then: Only up to top_k results above threshold are yielded with expected structure
+    When: Searching with a query, threshold, top_k, optional tokenizer, and merge_chunks
+    Then: Yields up to top_k results above threshold with expected structure and token count
     """
-    logging.debug("Starting test_search_files_with_threshold_and_yielding")
     query = "test query"
     expected_threshold = 0.1
     expected_content = "this is a test content"
     expected_file_path = temp_file
     top_k = 1
+    def custom_tokenizer(text): return len(text.split())
+    expected_num_tokens_default = 5  # "this", "is", "a", "test", "content"
+    expected_num_tokens_custom = 5
 
+    # Test with default tokenizer, no merging
     results = []
     for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold):
-        logging.debug(f"Yielded result: {result}")
         results.append(result)
-
     assert len(
         results) <= top_k, f"Expected at most {top_k} results, got {len(results)}"
     assert len(results) == 1, "Expected exactly one result"
@@ -243,20 +299,38 @@ def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, tem
                       float), "Dir similarity should be float"
     assert isinstance(results[0]['metadata']['content_similarity'],
                       float), "Content similarity should be float"
+    assert results[0]['metadata'][
+        'num_tokens'] == expected_num_tokens_default, f"Expected {expected_num_tokens_default} tokens, got {results[0]['metadata']['num_tokens']}"
+
+    # Test with custom tokenizer, no merging
+    results = []
+    for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold, tokenizer=custom_tokenizer):
+        results.append(result)
+    assert results[0]['metadata'][
+        'num_tokens'] == expected_num_tokens_custom, f"Expected {expected_num_tokens_custom} tokens with custom tokenizer, got {results[0]['metadata']['num_tokens']}"
+
+    # Test with merge_chunks=True (single chunk, so same result)
+    results = []
+    for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold, merge_chunks=True):
+        results.append(result)
+    assert len(results) == 1
+    assert results[0]['code'] == expected_content
+    assert results[0]['metadata']['num_tokens'] == expected_num_tokens_default
 
 
 class TestMergeResults:
     def test_merge_adjacent_chunks(self, tmp_path):
         """
         Given: Multiple adjacent chunks from the same file
-        When: Merging results
-        Then: Combines into a single result with correct content and metadata
+        When: Merging results with optional tokenizer
+        Then: Combines into a single result with correct content, metadata, and token count
         """
         file_path = str(tmp_path / "test.txt")
         content = "first chunk second chunk"
         with open(file_path, 'w') as f:
             f.write(content)
 
+        def custom_tokenizer(text): return len(text.split())
         results = [
             {
                 "rank": 1,
@@ -269,7 +343,8 @@ class TestMergeResults:
                     "chunk_idx": 0,
                     "name_similarity": 0.7,
                     "dir_similarity": 0.6,
-                    "content_similarity": 0.9
+                    "content_similarity": 0.9,
+                    "num_tokens": 2
                 }
             },
             {
@@ -283,14 +358,15 @@ class TestMergeResults:
                     "chunk_idx": 1,
                     "name_similarity": 0.7,
                     "dir_similarity": 0.6,
-                    "content_similarity": 0.8
+                    "content_similarity": 0.8,
+                    "num_tokens": 2
                 }
             }
         ]
-        expected = [
+        expected_default = [
             {
                 "rank": 1,
-                "score": 0.75,  # Average of 0.8 and 0.7
+                "score": 0.75,
                 "code": "first chunk second chunk",
                 "metadata": {
                     "file_path": file_path,
@@ -299,21 +375,45 @@ class TestMergeResults:
                     "chunk_idx": 0,
                     "name_similarity": 0.7,
                     "dir_similarity": 0.6,
-                    "content_similarity": 0.85  # Average of 0.9 and 0.8
+                    "content_similarity": 0.85,
+                    "num_tokens": 4  # "first", "chunk", "second", "chunk"
                 }
             }
         ]
+        expected_custom = [
+            {
+                "rank": 1,
+                "score": 0.75,
+                "code": "first chunk second chunk",
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": 0,
+                    "end_idx": 23,
+                    "chunk_idx": 0,
+                    "name_similarity": 0.7,
+                    "dir_similarity": 0.6,
+                    "content_similarity": 0.85,
+                    # "first", "chunk", "second", "chunk" (space-based)
+                    "num_tokens": 4
+                }
+            }
+        ]
+        # Test with default tokenizer
         merged = merge_results(results)
         assert len(merged) == 1
-        assert merged[0]["code"] == expected[0]["code"]
-        assert merged[0]["metadata"]["start_idx"] == expected[0]["metadata"]["start_idx"]
-        assert merged[0]["metadata"]["end_idx"] == expected[0]["metadata"]["end_idx"]
-        assert merged[0]["metadata"]["chunk_idx"] == expected[0]["metadata"]["chunk_idx"]
-        assert abs(merged[0]["score"] - expected[0]["score"]) < 1e-10
+        assert merged[0]["code"] == expected_default[0]["code"]
+        assert merged[0]["metadata"]["start_idx"] == expected_default[0]["metadata"]["start_idx"]
+        assert merged[0]["metadata"]["end_idx"] == expected_default[0]["metadata"]["end_idx"]
+        assert merged[0]["metadata"]["chunk_idx"] == expected_default[0]["metadata"]["chunk_idx"]
+        assert abs(merged[0]["score"] - expected_default[0]["score"]) < 1e-10
         assert abs(merged[0]["metadata"]["content_similarity"] -
-                   expected[0]["metadata"]["content_similarity"]) < 1e-10
-        assert merged[0]["metadata"]["name_similarity"] == expected[0]["metadata"]["name_similarity"]
-        assert merged[0]["metadata"]["dir_similarity"] == expected[0]["metadata"]["dir_similarity"]
+                   expected_default[0]["metadata"]["content_similarity"]) < 1e-10
+        assert merged[0]["metadata"]["name_similarity"] == expected_default[0]["metadata"]["name_similarity"]
+        assert merged[0]["metadata"]["dir_similarity"] == expected_default[0]["metadata"]["dir_similarity"]
+        assert merged[0]["metadata"]["num_tokens"] == expected_default[0]["metadata"]["num_tokens"]
+        # Test with custom tokenizer
+        merged = merge_results(results, tokenizer=custom_tokenizer)
+        assert merged[0]["metadata"]["num_tokens"] == expected_custom[0]["metadata"]["num_tokens"]
 
     def test_non_adjacent_chunks(self, tmp_path):
         """
