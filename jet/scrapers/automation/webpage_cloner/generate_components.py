@@ -313,7 +313,7 @@ def generate_react_components(html: str, output_dir: str, component_code_templat
         )
     components: List[Component] = []
     target_tags = ["header", "footer", "section", "div",  # "a",
-                   "article", "aside", "main", "nav", "button"]
+                   "article", "aside", "main", "header", "nav"]
     tags = [tag for tag in soup.find_all(target_tags) if isinstance(tag, Tag)]
     seen_identifiers: Dict[str, int] = {}
     processed_tags: List[Tag] = []
