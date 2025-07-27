@@ -7,7 +7,7 @@ from jet.scrapers.config import TEXT_ELEMENTS
 from jet.utils.url_utils import clean_url
 from jet.wordnet.sentence import split_sentences
 from lxml.etree import Comment
-from typing import Callable, Optional, List, Dict, TypedDict, Union
+from typing import Callable, Optional, List, Dict, Set, TypedDict, Union
 from bs4 import BeautifulSoup
 import uuid
 from jet.search.formatters import decode_text_with_unidecode
@@ -1045,6 +1045,16 @@ class BaseNode:
         self.class_names = class_names
         self.link = link
         self.line = line
+        self._parent_node: Optional['BaseNode'] = None
+
+    def get_parent_node(self) -> Optional['BaseNode']:
+        """
+        Retrieves the parent node stored in the _parent_node attribute.
+
+        Returns:
+            The parent BaseNode if set, otherwise None.
+        """
+        return self._parent_node
 
 
 class TreeNode(BaseNode):
@@ -1108,6 +1118,7 @@ def extract_tree_with_text(
 ) -> TreeNode:
     """
     Extracts a tree structure from HTML with id, parent, link attributes, and actual line numbers from formatted HTML.
+    Sets the _parent_node attribute for each node if not already set.
     """
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
@@ -1159,6 +1170,8 @@ def extract_tree_with_text(
         children=[],
         line=root_line
     )
+    if root_node._parent_node is None:
+        root_node._parent_node = None
 
     stack = [(root_el, root_node, 0)]  # (element, parent_node, depth)
 
@@ -1176,10 +1189,12 @@ def extract_tree_with_text(
             class_names = [cls for cls in (child_pq.attr(
                 "class") or "").split() if not cls.startswith("css-")]
             element_id = child_pq.attr("id")
-            link = (child_pq.attr("href") or
-                    child_pq.attr("data-href") or
-                    child_pq.attr("action") or
-                    None)
+            link = (
+                child_pq.attr("href") or
+                child_pq.attr("data-href") or
+                child_pq.attr("action") or
+                None
+            )
 
             if not element_id or not re.match(r'^[a-zA-Z_-]+$', element_id):
                 element_id = f"auto_{uuid.uuid4().hex[:8]}"
@@ -1223,6 +1238,8 @@ def extract_tree_with_text(
                 children=[],
                 line=line_number
             )
+            if child_node._parent_node is None:
+                child_node._parent_node = parent_node
 
             # Check if child text is a substring of parent text and empty parent text if true
             if parent_node.text and child_node.text and child_node.text in parent_node.text:
@@ -1235,6 +1252,76 @@ def extract_tree_with_text(
                 stack.append((child, child_node, depth + 1))
 
     return root_node
+
+
+def create_base_node(node: TreeNode) -> BaseNode:
+    """
+    Creates a BaseNode from a TreeNode, copying all relevant attributes.
+
+    Args:
+        node: The source TreeNode to copy attributes from.
+
+    Returns:
+        A new BaseNode instance with attributes copied from the TreeNode.
+    """
+    base_node = BaseNode(
+        tag=node.tag,
+        text=node.text,
+        depth=node.depth,
+        id=node.id,
+        parent=node.parent,
+        class_names=node.class_names,
+        link=node.link,
+        line=node.line
+    )
+    base_node._parent_node = node._parent_node
+    return base_node
+
+
+def flatten_tree_to_base_nodes(root: TreeNode) -> List[BaseNode]:
+    """
+    Flattens a TreeNode hierarchy into a list of BaseNode objects.
+
+    Args:
+        root: The root TreeNode to flatten.
+
+    Returns:
+        A list of BaseNode objects representing all nodes in the tree in depth-first order.
+    """
+    result: List[BaseNode] = []
+
+    def traverse(node: TreeNode) -> None:
+        # Create a BaseNode copy of the current node
+        result.append(create_base_node(node))
+
+        # Recursively process children
+        for child in node.get_children():
+            traverse(child)
+
+    traverse(root)
+    return result
+
+
+def get_leaf_nodes(root: TreeNode) -> List[BaseNode]:
+    """
+    Returns a list of BaseNode objects for leaf nodes (nodes with no children).
+
+    :param root: The root TreeNode of the tree to traverse.
+    :return: A list of BaseNode objects for leaf nodes.
+    """
+    result: List[BaseNode] = []
+
+    def traverse(node: TreeNode) -> None:
+        # Check if the node is a leaf (no children)
+        if not node.has_children():
+            result.append(create_base_node(node))
+
+        # Recursively traverse children
+        for child in node.get_children():
+            traverse(child)
+
+    traverse(root)
+    return result
 
 
 def extract_by_heading_hierarchy(
@@ -1472,7 +1559,94 @@ def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "
     return text_elements
 
 
+def extract_text_nodes(
+    source: str,
+    excludes: List[str] = ["nav", "footer", "script", "style"],
+    timeout_ms: int = 1000
+) -> List[BaseNode]:
+    """
+    Extracts a list of BaseNode objects containing text from the HTML document, ignoring specific elements.
+    Uses Playwright to render dynamic content if needed.
+
+    :param source: The HTML string or URL to parse.
+    :param excludes: A list of tag names to exclude (e.g., ["nav", "footer", "script", "style"]).
+    :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
+    :return: A list of BaseNode objects representing text-containing elements in the HTML.
+    """
+    if os.path.exists(source) and not source.startswith("file://"):
+        source = f"file://{source}"
+
+    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+        url = source
+        html = None
+    else:
+        url = None
+        html = source
+
+    # Use Playwright to render the page if URL is provided
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        if url:
+            page.goto(url, wait_until="networkidle")
+        else:
+            page.set_content(html)
+
+        page.wait_for_timeout(timeout_ms)
+
+        # Extract the content
+        page_content = page.content()
+        browser.close()
+
+    # Parse the content with PyQuery after Playwright has rendered it
+    doc = pq(page_content)
+
+    # Apply the exclusion logic before extracting nodes
+    exclude_elements(doc, excludes)
+
+    def extract_nodes(element, depth: int = 0, parent_id: Optional[str] = None) -> List[BaseNode]:
+        nodes = []
+        element_pq = pq(element)
+        text = element_pq.text().strip()
+        tag = element_pq[0].tag if element_pq else "unknown"
+
+        valid_id_pattern = r'^[a-zA-Z_-]+$'
+        element_id = element_pq.attr('id')
+        element_class = element_pq.attr('class')
+        id = element_id if element_id and re.match(
+            valid_id_pattern, element_id) else f"node_{depth}_{len(nodes)}"
+        class_names = [name for name in (element_class.split() if element_class else [])
+                       if re.match(valid_id_pattern, name)]
+        link = element_pq.attr('href') if tag == 'a' else None
+
+        # Create a BaseNode if the element has text and no children
+        if text and len(element_pq.children()) == 0:
+            nodes.append(BaseNode(
+                tag=tag,
+                text=text,
+                depth=depth,
+                id=id,
+                parent=parent_id,
+                class_names=class_names,
+                link=link,
+                line=element_pq[0].sourceline if element_pq else 0
+            ))
+
+        # Recursively process children
+        for child in element_pq.children():
+            nodes.extend(extract_nodes(child, depth + 1, id))
+
+        return nodes
+
+    # Start with the root element and gather all text nodes
+    text_nodes = extract_nodes(doc[0])
+
+    return text_nodes
+
 # Function to print the tree-like structure recursively
+
+
 def print_html(html: str):
     tree = extract_tree_with_text(html)
 
@@ -1651,6 +1825,40 @@ def _node_to_outer_html(node: TreeNode) -> str:
     return f"{tag_open}>{content}</{node.tag.lower()}>"
 
 
+def create_significant_node(
+    node: TreeNode,
+    parent_id: Optional[str],
+    html: str,
+    has_significant_descendants: bool
+) -> SignificantNode:
+    """
+    Creates a SignificantNode from a TreeNode, copying all relevant attributes.
+
+    Args:
+        node: The source TreeNode to copy attributes from.
+        parent_id: The ID of the nearest significant ancestor.
+        html: The outer HTML of the node.
+        has_significant_descendants: Whether the node has significant descendants.
+
+    Returns:
+        A new SignificantNode instance with attributes copied from the TreeNode.
+    """
+    significant_node = SignificantNode(
+        tag=node.tag,
+        text=node.text,
+        depth=node.depth,
+        id=node.id,
+        parent=parent_id,
+        class_names=node.class_names,
+        link=node.link,
+        line=node.line,
+        html=html,
+        has_significant_descendants=has_significant_descendants
+    )
+    significant_node._parent_node = node._parent_node
+    return significant_node
+
+
 def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
     """
     Returns a list of SignificantNode objects for nodes that either have a non-auto-generated ID
@@ -1693,61 +1901,18 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
 
         if is_significant:
             html = _node_to_outer_html(node)
-            significant_node = SignificantNode(
-                tag=node.tag,
-                text=node.text,
-                depth=node.depth,
-                id=node_id,
-                # Explicitly None for root significant node, else nearest significant ancestor
-                parent=significant_ancestor_id,
-                class_names=node.class_names,
-                link=node.link,
-                line=node.line,
+            result.append(create_significant_node(
+                node=node,
+                parent_id=significant_ancestor_id,
                 html=html,
                 has_significant_descendants=has_significant_descendants
-            )
-            result.append(significant_node)
+            ))
 
         # Return True if the node or any of its descendants are significant
         return is_significant or has_significant_descendants
 
     # Start with None to ensure root significant node has parent=None
     traverse(root, None)
-    return result
-
-
-def get_leaf_nodes(root: TreeNode) -> List[SignificantNode]:
-    """
-    Returns a list of SignificantNode objects for leaf nodes (nodes with no children).
-    Each node includes its outer HTML.
-
-    :param root: The root TreeNode of the tree to traverse.
-    :return: A list of SignificantNode objects for leaf nodes.
-    """
-    result: List[SignificantNode] = []
-
-    def traverse(node: TreeNode) -> None:
-        # Check if the node is a leaf (no children)
-        if not node.children:
-            html = _node_to_outer_html(node)
-            significant_node = SignificantNode(
-                tag=node.tag,
-                text=node.text,
-                depth=node.depth,
-                id=node.id,
-                parent=node.parent,
-                class_names=node.class_names,
-                link=node.link,
-                line=node.line,
-                html=html
-            )
-            result.append(significant_node)
-
-        # Recursively traverse children
-        for child in node.children:
-            traverse(child)
-
-    traverse(root)
     return result
 
 

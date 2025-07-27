@@ -93,9 +93,6 @@ def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtension
         else:
             raise ValueError(f"Unsupported markdown extension: {ext}")
 
-    # Debug log: Log the extensions being used
-    logger.debug(f"Rendering markdown with extensions: {valid_extensions}")
-
     md_content = preprocess_markdown(md_content)
 
     if ignore_links:
@@ -105,9 +102,6 @@ def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtension
     html_content = markdown.markdown(md_content, extensions=valid_extensions)
 
     html_content = format_html(html_content)
-
-    # Debug log: Log the rendered HTML
-    logger.debug(f"Rendered HTML: {html_content}")
 
     return html_content
 

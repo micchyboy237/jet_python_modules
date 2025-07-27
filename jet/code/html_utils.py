@@ -248,7 +248,8 @@ def format_html(html_string: str, parser: str = "html.parser", encoding: Optiona
 
 def preprocess_html(html: str) -> str:
     """
-    Preprocess HTML content by removing unwanted elements, comments, and adding spacing.
+    Preprocess HTML content by removing unwanted elements, comments, adding spacing,
+    and inserting the title as an h1 at the beginning of the body if no h1 is the first child.
 
     Args:
         html: Input HTML string to preprocess.
@@ -256,6 +257,19 @@ def preprocess_html(html: str) -> str:
     Returns:
         Preprocessed HTML string.
     """
+    # Extract the title from the <title> tag
+    title_match = re.search(
+        r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+    title = title_match.group(1).strip() if title_match else "Default Title"
+
+    # Check if the first child of <body> is an <h1>
+    body_match = re.search(r'(<body[^>]*>)\s*(<[^>]+>)', html, re.IGNORECASE)
+    has_h1_first = False
+    if body_match:
+        first_child = body_match.group(2)
+        has_h1_first = bool(
+            re.match(r'<h1(?:\s+[^>]*)?>', first_child, re.IGNORECASE))
+
     # Remove unwanted elements (button, script, style, form, input, select, textarea)
     unwanted_elements = r'button|script|style|form|input|select|textarea'
     pattern_unwanted = rf'<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>'
@@ -273,6 +287,11 @@ def preprocess_html(html: str) -> str:
     list_elements = r'ul|ol'
     pattern_list = rf'</({list_elements})>'
     html = re.sub(pattern_list, r'</\1><h6>Others</h6>', html)
+
+    # Insert title as <h1> right after <body> tag only if no <h1> is the first child
+    if not has_h1_first:
+        html = re.sub(
+            r'(<body[^>]*>)', rf'\1<h1>{title}</h1>', html, flags=re.IGNORECASE)
 
     html = fix_and_unidecode(html)
 
