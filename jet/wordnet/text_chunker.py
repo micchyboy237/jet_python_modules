@@ -67,7 +67,7 @@ def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, sentence_
     if model:
         tokenize_fn = get_tokenizer_fn(model)
         for text in texts:
-            sentences = sent_tokenize(text.strip())
+            sentences = split_sentences(text.strip())
             if len(sentences) <= chunk_size and not model:
                 chunked_texts.append(text)
                 continue

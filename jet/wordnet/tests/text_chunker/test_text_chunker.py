@@ -2,7 +2,7 @@ import pytest
 from jet.logger import logger
 from jet.vectors.document_types import HeaderDocument
 from jet.wordnet.sentence import split_sentences
-from jet.wordnet.text_chunker import chunk_headers, chunk_sentences_with_indices, chunk_texts, chunk_sentences, chunk_texts_with_indices, truncate_texts
+from jet.wordnet.text_chunker import chunk_headers, chunk_sentences_with_indices, chunk_texts, chunk_texts_with_indices, truncate_texts
 from jet.models.tokenizer.base import detokenize, get_tokenizer_fn
 
 MODEL_NAME = "qwen3-1.7b-4bit"
@@ -49,54 +49,6 @@ class TestChunkTexts:
         ]
         result = chunk_texts(input_text, chunk_size=8,
                              chunk_overlap=3, model=MODEL_NAME)
-        assert result == expected_chunks
-
-
-class TestChunkSentences:
-    def test_no_overlap(self):
-        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-        expected = [
-            "This is sentence one. This is sentence two.",
-            "This is sentence three. This is sentence four."
-        ]
-        result = chunk_sentences(input_text, chunk_size=2, sentence_overlap=0)
-        assert result == expected
-
-    def test_with_overlap(self):
-        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-        expected = [
-            "This is sentence one. This is sentence two.",
-            "This is sentence two. This is sentence three.",
-            "This is sentence three. This is sentence four."
-        ]
-        result = chunk_sentences(input_text, chunk_size=2, sentence_overlap=1)
-        assert result == expected
-
-    def test_no_overlap_with_model(self):
-        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        sentences = split_sentences(input_text)
-        sentence_tokens = [len(tokenize_fn(s)) for s in sentences]
-        expected_chunks = [
-            "This is sentence one. This is sentence two.",
-            "This is sentence three. This is sentence four."
-        ]
-        result = chunk_sentences(input_text, chunk_size=sum(
-            sentence_tokens[:2]), sentence_overlap=0, model=MODEL_NAME)
-        assert result == expected_chunks
-
-    def test_with_overlap_with_model(self):
-        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        sentences = split_sentences(input_text)
-        sentence_tokens = [len(tokenize_fn(s)) for s in sentences]
-        expected_chunks = [
-            "This is sentence one. This is sentence two.",
-            "This is sentence two. This is sentence three.",
-            "This is sentence three. This is sentence four."
-        ]
-        result = chunk_sentences(input_text, chunk_size=sum(
-            sentence_tokens[:2]), sentence_overlap=1, model=MODEL_NAME)
         assert result == expected_chunks
 
 
@@ -339,13 +291,13 @@ class TestTruncateText:
     def test_single_string(self):
         sample = "This is the first sentence. Here is the second one. This is the third and final sentence."
         expected = "This is the first sentence. Here is the second one."
-        result = truncate_texts(sample, max_words=12)
+        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=12)
         assert result == expected
 
     def test_exact_word_limit(self):
         sample = "One. Two three four five. Six seven eight nine ten."
         expected = "One. Two three four five."
-        result = truncate_texts(sample, max_words=6)
+        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=6)
         assert result == expected
 
     def test_list_input(self):
@@ -357,13 +309,13 @@ class TestTruncateText:
             "First sentence. Second sentence.",
             "Another paragraph."
         ]
-        result = truncate_texts(sample, max_words=4)
+        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=4)
         assert result == expected
 
     def test_short_text(self):
         sample = "Short text."
-        expected = "Short text."
-        result = truncate_texts(sample, max_words=100)
+        expected = ["Short text."]
+        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=100)
         assert result == expected
 
     def test_single_string_with_model(self):
@@ -371,7 +323,7 @@ class TestTruncateText:
         tokenize_fn = get_tokenizer_fn(MODEL_NAME)
         token_ids = tokenize_fn(sample)
         expected = detokenize(token_ids[:12], MODEL_NAME)
-        result = truncate_texts(sample, max_words=12, model=MODEL_NAME)
+        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=12)
         assert result == expected
 
     def test_list_input_with_model(self):
@@ -384,5 +336,5 @@ class TestTruncateText:
             detokenize(tokenize_fn(sample[0])[:4], MODEL_NAME),
             detokenize(tokenize_fn(sample[1])[:4], MODEL_NAME)
         ]
-        result = truncate_texts(sample, max_words=4, model=MODEL_NAME)
+        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=4)
         assert result == expected
