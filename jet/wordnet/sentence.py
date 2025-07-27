@@ -1,6 +1,6 @@
 from io import StringIO
 import re
-from typing import Callable, Optional
+from typing import Callable, List, Optional, Tuple
 
 from tqdm import tqdm
 from nltk.tokenize import sent_tokenize, word_tokenize
@@ -273,6 +273,91 @@ def split_sentences(text: str, num_sentence: int = 1) -> list[str]:
     return combined_results
 
 
+def split_sentences_with_separators(text: str, num_sentence: int = 1) -> List[Tuple[str, str]]:
+    """Split text into sentences, preserving the separator after each sentence.
+
+    Args:
+        text: Input text to split.
+        num_sentence: Number of sentences to combine into each chunk.
+
+    Returns:
+        List of tuples, each containing a sentence and its trailing separator.
+    """
+    if num_sentence < 1:
+        raise ValueError("num_sentence must be a positive integer")
+
+    sentences = sent_tokenize(text)
+    if not sentences:
+        return []
+
+    adjusted_sentences = []
+    i = 0
+    current_pos = 0
+    while i < len(sentences):
+        current_sentence = sentences[i]
+        # Find the sentence in the original text to determine its separator
+        start_idx = text.find(current_sentence, current_pos)
+        if start_idx == -1:
+            # Fallback if sentence not found
+            adjusted_sentences.append((current_sentence, " "))
+            i += 1
+            continue
+        end_idx = start_idx + len(current_sentence)
+        # Extract separator
+        separator = ""
+        if end_idx < len(text):
+            next_sentence_idx = text.find(
+                sentences[i + 1], end_idx) if i + 1 < len(sentences) else len(text)
+            separator = text[end_idx:next_sentence_idx]
+            if not separator.strip():  # If separator is only whitespace/newlines
+                separator = separator if "\n" in separator else " "
+            else:
+                separator = " "  # Default to space for non-whitespace separators
+
+        if is_list_marker(current_sentence) and i + 1 < len(sentences):
+            combined = current_sentence + ' ' + sentences[i + 1]
+            if is_list_sentence(combined):
+                # Find the combined sentence in the original text
+                combined_start = text.find(combined, current_pos)
+                if combined_start != -1:
+                    combined_end = combined_start + len(combined)
+                    combined_separator = ""
+                    if combined_end < len(text):
+                        next_idx = text.find(
+                            sentences[i + 2], combined_end) if i + 2 < len(sentences) else len(text)
+                        combined_separator = text[combined_end:next_idx]
+                        if not combined_separator.strip():
+                            combined_separator = combined_separator if "\n" in combined_separator else " "
+                        else:
+                            combined_separator = " "
+                    adjusted_sentences.append((combined, combined_separator))
+                    current_pos = combined_end
+                    i += 2
+                    continue
+        elif is_list_sentence(current_sentence):
+            adjusted_sentences.append((current_sentence, separator))
+        else:
+            adjusted_sentences.append((current_sentence, separator))
+
+        current_pos = end_idx
+        i += 1
+
+    # Combine sentences based on num_sentence
+    combined_results = []
+    for j in range(0, len(adjusted_sentences), num_sentence):
+        chunk = adjusted_sentences[j:j + num_sentence]
+        combined_sentence = ""
+        for k, (sentence, sep) in enumerate(chunk):
+            combined_sentence += sentence
+            if k < len(chunk) - 1:  # Add separator except for the last sentence
+                combined_sentence += sep
+        # Use the last sentence's separator for the combined chunk
+        final_separator = chunk[-1][1] if chunk else " "
+        combined_results.append((combined_sentence, final_separator))
+
+    return combined_results
+
+
 def get_unique_sentences(text: str) -> list[str]:
     """
     Get unique sentences from text using split_sentences.
@@ -367,6 +452,7 @@ __all__ = [
     "adaptive_split",
     "split_sentences_nltk",
     "split_sentences",
+    "split_sentences_with_separators",
     "merge_sentences",
     "group_sentences",
     "count_sentences",
