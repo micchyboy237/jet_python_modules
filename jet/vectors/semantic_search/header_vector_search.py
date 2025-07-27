@@ -1,3 +1,6 @@
+from jet.models.model_types import ModelType
+from jet.models.tokenizer.base import get_tokenizer_fn
+from jet.wordnet.text_chunker import chunk_texts
 import re
 from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
 import numpy as np
@@ -52,7 +55,7 @@ def collect_header_chunks(
     header_docs: List[HeaderDoc],
     chunk_size: int = 500,
     chunk_overlap: int = 100,
-    tokenizer: Optional[Callable[[str], int]] = None
+    tokenizer_model: Optional[ModelType] = None
 ) -> Tuple[List[int], List[str], List[str], List[Tuple[int, str, str, str, str, str, int, int, int]]]:
     """
     Collect chunked contents for each header along with metadata, preserving original texts.
@@ -60,16 +63,19 @@ def collect_header_chunks(
         header_docs: List of HeaderDoc objects to process
         chunk_size: Size of content chunks
         chunk_overlap: Overlap between chunks
-        tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
+        tokenizer_model: Optional LLM model name for token-based chunking
     Returns:
         Tuple of (doc_indices, headers, headers_context, contents_with_indices)
         where contents_with_indices = List of (doc_index, header, content_chunk, original_content_chunk, preprocessed_header, preprocessed_headers_context, start_idx, end_idx, num_tokens)
     """
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
-    tokenizer = tokenizer or default_tokenizer
+    tokenizer = get_tokenizer_fn(
+        tokenizer_model) if tokenizer_model else default_tokenizer
+
     doc_indices, headers, headers_context = [], [], []
     contents_with_indices = []
+
     for header_doc in header_docs:
         doc_index = header_doc['doc_index']
         original_header = header_doc['header']
@@ -81,27 +87,32 @@ def collect_header_chunks(
             headers_context_text) if headers_context_text else ""
         if not headers_context_processed:
             logger.warning(f"Empty headers context for doc_index {doc_index}")
+
         original_content = header_doc['content']
         doc_indices.append(doc_index)
         headers.append(header)
         headers_context.append(headers_context_processed)
-        for start in range(0, len(original_content), chunk_size - chunk_overlap):
-            original_chunk = original_content[start:start + chunk_size]
-            chunk = preprocess_text(original_chunk)
+
+        # Use chunk_texts from text_chunker
+        chunks = chunk_texts(original_content, chunk_size,
+                             chunk_overlap, tokenizer_model)
+
+        start_idx = 0
+        for chunk in chunks:
             if chunk.strip():
-                end = start + len(original_chunk)
-                num_tokens = tokenizer(original_chunk)
-                # if num_tokens < 50:
-                #     logger.warning(
-                #         f"Short content chunk ({num_tokens} tokens) for doc_index {doc_index}, start_idx {start}")
-                if num_tokens > 512:
-                    original_chunk = original_chunk[:512]
-                    chunk = preprocess_text(original_chunk)
-                    num_tokens = tokenizer(original_chunk)
+                preprocessed_chunk = preprocess_text(chunk)
+                end_idx = start_idx + len(chunk)
+                num_tokens = tokenizer(chunk)
+                if len(num_tokens) > 512:
+                    chunk = chunk[:512]
+                    preprocessed_chunk = preprocess_text(chunk)
+                    num_tokens = tokenizer(chunk)
                     logger.info(
-                        f"Truncated content chunk to 512 tokens for doc_index {doc_index}, start_idx {start}")
+                        f"Truncated content chunk to 512 tokens for doc_index {doc_index}, start_idx {start_idx}")
                 contents_with_indices.append(
-                    (doc_index, header, chunk, original_chunk, header, headers_context_processed, start, end, num_tokens))
+                    (doc_index, header, preprocessed_chunk, chunk, header, headers_context_processed, start_idx, end_idx, num_tokens))
+                start_idx = end_idx - chunk_overlap if end_idx - \
+                    start_idx > chunk_overlap else start_idx
     return doc_indices, headers, headers_context, contents_with_indices
 
 
@@ -282,7 +293,7 @@ def search_headers(
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     threshold: float = 0.0,
-    tokenizer: Optional[Callable[[str], int]] = None,
+    tokenizer_model: Optional[ModelType] = None,
     merge_chunks: bool = False
 ) -> Iterator[HeaderSearchResult]:
     """
@@ -292,10 +303,11 @@ def search_headers(
     """
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
-    tokenizer = tokenizer or default_tokenizer
+    tokenizer = get_tokenizer_fn(
+        tokenizer_model) if tokenizer_model else default_tokenizer
     query_processed = preprocess_text(query)
     doc_indices, headers, headers_context, chunk_data = collect_header_chunks(
-        header_docs, chunk_size, chunk_overlap, tokenizer)
+        header_docs, chunk_size, chunk_overlap, tokenizer_model)
     if not chunk_data:
         logger.debug("No chunk data available, returning empty iterator")
         return
@@ -304,10 +316,10 @@ def search_headers(
     parent_texts = [
         headers_context[doc_indices.index(idx)] for idx in unique_docs]
     chunk_texts = [chunk for _, _, chunk, _, _, _, _, _, _ in chunk_data]
-    all_texts = [query_processed] + header_texts + parent_texts + chunk_texts
     logger.debug(
         f"Text counts: query=1, headers={len(header_texts)}, parents={len(parent_texts)}, chunks={len(chunk_texts)}"
     )
+    all_texts = [query_processed] + header_texts + parent_texts + chunk_texts
     logger.info(
         f"Generating embeddings for {len(all_texts)} texts:\n"
         f"  1 query\n"
@@ -315,6 +327,7 @@ def search_headers(
         f"  {len(parent_texts)} headers context\n"
         f"  {len(chunk_texts)} chunks"
     )
+
     all_vectors = generate_embeddings(
         all_texts,
         embed_model,
@@ -337,7 +350,7 @@ def search_headers(
         content_vector = content_vectors[i]
         weighted_sim, header_content_sim, headers_sim, content_sim = compute_weighted_similarity(
             query_vector, header_vectors[unique_doc_idx], parent_vectors[
-                unique_doc_idx], content_vector, num_tokens, header_doc['level']
+                unique_doc_idx], content_vector, len(num_tokens), header_doc['level']
         )
         if weighted_sim >= threshold:
             chunk_counts[doc_index] = chunk_counts.get(doc_index, -1) + 1
@@ -359,7 +372,7 @@ def search_headers(
                     "header_content_similarity": float(header_content_sim),
                     "headers_similarity": float(headers_sim),
                     "content_similarity": float(content_sim),
-                    "num_tokens": num_tokens,
+                    "num_tokens": len(num_tokens),
                     "preprocessed_header": preprocessed_header,
                     "preprocessed_headers_context": preprocessed_headers_context,
                     "preprocessed_content": chunk
