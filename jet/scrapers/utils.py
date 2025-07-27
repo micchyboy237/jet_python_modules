@@ -1685,7 +1685,7 @@ def extract_text_nodes(
                 text=text,
                 depth=depth,
                 id=id,
-                parent=parent_id,
+                parent_id=parent_id,
                 class_names=class_names,
                 link=link,
                 line=element_pq[0].sourceline if element_pq else 0
