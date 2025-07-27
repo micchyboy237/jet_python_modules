@@ -269,6 +269,11 @@ def preprocess_html(html: str) -> str:
     pattern_inline = rf'</({inline_elements})><({inline_elements})'
     html = re.sub(pattern_inline, r'</\1> <\2', html)
 
+    # Add header placeholder after closing list elements (ul, ol)
+    list_elements = r'ul|ol'
+    pattern_list = rf'</({list_elements})>'
+    html = re.sub(pattern_list, r'</\1><h6>Others</h6>', html)
+
     html = fix_and_unidecode(html)
 
     return html
