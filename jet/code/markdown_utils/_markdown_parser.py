@@ -1,3 +1,4 @@
+import json
 from jet.wordnet.sentence import is_list_sentence, is_ordered_list_marker
 import os
 import tempfile
@@ -24,10 +25,20 @@ def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> 
     parser = MarkdownParser(md_content)
     md_tokens: List[MarkdownToken] = make_serializable(parser.parse())
 
-    # Split paragraph tokens by newlines to ensure each line is a separate token
+    # Split paragraph tokens by newlines and handle dict content
     split_tokens: List[MarkdownToken] = []
     for token in md_tokens:
-        if token.get('type', 'paragraph') == 'paragraph' and '\n' in token.get('content', ''):
+        if isinstance(token.get('content'), dict):
+            # Handle dict content by setting type to 'json' and converting to string
+            split_tokens.append({
+                'type': 'json',
+                'content': f"```json{json.dumps(token['content'])}```",
+                'level': None,
+                'meta': token.get('meta', {}),
+                'line': token.get('line', 1)
+            })
+        elif token.get('type', 'paragraph') == 'paragraph' and '\n' in token.get('content', ''):
+            # Split paragraph tokens by newlines
             lines = token['content'].split('\n')
             for i, line in enumerate(lines):
                 if line.strip():  # Only include non-empty lines
@@ -40,19 +51,6 @@ def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> 
                     })
         else:
             split_tokens.append(token)
-
-    # Ensure all tokens have required fields
-    for token in split_tokens:
-        if 'type' not in token:
-            token['type'] = 'paragraph'
-        if 'content' not in token:
-            token['content'] = ''
-        if 'level' not in token:
-            token['level'] = None
-        if 'meta' not in token:
-            token['meta'] = {}
-        if 'line' not in token:
-            token['line'] = 1
 
     return split_tokens
 

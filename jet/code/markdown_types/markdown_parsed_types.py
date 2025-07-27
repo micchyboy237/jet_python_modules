@@ -31,7 +31,9 @@ ContentType = Literal[
     "table",
     "unordered_list",
     "ordered_list",
-    "html_block"
+    "html_block",
+    # Custom types
+    "json"
 ]
 
 
