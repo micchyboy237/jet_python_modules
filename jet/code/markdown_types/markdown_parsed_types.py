@@ -64,6 +64,7 @@ class HeaderSearchMetadata(TypedDict):
     doc_id: str
     level: Optional[int]
     parent_level: Optional[int]
+    parent_headers: List[str]
     start_idx: int
     end_idx: int
     chunk_idx: int

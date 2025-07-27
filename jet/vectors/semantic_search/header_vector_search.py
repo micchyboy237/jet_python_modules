@@ -17,30 +17,36 @@ DEFAULT_EMBED_MODEL: EmbedModelType = 'all-MiniLM-L6-v2'
 MAX_CONTENT_SIZE = 1000
 
 
-def preprocess_text(
-    text: str,
-) -> str:
-    if not text or not text.strip():
-        return ""
-    # Remove subsequent newlines and leading/trailing newlines
-    text = re.sub(r'\n\s*\n+', '\n', text)
-    preserve_chars = {'-', '_'}
-    pattern = r'[^a-z0-9\s' + ''.join(map(re.escape, preserve_chars)) + r']'
-    processed_lines = []
-    for line in text.splitlines():
-        # Expand contractions
-        for contraction, expanded in TEXT_CONTRACTIONS_EN.items():
-            line = re.sub(r'\b' + re.escape(contraction) + r'\b',
-                          expanded, line, flags=re.IGNORECASE)
-        # Lowercase
-        line = line.lower()
-        # Remove unwanted characters but preserve allowed ones
-        line = re.sub(pattern, '', line)
-        # Normalize whitespace
-        line = re.sub(r'\s+', ' ', line.strip())
-        if line:
-            processed_lines.append(line)
-    return '\n'.join(processed_lines)
+# def preprocess_text(
+#     text: str,
+# ) -> str:
+#     if not text or not text.strip():
+#         return ""
+#     # Remove subsequent newlines and leading/trailing newlines
+#     text = re.sub(r'\n\s*\n+', '\n', text)
+#     preserve_chars = {'-', '_'}
+#     pattern = r'[^a-z0-9\s' + ''.join(map(re.escape, preserve_chars)) + r']'
+#     processed_lines = []
+#     for line in text.splitlines():
+#         # Expand contractions
+#         for contraction, expanded in TEXT_CONTRACTIONS_EN.items():
+#             line = re.sub(r'\b' + re.escape(contraction) + r'\b',
+#                           expanded, line, flags=re.IGNORECASE)
+#         # Lowercase
+#         line = line.lower()
+#         # Remove unwanted characters but preserve allowed ones
+#         line = re.sub(pattern, '', line)
+#         # Normalize whitespace
+#         line = re.sub(r'\s+', ' ', line.strip())
+#         if line:
+#             processed_lines.append(line)
+#     return '\n'.join(processed_lines)
+
+def preprocess_text(text: str) -> str:
+    """Preprocess text by lowercasing and keeping alphanumeric characters."""
+    # text = text.lower()
+    # text = ''.join(char for char in text if char.isalnum() or char.isspace())
+    return text
 
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
@@ -228,13 +234,14 @@ def merge_results(
                         "doc_id": current_chunk["metadata"]["doc_id"],
                         "level": current_chunk["metadata"]["level"],
                         "parent_level": current_chunk["metadata"]["parent_level"],
+                        "parent_headers": current_chunk["metadata"].get("parent_headers", []),
                         "start_idx": start_idx,
                         "end_idx": end_idx,
                         "chunk_idx": 0,
                         "header_content_similarity": header_content_sim,
                         "headers_similarity": headers_sim,
                         "content_similarity": avg_content_sim,
-                        "num_tokens": tokens,
+                        "num_tokens": len(tokens),
                         "preprocessed_header": preprocessed_header,
                         "preprocessed_headers_context": preprocessed_headers_context,
                         "preprocessed_content": preprocessed_content
@@ -267,13 +274,14 @@ def merge_results(
                 "doc_id": current_chunk["metadata"]["doc_id"],
                 "level": current_chunk["metadata"]["level"],
                 "parent_level": current_chunk["metadata"]["parent_level"],
+                "parent_headers": current_chunk["metadata"].get("parent_headers", []),
                 "start_idx": start_idx,
                 "end_idx": end_idx,
                 "chunk_idx": 0,
                 "header_content_similarity": header_content_sim,
                 "headers_similarity": headers_sim,
                 "content_similarity": avg_content_sim,
-                "num_tokens": tokens,
+                "num_tokens": len(tokens),
                 "preprocessed_header": preprocessed_header,
                 "preprocessed_headers_context": preprocessed_headers_context,
                 "preprocessed_content": preprocessed_content
@@ -365,6 +373,7 @@ def search_headers(
                     "doc_id": header_doc['doc_id'],
                     "level": header_doc['level'],
                     "parent_level": header_doc['parent_level'],
+                    "parent_headers": header_doc.get('parent_headers', []),
                     "start_idx": start_idx,
                     "end_idx": end_idx,
                     "chunk_idx": chunk_counts[doc_index],
