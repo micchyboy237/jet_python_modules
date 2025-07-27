@@ -269,7 +269,7 @@ def create_embed_model(
 DEFAULT_DB = "chat_history_db1"
 DEFAULT_USER = "jethroestrada"
 DEFAULT_PASSWORD = ""
-DEFAULT_HOST = "jetairm1"
+DEFAULT_HOST = "Jethros-MacBook-Air.local"
 DEFAULT_PORT = 5432
 DEFAULT_TABLE_NAME = "chat_history"
 

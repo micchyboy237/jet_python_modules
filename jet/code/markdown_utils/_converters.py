@@ -20,7 +20,8 @@ from jet.logger import logger
 
 def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = False) -> str:
     """Convert HTML to Markdown with enhanced noise removal."""
-    if Path(str(html_input)).is_file():
+    html_content: str
+    if isinstance(html_input, (str, Path)) and str(html_input).endswith(('.html', '.htm')) and Path(str(html_input)).is_file():
         html_content = load_file(str(html_input))
         html_content = preprocess_html(html_content)
     else:

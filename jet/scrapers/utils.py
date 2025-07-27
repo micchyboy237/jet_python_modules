@@ -118,7 +118,6 @@ def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
 
     # Find all matches in text
     links = re.findall(url_pattern, text)
-    print(f"Debug: Raw links found: {links}")  # Debug log
 
     if not links:
         return []
@@ -157,7 +156,6 @@ def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
                         valid_links.append(link)
         except ValueError:
             continue
-    print(f"Debug: Valid links: {valid_links}")  # Debug log
 
     return valid_links
 
@@ -1547,7 +1545,7 @@ def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResu
 
     try:
         results: list[SearchResult] = search_searxng(
-            query_url="http://jetairm1:3000/search",
+            query_url="http://Jethros-MacBook-Air.local:3000/search",
             query=query,
             filter_sites=filter_sites,
             engines=engines,

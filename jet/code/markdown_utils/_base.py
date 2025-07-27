@@ -19,23 +19,19 @@ from jet.logger import logger
 
 
 def read_md_content(input: Union[str, Path], ignore_links: bool = False) -> str:
-    md_content = input
-    try:
-        if Path(str(input)).is_file():
-            with open(input, 'r', encoding='utf-8') as file:
-                md_content = file.read()
-
-            if str(input).endswith('.html'):
-                md_content = convert_html_to_markdown(
-                    input, ignore_links=ignore_links)
-    except OSError:
+    """Read markdown content from a file path or string, optionally converting HTML to markdown."""
+    md_content: str
+    if isinstance(input, (str, Path)) and str(input).endswith(('.md', '.markdown', '.html', '.htm')) and Path(str(input)).is_file():
+        with open(input, 'r', encoding='utf-8') as file:
+            md_content = file.read()
+        if str(input).endswith(('.html', '.htm')):
+            md_content = convert_html_to_markdown(
+                md_content, ignore_links=ignore_links)
+    else:
         md_content = str(input)
-
-        # if valid_html(md_content):
-        #     md_content = convert_html_to_markdown(
-        #         md_content, ignore_links=ignore_links)
-    except Exception:
-        raise
+        if valid_html(md_content):
+            md_content = convert_html_to_markdown(
+                md_content, ignore_links=ignore_links)
 
     if ignore_links:
         md_content = clean_markdown_links(md_content)
@@ -54,17 +50,11 @@ def read_html_content(input: Union[str, Path], ignore_links: bool = False) -> st
     Returns:
         The HTML content as a string.
     """
-    html_content = input
-    try:
-        if Path(str(input)).is_file():
-            with open(input, 'r', encoding='utf-8') as file:
-                html_content = file.read()
-
-            # if str(input).endswith('.html'):
-            #     html_content = load_file(str(input))
-        else:
-            html_content = str(input)
-    except Exception:
+    html_content: str
+    if isinstance(input, (str, Path)) and str(input).endswith(('.html', '.htm')) and Path(str(input)).is_file():
+        with open(input, 'r', encoding='utf-8') as file:
+            html_content = file.read()
+    else:
         html_content = str(input)
 
     if not valid_html(html_content):
@@ -76,7 +66,7 @@ def read_html_content(input: Union[str, Path], ignore_links: bool = False) -> st
 
     if ignore_links:
         md_content = convert_html_to_markdown(html_content, ignore_links=True)
-        html = convert_markdown_to_html(md_content)
-        return html
+        html_content = convert_markdown_to_html(md_content)
+        return html_content
 
     return html_content
