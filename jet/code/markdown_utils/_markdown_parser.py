@@ -351,6 +351,7 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
                 "parent_headers": parent_headers,
                 "parent_header": parent_header,
                 "parent_level": parent_level,
+                "source": '',
                 "tokens": [],
             }
             header_stack.append(
@@ -366,6 +367,7 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
                     "parent_headers": [],
                     "parent_header": None,
                     "parent_level": None,
+                    "source": '',
                     "tokens": [],
                 }
             current_section["content"].extend(token_content.splitlines())

@@ -52,6 +52,7 @@ class HeaderDoc(TypedDict):
     parent_headers: List[str]
     parent_header: Optional[str]
     parent_level: Optional[int]
+    source: str
     tokens: List[MarkdownToken]
 
 
@@ -64,6 +65,7 @@ class HeaderSearchMetadata(TypedDict):
     start_idx: int
     end_idx: int
     chunk_idx: int
+    source: str
     header_content_similarity: float
     headers_similarity: float
     content_similarity: float

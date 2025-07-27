@@ -141,39 +141,46 @@ def compute_weighted_similarity(
     header_content_weight /= total
     weighted_sim = header_content_weight * header_content_sim + \
         headers_weight * headers_sim + content_weight * content_sim
-    logger.debug(
-        f"Weights: header_content={header_content_weight:.2f}, headers={headers_weight:.2f}, content={content_weight:.2f}")
     return weighted_sim, header_content_sim, headers_sim, content_sim
 
 
 def merge_results(
     results: List[HeaderSearchResult],
+    chunk_size: int = 500,
     tokenizer: Optional[Callable[[str], int]] = None
 ) -> List[HeaderSearchResult]:
     """
     Merge adjacent chunks from the same header into a single result, preserving order and metadata.
+    Split merged content if it exceeds chunk_size based on token count.
     Args:
         results: List of HeaderSearchResult dictionaries, potentially containing adjacent chunks.
+        chunk_size: Maximum token count for each merged result.
         tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
     Returns:
-        List of HeaderSearchResult dictionaries with adjacent chunks merged.
+        List of HeaderSearchResult dictionaries with adjacent chunks merged and split if exceeding chunk_size.
     """
     if not results:
         return []
+
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
+
+    # Grouped ascending grouped chunks by doc_index
     grouped: dict[int, List[HeaderSearchResult]] = {}
     for result in results:
         doc_index = result["metadata"]["doc_index"]
         if doc_index not in grouped:
             grouped[doc_index] = []
         grouped[doc_index].append(result)
+
     merged_results: List[HeaderSearchResult] = []
+
     for doc_index, chunks in grouped.items():
         chunks.sort(key=lambda x: x["metadata"]["start_idx"])
         current_chunk = chunks[0]
         merged_content = current_chunk["content"]
+        preprocessed_content = current_chunk["metadata"]["preprocessed_content"]
         start_idx = current_chunk["metadata"]["start_idx"]
         end_idx = current_chunk["metadata"]["end_idx"]
         total_score = current_chunk["score"]
@@ -184,94 +191,105 @@ def merge_results(
         tokens = tokenizer(merged_content)
         preprocessed_header = current_chunk["metadata"]["preprocessed_header"]
         preprocessed_headers_context = current_chunk["metadata"]["preprocessed_headers_context"]
-        preprocessed_content = current_chunk["metadata"]["preprocessed_content"]
+
+        def create_result(start: int, end: int, content: str, preprocessed: str, content_sims: List[float], chunk_count: int, chunk_idx: int) -> HeaderSearchResult:
+            avg_score = total_score / chunk_count
+            avg_content_sim = sum(content_sims) / chunk_count
+            return {
+                "rank": current_chunk["rank"],
+                "score": avg_score,
+                "header": current_chunk["header"],
+                "parent_header": current_chunk["parent_header"],
+                "content": content,
+                "metadata": {
+                    "doc_index": doc_index,
+                    "doc_id": current_chunk["metadata"]["doc_id"],
+                    "level": current_chunk["metadata"]["level"],
+                    "parent_level": current_chunk["metadata"]["parent_level"],
+                    "start_idx": start,
+                    "end_idx": end,
+                    "chunk_idx": chunk_idx,
+                    "source": current_chunk["metadata"]["source"],
+                    "header_content_similarity": header_content_sim,
+                    "headers_similarity": headers_sim,
+                    "content_similarity": avg_content_sim,
+                    "num_tokens": tokenizer(content),
+                    "preprocessed_header": preprocessed_header,
+                    "preprocessed_headers_context": preprocessed_headers_context,
+                    "preprocessed_content": preprocessed
+                },
+            }
+
         for next_chunk in chunks[1:]:
             next_start = next_chunk["metadata"]["start_idx"]
             next_end = next_chunk["metadata"]["end_idx"]
             next_content = next_chunk["content"]
             next_preprocessed_content = next_chunk["metadata"]["preprocessed_content"]
+
+            # Check if chunks are adjacent
             if next_start <= end_idx:
-                new_end = max(end_idx, next_end)
                 overlap = end_idx - next_start
                 additional_content = next_content[overlap:
                                                   ] if overlap > 0 else next_content
-                merged_content += additional_content
-                preprocessed_content += " " + \
-                    next_preprocessed_content[overlap:] if overlap > 0 else next_preprocessed_content
-                end_idx = new_end
-                total_score += next_chunk["score"]
-                content_sims.append(
-                    next_chunk["metadata"]["content_similarity"])
-                chunk_count += 1
-                tokens = tokenizer(merged_content)
+                additional_preprocessed = next_preprocessed_content[
+                    overlap:] if overlap > 0 else next_preprocessed_content
+                new_content = merged_content + additional_content
+                new_preprocessed = preprocessed_content + " " + additional_preprocessed
+
+                # Check if adding this chunk exceeds chunk_size
+                new_tokens = tokenizer(new_content)
+                if new_tokens <= chunk_size:
+                    merged_content = new_content
+                    preprocessed_content = new_preprocessed
+                    end_idx = max(end_idx, next_end)
+                    total_score += next_chunk["score"]
+                    content_sims.append(
+                        next_chunk["metadata"]["content_similarity"])
+                    chunk_count += 1
+                    tokens = new_tokens
+                else:
+                    # Save current merged chunk
+                    merged_results.append(create_result(
+                        start_idx, end_idx, merged_content, preprocessed_content,
+                        content_sims, chunk_count, len(merged_results)
+                    ))
+                    # Start new chunk
+                    merged_content = next_content
+                    preprocessed_content = next_preprocessed_content
+                    start_idx = next_start
+                    end_idx = next_end
+                    total_score = next_chunk["score"]
+                    content_sims = [next_chunk["metadata"]
+                                    ["content_similarity"]]
+                    chunk_count = 1
+                    tokens = tokenizer(merged_content)
             else:
-                avg_score = total_score / chunk_count
-                avg_content_sim = sum(content_sims) / chunk_count
-                merged_results.append({
-                    "rank": current_chunk["rank"],
-                    "score": avg_score,
-                    "header": current_chunk["header"],
-                    "parent_header": current_chunk["parent_header"],
-                    "content": merged_content,
-                    "metadata": {
-                        "doc_index": doc_index,
-                        "doc_id": current_chunk["metadata"]["doc_id"],
-                        "level": current_chunk["metadata"]["level"],
-                        "parent_level": current_chunk["metadata"]["parent_level"],
-                        "start_idx": start_idx,
-                        "end_idx": end_idx,
-                        "chunk_idx": 0,
-                        "header_content_similarity": header_content_sim,
-                        "headers_similarity": headers_sim,
-                        "content_similarity": avg_content_sim,
-                        "num_tokens": tokens,
-                        "preprocessed_header": preprocessed_header,
-                        "preprocessed_headers_context": preprocessed_headers_context,
-                        "preprocessed_content": preprocessed_content
-                    },
-                })
-                current_chunk = next_chunk
-                merged_content = current_chunk["content"]
-                start_idx = current_chunk["metadata"]["start_idx"]
-                end_idx = current_chunk["metadata"]["end_idx"]
-                total_score = current_chunk["score"]
-                header_content_sim = current_chunk["metadata"]["header_content_similarity"]
-                headers_sim = current_chunk["metadata"]["headers_similarity"]
-                content_sims = [current_chunk["metadata"]
-                                ["content_similarity"]]
+                # Save current merged chunk
+                merged_results.append(create_result(
+                    start_idx, end_idx, merged_content, preprocessed_content,
+                    content_sims, chunk_count, len(merged_results)
+                ))
+                # Start new chunk
+                merged_content = next_content
+                preprocessed_content = next_preprocessed_content
+                start_idx = next_start
+                end_idx = next_end
+                total_score = next_chunk["score"]
+                content_sims = [next_chunk["metadata"]["content_similarity"]]
                 chunk_count = 1
                 tokens = tokenizer(merged_content)
-                preprocessed_header = current_chunk["metadata"]["preprocessed_header"]
-                preprocessed_headers_context = current_chunk["metadata"]["preprocessed_headers_context"]
-                preprocessed_content = current_chunk["metadata"]["preprocessed_content"]
-        avg_score = total_score / chunk_count
-        avg_content_sim = sum(content_sims) / chunk_count
-        merged_results.append({
-            "rank": current_chunk["rank"],
-            "score": avg_score,
-            "header": current_chunk["header"],
-            "parent_header": current_chunk["parent_header"],
-            "content": merged_content,
-            "metadata": {
-                "doc_index": doc_index,
-                "doc_id": current_chunk["metadata"]["doc_id"],
-                "level": current_chunk["metadata"]["level"],
-                "parent_level": current_chunk["metadata"]["parent_level"],
-                "start_idx": start_idx,
-                "end_idx": end_idx,
-                "chunk_idx": 0,
-                "header_content_similarity": header_content_sim,
-                "headers_similarity": headers_sim,
-                "content_similarity": avg_content_sim,
-                "num_tokens": tokens,
-                "preprocessed_header": preprocessed_header,
-                "preprocessed_headers_context": preprocessed_headers_context,
-                "preprocessed_content": preprocessed_content
-            },
-        })
+
+        # Save the final chunk for this doc_index
+        merged_results.append(create_result(
+            start_idx, end_idx, merged_content, preprocessed_content,
+            content_sims, chunk_count, len(merged_results)
+        ))
+
+    # Sort by score and assign ranks
     merged_results.sort(key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(merged_results, 1):
         result["rank"] = i
+
     return merged_results
 
 
@@ -355,6 +373,7 @@ def search_headers(
                     "start_idx": start_idx,
                     "end_idx": end_idx,
                     "chunk_idx": chunk_counts[doc_index],
+                    "source": header_doc['source'],
                     "header_content_similarity": float(header_content_sim),
                     "headers_similarity": float(headers_sim),
                     "content_similarity": float(content_sim),
@@ -367,7 +386,7 @@ def search_headers(
             results.append(result)
     results.sort(key=lambda x: x["score"], reverse=True)
     if not split_chunks:
-        results = merge_results(results, tokenizer)
+        results = merge_results(results, chunk_size, tokenizer)
     for i, result in enumerate(results[:top_k], 1):
         result["rank"] = i
         yield result
