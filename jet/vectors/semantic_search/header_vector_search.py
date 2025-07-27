@@ -277,7 +277,7 @@ def merge_results(
 def search_headers(
     header_docs: List[HeaderDoc],
     query: str,
-    top_k: int = 5,
+    top_k: Optional[int] = None,
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
@@ -288,6 +288,7 @@ def search_headers(
     """
     Search headers using vector similarity on chunked contents + header metadata.
     Yields up to top_k results iteratively that meet the threshold, preserving original texts.
+    If top_k is None, yields all results that meet the threshold.
     """
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
@@ -368,6 +369,6 @@ def search_headers(
     results.sort(key=lambda x: x["score"], reverse=True)
     if not split_chunks:
         results = merge_results(results, chunk_size, tokenizer)
-    for i, result in enumerate(results[:top_k], 1):
+    for i, result in enumerate(results if top_k is None else results[:top_k], 1):
         result["rank"] = i
         yield result
