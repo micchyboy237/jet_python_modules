@@ -161,7 +161,7 @@ class TestPrependMissingHeadersByType:
                 "content": "Contact Details",
                 "line": 2,
                 "type": "header",
-                "level": 2,
+                "level": 3,
                 "meta": {}
             },
             {
@@ -182,7 +182,7 @@ class TestPrependMissingHeadersByType:
                 "content": "Personal Details",
                 "line": 4,
                 "type": "header",
-                "level": 2,
+                "level": 3,
                 "meta": {}
             },
             {
@@ -215,7 +215,7 @@ class TestPrependMissingHeadersByType:
                 "content": "Contact Details (unordered list)",
                 "line": 2,
                 "type": "header",
-                "level": 2,
+                "level": 3,
                 "meta": {}
             },
             {
@@ -236,7 +236,7 @@ class TestPrependMissingHeadersByType:
                 "content": "Personal Details (blockquote)",
                 "line": 4,
                 "type": "header",
-                "level": 2,
+                "level": 3,
                 "meta": {}
             },
             {

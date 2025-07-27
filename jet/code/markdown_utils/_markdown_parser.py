@@ -54,9 +54,7 @@ def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> 
         if 'line' not in token:
             token['line'] = 1
 
-    tokens_with_new_headers_by_type = prepend_missing_headers_by_type(
-        split_tokens)
-    return tokens_with_new_headers_by_type
+    return split_tokens
 
 
 def merge_tokens(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
@@ -279,6 +277,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
             return markdown_tokens
 
         tokens = base_parse_markdown(md_content, ignore_links=ignore_links)
+        tokens = prepend_missing_headers_by_type(tokens)
         tokens = remove_leading_non_headers(tokens)
         if merge_contents:
             tokens = merge_tokens(tokens)
@@ -474,6 +473,7 @@ def add_list_table_header_placeholders(html: str) -> str:
 def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
     result: List[MarkdownToken] = []
     last_header = None
+    last_header_level = 2  # Default level, updated when a header is encountered
     pending_paragraphs: List[MarkdownToken] = []
     current_line = 1  # Start at line 1
 
@@ -482,6 +482,7 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
 
         if token["type"] == "header":
             last_header = token["content"]
+            last_header_level = token["level"]  # Update the header level
             # Append any pending paragraphs before the header
             for para in pending_paragraphs:
                 para_copy = para.copy()
@@ -507,7 +508,8 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
                         "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
                         "line": last_result["line"],
                         "type": "header",
-                        "level": 2,
+                        # Use the level from the last header
+                        "level": last_result["level"],
                         "meta": {}
                     }
                 else:
@@ -516,7 +518,7 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
                         "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
                         "line": current_line,
                         "type": "header",
-                        "level": 2,
+                        "level": last_header_level,  # Use the stored header level
                         "meta": {}
                     }
                     result.append(new_header)
@@ -527,7 +529,7 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
                     "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
                     "line": current_line,
                     "type": "header",
-                    "level": 2,
+                    "level": last_header_level,  # Use the stored header level
                     "meta": {}
                 }
                 result.append(new_header)

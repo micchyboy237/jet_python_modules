@@ -152,20 +152,36 @@ class TestDeriveByHeaderHierarchy:
             {
                 "doc_index": 0,
                 "doc_id": str,
-                "header": "# Header 1",
+                "header": "## Header 1 (unordered list)",
                 "content": "- Item 1\n- Item 2",
-                "level": 1,
+                "level": 2,
                 "parent_header": None,
                 "parent_level": None,
                 "tokens": [
-                    {"type": "header", "content": "# Header 1",
-                        "level": 1, "meta": {}, "line": int},
+                    {
+                        "type": "header",
+                        "content": "## Header 1 (unordered list)",
+                        "level": 2,
+                        "meta": {},
+                        "line": 1
+                    },
                     {
                         "type": "unordered_list",
                         "content": "- Item 1\n- Item 2",
                         "level": None,
-                        "meta": {"items": [{"text": "Item 1", "task_item": False}, {"text": "Item 2", "task_item": False}]},
-                        "line": int
+                        "meta": {
+                            "items": [
+                                {
+                                    "text": "Item 1",
+                                    "task_item": False
+                                },
+                                {
+                                    "text": "Item 2",
+                                    "task_item": False
+                                }
+                            ]
+                        },
+                        "line": 2
                     }
                 ]
             }
