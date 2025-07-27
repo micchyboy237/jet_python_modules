@@ -283,7 +283,7 @@ def search_headers(
     chunk_overlap: int = 100,
     threshold: float = 0.0,
     tokenizer: Optional[Callable[[str], int]] = None,
-    split_chunks: bool = False
+    merge_chunks: bool = False
 ) -> Iterator[HeaderSearchResult]:
     """
     Search headers using vector similarity on chunked contents + header metadata.
@@ -367,7 +367,7 @@ def search_headers(
             }
             results.append(result)
     results.sort(key=lambda x: x["score"], reverse=True)
-    if not split_chunks:
+    if merge_chunks:
         results = merge_results(results, chunk_size, tokenizer)
     for i, result in enumerate(results if top_k is None else results[:top_k], 1):
         result["rank"] = i
