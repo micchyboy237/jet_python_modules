@@ -74,7 +74,7 @@ class TestPrependMissingHeadersByType:
         # Then: The result should include new headers for non-paragraph, non-header tokens with correct line numbers
         expected = [
             {
-                "content": "Header 1",
+                "content": "Header 1 (unordered list)",
                 "level": 2,
                 "line": 1,
                 "type": "header",
@@ -88,14 +88,7 @@ class TestPrependMissingHeadersByType:
                 "meta": {}
             },
             {
-                "content": "Header 1 (unordered list)",
                 "line": 3,
-                "type": "header",
-                "level": 2,
-                "meta": {}
-            },
-            {
-                "line": 4,
                 "meta": {
                     "items": [
                         {
@@ -110,14 +103,14 @@ class TestPrependMissingHeadersByType:
             },
             {
                 "content": "Header 1 (code)",
-                "line": 5,
+                "line": 4,
                 "type": "header",
                 "level": 2,
                 "meta": {}
             },
             {
                 "content": "def greet(name: str) -> str:\n return f\"Hello, {name}!\"",
-                "line": 6,
+                "line": 5,
                 "meta": {
                     "language": "python"
                 },
@@ -126,31 +119,140 @@ class TestPrependMissingHeadersByType:
             },
             {
                 "content": "Header 1 (blockquote)",
-                "line": 7,
+                "line": 6,
                 "type": "header",
                 "level": 2,
                 "meta": {}
             },
             {
                 "content": "Welcome to our project! This is an `introduction` to our work, featuring a [website](https://project.com).",
-                "line": 8,
+                "line": 7,
                 "type": "paragraph",
                 "level": None,
                 "meta": {}
             },
             {
                 "content": "![Project Logo](https://project.com/logo.png)",
-                "line": 9,
+                "line": 8,
                 "type": "paragraph",
                 "level": None,
                 "meta": {}
             },
             {
                 "content": "Note: Always check the [docs](https://docs.project.com) for updates.",
-                "line": 10,
+                "line": 9,
                 "type": "blockquote",
                 "level": None,
                 "meta": {}
             }
         ]
+        assert result == expected
+
+    def test_replace_header_with_type(self):
+        tokens: List[MarkdownToken] = [
+            {
+                "content": "Personal Information",
+                "level": 2,
+                "line": 1,
+                "type": "header",
+                "meta": {}
+            },
+            {
+                "content": "Contact Details",
+                "line": 2,
+                "type": "header",
+                "level": 2,
+                "meta": {}
+            },
+            {
+                "line": 3,
+                "meta": {
+                    "items": [
+                        {
+                            "text": "Full Name: Jethro Reuel A. Estrada",
+                            "task_item": False
+                        }
+                    ]
+                },
+                "type": "unordered_list",
+                "content": "",
+                "level": None
+            },
+            {
+                "content": "Personal Details",
+                "line": 4,
+                "type": "header",
+                "level": 2,
+                "meta": {}
+            },
+            {
+                "line": 5,
+                "meta": {},
+                "type": "blockquote",
+                "content": "Sample blockquote",
+                "level": None
+            },
+            {
+                "content": "Last paragraph",
+                "line": 6,
+                "type": "paragraph",
+                "level": None,
+                "meta": {}
+            },
+        ]
+
+        result = prepend_missing_headers_by_type(tokens)
+
+        expected = [
+            {
+                "type": "header",
+                "content": "Personal Information",
+                "level": 2,
+                "meta": {},
+                "line": 1
+            },
+            {
+                "content": "Contact Details (unordered list)",
+                "line": 2,
+                "type": "header",
+                "level": 2,
+                "meta": {}
+            },
+            {
+                "type": "unordered_list",
+                "content": "",
+                "level": None,
+                "meta": {
+                    "items": [
+                        {
+                            "text": "Full Name: Jethro Reuel A. Estrada",
+                            "task_item": False
+                        }
+                    ]
+                },
+                "line": 3
+            },
+            {
+                "content": "Personal Details (blockquote)",
+                "line": 4,
+                "type": "header",
+                "level": 2,
+                "meta": {}
+            },
+            {
+                "line": 5,
+                "meta": {},
+                "type": "blockquote",
+                "content": "Sample blockquote",
+                "level": None
+            },
+            {
+                "type": "paragraph",
+                "content": "Last paragraph",
+                "level": None,
+                "meta": {},
+                "line": 6
+            },
+        ]
+
         assert result == expected

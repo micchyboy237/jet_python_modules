@@ -103,6 +103,48 @@ class TestDeriveByHeaderHierarchy:
                 assert res_token["meta"] == exp_token["meta"]
                 assert isinstance(res_token["line"], int)
 
+    def test_nested_headers_no_root_content(self):
+        # Given: Markdown with nested headers
+        markdown_content = "# Header 1\n## Header 2\nContent 2"
+        expected = [
+            {
+                "doc_index": 0,
+                "doc_id": str,
+                "header": "## Header 2",
+                "content": "Content 2",
+                "level": 2,
+                "parent_header": "# Header 1",
+                "parent_level": 1,
+                "tokens": [
+                    {"type": "header", "content": "## Header 2",
+                        "level": 2, "meta": {}, "line": int},
+                    {"type": "paragraph", "content": "Content 2",
+                        "level": None, "meta": {}, "line": int}
+                ]
+            }
+        ]
+
+        # When: Parsing the markdown content
+        result = derive_by_header_hierarchy(markdown_content)
+
+        # Then: Result matches expected structure with correct hierarchy
+        assert len(result) == len(expected)
+        for res, exp in zip(result, expected):
+            assert res["doc_index"] == exp["doc_index"]
+            assert isinstance(res["doc_id"], str) and res["doc_id"]
+            assert res["header"] == exp["header"]
+            assert res["content"] == exp["content"]
+            assert res["level"] == exp["level"]
+            assert res["parent_header"] == exp["parent_header"]
+            assert res["parent_level"] == exp["parent_level"]
+            assert len(res["tokens"]) == len(exp["tokens"])
+            for res_token, exp_token in zip(res["tokens"], exp["tokens"]):
+                assert res_token["type"] == exp_token["type"]
+                assert res_token["content"] == exp_token["content"]
+                assert res_token["level"] == exp_token["level"]
+                assert res_token["meta"] == exp_token["meta"]
+                assert isinstance(res_token["line"], int)
+
     def test_header_with_list(self):
         # Given: Markdown content with a header and unordered list
         markdown_content = "# Header 1\n- Item 1\n- Item 2"

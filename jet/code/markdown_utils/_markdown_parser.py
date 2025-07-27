@@ -378,7 +378,7 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
         sections.append(current_section)
 
     sections = [section for section in sections if section.get(
-        "content", "").strip() or section.get("header", "").strip()]
+        "content", "").strip()]
 
     for idx, section in enumerate(sections):
         section["doc_index"] = idx
@@ -476,10 +476,8 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
     last_header = None
     pending_paragraphs: List[MarkdownToken] = []
     current_line = 1  # Start at line 1
-    after_non_paragraph = False  # Track if we're after a non-paragraph, non-header token
 
     for token in tokens:
-        # Create a copy of the token to modify its line number
         token_copy = token.copy()
 
         if token["type"] == "header":
@@ -494,23 +492,37 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
             token_copy["line"] = current_line
             result.append(token_copy)
             current_line += 1
-            after_non_paragraph = False
 
         elif token["type"] == "paragraph":
             pending_paragraphs.append(token_copy)
 
-        else:  # Non-header, non-paragraph token
-            # If we're not after a non-paragraph token, append paragraphs before the new header
-            if not after_non_paragraph:
-                for para in pending_paragraphs:
-                    para_copy = para.copy()
-                    para_copy["line"] = current_line
-                    result.append(para_copy)
+        # Non-header, non-paragraph token (e.g., unordered_list, blockquote, code)
+        else:
+            # Check if the last token in result is a header that needs replacement
+            if last_header and result and result[-1]["type"] == "header":
+                last_result = result[-1]
+                if last_result["content"] == last_header:
+                    # Replace the last header with one that includes the token type
+                    result[-1] = {
+                        "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
+                        "line": last_result["line"],
+                        "type": "header",
+                        "level": 2,
+                        "meta": {}
+                    }
+                else:
+                    # Append new header if the last header doesn't match
+                    new_header = {
+                        "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
+                        "line": current_line,
+                        "type": "header",
+                        "level": 2,
+                        "meta": {}
+                    }
+                    result.append(new_header)
                     current_line += 1
-                pending_paragraphs = []
-
-            if last_header:
-                # Insert new header before the token
+            elif last_header:
+                # Append new header if no header exists at the end
                 new_header = {
                     "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
                     "line": current_line,
@@ -521,7 +533,7 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
                 result.append(new_header)
                 current_line += 1
 
-            # Append any remaining paragraphs after the header but before the token
+            # Append any pending paragraphs after the header but before the token
             for para in pending_paragraphs:
                 para_copy = para.copy()
                 para_copy["line"] = current_line
@@ -532,7 +544,6 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
             token_copy["line"] = current_line
             result.append(token_copy)
             current_line += 1
-            after_non_paragraph = True
 
     # Append any remaining paragraphs
     for para in pending_paragraphs:

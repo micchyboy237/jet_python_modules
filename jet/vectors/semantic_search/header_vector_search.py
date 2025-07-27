@@ -19,16 +19,25 @@ def preprocess_text(
 ) -> str:
     if not text or not text.strip():
         return ""
-    text = re.sub(r'\s+', ' ', text.strip())
-    for contraction, expanded in TEXT_CONTRACTIONS_EN.items():
-        text = re.sub(r'\b' + contraction + r'\b',
-                      expanded, text, flags=re.IGNORECASE)
-    text = text.lower()
+    # Remove subsequent newlines and leading/trailing newlines
+    text = re.sub(r'\n\s*\n+', '\n', text)
     preserve_chars = {'-', '_'}
     pattern = r'[^a-z0-9\s' + ''.join(map(re.escape, preserve_chars)) + r']'
-    text = re.sub(pattern, '', text)
-    text = re.sub(r'\s+', ' ', text.strip())
-    return text
+    processed_lines = []
+    for line in text.splitlines():
+        # Expand contractions
+        for contraction, expanded in TEXT_CONTRACTIONS_EN.items():
+            line = re.sub(r'\b' + re.escape(contraction) + r'\b',
+                          expanded, line, flags=re.IGNORECASE)
+        # Lowercase
+        line = line.lower()
+        # Remove unwanted characters but preserve allowed ones
+        line = re.sub(pattern, '', line)
+        # Normalize whitespace
+        line = re.sub(r'\s+', ' ', line.strip())
+        if line:
+            processed_lines.append(line)
+    return '\n'.join(processed_lines)
 
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
