@@ -1339,6 +1339,7 @@ def extract_by_heading_hierarchy(
     """
     Extracts a list of TreeNode hierarchies split by heading tags, avoiding duplicates,
     with heading text prepended by '#' based on header level.
+    Sets the _parent_node attribute for each node if not already set.
     """
     results: List[TreeNode] = []
     parent_stack: List[Tuple[int, TreeNode]] = []
@@ -1347,6 +1348,7 @@ def extract_by_heading_hierarchy(
     def clone_node(node: TreeNode, new_parent_id: Optional[str] = None, new_depth: int = 0) -> TreeNode:
         """
         Clones a node with a new parent and depth, preserving structure without duplicating IDs.
+        Sets _parent_node if not already set.
         """
         new_id = node.id if node.id not in seen_ids else f"auto_{uuid.uuid4().hex[:8]}"
         seen_ids.add(new_id)
@@ -1369,6 +1371,8 @@ def extract_by_heading_hierarchy(
             children=[],
             line=node.line
         )
+        if cloned._parent_node is None:
+            cloned._parent_node = node._parent_node
         return cloned
 
     def traverse(node: TreeNode) -> None:
@@ -1411,15 +1415,24 @@ def extract_by_heading_hierarchy(
     return results
 
 
-class TextHierarchyResult(TypedDict):
-    text: str
-    links: List[str]
-    depth: int
-    id: str
-    parent: Optional[str]
-    parent_text: Optional[str]
-    line: int
-    tag: str
+class TextHierarchyResult(BaseNode):
+    """A node representing a text hierarchy with combined text and links."""
+
+    def __init__(
+        self,
+        tag: str,
+        text: str,
+        links: List[str],
+        depth: int,
+        id: str,
+        parent: Optional[str] = None,
+        parent_text: Optional[str] = None,
+        line: int = 0
+    ):
+        super().__init__(tag=tag, text=None, depth=depth, id=id, parent=parent, line=line)
+        self.text = text  # Combined text of node and descendants
+        self.links = links  # List of unique links
+        self.parent_text = parent_text  # Text of the parent node
 
 
 def extract_texts_by_hierarchy(
@@ -1436,13 +1449,13 @@ def extract_texts_by_hierarchy(
     excludes: List[str] = ["nav", "footer", "script", "style"],
 ) -> List[TextHierarchyResult]:
     """
-    Extracts a list of dictionaries from HTML, each containing the tag, combined text of a heading
-    and its descendants, a list of unique links, depth, id, parent, parent_text, and line attributes.
+    Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, combined text of a heading
+    and its descendants, a list of unique links, depth, id, parent, parent_text, line, and parent_node attributes.
     """
     def collect_text_and_links(node: TreeNode) -> Tuple[TextHierarchyResult, str]:
         """
-        Recursively collects tag, text, unique links, depth, id, parent, parent_text, and line from a node and its children,
-        and returns the combined text for the node.
+        Recursively collects tag, combined text, unique links, depth, id, parent, parent_text, line, and parent_node
+        from a node and its children, and returns the combined text for the node.
         """
         texts = []
         links = set()
@@ -1457,20 +1470,22 @@ def extract_texts_by_hierarchy(
             child_result, child_text = collect_text_and_links(child)
             if child_text:
                 texts.append(child_text)
-            links.update(child_result["links"])
+            links.update(child_result.links)
 
         combined_text = "\n".join(text for text in texts if text)
 
-        return {
-            "text": combined_text,
-            "links": list(links),
-            "depth": node.depth,
-            "id": node.id,
-            "parent": node.parent,
-            "parent_text": None,  # Will be populated later using id_to_text
-            "line": node.line,
-            "tag": node.tag
-        }, combined_text
+        result = TextHierarchyResult(
+            tag=node.tag,
+            text=combined_text,
+            links=list(links),
+            depth=node.depth,
+            id=node.id,
+            parent=node.parent,
+            parent_text=None,  # Will be populated later using id_to_text
+            line=node.line
+        )
+        result._parent_node = node._parent_node
+        return result, combined_text
 
     heading_nodes = extract_by_heading_hierarchy(
         source, tags_to_split_on, excludes)
@@ -1485,8 +1500,8 @@ def extract_texts_by_hierarchy(
 
     # Populate parent_text using id_to_text
     for result in results:
-        if result["parent"]:
-            result["parent_text"] = id_to_text.get(result["parent"], None)
+        if result.parent:
+            result.parent_text = id_to_text.get(result.parent, None)
 
     return results
 
