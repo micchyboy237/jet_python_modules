@@ -1421,6 +1421,7 @@ class TextHierarchyResult(BaseNode):
     def __init__(
         self,
         tag: str,
+        header: str,
         text: str,
         links: List[str],
         depth: int,
@@ -1430,7 +1431,8 @@ class TextHierarchyResult(BaseNode):
         line: int = 0
     ):
         super().__init__(tag=tag, text=None, depth=depth, id=id, parent=parent, line=line)
-        self.text = text  # Combined text of node and descendants
+        self.header = header  # The header text for this node
+        self.text = text  # Combined text of node and descendants, excluding header
         self.links = links  # List of unique links
         self.parent_text = parent_text  # Text of the parent node
 
@@ -1449,18 +1451,22 @@ def extract_texts_by_hierarchy(
     excludes: List[str] = ["nav", "footer", "script", "style"],
 ) -> List[TextHierarchyResult]:
     """
-    Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, combined text of a heading
+    Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, header, combined text of a heading
     and its descendants, a list of unique links, depth, id, parent, parent_text, line, and parent_node attributes.
     """
     def collect_text_and_links(node: TreeNode) -> Tuple[TextHierarchyResult, str]:
         """
-        Recursively collects tag, combined text, unique links, depth, id, parent, parent_text, line, and parent_node
+        Recursively collects tag, header, combined text, unique links, depth, id, parent, parent_text, line, and parent_node
         from a node and its children, and returns the combined text for the node.
         """
         texts = []
         links = set()
+        header = ""
 
-        if node.text and node.text.strip():
+        # Capture header for heading tags
+        if node.tag in [tag[1] for tag in tags_to_split_on]:
+            header = node.text.strip() if node.text else ""
+        elif node.text and node.text.strip():
             if not (ignore_links and node.link):
                 texts.append(node.text.strip())
         if node.link:
@@ -1476,6 +1482,7 @@ def extract_texts_by_hierarchy(
 
         result = TextHierarchyResult(
             tag=node.tag,
+            header=header,
             text=combined_text,
             links=list(links),
             depth=node.depth,
