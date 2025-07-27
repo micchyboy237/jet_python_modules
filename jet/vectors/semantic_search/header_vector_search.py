@@ -76,7 +76,7 @@ def collect_header_chunks(
         header = preprocess_text(original_header)
         original_parents = header_doc.get('parent_headers', [])
         parent_text = '\n'.join(original_parents) if original_parents else ''
-        headers_context_text = f"{original_header}\n{parent_text}" if parent_text else original_header
+        headers_context_text = f"{parent_text}\n{original_header}" if parent_text else original_header
         headers_context_processed = preprocess_text(
             headers_context_text) if headers_context_text else ""
         if not headers_context_processed:
