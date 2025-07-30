@@ -8,6 +8,9 @@ class SearchResult(TypedDict):
     score: float
     text: str
     original: str
+    source_document: str
+    start_index: int
+    end_index: int
 
 
 class MispelledKeywordVectorSearch:
@@ -18,7 +21,6 @@ class MispelledKeywordVectorSearch:
 
     def build_index(self, words: Optional[List[str]] = None):
         """Build word frequency index for spell checking.
-
         Args:
             words: Optional list of words to build custom index. Uses default dictionary if None.
         """
@@ -29,9 +31,14 @@ class MispelledKeywordVectorSearch:
         else:
             self.words = list(self.spell_checker.word_frequency.words())
 
-    def _process_text(self, text: str) -> List[str]:
-        """Split text into words and filter out non-alphabetic tokens."""
-        words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
+    def _process_text(self, text: str) -> List[tuple[str, int, int]]:
+        """Split text into words with their start and end indexes, filtering out non-alphabetic tokens."""
+        words = []
+        for match in re.finditer(r'\b[a-zA-Z]+\b', text.lower()):
+            word = match.group()
+            start = match.start()
+            end = match.end()
+            words.append((word, start, end))
         return words
 
     def _edit_distance(self, word1: str, word2: str) -> int:
@@ -53,7 +60,7 @@ class MispelledKeywordVectorSearch:
 
     def _normalize_score(self, frequency: float, edit_dist: int, max_freq: float) -> float:
         """Normalize score combining word frequency and edit distance."""
-        max_dist = 5  # Reasonable max edit distance for normalization
+        max_dist = 5
         freq_weight = 0.7
         dist_weight = 0.3
         norm_freq = frequency / max_freq if max_freq > 0 else frequency
@@ -62,59 +69,52 @@ class MispelledKeywordVectorSearch:
         score = freq_weight * norm_freq + dist_weight * norm_dist
         return score
 
-    def search(self, input_data: Union[str, List[str]], k: int = 5) -> List[SearchResult]:
+    def search(self, input_data: Union[str, List[str]], k: Optional[int] = None) -> List[SearchResult]:
         """Search for misspellings in input string or list of documents.
-
         Args:
             input_data: Single string or list of document strings to check
-            k: Maximum number of corrections to return
-
+            k: Optional maximum number of corrections to return. Returns all results if None.
         Returns:
-            List of SearchResult dictionaries containing unique corrections
+            List of SearchResult dictionaries containing unique corrections with source document and indexes
         """
         documents = [input_data] if isinstance(input_data, str) else input_data
         all_results = []
-        seen = set()  # Track (text, original) pairs for deduplication
-        # Calculate max frequency from known words
+        seen = set()
         max_freq = max((self.spell_checker.word_usage_frequency(word)
                        for word in self.spell_checker.word_frequency.words()), default=1.0)
-
         for doc in documents:
             if not doc:
                 continue
             words = self._process_text(doc)
-
-            for word in words:
+            for word, start_index, end_index in words:
                 if word in self.spell_checker and (not self.words or word in self.words):
                     continue
-
                 top_correction = self.spell_checker.correction(word)
                 candidates = self.spell_checker.candidates(word) or set()
                 if self.words:
                     candidates = {c for c in candidates if c in self.words}
-
                 word_results = []
                 if top_correction and (not self.words or top_correction in self.words):
                     freq = self.spell_checker.word_usage_frequency(
                         top_correction)
                     edit_dist = self._edit_distance(word, top_correction)
                     score = self._normalize_score(freq, edit_dist, max_freq)
-                    key = (top_correction, word)
+                    key = (top_correction, word, doc, start_index)
                     if key not in seen:
                         seen.add(key)
                         word_results.append(SearchResult(
                             rank=1,
                             score=score,
                             text=top_correction,
-                            original=word
+                            original=word,
+                            source_document=doc,
+                            start_index=start_index,
+                            end_index=end_index
                         ))
-
                 remaining_candidates = [
                     c for c in candidates if c != top_correction]
                 for i, candidate in enumerate(remaining_candidates):
-                    if i >= k - 1:
-                        break
-                    key = (candidate, word)
+                    key = (candidate, word, doc, start_index)
                     if key in seen:
                         continue
                     seen.add(key)
@@ -125,13 +125,16 @@ class MispelledKeywordVectorSearch:
                         rank=i + 2,
                         score=score,
                         text=candidate,
-                        original=word
+                        original=word,
+                        source_document=doc,
+                        start_index=start_index,
+                        end_index=end_index
                     ))
-
                 all_results.extend(word_results)
-
         sorted_results = sorted(
-            all_results, key=lambda x: x["score"], reverse=True)[:k]
+            all_results, key=lambda x: x["score"], reverse=True)
+        if k is not None:
+            sorted_results = sorted_results[:k]
         for i, result in enumerate(sorted_results):
             result["rank"] = i + 1
         return sorted_results

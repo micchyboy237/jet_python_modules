@@ -108,6 +108,10 @@ def remove_substring(text: str, start: int, end: int) -> str:
     return text[:start] + text[end:]
 
 
+def format_sub_dir(text: str) -> str:
+    return text.lower().strip('.,!?').replace(' ', '_').replace('.', '_').replace(',', '_').replace('!', '_').replace('?', '_').strip()
+
+
 __all__ = [
     "fix_and_unidecode",
     "has_non_ascii",
@@ -116,4 +120,5 @@ __all__ = [
     "extract_word_sentences",
     "extract_substrings",
     "remove_substring",
+    "format_sub_dir",
 ]

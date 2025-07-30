@@ -79,7 +79,17 @@ class POSTagger:
         'UH': 'INTJ',
         '.': 'PUNCT', ',': 'PUNCT', ':': 'PUNCT', '``': 'PUNCT', "''": 'PUNCT',
         '$': 'SYM', '#': 'SYM',
-        'FW': 'X', 'POS': 'X'
+        'FW': 'X', 'POS': 'X',
+        'EX': 'PRON',  # Existential "there" maps to pronoun
+        'LS': 'X',     # List item marker, no direct SpaCy equivalent
+        'PDT': 'DET',  # Predeterminer maps to determiner
+        'RP': 'PART',  # Particle maps to particle
+        'WDT': 'DET',  # Wh-determiner maps to determiner
+        'WP': 'PRON',  # Wh-pronoun maps to pronoun
+        'WP$': 'PRON',  # Possessive wh-pronoun maps to pronoun
+        'WRB': 'ADV',  # Wh-adverb maps to adverb
+        '-LRB-': 'PUNCT', '-RRB-': 'PUNCT',  # Parentheses map to punctuation
+        '"': 'PUNCT'   # Double quote maps to punctuation
     }
 
     def __new__(cls, *args, **kwargs):

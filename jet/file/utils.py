@@ -296,7 +296,7 @@ def load_data_from_directories(source_directories, includes=None, excludes=None)
     return data
 
 
-def save_data(output_file, data, write=False, key='id', is_binary=False):
+def save_data(output_file, data, overwrite=False, key='id', is_binary=False):
     if not data:
         print(f"No data to save for {output_file}")
         return
@@ -305,7 +305,7 @@ def save_data(output_file, data, write=False, key='id', is_binary=False):
     if has_no_extension or output_file.endswith(".bin"):
         is_binary = True
 
-    if write or not os.path.exists(output_file):
+    if overwrite or not os.path.exists(output_file):
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         # data = [dict(t) for t in {tuple(d.items()) for d in data}]
 
