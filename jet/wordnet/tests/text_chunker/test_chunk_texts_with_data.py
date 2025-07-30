@@ -300,3 +300,49 @@ class TestChunkTextsWithData:
             assert res["start_idx"] == exp["start_idx"]
             assert res["end_idx"] == exp["end_idx"]
             assert res["line_idx"] == exp["line_idx"]
+
+    def test_with_custom_doc_ids(self):
+        """Test chunk_texts_with_data using custom doc_ids."""
+        input_texts = ["Sentence one. Sentence two.", "Another sentence."]
+        custom_ids = ["doc1", "doc2"]
+
+        expected: List[ChunkResult] = [
+            {
+                "id": "doc1",
+                "doc_index": 0,
+                "chunk_index": 0,
+                "num_tokens": 4,
+                "content": "Sentence one. Sentence two.",
+                "start_idx": 0,
+                "end_idx": 27,  # Corrected
+                "line_idx": 0
+            },
+            {
+                "id": "doc2",
+                "doc_index": 1,
+                "chunk_index": 0,
+                "num_tokens": 2,
+                "content": "Another sentence.",
+                "start_idx": 0,
+                "end_idx": 17,  # Corrected from 18
+                "line_idx": 0
+            }
+        ]
+
+        result = chunk_texts_with_data(
+            input_texts,
+            chunk_size=10,
+            chunk_overlap=0,
+            doc_ids=custom_ids
+        )
+
+        assert len(result) == len(expected)
+        for res, exp in zip(result, expected):
+            assert res["id"] == exp["id"]
+            assert res["doc_index"] == exp["doc_index"]
+            assert res["chunk_index"] == exp["chunk_index"]
+            assert res["num_tokens"] == exp["num_tokens"]
+            assert res["content"] == exp["content"]
+            assert res["start_idx"] == exp["start_idx"]
+            assert res["end_idx"] == exp["end_idx"]
+            assert res["line_idx"] == exp["line_idx"]

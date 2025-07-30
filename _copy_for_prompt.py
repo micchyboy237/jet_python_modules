@@ -327,12 +327,12 @@ def main():
     clipboard_content_parts = []
 
     if system_message:
-        clipboard_content_parts.append(f"SYSTEM\n{system_message}")
+        clipboard_content_parts.append(f"System\n{system_message}")
     if instructions_message:
-        clipboard_content_parts.append(f"INSTRUCTIONS\n{instructions_message}")
-    clipboard_content_parts.append(f"QUERY\n{query_message}")
+        clipboard_content_parts.append(f"Instructions\n{instructions_message}")
+    clipboard_content_parts.append(f"Query\n{query_message}")
     if INCLUDE_FILE_STRUCTURE:
-        clipboard_content_parts.append(f"FILES STRUCTURE\n{files_structure}")
+        clipboard_content_parts.append(f"Files Structure\n{files_structure}")
 
     if clipboard_content:
         clipboard_content_parts.append(

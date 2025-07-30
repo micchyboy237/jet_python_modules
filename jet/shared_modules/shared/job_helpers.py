@@ -14,7 +14,8 @@ DEFAULT_EMBED_MODEL: EmbedModelType = "mxbai-embed-large"
 DEFAULT_JOBS_DB_NAME = "jobs_db1"
 DEFAULT_TABLE_NAME = "embeddings"
 DEFAULT_TABLE_DATA_NAME = f"{DEFAULT_TABLE_NAME}_data"
-DEFAULT_CHUNK_SIZE = 512
+DEFAULT_CHUNK_SIZE = 500
+DEFAULT_CHUNK_OVERLAP = 100
 
 
 def load_jobs(
@@ -117,6 +118,7 @@ def save_job_embeddings(
     db_client: Optional[PgVectorClient] = None,
     overwrite_db: bool = True,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> Dict:
     """
     Save job embeddings to the database after chunking the job descriptions.
@@ -127,13 +129,14 @@ def save_job_embeddings(
         db_client: Optional database client
         overwrite_db: Whether to overwrite the database
         chunk_size: Maximum number of tokens per chunk
+        chunk_overlap: Number of tokens to overlap between consecutive chunks
     """
     # Existing code for chunking and embedding generation
     job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
-    chunks = chunk_texts_with_data(
+    chunks_with_data = chunk_texts_with_data(
         job_texts,
         chunk_size=chunk_size,
-        ids=[job["id"] for job in jobs]
+        chunk_overlap=chunk_overlap,
     )
 
     job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
