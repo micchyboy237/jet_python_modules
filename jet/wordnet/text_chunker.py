@@ -46,10 +46,13 @@ def get_overlap_sentences(
 
 
 def split_large_sentence(sentence: str, max_size: int, size_fn) -> List[str]:
-    """Split a large sentence into smaller parts based on max_size (tokens or words)."""
-    if len(size_fn(sentence)) <= max_size:
+    """Split a large sentence into smaller parts based on max_size (tokens)."""
+    sentence_tokens = len(size_fn(sentence))
+    if sentence_tokens <= max_size:
         return [sentence]
 
+    logger.warning(
+        f"Splitting sentence with {sentence_tokens} tokens exceeding max_size {max_size}")
     words = sentence.split()
     sub_sentences = []
     current_sub = []
@@ -62,11 +65,24 @@ def split_large_sentence(sentence: str, max_size: int, size_fn) -> List[str]:
             current_size += word_size
         else:
             if current_sub:
-                sub_sentences.append(" ".join(current_sub) + ".")
+                sub_sentence = " ".join(current_sub) + "."
+                # Verify sub-sentence size
+                if len(size_fn(sub_sentence)) <= max_size:
+                    sub_sentences.append(sub_sentence)
+                else:
+                    logger.warning(
+                        f"Sub-sentence '{sub_sentence}' still exceeds max_size {max_size}")
+                    # Fallback: split by character length
+                    chars = " ".join(current_sub)
+                    while chars:
+                        # Rough estimate: 4 chars per token
+                        sub_sentence = chars[:max_size * 4] + "."
+                        sub_sentences.append(sub_sentence)
+                        chars = chars[max_size * 4:]
                 current_sub = [word]
                 current_size = word_size
             else:
-                # Single word exceeds max_size; add it as is
+                # Single word exceeds max_size
                 sub_sentences.append(word + ".")
                 logger.warning(
                     f"Single word '{word}' exceeds max_size {max_size}")
@@ -74,7 +90,14 @@ def split_large_sentence(sentence: str, max_size: int, size_fn) -> List[str]:
                 current_size = 0
 
     if current_sub:
-        sub_sentences.append(" ".join(current_sub) + ".")
+        sub_sentence = " ".join(current_sub) + "."
+        if len(size_fn(sub_sentence)) <= max_size:
+            sub_sentences.append(sub_sentence)
+        else:
+            chars = " ".join(current_sub)
+            while chars:
+                sub_sentences.append(chars[:max_size * 4] + ".")
+                chars = chars[max_size * 4:]
 
     return sub_sentences
 
@@ -183,47 +206,115 @@ def chunk_texts_with_data(
 
         for sentence, separator, start_idx, end_idx, line_idx in sentence_pairs:
             sentence_size = len(size_fn(sentence))
+            # Check sentence size even for empty chunks
+            if sentence_size > max_chunk_size:
+                logger.warning(
+                    f"Skipping sentence with {sentence_size} tokens exceeding max_chunk_size {max_chunk_size}")
+                continue
             if current_size + sentence_size > max_chunk_size and current_chunk:
                 chunk_content = build_chunk(current_chunk, current_separators)
                 sentence_content = "".join(current_chunk)
                 final_size = len(size_fn(sentence_content))
-                overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
-                    current_chunk, current_separators, chunk_overlap, size_fn
-                )
-                overlap_start_idx = None
-                overlap_end_idx = None
-                if overlap_sentences:
-                    first_overlap_idx = next((i for i, s in enumerate(
-                        current_chunk) if s == overlap_sentences[0]), None)
-                    if first_overlap_idx is not None:
-                        overlap_start_idx = sentence_pairs[first_overlap_idx][2]
-                        overlap_content = build_chunk(
-                            overlap_sentences, overlap_separators)
-                        overlap_end_idx = overlap_start_idx + \
-                            len(overlap_content)
-                chunks.append({
-                    "id": str(uuid.uuid4()),
-                    "doc_id": doc_id,
-                    "doc_index": doc_index,
-                    "chunk_index": chunk_index,
-                    "num_tokens": final_size,
-                    "content": chunk_content,
-                    "start_idx": chunk_start_idx,
-                    "end_idx": chunk_start_idx + len(chunk_content),
-                    "line_idx": chunk_line_idx,
-                    "overlap_start_idx": overlap_start_idx,
-                    "overlap_end_idx": overlap_end_idx
-                })
-                chunk_index += 1
-                overlap_indices = [current_chunk.index(
-                    s) for s in overlap_sentences if s in current_chunk]
-                chunk_start_idx = sentence_pairs[overlap_indices[0]
-                                                 ][2] if overlap_indices else start_idx
-                chunk_line_idx = sentence_pairs[overlap_indices[0]
-                                                ][4] if overlap_indices else line_idx
-                current_chunk = overlap_sentences
-                current_separators = overlap_separators
-                current_size = overlap_size
+                # Validate final chunk size
+                if final_size > max_chunk_size:
+                    logger.warning(
+                        f"Chunk {chunk_index} exceeds max_chunk_size {max_chunk_size} with {final_size} tokens")
+                    # Split chunk into smaller parts
+                    sub_chunks = []
+                    temp_sentences = []
+                    temp_separators = []
+                    temp_size = 0
+                    for s, sep in zip(current_chunk, current_separators):
+                        s_size = len(size_fn(s))
+                        if temp_size + s_size <= max_chunk_size:
+                            temp_sentences.append(s)
+                            temp_separators.append(sep)
+                            temp_size += s_size
+                        else:
+                            if temp_sentences:
+                                sub_chunks.append(
+                                    (temp_sentences, temp_separators, temp_size))
+                            temp_sentences = [s]
+                            temp_separators = [sep]
+                            temp_size = s_size
+                    if temp_sentences:
+                        sub_chunks.append(
+                            (temp_sentences, temp_separators, temp_size))
+
+                    for sub_sents, sub_seps, sub_size in sub_chunks:
+                        sub_content = build_chunk(sub_sents, sub_seps)
+                        overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
+                            sub_sents, sub_seps, chunk_overlap, size_fn
+                        )
+                        overlap_start_idx = None
+                        overlap_end_idx = None
+                        if overlap_sentences:
+                            first_overlap_idx = next((i for i, s in enumerate(
+                                sub_sents) if s == overlap_sentences[0]), None)
+                            if first_overlap_idx is not None:
+                                overlap_start_idx = sentence_pairs[current_chunk.index(
+                                    sub_sents[0])][2]
+                                overlap_content = build_chunk(
+                                    overlap_sentences, overlap_separators)
+                                overlap_end_idx = overlap_start_idx + \
+                                    len(overlap_content)
+                        chunks.append({
+                            "id": str(uuid.uuid4()),
+                            "doc_id": doc_id,
+                            "doc_index": doc_index,
+                            "chunk_index": chunk_index,
+                            "num_tokens": sub_size,
+                            "content": sub_content,
+                            "start_idx": chunk_start_idx,
+                            "end_idx": chunk_start_idx + len(sub_content),
+                            "line_idx": chunk_line_idx,
+                            "overlap_start_idx": overlap_start_idx,
+                            "overlap_end_idx": overlap_end_idx
+                        })
+                        chunk_index += 1
+                        chunk_start_idx = overlap_start_idx if overlap_start_idx is not None else start_idx
+                        chunk_line_idx = line_idx
+                        current_chunk = overlap_sentences
+                        current_separators = overlap_separators
+                        current_size = overlap_size
+                else:
+                    overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
+                        current_chunk, current_separators, chunk_overlap, size_fn
+                    )
+                    overlap_start_idx = None
+                    overlap_end_idx = None
+                    if overlap_sentences:
+                        first_overlap_idx = next((i for i, s in enumerate(
+                            current_chunk) if s == overlap_sentences[0]), None)
+                        if first_overlap_idx is not None:
+                            overlap_start_idx = sentence_pairs[first_overlap_idx][2]
+                            overlap_content = build_chunk(
+                                overlap_sentences, overlap_separators)
+                            overlap_end_idx = overlap_start_idx + \
+                                len(overlap_content)
+                    chunks.append({
+                        "id": str(uuid.uuid4()),
+                        "doc_id": doc_id,
+                        "doc_index": doc_index,
+                        "chunk_index": chunk_index,
+                        "num_tokens": final_size,
+                        "content": chunk_content,
+                        "start_idx": chunk_start_idx,
+                        "end_idx": chunk_start_idx + len(chunk_content),
+                        "line_idx": chunk_line_idx,
+                        "overlap_start_idx": overlap_start_idx,
+                        "overlap_end_idx": overlap_end_idx
+                    })
+                    chunk_index += 1
+                    overlap_indices = [current_chunk.index(
+                        s) for s in overlap_sentences if s in current_chunk]
+                    chunk_start_idx = sentence_pairs[overlap_indices[0]
+                                                     ][2] if overlap_indices else start_idx
+                    chunk_line_idx = sentence_pairs[overlap_indices[0]
+                                                    ][4] if overlap_indices else line_idx
+                    current_chunk = overlap_sentences
+                    current_separators = overlap_separators
+                    current_size = overlap_size
             if not current_chunk:
                 chunk_start_idx = start_idx
                 chunk_line_idx = line_idx
@@ -235,19 +326,62 @@ def chunk_texts_with_data(
             chunk_content = build_chunk(current_chunk, current_separators)
             sentence_content = "".join(current_chunk)
             final_size = len(size_fn(sentence_content))
-            chunks.append({
-                "id": str(uuid.uuid4()),
-                "doc_id": doc_id,
-                "doc_index": doc_index,
-                "chunk_index": chunk_index,
-                "num_tokens": final_size,
-                "content": chunk_content,
-                "start_idx": chunk_start_idx,
-                "end_idx": chunk_start_idx + len(chunk_content),
-                "line_idx": chunk_line_idx,
-                "overlap_start_idx": None,
-                "overlap_end_idx": None
-            })
+            if final_size > max_chunk_size:
+                logger.warning(
+                    f"Final chunk {chunk_index} exceeds max_chunk_size {max_chunk_size} with {final_size} tokens")
+                # Split final chunk
+                sub_chunks = []
+                temp_sentences = []
+                temp_separators = []
+                temp_size = 0
+                for s, sep in zip(current_chunk, current_separators):
+                    s_size = len(size_fn(s))
+                    if temp_size + s_size <= max_chunk_size:
+                        temp_sentences.append(s)
+                        temp_separators.append(sep)
+                        temp_size += s_size
+                    else:
+                        if temp_sentences:
+                            sub_chunks.append(
+                                (temp_sentences, temp_separators, temp_size))
+                        temp_sentences = [s]
+                        temp_separators = [sep]
+                        temp_size = s_size
+                if temp_sentences:
+                    sub_chunks.append(
+                        (temp_sentences, temp_separators, temp_size))
+
+                for sub_sents, sub_seps, sub_size in sub_chunks:
+                    sub_content = build_chunk(sub_sents, sub_seps)
+                    chunks.append({
+                        "id": str(uuid.uuid4()),
+                        "doc_id": doc_id,
+                        "doc_index": doc_index,
+                        "chunk_index": chunk_index,
+                        "num_tokens": sub_size,
+                        "content": sub_content,
+                        "start_idx": chunk_start_idx,
+                        "end_idx": chunk_start_idx + len(sub_content),
+                        "line_idx": chunk_line_idx,
+                        "overlap_start_idx": None,
+                        "overlap_end_idx": None
+                    })
+                    chunk_index += 1
+                    chunk_start_idx = start_idx
+            else:
+                chunks.append({
+                    "id": str(uuid.uuid4()),
+                    "doc_id": doc_id,
+                    "doc_index": doc_index,
+                    "chunk_index": chunk_index,
+                    "num_tokens": final_size,
+                    "content": chunk_content,
+                    "start_idx": chunk_start_idx,
+                    "end_idx": chunk_start_idx + len(chunk_content),
+                    "line_idx": chunk_line_idx,
+                    "overlap_start_idx": None,
+                    "overlap_end_idx": None
+                })
 
     return chunks
 
