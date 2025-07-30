@@ -26,7 +26,7 @@ class TestMispelledKeywordVectorSearch:
         # Given
         query = "teh"
         expected = [SearchResult(rank=1, score=pytest.approx(
-            0.0, abs=1.0), text="the", original="teh")]
+            0.88, abs=1e-5), text="the", original="teh")]
 
         # When
         results = vector_search.search(query, k=1)
@@ -54,11 +54,11 @@ class TestMispelledKeywordVectorSearch:
         query = "teh quik foxx"
         expected = [
             SearchResult(rank=1, score=pytest.approx(
-                0.0, abs=1.0), text="the", original="teh"),
+                0.88, abs=1e-5), text="the", original="teh"),
             SearchResult(rank=2, score=pytest.approx(
-                0.0, abs=1.0), text="quick", original="quik"),
+                0.24083853653640552, abs=1e-5), text="quick", original="quik"),
             SearchResult(rank=3, score=pytest.approx(
-                0.0, abs=1.0), text="fox", original="foxx"),
+                0.24010421028462586, abs=1e-5), text="fox", original="foxx"),
         ]
 
         # When
@@ -74,11 +74,11 @@ class TestMispelledKeywordVectorSearch:
         documents = ["teh quick foxx", "jummps over"]
         expected = [
             SearchResult(rank=1, score=pytest.approx(
-                0.046241, abs=1e-5), text="the", original="teh"),
+                0.88, abs=1e-5), text="the", original="teh"),
             SearchResult(rank=2, score=pytest.approx(
-                6.883989e-06, abs=1e-5), text="fox", original="foxx"),
+                0.240104, abs=1e-5), text="fox", original="foxx"),
             SearchResult(rank=3, score=pytest.approx(
-                6.029487e-06, abs=1e-5), text="jumps", original="jummps"),
+                0.240091, abs=1e-5), text="jumps", original="jummps"),
         ]
 
         # When
@@ -93,7 +93,7 @@ class TestMispelledKeywordVectorSearch:
         # Given
         query = "teh"
         expected = [SearchResult(rank=1, score=pytest.approx(
-            0.0, abs=1.0), text="the", original="teh")]
+            0.88, abs=1e-5), text="the", original="teh")]
 
         # When
         results = vector_search_default.search(query, k=1)

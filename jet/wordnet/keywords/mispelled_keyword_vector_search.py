@@ -1,10 +1,6 @@
 from spellchecker import SpellChecker
 from typing import List, Union, TypedDict, Optional
 import re
-import logging
-
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 
 
 class SearchResult(TypedDict):
@@ -64,8 +60,6 @@ class MispelledKeywordVectorSearch:
         norm_dist = 1 - (min(edit_dist, max_dist) /
                          max_dist) if edit_dist > 0 else 1
         score = freq_weight * norm_freq + dist_weight * norm_dist
-        logger.debug(
-            f"Normalizing score: freq={frequency}, edit_dist={edit_dist}, max_freq={max_freq}, norm_freq={norm_freq}, norm_dist={norm_dist}, final_score={score}")
         return score
 
     def search(self, input_data: Union[str, List[str]], k: int = 5) -> List[SearchResult]:
@@ -84,26 +78,20 @@ class MispelledKeywordVectorSearch:
         # Calculate max frequency from known words
         max_freq = max((self.spell_checker.word_usage_frequency(word)
                        for word in self.spell_checker.word_frequency.words()), default=1.0)
-        logger.debug(f"Max frequency calculated: {max_freq}")
 
         for doc in documents:
             if not doc:
                 continue
             words = self._process_text(doc)
-            logger.debug(f"Processed words: {words}")
 
             for word in words:
-                logger.debug(f"Checking word: {word}")
                 if word in self.spell_checker and (not self.words or word in self.words):
-                    logger.debug(f"Word '{word}' is correctly spelled")
                     continue
 
                 top_correction = self.spell_checker.correction(word)
                 candidates = self.spell_checker.candidates(word) or set()
-                logger.debug(f"Candidates for '{word}': {candidates}")
                 if self.words:
                     candidates = {c for c in candidates if c in self.words}
-                    logger.debug(f"Filtered candidates: {candidates}")
 
                 word_results = []
                 if top_correction and (not self.words or top_correction in self.words):
@@ -120,8 +108,6 @@ class MispelledKeywordVectorSearch:
                             text=top_correction,
                             original=word
                         ))
-                        logger.debug(
-                            f"Top correction for '{word}': {top_correction}, score={score}")
 
                 remaining_candidates = [
                     c for c in candidates if c != top_correction]
@@ -141,8 +127,6 @@ class MispelledKeywordVectorSearch:
                         text=candidate,
                         original=word
                     ))
-                    logger.debug(
-                        f"Candidate correction for '{word}': {candidate}, score={score}")
 
                 all_results.extend(word_results)
 
@@ -150,5 +134,4 @@ class MispelledKeywordVectorSearch:
             all_results, key=lambda x: x["score"], reverse=True)[:k]
         for i, result in enumerate(sorted_results):
             result["rank"] = i + 1
-        logger.debug(f"Final results: {sorted_results}")
         return sorted_results
