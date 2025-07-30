@@ -148,7 +148,8 @@ def chunk_texts(
 
 class ChunkResult(TypedDict):
     id: str
-    doc_index: int  # Shared doc index per chunk
+    doc_id: str
+    doc_index: int
     chunk_index: int
     num_tokens: int
     content: str
@@ -164,18 +165,6 @@ def chunk_texts_with_data(
     model: Optional[ModelType] = None,
     doc_ids: Optional[List[str]] = None
 ) -> List[ChunkResult]:
-    """Chunk texts into segments with metadata, supporting sentence overlap and optional custom doc_ids per source.
-
-    Args:
-        texts: A single string or list of strings to be chunked.
-        chunk_size: Max size per chunk (in words or tokens).
-        chunk_overlap: Amount of sentence-wise overlap between chunks.
-        model: Optional tokenizer model name.
-        doc_ids: Optional list of document ids to use instead of generated UUIDs per chunk.
-
-    Returns:
-        List of ChunkResult dicts containing metadata and chunk content.
-    """
     if isinstance(texts, str):
         texts = [texts]
         doc_indices = [0] * len(texts)
@@ -232,13 +221,16 @@ def chunk_texts_with_data(
         chunk_index = 0
         chunk_start_idx = 0
         chunk_line_idx = 0
+        doc_id = doc_ids[i] if doc_ids and i < len(
+            doc_ids) else str(uuid.uuid4())
 
         for sentence, separator, start_idx, end_idx, line_idx in sentence_pairs:
             sentence_size = len(size_fn(sentence))
             if current_size + sentence_size > chunk_size and current_chunk:
                 chunk_content = build_chunk(current_chunk, current_separators)
                 chunks.append({
-                    "id": doc_ids[i] if doc_ids and i < len(doc_ids) else str(uuid.uuid4()),
+                    "id": str(uuid.uuid4()),
+                    "doc_id": doc_id,
                     "doc_index": doc_index,
                     "chunk_index": chunk_index,
                     "num_tokens": current_size,
@@ -272,7 +264,8 @@ def chunk_texts_with_data(
                     chunk_content = build_chunk(
                         current_chunk, current_separators)
                     chunks.append({
-                        "id": doc_ids[i] if doc_ids and i < len(doc_ids) else str(uuid.uuid4()),
+                        "id": str(uuid.uuid4()),
+                        "doc_id": doc_id,
                         "doc_index": doc_index,
                         "chunk_index": chunk_index,
                         "num_tokens": current_size,
@@ -291,7 +284,8 @@ def chunk_texts_with_data(
         if current_chunk:
             chunk_content = build_chunk(current_chunk, current_separators)
             chunks.append({
-                "id": doc_ids[i] if doc_ids and i < len(doc_ids) else str(uuid.uuid4()),
+                "id": str(uuid.uuid4()),
+                "doc_id": doc_id,
                 "doc_index": doc_index,
                 "chunk_index": chunk_index,
                 "num_tokens": current_size,

@@ -122,7 +122,6 @@ def save_job_embeddings(
 ) -> Dict:
     """
     Save job embeddings to the database after chunking the job descriptions.
-
     Args:
         jobs: List of job data dictionaries
         embed_model: Embedding model to use
@@ -130,43 +129,47 @@ def save_job_embeddings(
         overwrite_db: Whether to overwrite the database
         chunk_size: Maximum number of tokens per chunk
         chunk_overlap: Number of tokens to overlap between consecutive chunks
+    Returns:
+        Dict containing job texts, embeddings, rows saved and chunk metadata.
     """
-    # Existing code for chunking and embedding generation
-    job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
-    chunks_with_data = chunk_texts_with_data(
+    # Step 1: Prepare input text for chunking
+    job_texts = [f"{job['title']}\n{job['details']}" for job in jobs]
+    doc_ids = [job["id"] for job in jobs]
+
+    # Step 2: Chunk the input text
+    chunks = chunk_texts_with_data(
         job_texts,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
+        doc_ids=doc_ids
     )
 
-    job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
-    truncated_job_texts = truncate_texts(job_texts, embed_model, chunk_size)
+    # Step 3: Generate embeddings for chunked texts
+    chunk_texts = [chunk["content"] for chunk in chunks]
     embeddings = generate_embeddings(
-        truncated_job_texts,
+        chunk_texts,
         embed_model,
         show_progress=True,
         return_format="numpy"
     )
 
-    # if len(chunks) != len(embeddings):
-    #     raise ValueError(
-    #         f"Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})"
-    #     )
-    if len(job_texts) != len(embeddings):
+    if len(chunk_texts) != len(embeddings):
         raise ValueError(
-            f"Mismatch between job_texts ({len(job_texts)}) and embeddings ({len(embeddings)})"
-        )
+            f"Mismatch between chunks ({len(chunk_texts)}) and embeddings ({len(embeddings)})")
 
+    # Step 4: Construct row entries
     rows_data = [
         {
-            # **chunk,
-            **job,
-            "embedding": embedding
+            "id": chunk["id"],
+            "doc_id": chunk["doc_index"],
+            "header_doc_id": chunk.get("header_doc_id", ""),
+            "parent_id": chunk.get("parent_id", ""),
+            "embedding": embedding,
         }
-        # for chunk, embedding in zip(chunks, embeddings)
-        for job, embedding in zip(jobs, embeddings)
+        for chunk, embedding in zip(chunks, embeddings)
     ]
 
+    # Step 5: Connect to DB and save data
     if not db_client:
         db_client = PgVectorClient(
             dbname=DEFAULT_JOBS_DB_NAME,
@@ -174,11 +177,12 @@ def save_job_embeddings(
         )
 
     logger.info(
-        f"Inserting {len(rows_data)} chunked job embeddings into '{DEFAULT_TABLE_NAME}' table..."
-    )
+        f"Inserting {len(rows_data)} chunked job embeddings into '{DEFAULT_TABLE_NAME}' table...")
+
     with db_client:
         db_client.create_rows(DEFAULT_TABLE_NAME, rows_data)
-        # Store chunk metadata in a separate table
+
+        # Step 6: Save chunk metadata
         metadata_query = f"""
         CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA_NAME} (
             chunk_id TEXT PRIMARY KEY,
@@ -203,24 +207,6 @@ def save_job_embeddings(
                 logger.info(
                     f"Created or verified '{DEFAULT_TABLE_DATA_NAME}' table.")
                 for chunk in chunks:
-                    # Validate chunk metadata
-                    required_keys = [
-                        "id", "doc_id", "header_doc_id", "parent_id", "doc_index",
-                        "chunk_index", "num_tokens", "header", "parent_header",
-                        "content", "level", "parent_level", "metadata"
-                    ]
-                    missing_keys = [
-                        key for key in required_keys if key not in chunk]
-                    if missing_keys:
-                        logger.error(f"Missing keys in chunk: {missing_keys}")
-                        raise ValueError(
-                            f"Chunk missing required keys: {missing_keys}")
-                    if "start_idx" not in chunk["metadata"] or "end_idx" not in chunk["metadata"]:
-                        logger.error(
-                            f"Chunk metadata missing start_idx or end_idx: {chunk['id']}")
-                        raise ValueError(
-                            f"Chunk metadata missing start_idx or end_idx for chunk {chunk['id']}")
-
                     cur.execute(
                         f"""
                         INSERT INTO {DEFAULT_TABLE_DATA_NAME} (
@@ -232,36 +218,38 @@ def save_job_embeddings(
                         """,
                         (
                             chunk["id"],
-                            chunk["doc_id"],
-                            chunk["header_doc_id"],
-                            chunk["parent_id"],
+                            str(chunk.get("doc_id", "")),
+                            chunk.get("header_doc_id"),
+                            chunk.get("parent_id"),
                             chunk["doc_index"],
                             chunk["chunk_index"],
                             chunk["num_tokens"],
-                            chunk["header"],
-                            chunk["parent_header"],
+                            chunk.get("header", ""),
+                            chunk.get("parent_header", ""),
                             chunk["content"],
-                            chunk["level"],
-                            chunk["parent_level"],
-                            chunk["metadata"]["start_idx"],
-                            chunk["metadata"]["end_idx"]
+                            chunk.get("level", 0),
+                            chunk.get("parent_level", 0),
+                            chunk["start_idx"],
+                            chunk["end_idx"]
                         )
                     )
-                db_client.conn.commit()  # Explicitly commit the transaction
+                db_client.conn.commit()
                 logger.info(
                     f"Inserted {len(chunks)} metadata records into '{DEFAULT_TABLE_DATA_NAME}' table.")
         except Exception as e:
             logger.error(f"Failed to insert metadata: {str(e)}")
-            db_client.conn.rollback()  # Rollback on error
+            db_client.conn.rollback()
             raise
+
         logger.success(
-            f"Saved {len(rows_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table."
-        )
+            f"Saved {len(rows_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table.")
+
         return {
             "job_texts": job_texts,
-            "truncated_job_texts": truncated_job_texts,
+            "chunk_texts": chunk_texts,
             "embeddings": embeddings,
             "rows": rows_data,
+            "chunks": chunks,
         }
 
 
