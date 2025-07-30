@@ -4,7 +4,7 @@ from numpy.typing import NDArray
 from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
-from jet.wordnet.text_chunker import chunk_texts, truncate_texts
+from jet.wordnet.text_chunker import chunk_texts_with_data, truncate_texts
 from shared.data_types.job import JobData, JobMetadata, JobSearchResult
 from jet.db.postgres.pgvector import PgVectorClient, EmbeddingInput, SearchResult
 from jet.models.embeddings.chunking import chunk_docs_by_hierarchy, DocChunkResult
@@ -130,14 +130,11 @@ def save_job_embeddings(
     """
     # Existing code for chunking and embedding generation
     job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
-    chunks = chunk_texts(
+    chunks = chunk_texts_with_data(
         job_texts,
         chunk_size=chunk_size,
         ids=[job["id"] for job in jobs]
     )
-
-    # chunk_texts = [
-    #     f"{chunk['header']}\n{chunk['content']}" for chunk in chunks]
 
     job_texts = [f"# {job['title']}\n{job['details']}" for job in jobs]
     truncated_job_texts = truncate_texts(job_texts, embed_model, chunk_size)

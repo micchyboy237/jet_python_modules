@@ -6,20 +6,7 @@ import uuid
 
 
 class TestChunkTextsWithData:
-    @pytest.fixture
-    def mock_dependencies(self, mocker):
-        """Set up mocks for external dependencies."""
-        mocker.patch('jet.wordnet.text_chunker.split_sentences',
-                     return_value=[])
-        mocker.patch('jet.wordnet.text_chunker.get_words', return_value=[])
-        mocker.patch('jet.wordnet.text_chunker.get_tokenizer_fn',
-                     return_value=lambda x: [])
-        mocker.patch('jet.wordnet.sentence.is_list_marker', return_value=False)
-        mocker.patch('jet.wordnet.sentence.is_list_sentence',
-                     return_value=False)
-        return mocker
-
-    def test_empty_input(self, mock_dependencies):
+    def test_empty_input(self):
         """Test chunk_texts_with_data with empty input string."""
         # Given an empty input string
         input_text = ""
@@ -32,7 +19,7 @@ class TestChunkTextsWithData:
         # Then the result should be an empty list
         assert result == expected, "Expected empty list for empty input"
 
-    def test_single_sentence_within_chunk_size(self, mocker):
+    def test_single_sentence_within_chunk_size(self):
         """Test chunk_texts_with_data with a single sentence fitting within chunk size."""
         # Given a single sentence
         input_text = "This is a test sentence."
@@ -51,12 +38,6 @@ class TestChunkTextsWithData:
             }
         ]
 
-        mocker.patch('jet.wordnet.text_chunker.split_sentences',
-                     return_value=expected_sentences)
-        mocker.patch('jet.wordnet.text_chunker.get_words',
-                     return_value=expected_words)
-        mocker.patch('uuid.uuid4', return_value=expected[0]["id"])
-
         # When chunk_texts_with_data is called
         result = chunk_texts_with_data(
             input_text, chunk_size=10, chunk_overlap=0)
@@ -71,7 +52,7 @@ class TestChunkTextsWithData:
         assert result[0]["end_idx"] == expected[0]["end_idx"]
         assert result[0]["line_idx"] == expected[0]["line_idx"]
 
-    def test_multiple_sentences_exceeding_chunk_size(self, mocker):
+    def test_multiple_sentences_exceeding_chunk_size(self):
         """Test chunk_texts_with_data with multiple sentences exceeding chunk size."""
         # Given multiple sentences
         input_text = "First sentence. Second sentence. Third sentence."
@@ -115,16 +96,6 @@ class TestChunkTextsWithData:
             }
         ]
 
-        def mock_get_words(sentence):
-            return expected_words.get(sentence, [])
-
-        mocker.patch('jet.wordnet.text_chunker.split_sentences',
-                     return_value=expected_sentences)
-        mocker.patch('jet.wordnet.text_chunker.get_words',
-                     side_effect=mock_get_words)
-        mocker.patch('uuid.uuid4', side_effect=[
-                     expected[0]["id"], expected[1]["id"], expected[2]["id"]])
-
         # When chunk_texts_with_data is called
         result = chunk_texts_with_data(
             input_text, chunk_size=2, chunk_overlap=0)
@@ -140,7 +111,7 @@ class TestChunkTextsWithData:
             assert res["end_idx"] == exp["end_idx"]
             assert res["line_idx"] == exp["line_idx"]
 
-    def test_with_overlap(self, mocker):
+    def test_with_overlap(self):
         """Test chunk_texts_with_data with overlap, respecting sentence boundaries."""
         # Given sentences with overlap
         input_text = "First sentence. Second sentence. Third sentence."
@@ -174,16 +145,6 @@ class TestChunkTextsWithData:
             }
         ]
 
-        def mock_get_words(sentence):
-            return expected_words.get(sentence, [])
-
-        mocker.patch('jet.wordnet.text_chunker.split_sentences',
-                     return_value=expected_sentences)
-        mocker.patch('jet.wordnet.text_chunker.get_words',
-                     side_effect=mock_get_words)
-        mocker.patch('uuid.uuid4', side_effect=[
-                     expected[0]["id"], expected[1]["id"]])
-
         # When chunk_texts_with_data is called
         result = chunk_texts_with_data(
             input_text, chunk_size=4, chunk_overlap=2)
@@ -199,7 +160,7 @@ class TestChunkTextsWithData:
             assert res["end_idx"] == exp["end_idx"]
             assert res["line_idx"] == exp["line_idx"]
 
-    def test_with_list_items(self, mocker):
+    def test_with_list_items(self):
         """Test chunk_texts_with_data with list items, ensuring correct combination."""
         # Given text with list items
         input_text = "1. First item. Second sentence."
@@ -231,20 +192,6 @@ class TestChunkTextsWithData:
             }
         ]
 
-        def mock_get_words(sentence):
-            return expected_words.get(sentence, [])
-
-        mocker.patch('jet.wordnet.text_chunker.split_sentences',
-                     return_value=expected_sentences)
-        mocker.patch('jet.wordnet.text_chunker.get_words',
-                     side_effect=mock_get_words)
-        mocker.patch('jet.wordnet.sentence.is_list_marker',
-                     side_effect=lambda x: x == "1.")
-        mocker.patch('jet.wordnet.sentence.is_list_sentence',
-                     side_effect=lambda x: x == "1. First item.")
-        mocker.patch('uuid.uuid4', side_effect=[
-                     expected[0]["id"], expected[1]["id"]])
-
         # When chunk_texts_with_data is called
         result = chunk_texts_with_data(
             input_text, chunk_size=3, chunk_overlap=0)
@@ -260,7 +207,7 @@ class TestChunkTextsWithData:
             assert res["end_idx"] == exp["end_idx"]
             assert res["line_idx"] == exp["line_idx"]
 
-    def test_with_model_tokenizer(self, mocker):
+    def test_with_model_tokenizer(self):
         """Test chunk_texts_with_data using a model tokenizer."""
         # Given text with a model
         input_text = "This is a test sentence."
@@ -271,24 +218,17 @@ class TestChunkTextsWithData:
                 "id": Mock(return_value=str(uuid.uuid4())),
                 "doc_index": 0,
                 "chunk_index": 0,
-                "num_tokens": 3,
+                "num_tokens": 6,
                 "content": "This is a test sentence.",
                 "start_idx": 0,
-                "end_idx": 24,  # Updated to include final period
+                "end_idx": 24,
                 "line_idx": 0
             }
         ]
 
-        mock_tokenizer = Mock(return_value=expected_tokens)
-        mocker.patch('jet.wordnet.text_chunker.split_sentences',
-                     return_value=expected_sentences)
-        mocker.patch('jet.wordnet.text_chunker.get_tokenizer_fn',
-                     return_value=mock_tokenizer)
-        mocker.patch('uuid.uuid4', return_value=expected[0]["id"])
-
         # When chunk_texts_with_data is called
         result = chunk_texts_with_data(
-            input_text, chunk_size=5, chunk_overlap=0, model="test-model")
+            input_text, chunk_size=5, chunk_overlap=0, model="all-MiniLM-L6-v2")
 
         # Then the result should use tokenizer with correct metadata
         assert len(result) == 1
@@ -299,16 +239,19 @@ class TestChunkTextsWithData:
         assert result[0]["start_idx"] == expected[0]["start_idx"]
         assert result[0]["end_idx"] == expected[0]["end_idx"]
         assert result[0]["line_idx"] == expected[0]["line_idx"]
-        mock_tokenizer.assert_called()
 
-    def test_list_of_strings(self, mocker):
+    def test_list_of_strings(self):
         """Test chunk_texts_with_data with a list of strings."""
         # Given a list of strings
-        input_texts = ["First sentence.", "Second sentence."]
-        expected_sentences = [["First sentence."], ["Second sentence."]]
+        input_texts = ["First sentence.",
+                       "Second sentence. Third sentence. Fourth sentence"]
+        expected_sentences = [["First sentence."], [
+            "Second sentence."], ["Third sentence."], ["Fourth sentence"]]
         expected_words = {
             "First sentence.": ["First", "sentence"],
-            "Second sentence.": ["Second", "sentence"]
+            "Second sentence.": ["Second", "sentence"],
+            "Third sentence.": ["Third", "sentence"],
+            "Fourth sentence": ["Fourth", "sentence"]
         }
         expected: List[ChunkResult] = [
             {
@@ -325,23 +268,23 @@ class TestChunkTextsWithData:
                 "id": Mock(return_value=str(uuid.uuid4())),
                 "doc_index": 1,
                 "chunk_index": 0,
-                "num_tokens": 2,
-                "content": "Second sentence.",
+                "num_tokens": 4,
+                "content": "Second sentence. Third sentence.",
                 "start_idx": 0,
-                "end_idx": 16,
+                "end_idx": 32,
+                "line_idx": 0
+            },
+            {
+                "id": Mock(return_value=str(uuid.uuid4())),
+                "doc_index": 1,
+                "chunk_index": 1,
+                "num_tokens": 2,
+                "content": "Fourth sentence",
+                "start_idx": 33,
+                "end_idx": 48,
                 "line_idx": 0
             }
         ]
-
-        def mock_get_words(sentence):
-            return expected_words.get(sentence, [])
-
-        mocker.patch('jet.wordnet.text_chunker.split_sentences',
-                     side_effect=expected_sentences)
-        mocker.patch('jet.wordnet.text_chunker.get_words',
-                     side_effect=mock_get_words)
-        mocker.patch('uuid.uuid4', side_effect=[
-                     expected[0]["id"], expected[1]["id"]])
 
         # When chunk_texts_with_data is called
         result = chunk_texts_with_data(
