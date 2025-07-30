@@ -9,7 +9,7 @@ from jet.wordnet.text_chunker import chunk_texts_with_data, truncate_texts
 from shared.data_types.job import JobData, JobMetadata, JobSearchResult
 from jet.db.postgres.pgvector import PgVectorClient, EmbeddingInput, SearchResult
 from jet.models.embeddings.chunking import chunk_docs_by_hierarchy, DocChunkResult
-from jet.models.tokenizer.base import TokenizerWrapper
+from jet.models.tokenizer.base import TokenizerWrapper, count_tokens
 
 DEFAULT_EMBED_MODEL: EmbedModelType = "mxbai-embed-large"
 DEFAULT_JOBS_DB_NAME = "jobs_db1"
@@ -17,6 +17,13 @@ DEFAULT_TABLE_NAME = "embeddings"
 DEFAULT_TABLE_DATA_NAME = f"{DEFAULT_TABLE_NAME}_data"
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
+
+
+def get_jobs_db_summary(db_client: Optional[PgVectorClient] = None):
+    if not db_client:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+    db_summary = db_client.get_database_summary()
+    return db_summary
 
 
 def load_jobs(
@@ -131,12 +138,27 @@ def save_job_embeddings(
         overwrite_db: Whether to overwrite the database
         chunk_size: Maximum number of tokens per chunk
         chunk_overlap: Number of tokens to overlap between consecutive chunks
+
+    Returns:
+        Dictionary containing job_texts, embeddings, and rows inserted
     """
     # Enhanced job_texts for applicant-focused RAG search
+    job_headers = []
     job_texts = []
     for job in jobs:
-        text = f"# {job['title']}\n"
+        header = f"# {job['title']}\n"
+        job_headers.append(header)
+
         text += f"Company: {job['company']}\n"
+        text += f"Details: {job['details']}\n"
+        if job.get('keywords'):
+            text += f"Keywords: {', '.join(job['keywords'])}\n"
+        if job.get('job_type'):
+            text += f"Job Type: {job['job_type']}\n"
+        if job.get('salary'):
+            text += f"Salary: {job['salary']}\n"
+        if job.get('hours_per_week'):
+            text += f"Hours per Week: {job['hours_per_week']}\n"
         if job.get('entities'):
             entities = job['entities']
             if entities.get('role'):
@@ -147,27 +169,34 @@ def save_job_embeddings(
                 text += f"Qualifications: {', '.join(entities['qualifications'])}\n"
             if entities.get('application'):
                 text += f"Application: {', '.join(entities['application'])}\n"
-        if job.get('keywords'):
-            text += f"Keywords: {', '.join(job['keywords'])}\n"
-        if job.get('job_type'):
-            text += f"Job Type: {job['job_type']}\n"
-        if job.get('salary'):
-            text += f"Salary: {job['salary']}\n"
-        if job.get('hours_per_week'):
-            text += f"Hours per Week: {job['hours_per_week']}\n"
-        text += f"Details: {job['details']}\n"
         job_texts.append(text)
 
+    job_header_token_counts: List[int] = count_tokens(
+        embed_model, job_headers, prevent_total=True)
+    max_job_header_token = max(job_header_token_counts)
     chunks_with_data = chunk_texts_with_data(
         job_texts,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         doc_ids=[job['id'] for job in jobs],  # Use job['id'] as doc_id
+        buffer=max_job_header_token,
     )
 
-    # Generate embeddings for each chunk
+    # Generate embeddings for each chunk, prepending header for chunks with chunk_index > 0
+    # Create lookup for job titles
+    job_by_id = {job['id']: job for job in jobs}
+    embedding_texts = []
+    for chunk in chunks_with_data:
+        job = job_by_id.get(chunk["doc_id"])
+        if not job:
+            logger.error(f"No job found for doc_id: {chunk['doc_id']}")
+            raise ValueError(f"No job found for doc_id: {chunk['doc_id']}")
+        header = f"# {job['title']}"
+        text = f"{header}\n{chunk['content']}"
+        embedding_texts.append(text)
+
     embeddings = generate_embeddings(
-        [chunk["content"] for chunk in chunks_with_data],
+        embedding_texts,
         embed_model,
         show_progress=True,
         return_format="numpy"
@@ -186,21 +215,21 @@ def save_job_embeddings(
         if not job:
             logger.error(f"No job found for doc_id: {chunk['doc_id']}")
             raise ValueError(f"No job found for doc_id: {chunk['doc_id']}")
-        # Create a new row with chunk["id"] and other job fields
+
+        # Use chunk content for text field (includes header and content below it)
+        text = chunk["content"]
+
+        # Collect all properties except title and details for metadata
+        metadata = {
+            key: value for key, value in job.items()
+            if key not in ['title', 'details']
+        }
+
+        # Create row with id, metadata, text, embedding
         row = {
-            "id": chunk["id"],  # Use unique chunk ID
-            "link": job["link"],
-            "title": job["title"],
-            "company": job["company"],
-            "posted_date": job["posted_date"],
-            "keywords": job["keywords"],
-            "details": job["details"],
-            "entities": job["entities"],
-            "tags": job["tags"],
-            "domain": job["domain"],
-            "salary": job.get("salary"),
-            "job_type": job.get("job_type"),
-            "hours_per_week": job.get("hours_per_week"),
+            "id": chunk["id"],
+            "metadata": metadata,
+            "text": text,
             "embedding": embedding
         }
         rows_data.append(row)
@@ -261,27 +290,41 @@ def save_job_embeddings(
                             f"No job found for doc_id: {chunk['doc_id']}")
 
                     # Generate parent_id using company name
+                    header = job["title"]
+                    parent_header = job["company"]
                     parent_id = generate_key(job["company"])
+                    header_doc_id = generate_key(job["title"])
 
                     cur.execute(
                         f"""
                         INSERT INTO {DEFAULT_TABLE_DATA_NAME} (
-                            chunk_id, doc_id, header_doc_id, parent_id, doc_index, chunk_index,
-                            num_tokens, header, parent_header, content, level, parent_level,
-                            start_idx, end_idx
+                            chunk_id,
+                            doc_id,
+                            doc_index,
+                            chunk_index,
+                            num_tokens,
+                            parent_id,
+                            parent_header,
+                            header,
+                            header_doc_id,
+                            content,
+                            level,
+                            parent_level,
+                            start_idx,
+                            end_idx
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (chunk_id) DO NOTHING;
                         """,
                         (
                             chunk["id"],
                             chunk["doc_id"],
-                            chunk["doc_id"],  # header_doc_id same as doc_id
-                            parent_id,  # Deterministic UUID for company
                             chunk["doc_index"],
                             chunk["chunk_index"],
                             chunk["num_tokens"],
-                            job["title"],  # header is job title
-                            job["company"],  # parent_header is company
+                            parent_id,  # Deterministic UUID for company
+                            parent_header,  # parent_header is company
+                            header_doc_id,  # header_doc_id same as parent_id
+                            header,  # header is job title
                             chunk["content"],
                             1,  # level for chunk
                             0,  # parent_level for company

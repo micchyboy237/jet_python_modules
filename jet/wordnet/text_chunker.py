@@ -156,6 +156,8 @@ class ChunkResult(TypedDict):
     start_idx: int
     end_idx: int
     line_idx: int
+    overlap_start_idx: Optional[int]
+    overlap_end_idx: Optional[int]
 
 
 def chunk_texts_with_data(
@@ -163,7 +165,8 @@ def chunk_texts_with_data(
     chunk_size: int = 128,
     chunk_overlap: int = 0,
     model: Optional[ModelType] = None,
-    doc_ids: Optional[List[str]] = None
+    doc_ids: Optional[List[str]] = None,
+    buffer: int = 0
 ) -> List[ChunkResult]:
     if isinstance(texts, str):
         texts = [texts]
@@ -226,8 +229,22 @@ def chunk_texts_with_data(
 
         for sentence, separator, start_idx, end_idx, line_idx in sentence_pairs:
             sentence_size = len(size_fn(sentence))
-            if current_size + sentence_size > chunk_size and current_chunk:
+            if current_size + sentence_size > chunk_size + buffer and current_chunk:
                 chunk_content = build_chunk(current_chunk, current_separators)
+                overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
+                    current_chunk, current_separators, chunk_overlap, size_fn
+                )
+                overlap_start_idx = None
+                overlap_end_idx = None
+                if overlap_sentences:
+                    first_overlap_idx = next((i for i, s in enumerate(
+                        current_chunk) if s == overlap_sentences[0]), None)
+                    if first_overlap_idx is not None:
+                        overlap_start_idx = sentence_pairs[first_overlap_idx][2]
+                        overlap_content = build_chunk(
+                            overlap_sentences, overlap_separators)
+                        overlap_end_idx = overlap_start_idx + \
+                            len(overlap_content)
                 chunks.append({
                     "id": str(uuid.uuid4()),
                     "doc_id": doc_id,
@@ -237,12 +254,11 @@ def chunk_texts_with_data(
                     "content": chunk_content,
                     "start_idx": chunk_start_idx,
                     "end_idx": chunk_start_idx + len(chunk_content),
-                    "line_idx": chunk_line_idx
+                    "line_idx": chunk_line_idx,
+                    "overlap_start_idx": overlap_start_idx,
+                    "overlap_end_idx": overlap_end_idx
                 })
                 chunk_index += 1
-                overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
-                    current_chunk, current_separators, chunk_overlap, size_fn
-                )
                 overlap_indices = [current_chunk.index(
                     s) for s in overlap_sentences if s in current_chunk]
                 chunk_start_idx = sentence_pairs[overlap_indices[0]
@@ -252,7 +268,7 @@ def chunk_texts_with_data(
                 current_chunk = overlap_sentences
                 current_separators = overlap_separators
                 current_size = overlap_size
-            if current_size + sentence_size <= chunk_size:
+            if current_size + sentence_size <= chunk_size + buffer:
                 if not current_chunk:
                     chunk_start_idx = start_idx
                     chunk_line_idx = line_idx
@@ -263,6 +279,20 @@ def chunk_texts_with_data(
                 if current_chunk:
                     chunk_content = build_chunk(
                         current_chunk, current_separators)
+                    overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
+                        current_chunk, current_separators, chunk_overlap, size_fn
+                    )
+                    overlap_start_idx = None
+                    overlap_end_idx = None
+                    if overlap_sentences:
+                        first_overlap_idx = next((i for i, s in enumerate(
+                            current_chunk) if s == overlap_sentences[0]), None)
+                        if first_overlap_idx is not None:
+                            overlap_start_idx = sentence_pairs[first_overlap_idx][2]
+                            overlap_content = build_chunk(
+                                overlap_sentences, overlap_separators)
+                            overlap_end_idx = overlap_start_idx + \
+                                len(overlap_content)
                     chunks.append({
                         "id": str(uuid.uuid4()),
                         "doc_id": doc_id,
@@ -272,7 +302,9 @@ def chunk_texts_with_data(
                         "content": chunk_content,
                         "start_idx": chunk_start_idx,
                         "end_idx": chunk_start_idx + len(chunk_content),
-                        "line_idx": chunk_line_idx
+                        "line_idx": chunk_line_idx,
+                        "overlap_start_idx": overlap_start_idx,
+                        "overlap_end_idx": overlap_end_idx
                     })
                     chunk_index += 1
                 current_chunk = [sentence]
@@ -292,7 +324,9 @@ def chunk_texts_with_data(
                 "content": chunk_content,
                 "start_idx": chunk_start_idx,
                 "end_idx": chunk_start_idx + len(chunk_content),
-                "line_idx": chunk_line_idx
+                "line_idx": chunk_line_idx,
+                "overlap_start_idx": None,
+                "overlap_end_idx": None
             })
 
     return chunks
