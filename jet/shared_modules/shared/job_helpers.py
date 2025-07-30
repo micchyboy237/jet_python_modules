@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional
 import numpy as np
 from numpy.typing import NDArray
+from jet.data.utils import generate_key
 from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
@@ -122,6 +123,7 @@ def save_job_embeddings(
 ) -> Dict:
     """
     Save job embeddings to the database after chunking the job descriptions.
+
     Args:
         jobs: List of job data dictionaries
         embed_model: Embedding model to use
@@ -129,47 +131,80 @@ def save_job_embeddings(
         overwrite_db: Whether to overwrite the database
         chunk_size: Maximum number of tokens per chunk
         chunk_overlap: Number of tokens to overlap between consecutive chunks
-    Returns:
-        Dict containing job texts, embeddings, rows saved and chunk metadata.
     """
-    # Step 1: Prepare input text for chunking
-    job_texts = [f"{job['title']}\n{job['details']}" for job in jobs]
-    doc_ids = [job["id"] for job in jobs]
+    # Enhanced job_texts for applicant-focused RAG search
+    job_texts = []
+    for job in jobs:
+        text = f"# {job['title']}\n"
+        text += f"Company: {job['company']}\n"
+        if job.get('entities'):
+            entities = job['entities']
+            if entities.get('role'):
+                text += f"Role: {', '.join(entities['role'])}\n"
+            if entities.get('technology_stack'):
+                text += f"Technology Stack: {', '.join(entities['technology_stack'])}\n"
+            if entities.get('qualifications'):
+                text += f"Qualifications: {', '.join(entities['qualifications'])}\n"
+            if entities.get('application'):
+                text += f"Application: {', '.join(entities['application'])}\n"
+        if job.get('keywords'):
+            text += f"Keywords: {', '.join(job['keywords'])}\n"
+        if job.get('job_type'):
+            text += f"Job Type: {job['job_type']}\n"
+        if job.get('salary'):
+            text += f"Salary: {job['salary']}\n"
+        if job.get('hours_per_week'):
+            text += f"Hours per Week: {job['hours_per_week']}\n"
+        text += f"Details: {job['details']}\n"
+        job_texts.append(text)
 
-    # Step 2: Chunk the input text
-    chunks = chunk_texts_with_data(
+    chunks_with_data = chunk_texts_with_data(
         job_texts,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        doc_ids=doc_ids
+        doc_ids=[job['id'] for job in jobs],  # Use job['id'] as doc_id
     )
 
-    # Step 3: Generate embeddings for chunked texts
-    chunk_texts = [chunk["content"] for chunk in chunks]
+    # Generate embeddings for each chunk
     embeddings = generate_embeddings(
-        chunk_texts,
+        [chunk["content"] for chunk in chunks_with_data],
         embed_model,
         show_progress=True,
         return_format="numpy"
     )
 
-    if len(chunk_texts) != len(embeddings):
+    if len(chunks_with_data) != len(embeddings):
         raise ValueError(
-            f"Mismatch between chunks ({len(chunk_texts)}) and embeddings ({len(embeddings)})")
+            f"Mismatch between chunks_with_data ({len(chunks_with_data)}) and embeddings ({len(embeddings)})"
+        )
 
-    # Step 4: Construct row entries
-    rows_data = [
-        {
-            "id": chunk["id"],
-            "doc_id": chunk["doc_index"],
-            "header_doc_id": chunk.get("header_doc_id", ""),
-            "parent_id": chunk.get("parent_id", ""),
-            "embedding": embedding,
+    # Create a lookup for jobs by id
+    job_by_id = {job['id']: job for job in jobs}
+    rows_data = []
+    for chunk, embedding in zip(chunks_with_data, embeddings):
+        job = job_by_id.get(chunk["doc_id"])
+        if not job:
+            logger.error(f"No job found for doc_id: {chunk['doc_id']}")
+            raise ValueError(f"No job found for doc_id: {chunk['doc_id']}")
+        # Create a new row with chunk["id"] and other job fields
+        row = {
+            "id": chunk["id"],  # Use unique chunk ID
+            "link": job["link"],
+            "title": job["title"],
+            "company": job["company"],
+            "posted_date": job["posted_date"],
+            "keywords": job["keywords"],
+            "details": job["details"],
+            "entities": job["entities"],
+            "tags": job["tags"],
+            "domain": job["domain"],
+            "salary": job.get("salary"),
+            "job_type": job.get("job_type"),
+            "hours_per_week": job.get("hours_per_week"),
+            "embedding": embedding
         }
-        for chunk, embedding in zip(chunks, embeddings)
-    ]
+        rows_data.append(row)
 
-    # Step 5: Connect to DB and save data
     if not db_client:
         db_client = PgVectorClient(
             dbname=DEFAULT_JOBS_DB_NAME,
@@ -177,12 +212,11 @@ def save_job_embeddings(
         )
 
     logger.info(
-        f"Inserting {len(rows_data)} chunked job embeddings into '{DEFAULT_TABLE_NAME}' table...")
-
+        f"Inserting {len(rows_data)} chunked job embeddings into '{DEFAULT_TABLE_NAME}' table..."
+    )
     with db_client:
         db_client.create_rows(DEFAULT_TABLE_NAME, rows_data)
-
-        # Step 6: Save chunk metadata
+        # Store chunk metadata in a separate table
         metadata_query = f"""
         CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA_NAME} (
             chunk_id TEXT PRIMARY KEY,
@@ -206,7 +240,29 @@ def save_job_embeddings(
                 cur.execute(metadata_query)
                 logger.info(
                     f"Created or verified '{DEFAULT_TABLE_DATA_NAME}' table.")
-                for chunk in chunks:
+                for chunk in chunks_with_data:
+                    # Validate chunk metadata
+                    required_keys = [
+                        "id", "doc_id", "doc_index", "chunk_index", "num_tokens",
+                        "content", "start_idx", "end_idx", "line_idx"
+                    ]
+                    missing_keys = [
+                        key for key in required_keys if key not in chunk]
+                    if missing_keys:
+                        logger.error(f"Missing keys in chunk: {missing_keys}")
+                        raise ValueError(
+                            f"Chunk missing required keys: {missing_keys}")
+                    # Find the job corresponding to chunk["doc_id"]
+                    job = job_by_id.get(chunk["doc_id"])
+                    if not job:
+                        logger.error(
+                            f"No job found for doc_id: {chunk['doc_id']}")
+                        raise ValueError(
+                            f"No job found for doc_id: {chunk['doc_id']}")
+
+                    # Generate parent_id using company name
+                    parent_id = generate_key(job["company"])
+
                     cur.execute(
                         f"""
                         INSERT INTO {DEFAULT_TABLE_DATA_NAME} (
@@ -218,38 +274,35 @@ def save_job_embeddings(
                         """,
                         (
                             chunk["id"],
-                            str(chunk.get("doc_id", "")),
-                            chunk.get("header_doc_id"),
-                            chunk.get("parent_id"),
+                            chunk["doc_id"],
+                            chunk["doc_id"],  # header_doc_id same as doc_id
+                            parent_id,  # Deterministic UUID for company
                             chunk["doc_index"],
                             chunk["chunk_index"],
                             chunk["num_tokens"],
-                            chunk.get("header", ""),
-                            chunk.get("parent_header", ""),
+                            job["title"],  # header is job title
+                            job["company"],  # parent_header is company
                             chunk["content"],
-                            chunk.get("level", 0),
-                            chunk.get("parent_level", 0),
+                            1,  # level for chunk
+                            0,  # parent_level for company
                             chunk["start_idx"],
                             chunk["end_idx"]
                         )
                     )
                 db_client.conn.commit()
                 logger.info(
-                    f"Inserted {len(chunks)} metadata records into '{DEFAULT_TABLE_DATA_NAME}' table.")
+                    f"Inserted {len(chunks_with_data)} metadata records into '{DEFAULT_TABLE_DATA_NAME}' table.")
         except Exception as e:
             logger.error(f"Failed to insert metadata: {str(e)}")
             db_client.conn.rollback()
             raise
-
         logger.success(
-            f"Saved {len(rows_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table.")
-
+            f"Saved {len(rows_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table."
+        )
         return {
             "job_texts": job_texts,
-            "chunk_texts": chunk_texts,
             "embeddings": embeddings,
             "rows": rows_data,
-            "chunks": chunks,
         }
 
 
