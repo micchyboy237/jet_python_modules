@@ -22,12 +22,11 @@ def calculate_vector_scores(distances: List[float]) -> List[float]:
         List of similarity scores in [0, 1], where higher scores indicate closer matches
     """
     if not distances:
-        logger.debug("Empty distance list provided, returning empty scores")
+        logger.warning("Empty distance list provided, returning empty scores")
         return []
 
     # Convert to numpy array for efficient computation
     distances_array = np.array(distances, dtype=np.float64)
-    logger.debug("Input cosine distances: %s", distances_array.tolist())
 
     # Transform cosine distance (1 - cosine_similarity) to similarity
     scores = 1 - distances_array
@@ -36,7 +35,6 @@ def calculate_vector_scores(distances: List[float]) -> List[float]:
     scores = np.clip(scores, 0, 1)
     scores_list = scores.tolist()
 
-    logger.debug("Transformed similarity scores: %s", scores_list)
     return scores_list
 
 

@@ -54,3 +54,5 @@ class JobMetadata(TypedDict):
 class JobSearchResult(JobData):
     rank: int
     score: float
+    id: str
+    text: str

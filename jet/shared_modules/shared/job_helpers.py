@@ -1,3 +1,4 @@
+import math
 from typing import List, Dict, Optional
 import numpy as np
 from numpy.typing import NDArray
@@ -149,8 +150,9 @@ def save_job_embeddings(
         header = f"# {job['title']}\n"
         job_headers.append(header)
 
+        text = ""
+        text += f"Details\n{job['details']}\n\n"
         text += f"Company: {job['company']}\n"
-        text += f"Details: {job['details']}\n"
         if job.get('keywords'):
             text += f"Keywords: {', '.join(job['keywords'])}\n"
         if job.get('job_type'):
@@ -174,13 +176,26 @@ def save_job_embeddings(
     job_header_token_counts: List[int] = count_tokens(
         embed_model, job_headers, prevent_total=True)
     max_job_header_token = max(job_header_token_counts)
+
     chunks_with_data = chunk_texts_with_data(
         job_texts,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         doc_ids=[job['id'] for job in jobs],  # Use job['id'] as doc_id
         buffer=max_job_header_token,
+        model=embed_model,
     )
+    all_num_tokens = [chunk["num_tokens"] for chunk in chunks_with_data]
+    count = len(chunks_with_data)
+    min_token = min(all_num_tokens)
+    ave_token = math.ceil(sum(all_num_tokens) /
+                          len(all_num_tokens)) if all_num_tokens else 0
+    max_token = max(all_num_tokens)
+
+    logger.log("count:", count, colors=["GRAY", "INFO"])
+    logger.log("min_token:", min_token, colors=["GRAY", "SUCCESS"])
+    logger.log("ave_token:", ave_token, colors=["GRAY", "SUCCESS"])
+    logger.log("max_token:", max_token, colors=["GRAY", "SUCCESS"])
 
     # Generate embeddings for each chunk, prepending header for chunks with chunk_index > 0
     # Create lookup for job titles
@@ -210,14 +225,11 @@ def save_job_embeddings(
     # Create a lookup for jobs by id
     job_by_id = {job['id']: job for job in jobs}
     rows_data = []
-    for chunk, embedding in zip(chunks_with_data, embeddings):
+    for text, chunk, embedding in zip(embedding_texts, chunks_with_data, embeddings):
         job = job_by_id.get(chunk["doc_id"])
         if not job:
             logger.error(f"No job found for doc_id: {chunk['doc_id']}")
             raise ValueError(f"No job found for doc_id: {chunk['doc_id']}")
-
-        # Use chunk content for text field (includes header and content below it)
-        text = chunk["content"]
 
         # Collect all properties except title and details for metadata
         metadata = {
@@ -343,9 +355,17 @@ def save_job_embeddings(
             f"Saved {len(rows_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table."
         )
         return {
-            "job_texts": job_texts,
-            "embeddings": embeddings,
+            "chunks_with_data": chunks_with_data,
             "rows": rows_data,
+            "embedding_texts": embedding_texts,
+            "embeddings": embeddings,
+            "max_header_token": max_job_header_token,
+            "summary": {
+                "count": count,
+                "min_token": min_token,
+                "ave_token": ave_token,
+                "max_token": max_token,
+            },
         }
 
 

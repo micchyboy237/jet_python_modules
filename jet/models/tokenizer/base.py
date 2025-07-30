@@ -62,6 +62,7 @@ class TokenizerWrapper:
         add_special_tokens: bool = False,
         pad_token_id: Optional[int] = None,
         max_length: Optional[int] = None,
+        truncation: bool = False,
         truncation_side: str = "right"
     ):
         self.tokenizer = tokenizer
@@ -72,7 +73,10 @@ class TokenizerWrapper:
             if tokenizer.pad_token_id is not None
             else 0
         )
-        self.max_length = max_length or tokenizer.model_max_length
+        self.max_length = max_length
+        self.truncation = truncation  # Store truncation parameter
+        # Store truncation_side for completeness
+        self.truncation_side = truncation_side
 
     def __call__(self, texts: Union[str, List[str]], **kwargs) -> Union[EncodingWrapper, List[EncodingWrapper]]:
         """Tokenize input texts, supporting single string or list of strings."""
@@ -90,14 +94,14 @@ class TokenizerWrapper:
         encode_kwargs = {
             'add_special_tokens': self.add_special_tokens,
             'max_length': self.max_length,
-            'truncation': True if self.max_length is not None else False,
-            'return_tensors': None  # Ensure we get a list of token IDs
+            # Respect truncation setting
+            'truncation': kwargs.get('truncation', self.truncation),
+            'return_tensors': None
         }
         encode_kwargs.update(kwargs)
-
         token_ids = self.tokenizer.encode(text, **encode_kwargs)
         wrapped_encoding = EncodingWrapper(token_ids, self.tokenizer)
-        if self.remove_pad_tokens:
+        if self.remove_pad_tokens and self.pad_token_id is not None:
             wrapped_encoding._ids = [
                 tid for tid in wrapped_encoding._ids if tid != self.pad_token_id]
         return wrapped_encoding
@@ -113,18 +117,18 @@ class TokenizerWrapper:
         encode_kwargs = {
             'add_special_tokens': self.add_special_tokens,
             'max_length': self.max_length,
-            'truncation': True if self.max_length is not None else False,
+            # Respect truncation setting
+            'truncation': kwargs.get('truncation', self.truncation),
             'return_tensors': None
         }
         encode_kwargs.update(kwargs)
-
         token_ids_list = [
             self.tokenizer.encode(text, **encode_kwargs)
             for text in texts
         ]
         wrapped_encodings = [EncodingWrapper(
             ids, self.tokenizer) for ids in token_ids_list]
-        if self.remove_pad_tokens:
+        if self.remove_pad_tokens and self.pad_token_id is not None:
             for wrapped in wrapped_encodings:
                 wrapped._ids = [
                     tid for tid in wrapped._ids if tid != self.pad_token_id]
@@ -171,8 +175,9 @@ def get_tokenizer(
     disable_cache: bool = False,
     pad_token_id: Optional[int] = None,
     max_length: Optional[int] = None,
-    truncation_side: str = "right",
     documents: Optional[Union[str, List[str]]] = None,
+    truncation_side: str = "right",
+    truncation: bool = False
 ) -> PreTrainedTokenizerBase:
     """
     Initialize and return a tokenizer for the specified model, with option to disable cache.
@@ -183,8 +188,8 @@ def get_tokenizer(
         disable_cache: If True, bypasses the tokenizer cache and always loads fresh.
         pad_token_id: Optional padding token ID to set.
         max_length: Optional maximum length; if None and documents provided, set to max token count.
-        truncation_side: Truncation side ("right" or "left").
         documents: Optional input texts to compute max_length dynamically.
+        truncation_side: Truncation side ("right" or "left").
 
     Returns:
         PreTrainedTokenizerBase: The loaded tokenizer.
@@ -206,7 +211,7 @@ def get_tokenizer(
     else:
         try:
             tokenizer = AutoTokenizer.from_pretrained(
-                model_path, cache_dir=local_cache_dir)
+                model_path, cache_dir=local_cache_dir, truncation=truncation)
             logger.info(
                 f"Successfully loaded tokenizer from remote: {model_path}")
             if not disable_cache:
@@ -222,7 +227,8 @@ def get_tokenizer(
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.convert_ids_to_tokens(pad_token_id)
 
-    tokenizer.truncation_side = truncation_side
+    if truncation:
+        tokenizer.truncation_side = truncation_side
 
     if max_length is None and documents is not None:
         tokenizer_wrapper = TokenizerWrapper(
@@ -252,6 +258,7 @@ def get_tokenizer_fn(
     add_special_tokens: bool = False,
     disable_cache: bool = False,
     documents: Optional[Union[str, List[str]]] = None,
+    truncation: bool = False,
     **kwargs,
 ) -> TokenizerWrapper:
     """Return a TokenizerWrapper instance from a model name or tokenizer instance."""
@@ -262,6 +269,7 @@ def get_tokenizer_fn(
             model_name_or_tokenizer,
             disable_cache=disable_cache,
             documents=documents,
+            truncation=truncation,
             **kwargs
         )
     else:
@@ -273,7 +281,8 @@ def get_tokenizer_fn(
                 remove_pad_tokens=remove_pad_tokens,
                 add_special_tokens=add_special_tokens,
                 pad_token_id=tokenizer.pad_token_id,
-                max_length=None
+                truncation=truncation,
+                max_length=None,
             )
             token_counts = [
                 len(tokenizer_wrapper.encode(text, truncation=False)._ids)
@@ -301,6 +310,7 @@ def get_detokenizer_fn(
     add_special_tokens: bool = False,
     disable_cache: bool = False,
     documents: Optional[Union[str, List[str]]] = None,
+    truncation: bool = False,
     **kwargs,
 ):
     """Return a function that detokenizes token IDs or tokens back to text."""
@@ -312,6 +322,7 @@ def get_detokenizer_fn(
             model_name_or_tokenizer,
             disable_cache=disable_cache,
             documents=documents,
+            truncation=truncation,
             **kwargs
         )
     else:
@@ -322,7 +333,8 @@ def get_detokenizer_fn(
                 remove_pad_tokens=remove_pad_tokens,
                 add_special_tokens=add_special_tokens,
                 pad_token_id=tokenizer.pad_token_id,
-                max_length=None
+                max_length=None,
+                truncation=truncation,
             )
             token_counts = [
                 len(tokenizer_wrapper.encode(text, truncation=False)._ids)
@@ -449,6 +461,7 @@ def tokenize(
         remove_pad_tokens=remove_pad_tokens,
         add_special_tokens=add_special_tokens,
         disable_cache=disable_cache,
+        truncation=False,
     )
     result = tokenizer_wrapper(texts)
     if isinstance(texts, str):
@@ -474,20 +487,39 @@ def count_tokens(
     model_name_or_tokenizer: Union[ModelType, PreTrainedTokenizerBase],
     messages: Union[str, List[str], List[Dict]],
     prevent_total: bool = False,
-    remove_pad_tokens: bool = True,
+    remove_pad_tokens: bool = False,  # Changed default to False
     add_special_tokens: bool = False,
     disable_cache: bool = False
 ) -> Union[int, List[int]]:
     if not messages:
         return 0
 
+    # Convert messages to strings, handling dictionaries
     if isinstance(messages, list):
-        messages = [str(t) for t in messages]
+        processed_messages = []
+        for msg in messages:
+            if isinstance(msg, dict):
+                # Extract 'content' if available, else convert to string
+                content = msg.get('content', str(msg))
+                if not isinstance(content, str):
+                    logger.error(
+                        f"Invalid content type in message: {type(content)}")
+                    raise TypeError("Message content must be str")
+                processed_messages.append(content)
+            else:
+                processed_messages.append(str(msg))
+    else:
+        processed_messages = messages
 
     tokenize = get_tokenizer_fn(
-        model_name_or_tokenizer, remove_pad_tokens=remove_pad_tokens, add_special_tokens=add_special_tokens, disable_cache=disable_cache)
-    tokenized = tokenize(messages)
-    if isinstance(messages, str):
+        model_name_or_tokenizer,
+        remove_pad_tokens=remove_pad_tokens,
+        add_special_tokens=add_special_tokens,
+        disable_cache=disable_cache,
+        truncation=False,
+    )
+    tokenized = tokenize(processed_messages)
+    if isinstance(processed_messages, str):
         return len(tokenized)
     else:
         token_counts = [len(item) for item in tokenized]
@@ -501,17 +533,34 @@ def count_tokens_dim(
     if not messages:
         return 0
 
+    # Convert messages to strings, handling dictionaries
     if isinstance(messages, list):
-        messages = [str(t) for t in messages]
+        processed_messages = []
+        for msg in messages:
+            if isinstance(msg, dict):
+                content = msg.get('content', str(msg))
+                if not isinstance(content, str):
+                    logger.error(
+                        f"Invalid content type in message: {type(content)}")
+                    raise TypeError("Message content must be str")
+                processed_messages.append(content)
+            else:
+                processed_messages.append(str(msg))
+    else:
+        processed_messages = messages
 
     tokenize = get_tokenizer_fn(
-        model_name_or_tokenizer, remove_pad_tokens=True, add_special_tokens=False)
-    tokenized = tokenize(messages)
-    if isinstance(messages, str):
+        model_name_or_tokenizer,
+        remove_pad_tokens=False,  # Changed to False
+        add_special_tokens=False,
+        truncation=False,
+    )
+    tokenized = tokenize(processed_messages)
+    if isinstance(processed_messages, str):
         return len(tokenized)
     else:
         token_counts = [len(item) for item in tokenized]
-        return token_counts[0]
+        return token_counts  # Return full list, not just first element
 
 
 def get_max_token_count(
@@ -521,7 +570,7 @@ def get_max_token_count(
     remove_pad_tokens: bool = True
 ) -> int:
     """
-    Calculate the maximum number of tokens in the provided messages, adding a buffer and capping at 512.
+    Calculate the maximum number of tokens in the provided messages, adding a buffer.
 
     Args:
         model_name_or_tokenizer: The model name or tokenizer instance to use.
@@ -530,12 +579,12 @@ def get_max_token_count(
         remove_pad_tokens: Whether to remove padding tokens from the count (default: True).
 
     Returns:
-        int: The maximum token count plus buffer, capped at 512.
+        int: The maximum token count plus buffer.
     """
     token_counts: List[int] = count_tokens(
         model_name_or_tokenizer, messages, prevent_total=True, remove_pad_tokens=remove_pad_tokens
     )
-    max_tokens = min(max(token_counts) + buffer, 512)  # Cap at 512
+    max_tokens = max(token_counts) + buffer
     logger.info(f"Max token count for {len(messages)} documents: {max_tokens}")
     return max_tokens
 
