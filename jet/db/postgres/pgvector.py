@@ -132,8 +132,6 @@ class PgVectorClient:
                 (table_name,)
             )
             existing_columns = {row["column_name"] for row in cur.fetchall()}
-            logger.debug("Existing columns in %s: %s",
-                         table_name, existing_columns)
 
             # Define column types for new columns
             for column, value in row_data.items():
@@ -146,8 +144,6 @@ class PgVectorClient:
                         col_type = "numeric"
                     else:
                         col_type = "text"
-                    logger.debug(
-                        "Creating new column %s with type %s for table %s", column, col_type, table_name)
                     query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {};").format(
                         sql.Identifier(table_name),
                         sql.Identifier(column),
@@ -155,7 +151,7 @@ class PgVectorClient:
                     )
                     try:
                         cur.execute(query)
-                        logger.debug(
+                        logger.success(
                             "Successfully created column %s in table %s", column, table_name)
                     except Exception as e:
                         logger.error(
@@ -658,10 +654,7 @@ class PgVectorClient:
                 for row in db_results
             ]
             distances = [res["distance"] for res in results]
-            logger.debug("Raw cosine distances from %s: %s",
-                         table_name, distances)
             scores = calculate_vector_scores(distances)
-            logger.debug("Transformed similarity scores: %s", scores)
 
             # Build final results with rank and score, applying threshold if specified
             final_results: List[SearchResult] = []
