@@ -1,296 +1,185 @@
 import pytest
-from jet.logger import logger
-from jet.vectors.document_types import HeaderDocument
-from jet.wordnet.sentence import split_sentences
-from jet.wordnet.text_chunker import chunk_headers, chunk_sentences_with_indices, chunk_texts, chunk_texts_with_indices, truncate_texts
-from jet.models.tokenizer.base import detokenize, get_tokenizer_fn
-
-MODEL_NAME = "qwen3-1.7b-4bit"
+from typing import List, Optional
+from unittest.mock import Mock
+from jet.wordnet.text_chunker import chunk_texts, build_chunk, get_overlap_sentences
+from jet.wordnet.sentence import split_sentences, is_list_marker, is_list_sentence
+from jet.wordnet.words import get_words
 
 
-class TestChunkTextsWithIndices:
-    def test_no_overlap(self):
-        input_text = "This is a test text with several words to be chunked into smaller pieces"
-        expected = [
-            "This is a test text with several words",
-            "to be chunked into smaller pieces"
-        ]
-        expected_indices = [0, 0]
-        result, result_indices = chunk_texts_with_indices(
-            input_text, chunk_size=8, chunk_overlap=0)
-        assert result == expected
-        assert result_indices == expected_indices
+class TestChunkTexts:
+    @pytest.fixture
+    def mock_dependencies(self, mocker):
+        """Set up mocks for external dependencies."""
+        mocker.patch('jet.wordnet.text_chunker.split_sentences',
+                     return_value=[])
+        mocker.patch('jet.wordnet.text_chunker.get_words', return_value=[])
+        mocker.patch('jet.wordnet.text_chunker.get_tokenizer_fn',
+                     return_value=lambda x: [])
+        mocker.patch('jet.wordnet.sentence.is_list_marker', return_value=False)
+        mocker.patch('jet.wordnet.sentence.is_list_sentence',
+                     return_value=False)
+        return mocker
 
-    def test_with_overlap(self):
-        input_text = "This is a test text with several words to be chunked"
-        expected = [
-            "This is a test text with several words",
-            "with several words to be chunked"
-        ]
-        expected_indices = [0, 0]
-        result, result_indices = chunk_texts_with_indices(
-            input_text, chunk_size=8, chunk_overlap=3)
-        assert result == expected
-        assert result_indices == expected_indices
+    def test_chunk_texts_empty_input(self, mock_dependencies):
+        """Test chunk_texts with empty input string."""
+        # Given an empty input string
+        input_text = ""
+        expected = []
 
-    def test_no_overlap_with_model(self):
-        input_text = "This is a test text with several words to be chunked into smaller pieces"
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        token_ids = tokenize_fn(input_text)
-        expected = [
-            detokenize(token_ids[:8], MODEL_NAME),
-            detokenize(token_ids[8:], MODEL_NAME)
-        ]
-        expected_indices = [0, 0]
-        result, result_indices = chunk_texts_with_indices(
-            input_text, chunk_size=8, chunk_overlap=0, model=MODEL_NAME)
-        assert result == expected
-        assert result_indices == expected_indices
+        # When chunk_texts is called
+        result = chunk_texts(input_text, chunk_size=128, chunk_overlap=0)
 
-    def test_with_overlap_with_model(self):
-        input_text = "This is a test text with several words to be chunked"
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        token_ids = tokenize_fn(input_text)
-        expected = [
-            detokenize(token_ids[:8], MODEL_NAME),
-            detokenize(token_ids[5:], MODEL_NAME)
-        ]
-        expected_indices = [0, 0]
-        result, result_indices = chunk_texts_with_indices(
-            input_text, chunk_size=8, chunk_overlap=3, model=MODEL_NAME)
-        assert result == expected
-        assert result_indices == expected_indices
+        # Then the result should be an empty list
+        assert result == expected, "Expected empty list for empty input"
 
+    def test_chunk_texts_single_sentence_within_chunk_size(self, mocker):
+        """Test chunk_texts with a single sentence fitting within chunk size."""
+        # Given a single sentence and mocked dependencies
+        input_text = "This is a test sentence."
+        expected_sentences = ["This is a test sentence."]
+        expected_words = ["This", "is", "a", "test", "sentence"]
+        expected = ["This is a test sentence."]
 
-class TestChunkSentencesWithIndices:
-    def test_no_overlap(self):
-        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-        expected = [
-            "This is sentence one. This is sentence two.",
-            "This is sentence three. This is sentence four."
-        ]
-        expected_indices = [0, 0]
-        result, result_indices = chunk_sentences_with_indices(
-            input_text, chunk_size=2, sentence_overlap=0)
-        assert result == expected
-        assert result_indices == expected_indices
+        mocker.patch('jet.wordnet.text_chunker.split_sentences',
+                     return_value=expected_sentences)
+        mocker.patch('jet.wordnet.text_chunker.get_words',
+                     return_value=expected_words)
 
-    def test_with_overlap(self):
-        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-        expected = [
-            "This is sentence one. This is sentence two.",
-            "This is sentence two. This is sentence three.",
-            "This is sentence three. This is sentence four."
-        ]
-        expected_indices = [0, 0, 0]
-        result, result_indices = chunk_sentences_with_indices(
-            input_text, chunk_size=2, sentence_overlap=1)
-        assert result == expected
-        assert result_indices == expected_indices
+        # When chunk_texts is called with chunk_size larger than sentence
+        result = chunk_texts(input_text, chunk_size=10, chunk_overlap=0)
 
-    def test_no_overlap_with_model(self):
-        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        sentences = split_sentences(input_text)
-        sentence_tokens = [len(tokenize_fn(s)) for s in sentences]
-        expected = [
-            "This is sentence one. This is sentence two.",
-            "This is sentence three. This is sentence four."
-        ]
-        expected_indices = [0, 0]
-        result, result_indices = chunk_sentences_with_indices(
-            input_text, chunk_size=sum(sentence_tokens[:2]), sentence_overlap=0, model=MODEL_NAME)
-        assert result == expected
-        assert result_indices == expected_indices
+        # Then the result should contain the single sentence
+        assert result == expected, f"Expected {expected}, got {result}"
 
-    def test_with_overlap_with_model(self):
-        input_text = "This is sentence one. This is sentence two. This is sentence three. This is sentence four."
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        sentences = split_sentences(input_text)
-        sentence_tokens = [len(tokenize_fn(s)) for s in sentences]
-        expected = [
-            "This is sentence one. This is sentence two.",
-            "This is sentence two. This is sentence three.",
-            "This is sentence three. This is sentence four."
-        ]
-        expected_indices = [0, 0, 0]
-        result, result_indices = chunk_sentences_with_indices(
-            input_text, chunk_size=sum(sentence_tokens[:2]), sentence_overlap=1, model=MODEL_NAME)
-        assert result == expected
-        assert result_indices == expected_indices
+    def test_chunk_texts_multiple_sentences_exceeding_chunk_size(self, mocker):
+        """Test chunk_texts with multiple sentences exceeding chunk size."""
+        # Given multiple sentences that exceed chunk size
+        input_text = "First sentence. Second sentence. Third sentence."
+        expected_sentences = ["First sentence.",
+                              "Second sentence.", "Third sentence."]
+        expected_words = {
+            "First sentence.": ["First", "sentence"],
+            "Second sentence.": ["Second", "sentence"],
+            "Third sentence.": ["Third", "sentence"]
+        }
+        expected = ["First sentence.", "Second sentence.", "Third sentence."]
 
+        def mock_get_words(sentence):
+            return expected_words.get(sentence, [])
 
-class TestChunkHeaders:
-    def test_chunk_headers_single_doc(self):
-        doc = HeaderDocument(
-            id="doc1",
-            text="Line 1\nLine 2\nLine 3\nLine 4",
-            metadata={"doc_index": 1, "parent_header": "Parent"}
-        )
-        expected = [
-            HeaderDocument(
-                id="doc1_chunk_0",
-                text="Line 1",
-                metadata={
-                    "header": "Line 1",
-                    "parent_header": "Parent",
-                    "header_level": 1,
-                    "content": "Line 1",
-                    "doc_index": 1,
-                    "chunk_index": 0,
-                    "texts": ["Line 1"],
-                    "tokens": 2
-                }
-            ),
-            HeaderDocument(
-                id="doc1_chunk_1",
-                text="Line 2",
-                metadata={
-                    "header": "Line 2",
-                    "parent_header": "Parent",
-                    "header_level": 1,
-                    "content": "Line 2",
-                    "doc_index": 1,
-                    "chunk_index": 1,
-                    "texts": ["Line 2"],
-                    "tokens": 2
-                }
-            ),
-            HeaderDocument(
-                id="doc1_chunk_2",
-                text="Line 3",
-                metadata={
-                    "header": "Line 3",
-                    "parent_header": "Parent",
-                    "header_level": 1,
-                    "content": "Line 3",
-                    "doc_index": 1,
-                    "chunk_index": 2,
-                    "texts": ["Line 3"],
-                    "tokens": 2
-                }
-            ),
-            HeaderDocument(
-                id="doc1_chunk_3",
-                text="Line 4",
-                metadata={
-                    "header": "Line 4",
-                    "parent_header": "Parent",
-                    "header_level": 1,
-                    "content": "Line 4",
-                    "doc_index": 1,
-                    "chunk_index": 3,
-                    "texts": ["Line 4"],
-                    "tokens": 2
-                }
-            ),
-        ]
-        result = chunk_headers([doc], max_tokens=2)
-        for r, e in zip(result, expected):
-            assert r.id == e.id
-            assert r.text == e.text
-            assert r.metadata == e.metadata
-        logger.debug("Test chunk_headers_single_doc passed")
+        mocker.patch('jet.wordnet.text_chunker.split_sentences',
+                     return_value=expected_sentences)
+        mocker.patch('jet.wordnet.text_chunker.get_words',
+                     side_effect=mock_get_words)
 
-    def test_chunk_headers_with_model(self):
-        doc = HeaderDocument(
-            id="doc1",
-            text="This is sentence one. This is sentence two.\nThis is sentence three. This is an incomplete",
-            metadata={"doc_index": 1, "parent_header": "Parent"}
-        )
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        sentences = split_sentences(doc.text)
-        sentence_tokens = [len(tokenize_fn(s)) for s in sentences]
-        expected = [
-            HeaderDocument(
-                id="doc1_chunk_0",
-                text="This is sentence one. This is sentence two.",
-                metadata={
-                    "header": "This is sentence one.",
-                    "parent_header": "Parent",
-                    "header_level": 1,
-                    "content": "This is sentence one. This is sentence two.",
-                    "doc_index": 1,
-                    "chunk_index": 0,
-                    "texts": ["This is sentence one.", "This is sentence two."],
-                    "tokens": sum(sentence_tokens[:2])
-                }
-            ),
-            HeaderDocument(
-                id="doc1_chunk_1",
-                text="This is sentence three. This is an incomplete",
-                metadata={
-                    "header": "This is sentence three.",
-                    "parent_header": "Parent",
-                    "header_level": 1,
-                    "content": "This is sentence three. This is an incomplete",
-                    "doc_index": 1,
-                    "chunk_index": 1,
-                    "texts": ["This is sentence three.", "This is an incomplete"],
-                    "tokens": sum(sentence_tokens[2:])
-                }
-            )
-        ]
-        result = chunk_headers([doc], max_tokens=sum(
-            sentence_tokens[:2]), model=MODEL_NAME)
-        for r, e in zip(result, expected):
-            assert r.id == e.id
-            assert r.text == e.text
-            assert r.metadata == e.metadata
-            # Verify each chunk ends with a complete sentence
-            chunk_sentences = split_sentences(r.text)
-            assert chunk_sentences == r.metadata["texts"], "Chunk does not contain complete sentences"
-        logger.debug("Test chunk_headers_with_model passed")
+        # When chunk_texts is called with small chunk_size
+        result = chunk_texts(input_text, chunk_size=2, chunk_overlap=0)
 
+        # Then the result should split sentences into separate chunks
+        assert result == expected, f"Expected {expected}, got {result}"
 
-class TestTruncateText:
-    def test_single_string(self):
-        sample = "This is the first sentence. Here is the second one. This is the third and final sentence."
-        expected = "This is the first sentence. Here is the second one."
-        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=12)
-        assert result == expected
-
-    def test_exact_word_limit(self):
-        sample = "One. Two three four five. Six seven eight nine ten."
-        expected = "One. Two three four five."
-        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=6)
-        assert result == expected
-
-    def test_list_input(self):
-        sample = [
-            "First sentence. Second sentence. Third sentence.",
-            "Another paragraph. With more text."
-        ]
+    def test_chunk_texts_with_overlap(self, mocker):
+        """Test chunk_texts with overlap, ensuring sentence boundaries are respected."""
+        # Given sentences with overlap configuration
+        input_text = "First sentence. Second sentence. Third sentence."
+        expected_sentences = ["First sentence.",
+                              "Second sentence.", "Third sentence."]
+        expected_words = {
+            "First sentence.": ["First", "sentence"],
+            "Second sentence.": ["Second", "sentence"],
+            "Third sentence.": ["Third", "sentence"]
+        }
         expected = [
             "First sentence. Second sentence.",
-            "Another paragraph."
+            "Second sentence. Third sentence."
         ]
-        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=4)
-        assert result == expected
 
-    def test_short_text(self):
-        sample = "Short text."
-        expected = ["Short text."]
-        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=100)
-        assert result == expected
+        def mock_get_words(sentence):
+            return expected_words.get(sentence, [])
 
-    def test_single_string_with_model(self):
-        sample = "This is the first sentence. Here is the second one. This is the third and final sentence."
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        token_ids = tokenize_fn(sample)
-        expected = detokenize(token_ids[:12], MODEL_NAME)
-        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=12)
-        assert result == expected
+        mocker.patch('jet.wordnet.text_chunker.split_sentences',
+                     return_value=expected_sentences)
+        mocker.patch('jet.wordnet.text_chunker.get_words',
+                     side_effect=mock_get_words)
 
-    def test_list_input_with_model(self):
-        sample = [
-            "First sentence. Second sentence. Third sentence.",
-            "Another paragraph. With more text."
-        ]
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        expected = [
-            detokenize(tokenize_fn(sample[0])[:4], MODEL_NAME),
-            detokenize(tokenize_fn(sample[1])[:4], MODEL_NAME)
-        ]
-        result = truncate_texts(sample, model=MODEL_NAME, max_tokens=4)
-        assert result == expected
+        # When chunk_texts is called with chunk_size and overlap
+        result = chunk_texts(input_text, chunk_size=4, chunk_overlap=2)
+
+        # Then the result should include overlap with sentence boundaries
+        assert result == expected, f"Expected {expected}, got {result}"
+
+    def test_chunk_texts_with_list_items(self, mocker):
+        """Test chunk_texts with list items, ensuring they are combined correctly."""
+        # Given text with list items
+        input_text = "1. First item. Second sentence."
+        expected_sentences = ["1. First item.", "Second sentence."]
+        expected_words = {
+            "1. First item.": ["1", "First", "item"],
+            "Second sentence.": ["Second", "sentence"]
+        }
+        expected = ["1. First item.", "Second sentence."]
+
+        def mock_get_words(sentence):
+            return expected_words.get(sentence, [])
+
+        mocker.patch('jet.wordnet.text_chunker.split_sentences',
+                     return_value=expected_sentences)
+        mocker.patch('jet.wordnet.text_chunker.get_words',
+                     side_effect=mock_get_words)
+        mocker.patch('jet.wordnet.sentence.is_list_marker',
+                     side_effect=lambda x: x == "1.")
+        mocker.patch('jet.wordnet.sentence.is_list_sentence',
+                     side_effect=lambda x: x == "1. First item.")
+
+        # When chunk_texts is called
+        result = chunk_texts(input_text, chunk_size=3, chunk_overlap=0)
+
+        # Then the result should handle list items correctly
+        assert result == expected, f"Expected {expected}, got {result}"
+
+    def test_chunk_texts_with_model_tokenizer(self, mocker):
+        """Test chunk_texts using a model tokenizer."""
+        # Given text and a model for token-based chunking
+        input_text = "This is a test sentence."
+        expected_sentences = ["This is a test sentence."]
+        expected_tokens = ["token1", "token2", "token3"]
+        expected = ["This is a test sentence."]
+
+        mock_tokenizer = Mock(return_value=expected_tokens)
+        mocker.patch('jet.wordnet.text_chunker.split_sentences',
+                     return_value=expected_sentences)
+        mocker.patch('jet.wordnet.text_chunker.get_tokenizer_fn',
+                     return_value=mock_tokenizer)
+
+        # When chunk_texts is called with a model
+        result = chunk_texts(input_text, chunk_size=5,
+                             chunk_overlap=0, model="test-model")
+
+        # Then the result should use the tokenizer and fit within chunk size
+        assert result == expected, f"Expected {expected}, got {result}"
+        mock_tokenizer.assert_called()
+
+    def test_chunk_texts_list_of_strings(self, mocker):
+        """Test chunk_texts with a list of strings as input."""
+        # Given a list of strings
+        input_texts = ["First sentence.", "Second sentence."]
+        expected_sentences = [["First sentence."], ["Second sentence."]]
+        expected_words = {
+            "First sentence.": ["First", "sentence"],
+            "Second sentence.": ["Second", "sentence"]
+        }
+        expected = ["First sentence.", "Second sentence."]
+
+        def mock_get_words(sentence):
+            return expected_words.get(sentence, [])
+
+        mocker.patch('jet.wordnet.text_chunker.split_sentences',
+                     side_effect=expected_sentences)
+        mocker.patch('jet.wordnet.text_chunker.get_words',
+                     side_effect=mock_get_words)
+
+        # When chunk_texts is called with a list of strings
+        result = chunk_texts(input_texts, chunk_size=5, chunk_overlap=0)
+
+        # Then the result should process each string independently
+        assert result == expected, f"Expected {expected}, got {result}"
