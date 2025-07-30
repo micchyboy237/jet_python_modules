@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from spellchecker import SpellChecker
 from tqdm import tqdm
 from jet.file.utils import load_data, save_data
@@ -106,30 +107,71 @@ class SpellingCorrector:
         self.unknown_words.update(unknown_words_list)
         return unknown_words_list
 
-    def autocorrect(self, text: str) -> str:
+    def get_word_indices(self, text, word):
+        """Find all occurrences of a word in the text with their start and end indices."""
+        indices = []
+        words = get_words(text)
+        current_pos = 0
+
+        for w in words:
+            # Find the next occurrence of the word starting from current_pos
+            start = text.find(w, current_pos)
+            if start == -1:
+                continue  # Word not found, move to next
+            end = start + len(w)
+
+            # Check if the word matches, respecting case sensitivity
+            if self.case_sensitive:
+                if w == word:
+                    indices.append({"start": start, "end": end})
+            else:
+                if w.lower() == word.lower():
+                    indices.append({"start": start, "end": end})
+
+            current_pos = start + 1  # Move past the current character to find next occurrence
+
+        return indices
+
+    def autocorrect(self, text: str) -> tuple[str, list[dict]]:
         words = self.split_words(text)
         corrected_words_dict = {}
+        corrections_with_indices = []
+
+        # Track unique words to handle repeats
+        processed_words = set()
 
         for word in words:
+            if word in processed_words:
+                continue  # Skip already processed words to avoid duplicate corrections
             corrected_word = self.spell_checker.correction(word)
 
+            if corrected_word is None:
+                continue  # Skip if no correction is available
+
             if word != corrected_word:
-                print(f"Corrected word: {corrected_word}")
                 corrected_words_dict[word] = corrected_word
+                indices = self.get_word_indices(text, word)
+                for idx in indices:
+                    corrections_with_indices.append({
+                        "original": word,
+                        "corrected": corrected_word,
+                        "start": idx["start"],
+                        "end": idx["end"]
+                    })
+                processed_words.add(word)
 
-                # total_words = sum(self.spell_checker.word_frequency.dictionary.values())
-
-                # candidates = self.spell_checker.candidates(word)
-                # if candidates:
-                #     for candidate in candidates:
-                #         print(
-                #             f"{candidate} ({count} / {total_words}): {self.spell_checker.word_usage_frequency(candidate)}")
-
-        # Replace text with corrected words
+        # Replace text with corrected words, preserving original case where possible
+        corrected_text = text
         for word, corrected_word in corrected_words_dict.items():
-            text = text.replace(word, corrected_word)
+            if self.case_sensitive:
+                corrected_text = corrected_text.replace(word, corrected_word)
+            else:
+                # Replace case-insensitively while preserving the original case
+                pattern = re.compile(
+                    r'\b' + re.escape(word) + r'\b', re.IGNORECASE)
+                corrected_text = pattern.sub(corrected_word, corrected_text)
 
-        return text
+        return corrected_text, corrections_with_indices
 
     def suggest_corrections(self, misspelled_words):
         """Suggest corrections for the identified misspelled words."""
@@ -169,9 +211,12 @@ class SpellingCorrector:
                 suggested_corrections = self.suggest_corrections(
                     misspelled_words)
 
+                corrected_text = self.autocorrect(text)
+
                 result = {
                     "original": text,
-                    "suggestions": suggested_corrections
+                    "corrected_text": corrected_text,
+                    "suggestions": suggested_corrections,
                 }
 
                 results.append(result)
