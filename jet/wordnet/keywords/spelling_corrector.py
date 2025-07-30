@@ -10,7 +10,7 @@ from jet.wordnet.words import get_words
 
 
 class SpellingCorrector:
-    def __init__(self, data=None, dictionary_file=None, case_sensitive=False, ignore_words=None, base_words=None, count_threshold=5):
+    def __init__(self, *, dictionary_file=None, case_sensitive=False, ignore_words=None, base_words=None, base_sentences=None,  count_threshold=5):
         self.spell_checker = SpellChecker()
         self.tagger = POSTagger()
 
@@ -22,6 +22,8 @@ class SpellingCorrector:
         self.count_threshold = count_threshold
 
         self.unknown_words = set()
+
+        data = base_sentences
 
         logger.info(f"Base words: {len(self.base_words)}")
         logger.info(f"Ignore words: {len(self.ignore_words)}")
