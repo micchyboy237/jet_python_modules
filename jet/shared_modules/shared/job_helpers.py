@@ -13,24 +13,70 @@ from jet.models.tokenizer.base import TokenizerWrapper
 DEFAULT_EMBED_MODEL: EmbedModelType = "mxbai-embed-large"
 DEFAULT_JOBS_DB_NAME = "jobs_db1"
 DEFAULT_TABLE_NAME = "embeddings"
-DEFAULT_TABLE_METADATA_NAME = f"{DEFAULT_TABLE_NAME}_metadata"
+DEFAULT_TABLE_DATA_NAME = f"{DEFAULT_TABLE_NAME}_data"
 DEFAULT_CHUNK_SIZE = 512
 
 
 def load_jobs(
     chunk_ids: Optional[List[str]] = None,
     db_client: Optional[PgVectorClient] = None
-) -> List[JobData]:
+) -> List[JobMetadata]:
+    """
+    Load job job for given chunk IDs or all job if no IDs provided.
+
+    Args:
+        chunk_ids: Optional list of chunk IDs to retrieve job for
+        db_client: Optional PgVectorClient instance
+
+    Returns:
+        List of JobMetadata dictionaries containing job job
+    """
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
-    jobs: List[JobData] = []
+    job: List[JobMetadata] = []
     with db_client:
-        rows = db_client.get_rows(DEFAULT_TABLE_METADATA_NAME, chunk_ids)
-        row_ids = [row["id"] for row in rows]
+        with db_client.conn.cursor() as cur:
+            if chunk_ids:
+                query = f"""
+                    SELECT 
+                        chunk_id, doc_id, header_doc_id, parent_id, doc_index,
+                        chunk_index, num_tokens, header, parent_header, content,
+                        level, parent_level, start_idx, end_idx
+                    FROM {DEFAULT_TABLE_DATA_NAME} 
+                    WHERE chunk_id = ANY(%s);
+                """
+                cur.execute(query, (chunk_ids,))
+            else:
+                query = f"""
+                    SELECT 
+                        chunk_id, doc_id, header_doc_id, parent_id, doc_index,
+                        chunk_index, num_tokens, header, parent_header, content,
+                        level, parent_level, start_idx, end_idx
+                    FROM {DEFAULT_TABLE_DATA_NAME};
+                """
+                cur.execute(query)
 
-    logger.debug("Loaded %d jobs", len(jobs))
-    return jobs
+            rows = cur.fetchall()
+            for row in rows:
+                job.append({
+                    "id": row["chunk_id"],
+                    "doc_id": row["doc_id"],
+                    "header_doc_id": row["header_doc_id"],
+                    "parent_id": row["parent_id"],
+                    "doc_index": row["doc_index"],
+                    "chunk_index": row["chunk_index"],
+                    "num_tokens": row["num_tokens"],
+                    "header": row["header"],
+                    "parent_header": row["parent_header"],
+                    "content": row["content"],
+                    "level": row["level"],
+                    "parent_level": row["parent_level"],
+                    "start_idx": row["start_idx"],
+                    "end_idx": row["end_idx"]
+                })
+
+    return job
 
 
 def load_jobs_embeddings(
@@ -51,71 +97,9 @@ def load_jobs_embeddings(
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
     with db_client:
-        embeddings = db_client.get_embeddings(DEFAULT_JOBS_DB_NAME, chunk_ids)
+        embeddings = db_client.get_embeddings(DEFAULT_TABLE_NAME, chunk_ids)
 
         return embeddings
-
-
-def load_jobs_metadata(
-    chunk_ids: Optional[List[str]] = None,
-    db_client: Optional[PgVectorClient] = None
-) -> List[JobMetadata]:
-    """
-    Load job metadata for given chunk IDs or all metadata if no IDs provided.
-
-    Args:
-        chunk_ids: Optional list of chunk IDs to retrieve metadata for
-        db_client: Optional PgVectorClient instance
-
-    Returns:
-        List of JobMetadata dictionaries containing job metadata
-    """
-    if not db_client:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
-
-    metadata: List[JobMetadata] = []
-    with db_client:
-        with db_client.conn.cursor() as cur:
-            if chunk_ids:
-                query = f"""
-                    SELECT 
-                        chunk_id, doc_id, header_doc_id, parent_id, doc_index,
-                        chunk_index, num_tokens, header, parent_header, content,
-                        level, parent_level, start_idx, end_idx
-                    FROM {DEFAULT_TABLE_METADATA_NAME} 
-                    WHERE chunk_id = ANY(%s);
-                """
-                cur.execute(query, (chunk_ids,))
-            else:
-                query = f"""
-                    SELECT 
-                        chunk_id, doc_id, header_doc_id, parent_id, doc_index,
-                        chunk_index, num_tokens, header, parent_header, content,
-                        level, parent_level, start_idx, end_idx
-                    FROM {DEFAULT_TABLE_METADATA_NAME};
-                """
-                cur.execute(query)
-
-            rows = cur.fetchall()
-            for row in rows:
-                metadata.append({
-                    "id": row["chunk_id"],
-                    "doc_id": row["doc_id"],
-                    "header_doc_id": row["header_doc_id"],
-                    "parent_id": row["parent_id"],
-                    "doc_index": row["doc_index"],
-                    "chunk_index": row["chunk_index"],
-                    "num_tokens": row["num_tokens"],
-                    "header": row["header"],
-                    "parent_header": row["parent_header"],
-                    "content": row["content"],
-                    "level": row["level"],
-                    "parent_level": row["parent_level"],
-                    "start_idx": row["start_idx"],
-                    "end_idx": row["end_idx"]
-                })
-
-    return metadata
 
 
 def generate_job_embeddings(data: List[JobData], embed_model: EmbedModelType = DEFAULT_EMBED_MODEL) -> np.ndarray:
@@ -194,82 +178,82 @@ def save_job_embeddings(
     )
     with db_client:
         db_client.create_rows(DEFAULT_TABLE_NAME, rows_data)
-        # # Store chunk metadata in a separate table
-        # metadata_query = f"""
-        # CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_METADATA_NAME} (
-        #     chunk_id TEXT PRIMARY KEY,
-        #     doc_id TEXT,
-        #     header_doc_id TEXT,
-        #     parent_id TEXT,
-        #     doc_index INTEGER,
-        #     chunk_index INTEGER,
-        #     num_tokens INTEGER,
-        #     header TEXT,
-        #     parent_header TEXT,
-        #     content TEXT,
-        #     level INTEGER,
-        #     parent_level INTEGER,
-        #     start_idx INTEGER,
-        #     end_idx INTEGER
-        # );
-        # """
-        # try:
-        #     with db_client.conn.cursor() as cur:
-        #         cur.execute(metadata_query)
-        #         logger.info(
-        #             f"Created or verified '{DEFAULT_TABLE_METADATA_NAME}' table.")
-        #         for chunk in chunks:
-        #             # Validate chunk metadata
-        #             required_keys = [
-        #                 "id", "doc_id", "header_doc_id", "parent_id", "doc_index",
-        #                 "chunk_index", "num_tokens", "header", "parent_header",
-        #                 "content", "level", "parent_level", "metadata"
-        #             ]
-        #             missing_keys = [
-        #                 key for key in required_keys if key not in chunk]
-        #             if missing_keys:
-        #                 logger.error(f"Missing keys in chunk: {missing_keys}")
-        #                 raise ValueError(
-        #                     f"Chunk missing required keys: {missing_keys}")
-        #             if "start_idx" not in chunk["metadata"] or "end_idx" not in chunk["metadata"]:
-        #                 logger.error(
-        #                     f"Chunk metadata missing start_idx or end_idx: {chunk['id']}")
-        #                 raise ValueError(
-        #                     f"Chunk metadata missing start_idx or end_idx for chunk {chunk['id']}")
+        # Store chunk metadata in a separate table
+        metadata_query = f"""
+        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA_NAME} (
+            chunk_id TEXT PRIMARY KEY,
+            doc_id TEXT,
+            header_doc_id TEXT,
+            parent_id TEXT,
+            doc_index INTEGER,
+            chunk_index INTEGER,
+            num_tokens INTEGER,
+            header TEXT,
+            parent_header TEXT,
+            content TEXT,
+            level INTEGER,
+            parent_level INTEGER,
+            start_idx INTEGER,
+            end_idx INTEGER
+        );
+        """
+        try:
+            with db_client.conn.cursor() as cur:
+                cur.execute(metadata_query)
+                logger.info(
+                    f"Created or verified '{DEFAULT_TABLE_DATA_NAME}' table.")
+                for chunk in chunks:
+                    # Validate chunk metadata
+                    required_keys = [
+                        "id", "doc_id", "header_doc_id", "parent_id", "doc_index",
+                        "chunk_index", "num_tokens", "header", "parent_header",
+                        "content", "level", "parent_level", "metadata"
+                    ]
+                    missing_keys = [
+                        key for key in required_keys if key not in chunk]
+                    if missing_keys:
+                        logger.error(f"Missing keys in chunk: {missing_keys}")
+                        raise ValueError(
+                            f"Chunk missing required keys: {missing_keys}")
+                    if "start_idx" not in chunk["metadata"] or "end_idx" not in chunk["metadata"]:
+                        logger.error(
+                            f"Chunk metadata missing start_idx or end_idx: {chunk['id']}")
+                        raise ValueError(
+                            f"Chunk metadata missing start_idx or end_idx for chunk {chunk['id']}")
 
-        #             cur.execute(
-        #                 f"""
-        #                 INSERT INTO {DEFAULT_TABLE_METADATA_NAME} (
-        #                     chunk_id, doc_id, header_doc_id, parent_id, doc_index, chunk_index,
-        #                     num_tokens, header, parent_header, content, level, parent_level,
-        #                     start_idx, end_idx
-        #                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        #                 ON CONFLICT (chunk_id) DO NOTHING;
-        #                 """,
-        #                 (
-        #                     chunk["id"],
-        #                     chunk["doc_id"],
-        #                     chunk["header_doc_id"],
-        #                     chunk["parent_id"],
-        #                     chunk["doc_index"],
-        #                     chunk["chunk_index"],
-        #                     chunk["num_tokens"],
-        #                     chunk["header"],
-        #                     chunk["parent_header"],
-        #                     chunk["content"],
-        #                     chunk["level"],
-        #                     chunk["parent_level"],
-        #                     chunk["metadata"]["start_idx"],
-        #                     chunk["metadata"]["end_idx"]
-        #                 )
-        #             )
-        #         db_client.conn.commit()  # Explicitly commit the transaction
-        #         logger.info(
-        #             f"Inserted {len(chunks)} metadata records into '{DEFAULT_TABLE_METADATA_NAME}' table.")
-        # except Exception as e:
-        #     logger.error(f"Failed to insert metadata: {str(e)}")
-        #     db_client.conn.rollback()  # Rollback on error
-        #     raise
+                    cur.execute(
+                        f"""
+                        INSERT INTO {DEFAULT_TABLE_DATA_NAME} (
+                            chunk_id, doc_id, header_doc_id, parent_id, doc_index, chunk_index,
+                            num_tokens, header, parent_header, content, level, parent_level,
+                            start_idx, end_idx
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (chunk_id) DO NOTHING;
+                        """,
+                        (
+                            chunk["id"],
+                            chunk["doc_id"],
+                            chunk["header_doc_id"],
+                            chunk["parent_id"],
+                            chunk["doc_index"],
+                            chunk["chunk_index"],
+                            chunk["num_tokens"],
+                            chunk["header"],
+                            chunk["parent_header"],
+                            chunk["content"],
+                            chunk["level"],
+                            chunk["parent_level"],
+                            chunk["metadata"]["start_idx"],
+                            chunk["metadata"]["end_idx"]
+                        )
+                    )
+                db_client.conn.commit()  # Explicitly commit the transaction
+                logger.info(
+                    f"Inserted {len(chunks)} metadata records into '{DEFAULT_TABLE_DATA_NAME}' table.")
+        except Exception as e:
+            logger.error(f"Failed to insert metadata: {str(e)}")
+            db_client.conn.rollback()  # Rollback on error
+            raise
         logger.success(
             f"Saved {len(rows_data)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table."
         )

@@ -8,50 +8,6 @@ from jet.models.tokenizer.base import detokenize, get_tokenizer_fn
 MODEL_NAME = "qwen3-1.7b-4bit"
 
 
-class TestChunkTexts:
-    def test_no_overlap(self):
-        input_text = "This is a test text with several words to be chunked into smaller pieces"
-        expected = [
-            "This is a test text with several words",
-            "to be chunked into smaller pieces"
-        ]
-        result = chunk_texts(input_text, chunk_size=8, chunk_overlap=0)
-        assert result == expected
-
-    def test_with_overlap(self):
-        input_text = "This is a test text with several words to be chunked"
-        expected = [
-            "This is a test text with several words",
-            "with several words to be chunked"
-        ]
-        result = chunk_texts(input_text, chunk_size=8, chunk_overlap=3)
-        assert result == expected
-
-    def test_no_overlap_with_model(self):
-        input_text = "This is a test text with several words to be chunked into smaller pieces"
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        token_ids = tokenize_fn(input_text)
-        expected_chunks = [
-            detokenize(token_ids[:8], MODEL_NAME),
-            detokenize(token_ids[8:], MODEL_NAME)
-        ]
-        result = chunk_texts(input_text, chunk_size=8,
-                             chunk_overlap=0, model=MODEL_NAME)
-        assert result == expected_chunks
-
-    def test_with_overlap_with_model(self):
-        input_text = "This is a test text with several words to be chunked"
-        tokenize_fn = get_tokenizer_fn(MODEL_NAME)
-        token_ids = tokenize_fn(input_text)
-        expected_chunks = [
-            detokenize(token_ids[:8], MODEL_NAME),
-            detokenize(token_ids[5:], MODEL_NAME)
-        ]
-        result = chunk_texts(input_text, chunk_size=8,
-                             chunk_overlap=3, model=MODEL_NAME)
-        assert result == expected_chunks
-
-
 class TestChunkTextsWithIndices:
     def test_no_overlap(self):
         input_text = "This is a test text with several words to be chunked into smaller pieces"

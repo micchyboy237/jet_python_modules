@@ -13,7 +13,41 @@ from jet.wordnet.sentence import split_sentences, split_sentences_with_separator
 from jet.wordnet.words import get_words
 
 
-def chunk_texts(texts: Union[str, List[str]], chunk_size: int = 128, chunk_overlap: int = 0, model: Optional[ModelType] = None) -> List[str]:
+def build_chunk(sentences: List[str], separators: List[str]) -> str:
+    """Reconstruct a chunk from sentences and separators, stripping trailing whitespace."""
+    chunk = ""
+    for sentence, separator in zip(sentences, separators):
+        chunk += sentence + separator
+    return chunk.rstrip()
+
+
+def get_overlap_sentences(
+    sentences: List[str],
+    separators: List[str],
+    max_overlap: int,
+    size_fn,
+) -> Tuple[List[str], List[str], int]:
+    """Select sentences for overlap based on size (tokens or words)."""
+    overlap_sentences = []
+    overlap_separators = []
+    overlap_size = 0
+    for sentence, separator in reversed(list(zip(sentences, separators))):
+        sentence_size = len(size_fn(sentence))
+        if overlap_size + sentence_size <= max_overlap:
+            overlap_sentences.insert(0, sentence)
+            overlap_separators.insert(0, separator)
+            overlap_size += sentence_size
+        else:
+            break
+    return overlap_sentences, overlap_separators, overlap_size
+
+
+def chunk_texts(
+    texts: Union[str, List[str]],
+    chunk_size: int = 128,
+    chunk_overlap: int = 0,
+    model: Optional[ModelType] = None,
+) -> List[str]:
     """Chunk large texts into smaller segments with word or token overlap, ensuring complete sentences, preserving all separators, and handling list markers.
 
     Args:
@@ -21,158 +55,94 @@ def chunk_texts(texts: Union[str, List[str]], chunk_size: int = 128, chunk_overl
         chunk_size: Number of words or tokens per chunk.
         chunk_overlap: Number of words or tokens to overlap, adjusted to sentence boundaries.
         model: Optional LLM model name for token-based chunking.
+
+    Returns:
+        List of chunked text segments.
     """
     if isinstance(texts, str):
         texts = [texts]
 
     chunked_texts = []
-    if model:
-        # Token-based chunking with sentence boundaries, separator preservation, and list marker handling
-        tokenize_fn = get_tokenizer_fn(model)
-        for text in texts:
-            sentences = sent_tokenize(text)
-            if not sentences:
-                logger.debug(f"No sentences found for text: {text}")
-                continue
-            sentence_pairs = []
-            current_pos = 0
-            i = 0
-            while i < len(sentences):
-                current_sentence = sentences[i]
-                start_idx = text.find(current_sentence, current_pos)
-                if start_idx == -1:
-                    sentence_pairs.append((current_sentence, " "))
-                    i += 1
-                    continue
-                end_idx = start_idx + len(current_sentence)
-                separator = text[end_idx:text.find(
-                    sentences[i + 1], end_idx) if i + 1 < len(sentences) else len(text)]
-                separator = separator if separator else " "
-                if is_list_marker(current_sentence) and i + 1 < len(sentences):
-                    combined = current_sentence + " " + sentences[i + 1]
-                    if is_list_sentence(combined):
-                        combined_start = text.find(combined, current_pos)
-                        if combined_start != -1:
-                            combined_end = combined_start + len(combined)
-                            combined_separator = text[combined_end:text.find(
-                                sentences[i + 2], combined_end) if i + 2 < len(sentences) else len(text)]
-                            combined_separator = combined_separator if combined_separator else " "
-                            sentence_pairs.append(
-                                (combined, combined_separator))
-                            current_pos = combined_end
-                            i += 2
-                            continue
-                sentence_pairs.append((current_sentence, separator))
-                current_pos = end_idx
+    for text in texts:
+        # Split text into sentences
+        sentences = split_sentences(text)
+        if not sentences:
+            logger.debug(f"No sentences found for text: {text}")
+            continue
+
+        # Pair sentences with their separators
+        sentence_pairs = []
+        current_pos = 0
+        i = 0
+        while i < len(sentences):
+            current_sentence = sentences[i]
+            start_idx = text.find(current_sentence, current_pos)
+            if start_idx == -1:
+                sentence_pairs.append((current_sentence, " "))
                 i += 1
-            current_chunk = []
-            current_separators = []
-            current_tokens = 0
-            for sentence, separator in sentence_pairs:
-                sentence_tokens = len(tokenize_fn(sentence))
-                if current_tokens + sentence_tokens > chunk_size and current_chunk:
-                    # Reconstruct chunk with separators
-                    chunk = ""
-                    for j in range(len(current_chunk)):
-                        chunk += current_chunk[j] + current_separators[j]
-                    chunked_texts.append(chunk.rstrip())
-                    # Handle overlap: select sentences within overlap token count
-                    overlap_tokens = 0
-                    overlap_sentences = []
-                    overlap_separators = []
-                    for s, sep in reversed(list(zip(current_chunk, current_separators))[-min(len(current_chunk), chunk_overlap // max(1, sentence_tokens)):]):
-                        s_tokens = len(tokenize_fn(s))
-                        if overlap_tokens + s_tokens <= chunk_overlap:
-                            overlap_sentences.insert(0, s)
-                            overlap_separators.insert(0, sep)
-                            overlap_tokens += s_tokens
-                        else:
-                            break
-                    current_chunk = overlap_sentences
-                    current_separators = overlap_separators
-                    current_tokens = sum(len(tokenize_fn(s))
-                                         for s in current_chunk)
+                continue
+            end_idx = start_idx + len(current_sentence)
+            separator = text[end_idx:text.find(
+                sentences[i + 1], end_idx) if i + 1 < len(sentences) else len(text)]
+            separator = separator if separator else " "
+            if is_list_marker(current_sentence) and i + 1 < len(sentences):
+                combined = current_sentence + " " + sentences[i + 1]
+                if is_list_sentence(combined):
+                    combined_start = text.find(combined, current_pos)
+                    if combined_start != -1:
+                        combined_end = combined_start + len(combined)
+                        combined_separator = text[combined_end:text.find(
+                            sentences[i + 2], combined_end) if i + 2 < len(sentences) else len(text)]
+                        combined_separator = combined_separator if combined_separator else " "
+                        sentence_pairs.append((combined, combined_separator))
+                        current_pos = combined_end
+                        i += 2
+                        continue
+            sentence_pairs.append((current_sentence, separator))
+            current_pos = end_idx
+            i += 1
+
+        # Select size function based on model presence
+        size_fn = get_tokenizer_fn(model) if model else get_words
+        current_chunk = []
+        current_separators = []
+        current_size = 0
+
+        # Process sentences into chunks
+        for sentence, separator in sentence_pairs:
+            sentence_size = len(size_fn(sentence))
+            if current_size + sentence_size > chunk_size and current_chunk:
+                # Finalize current chunk
+                chunked_texts.append(build_chunk(
+                    current_chunk, current_separators))
+                # Handle overlap
+                overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
+                    current_chunk,
+                    current_separators,
+                    chunk_overlap,
+                    size_fn,
+                )
+                current_chunk = overlap_sentences
+                current_separators = overlap_separators
+                current_size = overlap_size
+            # Add sentence if it fits or chunk is empty
+            if current_size + sentence_size <= chunk_size or not current_chunk:
                 current_chunk.append(sentence)
                 current_separators.append(separator)
-                current_tokens += sentence_tokens
-            if current_chunk:
-                chunk = ""
-                for j in range(len(current_chunk)):
-                    chunk += current_chunk[j] + current_separators[j]
-                chunked_texts.append(chunk.rstrip())
-    else:
-        # Word-based chunking with sentence boundaries, separator preservation, and list marker handling
-        for text in texts:
-            sentences = sent_tokenize(text)
-            if not sentences:
-                logger.debug(f"No sentences found for text: {text}")
-                continue
-            sentence_pairs = []
-            current_pos = 0
-            i = 0
-            while i < len(sentences):
-                current_sentence = sentences[i]
-                start_idx = text.find(current_sentence, current_pos)
-                if start_idx == -1:
-                    sentence_pairs.append((current_sentence, " "))
-                    i += 1
-                    continue
-                end_idx = start_idx + len(current_sentence)
-                separator = text[end_idx:text.find(
-                    sentences[i + 1], end_idx) if i + 1 < len(sentences) else len(text)]
-                separator = separator if separator else " "
-                if is_list_marker(current_sentence) and i + 1 < len(sentences):
-                    combined = current_sentence + " " + sentences[i + 1]
-                    if is_list_sentence(combined):
-                        combined_start = text.find(combined, current_pos)
-                        if combined_start != -1:
-                            combined_end = combined_start + len(combined)
-                            combined_separator = text[combined_end:text.find(
-                                sentences[i + 2], combined_end) if i + 2 < len(sentences) else len(text)]
-                            combined_separator = combined_separator if combined_separator else " "
-                            sentence_pairs.append(
-                                (combined, combined_separator))
-                            current_pos = combined_end
-                            i += 2
-                            continue
-                sentence_pairs.append((current_sentence, separator))
-                current_pos = end_idx
-                i += 1
-            current_chunk = []
-            current_separators = []
-            current_words = 0
-            for sentence, separator in sentence_pairs:
-                sentence_words = len(get_words(sentence))
-                if current_words + sentence_words > chunk_size and current_chunk:
-                    # Reconstruct chunk with separators
-                    chunk = ""
-                    for j in range(len(current_chunk)):
-                        chunk += current_chunk[j] + current_separators[j]
-                    chunked_texts.append(chunk.rstrip())
-                    # Handle overlap: select sentences within overlap word count
-                    overlap_words = 0
-                    overlap_sentences = []
-                    overlap_separators = []
-                    for s, sep in reversed(list(zip(current_chunk, current_separators))[-min(len(current_chunk), chunk_overlap // max(1, sentence_words)):]):
-                        s_words = len(get_words(s))
-                        if overlap_words + s_words <= chunk_overlap:
-                            overlap_sentences.insert(0, s)
-                            overlap_separators.insert(0, sep)
-                            overlap_words += s_words
-                        else:
-                            break
-                    current_chunk = overlap_sentences
-                    current_separators = overlap_separators
-                    current_words = sum(len(get_words(s))
-                                        for s in current_chunk)
-                current_chunk.append(sentence)
-                current_separators.append(separator)
-                current_words += sentence_words
-            if current_chunk:
-                chunk = ""
-                for j in range(len(current_chunk)):
-                    chunk += current_chunk[j] + current_separators[j]
-                chunked_texts.append(chunk.rstrip())
+                current_size += sentence_size
+            else:
+                # Start new chunk with current sentence
+                chunked_texts.append(build_chunk(
+                    current_chunk, current_separators))
+                current_chunk = [sentence]
+                current_separators = [separator]
+                current_size = sentence_size
+
+        # Append final chunk if exists
+        if current_chunk:
+            chunked_texts.append(build_chunk(
+                current_chunk, current_separators))
+
     return chunked_texts
 
 
@@ -194,7 +164,7 @@ def chunk_texts_with_indices(texts: Union[str, List[str]], chunk_size: int = 128
         # Token-based chunking with sentence boundaries, separator preservation, and list marker handling
         tokenize_fn = get_tokenizer_fn(model)
         for doc_idx, text in enumerate(texts):
-            sentences = sent_tokenize(text)
+            sentences = split_sentences(text)
             if not sentences:
                 logger.debug(f"No sentences found for text: {text}")
                 continue
@@ -269,7 +239,7 @@ def chunk_texts_with_indices(texts: Union[str, List[str]], chunk_size: int = 128
     else:
         # Word-based chunking with sentence boundaries, separator preservation, and list marker handling
         for doc_idx, text in enumerate(texts):
-            sentences = sent_tokenize(text)
+            sentences = split_sentences(text)
             if not sentences:
                 logger.debug(f"No sentences found for text: {text}")
                 continue
@@ -365,7 +335,7 @@ def truncate_texts(texts: str | List[str], model: ModelType, max_tokens: Optiona
 
     truncated_texts = []
     for text in texts:
-        sentences = sent_tokenize(text)
+        sentences = split_sentences(text)
         if not sentences:
             logger.debug(f"No sentences found for text: {text}")
             truncated_texts.append(text)
@@ -543,7 +513,7 @@ def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int =
     if model:
         tokenize_fn = get_tokenizer_fn(model)
         for doc_idx, text in enumerate(texts):
-            sentences = sent_tokenize(text.strip())
+            sentences = split_sentences(text.strip())
             current_chunk = []
             current_tokens = 0
             for i, sentence in enumerate(sentences):
@@ -602,7 +572,7 @@ def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Opti
         if model:
             # Token-based chunking with sentence boundaries
             tokenize_fn = get_tokenizer_fn(model)
-            sentences = sent_tokenize(doc.text)
+            sentences = split_sentences(doc.text)
             current_chunk = []
             current_tokens = 0
             for sentence in sentences:

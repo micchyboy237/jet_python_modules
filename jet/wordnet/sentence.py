@@ -244,9 +244,16 @@ def split_sentences(text: str, num_sentence: int = 1) -> list[str]:
     if num_sentence < 1:
         raise ValueError("num_sentence must be a positive integer")
 
-    sentences = sent_tokenize(text)
-    adjusted_sentences = []
+    # Split text by newlines first to treat each line as a potential sentence
+    lines = text.split('\n')
+    sentences = []
+    for line in lines:
+        if line.strip():  # Only process non-empty lines
+            # Apply sent_tokenize to each line to handle punctuation-based splitting
+            line_sentences = sent_tokenize(line.strip())
+            sentences.extend(line_sentences)
 
+    adjusted_sentences = []
     i = 0
     while i < len(sentences):
         current_sentence = sentences[i]
