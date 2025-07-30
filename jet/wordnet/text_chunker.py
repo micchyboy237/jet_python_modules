@@ -1,6 +1,5 @@
 from jet.models.tokenizer.base import get_tokenizer_fn
 from typing import Union, List, Tuple, Optional
-from nltk.tokenize import sent_tokenize
 from jet.logger import logger
 from jet.models.utils import get_context_size
 from jet.vectors.document_types import HeaderDocument, HeaderMetadata
