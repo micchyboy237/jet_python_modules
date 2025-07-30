@@ -173,15 +173,14 @@ def get_bm25_similarities(
 
             score += query_score
 
-        if score > 0:
-            all_scores.append({
-                "rank": 0,
-                "id": ids[idx],
-                "score": score,
-                "similarity": score,
-                "matched": matched,
-                "text": original_documents[idx],  # Use original document text
-            })
+        all_scores.append({
+            "rank": 0,
+            "id": ids[idx],
+            "score": score,
+            "similarity": score,
+            "matched": matched,
+            "text": original_documents[idx],  # Use original document text
+        })
 
     # Normalize scores if there are any non-zero scores
     if all_scores:
