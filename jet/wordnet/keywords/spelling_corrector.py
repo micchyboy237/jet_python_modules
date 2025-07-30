@@ -36,9 +36,9 @@ class SpellingCorrector:
 
         # Default weights
         default_weights = {
-            "context": 0.5,
+            "context": 0.35,
             "word_similarity": 0.0,
-            "frequency": 0.5
+            "frequency": 0.65
         }
         self.weights = weights or default_weights
 
@@ -140,14 +140,22 @@ class SpellingCorrector:
         return unknown_words_list
 
     def autocorrect(self, text: str) -> str:
+        """Autocorrect text by replacing misspelled words with the top-ranked suggestion based on final normalized score."""
         words = self.split_words(text)
+        misspelled_words = self.get_unknown_words(text)
+        if not misspelled_words:
+            return text
+        suggestions = self.suggest_corrections(misspelled_words, context=text)
         corrected_words_dict = {}
-        for word in words:
-            word_for_correction = word.lower() if not self.case_sensitive else word
-            corrected_word = self.spell_checker.correction(word_for_correction)
-            if word_for_correction != corrected_word:
-                print(f"Corrected word: {corrected_word}")
-                corrected_words_dict[word] = corrected_word
+        for word in misspelled_words:
+            suggestion_data = suggestions.get(word)
+            if suggestion_data and suggestion_data["candidates"]:
+                # Select the top candidate based on normalized score
+                top_candidate = next(iter(suggestion_data["candidates"]))
+                word_for_correction = word.lower() if not self.case_sensitive else word
+                if word_for_correction != top_candidate:
+                    logger.debug(f"Corrected '{word}' to '{top_candidate}'")
+                    corrected_words_dict[word] = top_candidate
         # Replace all occurrences while preserving original case
         corrected_text = text
         for word, corrected_word in sorted(corrected_words_dict.items(), key=lambda x: len(x[0]), reverse=True):
