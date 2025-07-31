@@ -1498,33 +1498,48 @@ def extract_texts_by_hierarchy(
 
     def collect_text_and_links(node: TreeNode) -> Tuple[TextHierarchyResult, str, str]:
         texts = []
-        htmls = []
         links = set()
+        html_fragments: List[str] = []
         header = ""
+
+        def append_if_visible(node_text: Optional[str], html: Optional[str]):
+            if node_text and node_text.strip():
+                texts.append(node_text.strip())
+                if html:
+                    html_fragments.append(html)
 
         if node.tag in [tag[1] for tag in tags_to_split_on]:
             header = node.text.strip() if node.text else ""
-        elif node.text and node.text.strip():
-            if not (ignore_links and node.link):
-                texts.append(node.text.strip())
+            if node.html:
+                html_fragments.append(node.html)
+        elif node.text and not (ignore_links and node.link):
+            append_if_visible(node.text, node.html)
 
         if node.link:
             links.add(node.link)
 
-        if node.html:
-            htmls.append(node.html)
-
         for child in node.children:
             child_result, child_text, _ = collect_text_and_links(child)
+
+            # Only include child html if its text is included in content
             if child_text:
                 texts.append(child_text)
-            links.update(child_result.links)
-            if child_result.html:
-                htmls.append(child_result.html)
+                if child_result.html:
+                    html_fragments.append(child_result.html)
 
-        combined_content = "\n".join(text for text in texts if text)
+            links.update(child_result.links)
+
+        combined_content = "\n".join(text for text in texts if text).strip()
+
+        # Only keep htmls for nodes whose text is in the combined content
+        filtered_htmls = []
+        for html in html_fragments:
+            doc = pq(html)
+            if any(text in doc.text() for text in texts):
+                filtered_htmls.append(html)
+
         combined_html = "<div>\n" + \
-            "\n".join(html for html in htmls if html) + "\n</div>"
+            "\n".join(filtered_htmls) + "\n</div>" if filtered_htmls else ""
 
         level = get_header_level(header) if header else None
 
