@@ -1416,19 +1416,19 @@ def extract_by_heading_hierarchy(
 
 
 class TextHierarchyResult(BaseNode):
-    """A node representing a text hierarchy with combined text and links."""
+    """A node representing a text hierarchy with combined content and links."""
 
     def __init__(
         self,
         tag: str,
         header: str,
-        text: str,
+        content: str,
         links: List[str],
         depth: int,
         id: str,
         parent_id: Optional[str] = None,
-        parent: Optional[str] = None,
-        parent_text: Optional[str] = None,
+        parent_header: Optional[str] = None,
+        parent_content: Optional[str] = None,
         parent_level: Optional[int] = None,
         level: Optional[int] = None,
         line: int = 0
@@ -1436,10 +1436,10 @@ class TextHierarchyResult(BaseNode):
         super().__init__(tag=tag, text=None, depth=depth,
                          id=id, parent_id=parent_id, line=line)
         self.header = header  # The header text for this node
-        self.text = text  # Combined text of node and descendants, excluding header
+        self.content = content  # Combined content of node and descendants, excluding header
         self.links = links  # List of unique links
-        self.parent = parent  # Header text of the parent node
-        self.parent_text = parent_text  # Combined text of the parent node
+        self.parent_header = parent_header  # Header text of the parent node
+        self.parent_content = parent_content  # Combined content of the parent node
         # Header level of the parent node (e.g., 1 for h1, 2 for h2)
         self.parent_level = parent_level
         # Header level of the current node (e.g., 1 for h1, 2 for h2)
@@ -1460,8 +1460,9 @@ def extract_texts_by_hierarchy(
     excludes: List[str] = ["nav", "footer", "script", "style"],
 ) -> List[TextHierarchyResult]:
     """
-    Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, header, combined text of a heading
-    and its descendants, a list of unique links, depth, id, parent_id, parent, parent_text, parent_level, level, line, and parent_node attributes.
+    Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, header, combined content of a heading
+    and its descendants, a list of unique links, depth, id, parent_id, parent, parent_content, parent_level, level, line, and parent_node attributes.
+    Filters out results without a header or content.
     """
     def get_header_level(header: str) -> int:
         """Get the header level of a markdown header or HTML header tag."""
@@ -1480,8 +1481,8 @@ def extract_texts_by_hierarchy(
 
     def collect_text_and_links(node: TreeNode) -> Tuple[TextHierarchyResult, str, str]:
         """
-        Recursively collects tag, header, combined text, unique links, depth, id, parent_id, parent, parent_text, parent_level, level, line, and parent_node
-        from a node and its children, and returns the combined text and header for the node.
+        Recursively collects tag, header, combined content, unique links, depth, id, parent_id, parent, parent_content, parent_level, level, line, and parent_node
+        from a node and its children, and returns the combined content and header for the node.
         """
         texts = []
         links = set()
@@ -1502,7 +1503,7 @@ def extract_texts_by_hierarchy(
                 texts.append(child_text)
             links.update(child_result.links)
 
-        combined_text = "\n".join(text for text in texts if text)
+        combined_content = "\n".join(text for text in texts if text)
 
         # Determine the header level
         level = get_header_level(header) if header else None
@@ -1510,43 +1511,44 @@ def extract_texts_by_hierarchy(
         result = TextHierarchyResult(
             tag=node.tag,
             header=header,
-            text=combined_text,
+            content=combined_content,
             links=list(links),
             depth=node.depth,
             id=node.id,
             parent_id=node.parent_id,
-            parent=None,  # Will be populated later using id_to_header
-            parent_text=None,    # Will be populated later using id_to_text
+            parent_header=None,  # Will be populated later using id_to_header
+            parent_content=None,    # Will be populated later using id_to_content
             parent_level=None,   # Will be populated later using id_to_level
             level=level,
             line=node.line
         )
         result._parent_node = node._parent_node
-        return result, combined_text, header
+        return result, combined_content, header
 
     heading_nodes = extract_by_heading_hierarchy(
         source, tags_to_split_on, excludes)
 
-    # Collect full text, header, and level for each heading node
-    id_to_text = {}
+    # Collect full content, header, and level for each heading node
+    id_to_content = {}
     id_to_header = {}
     id_to_level = {}
     results = []
     for node in heading_nodes:
-        result, combined_text, header = collect_text_and_links(node)
-        id_to_text[node.id] = combined_text
+        result, combined_content, header = collect_text_and_links(node)
+        id_to_content[node.id] = combined_content
         id_to_header[node.id] = header
         id_to_level[node.id] = result.level
         results.append(result)
 
-    # Populate parent, parent_text, and parent_level using id_to_header, id_to_text, and id_to_level
+    # Populate parent, parent_content, and parent_level using id_to_header, id_to_content, and id_to_level
     for result in results:
         if result.parent_id:
-            result.parent = id_to_header.get(result.parent_id, None)
-            result.parent_text = id_to_text.get(result.parent_id, None)
+            result.parent_header = id_to_header.get(result.parent_id, None)
+            result.parent_content = id_to_content.get(result.parent_id, None)
             result.parent_level = id_to_level.get(result.parent_id, None)
 
-    return results
+    # Filter out results without a header or content
+    return [result for result in results if result.header and result.content]
 
 
 def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "script", "style"], timeout_ms: int = 1000) -> List[str]:
