@@ -46,15 +46,15 @@ class MarkdownToken(TypedDict):
 
 
 class HeaderDoc(TypedDict):
+    id: str
     doc_index: int
-    doc_id: str
     header: str
     content: str
     level: Optional[int]
     parent_headers: List[str]
     parent_header: Optional[str]
     parent_level: Optional[int]
-    source: str
+    source: Optional[str]
     tokens: List[MarkdownToken]
 
 

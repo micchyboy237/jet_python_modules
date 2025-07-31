@@ -340,9 +340,9 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
                 # Collect all parent headers up to root
                 parent_headers = [h[0] for h in header_stack]
 
-            current_section = {
+            current_section: HeaderDoc = {
+                "id": generate_unique_id(),
                 "doc_index": section_index,
-                "doc_id": generate_unique_id(),
                 "header": token_content.splitlines()[0] if token_content else "",
                 "content": [],
                 "level": token_level,
@@ -356,9 +356,9 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
                 (current_section["header"], token_level, section_index))
         else:
             if current_section is None:
-                current_section = {
+                current_section: HeaderDoc = {
+                    "id": generate_unique_id(),
                     "doc_index": section_index,
-                    "doc_id": generate_unique_id(),
                     "header": "",
                     "content": [],
                     "level": 0,
