@@ -152,11 +152,11 @@ def format_with_prettier(content: str, parser: str, config_path: str, file_suffi
 ```
 """.strip()
 
-DEFAULT_SYSTEM_MESSAGE = """
-Dont use prior artifact knowledge and memory.
+DEFAULT_INSTRUCTIONS_MESSAGE = """
 """.strip()
 
-DEFAULT_INSTRUCTIONS_MESSAGE = """
+DEFAULT_SYSTEM_MESSAGE = """
+Dont use prior artifact knowledge and memory.
 """.strip()
 
 # For existing projects
