@@ -1,3 +1,4 @@
+import html
 from dataclasses import dataclass
 from datetime import datetime
 from jet.code.html_utils import format_html
@@ -1436,17 +1437,90 @@ class TextHierarchyResult(BaseNode):
     ):
         super().__init__(tag=tag, text=None, depth=depth,
                          id=id, parent_id=parent_id, line=line)
-        self.header = header  # The header text for this node
-        self.content = content  # Combined content of node and descendants, excluding header
-        self.links = links  # List of unique links
-        self.parent_headers = parent_headers  # List of headers from this node to root
-        self.parent_header = parent_header  # Header text of the immediate parent node
-        # Combined content of the immediate parent node
+        self.header = header
+        self.content = content
+        self.links = links
+        self.parent_headers = parent_headers
+        self.parent_header = parent_header
         self.parent_content = parent_content
-        # Header level of the immediate parent node (e.g., 1 for h1, 2 for h2)
         self.parent_level = parent_level
-        # Header level of the current node (e.g., 1 for h1, 2 for h2)
         self.level = level
+
+    def to_html(self) -> str:
+        """
+        Generates an HTML string representation of the TextHierarchyResult node,
+        wrapping the content in <div> tags, including the original tag inside, and all child nodes.
+        Skips nodes with empty content and no children.
+
+        Returns:
+            A string containing the HTML representation of the node and its descendants, wrapped in <div>.
+        """
+        # Determine content and strip markdown prefixes for heading nodes
+        is_heading = self.tag in [f"h{i}" for i in range(1, 7)]
+        content = self.header if is_heading else self.content or ""
+        if is_heading and content:
+            # Remove markdown prefix (e.g., '#', '##', etc.) if present
+            content = content.lstrip('#').lstrip().strip()
+
+        # Skip nodes with empty content and no children
+        has_children = isinstance(self._parent_node, TreeNode) and bool(
+            self._parent_node.get_children())
+        if not content and not has_children:
+            return ""
+
+        # Construct the inner tag with the original tag
+        inner_html = f"<{self.tag}>{html.escape(content)}</{self.tag}>"
+
+        # Construct the outer <div> with attributes
+        attributes = []
+        if self.id:
+            attributes.append(f'id="{self.id}"')
+        if self.class_names:
+            attributes.append(f'class="{" ".join(self.class_names)}"')
+        if self.link and self.tag == "a":
+            attributes.append(f'href="{self.link}"')
+
+        # Build the opening <div> tag
+        opening_tag = f"<div{' ' + ' '.join(attributes) if attributes else ''}>"
+
+        # Initialize children HTML
+        children_html = ""
+
+        # If _parent_node is a TreeNode with children, generate their HTML
+        if has_children:
+            # Track processed IDs to avoid duplicates
+            processed_ids = {self.id}
+            for child in self._parent_node.get_children():
+                # Skip if the child has already been processed
+                if child.id in processed_ids:
+                    continue
+                # Create a TextHierarchyResult for each child
+                child_result = TextHierarchyResult(
+                    tag=child.tag,
+                    header=child.text if child.tag in [
+                        f"h{i}" for i in range(1, 7)] else "",
+                    content=child.get_content() if not child.tag in [
+                        f"h{i}" for i in range(1, 7)] else "",
+                    links=[child.link] if child.link else [],
+                    depth=child.depth,
+                    id=child.id,
+                    parent_id=child.parent_id,
+                    parent_headers=self.parent_headers +
+                    ([self.header] if self.header else []),
+                    parent_header=self.header,
+                    parent_content=self.content,
+                    parent_level=self.level,
+                    line=child.line
+                )
+                child_result._parent_node = child  # Preserve the child's TreeNode
+                child_html = child_result.to_html()
+                if child_html:  # Only include non-empty child HTML
+                    children_html += child_html
+                    processed_ids.add(child.id)
+
+        # Construct the full HTML with closing <div>
+        closing_tag = "</div>"
+        return format_html(f"{opening_tag}{inner_html}{children_html}{closing_tag}")
 
 
 def extract_texts_by_hierarchy(
