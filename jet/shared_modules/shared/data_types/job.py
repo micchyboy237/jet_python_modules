@@ -51,8 +51,13 @@ class JobMetadata(TypedDict):
     end_idx: int
 
 
+class JobSearchResultData(JobData):
+    pass
+
+
 class JobSearchResult(JobData):
     rank: int
     score: float
     id: str
     text: str
+    metadata: JobSearchResultData

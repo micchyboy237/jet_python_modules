@@ -1,6 +1,6 @@
 import math
 from collections import Counter
-from typing import List
+from typing import List, Tuple
 import numpy as np
 from jet.wordnet.keywords.helpers import extract_query_candidates, preprocess_texts
 from jet.wordnet.similarity import filter_highest_similarity
@@ -71,10 +71,10 @@ class SimilarityResultData(TypedDict):
     data: List[SimilarityResult]
 
 
-def rerank_bm25(query: str, documents: List[str], ids: list[str]) -> List[SimilarityResult]:
+def rerank_bm25(query: str, documents: List[str], ids: list[str]) -> Tuple[List[str], List[SimilarityResult]]:
     query_candidates = extract_query_candidates(query)
     results = get_bm25_similarities(query_candidates, documents, ids=ids)
-    return results
+    return query_candidates, results
 
 # def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> SimilarityResultData:
 #     """Processes BM25+ similarity search by handling cache, cleaning data, generating n-grams, and computing similarities."""
