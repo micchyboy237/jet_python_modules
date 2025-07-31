@@ -1497,51 +1497,60 @@ def extract_texts_by_hierarchy(
             raise ValueError(f"Invalid header format: {header}")
 
     def collect_text_and_links(node: TreeNode) -> Tuple[TextHierarchyResult, str, str]:
-        texts = []
-        links = set()
-        html_fragments: List[str] = []
+        texts: List[str] = []
+        links: Set[str] = set()
+        html_fragments: List[Tuple[str, str]] = []  # (text, html)
         header = ""
-
-        def append_if_visible(node_text: Optional[str], html: Optional[str]):
-            if node_text and node_text.strip():
-                texts.append(node_text.strip())
-                if html:
-                    html_fragments.append(html)
 
         if node.tag in [tag[1] for tag in tags_to_split_on]:
             header = node.text.strip() if node.text else ""
             if node.html:
-                html_fragments.append(node.html)
+                html_fragments.append((header, node.html))
+
         elif node.text and not (ignore_links and node.link):
-            append_if_visible(node.text, node.html)
+            text = node.text.strip()
+            if text:
+                texts.append(text)
+                if node.html:
+                    html_fragments.append((text, node.html))
 
         if node.link:
             links.add(node.link)
 
         for child in node.children:
-            child_result, child_text, _ = collect_text_and_links(child)
+            child_result, child_text, child_header = collect_text_and_links(
+                child)
+            if child_header:
+                header = header or child_header
+                if child_result.html:
+                    html_fragments.append((child_header, child_result.html))
 
-            # Only include child html if its text is included in content
             if child_text:
                 texts.append(child_text)
                 if child_result.html:
-                    html_fragments.append(child_result.html)
+                    html_fragments.append((child_text, child_result.html))
 
             links.update(child_result.links)
 
-        combined_content = "\n".join(text for text in texts if text).strip()
+        combined_content = "\n".join(texts).strip()
+        level = get_header_level(header) if header else None
 
-        # Only keep htmls for nodes whose text is in the combined content
+        # Combine header + content for filtering
+        target_texts = set()
+        if header:
+            target_texts.add(header.strip())
+        if combined_content:
+            target_texts.update([line.strip()
+                                for line in combined_content.splitlines()])
+
         filtered_htmls = []
-        for html in html_fragments:
-            doc = pq(html)
-            if any(text in doc.text() for text in texts):
+        for text, html in html_fragments:
+            # Include only if the fragment text matches a part of header or content
+            if text.strip() in target_texts:
                 filtered_htmls.append(html)
 
         combined_html = "<div>\n" + \
             "\n".join(filtered_htmls) + "\n</div>" if filtered_htmls else ""
-
-        level = get_header_level(header) if header else None
 
         result = TextHierarchyResult(
             tag=node.tag,
