@@ -74,8 +74,7 @@ def collect_header_chunks(
         Tuple of (doc_indices, headers, headers_context, contents_with_indices)
         where contents_with_indices = List of (doc_index, header, content_chunk, original_content_chunk, preprocessed_header, preprocessed_headers_context, start_idx, end_idx, num_tokens)
     """
-    def default_tokenizer(text): return len(
-        re.findall(r'\b\w+\b|[^\w\s]', text))
+    def default_tokenizer(text): return re.findall(r'\b\w+\b|[^\w\s]', text)
     tokenizer = get_tokenizer_fn(
         tokenizer_model) if tokenizer_model else default_tokenizer
 
@@ -369,8 +368,8 @@ def search_headers(
                 "parent_header": header_doc['parent_header'],
                 "content": original_chunk,
                 "metadata": {
+                    "id": header_doc['id'],
                     "doc_index": doc_index,
-                    "doc_id": header_doc['doc_id'],
                     "level": header_doc['level'],
                     "parent_level": header_doc['parent_level'],
                     "parent_headers": header_doc.get('parent_headers', []),
