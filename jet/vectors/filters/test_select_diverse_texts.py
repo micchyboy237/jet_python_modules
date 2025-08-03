@@ -1,9 +1,8 @@
 import pytest
 import faiss
 import numpy as np
-
 from jet.logger import logger
-from jet.vectors.filters import select_diverse_texts
+from jet.vectors.filters import select_diverse_texts, calculate_max_diverse_texts
 
 
 class TestSelectDiverseTexts:
@@ -179,21 +178,23 @@ class TestSelectDiverseTexts:
 
     def test_select_diverse_texts_with_dynamic_max_diverse_texts(self):
         """Test selecting diverse texts with dynamic max_diverse_texts."""
-        # Given: A set of texts and embeddings with some dissimilar texts
+        # Given: A set of texts and embeddings with high variance for dynamic calculation
         cluster_texts = [
             "The cat is on the mat",
             "The cat sits on the mat",
             "The dog runs in the park",
             "Birds fly in the sky",
-            "Fish swim in the ocean"
+            "Fish swim in the ocean",
+            "Horses gallop in the field"
         ]
-        # Mock embeddings: texts 0,1 similar; 2,3,4 dissimilar to 0,1 and each other
+        # Mock embeddings: texts 0,1 similar; 2,3,4,5 dissimilar to 0,1 and each other
         cluster_embeddings = np.array([
             [0.9, 0.1],   # Text 0
             [0.9, 0.1],   # Text 1: similar to 0
             [0.1, 0.9],   # Text 2: dissimilar to 0,1
             [-0.9, 0.1],  # Text 3: dissimilar to 0,1,2
-            [0.1, -0.9]   # Text 4: dissimilar to 0,1,2,3
+            [0.1, -0.9],  # Text 4: dissimilar to 0,1,2,3
+            [-0.1, -0.9]  # Text 5: dissimilar to 0,1,2,3,4
         ], dtype=np.float32)
         cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
         logger.debug(
@@ -206,8 +207,13 @@ class TestSelectDiverseTexts:
         expected = [
             "The cat is on the mat",
             "The dog runs in the park",
-            "Birds fly in the sky"
+            "Birds fly in the sky",
+            "Fish swim in the ocean"
         ]
+        # Calculate expected max_diverse_texts for verification
+        expected_max_texts = calculate_max_diverse_texts(
+            cluster_embeddings, cluster_texts)
+        logger.debug(f"Expected max_diverse_texts: {expected_max_texts}")
 
         # When: Selecting diverse texts with max_diverse_texts=None
         result = select_diverse_texts(
@@ -218,5 +224,7 @@ class TestSelectDiverseTexts:
             max_diverse_texts=None
         )
 
-        # Then: Expect up to 3 diverse texts (dynamic default)
+        # Then: Expect up to dynamic number of diverse texts (likely 4 due to high variance and cluster size)
         assert result == expected, f"Expected {expected}, but got {result}"
+        assert len(
+            result) <= expected_max_texts, f"Result length {len(result)} exceeds expected max {expected_max_texts}"
