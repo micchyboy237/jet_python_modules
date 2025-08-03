@@ -31,6 +31,7 @@ class GenerationConfig(TypedDict, total=False):
 
 class GenerateResponseResult(TypedDict):
     """Typed dictionary for the result of generate_response."""
+    context: str
     prompt: str
     response: str
 
@@ -158,6 +159,7 @@ class LLMGenerator:
         response = self.llm.chat(prompt, **generation_config)
 
         return {
+            "context": truncated_context,
             "prompt": prompt,
             "response": response["content"],
         }
