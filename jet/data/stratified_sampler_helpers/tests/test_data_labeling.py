@@ -63,7 +63,6 @@ class TestDataLabeler:
         assert result[0]['category_values'] == expected[0]['category_values'], "Category values should match"
 
     def test_label_data_varied_sentence_lengths(self):
-        # Given: Sentences with varying lengths
         sentences = [
             "Short sentence",
             "This is a medium length sentence",
@@ -71,18 +70,17 @@ class TestDataLabeler:
         ]
         expected = [
             ProcessedDataString(source="Short sentence", category_values=[
-                                "ttr_q1", "q1", "ngram_q1", "q1"]),
+                "ttr_q1", "q1", "ngram_q1", "q1"]),
             ProcessedDataString(source="This is a medium length sentence", category_values=[
-                                "ttr_q2", "q2", "ngram_q2", "q2"]),
+                "ttr_q2", "q2", "ngram_q2", "q2"]),
             ProcessedDataString(source="This is a very long sentence with many words to test length categorization", category_values=[
-                                "ttr_q3", "q3", "ngram_q3", "q3"])
+                "ttr_q3", "q3", "ngram_q3", "q3"])
         ]
-
-        # When: Labeling the data
+        # Given: A set of sentences with varied lengths
+        # When: Labeling the data with max_quantiles=3
         labeler = DataLabeler(sentences, max_quantiles=3)
         result = labeler.label_data()
-
-        # Then: Verify length-based categorization
+        # Then: The labeled data should match expected category values
         assert len(result) == len(
             expected), "Result length should match expected"
         for res, exp in zip(result, expected):

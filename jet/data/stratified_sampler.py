@@ -95,7 +95,11 @@ class StratifiedSampler:
         return filtered_data[:self.num_samples]
 
     @time_it
-    def get_samples(self) -> List[StratifiedData]:
+    def get_samples(self) -> Union[List[str], List[StratifiedData]]:
+        if isinstance(self.data[0], str):
+            filtered_sentences = self.filter_strings()
+            return filtered_sentences
+
         labels = [item['category_values'] for item in self.data]
         has_target = isinstance(
             self.data[0], dict) and 'target' in self.data[0] and 'score' in self.data[0]
