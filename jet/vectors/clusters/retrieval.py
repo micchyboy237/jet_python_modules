@@ -1,0 +1,145 @@
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import hdbscan
+import faiss
+from typing import List, Tuple, Optional
+from dataclasses import dataclass
+import pickle
+import os
+
+from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
+from jet.models.model_types import EmbedModelType
+
+
+@dataclass
+class RetrievalConfig:
+    """Configuration for vector retrieval parameters."""
+    min_cluster_size: int = 2
+    k_clusters: int = 2
+    k_chunks: int = 4
+    cluster_threshold: int = 20
+    model_name: EmbedModelType = 'mxbai-embed-large'
+    cache_file: str = 'embeddings.pkl'
+
+
+class VectorRetriever:
+    """Class for retrieving relevant text chunks using vector search and clustering."""
+
+    def __init__(self, config: RetrievalConfig):
+        self.config = config
+        self.model = SentenceTransformerRegistry.load_model(config.model_name)
+        self.embeddings: Optional[np.ndarray] = None
+        self.corpus: Optional[List[str]] = None
+        self.index: Optional[faiss.IndexFlatIP] = None
+        self.cluster_labels: Optional[np.ndarray] = None
+        self.cluster_centroids: Optional[np.ndarray] = None
+
+    def load_or_compute_embeddings(self, corpus: List[str]) -> np.ndarray:
+        """Load cached embeddings or compute new ones."""
+        if not corpus:
+            raise ValueError("Corpus cannot be empty")
+
+        self.corpus = corpus
+        if os.path.exists(self.config.cache_file):
+            with open(self.config.cache_file, 'rb') as f:
+                self.embeddings = pickle.load(f)
+            if self.embeddings.shape[0] != len(corpus):
+                raise ValueError("Cached embeddings do not match corpus size")
+        else:
+            self.embeddings = self.model.encode(corpus, convert_to_numpy=True)
+            faiss.normalize_L2(self.embeddings)
+            with open(self.config.cache_file, 'wb') as f:
+                pickle.dump(self.embeddings, f)
+
+        return self.embeddings
+
+    def cluster_embeddings(self) -> None:
+        """Cluster embeddings using HDBSCAN."""
+        if len(self.corpus) < self.config.cluster_threshold:
+            self.cluster_labels = np.array([-1] * len(self.corpus))
+            self.cluster_centroids = np.zeros((0, self.embeddings.shape[1]))
+            return
+
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=self.config.min_cluster_size,
+            metric='euclidean',
+            cluster_selection_method='leaf',
+            min_samples=1
+        )
+        self.cluster_labels = clusterer.fit_predict(self.embeddings)
+        n_clusters = len(set(self.cluster_labels)) - \
+            (1 if -1 in self.cluster_labels else 0)
+
+        self.cluster_centroids = []
+        for cluster_id in range(n_clusters):
+            cluster_mask = self.cluster_labels == cluster_id
+            if np.sum(cluster_mask) > 0:
+                centroid = np.mean(self.embeddings[cluster_mask], axis=0)
+                self.cluster_centroids.append(centroid)
+        self.cluster_centroids = np.zeros(
+            (0, self.embeddings.shape[1])) if not self.cluster_centroids else np.array(self.cluster_centroids)
+
+    def build_index(self) -> None:
+        """Build Faiss index for vector search."""
+        embedding_dim = self.embeddings.shape[1]
+        self.index = faiss.IndexFlatIP(embedding_dim)
+        self.index.add(self.embeddings)
+
+    def retrieve_chunks(self, query: str) -> List[Tuple[str, float]]:
+        """Retrieve top-k relevant chunks for the query."""
+        if not query:
+            raise ValueError("Query cannot be empty")
+        if self.embeddings is None or self.index is None:
+            raise ValueError("Retriever not initialized with corpus")
+
+        query_embedding = self.model.encode([query], convert_to_numpy=True)
+        faiss.normalize_L2(query_embedding)
+        top_chunks: List[Tuple[str, float]] = []
+
+        if len(self.corpus) >= self.config.cluster_threshold and self.cluster_centroids.shape[0] > 0:
+            cluster_centroid_index = faiss.IndexFlatIP(
+                self.embeddings.shape[1])
+            faiss.normalize_L2(self.cluster_centroids)
+            cluster_centroid_index.add(self.cluster_centroids)
+            _, top_cluster_indices = cluster_centroid_index.search(
+                query_embedding, self.config.k_clusters)
+
+            for cluster_id in top_cluster_indices[0]:
+                cluster_mask = self.cluster_labels == cluster_id
+                cluster_indices = np.where(cluster_mask)[0]
+                if len(cluster_indices) == 0:
+                    continue
+                cluster_embeddings = self.embeddings[cluster_mask]
+                temp_index = faiss.IndexFlatIP(self.embeddings.shape[1])
+                temp_index.add(cluster_embeddings)
+                distances, indices = temp_index.search(
+                    query_embedding, min(self.config.k_chunks, len(cluster_indices)))
+                global_indices = cluster_indices[indices[0]]
+                top_chunks.extend([(self.corpus[idx], float(distances[0][i]))
+                                  for i, idx in enumerate(global_indices)])
+
+        if not top_chunks:
+            distances, indices = self.index.search(
+                query_embedding, self.config.k_chunks)
+            top_chunks = [(self.corpus[idx], float(distances[0][i]))
+                          for i, idx in enumerate(indices[0])]
+
+        return sorted(top_chunks, key=lambda x: x[1], reverse=True)[:self.config.k_chunks]
+
+
+class LLMGenerator:
+    """Class for generating responses from retrieved chunks (mock implementation)."""
+
+    def generate_response(self, query: str, chunks: List[Tuple[str, float]]) -> str:
+        """Generate a response using retrieved chunks."""
+        if not chunks:
+            return "No relevant information found."
+
+        # Mock LLM: Combine top chunks into a response
+        context = "\n".join([chunk for chunk, _ in chunks])
+        response = (
+            f"Based on the provided information, here is the answer to your query: '{query}'\n\n"
+            f"{context}\n\n"
+            f"In summary, {chunks[0][0]}"
+        )
+        return response

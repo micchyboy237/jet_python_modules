@@ -1076,7 +1076,17 @@ class TreeNode(BaseNode):
         line: int = 0,
         html: Optional[str] = None
     ):
-        super().__init__(tag, text, depth, id, parent_id, class_names, link, line, html)
+        super().__init__(
+            tag=tag,
+            text=text,
+            depth=depth,
+            id=id,
+            parent_id=parent_id,
+            class_names=class_names,
+            link=link,
+            line=line,
+            html=html
+        )
         self.children: List['TreeNode'] = children if children is not None else [
         ]
 
@@ -1619,7 +1629,7 @@ def extract_texts_by_hierarchy(
             result.parent_headers = [header for header, _ in parent_headers]
 
     # Filter out results without a header or content
-    return [result for result in results if result.header and result.content]
+    return [result for result in results if result.header]
 
 
 def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "script", "style"], timeout_ms: int = 1000) -> List[str]:
@@ -1761,7 +1771,8 @@ def extract_text_nodes(
                 parent_id=parent_id,
                 class_names=class_names,
                 link=link,
-                line=element_pq[0].sourceline if element_pq else 0
+                line=element_pq[0].sourceline if element_pq else 0,
+                html=element_pq.outer_html()
             ))
 
         # Recursively process children
