@@ -53,8 +53,8 @@ def split_large_sentence(sentence: str, max_size: int, size_fn) -> List[str]:
     if sentence_tokens <= max_size:
         return [sentence]
 
-    logger.warning(
-        f"Splitting sentence with {sentence_tokens} tokens exceeding max_size {max_size}")
+    # logger.warning(
+    #     f"Splitting sentence with {sentence_tokens} tokens exceeding max_size {max_size}")
     words = sentence.split()
     sub_sentences = []
     current_sub = []
@@ -72,8 +72,8 @@ def split_large_sentence(sentence: str, max_size: int, size_fn) -> List[str]:
                 if len(size_fn(sub_sentence)) <= max_size:
                     sub_sentences.append(sub_sentence)
                 else:
-                    logger.warning(
-                        f"Sub-sentence '{sub_sentence}' still exceeds max_size {max_size}")
+                    # logger.warning(
+                    #     f"Sub-sentence '{sub_sentence}' still exceeds max_size {max_size}")
                     # Fallback: split by character length
                     chars = " ".join(current_sub)
                     while chars:
@@ -86,8 +86,8 @@ def split_large_sentence(sentence: str, max_size: int, size_fn) -> List[str]:
             else:
                 # Single word exceeds max_size
                 sub_sentences.append(word + ".")
-                logger.warning(
-                    f"Single word '{word}' exceeds max_size {max_size}")
+                # logger.warning(
+                #     f"Single word '{word}' exceeds max_size {max_size}")
                 current_sub = []
                 current_size = 0
 
@@ -107,8 +107,8 @@ def split_large_sentence(sentence: str, max_size: int, size_fn) -> List[str]:
 def normalize_separator(separator: str, max_length: int = 10) -> str:
     """Preserve original separator, truncating if too long."""
     if len(separator) > max_length:
-        logger.warning(
-            f"Truncating separator of {len(separator)} characters to {max_length}")
+        # logger.warning(
+        #     f"Truncating separator of {len(separator)} characters to {max_length}")
         return separator[:max_length]
     return separator if separator else " "
 
@@ -142,7 +142,7 @@ def chunk_texts_with_data(
         doc_indices = list(range(len(texts)))
 
     chunks: List[ChunkResult] = []
-    max_chunk_size = chunk_size + buffer
+    effective_chunk_size = chunk_size - buffer
 
     for i, (doc_index, text) in enumerate(zip(doc_indices, texts)):
         sentences = split_sentences(text)
@@ -155,7 +155,7 @@ def chunk_texts_with_data(
         processed_sentences = []
         for sentence in sentences:
             processed_sentences.extend(split_large_sentence(
-                sentence, max_chunk_size, size_fn))
+                sentence, effective_chunk_size, size_fn))
 
         sentence_pairs = []
         current_pos = 0
@@ -209,18 +209,18 @@ def chunk_texts_with_data(
         for sentence, separator, start_idx, end_idx, line_idx in sentence_pairs:
             sentence_size = len(size_fn(sentence))
             # Check sentence size even for empty chunks
-            if sentence_size > max_chunk_size:
+            if sentence_size > chunk_size:
                 logger.warning(
-                    f"Skipping sentence with {sentence_size} tokens exceeding max_chunk_size {max_chunk_size}")
+                    f"Skipping sentence with {sentence_size} tokens exceeding effective_chunk_size {effective_chunk_size}")
                 continue
-            if current_size + sentence_size > max_chunk_size and current_chunk:
+            if current_size + sentence_size > effective_chunk_size and current_chunk:
                 chunk_content = build_chunk(current_chunk, current_separators)
                 sentence_content = "".join(current_chunk)
                 final_size = len(size_fn(sentence_content))
                 # Validate final chunk size
-                if final_size > max_chunk_size:
-                    logger.warning(
-                        f"Chunk {chunk_index} exceeds max_chunk_size {max_chunk_size} with {final_size} tokens")
+                if final_size > effective_chunk_size:
+                    # logger.debug(
+                    #     f"Chunk {chunk_index} exceeds effective_chunk_size {effective_chunk_size} with {final_size} tokens")
                     # Split chunk into smaller parts
                     sub_chunks = []
                     temp_sentences = []
@@ -228,7 +228,7 @@ def chunk_texts_with_data(
                     temp_size = 0
                     for s, sep in zip(current_chunk, current_separators):
                         s_size = len(size_fn(s))
-                        if temp_size + s_size <= max_chunk_size:
+                        if temp_size + s_size <= effective_chunk_size:
                             temp_sentences.append(s)
                             temp_separators.append(sep)
                             temp_size += s_size
@@ -328,9 +328,9 @@ def chunk_texts_with_data(
             chunk_content = build_chunk(current_chunk, current_separators)
             sentence_content = "".join(current_chunk)
             final_size = len(size_fn(sentence_content))
-            if final_size > max_chunk_size:
+            if final_size > chunk_size:
                 logger.warning(
-                    f"Final chunk {chunk_index} exceeds max_chunk_size {max_chunk_size} with {final_size} tokens")
+                    f"Final chunk {chunk_index} exceeds effective_chunk_size {effective_chunk_size} with {final_size} tokens")
                 # Split final chunk
                 sub_chunks = []
                 temp_sentences = []
@@ -338,7 +338,7 @@ def chunk_texts_with_data(
                 temp_size = 0
                 for s, sep in zip(current_chunk, current_separators):
                     s_size = len(size_fn(s))
-                    if temp_size + s_size <= max_chunk_size:
+                    if temp_size + s_size <= effective_chunk_size:
                         temp_sentences.append(s)
                         temp_separators.append(sep)
                         temp_size += s_size
