@@ -34,8 +34,9 @@ class CentroidInfo(TypedDict):
     """Typed dictionary for centroid information."""
     id: str
     cluster_label: int
+    count: int
     centroid: List[float]  # List for JSON serialization
-    metadata: Dict
+    texts: List[str]
 
 
 class CentroidSearchResult(TypedDict):
@@ -174,19 +175,25 @@ class VectorRetriever:
         return clusters
 
     def get_centroids(self) -> List[CentroidInfo]:
-        """Return a list of centroids with their labels."""
-        if self.cluster_centroids is None or self.cluster_labels is None:
-            raise ValueError("Retriever not initialized with clusters")
+        """Return a list of centroids with their labels, associated texts, and count of texts."""
+        if self.cluster_centroids is None or self.cluster_labels is None or self.corpus is None:
+            raise ValueError(
+                "Retriever not initialized with clusters or corpus")
 
-        centroids: List[CentroidInfo] = [
-            {
+        centroids: List[CentroidInfo] = []
+        for cluster_label in range(len(self.cluster_centroids)):
+            # Get texts for the current cluster
+            cluster_mask = self.cluster_labels == cluster_label
+            cluster_indices = np.where(cluster_mask)[0]
+            cluster_texts = [self.corpus[idx] for idx in cluster_indices]
+
+            centroids.append({
                 "id": str(uuid.uuid4()),
                 "cluster_label": int(cluster_label),
-                "centroid": centroid.tolist(),
-                "metadata": {}
-            }
-            for cluster_label, centroid in enumerate(self.cluster_centroids)
-        ]
+                "count": len(cluster_texts),
+                "texts": cluster_texts,
+                "centroid": self.cluster_centroids[cluster_label].tolist(),
+            })
         return centroids
 
     def search_centroids(self, query: str, diversity_threshold: float = 0.8) -> List[CentroidSearchResult]:
