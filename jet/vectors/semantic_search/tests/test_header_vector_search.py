@@ -480,7 +480,7 @@ class TestMergeResults:
             },
             {
                 "rank": 2,
-                Rolf"score": 0.7,
+                "score": 0.7,
                 "content": "Header2 content",
                 "metadata": {
                     "doc_index": 1,

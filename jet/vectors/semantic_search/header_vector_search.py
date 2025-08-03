@@ -148,9 +148,9 @@ def compute_weighted_similarity(
     content_sim = 0.0
     if content_vector is not None:
         content_sim = cosine_similarity(query_vector, content_vector)
-    content_weight = 0.4 if content_tokens >= 100 else 0.4
-    headers_weight = 0.4 if header_level is None or header_level <= 2 else 0.4
-    header_content_weight = 0.2 if content_tokens >= 100 else 0.2
+    content_weight = 0.35 if content_tokens >= 100 else 0.35
+    headers_weight = 0.35 if header_level is None or header_level <= 2 else 0.35
+    header_content_weight = 0.3 if content_tokens >= 100 else 0.3
     total = content_weight + headers_weight + header_content_weight
     content_weight /= total
     headers_weight /= total
