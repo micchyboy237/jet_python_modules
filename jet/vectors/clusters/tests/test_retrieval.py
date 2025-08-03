@@ -138,6 +138,36 @@ class TestVectorRetriever:
         with pytest.raises(ValueError, match="Query cannot be empty"):
             retriever.retrieve_chunks(query)
 
+    def test_retrieval_with_dict_config(self, sample_corpus):
+        """Test VectorRetriever initialization with a typed dictionary config."""
+        # Given: A configuration as a typed dictionary
+        config_dict = {
+            "min_cluster_size": 2,
+            "k_clusters": 2,
+            "top_k": 3,
+            "cluster_threshold": 5,
+            "model_name": "mxbai-embed-large",
+            "cache_file": None,
+            "threshold": None
+        }
+        retriever = VectorRetriever(config_dict)
+
+        # When: We load embeddings and retrieve chunks
+        retriever.load_or_compute_embeddings(sample_corpus)
+        retriever.cluster_embeddings()
+        retriever.build_index()
+        query = "What is supervised learning in machine learning?"
+        top_chunks = retriever.retrieve_chunks(query)
+
+        # Then: The results should match expected behavior
+        result = [chunk for chunk, _ in top_chunks]
+        expected_chunks = [
+            "Supervised learning uses labeled data to train models for prediction.",
+            "Machine learning is a method of data analysis that automates model building.",
+            "Deep learning is a subset of machine learning using neural networks."
+        ]
+        assert result == expected_chunks, f"Expected {expected_chunks}, but got {result}"
+
 
 class TestLLMGenerator:
     def test_generate_response_with_chunks(self, generator, sample_corpus):

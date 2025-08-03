@@ -2,12 +2,23 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import hdbscan
 import faiss
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union, TypedDict
 from dataclasses import dataclass
 import pickle
 import os
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
+
+
+class RetrievalConfigDict(TypedDict, total=False):
+    """Typed dictionary for vector retrieval configuration."""
+    min_cluster_size: int
+    k_clusters: int
+    top_k: Optional[int]
+    cluster_threshold: int
+    model_name: EmbedModelType
+    cache_file: Optional[str]
+    threshold: Optional[float]
 
 
 @dataclass
@@ -25,9 +36,13 @@ class RetrievalConfig:
 class VectorRetriever:
     """Class for retrieving relevant text chunks using vector search and clustering."""
 
-    def __init__(self, config: RetrievalConfig):
-        self.config = config
-        self.model = SentenceTransformerRegistry.load_model(config.model_name)
+    def __init__(self, config: Union[RetrievalConfig, RetrievalConfigDict]):
+        if isinstance(config, dict):
+            self.config = RetrievalConfig(**config)
+        else:
+            self.config = config
+        self.model = SentenceTransformerRegistry.load_model(
+            self.config.model_name)
         self.embeddings: Optional[np.ndarray] = None
         self.corpus: Optional[List[str]] = None
         self.index: Optional[faiss.IndexFlatIP] = None
