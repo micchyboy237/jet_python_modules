@@ -1,6 +1,5 @@
-from typing import List, TypedDict
+from typing import List, TypedDict, Optional
 import numpy as np
-
 from jet.logger import logger
 
 
@@ -15,7 +14,7 @@ def get_diverse_texts(
     text_embeddings: np.ndarray,
     texts: List[str],
     mmr_lambda: float = 0.5,
-    num_results: int = 3,
+    num_results: Optional[int] = None,
     initial_indices: List[int] = None
 ) -> List[MMRResult]:
     """Select diverse and relevant texts using Maximum Marginal Relevance (MMR).
@@ -25,7 +24,7 @@ def get_diverse_texts(
         text_embeddings: Normalized embeddings of texts (shape: [n, dim]).
         texts: List of text strings corresponding to embeddings.
         mmr_lambda: Weight for relevance vs. diversity (0 to 1). Higher favors relevance.
-        num_results: Maximum number of results to return.
+        num_results: Maximum number of results to return. If None, returns all available texts.
         initial_indices: Optional list of indices for pre-selected texts.
 
     Returns:
@@ -45,8 +44,8 @@ def get_diverse_texts(
             "Number of texts must match number of text embeddings")
     if not 0 <= mmr_lambda <= 1:
         raise ValueError("mmr_lambda must be between 0 and 1")
-    if num_results < 1:
-        raise ValueError("num_results must be at least 1")
+    if num_results is not None and num_results < 1:
+        raise ValueError("num_results must be at least 1 if provided")
 
     num_texts = len(texts)
     if initial_indices is None:
@@ -58,7 +57,9 @@ def get_diverse_texts(
         if len(set(initial_indices)) != len(initial_indices):
             raise ValueError("initial_indices must not contain duplicates")
 
-    num_results = min(num_results, num_texts)
+    # Set num_results to all available texts if not provided
+    num_results = num_texts if num_results is None else min(
+        num_results, num_texts)
     if num_results == 0 or text_embeddings.shape[0] == 0:
         return []
 
@@ -106,7 +107,7 @@ def get_diverse_texts(
             logger.debug(f"Iteration {iteration}, Candidate {idx} ({texts[idx]}): "
                          f"relevance={relevance:.3f}, diversity={diversity:.3f}, mmr_score={mmr_scores[i]:.3f}")
         max_score = np.max(mmr_scores)
-        tie_threshold = 0.1  # Increased from 0.01 to allow more candidates in tie-breaking
+        tie_threshold = 0.1
         max_indices = np.where(
             np.abs(mmr_scores - max_score) <= tie_threshold)[0]
         if len(max_indices) > 1:
@@ -118,7 +119,8 @@ def get_diverse_texts(
         else:
             best_idx = available_indices[np.argmax(mmr_scores)]
             logger.debug(
-                f"Iteration {iteration}: Selected index {best_idx} ({texts[best_idx]}) with MMR score {max_score:.3f}")
+                f"Iteration {iteration}: Selected index {best_idx} ({texts[best_idx]}) with MMR score {max_score:.3f}"
+            )
         selected_indices.append(best_idx)
         available_indices.remove(best_idx)
 
