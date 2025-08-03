@@ -393,6 +393,7 @@ def chunk_texts(
     chunk_size: int = 128,
     chunk_overlap: int = 0,
     model: Optional[ModelType] = None,
+    buffer: int = 0,
 ) -> List[str]:
     """Chunk large texts into smaller segments with word or token overlap, ensuring complete sentences, preserving all separators, and handling list markers.
 
@@ -401,6 +402,7 @@ def chunk_texts(
         chunk_size: Number of words or tokens per chunk.
         chunk_overlap: Number of words or tokens to overlap, adjusted to sentence boundaries.
         model: Optional LLM model name for token-based chunking.
+        buffer: Number of words or tokens to reserve as a buffer, reducing the effective chunk size.
 
     Returns:
         List of chunked text segments.
@@ -457,7 +459,7 @@ def chunk_texts(
         # Process sentences into chunks
         for sentence, separator in sentence_pairs:
             sentence_size = len(size_fn(sentence))
-            if current_size + sentence_size > chunk_size and current_chunk:
+            if current_size + sentence_size > chunk_size - buffer and current_chunk:
                 # Finalize current chunk
                 chunked_texts.append(build_chunk(
                     current_chunk, current_separators))
@@ -472,7 +474,7 @@ def chunk_texts(
                 current_separators = overlap_separators
                 current_size = overlap_size
             # Add sentence if it fits or chunk is empty
-            if current_size + sentence_size <= chunk_size or not current_chunk:
+            if current_size + sentence_size <= chunk_size - buffer or not current_chunk:
                 current_chunk.append(sentence)
                 current_separators.append(separator)
                 current_size += sentence_size

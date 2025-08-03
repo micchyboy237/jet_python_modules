@@ -10,13 +10,40 @@ from jet.models.model_registry.transformers.sentence_transformer_registry import
 from jet.models.model_types import EmbedModelType
 
 
+class ChunkSearchResult(TypedDict):
+    """Typed dictionary for search result."""
+    rank: int
+    score: float
+    num_tokens: int
+    text: str
+    cluster_label: int
+
+
+class ClusterInfo(TypedDict):
+    """Typed dictionary for cluster information."""
+    cluster_label: int
+    texts: List[str]
+
+
+class CentroidInfo(TypedDict):
+    """Typed dictionary for centroid information."""
+    cluster_label: int
+    centroid: List[float]  # List for JSON serialization
+
+
+class CentroidSearchResult(TypedDict):
+    """Typed dictionary for centroid search results."""
+    cluster_label: int
+    similarity: float
+
+
 class RetrievalConfigDict(TypedDict, total=False):
     """Typed dictionary for vector retrieval configuration."""
+    model_name: EmbedModelType
     min_cluster_size: int
     k_clusters: int
     top_k: Optional[int]
     cluster_threshold: int
-    model_name: EmbedModelType
     cache_file: Optional[str]
     threshold: Optional[float]
 
@@ -24,11 +51,11 @@ class RetrievalConfigDict(TypedDict, total=False):
 @dataclass
 class RetrievalConfig:
     """Configuration for vector retrieval parameters."""
+    model_name: EmbedModelType = 'mxbai-embed-large'
     min_cluster_size: int = 2
     k_clusters: int = 2
     top_k: Optional[int] = None
     cluster_threshold: int = 20
-    model_name: EmbedModelType = 'mxbai-embed-large'
     cache_file: Optional[str] = None
     threshold: Optional[float] = None
 
@@ -100,7 +127,66 @@ class VectorRetriever:
         self.index = faiss.IndexFlatIP(embedding_dim)
         self.index.add(self.embeddings)
 
-    def retrieve_chunks(self, query: str, k_clusters: Optional[int] = None, top_k: Optional[int] = None, cluster_threshold: Optional[int] = None, threshold: Optional[float] = None) -> List[Tuple[str, float]]:
+    def get_clusters(self) -> List[ClusterInfo]:
+        """Return a list of clusters with their labels and associated text chunks."""
+        if self.corpus is None or self.cluster_labels is None:
+            raise ValueError(
+                "Retriever not initialized with corpus or clusters")
+
+        # Initialize dictionary to group texts by cluster label
+        cluster_dict = {}
+        for idx, cluster_label in enumerate(self.cluster_labels):
+            cluster_label = int(cluster_label)  # Ensure integer type
+            if cluster_label not in cluster_dict:
+                cluster_dict[cluster_label] = []
+            cluster_dict[cluster_label].append(self.corpus[idx])
+
+        # Convert to list of ClusterInfo
+        clusters: List[ClusterInfo] = [
+            {"cluster_label": cluster_label, "texts": texts}
+            for cluster_label, texts in sorted(cluster_dict.items())
+        ]
+        return clusters
+
+    def get_centroids(self) -> List[CentroidInfo]:
+        """Return a list of centroids with their labels."""
+        if self.cluster_centroids is None or self.cluster_labels is None:
+            raise ValueError("Retriever not initialized with clusters")
+
+        centroids: List[CentroidInfo] = [
+            {
+                "cluster_label": int(cluster_label),
+                "centroid": centroid.tolist()
+            }
+            for cluster_label, centroid in enumerate(self.cluster_centroids)
+        ]
+        return centroids
+
+    def search_centroids(self, query: str) -> List[CentroidSearchResult]:
+        """Return similarity scores for each centroid given a query, sorted by similarity in descending order."""
+        if not query:
+            raise ValueError("Query cannot be empty")
+        if self.cluster_centroids is None or self.cluster_centroids.shape[0] == 0:
+            return []
+
+        # Encode query and compute cosine similarities
+        query_embedding = self.model.encode([query], convert_to_numpy=True)
+        faiss.normalize_L2(query_embedding)
+        faiss.normalize_L2(self.cluster_centroids)
+        similarities = np.dot(self.cluster_centroids,
+                              query_embedding.T).flatten()
+
+        # Create results list with explicit CentroidSearchResult type
+        results: List[CentroidSearchResult] = [
+            CentroidSearchResult(
+                cluster_label=int(cluster_label),
+                similarity=float(similarities[cluster_label])
+            )
+            for cluster_label in range(len(self.cluster_centroids))
+        ]
+        return sorted(results, key=lambda x: x["similarity"], reverse=True)
+
+    def search_chunks(self, query: str, k_clusters: Optional[int] = None, top_k: Optional[int] = None, cluster_threshold: Optional[int] = None, threshold: Optional[float] = None) -> List[ChunkSearchResult]:
         """Retrieve top-k relevant chunks for the query, optionally filtered by similarity threshold."""
         active_k_clusters = k_clusters or self.config.k_clusters
         active_top_k = top_k if top_k is not None else self.config.top_k
@@ -112,7 +198,7 @@ class VectorRetriever:
             raise ValueError("Retriever not initialized with corpus")
         query_embedding = self.model.encode([query], convert_to_numpy=True)
         faiss.normalize_L2(query_embedding)
-        top_chunks: List[Tuple[str, float]] = []
+        top_chunks: List[ChunkSearchResult] = []
         if len(self.corpus) >= active_cluster_threshold and self.cluster_centroids.shape[0] > 0:
             cluster_centroid_index = faiss.IndexFlatIP(
                 self.embeddings.shape[1])
@@ -133,16 +219,30 @@ class VectorRetriever:
                 distances, indices = temp_index.search(
                     query_embedding, search_k)
                 global_indices = cluster_indices[indices[0]]
-                top_chunks.extend([(self.corpus[idx], float(distances[0][i]))
-                                  for i, idx in enumerate(global_indices)])
+                top_chunks.extend([{
+                    "rank": i + 1,
+                    "score": float(distances[0][i]),
+                    "num_tokens": len(self.corpus[idx].split()),
+                    "text": self.corpus[idx],
+                    "cluster_label": int(self.cluster_labels[idx])
+                } for i, idx in enumerate(global_indices)])
         if not top_chunks:
             search_k = len(
                 self.corpus) if active_top_k is None else active_top_k
             distances, indices = self.index.search(query_embedding, search_k)
-            top_chunks = [(self.corpus[idx], float(distances[0][i]))
-                          for i, idx in enumerate(indices[0])]
+            top_chunks = [{
+                "rank": i + 1,
+                "score": float(distances[0][i]),
+                "num_tokens": len(self.corpus[idx].split()),
+                "text": self.corpus[idx],
+                "cluster_label": int(self.cluster_labels[idx]) if self.cluster_labels is not None else -1
+            } for i, idx in enumerate(indices[0])]
         if active_threshold is not None:
-            top_chunks = [(chunk, score) for chunk,
-                          score in top_chunks if score >= active_threshold]
-        sorted_chunks = sorted(top_chunks, key=lambda x: x[1], reverse=True)
+            top_chunks = [
+                chunk for chunk in top_chunks if chunk["score"] >= active_threshold]
+        sorted_chunks = sorted(
+            top_chunks, key=lambda x: x["score"], reverse=True)
+        # Reassign ranks after sorting
+        for i, chunk in enumerate(sorted_chunks):
+            chunk["rank"] = i + 1
         return sorted_chunks[:active_top_k] if active_top_k is not None else sorted_chunks

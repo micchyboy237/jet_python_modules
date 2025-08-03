@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from jet.llm.mlx.base import MLX
 from jet.models.model_types import LLMModelType
+from jet.vectors.clusters.retrieval import ChunkSearchResult
 
 
 class GenerationConfig(TypedDict, total=False):
@@ -112,22 +113,22 @@ class LLMGenerator:
             truncated = truncated[:last_period + 1]
         return truncated
 
-    def _build_context(self, query: str, chunks: List[Tuple[str, float]]) -> str:
+    def _build_context(self, query: str, chunks: List[ChunkSearchResult]) -> str:
         """Build structured context for RAG using retrieved chunks."""
 
         context_lines = [f"Query: {query}"]
-        for i, (chunk, score) in enumerate(chunks, 1):
-            chunk_text = chunk.strip()
+        for i, chunk in enumerate(chunks, 1):
+            chunk_text = chunk["text"].strip()
             if self.config.include_scores:
                 context_lines.append(
-                    f"[{i}] (Score: {score:.4f}) {chunk_text}")
+                    f"[{i}] (Score: {chunk["score"]:.4f}) {chunk_text}")
             else:
                 context_lines.append(f"[{i}] {chunk_text}")
 
         context = "\n".join(context_lines)
         return context
 
-    def generate_response(self, query: str, chunks: List[Tuple[str, float]], template: str = PROMPT_TEMPLATE, generation_config: GenerationConfig = DEFAULT_GENERATION_CONFIG) -> GenerateResponseResult:
+    def generate_response(self, query: str, chunks: List[ChunkSearchResult], template: str = PROMPT_TEMPLATE, generation_config: GenerationConfig = DEFAULT_GENERATION_CONFIG) -> GenerateResponseResult:
         """Generate a response using retrieved chunks with RAG optimization."""
         if not query:
             raise ValueError("Query cannot be empty.")

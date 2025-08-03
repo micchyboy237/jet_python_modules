@@ -1,5 +1,5 @@
 from jet.models.model_types import ModelType
-from jet.models.tokenizer.base import get_tokenizer_fn
+from jet.models.tokenizer.base import count_tokens, get_tokenizer_fn
 from jet.wordnet.text_chunker import chunk_texts
 import re
 from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
@@ -61,7 +61,8 @@ def collect_header_chunks(
     header_docs: List[HeaderDoc],
     chunk_size: int = 500,
     chunk_overlap: int = 100,
-    tokenizer_model: Optional[ModelType] = None
+    tokenizer_model: Optional[ModelType] = None,
+    buffer: int = 0,
 ) -> Tuple[List[int], List[str], List[str], List[Tuple[int, str, str, str, str, str, int, int, int]]]:
     """
     Collect chunked contents for each header along with metadata, preserving original texts.
@@ -85,6 +86,7 @@ def collect_header_chunks(
         doc_index = header_doc['doc_index']
         original_header = header_doc['header']
         header = preprocess_text(original_header)
+        header_buffer = buffer or len(tokenizer(original_header))
         original_parents = header_doc.get('parent_headers', [])
         parent_text = '\n'.join(original_parents) if original_parents else ''
         headers_context_text = f"{parent_text}\n{original_header}" if parent_text else original_header
@@ -100,7 +102,7 @@ def collect_header_chunks(
 
         # Use chunk_texts from text_chunker
         chunks = chunk_texts(original_content, chunk_size,
-                             chunk_overlap, tokenizer_model)
+                             chunk_overlap, tokenizer_model, header_buffer)
 
         start_idx = 0
         for chunk in chunks:
@@ -299,6 +301,7 @@ def search_headers(
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
+    buffer: int = 0,
     threshold: float = 0.0,
     tokenizer_model: Optional[ModelType] = None,
     merge_chunks: bool = False
@@ -314,7 +317,7 @@ def search_headers(
         tokenizer_model) if tokenizer_model else default_tokenizer
     query_processed = preprocess_text(query)
     doc_indices, headers, headers_context, chunk_data = collect_header_chunks(
-        header_docs, chunk_size, chunk_overlap, tokenizer_model)
+        header_docs, chunk_size, chunk_overlap, tokenizer_model, buffer)
     if not chunk_data:
         logger.debug("No chunk data available, returning empty iterator")
         return
@@ -322,17 +325,17 @@ def search_headers(
     header_texts = [headers[doc_indices.index(idx)] for idx in unique_docs]
     parent_texts = [
         headers_context[doc_indices.index(idx)] for idx in unique_docs]
-    chunk_texts = [chunk for _, _, chunk, _, _, _, _, _, _ in chunk_data]
+    chunked_texts = [chunk for _, _, chunk, _, _, _, _, _, _ in chunk_data]
     logger.debug(
-        f"Text counts: query=1, headers={len(header_texts)}, parents={len(parent_texts)}, chunks={len(chunk_texts)}"
+        f"Text counts: query=1, headers={len(header_texts)}, parents={len(parent_texts)}, chunks={len(chunked_texts)}"
     )
-    all_texts = [query_processed] + header_texts + parent_texts + chunk_texts
+    all_texts = [query_processed] + header_texts + parent_texts + chunked_texts
     logger.info(
         f"Generating embeddings for {len(all_texts)} texts:\n"
         f"  1 query\n"
         f"  {len(header_texts)} headers\n"
         f"  {len(parent_texts)} headers context\n"
-        f"  {len(chunk_texts)} chunks"
+        f"  {len(chunked_texts)} chunks"
     )
 
     all_vectors = generate_embeddings(
