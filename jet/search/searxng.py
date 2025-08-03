@@ -1,3 +1,4 @@
+import time
 from urllib.parse import urlparse
 from datetime import datetime
 import json
@@ -94,7 +95,7 @@ def format_min_date(min_date: datetime) -> datetime:
     return result
 
 
-def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.1, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, **kwargs) -> list[SearchResult]:
+def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.1, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, max_retries: int = 3, **kwargs) -> list[SearchResult]:
     query = decode_encoded_characters(query)
     try:
         # Add the include_sites filter if provided
@@ -154,9 +155,38 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
                 logger.warning(
                     f"search_searxng: Cache miss or empty results for {cache_key}")
 
-        # Fetch search results
-        result = cached_result or fetch_search_results(
-            query_url, headers, params)
+        # Fetch search results with retries
+        result = cached_result
+        retries = 0
+        while retries <= max_retries:
+            if result and result.get("results", []):
+                break
+
+            try:
+                result = fetch_search_results(query_url, headers, params)
+                if not result.get("results", []):
+                    if retries < max_retries:
+                        delay = 2 ** retries  # Exponential backoff: 1s, 2s, 4s
+                        logger.warning(
+                            f"No results found. Retrying {retries + 1}/{max_retries} after {delay}s delay...")
+                        time.sleep(delay)
+                        retries += 1
+                        continue
+                    else:
+                        logger.error("Max retries reached with no results.")
+                        return []
+            except requests.exceptions.RequestException as e:
+                if retries < max_retries:
+                    delay = 2 ** retries  # Exponential backoff: 1s, 2s, 4s
+                    logger.warning(
+                        f"Request failed: {e}. Retrying {retries + 1}/{max_retries} after {delay}s delay...")
+                    time.sleep(delay)
+                    retries += 1
+                    continue
+                else:
+                    logger.error(f"Max retries reached. Error: {e}")
+                    return []
+
         result['number_of_results'] = len(result.get("results", []))
         result = remove_empty_attributes(result)
 
@@ -172,6 +202,6 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
         cache.set(cache_key, result)
         return results
 
-    except (requests.exceptions.RequestException, KeyError, TypeError) as e:
+    except (KeyError, TypeError) as e:
         logger.error(f"Error in search_searxng: {e}")
         return []
