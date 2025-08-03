@@ -1,5 +1,5 @@
 import re
-from typing import List
+from typing import List, TypedDict
 
 from jet.utils.text import fix_and_unidecode
 
@@ -150,9 +150,66 @@ def process_separator_lines(md_content: str) -> str:
     return "\n".join(result)
 
 
+class LinkTextRatio(TypedDict):
+    ratio: float
+    is_link_heavy: bool
+    link_chars: int
+    total_chars: int
+    cleaned_text_length: int
+
+
+def link_to_text_ratio(text: str, threshold: float = 0.5) -> LinkTextRatio:
+    """
+    Calculates the ratio of link-related characters to total text characters in a markdown document.
+    Returns whether the document is link-heavy based on a threshold.
+
+    Args:
+        text (str): Input markdown text containing possible links [text](url) or ![alt](url).
+        threshold (float): Maximum link character proportion before flagging as link-heavy (default: 0.5); higher values loosen the check.
+
+    Returns:
+        dict: Contains the link-to-text ratio, whether it exceeds the threshold, and character counts.
+              - ratio (float): Proportion of link-related characters to total characters.
+              - is_link_heavy (bool): True if ratio is greater than or equal to threshold.
+              - link_chars (int): Number of characters in links (including brackets, URLs, etc.).
+              - total_chars (int): Total number of alphanumeric characters in the input text.
+              - cleaned_text_length (int): Number of alphanumeric characters after removing links.
+    """
+    # Normalize input by removing leading/trailing whitespace and trailing punctuation
+    text = text.strip().rstrip('.')
+
+    # Get total alphanumeric characters
+    total_chars = len(''.join(re.findall(r'[a-zA-Z0-9]', text)))
+
+    # Clean the text to remove links and get the remaining content
+    cleaned_text = clean_markdown_links(text)
+    # Normalize cleaned text similarly
+    cleaned_text = cleaned_text.strip().rstrip('.')
+    cleaned_text_length = len(
+        ''.join(re.findall(r'[a-zA-Z0-9]', cleaned_text)))
+
+    # Calculate link characters (total - cleaned)
+    link_chars = total_chars - cleaned_text_length
+
+    # Calculate ratio (avoid division by zero)
+    ratio = link_chars / total_chars if total_chars > 0 else 0.0
+
+    # Determine if the document is link-heavy (include equality in threshold check)
+    is_link_heavy = ratio >= threshold
+
+    return {
+        'ratio': ratio,
+        'is_link_heavy': is_link_heavy,
+        'link_chars': link_chars,
+        'total_chars': total_chars,
+        'cleaned_text_length': cleaned_text_length
+    }
+
+
 __all__ = [
     "clean_markdown_text",
     "clean_markdown_links",
     "preprocess_markdown",
     "process_separator_lines",
+    "link_to_text_ratio",
 ]
