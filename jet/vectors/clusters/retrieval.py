@@ -35,6 +35,8 @@ class CentroidSearchResult(TypedDict):
     """Typed dictionary for centroid search results."""
     cluster_label: int
     similarity: float
+    most_similar_text: str
+    diverse_texts: List[str]
 
 
 class RetrievalConfigDict(TypedDict, total=False):
@@ -162,11 +164,11 @@ class VectorRetriever:
         ]
         return centroids
 
-    def search_centroids(self, query: str) -> List[CentroidSearchResult]:
-        """Return similarity scores for each centroid given a query, sorted by similarity in descending order."""
+    def search_centroids(self, query: str, diversity_threshold: float = 0.8) -> List[CentroidSearchResult]:
+        """Return similarity scores for each centroid given a query, sorted by similarity in descending order, with most similar and diverse texts."""
         if not query:
             raise ValueError("Query cannot be empty")
-        if self.cluster_centroids is None or self.cluster_centroids.shape[0] == 0:
+        if self.cluster_centroids is None or self.cluster_centroids.shape[0] == 0 or self.corpus is None or self.cluster_labels is None:
             return []
 
         # Encode query and compute cosine similarities
@@ -176,14 +178,54 @@ class VectorRetriever:
         similarities = np.dot(self.cluster_centroids,
                               query_embedding.T).flatten()
 
-        # Create results list with explicit CentroidSearchResult type
-        results: List[CentroidSearchResult] = [
-            CentroidSearchResult(
+        results: List[CentroidSearchResult] = []
+        for cluster_label in range(len(self.cluster_centroids)):
+            # Get texts and embeddings for the current cluster
+            cluster_mask = self.cluster_labels == cluster_label
+            cluster_indices = np.where(cluster_mask)[0]
+            if len(cluster_indices) == 0:
+                continue
+            cluster_texts = [self.corpus[idx] for idx in cluster_indices]
+            cluster_embeddings = self.embeddings[cluster_mask]
+
+            # Find most similar text to the centroid
+            centroid = self.cluster_centroids[cluster_label].reshape(1, -1)
+            text_similarities = np.dot(
+                cluster_embeddings, centroid.T).flatten()
+            most_similar_idx = np.argmax(text_similarities)
+            most_similar_text = cluster_texts[most_similar_idx]
+
+            # Find diverse texts
+            diverse_texts = []
+            if len(cluster_texts) > 0:
+                # Start with most similar text
+                diverse_texts.append(cluster_texts[most_similar_idx])
+                remaining_indices = [i for i in range(
+                    len(cluster_texts)) if i != most_similar_idx]
+                for i in remaining_indices:
+                    is_diverse = True
+                    curr_embedding = cluster_embeddings[i].reshape(1, -1)
+                    for selected_text in diverse_texts:
+                        selected_idx = cluster_texts.index(selected_text)
+                        selected_embedding = cluster_embeddings[selected_idx].reshape(
+                            1, -1)
+                        similarity = np.dot(
+                            curr_embedding, selected_embedding.T).flatten()[0]
+                        if similarity > diversity_threshold:
+                            is_diverse = False
+                            break
+                    if is_diverse:
+                        diverse_texts.append(cluster_texts[i])
+                    if len(diverse_texts) >= 3:  # Limit to 3 diverse texts for efficiency
+                        break
+
+            results.append(CentroidSearchResult(
                 cluster_label=int(cluster_label),
-                similarity=float(similarities[cluster_label])
-            )
-            for cluster_label in range(len(self.cluster_centroids))
-        ]
+                similarity=float(similarities[cluster_label]),
+                most_similar_text=most_similar_text,
+                diverse_texts=diverse_texts
+            ))
+
         return sorted(results, key=lambda x: x["similarity"], reverse=True)
 
     def search_chunks(self, query: str, k_clusters: Optional[int] = None, top_k: Optional[int] = None, cluster_threshold: Optional[int] = None, threshold: Optional[float] = None) -> List[ChunkSearchResult]:
