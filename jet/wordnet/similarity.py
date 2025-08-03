@@ -758,7 +758,7 @@ def plot_text_embeddings(texts: List[str], embeddings: List[List[float]], title:
 
 def group_similar_texts(
     texts: List[str],
-    threshold: float = 0.8,
+    threshold: float = 0.7,
     model_name: str = "all-MiniLM-L6-v2",
     embeddings: Optional[List[np.ndarray]] = None,
     ids: Optional[List[str]] = None,
