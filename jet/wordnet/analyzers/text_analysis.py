@@ -82,6 +82,14 @@ class ReadabilityScores(TypedDict):
     automated_readability_index: float
 
 
+class ReadabilityAverages(TypedDict):
+    avg_sentence_length: float
+    avg_syllables_per_word: float
+    avg_character_per_word: float
+    avg_letter_per_word: float
+    avg_sentence_per_word: float
+
+
 class ReadabilityResult(TypedDict):
     scores: ReadabilityScores
     categories: Dict[str, str]
@@ -95,6 +103,7 @@ class ReadabilityResult(TypedDict):
     sentence_count: int
     text_without_punctuation: str
     scores_average: float  # Added metric for average of readability scores
+    averages: ReadabilityAverages
 
 
 def categorize_score(metric: str, value: float, thresholds) -> str:
@@ -546,5 +555,12 @@ def analyze_readability(text: str) -> ReadabilityResult:
         "lexicon_count": ts.lexicon_count(text, removepunct=True),
         "sentence_count": ts.sentence_count(text),
         "text_without_punctuation": ts.remove_punctuation(text),
-        "scores_average": scores_average
+        "scores_average": scores_average,
+        "averages": {
+            "avg_sentence_length": ts.avg_sentence_length(text),
+            "avg_syllables_per_word": ts.avg_syllables_per_word(text),
+            "avg_character_per_word": ts.avg_character_per_word(text),
+            "avg_letter_per_word": ts.avg_letter_per_word(text),
+            "avg_sentence_per_word": ts.avg_sentence_per_word(text),
+        }
     }

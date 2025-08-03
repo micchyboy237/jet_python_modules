@@ -74,7 +74,7 @@ async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent, ti
 
         attempt += 1
         delay = 2 ** attempt  # Exponential backoff: 2, 4, 8 seconds
-        logger.debug(f"Retrying {url} after {delay} seconds")
+        logger.info(f"Retrying {url} after {delay} seconds")
         await asyncio.sleep(delay)
 
     return None
@@ -97,11 +97,8 @@ async def scrape_urls(
         results = []
         results.append((url, "started", None))
         async with semaphore:
-            logger.debug(f"Starting to scrape URL: {url}")
             try:
                 html = await scrape_url(session, url, ua, timeout, max_retries)
-                logger.debug(
-                    f"Completed scraping URL: {url}, success: {html is not None}")
 
                 if pbar:
                     pbar.update(1)
@@ -115,7 +112,7 @@ async def scrape_urls(
                 else:
                     results.append((url, "no_html", None))
             except asyncio.CancelledError:
-                logger.debug(f"Task for {url} was cancelled")
+                logger.info(f"Task for {url} was cancelled")
                 raise
             except Exception as e:
                 logger.error(f"Exception while scraping {url}: {str(e)}")
@@ -153,10 +150,10 @@ async def scrape_urls(
                                 await asyncio.gather(*tasks, return_exceptions=True)
                                 return
                 except asyncio.CancelledError:
-                    logger.debug("Task processing was cancelled")
+                    logger.info("Task processing was cancelled")
                     raise
         except asyncio.CancelledError:
-            logger.debug("Scrape_urls was cancelled, cleaning up tasks")
+            logger.info("Scrape_urls was cancelled, cleaning up tasks")
             for task in tasks:
                 if not task.done():
                     task.cancel()

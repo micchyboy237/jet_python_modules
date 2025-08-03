@@ -452,7 +452,7 @@ def derive_text(token: MarkdownToken) -> str:
         result = re.sub(r'^```[\w]*\n|\n```$', '', content).strip()
 
     else:  # paragraph, blockquote, html_block
-        result = token['content']
+        result = token.get('content', '')
 
     return result.strip()
 

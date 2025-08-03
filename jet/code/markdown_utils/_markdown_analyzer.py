@@ -199,11 +199,7 @@ DEFAULTS: MarkdownAnalysis = {
 
 
 def analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> MarkdownAnalysis:
-    logger.debug(
-        "Starting base_analyze_markdown with input: %s, ignore_links: %s", input, ignore_links)
     md_content = read_md_content(input, ignore_links=ignore_links)
-    logger.debug("Markdown content after read_md_content: %s",
-                 md_content[:100] + "..." if len(md_content) > 100 else md_content)
     temp_md_path = None
     values: MarkdownAnalysis = DEFAULTS.copy()
     try:
@@ -211,58 +207,40 @@ def analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> Mar
         with tempfile.NamedTemporaryFile(delete=False, suffix=".md", mode="w", encoding="utf-8") as tmpfile:
             tmpfile.write(md_content)
             temp_md_path = tmpfile.name
-        logger.debug("Temporary markdown file created at: %s", temp_md_path)
         analyzer = MarkdownAnalyzer(temp_md_path)
 
         # Flatten dictionaries by extracting nested lists
         try:
             raw_headers = convert_dict_keys_to_snake_case(
                 analyzer.identify_headers()).get("header", [])
-            logger.debug("Headers identified: %s", raw_headers)
             raw_paragraphs = convert_dict_keys_to_snake_case(
                 analyzer.identify_paragraphs()).get("paragraph", [])
-            logger.debug("Paragraphs identified: %s", raw_paragraphs)
             raw_blockquotes = convert_dict_keys_to_snake_case(
                 analyzer.identify_blockquotes()).get("blockquote", [])
-            logger.debug("Blockquotes identified: %s", raw_blockquotes)
             raw_code_blocks = convert_dict_keys_to_snake_case(
                 analyzer.identify_code_blocks()).get("code_block", [])
-            logger.debug("Code blocks identified: %s", raw_code_blocks)
             raw_lists = convert_dict_keys_to_snake_case(
                 analyzer.identify_lists())
-            logger.debug("Lists identified: %s", raw_lists)
             raw_tables = convert_dict_keys_to_snake_case(
                 analyzer.identify_tables()).get("table", [])
-            logger.debug("Tables identified: %s", raw_tables)
             raw_links = convert_dict_keys_to_snake_case(
                 analyzer.identify_links())
-            logger.debug("Links identified: %s", raw_links)
             raw_footnotes = convert_dict_keys_to_snake_case(
                 analyzer.identify_footnotes())
-            logger.debug("Footnotes identified: %s", raw_footnotes)
             raw_inline_code = convert_dict_keys_to_snake_case(
                 analyzer.identify_inline_code())
-            logger.debug("Inline code identified: %s", raw_inline_code)
             raw_emphasis = convert_dict_keys_to_snake_case(
                 analyzer.identify_emphasis())
-            logger.debug("Emphasis identified: %s", raw_emphasis)
             raw_task_items = convert_dict_keys_to_snake_case(
                 analyzer.identify_task_items())
-            logger.debug("Task items identified: %s", raw_task_items)
             raw_html_blocks = convert_dict_keys_to_snake_case(
                 analyzer.identify_html_blocks())
-            logger.debug("HTML blocks identified: %s", raw_html_blocks)
             raw_html_inline = convert_dict_keys_to_snake_case(
                 analyzer.identify_html_inline())
-            logger.debug("HTML inline identified: %s", raw_html_inline)
             raw_tokens_sequential = convert_dict_keys_to_snake_case(
                 analyzer.get_tokens_sequential())
-            logger.debug("Tokens sequential identified: %s",
-                         raw_tokens_sequential)
             raw_word_count = analyzer.count_words()
-            logger.debug("Word count: %s", raw_word_count)
             raw_char_count = analyzer.count_characters()
-            logger.debug("Character count: %s", raw_char_count)
         except ValueError as e:
             logger.warning(
                 "Error in MarkdownAnalyzer: %s. Returning partial results.", e)
@@ -277,8 +255,6 @@ def analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> Mar
         image_links = raw_links.get("image_link", [])
         text_link_count = len(text_links)
         image_link_count = len(image_links)
-        logger.debug("Text links count: %s, Image links count: %s",
-                     text_link_count, image_link_count)
 
         header_counts = {f"h{i}": 0 for i in range(1, 7)}
         for header in raw_headers:
@@ -300,7 +276,6 @@ def analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> Mar
             key: raw_summary_unsorted.get(key, DEFAULTS["summary"][key])
             for key in DEFAULTS["summary"].keys()
         }
-        logger.debug("Summary: %s", raw_summary)
 
         result = {
             "summary": raw_summary,
@@ -324,14 +299,11 @@ def analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> Mar
             "tokens_sequential": raw_tokens_sequential,
         }
         values.update(result)
-        logger.debug("Final result: %s", {k: v for k, v in values.items(
-        ) if k != "tokens_sequential"})  # Avoid logging large tokens
         return values
     finally:
         if temp_md_path and os.path.exists(temp_md_path):
             try:
                 os.remove(temp_md_path)
-                logger.debug("Temporary file removed: %s", temp_md_path)
             except Exception as e:
                 logger.warning(
                     f"Could not remove temporary file {temp_md_path}: %s", e)
@@ -357,7 +329,7 @@ def link_to_text_ratio(text: str, threshold: float = 0.5) -> LinkTextRatio:
 
     Args:
         text (str): Input markdown text containing possible links [text](url) or ![alt](url).
-        threshold (float): Maximum allowed ratio of link characters to total characters (default: 0.5).
+        threshold (float): Maximum link character proportion before flagging as link-heavy (default: 0.5); higher values loosen the check.
 
     Returns:
         dict: Contains the link-to-text ratio, whether it exceeds the threshold, and character counts.
