@@ -4,7 +4,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import faiss
 from typing import List, Tuple
-from jet.vectors.clusters.retrieval import VectorRetriever, LLMGenerator, RetrievalConfig
+from jet.vectors.clusters.retrieval import VectorRetriever, RetrievalConfig
 
 
 @pytest.fixture
@@ -27,12 +27,6 @@ def retriever(sample_corpus):
     retriever.cluster_embeddings()
     retriever.build_index()
     return retriever
-
-
-@pytest.fixture
-def generator():
-    """Fixture for LLMGenerator."""
-    return LLMGenerator()
 
 
 class TestVectorRetriever:
@@ -167,39 +161,6 @@ class TestVectorRetriever:
             "Deep learning is a subset of machine learning using neural networks."
         ]
         assert result == expected_chunks, f"Expected {expected_chunks}, but got {result}"
-
-
-class TestLLMGenerator:
-    def test_generate_response_with_chunks(self, generator, sample_corpus):
-        """Test LLM response generation with valid chunks."""
-        # Given a generator, query, and chunks
-        query = "What is supervised learning in machine learning?"
-        chunks = [
-            (sample_corpus[1], 0.9512),
-            (sample_corpus[2], 0.7200),
-            (sample_corpus[0], 0.6416)
-        ]
-        expected_response_contains = (
-            "Based on the provided information",
-            sample_corpus[1],
-            "In summary, Supervised learning uses labeled data to train models for prediction."
-        )
-        # When generating response
-        response = generator.generate_response(query, chunks)
-        # Then the response should contain expected content
-        for expected in expected_response_contains:
-            assert expected in response, f"Expected '{expected}' in response, but got: {response}"
-
-    def test_generate_response_no_chunks(self, generator):
-        """Test LLM response when no chunks are provided."""
-        # Given a generator and query with no chunks
-        query = "What is supervised learning in machine learning?"
-        chunks: List[Tuple[str, float]] = []
-        expected_response = "No relevant information found."
-        # When generating response
-        response = generator.generate_response(query, chunks)
-        # Then the response should match expected
-        assert response == expected_response, f"Expected '{expected_response}', but got: {response}"
 
 
 @pytest.fixture(autouse=True)

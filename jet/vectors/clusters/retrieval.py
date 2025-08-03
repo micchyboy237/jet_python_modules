@@ -146,19 +146,3 @@ class VectorRetriever:
                           score in top_chunks if score >= active_threshold]
         sorted_chunks = sorted(top_chunks, key=lambda x: x[1], reverse=True)
         return sorted_chunks[:active_top_k] if active_top_k is not None else sorted_chunks
-
-
-class LLMGenerator:
-    """Class for generating responses from retrieved chunks (mock implementation)."""
-
-    def generate_response(self, query: str, chunks: List[Tuple[str, float]]) -> str:
-        """Generate a response using retrieved chunks."""
-        if not chunks:
-            return "No relevant information found."
-        context = "\n".join([chunk for chunk, _ in chunks])
-        response = (
-            f"Based on the provided information, here is the answer to your query: '{query}'\n\n"
-            f"{context}\n\n"
-            f"In summary, {chunks[0][0]}"
-        )
-        return response

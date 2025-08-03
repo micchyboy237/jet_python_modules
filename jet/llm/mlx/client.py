@@ -822,7 +822,7 @@ class MLXLMClient:
             finish_reason = gen_response.finish_reason
 
             if verbose:
-                logger.success(segment, flush=True)
+                logger.log(segment, flush=True, colors=["TEAL"])
 
             if logprobs > 0:
                 sorted_indices: mx.array = mx.argpartition(
@@ -875,6 +875,7 @@ class MLXLMClient:
             )
 
             if finish_reason:
+                logger.newline()
                 break
 
         self.prompt_cache.tokens.extend(tokens)
@@ -965,7 +966,7 @@ class MLXLMClient:
             finish_reason = gen_response.finish_reason
 
             if verbose:
-                logger.success(segment, flush=True)
+                logger.log(segment, flush=True, colors=["TEAL"])
 
             if logprobs > 0:
                 sorted_indices: mx.array = mx.argpartition(
@@ -1000,6 +1001,7 @@ class MLXLMClient:
             #         all_repetitions.extend(repetitions)
 
             if finish_reason:
+                logger.newline()
                 break
 
         self.prompt_cache.tokens.extend(tokens)
