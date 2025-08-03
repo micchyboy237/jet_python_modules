@@ -10,7 +10,7 @@ class MMRResult(TypedDict):
     similarity: float
 
 
-def get_diverse_results(
+def get_diverse_texts(
     query_embedding: np.ndarray,
     text_embeddings: np.ndarray,
     texts: List[str],
@@ -87,14 +87,10 @@ def get_diverse_results(
     for iteration in range(num_results - len(selected_indices)):
         if not available_indices:
             break
-
         mmr_scores = np.zeros(len(available_indices))
-        diversity_scores = np.zeros(len(available_indices))  # For tie-breaking
+        diversity_scores = np.zeros(len(available_indices))
         for i, idx in enumerate(available_indices):
-            # Relevance: similarity to query
             relevance = similarities[idx]
-
-            # Diversity: maximum similarity to selected texts
             if len(selected_indices) > 0:
                 selected_embeddings = text_embeddings[selected_indices]
                 diversity_matrix = np.dot(
@@ -104,24 +100,21 @@ def get_diverse_results(
                     f"Iteration {iteration}, Candidate {idx} diversity matrix: {diversity_matrix}")
             else:
                 diversity = 0.0
-
-            # MMR score: λ * relevance - (1-λ) * diversity
             mmr_scores[i] = mmr_lambda * relevance - \
                 (1 - mmr_lambda) * diversity
             diversity_scores[i] = diversity
-
-            # Debug log
             logger.debug(f"Iteration {iteration}, Candidate {idx} ({texts[idx]}): "
                          f"relevance={relevance:.3f}, diversity={diversity:.3f}, mmr_score={mmr_scores[i]:.3f}")
-
-        # Select text with highest MMR score, break ties by lowest diversity
         max_score = np.max(mmr_scores)
-        max_indices = np.where(mmr_scores == max_score)[0]
+        tie_threshold = 0.1  # Increased from 0.01 to allow more candidates in tie-breaking
+        max_indices = np.where(
+            np.abs(mmr_scores - max_score) <= tie_threshold)[0]
         if len(max_indices) > 1:
             best_idx = available_indices[max_indices[np.argmin(
                 diversity_scores[max_indices])]]
-            logger.debug(f"Iteration {iteration}: Tie detected, selected index {best_idx} ({texts[best_idx]}) "
-                         f"with MMR score {max_score:.3f} and lowest diversity {diversity_scores[max_indices].min():.3f}")
+            logger.debug(f"Iteration {iteration}: Near-tie detected within {tie_threshold}, "
+                         f"selected index {best_idx} ({texts[best_idx]}) with MMR score {mmr_scores[max_indices].max():.3f} "
+                         f"and lowest diversity {diversity_scores[max_indices].min():.3f}")
         else:
             best_idx = available_indices[np.argmax(mmr_scores)]
             logger.debug(

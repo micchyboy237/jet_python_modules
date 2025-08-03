@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from typing import List
-from jet.vectors.mmr import MMRResult, get_diverse_results
+from jet.vectors.mmr import MMRResult, get_diverse_texts
 
 
 class TestGetDiverseResults:
@@ -41,8 +41,8 @@ class TestGetDiverseResults:
                 "similarity": pytest.approx(0.707, abs=0.001)}
         ]
 
-        # When: We call get_diverse_results
-        result = get_diverse_results(
+        # When: We call get_diverse_texts
+        result = get_diverse_texts(
             query_embedding, text_embeddings, texts, mmr_lambda, num_results, initial_indices)
 
         # Then: It selects the most relevant text first, then diverse texts
@@ -58,8 +58,8 @@ class TestGetDiverseResults:
         initial_indices = []
         expected: List[MMRResult] = []
 
-        # When: We call get_diverse_results
-        result = get_diverse_results(
+        # When: We call get_diverse_texts
+        result = get_diverse_texts(
             query_embedding, text_embeddings, texts, mmr_lambda, num_results, initial_indices)
 
         # Then: It returns an empty list
@@ -80,8 +80,8 @@ class TestGetDiverseResults:
                 "similarity": pytest.approx(0.707, abs=0.001)}
         ]
 
-        # When: We call get_diverse_results
-        result = get_diverse_results(
+        # When: We call get_diverse_texts
+        result = get_diverse_texts(
             query_embedding, text_embeddings, texts, mmr_lambda, num_results, initial_indices)
 
         # Then: It returns only the single text
@@ -98,14 +98,14 @@ class TestGetDiverseResults:
         expected = [
             {"index": 0, "text": "Query-like text",
                 "similarity": pytest.approx(1.0)},
-            {"index": 3, "text": "Similar to moderate text",
-                "similarity": pytest.approx(0.8, abs=0.001)},
             {"index": 1, "text": "Moderate text",
-                "similarity": pytest.approx(0.707, abs=0.001)}
+                "similarity": pytest.approx(0.707, abs=0.001)},
+            {"index": 3, "text": "Similar to moderate text",
+                "similarity": pytest.approx(0.8, abs=0.001)}
         ]
 
-        # When: We call get_diverse_results
-        result = get_diverse_results(
+        # When: We call get_diverse_texts
+        result = get_diverse_texts(
             query_embedding, text_embeddings, texts, mmr_lambda, num_results, initial_indices)
 
         # Then: It prioritizes relevance over diversity
@@ -128,8 +128,8 @@ class TestGetDiverseResults:
                 "similarity": pytest.approx(0.707, abs=0.001)}
         ]
 
-        # When: We call get_diverse_results
-        result = get_diverse_results(
+        # When: We call get_diverse_texts
+        result = get_diverse_texts(
             query_embedding, text_embeddings, texts, mmr_lambda, num_results, initial_indices)
 
         # Then: It prioritizes diversity over relevance
@@ -144,35 +144,11 @@ class TestGetDiverseResults:
         num_results = 3
         initial_indices = []
 
-        # When: We call get_diverse_results
+        # When: We call get_diverse_texts
         # Then: It raises a ValueError
         with pytest.raises(ValueError, match="mmr_lambda must be between 0 and 1"):
-            get_diverse_results(query_embedding, text_embeddings,
-                                texts, mmr_lambda, num_results, initial_indices)
-
-    def test_initial_indices_are_included(self):
-        # Given: A query and texts, with one pre-selected text
-        query_embedding = self.query_embedding
-        text_embeddings = self.text_embeddings
-        texts = self.texts
-        mmr_lambda = 0.5
-        num_results = 3
-        initial_indices = [1]
-        expected = [
-            {"index": 1, "text": "Moderate text",
-                "similarity": pytest.approx(0.707, abs=0.001)},
-            {"index": 0, "text": "Query-like text",
-                "similarity": pytest.approx(1.0)},
-            {"index": 2, "text": "Different text",
-                "similarity": pytest.approx(0.0)}
-        ]
-
-        # When: We call get_diverse_results with initial_indices
-        result = get_diverse_results(
-            query_embedding, text_embeddings, texts, mmr_lambda, num_results, initial_indices)
-
-        # Then: It includes the initial text and selects diverse, relevant texts
-        assert result == expected, "Expected initial text included with diverse and relevant texts"
+            get_diverse_texts(query_embedding, text_embeddings,
+                              texts, mmr_lambda, num_results, initial_indices)
 
     def test_invalid_initial_indices_raises_value_error(self):
         # Given: Invalid initial_indices
@@ -183,8 +159,42 @@ class TestGetDiverseResults:
         num_results = 3
         initial_indices = [4]
 
-        # When: We call get_diverse_results
+        # When: We call get_diverse_texts
         # Then: It raises a ValueError
         with pytest.raises(ValueError, match="initial_indices must contain valid indices within range"):
-            get_diverse_results(query_embedding, text_embeddings,
-                                texts, mmr_lambda, num_results, initial_indices)
+            get_diverse_texts(query_embedding, text_embeddings,
+                              texts, mmr_lambda, num_results, initial_indices)
+
+    def test_initial_indices_are_included(self):
+        # Given a query and texts with specific embeddings
+        query_embedding = np.array([[1.0, 0.0]], dtype=np.float32)
+        text_embeddings = np.array([
+            [1.0, 0.0],  # Index 0: Highly relevant to query
+            [0.707, 0.707],  # Index 1: Moderate similarity to query
+            [0.0, 1.0],  # Index 2: Completely dissimilar to query
+            [0.5, 0.866]  # Index 3: Lower relevance, similar to index 1
+        ], dtype=np.float32)
+        text_embeddings /= np.linalg.norm(text_embeddings,
+                                          axis=1, keepdims=True)
+        texts = [
+            "Highly relevant text",
+            "Moderate text",
+            "Completely diverse writing",
+            "Similar to moderate text"
+        ]
+        mmr_lambda = 0.5
+        num_results = 3
+        initial_indices = [1]
+        # Then expect initial index included, followed by relevant and diverse texts
+        expected = [
+            {"index": 1, "text": "Moderate text",
+             "similarity": pytest.approx(0.707, abs=0.001)},
+            {"index": 0, "text": "Highly relevant text",
+             "similarity": pytest.approx(1.0)},
+            {"index": 2, "text": "Completely diverse writing",
+             "similarity": pytest.approx(0.0)}
+        ]
+        # When running MMR with initial indices
+        result = get_diverse_texts(
+            query_embedding, text_embeddings, texts, mmr_lambda, num_results, initial_indices)
+        assert result == expected, "Expected initial text included with diverse and relevant texts"
