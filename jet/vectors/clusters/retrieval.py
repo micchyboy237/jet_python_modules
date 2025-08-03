@@ -15,10 +15,11 @@ class RetrievalConfig:
     """Configuration for vector retrieval parameters."""
     min_cluster_size: int = 2
     k_clusters: int = 2
-    k_chunks: int = 4
+    top_k: Optional[int] = None
     cluster_threshold: int = 20
     model_name: EmbedModelType = 'mxbai-embed-large'
     cache_file: Optional[str] = None
+    threshold: Optional[float] = None
 
 
 class VectorRetriever:
@@ -84,11 +85,12 @@ class VectorRetriever:
         self.index = faiss.IndexFlatIP(embedding_dim)
         self.index.add(self.embeddings)
 
-    def retrieve_chunks(self, query: str, k_clusters: Optional[int] = None, k_chunks: Optional[int] = None, cluster_threshold: Optional[int] = None) -> List[Tuple[str, float]]:
-        """Retrieve top-k relevant chunks for the query."""
+    def retrieve_chunks(self, query: str, k_clusters: Optional[int] = None, top_k: Optional[int] = None, cluster_threshold: Optional[int] = None, threshold: Optional[float] = None) -> List[Tuple[str, float]]:
+        """Retrieve top-k relevant chunks for the query, optionally filtered by similarity threshold."""
         active_k_clusters = k_clusters or self.config.k_clusters
-        active_k_chunks = k_chunks or self.config.k_chunks
+        active_top_k = top_k if top_k is not None else self.config.top_k
         active_cluster_threshold = cluster_threshold or self.config.cluster_threshold
+        active_threshold = threshold or self.config.threshold
         if not query:
             raise ValueError("Query cannot be empty")
         if self.embeddings is None or self.index is None:
@@ -111,17 +113,24 @@ class VectorRetriever:
                 cluster_embeddings = self.embeddings[cluster_mask]
                 temp_index = faiss.IndexFlatIP(self.embeddings.shape[1])
                 temp_index.add(cluster_embeddings)
+                search_k = len(cluster_indices) if active_top_k is None else min(
+                    active_top_k, len(cluster_indices))
                 distances, indices = temp_index.search(
-                    query_embedding, min(active_k_chunks, len(cluster_indices)))
+                    query_embedding, search_k)
                 global_indices = cluster_indices[indices[0]]
                 top_chunks.extend([(self.corpus[idx], float(distances[0][i]))
                                   for i, idx in enumerate(global_indices)])
         if not top_chunks:
-            distances, indices = self.index.search(
-                query_embedding, active_k_chunks)
+            search_k = len(
+                self.corpus) if active_top_k is None else active_top_k
+            distances, indices = self.index.search(query_embedding, search_k)
             top_chunks = [(self.corpus[idx], float(distances[0][i]))
                           for i, idx in enumerate(indices[0])]
-        return sorted(top_chunks, key=lambda x: x[1], reverse=True)[:active_k_chunks]
+        if active_threshold is not None:
+            top_chunks = [(chunk, score) for chunk,
+                          score in top_chunks if score >= active_threshold]
+        sorted_chunks = sorted(top_chunks, key=lambda x: x[1], reverse=True)
+        return sorted_chunks[:active_top_k] if active_top_k is not None else sorted_chunks
 
 
 class LLMGenerator:

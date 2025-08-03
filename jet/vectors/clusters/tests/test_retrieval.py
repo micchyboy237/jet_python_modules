@@ -21,7 +21,7 @@ def sample_corpus():
 @pytest.fixture
 def retriever(sample_corpus):
     """Fixture for initialized VectorRetriever."""
-    config = RetrievalConfig(k_chunks=3, cluster_threshold=5)
+    config = RetrievalConfig(top_k=None, cluster_threshold=5)
     retriever = VectorRetriever(config)
     retriever.load_or_compute_embeddings(sample_corpus)
     retriever.cluster_embeddings()
@@ -43,7 +43,8 @@ class TestVectorRetriever:
         expected_chunks = [
             "Supervised learning uses labeled data to train models for prediction.",
             "Machine learning is a method of data analysis that automates model building.",
-            "Deep learning is a subset of machine learning using neural networks."
+            "Deep learning is a subset of machine learning using neural networks.",
+            "Unsupervised learning finds patterns in data without predefined labels."
         ]
         # When retrieving chunks
         top_chunks = retriever.retrieve_chunks(query)
@@ -55,7 +56,7 @@ class TestVectorRetriever:
         """Test retrieval with custom arguments overriding defaults."""
         # Given a retriever and custom arguments
         query = "What is supervised learning in machine learning?"
-        k_chunks = 2
+        top_k = 2
         cluster_threshold = 3
         expected_chunks = [
             "Supervised learning uses labeled data to train models for prediction.",
@@ -63,11 +64,59 @@ class TestVectorRetriever:
         ]
         # When retrieving chunks with custom arguments
         top_chunks = retriever.retrieve_chunks(
-            query, k_chunks=k_chunks, cluster_threshold=cluster_threshold)
+            query, top_k=top_k, cluster_threshold=cluster_threshold)
         result = [chunk for chunk, _ in top_chunks]
-        # Then the result should respect custom arguments (k_chunks=2)
+        # Then the result should respect custom arguments (top_k=2)
         assert len(result) == 2, f"Expected 2 chunks, but got {len(result)}"
         assert result == expected_chunks, f"Expected {expected_chunks}, but got {result}"
+
+    def test_retrieval_no_cache(self, sample_corpus):
+        """Test embedding computation without cache."""
+        # Given a retriever with no cache file
+        config = RetrievalConfig(cache_file=None)
+        retriever = VectorRetriever(config)
+        # When loading or computing embeddings without cache
+        embeddings = retriever.load_or_compute_embeddings(
+            sample_corpus, cache_file=None)
+        # Then embeddings should be computed and not cached
+        assert embeddings.shape[0] == len(
+            sample_corpus), f"Expected {len(sample_corpus)} embeddings, got {embeddings.shape[0]}"
+        assert not os.path.exists(
+            "embeddings.pkl"), "Cache file should not exist"
+
+    def test_retrieval_with_threshold(self, retriever, sample_corpus):
+        """Test retrieval with a similarity threshold."""
+        # Given a retriever and a query with a threshold
+        query = "What is supervised learning in machine learning?"
+        threshold = 0.7
+        expected_chunks = [
+            "Supervised learning uses labeled data to train models for prediction.",
+            "Machine learning is a method of data analysis that automates model building."
+        ]
+        # When retrieving chunks with a threshold
+        top_chunks = retriever.retrieve_chunks(query, threshold=threshold)
+        result = [chunk for chunk, _ in top_chunks]
+        # Then only chunks above the threshold should be returned
+        assert len(
+            result) <= 3, f"Expected at most 3 chunks, got {len(result)}"
+        assert result == expected_chunks, f"Expected {expected_chunks}, but got {result}"
+        for _, score in top_chunks:
+            assert score >= threshold, f"Score {score} should be >= {threshold}"
+
+    def test_retrieval_all_results(self, retriever, sample_corpus):
+        """Test retrieval when top_k is None to return all results."""
+        # Given a retriever and a query with top_k=None
+        query = "What is supervised learning in machine learning?"
+        # Expect all chunks since corpus is small
+        expected_min_chunks = len(sample_corpus)
+        # When retrieving chunks with top_k=None
+        top_chunks = retriever.retrieve_chunks(query, top_k=None)
+        result = [chunk for chunk, _ in top_chunks]
+        # Then all chunks should be returned
+        assert len(
+            result) == expected_min_chunks, f"Expected {expected_min_chunks} chunks, but got {len(result)}"
+        assert set(result) == set(
+            sample_corpus), f"Expected all corpus chunks, but got {result}"
 
     def test_retrieval_empty_corpus(self, sample_corpus):
         """Test error handling for empty corpus."""
@@ -88,20 +137,6 @@ class TestVectorRetriever:
         # Then it should raise ValueError
         with pytest.raises(ValueError, match="Query cannot be empty"):
             retriever.retrieve_chunks(query)
-
-    def test_retrieval_no_cache(self, sample_corpus):
-        """Test embedding computation without cache."""
-        # Given a retriever with no cache file
-        config = RetrievalConfig(cache_file=None)
-        retriever = VectorRetriever(config)
-        # When loading or computing embeddings without cache
-        embeddings = retriever.load_or_compute_embeddings(
-            sample_corpus, cache_file=None)
-        # Then embeddings should be computed and not cached
-        assert embeddings.shape[0] == len(
-            sample_corpus), f"Expected {len(sample_corpus)} embeddings, got {embeddings.shape[0]}"
-        assert not os.path.exists(
-            "embeddings.pkl"), "Cache file should not exist"
 
 
 class TestLLMGenerator:
