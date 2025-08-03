@@ -1,5 +1,5 @@
 import pytest
-from jet.wordnet.text_comparator import TextComparator
+from jet.wordnet.comparators.text_comparator import TextComparator
 
 
 class TestTextComparator:

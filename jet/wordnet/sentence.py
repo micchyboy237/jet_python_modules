@@ -116,79 +116,6 @@ def is_unordered_list_marker(marker):
     return bool(re.match(pattern, marker.strip(), re.IGNORECASE))
 
 
-def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
-    # Check for empty or whitespace-only strings
-    if not text.strip():
-        return []
-
-    max_tokens = max_tokens or 0
-
-    # Replace \n with NEWLINE_TOKEN
-    text = text.replace('\n', 'NEWLINE_TOKEN')
-
-    # Use NLTK for more robust sentence splitting
-    raw_sentences = sent_tokenize(text)
-    processed_sentences = process_sentence_newlines(raw_sentences)
-
-    segments = []
-    current_segment = ''
-
-    for sentence in processed_sentences:
-        # Skip empty sentences
-        if not sentence.strip():
-            continue
-
-        # Convert NEWLINE_TOKEN to \n before counting tokens
-        sentence_for_token_count = sentence.replace('NEWLINE_TOKEN', '\n')
-        current_segment_for_token_count = current_segment.replace(
-            'NEWLINE_TOKEN', '\n')
-
-        # Calculate token counts
-        current_tokens_len = count_tokens_func(current_segment_for_token_count)
-        tokens_len = count_tokens_func(sentence_for_token_count)
-
-        stripped_sentence = sentence.replace('NEWLINE_TOKEN', '')
-        # Check if the sentence is a continuation of an ordered list item
-        if is_ordered_list_marker(stripped_sentence):
-            if is_ordered_list_sentence(stripped_sentence):
-                # Append the current segment if it's not empty
-                if current_segment:
-                    segments.append(current_segment)
-                    current_segment = ''
-
-                segments.append(sentence)
-            else:
-                current_segment += (' ' if current_segment else '') + sentence
-        # Check if adding the sentence exceeds the max token limit
-        elif current_tokens_len + tokens_len <= max_tokens:
-            current_segment += (' ' if current_segment else '') + sentence
-        else:
-            # Append the current segment if it's not empty
-            if current_segment and not is_ordered_list_marker(current_segment):
-                segments.append(current_segment)
-                current_segment = ''
-
-            # Handle the next sentence
-            if tokens_len <= max_tokens:
-                current_segment = sentence
-            else:
-                # Split long sentence into words and build segments
-                long_segment = handle_long_sentence(
-                    sentence, count_tokens_func, max_tokens)
-
-                current_segment += (' ' if current_segment else '') + \
-                    long_segment
-
-    # Append the last segment if it exists
-    if current_segment:
-        segments.append(current_segment)
-
-    # Replace NEWLINE_TOKEN with \n on all segments
-    segments = [segment.replace('NEWLINE_TOKEN', '\n') for segment in segments]
-
-    return segments
-
-
 def is_last_word_in_sentence(word, text):
     word = word.strip(".,!?\"'”)").lower()
     sentences = split_sentences(text)
@@ -280,7 +207,7 @@ def split_sentences(text: str, num_sentence: int = 1) -> list[str]:
     return combined_results
 
 
-def split_sentences_with_separators(text: str, num_sentence: int = 1) -> List[Tuple[str, str]]:
+def split_sentences_with_separators(text: str, num_sentence: int = 1) -> List[str]:
     """Split text into sentences, preserving the separator after each sentence.
 
     Args:
@@ -288,7 +215,7 @@ def split_sentences_with_separators(text: str, num_sentence: int = 1) -> List[Tu
         num_sentence: Number of sentences to combine into each chunk.
 
     Returns:
-        List of tuples, each containing a sentence and its trailing separator.
+        List of strings, each containing combined sentences with their trailing separator.
     """
     if num_sentence < 1:
         raise ValueError("num_sentence must be a positive integer")
@@ -360,9 +287,82 @@ def split_sentences_with_separators(text: str, num_sentence: int = 1) -> List[Tu
                 combined_sentence += sep
         # Use the last sentence's separator for the combined chunk
         final_separator = chunk[-1][1] if chunk else " "
-        combined_results.append((combined_sentence, final_separator))
+        combined_results.append(combined_sentence + final_separator)
 
     return combined_results
+
+
+def adaptive_split(text, count_tokens_func=count_words, max_tokens=0):
+    # Check for empty or whitespace-only strings
+    if not text.strip():
+        return []
+
+    max_tokens = max_tokens or 0
+
+    # Replace \n with NEWLINE_TOKEN
+    text = text.replace('\n', 'NEWLINE_TOKEN')
+
+    # Use NLTK for more robust sentence splitting
+    raw_sentences = sent_tokenize(text)
+    processed_sentences = process_sentence_newlines(raw_sentences)
+
+    segments = []
+    current_segment = ''
+
+    for sentence in processed_sentences:
+        # Skip empty sentences
+        if not sentence.strip():
+            continue
+
+        # Convert NEWLINE_TOKEN to \n before counting tokens
+        sentence_for_token_count = sentence.replace('NEWLINE_TOKEN', '\n')
+        current_segment_for_token_count = current_segment.replace(
+            'NEWLINE_TOKEN', '\n')
+
+        # Calculate token counts
+        current_tokens_len = count_tokens_func(current_segment_for_token_count)
+        tokens_len = count_tokens_func(sentence_for_token_count)
+
+        stripped_sentence = sentence.replace('NEWLINE_TOKEN', '')
+        # Check if the sentence is a continuation of an ordered list item
+        if is_ordered_list_marker(stripped_sentence):
+            if is_ordered_list_sentence(stripped_sentence):
+                # Append the current segment if it's not empty
+                if current_segment:
+                    segments.append(current_segment)
+                    current_segment = ''
+
+                segments.append(sentence)
+            else:
+                current_segment += (' ' if current_segment else '') + sentence
+        # Check if adding the sentence exceeds the max token limit
+        elif current_tokens_len + tokens_len <= max_tokens:
+            current_segment += (' ' if current_segment else '') + sentence
+        else:
+            # Append the current segment if it's not empty
+            if current_segment and not is_ordered_list_marker(current_segment):
+                segments.append(current_segment)
+                current_segment = ''
+
+            # Handle the next sentence
+            if tokens_len <= max_tokens:
+                current_segment = sentence
+            else:
+                # Split long sentence into words and build segments
+                long_segment = handle_long_sentence(
+                    sentence, count_tokens_func, max_tokens)
+
+                current_segment += (' ' if current_segment else '') + \
+                    long_segment
+
+    # Append the last segment if it exists
+    if current_segment:
+        segments.append(current_segment)
+
+    # Replace NEWLINE_TOKEN with \n on all segments
+    segments = [segment.replace('NEWLINE_TOKEN', '\n') for segment in segments]
+
+    return segments
 
 
 def get_unique_sentences(text: str) -> list[str]:
