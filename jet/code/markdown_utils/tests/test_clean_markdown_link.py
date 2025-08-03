@@ -118,23 +118,21 @@ class TestCleanMarkdownLinks:
         assert result == expected
 
     def test_empty_alt(self):
+        # Given a markdown text with an empty alt text link
         input_text = "[ ](https://twitter.com/animesoulking)"
-        expected = " "
-
-        # When: We clean the markdown links
+        # When the link is processed
+        expected = "https://twitter.com/animesoulking"
+        # Then the result should be the URL
         result = clean_markdown_links(input_text)
-
-        # Then: The link should be replaced with the display text
         assert result == expected
 
     def test_empty_alt_with_space_in_between_bracket_and_parenthesis(self):
+        # Given a markdown text with an empty alt text link with space between brackets and parenthesis
         input_text = "[ ] (https://twitter.com/animesoulking)"
-        expected = " "
-
-        # When: We clean the markdown links
+        # When the link is processed
+        expected = "https://twitter.com/animesoulking"
+        # Then the result should be the URL
         result = clean_markdown_links(input_text)
-
-        # Then: The link should be replaced with the display text
         assert result == expected
 
     def test_multiline_markdown_with_various_elements(self):

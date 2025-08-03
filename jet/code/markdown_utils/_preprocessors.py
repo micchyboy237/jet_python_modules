@@ -37,14 +37,16 @@ def clean_markdown_links(text: str) -> str:
     Returns:
         str: Text with markdown text links replaced by their display text and image links removed.
     """
+    import re
 
     # Remove image links: ![alt](url) -> ''
     text = re.sub(r'!\[[^\]]*]\([^\)]*\)', '', text)
 
-    # Replace text links: [text](url) or [text] (url) -> text or ' ' if text is empty/whitespace
+    # Replace text links: [text](url) or [text] (url) -> text or url if text is empty/whitespace
     def replace_link(match: re.Match[str]) -> str:
         link_text = match.group(1)
-        return link_text.strip() if link_text.strip() else ' '
+        url = match.group(2)
+        return link_text.strip() if link_text.strip() else url
 
     # Match links with optional nested brackets
     text = re.sub(
