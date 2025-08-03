@@ -131,7 +131,7 @@ def chunk_texts_with_data(
     texts: Union[str, List[str]],
     chunk_size: int = 128,
     chunk_overlap: int = 0,
-    model: Optional[str] = None,
+    model: Optional[ModelType] = None,
     doc_ids: Optional[List[str]] = None,
     buffer: int = 0
 ) -> List[ChunkResult]:
