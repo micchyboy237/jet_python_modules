@@ -37,17 +37,13 @@ def clean_markdown_links(text: str) -> str:
     Returns:
         str: Text with markdown text links replaced by their display text and image links removed.
     """
-    logger.debug(f"Input text: {repr(text)}")
 
     # Remove image links: ![alt](url) -> ''
     text = re.sub(r'!\[[^\]]*]\([^\)]*\)', '', text)
-    logger.debug(f"After removing image links: {repr(text)}")
 
     # Replace text links: [text](url) or [text] (url) -> text or ' ' if text is empty/whitespace
     def replace_link(match: re.Match[str]) -> str:
         link_text = match.group(1)
-        logger.debug(
-            f"Matched link: {match.group(0)}, link_text: {repr(link_text)}")
         return link_text.strip() if link_text.strip() else ' '
 
     # Match links with optional nested brackets
@@ -56,7 +52,6 @@ def clean_markdown_links(text: str) -> str:
         replace_link,
         text
     )
-    logger.debug(f"After replacing text links: {repr(text)}")
 
     # Preserve newlines and normalize spaces within lines
     parts = re.split(r'(\n+)', text)
@@ -72,7 +67,6 @@ def clean_markdown_links(text: str) -> str:
         else:  # Handle empty or whitespace-only parts
             parts[i] = ' ' if part else ''
     text = ''.join(parts)
-    logger.debug(f"Final cleaned text: {repr(text)}")
 
     return text
 
