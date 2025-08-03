@@ -9,6 +9,7 @@ import pickle
 import os
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
+from jet.models.tokenizer.base import get_tokenizer_fn
 
 
 class ChunkSearchResult(TypedDict):
@@ -81,8 +82,10 @@ class VectorRetriever:
             self.config = RetrievalConfig(**config)
         else:
             self.config = config
+        self.model_name: EmbedModelType = self.config.embed_model
         self.model = SentenceTransformerRegistry.load_model(
             self.config.embed_model)
+        self.tokenizer = get_tokenizer_fn(self.config.embed_model)
         self.embeddings: Optional[np.ndarray] = None
         self.corpus: Optional[List[str]] = None
         self.index: Optional[faiss.IndexFlatIP] = None
@@ -308,7 +311,7 @@ class VectorRetriever:
                     "id": self.ids[idx],
                     "rank": i + 1,
                     "score": float(distances[0][i]),
-                    "num_tokens": len(self.corpus[idx].split()),
+                    "num_tokens": len(self.tokenizer(self.corpus[idx])),
                     "text": self.corpus[idx],
                     "cluster_label": int(self.cluster_labels[idx]),
                     "metadata": self.metadatas[idx]
@@ -321,7 +324,7 @@ class VectorRetriever:
                 "id": self.ids[idx],
                 "rank": i + 1,
                 "score": float(distances[0][i]),
-                "num_tokens": len(self.corpus[idx].split()),
+                "num_tokens": len(self.tokenizer(self.corpus[idx])),
                 "text": self.corpus[idx],
                 "cluster_label": int(self.cluster_labels[idx]) if self.cluster_labels is not None else -1,
                 "metadata": self.metadatas[idx]
