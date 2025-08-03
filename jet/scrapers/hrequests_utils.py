@@ -3,13 +3,16 @@ import aiohttp
 import asyncio
 import sys
 from fake_useragent import UserAgent
-from typing import AsyncIterator, List, Optional, Tuple
+from typing import AsyncIterator, List, Literal, Optional, Tuple
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.logger import logger
 from jet.scrapers.utils import scrape_links
 from jet.cache.redis.types import RedisConfigParams
 from jet.cache.redis.utils import RedisCache
 from tqdm.asyncio import tqdm_asyncio
+
+ScrapeStatus = Literal["started", "completed",
+                       "failed_no_html", "failed_error"]
 
 REDIS_CONFIG = RedisConfigParams(port=3102)
 cache = RedisCache(config=REDIS_CONFIG)
@@ -39,7 +42,13 @@ def sync_scrape_url(url: str) -> Optional[str]:
         return None
 
 
-async def scrape_url(session: aiohttp.ClientSession, url: str, ua: UserAgent, timeout: Optional[float] = 5.0, max_retries: int = 3) -> Optional[str]:
+async def scrape_url(
+    session: aiohttp.ClientSession,
+    url: str,
+    ua: UserAgent,
+    timeout: Optional[float] = 5.0,
+    max_retries: int = 1
+) -> Optional[str]:
     cache_key = f"html:{url}"
     cached_content = cache.get(cache_key)
 
@@ -86,14 +95,14 @@ async def scrape_urls(
     limit: Optional[int] = None,
     show_progress: bool = False,
     timeout: Optional[float] = 5.0,
-    max_retries: int = 3
-) -> AsyncIterator[Tuple[str, str, Optional[str]]]:
+    max_retries: int = 1
+) -> AsyncIterator[Tuple[str, ScrapeStatus, Optional[str]]]:
     ua = UserAgent()
     semaphore = asyncio.Semaphore(num_parallel)
     completed_count = 0
     tasks = []
 
-    async def sem_fetch_and_yield(url: str, session: aiohttp.ClientSession, pbar=None) -> List[Tuple[str, str, Optional[str]]]:
+    async def sem_fetch_and_yield(url: str, session: aiohttp.ClientSession, pbar=None) -> List[Tuple[str, ScrapeStatus, Optional[str]]]:
         results = []
         results.append((url, "started", None))
         async with semaphore:
@@ -110,7 +119,7 @@ async def scrape_urls(
                 if html:
                     results.append((url, "completed", html))
                 else:
-                    results.append((url, "no_html", None))
+                    results.append((url, "failed_no_html", None))
             except asyncio.CancelledError:
                 logger.info(f"Task for {url} was cancelled")
                 raise
@@ -118,7 +127,7 @@ async def scrape_urls(
                 logger.error(f"Exception while scraping {url}: {str(e)}")
                 if pbar:
                     pbar.update(1)
-                results.append((url, "error", None))
+                results.append((url, "failed_error", None))
         return results
 
     async with aiohttp.ClientSession() as session:
@@ -167,7 +176,7 @@ async def scrape_urls(
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def consume_generator(gen: AsyncIterator[Tuple[str, str, Optional[str]]]) -> List[Tuple[str, str, Optional[str]]]:
+async def consume_generator(gen: AsyncIterator[Tuple[str, ScrapeStatus, Optional[str]]]) -> List[Tuple[str, ScrapeStatus, Optional[str]]]:
     return [item async for item in gen]
 
 
@@ -197,7 +206,6 @@ async def main():
             html_list.append(html)
 
     logger.info(f"Scraped {len(html_list)} htmls")
-
 
 if __name__ == "__main__":
     asyncio.run(main())
