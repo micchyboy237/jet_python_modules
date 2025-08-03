@@ -26,6 +26,7 @@ from jet.llm.utils.search_docs import search_docs
 from sentence_transformers import SentenceTransformer
 from scipy.spatial.distance import cosine
 from jet.models.tokenizer.base import get_max_token_count
+from jet.vectors.clusters.cluster_types import ClusteringMode
 from jet.vectors.document_types import HeaderDocument, HeaderDocumentWithScore
 from jet.wordnet.words import get_words
 from jet.logger import logger, time_it
@@ -757,20 +758,22 @@ def plot_text_embeddings(texts: List[str], embeddings: List[List[float]], title:
 
 def group_similar_texts(
     texts: List[str],
-    threshold: float = 0.7,
-    model_name: EmbedModelType = "all-MiniLM-L6-v2",
+    threshold: float = 0.8,
+    model_name: str = "all-MiniLM-L6-v2",
     embeddings: Optional[List[np.ndarray]] = None,
     ids: Optional[List[str]] = None,
+    mode: ClusteringMode = "agglomerative"
 ) -> List[List[str]]:
     """
-    Groups similar texts based on cosine similarity score, with deduplicated input texts.
+    Groups similar texts based on cosine similarity score using specified clustering mode, with deduplicated input texts.
 
     Args:
         texts (List[str]): List of input texts to be grouped.
-        threshold (float): Similarity threshold for clustering. Default is 0.7.
-        model_name (EmbedModelType): Sentence transformer model to use for embedding if embeddings not provided.
+        threshold (float): Similarity threshold for clustering. Default is 0.8.
+        model_name (str): Sentence transformer model to use for embedding if embeddings not provided.
         embeddings (Optional[List[np.ndarray]]): Precomputed embeddings as a list of NumPy arrays.
         ids (Optional[List[str]]): Optional list of IDs corresponding to texts. If provided, these will replace the text in the output.
+        mode (ClusteringMode): Clustering method to use. Default is "agglomerative".
 
     Returns:
         List[List[str]]: List of grouped similar texts or their corresponding IDs, with no duplicate texts.
@@ -816,13 +819,27 @@ def group_similar_texts(
     # Ensure similarity matrix values are in [0, 1] (handle numerical precision issues)
     similarity_matrix = np.clip(similarity_matrix, 0, 1)
 
-    # Perform clustering using AgglomerativeClustering
-    clustering = AgglomerativeClustering(
-        n_clusters=None,
-        metric="precomputed",
-        linkage="average",
-        distance_threshold=1 - threshold
-    ).fit(1 - similarity_matrix)
+    # Perform clustering based on mode
+    if mode == "agglomerative":
+        clustering = AgglomerativeClustering(
+            n_clusters=None,
+            metric="precomputed",
+            linkage="average",
+            distance_threshold=1 - threshold
+        ).fit(1 - similarity_matrix)
+    else:  # mode == "kmeans"
+        # Estimate number of clusters based on threshold
+        n_texts = len(unique_texts)
+        above_threshold = similarity_matrix >= threshold
+        # Subtract diagonal, divide by 2
+        n_pairs = (np.sum(above_threshold) - n_texts) // 2
+        # Approximate number of clusters
+        n_clusters = max(1, n_texts - n_pairs)
+        clustering = KMeans(
+            n_clusters=n_clusters,
+            random_state=42,
+            n_init=10
+        ).fit(normalized_embeddings)
 
     # Organize texts or IDs into clusters
     clusters = {}

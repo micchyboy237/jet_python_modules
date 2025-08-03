@@ -1,3 +1,4 @@
+import uuid
 from jet.models.model_types import ModelType
 from jet.models.tokenizer.base import count_tokens, get_tokenizer_fn
 from jet.wordnet.text_chunker import chunk_texts
@@ -202,6 +203,7 @@ def merge_results(
         preprocessed_header = current_chunk["metadata"]["preprocessed_header"]
         preprocessed_headers_context = current_chunk["metadata"]["preprocessed_headers_context"]
         preprocessed_content = current_chunk["metadata"]["preprocessed_content"]
+        result_id = current_chunk["id"]  # Preserve the original result ID
         for next_chunk in chunks[1:]:
             next_start = next_chunk["metadata"]["start_idx"]
             next_end = next_chunk["metadata"]["end_idx"]
@@ -225,14 +227,15 @@ def merge_results(
                 avg_score = total_score / chunk_count
                 avg_content_sim = sum(content_sims) / chunk_count
                 merged_results.append({
+                    "id": result_id,  # Use the preserved ID
                     "rank": current_chunk["rank"],
                     "score": avg_score,
                     "header": current_chunk["header"],
                     "parent_header": current_chunk["parent_header"],
                     "content": merged_content,
                     "metadata": {
-                        "id": current_chunk["metadata"]["id"],
                         "doc_index": doc_index,
+                        "doc_id": current_chunk["metadata"]["doc_id"],
                         "level": current_chunk["metadata"]["level"],
                         "parent_level": current_chunk["metadata"]["parent_level"],
                         "parent_headers": current_chunk["metadata"].get("parent_headers", []),
@@ -262,17 +265,20 @@ def merge_results(
                 preprocessed_header = current_chunk["metadata"]["preprocessed_header"]
                 preprocessed_headers_context = current_chunk["metadata"]["preprocessed_headers_context"]
                 preprocessed_content = current_chunk["metadata"]["preprocessed_content"]
+                # Update to the next chunk's ID
+                result_id = current_chunk["id"]
         avg_score = total_score / chunk_count
         avg_content_sim = sum(content_sims) / chunk_count
         merged_results.append({
+            "id": result_id,  # Use the preserved ID
             "rank": current_chunk["rank"],
             "score": avg_score,
             "header": current_chunk["header"],
             "parent_header": current_chunk["parent_header"],
             "content": merged_content,
             "metadata": {
-                "id": current_chunk["metadata"]["id"],
                 "doc_index": doc_index,
+                "doc_id": current_chunk["metadata"]["doc_id"],
                 "level": current_chunk["metadata"]["level"],
                 "parent_level": current_chunk["metadata"]["parent_level"],
                 "parent_headers": current_chunk["metadata"].get("parent_headers", []),
@@ -365,14 +371,15 @@ def search_headers(
         if weighted_sim >= threshold:
             chunk_counts[doc_index] = chunk_counts.get(doc_index, -1) + 1
             result: HeaderSearchResult = {
+                "id": str(uuid.uuid4()),  # Generate unique ID for each result
                 "rank": 0,
                 "score": float(weighted_sim),
                 "header": header_doc['header'],
                 "parent_header": header_doc['parent_header'],
                 "content": original_chunk,
                 "metadata": {
-                    "id": header_doc['id'],
                     "doc_index": doc_index,
+                    "doc_id": header_doc['id'],
                     "level": header_doc['level'],
                     "parent_level": header_doc['parent_level'],
                     "parent_headers": header_doc.get('parent_headers', []),

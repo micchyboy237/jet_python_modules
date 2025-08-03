@@ -60,8 +60,8 @@ class HeaderDoc(TypedDict):
 
 class HeaderSearchMetadata(TypedDict):
     """Typed dictionary for search result metadata."""
-    id: str
     doc_index: int
+    doc_id: str
     level: Optional[int]
     parent_level: Optional[int]
     parent_headers: List[str]
@@ -80,6 +80,7 @@ class HeaderSearchMetadata(TypedDict):
 
 class HeaderSearchResult(TypedDict):
     """Typed dictionary for search result structure."""
+    id: str
     rank: int
     score: float
     header: str
