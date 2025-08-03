@@ -231,8 +231,8 @@ def merge_results(
                     "parent_header": current_chunk["parent_header"],
                     "content": merged_content,
                     "metadata": {
+                        "id": current_chunk["metadata"]["id"],
                         "doc_index": doc_index,
-                        "doc_id": current_chunk["metadata"]["doc_id"],
                         "level": current_chunk["metadata"]["level"],
                         "parent_level": current_chunk["metadata"]["parent_level"],
                         "parent_headers": current_chunk["metadata"].get("parent_headers", []),
@@ -271,8 +271,8 @@ def merge_results(
             "parent_header": current_chunk["parent_header"],
             "content": merged_content,
             "metadata": {
+                "id": current_chunk["metadata"]["id"],
                 "doc_index": doc_index,
-                "doc_id": current_chunk["metadata"]["doc_id"],
                 "level": current_chunk["metadata"]["level"],
                 "parent_level": current_chunk["metadata"]["parent_level"],
                 "parent_headers": current_chunk["metadata"].get("parent_headers", []),

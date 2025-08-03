@@ -1,3 +1,8 @@
+from jet.vectors.semantic_search.header_vector_search import collect_header_chunks, compute_weighted_similarity, merge_results
+import re
+from jet.models.model_types import ModelType
+from jet.models.tokenizer.base import get_tokenizer_fn
+from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, HeaderSearchResult
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import hdbscan
@@ -10,6 +15,14 @@ from jet.models.model_registry.transformers.sentence_transformer_registry import
 from jet.models.model_types import EmbedModelType
 
 
+class ChunkMetadata(TypedDict):
+    """Typed dictionary for chunk metadata."""
+    source: Optional[str]
+    doc_index: Optional[int]
+    start_idx: Optional[int]
+    end_idx: Optional[int]
+
+
 class ChunkSearchResult(TypedDict):
     """Typed dictionary for search result."""
     rank: int
@@ -17,12 +30,14 @@ class ChunkSearchResult(TypedDict):
     num_tokens: int
     text: str
     cluster_label: int
+    metadata: ChunkMetadata
 
 
 class ClusterInfo(TypedDict):
     """Typed dictionary for cluster information."""
     cluster_label: int
     texts: List[str]
+    metadata: List[ChunkMetadata]
 
 
 class CentroidInfo(TypedDict):
@@ -33,15 +48,17 @@ class CentroidInfo(TypedDict):
 
 class CentroidSearchResult(TypedDict):
     """Typed dictionary for centroid search results."""
+    rank: int
     cluster_label: int
-    similarity: float
-    most_similar_text: str
+    score: float
+    text: str
     diverse_texts: List[str]
+    metadata: ChunkMetadata
 
 
 class RetrievalConfigDict(TypedDict, total=False):
     """Typed dictionary for vector retrieval configuration."""
-    model_name: EmbedModelType
+    embed_model: EmbedModelType
     min_cluster_size: int
     k_clusters: int
     top_k: Optional[int]
@@ -53,7 +70,7 @@ class RetrievalConfigDict(TypedDict, total=False):
 @dataclass
 class RetrievalConfig:
     """Configuration for vector retrieval parameters."""
-    model_name: EmbedModelType = 'mxbai-embed-large'
+    embed_model: EmbedModelType = 'mxbai-embed-large'
     min_cluster_size: int = 2
     k_clusters: int = 2
     top_k: Optional[int] = None
@@ -71,26 +88,41 @@ class VectorRetriever:
         else:
             self.config = config
         self.model = SentenceTransformerRegistry.load_model(
-            self.config.model_name)
+            self.config.embed_model)
         self.embeddings: Optional[np.ndarray] = None
         self.corpus: Optional[List[str]] = None
+        self.metadata: Optional[List[ChunkMetadata]] = None
         self.index: Optional[faiss.IndexFlatIP] = None
         self.cluster_labels: Optional[np.ndarray] = None
         self.cluster_centroids: Optional[np.ndarray] = None
 
-    def load_or_compute_embeddings(self, corpus: List[str], cache_file: Optional[str] = None) -> np.ndarray:
+    def load_or_compute_embeddings(self, corpus: List[Union[str, Tuple[str, ChunkMetadata]]], cache_file: Optional[str] = None) -> np.ndarray:
         """Load cached embeddings or compute new ones."""
         active_cache_file = cache_file or self.config.cache_file
         if not corpus:
             raise ValueError("Corpus cannot be empty")
-        self.corpus = corpus
+
+        # Extract texts and metadata
+        self.metadata = []
+        texts = []
+        for item in corpus:
+            if isinstance(item, tuple):
+                text, meta = item
+                texts.append(text)
+                self.metadata.append(meta)
+            else:
+                texts.append(item)
+                self.metadata.append(
+                    {"source": None, "doc_index": None, "start_idx": None, "end_idx": None})
+
+        self.corpus = texts
         if active_cache_file and os.path.exists(active_cache_file):
             with open(active_cache_file, 'rb') as f:
                 self.embeddings = pickle.load(f)
-            if self.embeddings.shape[0] != len(corpus):
+            if self.embeddings.shape[0] != len(texts):
                 raise ValueError("Cached embeddings do not match corpus size")
         else:
-            self.embeddings = self.model.encode(corpus, convert_to_numpy=True)
+            self.embeddings = self.model.encode(texts, convert_to_numpy=True)
             faiss.normalize_L2(self.embeddings)
             if active_cache_file:
                 with open(active_cache_file, 'wb') as f:
@@ -130,23 +162,28 @@ class VectorRetriever:
         self.index.add(self.embeddings)
 
     def get_clusters(self) -> List[ClusterInfo]:
-        """Return a list of clusters with their labels and associated text chunks."""
-        if self.corpus is None or self.cluster_labels is None:
+        """Return a list of clusters with their labels, texts, and metadata."""
+        if self.corpus is None or self.cluster_labels is None or self.metadata is None:
             raise ValueError(
                 "Retriever not initialized with corpus or clusters")
 
-        # Initialize dictionary to group texts by cluster label
+        # Initialize dictionary to group texts and metadata by cluster label
         cluster_dict = {}
         for idx, cluster_label in enumerate(self.cluster_labels):
             cluster_label = int(cluster_label)  # Ensure integer type
             if cluster_label not in cluster_dict:
-                cluster_dict[cluster_label] = []
-            cluster_dict[cluster_label].append(self.corpus[idx])
+                cluster_dict[cluster_label] = {"texts": [], "metadata": []}
+            cluster_dict[cluster_label]["texts"].append(self.corpus[idx])
+            cluster_dict[cluster_label]["metadata"].append(self.metadata[idx])
 
         # Convert to list of ClusterInfo
         clusters: List[ClusterInfo] = [
-            {"cluster_label": cluster_label, "texts": texts}
-            for cluster_label, texts in sorted(cluster_dict.items())
+            {
+                "cluster_label": cluster_label,
+                "texts": data["texts"],
+                "metadata": data["metadata"]
+            }
+            for cluster_label, data in sorted(cluster_dict.items())
         ]
         return clusters
 
@@ -168,7 +205,7 @@ class VectorRetriever:
         """Return similarity scores for each centroid given a query, sorted by similarity in descending order, with most similar and diverse texts."""
         if not query:
             raise ValueError("Query cannot be empty")
-        if self.cluster_centroids is None or self.cluster_centroids.shape[0] == 0 or self.corpus is None or self.cluster_labels is None:
+        if self.cluster_centroids is None or self.cluster_centroids.shape[0] == 0 or self.corpus is None or self.cluster_labels is None or self.metadata is None:
             return []
 
         # Encode query and compute cosine similarities
@@ -180,13 +217,14 @@ class VectorRetriever:
 
         results: List[CentroidSearchResult] = []
         for cluster_label in range(len(self.cluster_centroids)):
-            # Get texts and embeddings for the current cluster
+            # Get texts, embeddings, and metadata for the current cluster
             cluster_mask = self.cluster_labels == cluster_label
             cluster_indices = np.where(cluster_mask)[0]
             if len(cluster_indices) == 0:
                 continue
             cluster_texts = [self.corpus[idx] for idx in cluster_indices]
             cluster_embeddings = self.embeddings[cluster_mask]
+            cluster_metadata = [self.metadata[idx] for idx in cluster_indices]
 
             # Find most similar text to the centroid
             centroid = self.cluster_centroids[cluster_label].reshape(1, -1)
@@ -194,6 +232,7 @@ class VectorRetriever:
                 cluster_embeddings, centroid.T).flatten()
             most_similar_idx = np.argmax(text_similarities)
             most_similar_text = cluster_texts[most_similar_idx]
+            most_similar_metadata = cluster_metadata[most_similar_idx]
 
             # Find diverse texts
             diverse_texts = []
@@ -219,14 +258,21 @@ class VectorRetriever:
                     if len(diverse_texts) >= 3:  # Limit to 3 diverse texts for efficiency
                         break
 
-            results.append(CentroidSearchResult(
-                cluster_label=int(cluster_label),
-                similarity=float(similarities[cluster_label]),
-                most_similar_text=most_similar_text,
-                diverse_texts=diverse_texts
-            ))
+            results.append({
+                "rank": len(results) + 1,
+                "cluster_label": int(cluster_label),
+                "score": float(similarities[cluster_label]),
+                "text": most_similar_text,
+                "diverse_texts": diverse_texts,
+                "metadata": most_similar_metadata
+            })
 
-        return sorted(results, key=lambda x: x["similarity"], reverse=True)
+        sorted_results = sorted(
+            results, key=lambda x: x["score"], reverse=True)
+        # Reassign ranks starting from 1
+        for i, result in enumerate(sorted_results):
+            result["rank"] = i + 1
+        return sorted_results
 
     def search_chunks(self, query: str, k_clusters: Optional[int] = None, top_k: Optional[int] = None, cluster_threshold: Optional[int] = None, threshold: Optional[float] = None) -> List[ChunkSearchResult]:
         """Retrieve top-k relevant chunks for the query, optionally filtered by similarity threshold."""
@@ -236,7 +282,7 @@ class VectorRetriever:
         active_threshold = threshold or self.config.threshold
         if not query:
             raise ValueError("Query cannot be empty")
-        if self.embeddings is None or self.index is None:
+        if self.embeddings is None or self.index is None or self.metadata is None:
             raise ValueError("Retriever not initialized with corpus")
         query_embedding = self.model.encode([query], convert_to_numpy=True)
         faiss.normalize_L2(query_embedding)
@@ -254,6 +300,8 @@ class VectorRetriever:
                 if len(cluster_indices) == 0:
                     continue
                 cluster_embeddings = self.embeddings[cluster_mask]
+                cluster_metadata = [self.metadata[idx]
+                                    for idx in cluster_indices]
                 temp_index = faiss.IndexFlatIP(self.embeddings.shape[1])
                 temp_index.add(cluster_embeddings)
                 search_k = len(cluster_indices) if active_top_k is None else min(
@@ -262,11 +310,12 @@ class VectorRetriever:
                     query_embedding, search_k)
                 global_indices = cluster_indices[indices[0]]
                 top_chunks.extend([{
-                    "rank": i + 1,
+                    "rank": len(top_chunks) + i + 1,
                     "score": float(distances[0][i]),
                     "num_tokens": len(self.corpus[idx].split()),
                     "text": self.corpus[idx],
-                    "cluster_label": int(self.cluster_labels[idx])
+                    "cluster_label": int(self.cluster_labels[idx]),
+                    "metadata": self.metadata[idx]
                 } for i, idx in enumerate(global_indices)])
         if not top_chunks:
             search_k = len(
@@ -277,14 +326,139 @@ class VectorRetriever:
                 "score": float(distances[0][i]),
                 "num_tokens": len(self.corpus[idx].split()),
                 "text": self.corpus[idx],
-                "cluster_label": int(self.cluster_labels[idx]) if self.cluster_labels is not None else -1
+                "cluster_label": int(self.cluster_labels[idx]) if self.cluster_labels is not None else -1,
+                "metadata": self.metadata[idx]
             } for i, idx in enumerate(indices[0])]
         if active_threshold is not None:
             top_chunks = [
                 chunk for chunk in top_chunks if chunk["score"] >= active_threshold]
         sorted_chunks = sorted(
             top_chunks, key=lambda x: x["score"], reverse=True)
-        # Reassign ranks after sorting
+        # Reassign ranks starting from 1
         for i, chunk in enumerate(sorted_chunks):
             chunk["rank"] = i + 1
         return sorted_chunks[:active_top_k] if active_top_k is not None else sorted_chunks
+
+    def search_headers(
+        self,
+        header_docs: List[HeaderDoc],
+        query: str,
+        top_k: Optional[Union[int, str]] = None,
+        chunk_size: int = 500,
+        chunk_overlap: int = 100,
+        buffer: int = 0,
+        threshold: float = 0.0,
+        tokenizer_model: Optional[ModelType] = None,
+        merge_chunks: bool = False
+    ) -> List[HeaderSearchResult]:
+        """
+        Search headers using vector similarity on chunked contents and header metadata.
+        Returns up to top_k results that meet the threshold, preserving original texts.
+
+        Args:
+            header_docs: List of HeaderDoc objects to search through
+            query: Search query string
+            top_k: Maximum number of results to return (None for all results)
+            chunk_size: Size of content chunks
+            chunk_overlap: Overlap between chunks
+            buffer: Buffer size for token-based chunking
+            threshold: Minimum similarity score for results
+            tokenizer_model: Optional LLM model for token-based chunking
+            merge_chunks: Whether to merge adjacent chunks from the same header
+
+        Returns:
+            List of HeaderSearchResult dictionaries, sorted by similarity score
+        """
+        if not query:
+            raise ValueError("Query cannot be empty")
+        if not header_docs:
+            return []
+
+        def default_tokenizer(text): return len(
+            re.findall(r'\b\w+\b|[^\w\s]', text))
+        tokenizer = get_tokenizer_fn(
+            tokenizer_model) if tokenizer_model else default_tokenizer
+
+        # Collect chunked data
+        doc_indices, headers, headers_context, chunk_data = collect_header_chunks(
+            header_docs, chunk_size, chunk_overlap, tokenizer_model, buffer
+        )
+        if not chunk_data:
+            return []
+
+        # Prepare texts for embedding
+        unique_docs = list(dict.fromkeys(doc_indices))
+        header_texts = [headers[doc_indices.index(idx)] for idx in unique_docs]
+        parent_texts = [
+            headers_context[doc_indices.index(idx)] for idx in unique_docs]
+        chunked_texts = [chunk for _, _, chunk, _, _, _, _, _, _ in chunk_data]
+        all_texts = [query] + header_texts + parent_texts + chunked_texts
+
+        # Generate embeddings using the VectorRetriever's model
+        all_vectors = self.model.encode(all_texts, convert_to_numpy=True)
+        faiss.normalize_L2(all_vectors)
+        query_vector = all_vectors[0]
+        num_headers = len(header_texts)
+        num_parents = len(parent_texts)
+        header_vectors = all_vectors[1:num_headers + 1]
+        parent_vectors = all_vectors[num_headers +
+                                     1:num_headers + 1 + num_parents]
+        content_vectors = all_vectors[num_headers + 1 + num_parents:]
+
+        # Compute similarities and collect results
+        results: List[HeaderSearchResult] = []
+        chunk_counts = {}
+        for i, (doc_index, header, chunk, original_chunk, preprocessed_header, preprocessed_headers_context, start_idx, end_idx, num_tokens) in enumerate(chunk_data):
+            unique_doc_idx = unique_docs.index(doc_index)
+            header_doc = next(
+                hd for hd in header_docs if hd['doc_index'] == doc_index)
+            content_vector = content_vectors[i]
+            weighted_sim, header_content_sim, headers_sim, content_sim = compute_weighted_similarity(
+                query_vector, header_vectors[unique_doc_idx], parent_vectors[unique_doc_idx],
+                content_vector, len(num_tokens), header_doc['level']
+            )
+
+            if weighted_sim >= threshold:
+                chunk_counts[doc_index] = chunk_counts.get(doc_index, -1) + 1
+                result: HeaderSearchResult = {
+                    "rank": 0,
+                    "score": float(weighted_sim),
+                    "header": header_doc['header'],
+                    "parent_header": header_doc['parent_header'],
+                    "content": original_chunk,
+                    "metadata": {
+                        "id": header_doc['id'],
+                        "doc_index": doc_index,
+                        "level": header_doc['level'],
+                        "parent_level": header_doc['parent_level'],
+                        "parent_headers": header_doc.get('parent_headers', []),
+                        "start_idx": start_idx,
+                        "end_idx": end_idx,
+                        "chunk_idx": chunk_counts[doc_index],
+                        "source": header_doc['source'],
+                        "header_content_similarity": float(header_content_sim),
+                        "headers_similarity": float(headers_sim),
+                        "content_similarity": float(content_sim),
+                        "num_tokens": len(num_tokens),
+                        "preprocessed_header": preprocessed_header,
+                        "preprocessed_headers_context": preprocessed_headers_context,
+                        "preprocessed_content": chunk
+                    },
+                }
+                results.append(result)
+
+        # Convert top_k to int or None if it's a string
+        active_top_k = len(results) if top_k is None else top_k
+
+        # Sort and optionally merge results
+        results.sort(key=lambda x: x["score"], reverse=True)
+        if merge_chunks:
+            results = merge_results(results, chunk_size, tokenizer)
+
+        # Assign ranks and apply top_k limit
+        final_results = results if active_top_k is None else results[:active_top_k] if active_top_k > 0 else [
+        ]
+        for i, result in enumerate(final_results, 1):
+            result["rank"] = i
+
+        return final_results
