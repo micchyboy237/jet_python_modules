@@ -25,11 +25,11 @@ def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> 
     parser = MarkdownParser(md_content)
     md_tokens: List[MarkdownToken] = make_serializable(parser.parse())
 
-    # Split paragraph tokens by newlines and handle dict content
+    # Split paragraph tokens by newlines and handle dict or list content
     split_tokens: List[MarkdownToken] = []
     for token in md_tokens:
-        if isinstance(token.get('content'), dict):
-            # Handle dict content by setting type to 'json' and converting to string
+        if isinstance(token.get('content'), (dict, list)):
+            # Handle dict or list content by setting type to 'json' and converting to string
             split_tokens.append({
                 'type': 'json',
                 'content': f"```json{json.dumps(token['content'])}```",
