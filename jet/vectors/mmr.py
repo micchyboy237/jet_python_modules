@@ -1,6 +1,8 @@
 from typing import List, TypedDict
 import numpy as np
 
+from jet.logger import logger
+
 
 class MMRResult(TypedDict):
     index: int
@@ -30,12 +32,12 @@ def get_diverse_results(
         List of MMRResult dictionaries with index, text, and similarity to query.
 
     Raises:
-        ValueError: If inputs are invalid (empty query, texts, mismatched shapes, or invalid indices).
+        ValueError: If inputs are invalid (empty query, mismatched shapes, or invalid indices).
     """
     if query_embedding.size == 0 or query_embedding.ndim != 2 or query_embedding.shape[0] != 1:
         raise ValueError(
             "Query embedding must be a 2D array with shape [1, dim]")
-    if text_embeddings.size == 0 or text_embeddings.ndim != 2:
+    if text_embeddings.ndim != 2:
         raise ValueError(
             "Text embeddings must be a 2D array with shape [n, dim]")
     if len(texts) != text_embeddings.shape[0]:
@@ -57,19 +59,32 @@ def get_diverse_results(
             raise ValueError("initial_indices must not contain duplicates")
 
     num_results = min(num_results, num_texts)
-    if num_results == 0:
+    if num_results == 0 or text_embeddings.shape[0] == 0:
         return []
 
     # Compute initial similarities to query
     similarities = np.dot(text_embeddings, query_embedding.T).flatten()
+    logger.debug(f"Query similarities: {similarities}")
+    logger.debug(
+        f"Text embeddings norms: {np.linalg.norm(text_embeddings, axis=1)}")
 
     # Initialize result set with initial_indices
     selected_indices = list(initial_indices)
     available_indices = [i for i in range(
         num_texts) if i not in initial_indices]
 
+    # Select first result (most relevant to query) if no initial indices
+    if not selected_indices:
+        if available_indices:
+            first_idx = np.argmax(similarities[available_indices])
+            first_idx = available_indices[first_idx]
+            selected_indices.append(first_idx)
+            available_indices.remove(first_idx)
+            logger.debug(
+                f"Selected first index {first_idx} with similarity {similarities[first_idx]:.3f}")
+
     # Select remaining results using MMR
-    for _ in range(num_results - len(initial_indices)):
+    for iteration in range(num_results - len(selected_indices)):
         if not available_indices:
             break
 
@@ -78,20 +93,26 @@ def get_diverse_results(
             # Relevance: similarity to query
             relevance = similarities[idx]
 
-            # Diversity: minimum similarity to selected texts
+            # Diversity: maximum similarity to selected texts
             if len(selected_indices) > 0:
                 selected_embeddings = text_embeddings[selected_indices]
-                diversity = np.min(
+                diversity = np.max(
                     np.dot(text_embeddings[idx:idx+1], selected_embeddings.T))
             else:
                 diversity = 0.0
 
-            # MMR score: λ * relevance - (1-λ) * diversity
-            mmr_scores[i] = mmr_lambda * relevance - \
-                (1 - mmr_lambda) * diversity
+            # MMR score: λ * relevance + (1-λ) * (1 - diversity)
+            mmr_scores[i] = mmr_lambda * relevance + \
+                (1 - mmr_lambda) * (1 - diversity)
+
+            # Debug log
+            logger.debug(f"Iteration {iteration}, Candidate {idx} ({texts[idx]}): "
+                         f"relevance={relevance:.3f}, diversity={diversity:.3f}, mmr_score={mmr_scores[i]:.3f}")
 
         # Select text with highest MMR score
         best_idx = available_indices[np.argmax(mmr_scores)]
+        logger.debug(
+            f"Iteration {iteration}: Selected index {best_idx} ({texts[best_idx]}) with MMR score {np.max(mmr_scores):.3f}")
         selected_indices.append(best_idx)
         available_indices.remove(best_idx)
 
@@ -105,4 +126,5 @@ def get_diverse_results(
         for idx in selected_indices
     ]
 
+    logger.debug(f"Final selected indices: {selected_indices}")
     return results

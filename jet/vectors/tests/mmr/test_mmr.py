@@ -98,10 +98,10 @@ class TestGetDiverseResults:
         expected = [
             {"index": 0, "text": "Query-like text",
                 "similarity": pytest.approx(1.0)},
-            {"index": 1, "text": "Moderate text",
-                "similarity": pytest.approx(0.707, abs=0.001)},
             {"index": 3, "text": "Similar to moderate text",
-                "similarity": pytest.approx(0.80, abs=0.001)}
+                "similarity": pytest.approx(0.8, abs=0.001)},
+            {"index": 1, "text": "Moderate text",
+                "similarity": pytest.approx(0.707, abs=0.001)}
         ]
 
         # When: We call get_diverse_results
@@ -157,7 +157,7 @@ class TestGetDiverseResults:
         texts = self.texts
         mmr_lambda = 0.5
         num_results = 3
-        initial_indices = [1]  # Pre-select "Moderate text"
+        initial_indices = [1]
         expected = [
             {"index": 1, "text": "Moderate text",
                 "similarity": pytest.approx(0.707, abs=0.001)},
@@ -181,7 +181,7 @@ class TestGetDiverseResults:
         texts = self.texts
         mmr_lambda = 0.5
         num_results = 3
-        initial_indices = [4]  # Out of range
+        initial_indices = [4]
 
         # When: We call get_diverse_results
         # Then: It raises a ValueError
