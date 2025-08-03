@@ -31,13 +31,13 @@ class GenerationConfig(TypedDict, total=False):
 
 class GenerateResponseResult(TypedDict):
     """Typed dictionary for the result of generate_response."""
-    context: str
+    prompt: str
     response: str
 
 
 DEFAULT_GENERATION_CONFIG: GenerationConfig = {
     "max_tokens": -1,
-    "temperature": 0.0,
+    "temperature": 0.7,
     "top_p": 1.0,
     "min_p": 0.0,
     "min_tokens_to_keep": 0,
@@ -113,8 +113,6 @@ class LLMGenerator:
 
     def _build_context(self, query: str, chunks: List[Tuple[str, float]]) -> str:
         """Build structured context for RAG using retrieved chunks."""
-        if not chunks:
-            return "No relevant information found for the query."
 
         context_lines = [f"Query: {query}"]
         for i, (chunk, score) in enumerate(chunks, 1):
@@ -145,11 +143,8 @@ class LLMGenerator:
         #     summary = f"In summary, {chunks[0][0] if chunks else 'no relevant information was found.'}"
 
         context = self._build_context(query, chunks)
-        if context == "No relevant information found for the query.":
-            return {
-                "context": "",
-                "response": "No relevant information found for the query."
-            }
+        if not context:
+            raise ValueError("No relevant information found for the query.")
 
         # Estimate reserved length for intro and summary
         # reserved_length = len(intro) + len(summary) + 2  # +2 for newlines
@@ -163,6 +158,6 @@ class LLMGenerator:
         response = self.llm.chat(prompt, **generation_config)
 
         return {
-            "context": truncated_context,
+            "prompt": prompt,
             "response": response["content"],
         }
