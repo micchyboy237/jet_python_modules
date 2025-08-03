@@ -23,8 +23,7 @@ class TestSelectDiverseTexts:
             [0.9, 0.1],  # Text 0
             [0.9, 0.1],  # Text 1: similar to 0
             [0.1, 0.9],  # Text 2: dissimilar to 0,1
-            # Text 3: dissimilar to 0,1,2 (dot product with 2: -0.9*0.1 + 0.1*0.9 = 0.0)
-            [-0.9, 0.1]
+            [-0.9, 0.1]  # Text 3: dissimilar to 0,1,2
         ], dtype=np.float32)
         cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
         logger.debug(
@@ -152,11 +151,9 @@ class TestSelectDiverseTexts:
         ]
         # Mock embeddings: all texts are somewhat similar to ensure rejection at low threshold
         cluster_embeddings = np.array([
-            [0.9, 0.1],  # Text 0
-            # Text 1: similar to 0 (dot product: 0.825, normalized ~0.999)
-            [0.85, 0.15],
-            # Text 2: similar to 0 (dot product: 0.74, normalized ~0.998)
-            [0.8, 0.2]
+            [0.9, 0.1],   # Text 0
+            [0.85, 0.15],  # Text 1: similar to 0
+            [0.8, 0.2]   # Text 2: similar to 0
         ], dtype=np.float32)
         cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
         logger.debug(
@@ -178,4 +175,48 @@ class TestSelectDiverseTexts:
         )
 
         # Then: Expect only the initial text due to low threshold
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+    def test_select_diverse_texts_with_dynamic_max_diverse_texts(self):
+        """Test selecting diverse texts with dynamic max_diverse_texts."""
+        # Given: A set of texts and embeddings with some dissimilar texts
+        cluster_texts = [
+            "The cat is on the mat",
+            "The cat sits on the mat",
+            "The dog runs in the park",
+            "Birds fly in the sky",
+            "Fish swim in the ocean"
+        ]
+        # Mock embeddings: texts 0,1 similar; 2,3,4 dissimilar to 0,1 and each other
+        cluster_embeddings = np.array([
+            [0.9, 0.1],   # Text 0
+            [0.9, 0.1],   # Text 1: similar to 0
+            [0.1, 0.9],   # Text 2: dissimilar to 0,1
+            [-0.9, 0.1],  # Text 3: dissimilar to 0,1,2
+            [0.1, -0.9]   # Text 4: dissimilar to 0,1,2,3
+        ], dtype=np.float32)
+        cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
+        logger.debug(
+            f"cluster_embeddings dtype: {cluster_embeddings.dtype}, shape: {cluster_embeddings.shape}, is_contiguous: {cluster_embeddings.flags['C_CONTIGUOUS']}")
+        faiss.normalize_L2(cluster_embeddings)
+        logger.debug(
+            f"After normalization, cluster_embeddings: {cluster_embeddings}")
+        initial_text_idx = 0
+        diversity_threshold = 0.8
+        expected = [
+            "The cat is on the mat",
+            "The dog runs in the park",
+            "Birds fly in the sky"
+        ]
+
+        # When: Selecting diverse texts with max_diverse_texts=None
+        result = select_diverse_texts(
+            cluster_embeddings=cluster_embeddings,
+            cluster_texts=cluster_texts,
+            initial_text_idx=initial_text_idx,
+            diversity_threshold=diversity_threshold,
+            max_diverse_texts=None
+        )
+
+        # Then: Expect up to 3 diverse texts (dynamic default)
         assert result == expected, f"Expected {expected}, but got {result}"

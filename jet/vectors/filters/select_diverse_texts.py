@@ -18,7 +18,7 @@ def select_diverse_texts(
     cluster_texts: List[str],
     initial_text_idx: int,
     diversity_threshold: float = 0.8,
-    max_diverse_texts: int = 3
+    max_diverse_texts: Optional[int] = None
 ) -> List[str]:
     """Select a diverse subset of texts from a cluster based on embedding similarity.
 
@@ -27,7 +27,7 @@ def select_diverse_texts(
         cluster_texts: List of texts in the cluster.
         initial_text_idx: Index of the initial text to include (e.g., most similar to centroid).
         diversity_threshold: Maximum cosine similarity for texts to be considered diverse.
-        max_diverse_texts: Maximum number of diverse texts to return.
+        max_diverse_texts: Maximum number of diverse texts to return. If None, defaults to min(3, len(cluster_texts)).
 
     Returns:
         List of diverse texts, starting with the text at initial_text_idx.
@@ -36,7 +36,7 @@ def select_diverse_texts(
         f"Input embeddings shape: {cluster_embeddings.shape}, dtype: {cluster_embeddings.dtype}")
     logger.debug(f"Input texts: {cluster_texts}")
     logger.debug(
-        f"Initial text index: {initial_text_idx}, threshold: {diversity_threshold}")
+        f"Initial text index: {initial_text_idx}, threshold: {diversity_threshold}, max_diverse_texts: {max_diverse_texts}")
 
     if len(cluster_texts) == 0 or len(cluster_texts) != cluster_embeddings.shape[0]:
         logger.debug(
@@ -45,6 +45,11 @@ def select_diverse_texts(
     if initial_text_idx < 0 or initial_text_idx >= len(cluster_texts):
         logger.debug("Invalid initial index, returning empty list")
         return []
+
+    # Set max_diverse_texts dynamically if not provided
+    active_max_diverse_texts = min(
+        3, len(cluster_texts)) if max_diverse_texts is None else max_diverse_texts
+    logger.debug(f"Active max_diverse_texts: {active_max_diverse_texts}")
 
     diverse_texts = [cluster_texts[initial_text_idx]]
     remaining_indices = [i for i in range(
@@ -72,9 +77,9 @@ def select_diverse_texts(
         if is_diverse:
             diverse_texts.append(cluster_texts[i])
             logger.debug(f"Text {i} added: {cluster_texts[i]}")
-        if len(diverse_texts) >= max_diverse_texts:
+        if len(diverse_texts) >= active_max_diverse_texts:
             logger.debug(
-                f"Reached max_diverse_texts ({max_diverse_texts}), stopping")
+                f"Reached max_diverse_texts ({active_max_diverse_texts}), stopping")
             break
 
     logger.debug(f"Final diverse texts: {diverse_texts}")
