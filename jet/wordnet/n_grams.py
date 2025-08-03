@@ -234,35 +234,48 @@ def get_ngram_weight(all_ngrams, sentence_ngrams, previous_ngrams):
     return sum(1 / all_ngrams[ngram] for ngram in sentence_ngrams if ngram in all_ngrams) + penalty
 
 
-def sort_sentences(sentences, n):
+def sort_sentences(sentences: List[str], n: int) -> List[str]:
     all_ngrams = Counter()
     sentence_ngrams_dict = {}
     for sentence in tqdm(sentences, desc="Precomputing n-grams"):
-        ngram_list = get_words(sentence, n)
+        ngram_list = get_ngrams(sentence, n)
         all_ngrams.update(ngram_list)
         sentence_ngrams_dict[sentence] = ngram_list
-    sorted_sentences = sorted(sentences)
+    sorted_sentences = []
+    for _ in tqdm(range(len(sentences)), desc="Sorting sentences"):
+        if sorted_sentences:
+            previous_ngrams = set(get_ngrams(sorted_sentences[-1], n))
+        else:
+            previous_ngrams = set()
+        sentences.sort(key=lambda sentence: (get_ngram_weight(
+            all_ngrams, sentence_ngrams_dict[sentence], previous_ngrams), sentence))
+        sorted_sentences.append(sentences.pop(0))
     return sorted_sentences
 
 
-def filter_and_sort_sentences_by_ngrams(sentences: List[str], min_words: int = 2, top_n: int = 2, is_start_ngrams=True) -> List[str]:
+def filter_and_sort_sentences_by_ngrams(sentences: List[str], n: int = 2, top_n: int = 2, is_start_ngrams: bool = True) -> List[str]:
     sentence_ngrams = defaultdict(list)
     all_ngrams = Counter()
     for sentence in tqdm(sentences, desc="Grouping sentences"):
-        ngrams_list = get_words(sentence, min_words)
+        ngrams_list = get_ngrams(sentence, n)
         all_ngrams.update(ngrams_list)
         if is_start_ngrams and ngrams_list:
-            sentence_ngrams[ngrams_list[0]].append(sentence)
+            sentence_ngrams[" ".join(ngrams_list[:1])].append(sentence)
         elif not is_start_ngrams:
             for ngram in set(ngrams_list):
                 sentence_ngrams[ngram].append(sentence)
-    most_common_ngrams = [ngram for ngram, _ in all_ngrams.most_common(top_n)]
-    filtered_sentences = set()
-    for ngram, group_sentences in sentence_ngrams.items():
-        if ngram in most_common_ngrams:
-            filtered_sentences.update(group_sentences[:top_n])
-    sorted_sentences = sorted(filtered_sentences)
-    return sorted_sentences
+    optimized_groups = {ngram: group_sentences[:top_n]
+                        for ngram, group_sentences in sentence_ngrams.items()}
+    flattened_sentences = list(set(
+        itertools.chain.from_iterable(optimized_groups.values())))
+    # Stable sort with secondary key (lexicographical order)
+    sorted_sentences = sort_sentences(flattened_sentences, n)
+    final_sorted_sentences = sorted(
+        sorted_sentences,
+        key=lambda x: (get_ngram_weight(all_ngrams, get_ngrams(
+            x, n), set()), sorted_sentences.index(x), x)
+    )
+    return final_sorted_sentences[:top_n]
 
 
 def filter_and_sort_sentences_by_similarity(sentences: List[str], min_words=2, threshold=0.8) -> List[str]:
@@ -384,7 +397,8 @@ def nwise(iterable: Iterable[str], n: int = 1) -> Iterator[Tuple[str, ...]]:
     newlines as separators so words on different lines are not considered adjacent.
 
     Args:
-        iterable: An iterable of strings (e.g., a string split into words or lines)
+        iterable: An iterable of strings (e.g., a string split into words or lines,
+                  or a list of strings where each string is treated as a line)
         n: Size of the sliding window
 
     Returns:
@@ -393,15 +407,18 @@ def nwise(iterable: Iterable[str], n: int = 1) -> Iterator[Tuple[str, ...]]:
     if n < 1:
         return
 
-    # Check if input is a string or an iterable of strings
+    # Check if input is a single string or an iterable of strings
     if isinstance(iterable, str):
         lines = iterable.splitlines()
     else:
-        # Convert iterable to list to handle non-string iterables
-        lines = [' '.join(iterable)] if iterable else []
+        # Handle iterable of strings (e.g., list of strings) or other iterables
+        lines = list(iterable) if iterable else []
 
     # Process each line independently
     for line in lines:
+        # Ensure line is a string before splitting
+        if not isinstance(line, str):
+            continue
         words = line.split()
         if len(words) < n:
             continue

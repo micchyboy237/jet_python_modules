@@ -8,7 +8,7 @@ def sample_diverse_texts(
     texts: List[str],
     num_samples: Optional[int] = None,
     n: int = 2,
-    top_n: int = 1,
+    top_n: Optional[int] = None,
     category_values: Optional[List[List[str]]] = None
 ) -> List[str]:
     """Sample diverse texts using StratifiedSampler.
@@ -24,38 +24,8 @@ def sample_diverse_texts(
         List of sampled texts.
     """
 
-    if not texts:
-        return []
-
-    if not num_samples:
-        num_samples = len(texts)
-
-    # Tokenize each text (simple whitespace tokenizer here)
-    tokenized_docs = [' '.join(doc.strip().split()) for doc in texts]
-
-    # Create ProcessedDataString if category_values are provided
-    if category_values:
-        if len(category_values) != len(texts):
-            raise ValueError(
-                "Length of category_values must match length of texts")
-        data = [
-            ProcessedDataString(source=tokenized, category_values=cats)
-            for tokenized, cats in zip(tokenized_docs, category_values)
-        ]
-    else:
-        data = tokenized_docs
-
     # Initialize and use StratifiedSampler
-    sampler = StratifiedSampler(data, num_samples=num_samples)
-    sampled_tokenized = sampler.filter_strings(n=n, top_n=top_n)
+    sampler = StratifiedSampler(texts, num_samples=num_samples)
+    results = sampler.filter_strings(n=n, top_n=top_n)
 
-    # Map back to original texts
-    result = []
-    seen = set()
-    for sampled in sampled_tokenized:
-        idx = tokenized_docs.index(sampled)
-        if texts[idx] not in seen:
-            result.append(texts[idx])
-            seen.add(texts[idx])
-
-    return result[:num_samples]
+    return results
