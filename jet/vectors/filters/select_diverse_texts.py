@@ -46,7 +46,7 @@ def select_diverse_texts(
     cluster_embeddings: np.ndarray,
     cluster_texts: List[str],
     initial_text_idx: int,
-    diversity_threshold: float = 0.7,
+    diversity_threshold: float = 0.8,
     max_diverse_texts: Optional[int] = None,
     ids: Optional[List[str]] = None
 ) -> List[DiverseResult]:
