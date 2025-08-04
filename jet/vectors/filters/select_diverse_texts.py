@@ -45,7 +45,7 @@ def calculate_max_diverse_texts(cluster_embeddings: np.ndarray, cluster_texts: L
 def select_diverse_texts(
     cluster_embeddings: np.ndarray,
     cluster_texts: List[str],
-    initial_text_idx: int,
+    initial_text_idx: Optional[int] = None,
     diversity_threshold: float = 0.7,
     max_diverse_texts: Optional[int] = None,
     ids: Optional[List[str]] = None
@@ -54,7 +54,7 @@ def select_diverse_texts(
     Args:
         cluster_embeddings: Array of shape (n_texts, embedding_dim) with embeddings for texts.
         cluster_texts: List of texts in the cluster.
-        initial_text_idx: Index of the initial text to include (e.g., most similar to centroid).
+        initial_text_idx: Index of the initial text to include (e.g., most similar to centroid). If None, the text closest to the centroid is selected.
         diversity_threshold: Maximum cosine similarity for texts to be considered diverse.
         max_diverse_texts: Maximum number of diverse texts to return. If None, calculated dynamically.
         ids: Optional list of IDs for texts. If None, UUIDs are generated.
@@ -72,16 +72,24 @@ def select_diverse_texts(
             "Empty texts or mismatched embeddings, returning empty list")
         return []
 
-    if initial_text_idx < 0 or initial_text_idx >= len(cluster_texts):
-        logger.debug("Invalid initial index, returning empty list")
-        return []
-
     # Validate or generate IDs
     if ids is None:
         ids = [str(uuid.uuid4()) for _ in range(len(cluster_texts))]
     elif len(ids) != len(cluster_texts):
         logger.debug("Mismatched IDs length, generating new UUIDs")
         ids = [str(uuid.uuid4()) for _ in range(len(cluster_texts))]
+
+    # Select initial text index if not provided
+    if initial_text_idx is None:
+        centroid = np.mean(cluster_embeddings, axis=0, keepdims=True)
+        similarities = np.dot(cluster_embeddings, centroid.T).flatten()
+        initial_text_idx = int(np.argmax(similarities))
+        logger.debug(
+            f"No initial_text_idx provided, selected centroid-based index: {initial_text_idx}")
+
+    if initial_text_idx < 0 or initial_text_idx >= len(cluster_texts):
+        logger.debug("Invalid initial index, returning empty list")
+        return []
 
     active_max_diverse_texts = calculate_max_diverse_texts(
         cluster_embeddings, cluster_texts) if max_diverse_texts is None else max_diverse_texts
@@ -99,6 +107,7 @@ def select_diverse_texts(
     logger.debug(
         f"Starting with text: {diverse_results[0]['text']}, remaining indices: {remaining_indices}")
 
+    # Rest of the function remains unchanged
     for i in remaining_indices:
         is_diverse = True
         curr_embedding = cluster_embeddings[i].reshape(1, -1)
