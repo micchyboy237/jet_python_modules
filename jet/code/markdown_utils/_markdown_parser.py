@@ -376,8 +376,9 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
         current_section["tokens"] = current_tokens
         sections.append(current_section)
 
+    # Filter to exclude sections with empty headers or content
     sections = [section for section in sections if section.get(
-        "content", "").strip()]
+        "header", "").strip() and section.get("content", "").strip()]
 
     for idx, section in enumerate(sections):
         section["doc_index"] = idx
