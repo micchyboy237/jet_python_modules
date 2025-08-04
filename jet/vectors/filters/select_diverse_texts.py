@@ -49,7 +49,7 @@ def select_diverse_texts(
     cluster_embeddings: np.ndarray,
     cluster_texts: List[str],
     initial_text_idx: int,
-    diversity_threshold: float = 0.8,
+    diversity_threshold: float = 0.7,
     max_diverse_texts: Optional[int] = None
 ) -> List[str]:
     """Select a diverse subset of texts from a cluster based on embedding similarity.
