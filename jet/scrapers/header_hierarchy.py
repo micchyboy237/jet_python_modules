@@ -7,6 +7,7 @@ class HeaderDoc(TypedDict):
     id: str
     doc_index: int
     tag: str
+    depth: int
     parent_level: Optional[int]
     level: Optional[int]
     parent_headers: List[str]
@@ -23,34 +24,40 @@ def extract_header_hierarchy(
 ) -> List[HeaderDoc]:
     """
     Extracts a list of HeaderDoc objects from HTML content, organizing text by header hierarchy.
-
+    Ignores content before the first header.
     :param source: The HTML string or URL to parse.
     :param excludes: A list of tag names to exclude (e.g., ["nav", "footer", "script", "style"]).
     :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
     :return: A list of HeaderDoc objects representing header-based sections.
     """
     nodes = extract_text_nodes(source, excludes, timeout_ms)
-
     sections: List[HeaderDoc] = []
     current_section: Optional[HeaderDoc] = None
     header_stack: List[tuple[str, int, int]] = []
     current_content: List[str] = []
+    current_html_content: List[str] = []
     section_index = 0
-
     header_tags = {f'h{i}': i for i in range(1, 7)}
+    base_depth: Optional[int] = None  # Store the raw_depth of the first header
 
     for node in nodes:
         tag = node.tag.lower()
-        text = node.text.strip()
-
+        text = node.text.strip() if node.text else ""
         if tag in header_tags and text:
-            if current_section:
+            # Save current section if it has a header and content
+            if current_section and current_section["header"].strip():
                 current_section["content"] = "\n".join(current_content)
+                current_section["html"] = "\n".join(current_html_content)
                 sections.append(current_section)
                 section_index += 1
-                current_content = []
-
+            current_content = []
+            current_html_content = []
             level = header_tags[tag]
+            # Set base_depth to the first header's raw_depth
+            if base_depth is None:
+                base_depth = node.raw_depth
+            # Calculate depth relative to the first header's raw_depth
+            depth = max(1, node.raw_depth - base_depth + 1)
             parent_headers = []
             parent_header = None
             parent_level = None
@@ -60,11 +67,11 @@ def extract_header_hierarchy(
                 parent_header = header_stack[-1][0]
                 parent_level = header_stack[-1][1]
                 parent_headers = [h[0] for h in header_stack]
-
             current_section = {
                 "id": generate_unique_id(),
                 "doc_index": section_index,
                 "tag": tag,
+                "depth": depth,
                 "parent_level": parent_level,
                 "level": level,
                 "parent_headers": parent_headers,
@@ -74,28 +81,19 @@ def extract_header_hierarchy(
                 "html": node.get_html()
             }
             header_stack.append((text, level, section_index))
+            current_html_content.append(node.get_html())
         else:
-            if text:
-                if current_section is None:
-                    current_section = {
-                        "id": generate_unique_id(),
-                        "doc_index": section_index,
-                        "tag": "",
-                        "parent_header": None,
-                        "header": "",
-                        "content": "",
-                        "level": 0,
-                        "parent_headers": [],
-                        "parent_level": None,
-                        "html": ""
-                    }
+            if text and current_section is not None:  # Only append content if a header section exists
                 current_content.append(text)
+                current_html_content.append(node.get_html())
 
-    if current_section:
+    # Append the final section if it has a header and content
+    if current_section and current_section["header"].strip():
         current_section["content"] = "\n".join(current_content)
-        if current_section["header"].strip() or current_section["content"].strip():
-            sections.append(current_section)
+        current_section["html"] = "\n".join(current_html_content)
+        sections.append(current_section)
 
+    # Filter out empty sections and reindex
     sections = [
         section for section in sections
         if section["header"].strip() or section["content"].strip()

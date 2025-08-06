@@ -1036,6 +1036,7 @@ class BaseNode:
         tag: str,
         text: Optional[str],
         depth: int,
+        raw_depth: int,  # Added to store unadjusted DOM depth
         id: str,
         class_names: List[str] = [],
         line: int = 0,
@@ -1044,6 +1045,7 @@ class BaseNode:
         self.tag = tag
         self.text = text
         self.depth = depth
+        self.raw_depth = raw_depth  # Store unadjusted depth
         self.id = id
         self.class_names = class_names
         self.line = line
@@ -1054,7 +1056,7 @@ class BaseNode:
         Retrieves the HTML content of the node.
 
         Returns:
-            The HTML content as a string if set, otherwise None.
+            The HTML content as a string if set, otherwise empty string.
         """
         return self._html
 
