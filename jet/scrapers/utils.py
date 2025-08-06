@@ -1484,8 +1484,8 @@ def extract_by_heading_hierarchy(
     return results
 
 
-class TextHierarchyResult(BaseNode):
-    """A node representing a text hierarchy with combined content and links."""
+class TextHierarchyResult(TreeNode):
+    """A node representing a text hierarchy with combined content and links, extending TreeNode."""
 
     def __init__(
         self,
@@ -1502,15 +1502,18 @@ class TextHierarchyResult(BaseNode):
         parent_level: Optional[int] = None,
         level: Optional[int] = None,
         line: int = 0,
-        html: Optional[str] = None
+        html: Optional[str] = None,
+        children: List['TreeNode'] = []
     ):
         super().__init__(
             tag=tag,
             text=None,
             depth=depth,
             id=id,
+            parent_id=parent_id,
             class_names=[],
             link=None,
+            children=children,
             line=line,
             html=html
         )
@@ -1539,8 +1542,17 @@ def extract_texts_by_hierarchy(
 ) -> List[TextHierarchyResult]:
     """
     Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, header, combined content of a heading
-    and its descendants, a list of unique links, depth, id, parent_id, parent, parent_content, parent_level, level, line, parent_headers, and parent_node attributes.
+    and its descendants, a list of unique links, depth, id, parent_id, parent_headers, parent_header, parent_content, parent_level, level, line, and children attributes.
     Filters out results without a header or content. Ensures parent_headers is ordered from root to immediate parent.
+
+    Args:
+        source: The HTML source string or URL.
+        tags_to_split_on: List of tuples mapping markdown prefixes to HTML heading tags.
+        ignore_links: Whether to ignore text from nodes with links.
+        excludes: List of tags to exclude from the tree.
+
+    Returns:
+        A list of TextHierarchyResult objects.
     """
     def get_header_level(header: str) -> int:
         """Get the header level of a markdown header or HTML header tag."""
@@ -1562,6 +1574,7 @@ def extract_texts_by_hierarchy(
         links: Set[str] = set()
         html_fragments: List[Tuple[str, str]] = []  # (text, html)
         header = ""
+        children: List[TreeNode] = []
 
         if node.tag in [tag[1] for tag in tags_to_split_on]:
             header = node.text.strip() if node.text else ""
@@ -1586,19 +1599,17 @@ def extract_texts_by_hierarchy(
                 if child_result.get_html():
                     html_fragments.append(
                         (child_header, child_result.get_html()))
-
             if child_text:
                 texts.append(child_text)
                 if child_result.get_html():
                     html_fragments.append(
                         (child_text, child_result.get_html()))
-
             links.update(child_result.links)
+            children.extend(child_result._children)
 
         combined_content = "\n".join(texts).strip()
         level = get_header_level(header) if header else None
 
-        # Combine header + content for filtering
         target_texts = set()
         if header:
             target_texts.add(header.strip())
@@ -1608,7 +1619,6 @@ def extract_texts_by_hierarchy(
 
         filtered_htmls = []
         for text, html in html_fragments:
-            # Include only if the fragment text matches a part of header or content
             if text.strip() in target_texts:
                 filtered_htmls.append(html)
 
@@ -1629,14 +1639,14 @@ def extract_texts_by_hierarchy(
             level=level,
             line=node.line,
             parent_headers=[],
-            html=combined_html
+            html=combined_html,
+            children=children
         )
         return result, combined_content, header
 
     heading_nodes = extract_by_heading_hierarchy(
         source, tags_to_split_on, excludes)
 
-    # Collect full content, header, and level for each heading node
     id_to_content = {}
     id_to_header = {}
     id_to_level = {}
@@ -1652,35 +1662,27 @@ def extract_texts_by_hierarchy(
         id_to_node[node.id] = node
         results.append(result)
 
-        # Update header stack for parent_headers
         if header and result.level is not None:
-            # Pop headers with equal or higher (lower number) level
             while header_stack and header_stack[-1][1] >= result.level:
                 header_stack.pop()
-            # Add current header to stack
             header_stack.append((header, result.level, node.id))
 
-    # Populate parent, parent_content, parent_level, and parent_headers
     for result in results:
         if result.parent_id:
             result.parent_header = id_to_header.get(result.parent_id, None)
             result.parent_content = id_to_content.get(result.parent_id, None)
             result.parent_level = id_to_level.get(result.parent_id, None)
 
-        # Populate parent_headers using header_stack
         if result.header and result.level is not None:
             parent_headers = []
             for header, level, node_id in header_stack:
                 if node_id == result.id:
-                    continue  # Skip the current node's header
-                # Only include headers with lower level (higher in hierarchy)
+                    continue
                 if level < result.level:
                     parent_headers.append((header, level))
-            # Sort by level (ascending) to ensure root-to-parent order
             parent_headers.sort(key=lambda x: x[1])
             result.parent_headers = [header for header, _ in parent_headers]
 
-    # Filter out results without a header or content
     return [result for result in results if result.header]
 
 
