@@ -1033,7 +1033,6 @@ class BaseNode:
         text: Optional[str],
         depth: int,
         id: str,
-        parent_id: Optional[str] = None,
         class_names: List[str] = [],
         link: Optional[str] = None,
         line: int = 0,
@@ -1043,21 +1042,31 @@ class BaseNode:
         self.text = text
         self.depth = depth
         self.id = id
-        self.parent_id = parent_id
         self.class_names = class_names
         self.link = link
         self.line = line
-        self.html = html.strip() if html else html
-        self._parent_node: Optional['BaseNode'] = None
+        self._html = html.strip() if html else None
 
-    def get_parent_node(self) -> Optional['BaseNode']:
+    def get_html(self) -> Optional[str]:
         """
-        Retrieves the parent node stored in the _parent_node attribute.
+        Retrieves the HTML content of the node.
 
         Returns:
-            The parent BaseNode if set, otherwise None.
+            The HTML content as a string if set, otherwise None.
         """
-        return self._parent_node
+        return self._html
+
+    def get_node(self, node_id: str) -> Optional['BaseNode']:
+        """
+        Retrieves a node by its ID. BaseNode implementation returns self if ID matches.
+
+        Args:
+            node_id: The ID of the node to find.
+
+        Returns:
+            The BaseNode with the matching ID, or None if not found.
+        """
+        return self if self.id == node_id else None
 
 
 class TreeNode(BaseNode):
@@ -1069,7 +1078,7 @@ class TreeNode(BaseNode):
         text: Optional[str],
         depth: int,
         id: str,
-        parent_id: Optional[str],
+        parent_id: Optional[str] = None,
         class_names: List[str] = [],
         link: Optional[str] = None,
         children: Optional[List['TreeNode']] = None,
@@ -1081,14 +1090,42 @@ class TreeNode(BaseNode):
             text=text,
             depth=depth,
             id=id,
-            parent_id=parent_id,
             class_names=class_names,
             link=link,
             line=line,
             html=html
         )
+        self.parent_id = parent_id
         self._children: List['TreeNode'] = children if children is not None else [
         ]
+        self._parent_node: Optional['TreeNode'] = None
+
+    def get_parent_node(self) -> Optional['TreeNode']:
+        """
+        Retrieves the parent node stored in the _parent_node attribute.
+
+        Returns:
+            The parent TreeNode if set, otherwise None.
+        """
+        return self._parent_node
+
+    def get_node(self, node_id: str) -> Optional[Union['TreeNode', 'BaseNode']]:
+        """
+        Retrieves a node by its ID from the tree, searching recursively through children.
+
+        Args:
+            node_id: The ID of the node to find.
+
+        Returns:
+            The TreeNode or BaseNode with the matching ID, or None if not found.
+        """
+        if self.id == node_id:
+            return self
+        for child in self._children:
+            result = child.get_node(node_id)
+            if result is not None:
+                return result
+        return None
 
     def get_content(self) -> str:
         content = self.text or ""
@@ -1122,17 +1159,17 @@ class TreeNode(BaseNode):
         return self._children
 
 
-def create_base_node(node: TreeNode) -> BaseNode:
+def create_node(node: TreeNode) -> TreeNode:
     """
-    Creates a BaseNode from a TreeNode, copying all relevant attributes.
+    Creates a TreeNode from a TreeNode, copying all relevant attributes.
 
     Args:
         node: The source TreeNode to copy attributes from.
 
     Returns:
-        A new BaseNode instance with attributes copied from the TreeNode.
+        A new TreeNode instance with attributes copied from the source TreeNode.
     """
-    base_node = BaseNode(
+    tree_node = TreeNode(
         tag=node.tag,
         text=node.text,
         depth=node.depth,
@@ -1140,11 +1177,12 @@ def create_base_node(node: TreeNode) -> BaseNode:
         parent_id=node.parent_id,
         class_names=node.class_names,
         link=node.link,
+        children=node._children,
         line=node.line,
-        html=node.html
+        html=node.get_html()
     )
-    base_node._parent_node = node._parent_node
-    return base_node
+    tree_node._parent_node = node._parent_node
+    return tree_node
 
 
 def exclude_elements(doc: pq, excludes: List[str]) -> None:
@@ -1305,21 +1343,21 @@ def extract_tree_with_text(
     return root_node
 
 
-def flatten_tree_to_base_nodes(root: TreeNode) -> List[BaseNode]:
+def flatten_tree_to_base_nodes(root: TreeNode) -> List[TreeNode]:
     """
-    Flattens a TreeNode hierarchy into a list of BaseNode objects.
+    Flattens a TreeNode hierarchy into a list of TreeNode objects.
 
     Args:
         root: The root TreeNode to flatten.
 
     Returns:
-        A list of BaseNode objects representing all nodes in the tree in depth-first order.
+        A list of TreeNode objects representing all nodes in the tree in depth-first order.
     """
-    result: List[BaseNode] = []
+    result: List[TreeNode] = []
 
     def traverse(node: TreeNode) -> None:
-        # Create a BaseNode copy of the current node
-        result.append(create_base_node(node))
+        # Create a TreeNode copy of the current node
+        result.append(create_node(node))
 
         # Recursively process children
         for child in node.get_children():
@@ -1329,19 +1367,22 @@ def flatten_tree_to_base_nodes(root: TreeNode) -> List[BaseNode]:
     return result
 
 
-def get_leaf_nodes(root: TreeNode) -> List[BaseNode]:
+def get_leaf_nodes(root: TreeNode) -> List[TreeNode]:
     """
-    Returns a list of BaseNode objects for leaf nodes (nodes with no children).
+    Returns a list of TreeNode objects for leaf nodes (nodes with no children).
 
-    :param root: The root TreeNode of the tree to traverse.
-    :return: A list of BaseNode objects for leaf nodes.
+    Args:
+        root: The root TreeNode of the tree to traverse.
+
+    Returns:
+        A list of TreeNode objects for leaf nodes.
     """
-    result: List[BaseNode] = []
+    result: List[TreeNode] = []
 
     def traverse(node: TreeNode) -> None:
         # Check if the node is a leaf (no children)
         if not node.has_children():
-            result.append(create_base_node(node))
+            result.append(create_node(node))
 
         # Recursively traverse children
         for child in node.get_children():
@@ -1397,7 +1438,7 @@ def extract_by_heading_hierarchy(
             link=node.link,
             children=[],
             line=node.line,
-            html=node.html
+            html=node.get_html()
         )
         if cloned._parent_node is None:
             cloned._parent_node = node._parent_node
@@ -1468,7 +1509,8 @@ class TextHierarchyResult(BaseNode):
             text=None,
             depth=depth,
             id=id,
-            parent_id=parent_id,
+            class_names=[],
+            link=None,
             line=line,
             html=html
         )
@@ -1523,15 +1565,15 @@ def extract_texts_by_hierarchy(
 
         if node.tag in [tag[1] for tag in tags_to_split_on]:
             header = node.text.strip() if node.text else ""
-            if node.html:
-                html_fragments.append((header, node.html))
+            if node.get_html():
+                html_fragments.append((header, node.get_html()))
 
         elif node.text and not (ignore_links and node.link):
             text = node.text.strip()
             if text:
                 texts.append(text)
-                if node.html:
-                    html_fragments.append((text, node.html))
+                if node.get_html():
+                    html_fragments.append((text, node.get_html()))
 
         if node.link:
             links.add(node.link)
@@ -1541,13 +1583,15 @@ def extract_texts_by_hierarchy(
                 child)
             if child_header:
                 header = header or child_header
-                if child_result.html:
-                    html_fragments.append((child_header, child_result.html))
+                if child_result.get_html():
+                    html_fragments.append(
+                        (child_header, child_result.get_html()))
 
             if child_text:
                 texts.append(child_text)
-                if child_result.html:
-                    html_fragments.append((child_text, child_result.html))
+                if child_result.get_html():
+                    html_fragments.append(
+                        (child_text, child_result.get_html()))
 
             links.update(child_result.links)
 
@@ -1587,7 +1631,6 @@ def extract_texts_by_hierarchy(
             parent_headers=[],
             html=combined_html
         )
-        result._parent_node = node._parent_node
         return result, combined_content, header
 
     heading_nodes = extract_by_heading_hierarchy(
@@ -1921,8 +1964,8 @@ def validate_headers(html: str, min_count: int = 5, min_avg_word_count: int = 20
     # return header_count >= min_count and avg_word_count >= min_avg_word_count
 
 
-class SignificantNode(BaseNode):
-    """A node representing a significant element with its outer HTML."""
+class SignificantNode(TreeNode):
+    """A node representing a significant element with its outer HTML, extending TreeNode."""
 
     def __init__(
         self,
@@ -1930,16 +1973,26 @@ class SignificantNode(BaseNode):
         text: Optional[str],
         depth: int,
         id: str,
-        parent: Optional[str] = None,
+        parent_id: Optional[str] = None,
         class_names: List[str] = [],
         link: Optional[str] = None,
+        children: List['TreeNode'] = [],
         line: int = 0,
-        html: str = "",
+        html: Optional[str] = None,
         has_significant_descendants: bool = False
     ):
-        super().__init__(tag, text, depth, id, parent, class_names, link, line)
-        self.html = html.strip()  # Outer HTML of the node including all children
-        # Indicates if the node has children
+        super().__init__(
+            tag=tag,
+            text=text,
+            depth=depth,
+            id=id,
+            parent_id=parent_id,
+            class_names=class_names,
+            link=link,
+            children=children,
+            line=line,
+            html=html
+        )
         self.has_significant_descendants = has_significant_descendants
 
 
@@ -1947,9 +2000,15 @@ def _node_to_outer_html(node: TreeNode) -> str:
     """
     Converts a TreeNode to its outer HTML representation, including all nested children.
 
-    :param node: The TreeNode to convert.
-    :return: The outer HTML string for the node and its descendants.
+    Args:
+        node: The TreeNode to convert.
+
+    Returns:
+        The outer HTML string for the node and its descendants.
     """
+    if node.get_html():
+        return node.get_html()
+
     attributes = []
     if node.id:
         attributes.append(f'id="{node.id}"')
@@ -1959,7 +2018,6 @@ def _node_to_outer_html(node: TreeNode) -> str:
     attr_str = " ".join(attributes).strip()
     tag_open = f"<{node.tag.lower()}" + (f" {attr_str}" if attr_str else "")
 
-    # For void elements that don't have closing tags
     void_elements = {
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
         "meta", "param", "source", "track", "wbr"
@@ -1968,7 +2026,6 @@ def _node_to_outer_html(node: TreeNode) -> str:
     if node.tag.lower() in void_elements:
         return f"{tag_open} />"
 
-    # Include text and recursively process children
     content = node.text or ""
     for child in node._children:
         content += _node_to_outer_html(child)
@@ -1994,20 +2051,19 @@ def create_significant_node(
     Returns:
         A new SignificantNode instance with attributes copied from the TreeNode.
     """
-    significant_node = SignificantNode(
+    return SignificantNode(
         tag=node.tag,
         text=node.text,
         depth=node.depth,
         id=node.id,
-        parent=parent_id,
+        parent_id=parent_id,
         class_names=node.class_names,
         link=node.link,
+        children=node._children,
         line=node.line,
         html=html,
         has_significant_descendants=has_significant_descendants
     )
-    significant_node._parent_node = node._parent_node
-    return significant_node
 
 
 def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
@@ -2015,12 +2071,15 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
     Returns a list of SignificantNode objects for nodes that either have a non-auto-generated ID
     or are one of the specified tags: footer, aside, header, main, nav, article, section.
     Each node includes its full outer HTML including all nested children and has_significant_descendants flag
-    indicating if it has significant descendants. The parent field references the nearest significant ancestor,
+    indicating if it has significant descendants. The parent_id field references the nearest significant ancestor,
     explicitly set to None for the root significant node. Nodes without an ID attribute are assigned a generated
     unique ID based on their tag and a counter to handle multiple instances.
 
-    :param root: The root TreeNode of the tree to traverse.
-    :return: A list of SignificantNode objects for matching nodes.
+    Args:
+        root: The root TreeNode of the tree to traverse.
+
+    Returns:
+        A list of SignificantNode objects for matching nodes.
     """
     significant_tags = {"footer", "aside", "header",
                         "main", "nav", "article", "section"}
@@ -2028,23 +2087,18 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
     id_counter = {}  # Track counts for generated IDs per tag
 
     def traverse(node: TreeNode, significant_ancestor_id: Optional[str]) -> bool:
-        # Check if node is significant (non-auto-generated ID or significant tag)
         is_significant = (node.id and not node.id.startswith(
             "auto_")) or node.tag.lower() in significant_tags
 
-        # Determine the ID for the SignificantNode
         node_id = node.id
         if is_significant and (node.id is None or node.id == ""):
-            # Generate a unique ID for nodes in significant_tags without an ID
             tag = node.tag.lower()
             id_counter[tag] = id_counter.get(tag, 0) + 1
             node_id = f"generated_{tag}_{id_counter[tag]}"
 
-        # Set the significant ancestor ID for children: use node's ID if significant and non-auto-generated, else keep ancestor
         current_significant_ancestor_id = node_id if is_significant and node_id and not node_id.startswith(
             "auto_") else significant_ancestor_id
 
-        # Check if any descendants are significant
         has_significant_descendants = False
         for child in node._children:
             if traverse(child, current_significant_ancestor_id):
@@ -2059,10 +2113,8 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
                 has_significant_descendants=has_significant_descendants
             ))
 
-        # Return True if the node or any of its descendants are significant
         return is_significant or has_significant_descendants
 
-    # Start with None to ensure root significant node has parent=None
     traverse(root, None)
     return result
 
@@ -2111,10 +2163,13 @@ def get_parents_with_common_class(
     """
     Finds parent nodes with direct children sharing a specified or common class, tag, or both, excluding parents with children having different classes/tags.
 
-    :param root: The root TreeNode of the tree to search.
-    :param class_name: Optional class name to match in child nodes. If provided, matches only by class, ignoring match_type.
-    :param match_type: Determines if children must share tags ("tag"), classes ("class"), or both ("both"). Defaults to "both".
-    :return: A list of ParentWithCommonClass objects sorted by number of matching children (descending).
+    Args:
+        root: The root TreeNode of the tree to search.
+        class_name: Optional class name to match in child nodes. If provided, matches only by class, ignoring match_type.
+        match_type: Determines if children must share tags ("tag"), classes ("class"), or both ("both"). Defaults to "both".
+
+    Returns:
+        A list of ParentWithCommonClass objects sorted by number of matching children (descending).
     """
     result = []
 
@@ -2125,10 +2180,8 @@ def get_parents_with_common_class(
         children = node.get_children()
 
         if class_name:
-            # Count direct children with the specified class
             matching_children = [
                 child for child in children if class_name in child.class_names]
-            # Check if any child has a different class
             has_different_class = any(
                 child.class_names and class_name not in child.class_names for child in children)
             if matching_children and not has_different_class:
@@ -2141,14 +2194,13 @@ def get_parents_with_common_class(
                     class_names=node.class_names,
                     link=node.link,
                     line=node.line,
-                    html=node.html,
+                    html=node.get_html(),
                     common_class=class_name,
-                    common_tag="",  # No specific tag requirement when class_name is provided
+                    common_tag="",
                     children_count=len(matching_children),
                     children=matching_children
                 ))
         else:
-            # Collect all classes and tags from direct children
             child_classes = {}
             child_tags = {}
             for child in children:
@@ -2157,14 +2209,12 @@ def get_parents_with_common_class(
                 child_tags[child.tag] = child_tags.get(child.tag, 0) + 1
 
             if match_type == "both":
-                # Find pairs of classes and tags shared by multiple children
                 for cls, cls_count in child_classes.items():
                     if cls_count <= 1:
                         continue
                     for tag, tag_count in child_tags.items():
                         if tag_count <= 1:
                             continue
-                        # Check if all children have both the class and tag or no classes/tags
                         has_different = any(
                             (child.class_names and cls not in child.class_names) or
                             child.tag != tag
@@ -2185,17 +2235,15 @@ def get_parents_with_common_class(
                                     class_names=node.class_names,
                                     link=node.link,
                                     line=node.line,
-                                    html=node.html,
+                                    html=node.get_html(),
                                     common_class=cls,
                                     common_tag=tag,
                                     children_count=len(matching_children),
                                     children=matching_children
                                 ))
             elif match_type == "class":
-                # Find classes shared by multiple children
                 for cls, count in child_classes.items():
                     if count > 1:
-                        # Check if all children either have the shared class or no classes
                         has_different_class = any(
                             child.class_names and cls not in child.class_names
                             for child in children
@@ -2212,17 +2260,15 @@ def get_parents_with_common_class(
                                 class_names=node.class_names,
                                 link=node.link,
                                 line=node.line,
-                                html=node.html,
+                                html=node.get_html(),
                                 common_class=cls,
                                 common_tag="",
                                 children_count=len(matching_children),
                                 children=matching_children
                             ))
             elif match_type == "tag":
-                # Find tags shared by multiple children
                 for tag, count in child_tags.items():
                     if count > 1:
-                        # Check if all children either have the shared tag or no classes
                         has_different_tag = any(
                             child.tag != tag for child in children
                         )
@@ -2238,22 +2284,18 @@ def get_parents_with_common_class(
                                 class_names=node.class_names,
                                 link=node.link,
                                 line=node.line,
+                                html=node.get_html(),
                                 common_class="",
                                 common_tag=tag,
                                 children_count=len(matching_children),
                                 children=matching_children
                             ))
 
-        # Recursively check all children nodes
         for child in children:
             traverse(child)
 
-    # Start traversal from root
     traverse(root)
-
-    # Sort results by number of matching children (descending)
     result.sort(key=lambda x: x.children_count, reverse=True)
-
     return result
 
 
