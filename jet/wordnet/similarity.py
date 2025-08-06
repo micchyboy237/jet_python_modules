@@ -1,44 +1,61 @@
-from typing import List, Tuple
+import json
+import re
 from collections import defaultdict
-from typing import Any, List, Optional, Literal
+from difflib import SequenceMatcher, get_close_matches, ndiff, unified_diff
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    TypedDict,
+    Union,
+)
 
-from sklearn.metrics import silhouette_score
-from jet.data.utils import generate_key
-from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
-from jet.models.model_types import EmbedModelType
-from jet.models.embeddings.base import load_embed_model
-from sentence_transformers import util
-import torch
-from typing import Callable, List
-from sklearn.decomposition import PCA
+import hdbscan
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from typing import List, Dict, Callable, Optional, TypedDict
-from sklearn.cluster import AgglomerativeClustering, KMeans
-import re
-import json
-
-from typing import List, Optional, TypedDict, Union
-from jet.llm.utils.transformer_embeddings import (
-    chunk_texts,
-    SimilarityResult,
-)
+import torch
+from jet.data.utils import generate_key
 from jet.llm.utils.search_docs import search_docs
-from sentence_transformers import SentenceTransformer
-from scipy.spatial.distance import cosine
+from jet.llm.utils.transformer_embeddings import (
+    SimilarityResult,
+    chunk_texts,
+)
+from jet.logger import logger, time_it
+from jet.models.embeddings.base import (
+    generate_embeddings,
+    get_embedding_function,
+    load_embed_model,
+)
+from jet.models.model_registry.transformers.sentence_transformer_registry import (
+    SentenceTransformerRegistry,
+)
+from jet.models.model_types import EmbedModelType
 from jet.models.tokenizer.base import get_max_token_count
 from jet.vectors.clusters.cluster_types import ClusteringMode
 from jet.vectors.document_types import HeaderDocument, HeaderDocumentWithScore
 from jet.wordnet.words import get_words
-from jet.logger import logger, time_it
-from difflib import SequenceMatcher, ndiff, get_close_matches, unified_diff
-from tqdm import tqdm
-# from instruction_generator.wordnet.SpellingCorrectorNorvig import SpellingCorrectorNorvig
 from jet.wordnet.wordnet_types import FilterResult, SimilarityResult
-from jet.models.embeddings.base import get_embedding_function, generate_embeddings
+from matplotlib import pyplot as plt
+from scipy.spatial.distance import cosine
+from sentence_transformers import SentenceTransformer, util
+from sklearn.cluster import AgglomerativeClustering, DBSCAN, KMeans
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
+from sklearn.metrics.pairwise import cosine_similarity
+from tqdm import tqdm
+
+# from instruction_generator.wordnet.SpellingCorrectorNorvig import SpellingCorrectorNorvig
 
 DEFAULT_EMBED_MODEL: EmbedModelType = "all-MiniLM-L12-v2"
+
+
+class ClusterResult(TypedDict):
+    label: int
+    texts: List[str]
 
 
 def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, List[str]], *, model_name: EmbedModelType = DEFAULT_EMBED_MODEL) -> List[float]:
@@ -765,20 +782,20 @@ def group_similar_texts(
     embeddings: Optional[List[np.ndarray]] = None,
     ids: Optional[List[str]] = None,
     mode: ClusteringMode = "agglomerative"
-) -> List[List[str]]:
+) -> List[ClusterResult]:
     """
     Groups similar texts based on cosine similarity score using specified clustering mode, with deduplicated input texts.
 
     Args:
         texts (List[str]): List of input texts to be grouped.
-        threshold (float): Similarity threshold for clustering. Default is 0.8.
+        threshold (float): Similarity threshold for clustering. Default is 0.7.
         model_name (str): Sentence transformer model to use for embedding if embeddings not provided.
         embeddings (Optional[List[np.ndarray]]): Precomputed embeddings as a list of NumPy arrays.
         ids (Optional[List[str]]): Optional list of IDs corresponding to texts. If provided, these will replace the text in the output.
         mode (ClusteringMode): Clustering method to use. Default is "agglomerative".
 
     Returns:
-        List[List[str]]: List of grouped similar texts or their corresponding IDs, with no duplicate texts.
+        List[ClusterResult]: List of dictionaries containing cluster labels and their corresponding texts or IDs, including noise points (label -1).
     """
     if not texts:
         return []
@@ -812,13 +829,12 @@ def group_similar_texts(
             "Embeddings must be a list of 1D NumPy arrays with consistent dimensions")
 
     # Compute cosine similarity matrix using NumPy
-    # Normalize embeddings to unit vectors
     norm = np.linalg.norm(embeddings_array, axis=1, keepdims=True)
     normalized_embeddings = embeddings_array / \
         np.maximum(norm, 1e-10)  # Avoid division by zero
     similarity_matrix = np.dot(normalized_embeddings, normalized_embeddings.T)
 
-    # Ensure similarity matrix values are in [0, 1] (handle numerical precision issues)
+    # Ensure similarity matrix values are in [0, 1]
     similarity_matrix = np.clip(similarity_matrix, 0, 1)
 
     # Perform clustering based on mode
@@ -829,17 +845,14 @@ def group_similar_texts(
             linkage="average",
             distance_threshold=1 - threshold
         ).fit(1 - similarity_matrix)
-    else:  # mode == "kmeans"
-        # Estimate number of clusters using silhouette score
+    elif mode == "kmeans":
         n_texts = len(unique_texts)
         min_clusters = 1
-        # Limit to half the number of texts or available texts
         max_clusters = min(n_texts, max(2, n_texts // 2))
         best_n_clusters = min_clusters
         best_silhouette = -1
         best_labels = None
 
-        # Try different numbers of clusters and pick the best based on silhouette score
         for n_clusters in range(min_clusters, max_clusters + 1):
             clustering = KMeans(
                 n_clusters=n_clusters,
@@ -847,7 +860,6 @@ def group_similar_texts(
                 n_init=10
             ).fit(normalized_embeddings)
             labels = clustering.labels_
-            # Compute silhouette score (requires at least 2 clusters for meaningful score)
             if n_clusters > 1:
                 score = silhouette_score(
                     normalized_embeddings, labels, metric="euclidean")
@@ -856,18 +868,30 @@ def group_similar_texts(
                     best_n_clusters = n_clusters
                     best_labels = labels
             else:
-                best_labels = labels  # Default for single cluster
+                best_labels = labels
 
-        # Use the best labels for clustering
         clustering.labels_ = best_labels
+    elif mode == "dbscan":
+        clustering = DBSCAN(
+            eps=1 - threshold,
+            min_samples=2,
+            metric="precomputed"
+        ).fit(1 - similarity_matrix)
+    else:  # mode == "hdbscan"
+        clustering = hdbscan.HDBSCAN(
+            min_cluster_size=2,
+            metric="precomputed",
+            cluster_selection_epsilon=1 - threshold
+        ).fit((1 - similarity_matrix).astype(np.float64))
 
-    # Organize texts or IDs into clusters
-    clusters = {}
+    # Organize texts or IDs into clusters, including noise points
+    clusters: dict[int, List[str]] = {}
     for idx, label in enumerate(clustering.labels_):
         output_text = original_ids[idx] if ids is not None else original_texts[idx]
         clusters.setdefault(label, []).append(output_text)
 
-    return list(clusters.values())
+    # Convert clusters to list of ClusterResult dictionaries
+    return [{"label": label, "texts": texts} for label, texts in clusters.items()]
 
 
 class GroupedResult(TypedDict):

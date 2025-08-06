@@ -4,7 +4,7 @@ from typing import List, Optional, TypedDict
 from jet.logger import logger
 
 
-class DiverseResult(TypedDict):
+class MMRDiverseResult(TypedDict):
     id: str
     index: int
     text: str
@@ -18,7 +18,7 @@ def select_mmr_texts(
     lambda_param: float = 0.5,
     max_texts: int = 5,
     ids: Optional[List[str]] = None
-) -> List[DiverseResult]:
+) -> List[MMRDiverseResult]:
     """Select a diverse subset of texts using Maximum Marginal Relevance (MMR).
 
     Args:
@@ -30,7 +30,7 @@ def select_mmr_texts(
         ids: Optional list of IDs for texts. If None, UUIDs are generated.
 
     Returns:
-        List of DiverseResult dictionaries containing id, index, text, and MMR score.
+        List of MMRDiverseResult dictionaries containing id, index, text, and MMR score.
     """
     logger.debug(
         f"Input embeddings shape: {embeddings.shape}, texts: {len(texts)}")
@@ -38,15 +38,17 @@ def select_mmr_texts(
         f"Query embedding shape: {query_embedding.shape}, lambda: {lambda_param}, max_texts: {max_texts}")
 
     # Validate inputs
-    if len(texts) == 0 or len(texts) != embeddings.shape[0]:
-        logger.debug(
-            "Empty texts or mismatched embeddings, returning empty list")
+    if len(texts) == 0:
+        logger.debug("Empty texts, returning empty list")
         return []
     if query_embedding.shape[0] != embeddings.shape[1]:
         logger.error(
             "Query embedding dimension does not match text embeddings")
         raise ValueError(
             "Query embedding dimension must match text embeddings")
+    if len(texts) != embeddings.shape[0]:
+        logger.error("Number of texts does not match number of embeddings")
+        raise ValueError("Number of texts must match number of embeddings")
     if not 0 <= lambda_param <= 1:
         logger.error("lambda_param must be between 0 and 1")
         raise ValueError("lambda_param must be between 0 and 1")
@@ -61,19 +63,31 @@ def select_mmr_texts(
         logger.debug("Mismatched IDs length, generating new UUIDs")
         ids = [str(uuid.uuid4()) for _ in range(len(texts))]
 
-    # Normalize embeddings for cosine similarity
-    embeddings_norm = embeddings / \
-        np.linalg.norm(embeddings, axis=1, keepdims=True)
-    query_norm = query_embedding / np.linalg.norm(query_embedding)
+    # Normalize embeddings for cosine similarity, handle zero norms
+    norm = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norm[norm == 0] = 1  # Prevent division by zero
+    embeddings_norm = embeddings / norm
+    query_norm = query_embedding / \
+        np.linalg.norm(query_embedding) if np.linalg.norm(
+            query_embedding) != 0 else query_embedding
     logger.debug("Embeddings and query normalized")
+
+    # Warn if embeddings are too similar
+    similarities = np.dot(embeddings_norm, embeddings_norm.T)
+    if np.any(similarities > 0.95) and similarities.shape[0] > 1:
+        logger.warning(
+            "High similarity between embeddings detected, may affect diversity in MMR results")
 
     # Initialize with most relevant text
     relevance_scores = np.dot(embeddings_norm, query_norm).flatten()
+    # Ensure relevance scores are in [0, 1]
+    relevance_scores = np.clip(relevance_scores, 0, 1)
     selected_indices = [int(np.argmax(relevance_scores))]
-    results: List[DiverseResult] = [{
+    results: List[MMRDiverseResult] = [{
         "id": ids[selected_indices[0]],
         "index": selected_indices[0],
         "text": texts[selected_indices[0]],
+        # Use relevance score for first selection
         "score": float(relevance_scores[selected_indices[0]])
     }]
     remaining_indices = [i for i in range(
@@ -88,13 +102,15 @@ def select_mmr_texts(
             f"Iteration {len(results) + 1}, remaining indices: {remaining_indices}")
         for i in remaining_indices:
             # Relevance to query
-            relevance = np.dot(embeddings_norm[i], query_norm)
+            relevance = np.clip(np.dot(embeddings_norm[i], query_norm), 0, 1)
             # Maximum similarity to selected texts
-            max_similarity = max(
-                np.dot(embeddings_norm[i], embeddings_norm[j]) for j in selected_indices)
-            # MMR score
-            mmr_score = lambda_param * relevance - \
-                (1 - lambda_param) * max_similarity
+            similarities = [np.dot(embeddings_norm[i], embeddings_norm[j])
+                            for j in selected_indices]
+            max_similarity = np.clip(
+                max(similarities) if similarities else 0, 0, 1)
+            # MMR score with adjusted diversity penalty
+            mmr_score = lambda_param * relevance + \
+                (1 - lambda_param) * (1 - max_similarity)
             mmr_scores.append((mmr_score, i))
             logger.debug(
                 f"Index {i}, text: {texts[i]}, relevance: {relevance:.6f}, max_similarity: {max_similarity:.6f}, mmr_score: {mmr_score:.6f}")
@@ -120,4 +136,4 @@ def select_mmr_texts(
     return results
 
 
-__all__ = ["select_mmr_texts", "DiverseResult"]
+__all__ = ["select_mmr_texts", "MMRDiverseResult"]
