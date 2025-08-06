@@ -135,6 +135,24 @@ class TestCleanMarkdownLinks:
         result = clean_markdown_links(input_text)
         assert result == expected
 
+    def test_url_with_query_params_and_fragments(self):
+        input_text = "https://example.com/page?q=123#section1"
+
+        expected = "https://example.com/page?q=123#section1"
+
+        result = clean_markdown_links(input_text)
+
+        assert result == expected
+
+    def test_url_path(self):
+        input_text = "/path?page=2"
+
+        expected = "/path?page=2"
+
+        result = clean_markdown_links(input_text)
+
+        assert result == expected
+
     def test_multiline_markdown_with_various_elements(self):
         # Given: Complex multiline markdown with various elements
         input_text = """
