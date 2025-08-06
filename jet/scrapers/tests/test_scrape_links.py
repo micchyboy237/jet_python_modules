@@ -59,7 +59,7 @@ class TestScrapeLinks:
     def test_no_urls(self):
         # Given: Text with no URLs
         text = "This is plain text with no links"
-        expected: List[str] = []
+        expected = []
 
         # When: We scrape links from text with no URLs
         result = scrape_links(text)
@@ -124,7 +124,7 @@ class TestScrapeLinks:
     def test_empty_text(self):
         # Given: Empty text
         text = ""
-        expected: List[str] = []
+        expected = []
 
         # When: We scrape links from empty text
         result = scrape_links(text)
