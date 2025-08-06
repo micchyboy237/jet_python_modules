@@ -1,7 +1,8 @@
 import pytest
 import numpy as np
 from typing import List
-from jet.vectors.filters import select_mmr_texts, MMRDiverseResult
+from sentence_transformers import SentenceTransformer
+from jet.vectors.filters import select_mmr_texts, DiverseResult
 
 
 class TestMMRSelection:
@@ -10,20 +11,18 @@ class TestMMRSelection:
     @pytest.fixture
     def sample_data(self) -> tuple[np.ndarray, List[str], np.ndarray]:
         """Fixture providing sample embeddings, texts, and query for reuse."""
-        embeddings = np.array([
-            [0.8, 0.4, 0.1],  # Machine learning overview
-            [0.7, 0.5, 0.2],  # Deep learning
-            [0.2, 0.9, 0.3],  # Python programming (dissimilar)
-            [0.5, 0.2, 0.5]   # Unsupervised learning
-        ])
         texts = [
             "Machine learning is a method of data analysis.",
             "Deep learning uses neural networks for tasks.",
             "Python is a popular language for ML development.",
             "Unsupervised learning finds patterns in data."
         ]
-        # Query for "machine learning"
-        query_embedding = np.array([0.8, 0.4, 0.2])
+        query = "machine learning"
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        embeddings = model.encode(
+            texts, convert_to_numpy=True, show_progress_bar=False)
+        query_embedding = model.encode(
+            [query], convert_to_numpy=True, show_progress_bar=False)[0]
         return embeddings, texts, query_embedding
 
     def test_selects_most_relevant_first(self, sample_data):
@@ -33,7 +32,8 @@ class TestMMRSelection:
         expected = {
             "index": 0,
             "text": "Machine learning is a method of data analysis.",
-            "score": pytest.approx(0.999, abs=0.01)  # Cosine similarity ~1
+            # Adjusted for SentenceTransformer
+            "score": pytest.approx(0.7, abs=0.1)
         }
 
         # When: Run MMR with max_texts=1
@@ -75,7 +75,7 @@ class TestMMRSelection:
         embeddings = np.array([])
         texts = []
         query_embedding = np.array([0.8, 0.4, 0.2])
-        expected: List[MMRDiverseResult] = []
+        expected: List[DiverseResult] = []
 
         # When: Run MMR with empty inputs
         result = select_mmr_texts(embeddings, texts, query_embedding)
@@ -154,3 +154,22 @@ class TestMMRSelection:
         # Then: Custom ID is preserved
         assert len(result) == 1
         assert result[0]["id"] == expected_id
+
+    def test_embedding_dimensions(self, sample_data):
+        """Test that embeddings have correct dimensions."""
+        # Given: Sample embeddings, texts, and query
+        embeddings, _, query_embedding = sample_data
+
+        # When/Then: Verify dimensions
+        assert embeddings.shape[1] == 384  # all-MiniLM-L6-v2 dimension
+        assert query_embedding.shape[0] == 384
+
+    def test_no_negative_scores(self, sample_data):
+        # Given: Sample embeddings, texts, and query
+        embeddings, texts, query_embedding = sample_data
+        # When: Run MMR with max_texts=3
+        result = select_mmr_texts(
+            embeddings, texts, query_embedding, max_texts=3)
+        # Then: All scores are non-negative
+        assert all(
+            r["score"] >= 0 for r in result), "MMR scores must be non-negative"

@@ -11,13 +11,7 @@ from jet.logger import logger
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 from jet.models.tokenizer.base import get_tokenizer_fn
-
-
-class DiverseResult(TypedDict):
-    id: str
-    index: int
-    text: str
-    score: float
+from jet.vectors.filters.diversity_types import DiverseResult
 
 
 def calculate_max_diverse_texts(cluster_embeddings: np.ndarray, cluster_texts: List[str]) -> int:

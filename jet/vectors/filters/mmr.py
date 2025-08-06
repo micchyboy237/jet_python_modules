@@ -2,13 +2,7 @@ import uuid
 import numpy as np
 from typing import List, Optional, TypedDict
 from jet.logger import logger
-
-
-class MMRDiverseResult(TypedDict):
-    id: str
-    index: int
-    text: str
-    score: float
+from jet.vectors.filters.select_diverse_texts import DiverseResult
 
 
 def select_mmr_texts(
@@ -18,7 +12,7 @@ def select_mmr_texts(
     lambda_param: float = 0.5,
     max_texts: int = 5,
     ids: Optional[List[str]] = None
-) -> List[MMRDiverseResult]:
+) -> List[DiverseResult]:
     """Select a diverse subset of texts using Maximum Marginal Relevance (MMR).
 
     Args:
@@ -30,7 +24,7 @@ def select_mmr_texts(
         ids: Optional list of IDs for texts. If None, UUIDs are generated.
 
     Returns:
-        List of MMRDiverseResult dictionaries containing id, index, text, and MMR score.
+        List of DiverseResult dictionaries containing id, index, text, and MMR score.
     """
     logger.debug(
         f"Input embeddings shape: {embeddings.shape}, texts: {len(texts)}")
@@ -83,7 +77,7 @@ def select_mmr_texts(
     # Ensure relevance scores are in [0, 1]
     relevance_scores = np.clip(relevance_scores, 0, 1)
     selected_indices = [int(np.argmax(relevance_scores))]
-    results: List[MMRDiverseResult] = [{
+    results: List[DiverseResult] = [{
         "id": ids[selected_indices[0]],
         "index": selected_indices[0],
         "text": texts[selected_indices[0]],
@@ -136,4 +130,4 @@ def select_mmr_texts(
     return results
 
 
-__all__ = ["select_mmr_texts", "MMRDiverseResult"]
+__all__ = ["select_mmr_texts"]
