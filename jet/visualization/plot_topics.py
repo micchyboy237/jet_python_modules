@@ -106,6 +106,9 @@ def process_documents_for_chart(documents: List[Dict], output_dir: str = ".", mi
 
     Returns:
         A Chart.js configuration dictionary.
+
+    Raises:
+        ValueError: If documents list is empty or category counts are empty.
     """
     if not documents:
         raise ValueError("Documents list cannot be empty")
@@ -118,6 +121,9 @@ def process_documents_for_chart(documents: List[Dict], output_dir: str = ".", mi
     json_output_path = os.path.join(output_dir, "chart_config.json")
 
     category_counts = aggregate_by_category(documents, min_topic_size)
+    if not category_counts:
+        raise ValueError("No categories generated from documents")
+
     df = pd.DataFrame(list(category_counts.items()),
                       columns=['Topic', 'Count'])
     df.to_csv(csv_output_path, index=False)

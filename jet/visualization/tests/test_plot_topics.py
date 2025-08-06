@@ -73,3 +73,14 @@ def test_process_documents_for_chart_creates_output_dir(sample_documents, tmp_pa
     df = pd.read_csv(csv_path)
     assert list(df["Topic"]) == expected_labels
     assert list(df["Count"]) == expected_counts
+
+
+def test_process_documents_for_chart_fails_with_empty_categories(mocker, sample_documents, temp_dir):
+    # Given: A mocked aggregate_by_category that returns an empty dict
+    mocker.patch(
+        "visualization.plot_topics.aggregate_by_category", return_value={})
+
+    # When: Processing documents
+    # Then: A ValueError is raised
+    with pytest.raises(ValueError, match="No categories generated from documents"):
+        process_documents_for_chart(sample_documents, temp_dir)
