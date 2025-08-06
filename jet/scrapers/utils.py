@@ -1087,12 +1087,12 @@ class TreeNode(BaseNode):
             line=line,
             html=html
         )
-        self.children: List['TreeNode'] = children if children is not None else [
+        self._children: List['TreeNode'] = children if children is not None else [
         ]
 
     def get_content(self) -> str:
         content = self.text or ""
-        for child in self.children:
+        for child in self._children:
             content += "\n" + child.get_content()
         return content.strip()
 
@@ -1101,7 +1101,7 @@ class TreeNode(BaseNode):
         if self.tag and self.tag.lower() in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             if self.text:
                 headers.append(self.text.strip())
-        for child in self.children:
+        for child in self._children:
             headers.append(child.get_header())
         return "\n".join([h for h in headers if h]).strip()
 
@@ -1111,7 +1111,7 @@ class TreeNode(BaseNode):
 
         :return: True if the node has children, False otherwise.
         """
-        return len(self.children) > 0
+        return len(self._children) > 0
 
     def get_children(self) -> List['TreeNode']:
         """
@@ -1119,7 +1119,7 @@ class TreeNode(BaseNode):
 
         :return: A list of TreeNode objects representing the children.
         """
-        return self.children
+        return self._children
 
 
 def create_base_node(node: TreeNode) -> BaseNode:
@@ -1296,7 +1296,7 @@ def extract_tree_with_text(
             if parent_node.text and child_node.text and child_node.text in parent_node.text:
                 parent_node.text = ""
 
-            parent_node.children.append(child_node)
+            parent_node._children.append(child_node)
 
             # Only traverse deeper if the tag is not in TEXT_ELEMENTS
             if tag.lower() not in TEXT_ELEMENTS and child_pq.children():
@@ -1430,10 +1430,10 @@ def extract_by_heading_hierarchy(
                 parent_node = parent_stack[-1][1]
                 child_node = clone_node(
                     node, parent_node.id, parent_node.depth + 1)
-                parent_node.children.append(child_node)
+                parent_node._children.append(child_node)
                 seen_ids.add(child_node.id)
 
-        for child in node.children:
+        for child in node._children:
             traverse(child)
 
     tree = extract_tree_with_text(source, excludes=excludes)
@@ -1536,7 +1536,7 @@ def extract_texts_by_hierarchy(
         if node.link:
             links.add(node.link)
 
-        for child in node.children:
+        for child in node._children:
             child_result, child_text, child_header = collect_text_and_links(
                 child)
             if child_header:
@@ -1809,7 +1809,7 @@ def print_html(html: str):
             has_text = bool(node.text)
             has_id = bool(node.id)
             has_class = bool(node.class_names)
-            has_child_text = node.children and node.children[0].text
+            has_child_text = node._children and node._children[0].text
 
             if has_text or has_id or has_class or has_child_text:
                 tag_text = node.tag
@@ -1836,7 +1836,7 @@ def print_html(html: str):
                         colors=["INFO", "DEBUG"]
                     )
 
-            for child in node.children:
+            for child in node._children:
                 print_tree(child, indent + 1, excludes)
 
     return print_tree(tree)
@@ -1970,7 +1970,7 @@ def _node_to_outer_html(node: TreeNode) -> str:
 
     # Include text and recursively process children
     content = node.text or ""
-    for child in node.children:
+    for child in node._children:
         content += _node_to_outer_html(child)
 
     return f"{tag_open}>{content}</{node.tag.lower()}>"
@@ -2046,7 +2046,7 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
 
         # Check if any descendants are significant
         has_significant_descendants = False
-        for child in node.children:
+        for child in node._children:
             if traverse(child, current_significant_ancestor_id):
                 has_significant_descendants = True
 
@@ -2076,16 +2076,28 @@ class ParentWithCommonClass(TreeNode):
         text: Optional[str],
         depth: int,
         id: str,
-        parent: Optional[str] = None,
+        parent_id: Optional[str] = None,
         class_names: List[str] = [],
         link: Optional[str] = None,
         children: List[TreeNode] = [],
         line: int = 0,
+        html: Optional[str] = None,
         common_class: str = "",
         common_tag: str = "",
         children_count: int = 0
     ):
-        super().__init__(tag, text, depth, id, parent, class_names, link, children, line)
+        super().__init__(
+            tag=tag,
+            text=text,
+            depth=depth,
+            id=id,
+            parent_id=parent_id,
+            class_names=class_names,
+            link=link,
+            children=children,
+            line=line,
+            html=html
+        )
         self.common_class = common_class
         self.common_tag = common_tag
         self.children_count = children_count
@@ -2125,10 +2137,11 @@ def get_parents_with_common_class(
                     text=node.text,
                     depth=node.depth,
                     id=node.id,
-                    parent=node.parent_id,
+                    parent_id=node.parent_id,
                     class_names=node.class_names,
                     link=node.link,
                     line=node.line,
+                    html=node.html,
                     common_class=class_name,
                     common_tag="",  # No specific tag requirement when class_name is provided
                     children_count=len(matching_children),
@@ -2168,10 +2181,11 @@ def get_parents_with_common_class(
                                     text=node.text,
                                     depth=node.depth,
                                     id=node.id,
-                                    parent=node.parent_id,
+                                    parent_id=node.parent_id,
                                     class_names=node.class_names,
                                     link=node.link,
                                     line=node.line,
+                                    html=node.html,
                                     common_class=cls,
                                     common_tag=tag,
                                     children_count=len(matching_children),
@@ -2194,10 +2208,11 @@ def get_parents_with_common_class(
                                 text=node.text,
                                 depth=node.depth,
                                 id=node.id,
-                                parent=node.parent_id,
+                                parent_id=node.parent_id,
                                 class_names=node.class_names,
                                 link=node.link,
                                 line=node.line,
+                                html=node.html,
                                 common_class=cls,
                                 common_tag="",
                                 children_count=len(matching_children),
@@ -2219,7 +2234,7 @@ def get_parents_with_common_class(
                                 text=node.text,
                                 depth=node.depth,
                                 id=node.id,
-                                parent=node.parent_id,
+                                parent_id=node.parent_id,
                                 class_names=node.class_names,
                                 link=node.link,
                                 line=node.line,
