@@ -2051,7 +2051,6 @@ def _node_to_outer_html(node: TreeNode) -> str:
 
 def create_significant_node(
     node: TreeNode,
-    parent_id: Optional[str],
     html: str,
     has_significant_descendants: bool
 ) -> SignificantNode:
