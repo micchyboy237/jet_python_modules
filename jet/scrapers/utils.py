@@ -115,7 +115,7 @@ def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
         List of unique URLs found in the text
     """
     # Regex pattern for URLs (absolute http(s) and relative paths starting with /)
-    url_pattern = r'(?:(?:http|https)://[\w\-\./?:=&%#]+)|(?:/[\w\-\./?:=&%#]+[\w\-\./?:=&%#])'
+    url_pattern = r'(?:(?:http|https)://[\w\-\./?:=&%#]+)|(?:/[\w\-\./?:=&%#]*)'
 
     # Find all matches in text
     links = re.findall(url_pattern, text)
@@ -148,6 +148,10 @@ def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
     for link in unique_links:
         try:
             parsed = urlparse(link)
+            # Include relative paths starting with '/' even without base_url
+            if parsed.path.startswith('/') and not parsed.scheme and not base_url:
+                valid_links.append(link)
+                continue
             # Only include http/https schemes with valid netloc
             if parsed.scheme in ('http', 'https') and parsed.netloc:
                 # Exclude URLs that are just the base_url or base_url with slash
@@ -1034,7 +1038,6 @@ class BaseNode:
         depth: int,
         id: str,
         class_names: List[str] = [],
-        link: Optional[str] = None,
         line: int = 0,
         html: Optional[str] = None
     ):
@@ -1043,7 +1046,6 @@ class BaseNode:
         self.depth = depth
         self.id = id
         self.class_names = class_names
-        self.link = link
         self.line = line
         self._html = html.strip() if html else None
 
@@ -1079,7 +1081,6 @@ class TreeNode(BaseNode):
         depth: int,
         id: str,
         class_names: List[str] = [],
-        link: Optional[str] = None,
         children: Optional[List['TreeNode']] = None,
         line: int = 0,
         html: Optional[str] = None
@@ -1090,13 +1091,28 @@ class TreeNode(BaseNode):
             depth=depth,
             id=id,
             class_names=class_names,
-            link=link,
             line=line,
             html=html
         )
         self._children: List['TreeNode'] = children if children is not None else [
         ]
         self._parent_node: Optional['TreeNode'] = None
+        self._links: List[str] = []
+        self._initialize_links()
+
+    def _initialize_links(self) -> None:
+        """
+        Initializes the _links variable by collecting unique URLs from this node's HTML and its descendants.
+        """
+        links = []
+        html = self.get_html()
+        if html:
+            links.extend(scrape_links(html))
+        for child in self._children:
+            links.extend(child._links)
+        seen = set()
+        self._links = [link for link in links if not (
+            link in seen or seen.add(link))]
 
     @property
     def parent_id(self) -> Optional[str]:
@@ -1211,21 +1227,6 @@ class TreeNode(BaseNode):
             return f"{self.header}\n{self.content}"
         return self._text or self.content or ""
 
-    @property
-    def links(self) -> List[str]:
-        """
-        Returns a list of all non-None link values from this node and its descendants.
-
-        Returns:
-            A list of link strings.
-        """
-        links = []
-        if self.link is not None:
-            links.append(self.link)
-        for child in self._children:
-            links.extend(child.links)
-        return links
-
     @text.setter
     def text(self, value: Optional[str]) -> None:
         """
@@ -1294,6 +1295,14 @@ class TreeNode(BaseNode):
         """
         return self._children
 
+    def get_links(self) -> List[str]:
+        """
+        Returns a list of all unique URLs found in this node's outer HTML and its descendants' outer HTML.
+
+        :return: A list of unique URL strings.
+        """
+        return self._links
+
 
 def create_node(node: TreeNode) -> TreeNode:
     """
@@ -1311,7 +1320,6 @@ def create_node(node: TreeNode) -> TreeNode:
         depth=node.depth,
         id=node.id,
         class_names=node.class_names,
-        link=node.link,
         children=node._children,
         line=node.line,
         html=node.get_html()
@@ -1338,7 +1346,7 @@ def extract_tree_with_text(
     timeout_ms: int = 1000
 ) -> TreeNode:
     """
-    Extracts a tree structure from HTML with id, parent_id, link attributes, actual line numbers, and outer HTML from formatted HTML.
+    Extracts a tree structure from HTML with id, parent_id, links attributes, actual line numbers, and outer HTML from formatted HTML.
     Sets the _parent_node attribute for each node if not already set.
     """
     if os.path.exists(source) and not source.startswith("file://"):
@@ -1387,7 +1395,6 @@ def extract_tree_with_text(
         depth=0,
         id=root_id,
         class_names=[],
-        link=None,
         children=[],
         line=root_line,
         html=pq(root_el).outer_html()
@@ -1411,12 +1418,6 @@ def extract_tree_with_text(
             class_names = [cls for cls in (child_pq.attr(
                 "class") or "").split() if not cls.startswith("css-")]
             element_id = child_pq.attr("id")
-            link = (
-                child_pq.attr("href") or
-                child_pq.attr("data-href") or
-                child_pq.attr("action") or
-                None
-            )
 
             if not element_id or not re.match(r'^[a-zA-Z_-]+$', element_id):
                 element_id = f"auto_{uuid.uuid4().hex[:8]}"
@@ -1455,7 +1456,6 @@ def extract_tree_with_text(
                 depth=depth + 1,
                 id=element_id,
                 class_names=class_names,
-                link=link,
                 children=[],
                 line=line_number,
                 html=child_pq.outer_html()
@@ -1583,7 +1583,6 @@ def extract_by_heading_hierarchy(
             depth=new_depth,
             id=new_id,
             class_names=node.class_names,
-            link=node.link,
             children=[],
             line=node.line,
             html=node.get_html()
@@ -1767,7 +1766,6 @@ def extract_text_nodes(
                 depth=depth,
                 id=id,
                 class_names=class_names,
-                link=link,
                 line=element_pq[0].sourceline if element_pq else 0,
                 html=element_pq.outer_html()
             ))
@@ -1932,7 +1930,6 @@ class SignificantNode(TreeNode):
             depth=depth,
             id=id,
             class_names=class_names,
-            link=link,
             children=children,
             line=line,
             html=html
@@ -2000,7 +1997,6 @@ def create_significant_node(
         depth=node.depth,
         id=node.id,
         class_names=node.class_names,
-        link=node.link,
         children=node._children,
         line=node.line,
         html=html,
@@ -2084,7 +2080,6 @@ class ParentWithCommonClass(TreeNode):
             depth=depth,
             id=id,
             class_names=class_names,
-            link=link,
             children=children,
             line=line,
             html=html
@@ -2130,7 +2125,6 @@ def get_parents_with_common_class(
                     depth=node.depth,
                     id=node.id,
                     class_names=node.class_names,
-                    link=node.link,
                     line=node.line,
                     html=node.get_html(),
                     common_class=class_name,
@@ -2170,7 +2164,6 @@ def get_parents_with_common_class(
                                     depth=node.depth,
                                     id=node.id,
                                     class_names=node.class_names,
-                                    link=node.link,
                                     line=node.line,
                                     html=node.get_html(),
                                     common_class=cls,
@@ -2194,7 +2187,6 @@ def get_parents_with_common_class(
                                 depth=node.depth,
                                 id=node.id,
                                 class_names=node.class_names,
-                                link=node.link,
                                 line=node.line,
                                 html=node.get_html(),
                                 common_class=cls,
@@ -2217,7 +2209,6 @@ def get_parents_with_common_class(
                                 depth=node.depth,
                                 id=node.id,
                                 class_names=node.class_names,
-                                link=node.link,
                                 line=node.line,
                                 html=node.get_html(),
                                 common_class="",

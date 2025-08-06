@@ -72,13 +72,11 @@ class TestScrapeLinks:
         text = """
         Invalid: ftp://example.com
         Malformed: http://[invalid
-        Relative: /valid/path
         """
-        base_url = "https://example.com"
-        expected = ["https://example.com/valid/path"]
+        expected = []
 
         # When: We scrape links with a base URL
-        result = scrape_links(text, base_url)
+        result = scrape_links(text)
 
         # Then: Only valid URLs are returned
         assert result == expected
@@ -142,4 +140,39 @@ class TestScrapeLinks:
         result = scrape_links(text, base_url)
 
         # Then: Relative path is correctly resolved
+        assert result == expected
+
+    def test_relative_paths_with_base_url(self):
+        """
+        Given: Text containing relative paths starting with '/', including query parameters and fragments
+        When: scrape_links is called without a base_url
+        Then: The relative paths are returned as-is, preserving query parameters and fragments
+        """
+        text = """
+        Go to /page1, /page1?q=123 or /page1#section1
+        """
+        base_url = "https://example.com"
+        expected = [
+            "https://example.com/page1",
+            "https://example.com/page1?q=123",
+            "https://example.com/page1#section1"
+        ]
+        result = scrape_links(text, base_url)
+        assert result == expected
+
+    def test_relative_paths_without_base_url(self):
+        """
+        Given: Text containing relative paths starting with '/', including query parameters and fragments
+        When: scrape_links is called without a base_url
+        Then: The relative paths are returned as-is, preserving query parameters and fragments
+        """
+        text = """
+        Go to /page1, /page1?q=123 or /page1#section1
+        """
+        expected = [
+            "/page1",
+            "/page1?q=123",
+            "/page1#section1"
+        ]
+        result = scrape_links(text)
         assert result == expected
