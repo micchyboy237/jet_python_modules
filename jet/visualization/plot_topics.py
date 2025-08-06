@@ -6,24 +6,88 @@ import umap
 import pandas as pd
 import os
 import json
+from jet.logger import logger
+from sklearn.cluster import KMeans
+from keybert import KeyBERT
 
 
 def categorize_documents_with_bertopic(documents: List[Dict], min_topic_size: int = 2) -> List[str]:
     texts = [doc["content"] for doc in documents]
-    umap_model = umap.UMAP(n_components=2, random_state=42)
+    if len(texts) < 3:
+        logger.warning(
+            "Dataset too small (<3 documents); assigning keyword-based topics")
+        kw_model = KeyBERT()
+        topic_assignments = []
+        for doc in texts:
+            keywords = kw_model.extract_keywords(doc, top_n=1)
+            topic_assignments.append(
+                keywords[0][0] if keywords else f"Topic_{len(topic_assignments)+1}")
+        logger.debug(
+            f"Keyword-based topic assignments: {dict(zip([doc['id'] for doc in documents], topic_assignments))}")
+        return topic_assignments
+
+    # Optimize UMAP for small datasets
+    n_components = min(2, len(documents) - 1)
+    n_neighbors = min(3, len(documents) - 1)
+    umap_model = umap.UMAP(
+        n_components=n_components,
+        n_neighbors=n_neighbors,
+        min_dist=0.0,
+        random_state=42
+    )
+    # Use KMeans instead of HDBSCAN for small datasets
+    kmeans_model = KMeans(n_clusters=min(3, len(documents)), random_state=42)
     topic_model = BERTopic(
         embedding_model="all-MiniLM-L6-v2",
         representation_model=KeyBERTInspired(),
-        min_topic_size=min_topic_size,
-        calculate_probabilities=False,
-        umap_model=umap_model
+        min_topic_size=max(min_topic_size, len(documents) // 4),
+        nr_topics=None,  # Disable auto-reduction
+        hdbscan_model=kmeans_model,  # Use KMeans
+        low_memory=True,
+        umap_model=umap_model,
+        calculate_probabilities=False
     )
-    topics, _ = topic_model.fit_transform(texts)
-    topic_info = topic_model.get_topic_info()
-    topic_names = {row["Topic"]: row["Name"]
-                   for _, row in topic_info.iterrows()}
-    topic_names[-1] = "Outlier"
-    return [topic_names[topic] for topic in topics]
+    try:
+        topics, _ = topic_model.fit_transform(texts)
+        topic_info = topic_model.get_topic_info()
+
+        # Debug: Log topic information
+        logger.debug(f"Topic info:\n{topic_info.to_string()}")
+        topic_names = {row["Topic"]: row["Name"]
+                       for _, row in topic_info.iterrows()}
+        topic_names[-1] = "Outlier"
+        topic_assignments = [topic_names[topic] for topic in topics]
+
+        # Debug: Log document assignments
+        logger.debug(
+            f"Document topic assignments: {dict(zip([doc['id'] for doc in documents], topic_assignments))}")
+
+        # Warn if only outliers
+        if len(set(topic_assignments) - {"Outlier"}) < 1:
+            logger.warning(
+                "Only outlier topic detected; using keyword-based topics")
+            kw_model = KeyBERT()
+            topic_assignments = []
+            for doc in texts:
+                keywords = kw_model.extract_keywords(doc, top_n=1)
+                topic_assignments.append(
+                    keywords[0][0] if keywords else f"Topic_{len(topic_assignments)+1}")
+            logger.debug(
+                f"Keyword-based topic assignments: {dict(zip([doc['id'] for doc in documents], topic_assignments))}")
+
+        return topic_assignments
+    except Exception as e:
+        logger.error(f"BERTopic failed: {e}")
+        logger.warning("Falling back to keyword-based topic assignments")
+        kw_model = KeyBERT()
+        topic_assignments = []
+        for doc in texts:
+            keywords = kw_model.extract_keywords(doc, top_n=1)
+            topic_assignments.append(
+                keywords[0][0] if keywords else f"Topic_{len(topic_assignments)+1}")
+        logger.debug(
+            f"Keyword-based topic assignments: {dict(zip([doc['id'] for doc in documents], topic_assignments))}")
+        return topic_assignments
 
 
 def aggregate_by_category(documents: List[Dict], min_topic_size: int = 2) -> Dict[str, int]:
