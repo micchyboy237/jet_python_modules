@@ -1200,7 +1200,7 @@ class TreeNode(BaseNode):
         return [header for header, _ in headers]
 
     @property
-    def text(self) -> Optional[str]:
+    def text(self) -> str:
         """
         Returns the header and content joined by a newline if both are non-empty, else the original text or content.
 
@@ -1209,7 +1209,7 @@ class TreeNode(BaseNode):
         """
         if self.header and self.content:
             return f"{self.header}\n{self.content}"
-        return self._text or self.content or None
+        return self._text or self.content or ""
 
     @text.setter
     def text(self, value: Optional[str]) -> None:
@@ -1657,7 +1657,7 @@ def extract_texts_by_hierarchy(
 ) -> List[TextHierarchyResult]:
     """
     Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, header, content, links, depth, id, parent_id, parent_headers, parent_header, parent_content, parent_level, level, line, and children attributes.
-    Filters out results without a header or content. Ensures parent_headers is ordered from root to immediate parent.
+    Includes all heading nodes with their hierarchies.
 
     Args:
         source: The HTML source string or URL.
@@ -1670,7 +1670,6 @@ def extract_texts_by_hierarchy(
     """
     def collect_text_and_links(node: TreeNode) -> TextHierarchyResult:
         links: Set[str] = set()
-        children: List[TreeNode] = []
 
         if node.link and not ignore_links:
             links.add(node.link)
@@ -1678,7 +1677,6 @@ def extract_texts_by_hierarchy(
         for child in node._children:
             child_result = collect_text_and_links(child)
             links.update(child_result.links)
-            children.append(child)  # Include direct children
 
         return TextHierarchyResult(
             tag=node.tag,
@@ -1687,7 +1685,7 @@ def extract_texts_by_hierarchy(
             links=list(links),
             line=node.line,
             html=node.get_html(),
-            children=children
+            children=node._children  # Preserve original child hierarchy
         )
 
     heading_nodes = extract_by_heading_hierarchy(
@@ -1696,7 +1694,7 @@ def extract_texts_by_hierarchy(
 
     for node in heading_nodes:
         result = collect_text_and_links(node)
-        if result.header or result.content:
+        if result.header:  # Include all heading nodes
             results.append(result)
 
     return results
