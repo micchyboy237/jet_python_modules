@@ -8,7 +8,7 @@ from jet.scrapers.config import TEXT_ELEMENTS
 from jet.utils.url_utils import clean_url
 from jet.wordnet.sentence import split_sentences
 from lxml.etree import Comment
-from typing import Callable, Optional, List, Dict, Set, TypedDict, Union
+from typing import Callable, Literal, Optional, List, Dict, Set, TypedDict, Union
 from bs4 import BeautifulSoup
 import uuid
 from jet.search.formatters import decode_text_with_unidecode
@@ -1047,7 +1047,7 @@ class BaseNode:
         self.class_names = class_names
         self.link = link
         self.line = line
-        self.html = html
+        self.html = html.strip() if html else html
         self._parent_node: Optional['BaseNode'] = None
 
     def get_parent_node(self) -> Optional['BaseNode']:
@@ -1929,7 +1929,7 @@ class SignificantNode(BaseNode):
         has_significant_descendants: bool = False
     ):
         super().__init__(tag, text, depth, id, parent, class_names, link, line)
-        self.html = html  # Outer HTML of the node including all children
+        self.html = html.strip()  # Outer HTML of the node including all children
         # Indicates if the node has children
         self.has_significant_descendants = has_significant_descendants
 
@@ -2058,8 +2058,8 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
     return result
 
 
-class ParentWithSharedClass(TreeNode):
-    """Represents a parent node with its shared class name and matching children, extending TreeNode."""
+class ParentWithCommonClass(TreeNode):
+    """Represents a parent node with its shared class name and/or tag and matching children, extending TreeNode."""
 
     def __init__(
         self,
@@ -2072,21 +2072,28 @@ class ParentWithSharedClass(TreeNode):
         link: Optional[str] = None,
         children: List[TreeNode] = [],
         line: int = 0,
-        shared_class: str = "",
-        matching_children_count: int = 0
+        common_class: str = "",
+        common_tag: str = "",
+        children_count: int = 0
     ):
         super().__init__(tag, text, depth, id, parent, class_names, link, children, line)
-        self.shared_class = shared_class
-        self.matching_children_count = matching_children_count
+        self.common_class = common_class
+        self.common_tag = common_tag
+        self.children_count = children_count
 
 
-def get_parents_with_shared_class(root: TreeNode, class_name: Optional[str] = None) -> List[ParentWithSharedClass]:
+def get_parents_with_common_class(
+    root: TreeNode,
+    class_name: Optional[str] = None,
+    match_condition: Literal["and", "or"] = "and"
+) -> List[ParentWithCommonClass]:
     """
-    Finds parent nodes with direct children sharing a specified or common class, excluding parents with children having different classes.
+    Finds parent nodes with direct children sharing a specified or common class and/or tag, excluding parents with children having different classes/tags.
 
     :param root: The root TreeNode of the tree to search.
-    :param class_name: Optional class name to match in child nodes. If None, finds parents with any shared class among children.
-    :return: A list of ParentWithSharedClass objects sorted by number of matching children (descending).
+    :param class_name: Optional class name to match in child nodes. If None, finds parents with any shared class or tag among children.
+    :param match_condition: Determines if children must share both class and tag ("and") or either ("or"). Defaults to "and".
+    :return: A list of ParentWithCommonClass objects sorted by number of matching children (descending).
     """
     result = []
 
@@ -2104,50 +2111,114 @@ def get_parents_with_shared_class(root: TreeNode, class_name: Optional[str] = No
             has_different_class = any(
                 child.class_names and class_name not in child.class_names for child in children)
             if matching_children and not has_different_class:
-                result.append(ParentWithSharedClass(
+                result.append(ParentWithCommonClass(
                     tag=node.tag,
                     text=node.text,
                     depth=node.depth,
                     id=node.id,
-                    parent=node.parent,
+                    parent=node.parent_id,
                     class_names=node.class_names,
                     link=node.link,
                     line=node.line,
-                    shared_class=class_name,
-                    matching_children_count=len(matching_children),
+                    common_class=class_name,
+                    common_tag="",  # No specific tag requirement when class_name is provided
+                    children_count=len(matching_children),
                     children=matching_children
                 ))
         else:
-            # Collect all classes from direct children
+            # Collect all classes and tags from direct children
             child_classes = {}
+            child_tags = {}
             for child in children:
                 for cls in child.class_names:
                     child_classes[cls] = child_classes.get(cls, 0) + 1
+                child_tags[child.tag] = child_tags.get(child.tag, 0) + 1
 
-            # Find classes shared by multiple children
-            for cls, count in child_classes.items():
-                if count > 1:
-                    # Check if all children either have the shared class or no classes
-                    has_different_class = any(
-                        child.class_names and cls not in child.class_names
-                        for child in children
-                    )
-                    if not has_different_class:
-                        matching_children = [
-                            child for child in children if cls in child.class_names]
-                        result.append(ParentWithSharedClass(
-                            tag=node.tag,
-                            text=node.text,
-                            depth=node.depth,
-                            id=node.id,
-                            parent=node.parent_id,
-                            class_names=node.class_names,
-                            link=node.link,
-                            line=node.line,
-                            shared_class=cls,
-                            matching_children_count=len(matching_children),
-                            children=matching_children
-                        ))
+            if match_condition == "and":
+                # Find pairs of classes and tags shared by multiple children
+                for cls, cls_count in child_classes.items():
+                    if cls_count <= 1:
+                        continue
+                    for tag, tag_count in child_tags.items():
+                        if tag_count <= 1:
+                            continue
+                        # Check if all children have both the class and tag or no classes/tags
+                        has_different = any(
+                            (child.class_names and cls not in child.class_names) or
+                            child.tag != tag
+                            for child in children
+                        )
+                        if not has_different:
+                            matching_children = [
+                                child for child in children
+                                if cls in child.class_names and child.tag == tag
+                            ]
+                            if matching_children:
+                                result.append(ParentWithCommonClass(
+                                    tag=node.tag,
+                                    text=node.text,
+                                    depth=node.depth,
+                                    id=node.id,
+                                    parent=node.parent_id,
+                                    class_names=node.class_names,
+                                    link=node.link,
+                                    line=node.line,
+                                    common_class=cls,
+                                    common_tag=tag,
+                                    children_count=len(matching_children),
+                                    children=matching_children
+                                ))
+            else:  # match_condition == "or"
+                # Find classes shared by multiple children
+                for cls, count in child_classes.items():
+                    if count > 1:
+                        # Check if all children either have the shared class or no classes
+                        has_different_class = any(
+                            child.class_names and cls not in child.class_names
+                            for child in children
+                        )
+                        if not has_different_class:
+                            matching_children = [
+                                child for child in children if cls in child.class_names]
+                            result.append(ParentWithCommonClass(
+                                tag=node.tag,
+                                text=node.text,
+                                depth=node.depth,
+                                id=node.id,
+                                parent=node.parent_id,
+                                class_names=node.class_names,
+                                link=node.link,
+                                line=node.line,
+                                common_class=cls,
+                                common_tag="",
+                                children_count=len(matching_children),
+                                children=matching_children
+                            ))
+
+                # Find tags shared by multiple children
+                for tag, count in child_tags.items():
+                    if count > 1:
+                        # Check if all children either have the shared tag or no classes
+                        has_different_tag = any(
+                            child.tag != tag for child in children
+                        )
+                        if not has_different_tag:
+                            matching_children = [
+                                child for child in children if child.tag == tag]
+                            result.append(ParentWithCommonClass(
+                                tag=node.tag,
+                                text=node.text,
+                                depth=node.depth,
+                                id=node.id,
+                                parent=node.parent_id,
+                                class_names=node.class_names,
+                                link=node.link,
+                                line=node.line,
+                                common_class="",
+                                common_tag=tag,
+                                children_count=len(matching_children),
+                                children=matching_children
+                            ))
 
         # Recursively check all children nodes
         for child in children:
@@ -2157,7 +2228,7 @@ def get_parents_with_shared_class(root: TreeNode, class_name: Optional[str] = No
     traverse(root)
 
     # Sort results by number of matching children (descending)
-    result.sort(key=lambda x: x.matching_children_count, reverse=True)
+    result.sort(key=lambda x: x.children_count, reverse=True)
 
     return result
 
@@ -2182,7 +2253,7 @@ __all__ = [
     "print_html",
     "get_significant_nodes",
     "get_leaf_nodes",
-    "get_parents_with_shared_class",
+    "get_parents_with_common_class",
 ]
 
 

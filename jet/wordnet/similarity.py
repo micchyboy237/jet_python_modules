@@ -775,6 +775,27 @@ def plot_text_embeddings(texts: List[str], embeddings: List[List[float]], title:
     plt.show()
 
 
+def preprocess_text(text: str) -> str:
+    """
+    Preprocesses a single text by normalizing whitespace, converting to lowercase,
+    and removing special characters.
+
+    Args:
+        text (str): Input text to preprocess.
+
+    Returns:
+        str: Preprocessed text.
+    """
+    import re
+    # Convert to lowercase
+    text = text.lower()
+    # Remove special characters, keeping alphanumeric and spaces
+    text = re.sub(r'[^\w\s]', '', text)
+    # Normalize whitespace (replace multiple spaces with single space, strip)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 def group_similar_texts(
     texts: List[str],
     threshold: float = 0.7,
@@ -784,7 +805,7 @@ def group_similar_texts(
     mode: ClusteringMode = "agglomerative"
 ) -> List[ClusterResult]:
     """
-    Groups similar texts based on cosine similarity score using specified clustering mode, with deduplicated input texts.
+    Groups similar texts based on cosine similarity score using specified clustering mode, with deduplicated and preprocessed input texts.
 
     Args:
         texts (List[str]): List of input texts to be grouped.
@@ -795,7 +816,7 @@ def group_similar_texts(
         mode (ClusteringMode): Clustering method to use. Default is "agglomerative".
 
     Returns:
-        List[ClusterResult]: List of dictionaries containing cluster labels and their corresponding texts or IDs, including noise points (label -1).
+        List[ClusterResult]: List of dictionaries containing cluster labels and their corresponding original texts or IDs, including noise points (label -1).
     """
     if not texts:
         return []
@@ -812,7 +833,8 @@ def group_similar_texts(
     for i, text in enumerate(texts):
         if text not in seen_texts:
             seen_texts[text] = True
-            unique_texts.append(text.lower())
+            # Preprocess text for embedding
+            unique_texts.append(preprocess_text(text))
             original_texts.append(text)
             if ids is not None:
                 original_ids.append(ids[i])
