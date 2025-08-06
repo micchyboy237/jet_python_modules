@@ -15,6 +15,7 @@ class MDHeaderLink(TypedDict):
     line: str
     line_idx: int
     is_heading: bool
+    image_url: Optional[str]
 
 
 def clean_markdown_text(text: str) -> str:
@@ -265,6 +266,7 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
         start, end = match.span()
         image_alt, image_url, label, url, ref_text, ref_id = match.groups()
         selected_url = ""
+        selected_image_url = image_url.strip() if image_url else None  # Capture image URL
 
         if ref_text and ref_id:  # Handle reference-style link [text][ref]
             label = ref_text
@@ -283,6 +285,9 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
         # Convert relative URLs to absolute
         if base_url and not selected_url.startswith(('http://', 'https://')):
             selected_url = urljoin(base_url, selected_url)
+        # Convert relative image URLs to absolute
+        if base_url and selected_image_url and not selected_image_url.startswith(('http://', 'https://')):
+            selected_image_url = urljoin(base_url, selected_image_url)
 
         # Find line and line index
         start_line_idx = text[:start].rfind('\n') + 1
@@ -293,7 +298,7 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
         line_idx = len(text[:start].splitlines()) - 1
 
         # Create link entry
-        key = (label or "", selected_url, line)  # Removed caption from key
+        key = (label or "", selected_url, line)  # Key remains unchanged
         if key not in seen:
             seen.add(key)
             links.append({
@@ -303,7 +308,8 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
                 "end_idx": end,
                 "line": line,
                 "line_idx": line_idx,
-                "is_heading": line.startswith('#')
+                "is_heading": line.startswith('#'),
+                "image_url": selected_image_url
             })
         if ignore_links and label and label.strip():
             replacements.append((start, end, label))
@@ -333,7 +339,8 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
                     "end_idx": end,
                     "line": line,
                     "line_idx": line_idx,
-                    "is_heading": line.startswith('#')
+                    "is_heading": line.startswith('#'),
+                    "image_url": None
                 })
             if ignore_links:
                 replacements.append((start, end, ""))
