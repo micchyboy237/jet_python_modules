@@ -1078,7 +1078,6 @@ class TreeNode(BaseNode):
         text: Optional[str],
         depth: int,
         id: str,
-        parent_id: Optional[str] = None,
         class_names: List[str] = [],
         link: Optional[str] = None,
         children: Optional[List['TreeNode']] = None,
@@ -1095,10 +1094,132 @@ class TreeNode(BaseNode):
             line=line,
             html=html
         )
-        self.parent_id = parent_id
         self._children: List['TreeNode'] = children if children is not None else [
         ]
         self._parent_node: Optional['TreeNode'] = None
+
+    @property
+    def parent_id(self) -> Optional[str]:
+        """
+        Returns the ID of the parent node if it exists, else None.
+
+        Returns:
+            The parent's ID or None.
+        """
+        return self._parent_node.id if self._parent_node else None
+
+    @property
+    def header(self) -> str:
+        """
+        Returns the node's header text if it's a heading tag (h1–h6), else an empty string.
+
+        Returns:
+            The header text or an empty string.
+        """
+        if self.tag.lower() in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            return self._text.strip() if self._text else ""
+        return ""
+
+    @property
+    def content(self) -> str:
+        """
+        Returns the combined content of the node and its descendants, excluding header text if this is a heading node.
+
+        Returns:
+            The combined content as a string.
+        """
+        texts = []
+        if not self.header and self._text and self._text.strip():
+            texts.append(self._text.strip())
+        for child in self._children:
+            child_content = child.content
+            if child_content:
+                texts.append(child_content)
+        return "\n".join(texts).strip()
+
+    @property
+    def level(self) -> Optional[int]:
+        """
+        Returns the heading level (1–6) if the node is a heading tag, else None.
+
+        Returns:
+            The heading level or None.
+        """
+        if self.tag.lower() in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            return int(self.tag.lower()[1])
+        return None
+
+    @property
+    def parent_header(self) -> Optional[str]:
+        """
+        Returns the header text of the parent node if it exists, else None.
+
+        Returns:
+            The parent's header text or None.
+        """
+        parent = self.get_parent_node()
+        return parent.header if parent else None
+
+    @property
+    def parent_content(self) -> Optional[str]:
+        """
+        Returns the content of the parent node if it exists, else None.
+
+        Returns:
+            The parent's content or None.
+        """
+        parent = self.get_parent_node()
+        return parent.content if parent else None
+
+    @property
+    def parent_level(self) -> Optional[int]:
+        """
+        Returns the heading level of the parent node if it exists, else None.
+
+        Returns:
+            The parent's heading level or None.
+        """
+        parent = self.get_parent_node()
+        return parent.level if parent else None
+
+    @property
+    def parent_headers(self) -> List[str]:
+        """
+        Returns a list of header texts from parent nodes with lower levels, ordered from root to immediate parent.
+
+        Returns:
+            A list of parent header texts.
+        """
+        headers = []
+        current = self.get_parent_node()
+        while current:
+            if current.header and current.level is not None and (self.level is None or current.level < self.level):
+                headers.append((current.header, current.level))
+            current = current.get_parent_node()
+        headers.sort(key=lambda x: x[1])
+        return [header for header, _ in headers]
+
+    @property
+    def text(self) -> Optional[str]:
+        """
+        Returns the header and content joined by a newline if both are non-empty, else the original text or content.
+
+        Returns:
+            The combined header and content, or the original text, or None.
+        """
+        if self.header and self.content:
+            return f"{self.header}\n{self.content}"
+        return self._text or self.content or None
+
+    @text.setter
+    def text(self, value: Optional[str]) -> None:
+        """
+        Sets the internal text value.
+
+        Args:
+            value: The text value to set.
+        """
+        self._text = value
 
     def get_parent_node(self) -> Optional['TreeNode']:
         """
@@ -1174,7 +1295,6 @@ def create_node(node: TreeNode) -> TreeNode:
         text=node.text,
         depth=node.depth,
         id=node.id,
-        parent_id=node.parent_id,
         class_names=node.class_names,
         link=node.link,
         children=node._children,
@@ -1251,7 +1371,6 @@ def extract_tree_with_text(
         text=None,
         depth=0,
         id=root_id,
-        parent_id=None,
         class_names=[],
         link=None,
         children=[],
@@ -1320,7 +1439,6 @@ def extract_tree_with_text(
                 text=text,
                 depth=depth + 1,
                 id=element_id,
-                parent_id=parent_node.id,
                 class_names=class_names,
                 link=link,
                 children=[],
@@ -1408,15 +1526,31 @@ def extract_by_heading_hierarchy(
     Extracts a list of TreeNode hierarchies split by heading tags, avoiding duplicates,
     with heading text prepended by '#' based on header level.
     Sets the _parent_node attribute for each node if not already set.
+
+    Args:
+        source: The HTML source string or URL.
+        tags_to_split_on: List of tuples mapping markdown prefixes to HTML heading tags.
+        excludes: List of tags to exclude from the tree.
+
+    Returns:
+        A list of TreeNode objects representing heading hierarchies.
     """
     results: List[TreeNode] = []
     parent_stack: List[Tuple[int, TreeNode]] = []
     seen_ids: Set[str] = set()
 
-    def clone_node(node: TreeNode, new_parent_id: Optional[str] = None, new_depth: int = 0) -> TreeNode:
+    def clone_node(node: TreeNode, parent_node: Optional[TreeNode] = None, new_depth: int = 0) -> TreeNode:
         """
         Clones a node with a new parent and depth, preserving structure without duplicating IDs.
         Sets _parent_node if not already set.
+
+        Args:
+            node: The TreeNode to clone.
+            parent_node: The parent TreeNode, if any.
+            new_depth: The depth for the cloned node.
+
+        Returns:
+            A new TreeNode with copied attributes.
         """
         new_id = node.id if node.id not in seen_ids else f"auto_{uuid.uuid4().hex[:8]}"
         seen_ids.add(new_id)
@@ -1433,7 +1567,6 @@ def extract_by_heading_hierarchy(
             text=text,
             depth=new_depth,
             id=new_id,
-            parent_id=new_parent_id,
             class_names=node.class_names,
             link=node.link,
             children=[],
@@ -1441,7 +1574,7 @@ def extract_by_heading_hierarchy(
             html=node.get_html()
         )
         if cloned._parent_node is None:
-            cloned._parent_node = node._parent_node
+            cloned._parent_node = parent_node
         return cloned
 
     def traverse(node: TreeNode) -> None:
@@ -1460,17 +1593,15 @@ def extract_by_heading_hierarchy(
             parent_node = parent_stack[-1][1] if parent_stack else None
             depth = parent_node.depth + 1 if parent_node else 0
 
-            heading_node = clone_node(
-                node, parent_node.id if parent_node else None, depth)
+            heading_node = clone_node(node, parent_node, depth)
             results.append(heading_node)
             seen_ids.add(heading_node.id)
             parent_stack.append((level, heading_node))
-
         else:
             if parent_stack:
                 parent_node = parent_stack[-1][1]
                 child_node = clone_node(
-                    node, parent_node.id, parent_node.depth + 1)
+                    node, parent_node, parent_node.depth + 1)
                 parent_node._children.append(child_node)
                 seen_ids.add(child_node.id)
 
@@ -1490,17 +1621,9 @@ class TextHierarchyResult(TreeNode):
     def __init__(
         self,
         tag: str,
-        header: str,
-        content: str,
-        links: List[str],
         depth: int,
         id: str,
-        parent_id: Optional[str] = None,
-        parent_headers: List[str] = [],
-        parent_header: Optional[str] = None,
-        parent_content: Optional[str] = None,
-        parent_level: Optional[int] = None,
-        level: Optional[int] = None,
+        links: List[str],
         line: int = 0,
         html: Optional[str] = None,
         children: List['TreeNode'] = []
@@ -1510,21 +1633,13 @@ class TextHierarchyResult(TreeNode):
             text=None,
             depth=depth,
             id=id,
-            parent_id=parent_id,
             class_names=[],
             link=None,
             children=children,
             line=line,
             html=html
         )
-        self.header = header
-        self.content = content
         self.links = links
-        self.parent_headers = parent_headers
-        self.parent_header = parent_header
-        self.parent_content = parent_content
-        self.parent_level = parent_level
-        self.level = level
 
 
 def extract_texts_by_hierarchy(
@@ -1541,8 +1656,7 @@ def extract_texts_by_hierarchy(
     excludes: List[str] = ["nav", "footer", "script", "style"],
 ) -> List[TextHierarchyResult]:
     """
-    Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, header, combined content of a heading
-    and its descendants, a list of unique links, depth, id, parent_id, parent_headers, parent_header, parent_content, parent_level, level, line, and children attributes.
+    Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, header, content, links, depth, id, parent_id, parent_headers, parent_header, parent_content, parent_level, level, line, and children attributes.
     Filters out results without a header or content. Ensures parent_headers is ordered from root to immediate parent.
 
     Args:
@@ -1554,136 +1668,38 @@ def extract_texts_by_hierarchy(
     Returns:
         A list of TextHierarchyResult objects.
     """
-    def get_header_level(header: str) -> int:
-        """Get the header level of a markdown header or HTML header tag."""
-        if header.startswith("#"):
-            header_level = 0
-            for c in header:
-                if c == "#":
-                    header_level += 1
-                else:
-                    break
-            return header_level
-        elif header.startswith("h") and header[1].isdigit() and 1 <= int(header[1]) <= 6:
-            return int(header[1])
-        else:
-            raise ValueError(f"Invalid header format: {header}")
-
-    def collect_text_and_links(node: TreeNode) -> Tuple[TextHierarchyResult, str, str]:
-        texts: List[str] = []
+    def collect_text_and_links(node: TreeNode) -> TextHierarchyResult:
         links: Set[str] = set()
-        html_fragments: List[Tuple[str, str]] = []  # (text, html)
-        header = ""
         children: List[TreeNode] = []
 
-        if node.tag in [tag[1] for tag in tags_to_split_on]:
-            header = node.text.strip() if node.text else ""
-            if node.get_html():
-                html_fragments.append((header, node.get_html()))
-
-        elif node.text and not (ignore_links and node.link):
-            text = node.text.strip()
-            if text:
-                texts.append(text)
-                if node.get_html():
-                    html_fragments.append((text, node.get_html()))
-
-        if node.link:
+        if node.link and not ignore_links:
             links.add(node.link)
 
         for child in node._children:
-            child_result, child_text, child_header = collect_text_and_links(
-                child)
-            if child_header:
-                header = header or child_header
-                if child_result.get_html():
-                    html_fragments.append(
-                        (child_header, child_result.get_html()))
-            if child_text:
-                texts.append(child_text)
-                if child_result.get_html():
-                    html_fragments.append(
-                        (child_text, child_result.get_html()))
+            child_result = collect_text_and_links(child)
             links.update(child_result.links)
-            children.extend(child_result._children)
+            children.append(child)  # Include direct children
 
-        combined_content = "\n".join(texts).strip()
-        level = get_header_level(header) if header else None
-
-        target_texts = set()
-        if header:
-            target_texts.add(header.strip())
-        if combined_content:
-            target_texts.update([line.strip()
-                                for line in combined_content.splitlines()])
-
-        filtered_htmls = []
-        for text, html in html_fragments:
-            if text.strip() in target_texts:
-                filtered_htmls.append(html)
-
-        combined_html = "<div>\n" + \
-            "\n".join(filtered_htmls) + "\n</div>" if filtered_htmls else ""
-
-        result = TextHierarchyResult(
+        return TextHierarchyResult(
             tag=node.tag,
-            header=header,
-            content=combined_content,
-            links=list(links),
             depth=node.depth,
             id=node.id,
-            parent_id=node.parent_id,
-            parent_header=None,
-            parent_content=None,
-            parent_level=None,
-            level=level,
+            links=list(links),
             line=node.line,
-            parent_headers=[],
-            html=combined_html,
+            html=node.get_html(),
             children=children
         )
-        return result, combined_content, header
 
     heading_nodes = extract_by_heading_hierarchy(
         source, tags_to_split_on, excludes)
-
-    id_to_content = {}
-    id_to_header = {}
-    id_to_level = {}
-    id_to_node = {}
-    header_stack: List[Tuple[str, int, str]] = []  # (header, level, id)
     results = []
 
     for node in heading_nodes:
-        result, combined_content, header = collect_text_and_links(node)
-        id_to_content[node.id] = combined_content
-        id_to_header[node.id] = header
-        id_to_level[node.id] = result.level
-        id_to_node[node.id] = node
-        results.append(result)
+        result = collect_text_and_links(node)
+        if result.header or result.content:
+            results.append(result)
 
-        if header and result.level is not None:
-            while header_stack and header_stack[-1][1] >= result.level:
-                header_stack.pop()
-            header_stack.append((header, result.level, node.id))
-
-    for result in results:
-        if result.parent_id:
-            result.parent_header = id_to_header.get(result.parent_id, None)
-            result.parent_content = id_to_content.get(result.parent_id, None)
-            result.parent_level = id_to_level.get(result.parent_id, None)
-
-        if result.header and result.level is not None:
-            parent_headers = []
-            for header, level, node_id in header_stack:
-                if node_id == result.id:
-                    continue
-                if level < result.level:
-                    parent_headers.append((header, level))
-            parent_headers.sort(key=lambda x: x[1])
-            result.parent_headers = [header for header, _ in parent_headers]
-
-    return [result for result in results if result.header]
+    return results
 
 
 def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "script", "style"], timeout_ms: int = 1000) -> List[str]:
@@ -1822,7 +1838,6 @@ def extract_text_nodes(
                 text=text,
                 depth=depth,
                 id=id,
-                parent_id=parent_id,
                 class_names=class_names,
                 link=link,
                 line=element_pq[0].sourceline if element_pq else 0,
@@ -1988,7 +2003,6 @@ class SignificantNode(TreeNode):
             text=text,
             depth=depth,
             id=id,
-            parent_id=parent_id,
             class_names=class_names,
             link=link,
             children=children,
@@ -2058,7 +2072,6 @@ def create_significant_node(
         text=node.text,
         depth=node.depth,
         id=node.id,
-        parent_id=parent_id,
         class_names=node.class_names,
         link=node.link,
         children=node._children,
@@ -2110,7 +2123,6 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
             html = _node_to_outer_html(node)
             result.append(create_significant_node(
                 node=node,
-                parent_id=significant_ancestor_id,
                 html=html,
                 has_significant_descendants=has_significant_descendants
             ))
@@ -2130,10 +2142,9 @@ class ParentWithCommonClass(TreeNode):
         text: Optional[str],
         depth: int,
         id: str,
-        parent_id: Optional[str] = None,
         class_names: List[str] = [],
         link: Optional[str] = None,
-        children: List[TreeNode] = [],
+        children: List['TreeNode'] = [],
         line: int = 0,
         html: Optional[str] = None,
         common_class: str = "",
@@ -2145,7 +2156,6 @@ class ParentWithCommonClass(TreeNode):
             text=text,
             depth=depth,
             id=id,
-            parent_id=parent_id,
             class_names=class_names,
             link=link,
             children=children,
@@ -2192,7 +2202,6 @@ def get_parents_with_common_class(
                     text=node.text,
                     depth=node.depth,
                     id=node.id,
-                    parent_id=node.parent_id,
                     class_names=node.class_names,
                     link=node.link,
                     line=node.line,
@@ -2233,7 +2242,6 @@ def get_parents_with_common_class(
                                     text=node.text,
                                     depth=node.depth,
                                     id=node.id,
-                                    parent_id=node.parent_id,
                                     class_names=node.class_names,
                                     link=node.link,
                                     line=node.line,
@@ -2258,7 +2266,6 @@ def get_parents_with_common_class(
                                 text=node.text,
                                 depth=node.depth,
                                 id=node.id,
-                                parent_id=node.parent_id,
                                 class_names=node.class_names,
                                 link=node.link,
                                 line=node.line,
@@ -2282,7 +2289,6 @@ def get_parents_with_common_class(
                                 text=node.text,
                                 depth=node.depth,
                                 id=node.id,
-                                parent_id=node.parent_id,
                                 class_names=node.class_names,
                                 link=node.link,
                                 line=node.line,
