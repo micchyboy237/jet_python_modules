@@ -248,3 +248,81 @@ Use `print("Hello")` for quick debugging.
 
         # Then: Text links should be replaced, image links removed, and newlines preserved
         assert result == expected
+
+    def test_clean_markdown_links__from_markdown_links_sample(self):
+        # Given: Markdown sample with various link types
+        input_text = """
+[Google](https://www.google.com)
+
+[Google](https://www.google.com "Search Engine")
+
+[](https://www.example.com)
+
+[Google]()
+
+[Google][search]
+[search]: https://www.google.com
+
+[Google][search]
+[search]: https://www.google.com "Search Engine"
+
+[Google]
+[Google]: https://www.google.com
+
+[Google]
+[Google]: https://www.google.com "Search Engine"
+
+[File](<./my file.pdf>)
+
+[Test](https://example.com/page1)
+
+[Google][search]
+[Search Again][search]
+[search]: https://www.google.com
+
+[Google][search]
+[search]:
+
+[Google](https://www.google.com) "Some text"
+"""
+        # When: We clean the markdown links
+        result = clean_markdown_links(input_text)
+
+        # Then: All text links should be replaced by their display text, image links removed, and newlines preserved
+        # Reference-style links and empty links should be handled as plain text or left as-is
+        expected = """
+Google
+
+Google
+
+https://www.example.com
+
+Google
+
+[Google][search]
+[search]: https://www.google.com
+
+[Google][search]
+[search]: https://www.google.com "Search Engine"
+
+[Google]
+[Google]: https://www.google.com
+
+[Google]
+[Google]: https://www.google.com "Search Engine"
+
+File
+
+Test
+
+[Google][search]
+[Search Again][search]
+[search]: https://www.google.com
+
+[Google][search]
+[search]:
+
+Google "Some text"
+"""
+        # Normalize whitespace for comparison
+        assert result.strip() == expected.strip()
