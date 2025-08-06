@@ -1211,6 +1211,21 @@ class TreeNode(BaseNode):
             return f"{self.header}\n{self.content}"
         return self._text or self.content or ""
 
+    @property
+    def links(self) -> List[str]:
+        """
+        Returns a list of all non-None link values from this node and its descendants.
+
+        Returns:
+            A list of link strings.
+        """
+        links = []
+        if self.link is not None:
+            links.append(self.link)
+        for child in self._children:
+            links.extend(child.links)
+        return links
+
     @text.setter
     def text(self, value: Optional[str]) -> None:
         """
@@ -1611,91 +1626,6 @@ def extract_by_heading_hierarchy(
     tree = extract_tree_with_text(source, excludes=excludes)
     if tree:
         traverse(tree)
-
-    return results
-
-
-class TextHierarchyResult(TreeNode):
-    """A node representing a text hierarchy with combined content and links, extending TreeNode."""
-
-    def __init__(
-        self,
-        tag: str,
-        depth: int,
-        id: str,
-        links: List[str],
-        line: int = 0,
-        html: Optional[str] = None,
-        children: List['TreeNode'] = []
-    ):
-        super().__init__(
-            tag=tag,
-            text=None,
-            depth=depth,
-            id=id,
-            class_names=[],
-            link=None,
-            children=children,
-            line=line,
-            html=html
-        )
-        self.links = links
-
-
-def extract_texts_by_hierarchy(
-    source: str,
-    tags_to_split_on: List[Tuple[str, str]] = [
-        ("#", "h1"),
-        ("##", "h2"),
-        ("###", "h3"),
-        ("####", "h4"),
-        ("#####", "h5"),
-        ("######", "h6"),
-    ],
-    ignore_links: bool = True,
-    excludes: List[str] = ["nav", "footer", "script", "style"],
-) -> List[TextHierarchyResult]:
-    """
-    Extracts a list of TextHierarchyResult objects from HTML, each containing the tag, header, content, links, depth, id, parent_id, parent_headers, parent_header, parent_content, parent_level, level, line, and children attributes.
-    Includes all heading nodes with their hierarchies.
-
-    Args:
-        source: The HTML source string or URL.
-        tags_to_split_on: List of tuples mapping markdown prefixes to HTML heading tags.
-        ignore_links: Whether to ignore text from nodes with links.
-        excludes: List of tags to exclude from the tree.
-
-    Returns:
-        A list of TextHierarchyResult objects.
-    """
-    def collect_text_and_links(node: TreeNode) -> TextHierarchyResult:
-        links: Set[str] = set()
-
-        if node.link and not ignore_links:
-            links.add(node.link)
-
-        for child in node._children:
-            child_result = collect_text_and_links(child)
-            links.update(child_result.links)
-
-        return TextHierarchyResult(
-            tag=node.tag,
-            depth=node.depth,
-            id=node.id,
-            links=list(links),
-            line=node.line,
-            html=node.get_html(),
-            children=node._children  # Preserve original child hierarchy
-        )
-
-    heading_nodes = extract_by_heading_hierarchy(
-        source, tags_to_split_on, excludes)
-    results = []
-
-    for node in heading_nodes:
-        result = collect_text_and_links(node)
-        if result.header:  # Include all heading nodes
-            results.append(result)
 
     return results
 
