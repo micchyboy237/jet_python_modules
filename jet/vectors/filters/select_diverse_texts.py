@@ -14,101 +14,101 @@ from jet.models.tokenizer.base import get_tokenizer_fn
 from jet.vectors.filters.diversity_types import DiverseResult
 
 
-def calculate_max_diverse_texts(cluster_embeddings: np.ndarray, cluster_texts: List[str]) -> int:
+def calculate_max_diverse_texts(embeddings: np.ndarray, texts: List[str]) -> int:
     """Calculate the optimal number of diverse texts based on cluster size and embedding variance.
     Args:
-        cluster_embeddings: Array of shape (n_texts, embedding_dim) with embeddings for texts.
-        cluster_texts: List of texts in the cluster.
+        embeddings: Array of shape (n_texts, embedding_dim) with embeddings for texts.
+        texts: List of texts in the cluster.
     Returns:
         Integer representing the maximum number of diverse texts, between 1 and 5.
     """
-    if len(cluster_texts) == 0 or len(cluster_texts) != cluster_embeddings.shape[0]:
+    if len(texts) == 0 or len(texts) != embeddings.shape[0]:
         logger.debug("Empty or mismatched inputs, returning 1")
         return 1
-    variance = float(np.var(cluster_embeddings, axis=0).mean())
+    variance = float(np.var(embeddings, axis=0).mean())
     logger.debug(f"Embedding variance: {variance}")
     variance_factor = max(0.5, min(2.0, variance * 10))
     logger.debug(f"Variance factor: {variance_factor}")
-    cluster_size = len(cluster_texts)
-    max_texts = max(1, min(5, int(np.sqrt(cluster_size) * variance_factor)))
+    cluster_size = len(texts)
+    _max_texts = max(1, min(5, int(np.sqrt(cluster_size) * variance_factor)))
     logger.debug(
-        f"Calculated max_diverse_texts: {max_texts} for cluster size {cluster_size}")
-    return max_texts
+        f"Calculated max_texts: {_max_texts} for cluster size {cluster_size}")
+    return _max_texts
 
 
 def select_diverse_texts(
-    cluster_embeddings: np.ndarray,
-    cluster_texts: List[str],
+    embeddings: np.ndarray,
+    texts: List[str],
     initial_text_idx: Optional[int] = None,
     diversity_threshold: float = 0.7,
-    max_diverse_texts: Optional[int] = None,
+    max_texts: Optional[int] = None,
     ids: Optional[List[str]] = None
 ) -> List[DiverseResult]:
     """Select a diverse subset of texts from a cluster based on embedding similarity.
     Args:
-        cluster_embeddings: Array of shape (n_texts, embedding_dim) with embeddings for texts.
-        cluster_texts: List of texts in the cluster.
+        embeddings: Array of shape (n_texts, embedding_dim) with embeddings for texts.
+        texts: List of texts in the cluster.
         initial_text_idx: Index of the initial text to include (e.g., most similar to centroid). If None, the text closest to the centroid is selected.
         diversity_threshold: Maximum cosine similarity for texts to be considered diverse.
-        max_diverse_texts: Maximum number of diverse texts to return. If None, calculated dynamically.
+        max_texts: Maximum number of diverse texts to return. If None, calculated dynamically.
         ids: Optional list of IDs for texts. If None, UUIDs are generated.
     Returns:
         List of DiverseResult dictionaries containing id, index, text, and score.
     """
     logger.debug(
-        f"Input embeddings shape: {cluster_embeddings.shape}, dtype: {cluster_embeddings.dtype}")
-    logger.debug(f"Input texts: {cluster_texts}")
+        f"Input embeddings shape: {embeddings.shape}, dtype: {embeddings.dtype}")
+    logger.debug(f"Input texts: {texts}")
     logger.debug(
-        f"Initial text index: {initial_text_idx}, threshold: {diversity_threshold}, max_diverse_texts: {max_diverse_texts}, ids provided: {ids is not None}")
+        f"Initial text index: {initial_text_idx}, threshold: {diversity_threshold}, max_texts: {max_texts}, ids provided: {ids is not None}")
 
-    if len(cluster_texts) == 0 or len(cluster_texts) != cluster_embeddings.shape[0]:
+    if len(texts) == 0 or len(texts) != embeddings.shape[0]:
         logger.debug(
             "Empty texts or mismatched embeddings, returning empty list")
         return []
 
     # Validate or generate IDs
     if ids is None:
-        ids = [str(uuid.uuid4()) for _ in range(len(cluster_texts))]
-    elif len(ids) != len(cluster_texts):
+        ids = [str(uuid.uuid4()) for _ in range(len(texts))]
+    elif len(ids) != len(texts):
         logger.debug("Mismatched IDs length, generating new UUIDs")
-        ids = [str(uuid.uuid4()) for _ in range(len(cluster_texts))]
+        ids = [str(uuid.uuid4()) for _ in range(len(texts))]
 
     # Select initial text index if not provided
     if initial_text_idx is None:
-        centroid = np.mean(cluster_embeddings, axis=0, keepdims=True)
-        similarities = np.dot(cluster_embeddings, centroid.T).flatten()
+        centroid = np.mean(embeddings, axis=0, keepdims=True)
+        similarities = np.dot(embeddings, centroid.T).flatten()
         initial_text_idx = int(np.argmax(similarities))
         logger.debug(
             f"No initial_text_idx provided, selected centroid-based index: {initial_text_idx}")
 
-    if initial_text_idx < 0 or initial_text_idx >= len(cluster_texts):
+    if initial_text_idx < 0 or initial_text_idx >= len(texts):
         logger.debug("Invalid initial index, returning empty list")
         return []
 
     active_max_diverse_texts = calculate_max_diverse_texts(
-        cluster_embeddings, cluster_texts) if max_diverse_texts is None else max_diverse_texts
-    logger.debug(f"Active max_diverse_texts: {active_max_diverse_texts}")
+        embeddings, texts) if max_texts is None else max_texts
+    logger.debug(f"Active max_texts: {active_max_diverse_texts}")
 
-    initial_embedding = cluster_embeddings[initial_text_idx].reshape(1, -1)
+    initial_embedding = embeddings[initial_text_idx].reshape(1, -1)
     diverse_results: List[DiverseResult] = [{
         "id": ids[initial_text_idx],
         "index": initial_text_idx,
-        "text": cluster_texts[initial_text_idx],
+        "text": texts[initial_text_idx],
         "score": 1.0  # Initial text has maximum score
     }]
     remaining_indices = [i for i in range(
-        len(cluster_texts)) if i != initial_text_idx]
+        len(texts)) if i != initial_text_idx]
     logger.debug(
         f"Starting with text: {diverse_results[0]['text']}, remaining indices: {remaining_indices}")
 
     # Rest of the function remains unchanged
     for i in remaining_indices:
         is_diverse = True
-        curr_embedding = cluster_embeddings[i].reshape(1, -1)
-        logger.debug(f"Checking text {i}: {cluster_texts[i]}")
+        curr_embedding = embeddings[i].reshape(1, -1)
+        logger.debug(f"Checking text {i}: {texts[i]}")
         for selected_result in diverse_results:
             selected_idx = selected_result["index"]
-            selected_embedding = cluster_embeddings[selected_idx].reshape(
+            selected_embedding = embeddings[selected_idx].reshape(
                 1, -1)
             similarity = np.dot(
                 curr_embedding, selected_embedding.T).flatten()[0]
@@ -125,14 +125,14 @@ def select_diverse_texts(
             diverse_results.append({
                 "id": ids[i],
                 "index": i,
-                "text": cluster_texts[i],
+                "text": texts[i],
                 "score": score
             })
             logger.debug(
-                f"Text {i} added: {cluster_texts[i]} with score: {score}")
+                f"Text {i} added: {texts[i]} with score: {score}")
         if len(diverse_results) >= active_max_diverse_texts:
             logger.debug(
-                f"Reached max_diverse_texts ({active_max_diverse_texts}), stopping")
+                f"Reached max_texts ({active_max_diverse_texts}), stopping")
             break
 
     logger.debug(

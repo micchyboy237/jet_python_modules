@@ -26,11 +26,7 @@ class TestSelectDiverseTexts:
             [-0.9, 0.1]
         ], dtype=np.float32)
         cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
-        logger.debug(
-            f"cluster_embeddings dtype: {cluster_embeddings.dtype}, shape: {cluster_embeddings.shape}, is_contiguous: {cluster_embeddings.flags['C_CONTIGUOUS']}")
         faiss.normalize_L2(cluster_embeddings)
-        logger.debug(
-            f"After normalization, cluster_embeddings: {cluster_embeddings}")
         initial_text_idx = 0
         diversity_threshold = 0.8
         ids = [str(uuid.uuid4()) for _ in range(len(cluster_texts))]
@@ -45,11 +41,11 @@ class TestSelectDiverseTexts:
 
         # When
         result = select_diverse_texts(
-            cluster_embeddings=cluster_embeddings,
-            cluster_texts=cluster_texts,
+            embeddings=cluster_embeddings,
+            texts=cluster_texts,
             initial_text_idx=initial_text_idx,
             diversity_threshold=diversity_threshold,
-            max_diverse_texts=3,
+            max_texts=3,
             ids=ids
         )
 
@@ -77,11 +73,7 @@ class TestSelectDiverseTexts:
             [0.89, 0.11]
         ], dtype=np.float32)
         cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
-        logger.debug(
-            f"cluster_embeddings dtype: {cluster_embeddings.dtype}, shape: {cluster_embeddings.shape}, is_contiguous: {cluster_embeddings.flags['C_CONTIGUOUS']}")
         faiss.normalize_L2(cluster_embeddings)
-        logger.debug(
-            f"After normalization, cluster_embeddings: {cluster_embeddings}")
         initial_text_idx = 0
         diversity_threshold = 0.8
         ids = [str(uuid.uuid4()) for _ in range(len(cluster_texts))]
@@ -90,11 +82,11 @@ class TestSelectDiverseTexts:
 
         # When
         result = select_diverse_texts(
-            cluster_embeddings=cluster_embeddings,
-            cluster_texts=cluster_texts,
+            embeddings=cluster_embeddings,
+            texts=cluster_texts,
             initial_text_idx=initial_text_idx,
             diversity_threshold=diversity_threshold,
-            max_diverse_texts=3,
+            max_texts=3,
             ids=ids
         )
 
@@ -119,11 +111,11 @@ class TestSelectDiverseTexts:
 
         # When
         result = select_diverse_texts(
-            cluster_embeddings=cluster_embeddings,
-            cluster_texts=cluster_texts,
+            embeddings=cluster_embeddings,
+            texts=cluster_texts,
             initial_text_idx=initial_text_idx,
             diversity_threshold=diversity_threshold,
-            max_diverse_texts=3
+            max_texts=3
         )
 
         # Then
@@ -141,22 +133,18 @@ class TestSelectDiverseTexts:
             [0.1, 0.9]
         ], dtype=np.float32)
         cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
-        logger.debug(
-            f"cluster_embeddings dtype: {cluster_embeddings.dtype}, shape: {cluster_embeddings.shape}, is_contiguous: {cluster_embeddings.flags['C_CONTIGUOUS']}")
         faiss.normalize_L2(cluster_embeddings)
-        logger.debug(
-            f"After normalization, cluster_embeddings: {cluster_embeddings}")
         initial_text_idx = 5
         diversity_threshold = 0.8
         expected = []
 
         # When
         result = select_diverse_texts(
-            cluster_embeddings=cluster_embeddings,
-            cluster_texts=cluster_texts,
+            embeddings=cluster_embeddings,
+            texts=cluster_texts,
             initial_text_idx=initial_text_idx,
             diversity_threshold=diversity_threshold,
-            max_diverse_texts=3
+            max_texts=3
         )
 
         # Then
@@ -176,11 +164,7 @@ class TestSelectDiverseTexts:
             [0.8, 0.2]
         ], dtype=np.float32)
         cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
-        logger.debug(
-            f"cluster_embeddings dtype: {cluster_embeddings.dtype}, shape: {cluster_embeddings.shape}, is_contiguous: {cluster_embeddings.flags['C_CONTIGUOUS']}")
         faiss.normalize_L2(cluster_embeddings)
-        logger.debug(
-            f"After normalization, cluster_embeddings: {cluster_embeddings}")
         initial_text_idx = 0
         diversity_threshold = 0.2
         ids = [str(uuid.uuid4()) for _ in range(len(cluster_texts))]
@@ -189,11 +173,11 @@ class TestSelectDiverseTexts:
 
         # When
         result = select_diverse_texts(
-            cluster_embeddings=cluster_embeddings,
-            cluster_texts=cluster_texts,
+            embeddings=cluster_embeddings,
+            texts=cluster_texts,
             initial_text_idx=initial_text_idx,
             diversity_threshold=diversity_threshold,
-            max_diverse_texts=3,
+            max_texts=3,
             ids=ids
         )
 
@@ -227,11 +211,7 @@ class TestSelectDiverseTexts:
             [-0.1, -0.9]
         ], dtype=np.float32)
         cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
-        logger.debug(
-            f"cluster_embeddings dtype: {cluster_embeddings.dtype}, shape: {cluster_embeddings.shape}, is_contiguous: {cluster_embeddings.flags['C_CONTIGUOUS']}")
         faiss.normalize_L2(cluster_embeddings)
-        logger.debug(
-            f"After normalization, cluster_embeddings: {cluster_embeddings}")
         initial_text_idx = 0
         diversity_threshold = 0.8
         ids = [str(uuid.uuid4()) for _ in range(len(cluster_texts))]
@@ -247,15 +227,14 @@ class TestSelectDiverseTexts:
         ]
         expected_max_texts = calculate_max_diverse_texts(
             cluster_embeddings, cluster_texts)
-        logger.debug(f"Expected max_diverse_texts: {expected_max_texts}")
 
         # When
         result = select_diverse_texts(
-            cluster_embeddings=cluster_embeddings,
-            cluster_texts=cluster_texts,
+            embeddings=cluster_embeddings,
+            texts=cluster_texts,
             initial_text_idx=initial_text_idx,
             diversity_threshold=diversity_threshold,
-            max_diverse_texts=None,
+            max_texts=None,
             ids=ids
         )
 
@@ -285,11 +264,7 @@ class TestSelectDiverseTexts:
             [-0.9, 0.1]
         ], dtype=np.float32)
         cluster_embeddings = np.ascontiguousarray(cluster_embeddings)
-        logger.debug(
-            f"cluster_embeddings dtype: {cluster_embeddings.dtype}, shape: {cluster_embeddings.shape}, is_contiguous: {cluster_embeddings.flags['C_CONTIGUOUS']}")
         faiss.normalize_L2(cluster_embeddings)
-        logger.debug(
-            f"After normalization, cluster_embeddings: {cluster_embeddings}")
         initial_text_idx = 0
         diversity_threshold = 0.8
         expected_texts = [
@@ -300,11 +275,11 @@ class TestSelectDiverseTexts:
 
         # When
         result = select_diverse_texts(
-            cluster_embeddings=cluster_embeddings,
-            cluster_texts=cluster_texts,
+            embeddings=cluster_embeddings,
+            texts=cluster_texts,
             initial_text_idx=initial_text_idx,
             diversity_threshold=diversity_threshold,
-            max_diverse_texts=3
+            max_texts=3
         )
 
         # Then
