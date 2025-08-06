@@ -1093,8 +1093,14 @@ class TreeNode(BaseNode):
     def get_content(self) -> str:
         content = self.text or ""
         for child in self.children:
-            content += child.get_content()
+            content += " " + child.get_content()
         return content.strip()
+
+    def get_headers(self) -> str:
+        header = self.text.splitlines()[0].strip() if self.text else ""
+        for child in self.children:
+            header += " " + child.get_headers()
+        return header.strip()
 
     def has_children(self) -> bool:
         """
@@ -2085,14 +2091,14 @@ class ParentWithCommonClass(TreeNode):
 def get_parents_with_common_class(
     root: TreeNode,
     class_name: Optional[str] = None,
-    match_condition: Literal["and", "or"] = "and"
+    match_type: Literal["tag", "class", "both"] = "both"
 ) -> List[ParentWithCommonClass]:
     """
-    Finds parent nodes with direct children sharing a specified or common class and/or tag, excluding parents with children having different classes/tags.
+    Finds parent nodes with direct children sharing a specified or common class, tag, or both, excluding parents with children having different classes/tags.
 
     :param root: The root TreeNode of the tree to search.
-    :param class_name: Optional class name to match in child nodes. If None, finds parents with any shared class or tag among children.
-    :param match_condition: Determines if children must share both class and tag ("and") or either ("or"). Defaults to "and".
+    :param class_name: Optional class name to match in child nodes. If provided, matches only by class, ignoring match_type.
+    :param match_type: Determines if children must share tags ("tag"), classes ("class"), or both ("both"). Defaults to "both".
     :return: A list of ParentWithCommonClass objects sorted by number of matching children (descending).
     """
     result = []
@@ -2134,7 +2140,7 @@ def get_parents_with_common_class(
                     child_classes[cls] = child_classes.get(cls, 0) + 1
                 child_tags[child.tag] = child_tags.get(child.tag, 0) + 1
 
-            if match_condition == "and":
+            if match_type == "both":
                 # Find pairs of classes and tags shared by multiple children
                 for cls, cls_count in child_classes.items():
                     if cls_count <= 1:
@@ -2168,7 +2174,7 @@ def get_parents_with_common_class(
                                     children_count=len(matching_children),
                                     children=matching_children
                                 ))
-            else:  # match_condition == "or"
+            elif match_type == "class":
                 # Find classes shared by multiple children
                 for cls, count in child_classes.items():
                     if count > 1:
@@ -2194,7 +2200,7 @@ def get_parents_with_common_class(
                                 children_count=len(matching_children),
                                 children=matching_children
                             ))
-
+            elif match_type == "tag":
                 # Find tags shared by multiple children
                 for tag, count in child_tags.items():
                     if count > 1:
