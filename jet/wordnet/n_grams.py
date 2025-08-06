@@ -60,9 +60,14 @@ def extract_ngrams(texts: Union[str, List[str]], min_words: int = 1, max_words: 
     return ngrams
 
 
-def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: Optional[int] = None, from_start: bool = False, case_insensitive: bool = False):
+def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Optional[int] = None, max_words: Optional[int] = None, from_start: bool = False, case_sensitive: bool = False):
     if isinstance(texts, str):
         texts = [texts]
+
+    # Convert texts to lowercase if case_sensitive is False
+    if not case_sensitive:
+        texts = [text.lower() for text in texts]
+
     # Handle empty input
     if not texts or all(not text.strip() for text in texts):
         return {}
@@ -79,10 +84,6 @@ def count_ngrams(texts: Union[str, List[str]], min_words: int = 1, min_count: Op
     else:
         ngrams = extract_ngrams(
             texts, min_words=min_words, max_words=max_words)
-
-    # Convert to lowercase if case_insensitive is True
-    if case_insensitive:
-        ngrams = [ngram.lower() for ngram in ngrams]
 
     ngram_counter = Counter(ngrams)
     ngrams_dict = {ngram: count for ngram, count in ngram_counter.items(
