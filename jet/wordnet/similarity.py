@@ -1,6 +1,8 @@
 from typing import List, Tuple
 from collections import defaultdict
 from typing import Any, List, Optional, Literal
+
+from sklearn.metrics import silhouette_score
 from jet.data.utils import generate_key
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
@@ -828,18 +830,36 @@ def group_similar_texts(
             distance_threshold=1 - threshold
         ).fit(1 - similarity_matrix)
     else:  # mode == "kmeans"
-        # Estimate number of clusters based on threshold
+        # Estimate number of clusters using silhouette score
         n_texts = len(unique_texts)
-        above_threshold = similarity_matrix >= threshold
-        # Subtract diagonal, divide by 2
-        n_pairs = (np.sum(above_threshold) - n_texts) // 2
-        # Approximate number of clusters
-        n_clusters = max(1, n_texts - n_pairs)
-        clustering = KMeans(
-            n_clusters=n_clusters,
-            random_state=42,
-            n_init=10
-        ).fit(normalized_embeddings)
+        min_clusters = 1
+        # Limit to half the number of texts or available texts
+        max_clusters = min(n_texts, max(2, n_texts // 2))
+        best_n_clusters = min_clusters
+        best_silhouette = -1
+        best_labels = None
+
+        # Try different numbers of clusters and pick the best based on silhouette score
+        for n_clusters in range(min_clusters, max_clusters + 1):
+            clustering = KMeans(
+                n_clusters=n_clusters,
+                random_state=42,
+                n_init=10
+            ).fit(normalized_embeddings)
+            labels = clustering.labels_
+            # Compute silhouette score (requires at least 2 clusters for meaningful score)
+            if n_clusters > 1:
+                score = silhouette_score(
+                    normalized_embeddings, labels, metric="euclidean")
+                if score > best_silhouette:
+                    best_silhouette = score
+                    best_n_clusters = n_clusters
+                    best_labels = labels
+            else:
+                best_labels = labels  # Default for single cluster
+
+        # Use the best labels for clustering
+        clustering.labels_ = best_labels
 
     # Organize texts or IDs into clusters
     clusters = {}
