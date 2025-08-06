@@ -1,9 +1,20 @@
 import re
-from typing import List, TypedDict
+from typing import Dict, List, Optional, Set, Tuple, TypedDict
+from urllib.parse import urljoin
 
 from jet.utils.text import fix_and_unidecode
 
 from jet.logger import logger
+
+
+class MDHeaderLink(TypedDict):
+    text: str
+    url: str
+    start_idx: int
+    end_idx: int
+    line: str
+    line_idx: int
+    is_heading: bool
 
 
 def clean_markdown_text(text: str) -> str:
@@ -206,10 +217,143 @@ def link_to_text_ratio(text: str, threshold: float = 0.5) -> LinkTextRatio:
     }
 
 
+def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_links: bool = True) -> Tuple[List[MDHeaderLink], str]:
+    """
+    Extracts markdown links and plain URLs from text, optionally replacing them with their text content or cleaning URLs.
+    Handles nested image links like [![alt](image_url)](link_url) and reference-style links like [text][ref].
+
+    Args:
+        text: Input string containing markdown links or plain URLs.
+        base_url: Base URL to resolve relative links, if provided.
+        ignore_links: If True, replaces links with text content in output; if False, preserves links.
+
+    Returns:
+        Tuple of a list of MDHeaderLink dictionaries and the modified text.
+    """
+    # Pattern for markdown links, including nested image links
+    pattern = re.compile(
+        r'\[(?:!\[([^\]]*?)\]\(([^)]+?)\)|([^\]]*))\]\((\S+?)\)|'
+        # Capture reference-style links [text][ref]
+        r'\[([^\]]*)\]\[([^\]]*)\]',
+        re.MULTILINE
+    )
+    # Pattern for reference definitions [ref]: url
+    ref_pattern = re.compile(
+        r'^\[([^\]]*)\]:\s*(\S+)$',
+        re.MULTILINE
+    )
+    plain_url_pattern = re.compile(
+        r'(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]',
+        re.MULTILINE
+    )
+    links: List[MDHeaderLink] = []
+    output = text
+    seen: Set[Tuple[str, str, str]] = set()  # Removed caption from key
+    replacements: List[Tuple[int, int, str]] = []
+    # Store reference URLs
+    ref_urls: Dict[str, str] = {}  # Removed caption from ref_urls
+
+    # Extract reference definitions first
+    for match in ref_pattern.finditer(text):
+        ref_id = match.group(1).strip()
+        url = match.group(2).strip()
+        if ref_id and url:
+            ref_urls[ref_id.lower()] = url
+
+    # Extract markdown links
+    for match in pattern.finditer(text):
+        start, end = match.span()
+        image_alt, image_url, label, url, ref_text, ref_id = match.groups()
+        selected_url = ""
+
+        if ref_text and ref_id:  # Handle reference-style link [text][ref]
+            label = ref_text
+            if ref_id.lower() in ref_urls:
+                selected_url = ref_urls[ref_id.lower()]
+            else:
+                continue  # Skip if reference not found
+        else:
+            label = image_alt if image_alt else label  # Use image alt as label if present
+            # Prioritize outer link URL if present, otherwise use image URL
+            selected_url = url.strip() if url else (image_url.strip() if image_url else "")
+
+        if not selected_url:  # Skip if no valid URL
+            continue
+
+        # Convert relative URLs to absolute
+        if base_url and not selected_url.startswith(('http://', 'https://')):
+            selected_url = urljoin(base_url, selected_url)
+
+        # Find line and line index
+        start_line_idx = text[:start].rfind('\n') + 1
+        end_line_idx = text.find('\n', end)
+        if end_line_idx == -1:
+            end_line_idx = len(text)
+        line = text[start_line_idx:end_line_idx].strip()
+        line_idx = len(text[:start].splitlines()) - 1
+
+        # Create link entry
+        key = (label or "", selected_url, line)  # Removed caption from key
+        if key not in seen:
+            seen.add(key)
+            links.append({
+                "text": label or "",
+                "url": selected_url,
+                "start_idx": start,
+                "end_idx": end,
+                "line": line,
+                "line_idx": line_idx,
+                "is_heading": line.startswith('#')
+            })
+        if ignore_links and label and label.strip():
+            replacements.append((start, end, label))
+        elif ignore_links:
+            replacements.append((start, end, ""))
+        else:
+            replacements.append((start, end, match.group(0)))
+
+    # Extract plain URLs (unchanged)
+    for match in plain_url_pattern.finditer(text):
+        url = match.group(0).strip()
+        start, end = match.span()
+        if not any(url in link["url"] for link in links):  # Avoid duplicates
+            start_line_idx = text[:start].rfind('\n') + 1
+            end_line_idx = text.find('\n', end)
+            if end_line_idx == -1:
+                end_line_idx = len(text)
+            line = text[start_line_idx:end_line_idx].strip()
+            line_idx = len(text[:start].splitlines()) - 1
+            key = ("", url, None, line)
+            if key not in seen:
+                seen.add(key)
+                links.append({
+                    "text": "",
+                    "url": url,
+                    "start_idx": start,
+                    "end_idx": end,
+                    "line": line,
+                    "line_idx": line_idx,
+                    "is_heading": line.startswith('#')
+                })
+            if ignore_links:
+                replacements.append((start, end, ""))
+            else:
+                replacements.append((start, end, url))
+
+    # Apply replacements in reverse order
+    if replacements:
+        replacements.sort(key=lambda x: x[0], reverse=True)
+        for start, end, replacement in replacements:
+            output = output[:start] + replacement + output[end:]
+
+    return links, output
+
+
 __all__ = [
     "clean_markdown_text",
     "clean_markdown_links",
     "preprocess_markdown",
     "process_separator_lines",
     "link_to_text_ratio",
+    "extract_markdown_links",
 ]
