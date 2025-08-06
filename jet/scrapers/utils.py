@@ -1093,14 +1093,17 @@ class TreeNode(BaseNode):
     def get_content(self) -> str:
         content = self.text or ""
         for child in self.children:
-            content += " " + child.get_content()
+            content += "\n" + child.get_content()
         return content.strip()
 
-    def get_headers(self) -> str:
-        header = self.text.splitlines()[0].strip() if self.text else ""
+    def get_header(self) -> str:
+        headers = []
+        if self.tag and self.tag.lower() in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            if self.text:
+                headers.append(self.text.strip())
         for child in self.children:
-            header += " " + child.get_headers()
-        return header.strip()
+            headers.append(child.get_header())
+        return "\n".join([h for h in headers if h]).strip()
 
     def has_children(self) -> bool:
         """
