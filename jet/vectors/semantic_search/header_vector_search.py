@@ -1,6 +1,7 @@
 import uuid
 from jet.models.model_types import ModelType
 from jet.models.tokenizer.base import count_tokens, get_tokenizer_fn
+from jet.models.utils import get_context_size
 from jet.wordnet.text_chunker import chunk_texts
 import re
 from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
@@ -80,6 +81,8 @@ def collect_header_chunks(
     tokenizer = get_tokenizer_fn(
         tokenizer_model) if tokenizer_model else default_tokenizer
 
+    context_size = get_context_size(
+        tokenizer_model) if tokenizer_model else 512
     doc_indices, headers, headers_context = [], [], []
     contents_with_indices = []
 
@@ -111,12 +114,12 @@ def collect_header_chunks(
                 preprocessed_chunk = preprocess_text(chunk)
                 end_idx = start_idx + len(chunk)
                 num_tokens = tokenizer(chunk)
-                if len(num_tokens) > 512:
-                    chunk = chunk[:512]
+                if len(num_tokens) > context_size:
+                    chunk = chunk[:context_size]
                     preprocessed_chunk = preprocess_text(chunk)
                     num_tokens = tokenizer(chunk)
                     logger.info(
-                        f"Truncated content chunk to 512 tokens for doc_index {doc_index}, start_idx {start_idx}")
+                        f"Truncated content chunk to context_size tokens for doc_index {doc_index}, start_idx {start_idx}")
                 contents_with_indices.append(
                     (doc_index, header, preprocessed_chunk, chunk, header, headers_context_processed, start_idx, end_idx, num_tokens))
                 start_idx = end_idx - chunk_overlap if end_idx - \

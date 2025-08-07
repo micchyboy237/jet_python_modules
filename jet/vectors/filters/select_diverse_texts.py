@@ -40,7 +40,7 @@ def select_diverse_texts(
     embeddings: np.ndarray,
     texts: List[str],
     initial_text_idx: Optional[int] = None,
-    diversity_threshold: float = 0.7,
+    diversity_threshold: float = 0.5,
     max_texts: Optional[int] = None,
     ids: Optional[List[str]] = None
 ) -> List[DiverseResult]:
