@@ -29,11 +29,11 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
 
     html_content = format_html(html_content)
 
-    # Add header placeholder after closing list elements (ul, ol)
-    list_elements = r'ul|ol'
-    pattern_list = rf'</({list_elements})>'
-    html_content = re.sub(
-        pattern_list, r'</\1><h6>Others</h6>', html_content)
+    # # Add header placeholder after closing list elements (ul, ol)
+    # list_elements = r'ul|ol'
+    # pattern_list = rf'</({list_elements})>'
+    # html_content = re.sub(
+    #     pattern_list, r'</\1><h6>Others</h6>', html_content)
 
     converter = html2text.HTML2Text()
     converter.ignore_links = ignore_links
@@ -45,15 +45,15 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     md_content = converter.handle(html_content)
     md_content = preprocess_markdown(md_content)
 
-    preprocessed_html_content = convert_markdown_to_html(md_content)
+    # preprocessed_html_content = convert_markdown_to_html(md_content)
 
-    # Remove placeholder headers
-    preprocessed_html_content = re.sub(
-        r'^\s*#{1,6}\s*Others\s*$', '', preprocessed_html_content, flags=re.MULTILINE)
+    # # Remove placeholder headers
+    # preprocessed_html_content = re.sub(
+    #     r'^\s*#{1,6}\s*Others\s*$', '', preprocessed_html_content, flags=re.MULTILINE)
 
-    preprocessed_md_content = converter.handle(html_content)
+    # preprocessed_md_content = converter.handle(preprocessed_html_content)
 
-    return preprocessed_md_content.strip()
+    return md_content.strip()
 
 
 def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtensions = {"extensions": [
