@@ -3,7 +3,7 @@ from jet.data.utils import generate_unique_id
 from jet.scrapers.text_nodes import extract_text_nodes
 
 
-class HeaderDoc(TypedDict):
+class HtmlHeaderDoc(TypedDict):
     id: str
     doc_index: int
     tag: str
@@ -21,18 +21,18 @@ def extract_header_hierarchy(
     source: str,
     excludes: List[str] = ["nav", "footer", "script", "style"],
     timeout_ms: int = 1000
-) -> List[HeaderDoc]:
+) -> List[HtmlHeaderDoc]:
     """
-    Extracts a list of HeaderDoc objects from HTML content, organizing text by header hierarchy.
+    Extracts a list of HtmlHeaderDoc objects from HTML content, organizing text by header hierarchy.
     Ignores content before the first header.
     :param source: The HTML string or URL to parse.
     :param excludes: A list of tag names to exclude (e.g., ["nav", "footer", "script", "style"]).
     :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
-    :return: A list of HeaderDoc objects representing header-based sections.
+    :return: A list of HtmlHeaderDoc objects representing header-based sections.
     """
     nodes = extract_text_nodes(source, excludes, timeout_ms)
-    sections: List[HeaderDoc] = []
-    current_section: Optional[HeaderDoc] = None
+    sections: List[HtmlHeaderDoc] = []
+    current_section: Optional[HtmlHeaderDoc] = None
     header_stack: List[tuple[str, int, int]] = []
     current_content: List[str] = []
     current_html_content: List[str] = []

@@ -1034,16 +1034,16 @@ class BaseNode:
     def __init__(
         self,
         tag: str,
-        text: Optional[str],
+        # text: Optional[str],
         depth: int,
-        raw_depth: int,  # Added to store unadjusted DOM depth
         id: str,
+        raw_depth: Optional[int],  # Added to store unadjusted DOM depth
         class_names: List[str] = [],
         line: int = 0,
         html: Optional[str] = None
     ):
         self.tag = tag
-        self.text = text
+        # self.text = text
         self.depth = depth
         self.raw_depth = raw_depth  # Store unadjusted depth
         self.id = id
@@ -1089,13 +1089,15 @@ class TreeNode(BaseNode):
     ):
         super().__init__(
             tag=tag,
-            text=text,
+            # text=text,
             depth=depth,
             id=id,
             class_names=class_names,
             line=line,
-            html=html
+            html=html,
+            raw_depth=None
         )
+        self._text = text
         self._children: List['TreeNode'] = children if children is not None else [
         ]
         self._parent_node: Optional['TreeNode'] = None
@@ -1154,6 +1156,34 @@ class TreeNode(BaseNode):
             if child_content:
                 texts.append(child_content)
         return "\n".join(texts).strip()
+
+    @property
+    def text(self) -> str:
+        """
+        Returns the header and content joined by a newline if both are non-empty, else the original text or content.
+
+        Returns:
+            The combined header and content, or the original text, or None.
+        """
+        texts = []
+        if self._text and self._text.strip():
+            texts.append(self._text.strip())
+
+            for child in self._children:
+                child_content = child.content
+                if child_content:
+                    texts.append(child_content)
+        return "\n".join(texts).strip()
+
+    @text.setter
+    def text(self, value: Optional[str]) -> None:
+        """
+        Sets the internal text value.
+
+        Args:
+            value: The text value to set.
+        """
+        self._text = value
 
     @property
     def level(self) -> Optional[int]:
@@ -1217,28 +1247,6 @@ class TreeNode(BaseNode):
         headers.sort(key=lambda x: x[1])
         return [header for header, _ in headers]
 
-    @property
-    def text(self) -> str:
-        """
-        Returns the header and content joined by a newline if both are non-empty, else the original text or content.
-
-        Returns:
-            The combined header and content, or the original text, or None.
-        """
-        if self.header and self.content:
-            return f"{self.header}\n{self.content}"
-        return self._text or self.content or ""
-
-    @text.setter
-    def text(self, value: Optional[str]) -> None:
-        """
-        Sets the internal text value.
-
-        Args:
-            value: The text value to set.
-        """
-        self._text = value
-
     def get_parent_node(self) -> Optional['TreeNode']:
         """
         Retrieves the parent node stored in the _parent_node attribute.
@@ -1270,7 +1278,8 @@ class TreeNode(BaseNode):
         content = self.text or ""
         for child in self._children:
             content += "\n" + child.get_content()
-        return content.strip()
+            content = content.strip()
+        return content
 
     def get_header(self) -> str:
         headers = []

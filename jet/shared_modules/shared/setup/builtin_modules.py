@@ -4,7 +4,7 @@ from jet.logger import logger
 from jet.utils.print_utils import print_dict_types
 from jet.transformers.object import make_serializable
 from jet.utils.commands import copy_to_clipboard, copy_test_result
-from jet.transformers.formatters import format_json
+from jet.transformers.formatters import format_json, format_html
 from jet.utils.inspect_utils import (
     inspect_original_script_path,
     print_inspect_original_script_path,
@@ -140,6 +140,8 @@ def inject_globals():
         builtins.copy_test_result = copy_test_result
     if not hasattr(builtins, "format_json"):
         builtins.format_json = format_json
+    if not hasattr(builtins, "format_html"):
+        builtins.format_html = format_html
     if not hasattr(builtins, "inspect_original_script_path"):
         builtins.inspect_original_script_path = inspect_original_script_path
     if not hasattr(builtins, "print_inspect_original_script_path"):

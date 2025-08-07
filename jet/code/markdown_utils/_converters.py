@@ -33,7 +33,7 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     list_elements = r'ul|ol'
     pattern_list = rf'</({list_elements})>'
     html_content = re.sub(
-        pattern_list, r'</\1><h6>__Placeholder__</h6>', html_content)
+        pattern_list, r'</\1><h6>Others</h6>', html_content)
 
     converter = html2text.HTML2Text()
     converter.ignore_links = ignore_links
@@ -49,7 +49,7 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
 
     # Remove placeholder headers
     preprocessed_html_content = re.sub(
-        r'^\s*#{1,6}\s*__Placeholder__\s*$', '', preprocessed_html_content, flags=re.MULTILINE)
+        r'^\s*#{1,6}\s*Others\s*$', '', preprocessed_html_content, flags=re.MULTILINE)
 
     preprocessed_md_content = converter.handle(html_content)
 

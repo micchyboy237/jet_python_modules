@@ -1,6 +1,6 @@
 from typing import List
 import pytest
-from jet.scrapers.header_hierarchy import extract_header_hierarchy, HeaderDoc
+from jet.scrapers.header_hierarchy import extract_header_hierarchy, HtmlHeaderDoc
 from jet.scrapers.utils import BaseNode
 
 
@@ -10,8 +10,8 @@ class TestExtractHeaderHierarchy:
         <h1>Main Header</h1>
         <p>This is some content.</p>
         """
-        result: List[HeaderDoc] = extract_header_hierarchy(html)
-        expected: List[HeaderDoc] = [{
+        result: List[HtmlHeaderDoc] = extract_header_hierarchy(html)
+        expected: List[HtmlHeaderDoc] = [{
             "id": result[0]["id"],
             "doc_index": 0,
             "header": "Main Header",
@@ -42,8 +42,8 @@ class TestExtractHeaderHierarchy:
         <h2 class="sub">Sub Header</h2>
         <p>Sub content.</p>
         """
-        result: List[HeaderDoc] = extract_header_hierarchy(html)
-        expected: List[HeaderDoc] = [
+        result: List[HtmlHeaderDoc] = extract_header_hierarchy(html)
+        expected: List[HtmlHeaderDoc] = [
             {
                 "id": result[0]["id"],
                 "doc_index": 0,
@@ -89,8 +89,8 @@ class TestExtractHeaderHierarchy:
         <h1>Main Header</h1>
         <p>Main content.</p>
         """
-        result: List[HeaderDoc] = extract_header_hierarchy(html)
-        expected: List[HeaderDoc] = [
+        result: List[HtmlHeaderDoc] = extract_header_hierarchy(html)
+        expected: List[HtmlHeaderDoc] = [
             {
                 "id": result[0]["id"],
                 "doc_index": 0,
@@ -123,8 +123,8 @@ class TestExtractHeaderHierarchy:
         <script>alert('test');</script>
         <footer>Footer content</footer>
         """
-        result: List[HeaderDoc] = extract_header_hierarchy(html)
-        expected: List[HeaderDoc] = [{
+        result: List[HtmlHeaderDoc] = extract_header_hierarchy(html)
+        expected: List[HtmlHeaderDoc] = [{
             "id": result[0]["id"],
             "doc_index": 0,
             "header": "Main Header",
@@ -159,8 +159,8 @@ class TestExtractHeaderHierarchy:
             <p>Sub content.</p>
         </div>
         """
-        result: List[HeaderDoc] = extract_header_hierarchy(html)
-        expected: List[HeaderDoc] = [
+        result: List[HtmlHeaderDoc] = extract_header_hierarchy(html)
+        expected: List[HtmlHeaderDoc] = [
             {
                 "id": result[0]["id"],
                 "doc_index": 0,
@@ -214,9 +214,9 @@ class TestExtractHeaderHierarchy:
         </html>
         """
         # When: Extracting header hierarchy
-        result: List[HeaderDoc] = extract_header_hierarchy(html)
+        result: List[HtmlHeaderDoc] = extract_header_hierarchy(html)
         # Then: Expect correct header hierarchy ignoring DOCTYPE and html root
-        expected: List[HeaderDoc] = [
+        expected: List[HtmlHeaderDoc] = [
             {
                 "id": result[0]["id"],
                 "doc_index": 0,

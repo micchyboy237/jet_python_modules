@@ -198,12 +198,13 @@ class TestExtractTextNodes:
             assert r.get_html() == e.get_html()
 
     def test_html_with_doctype_and_root(self):
-        """Test extracting text nodes from HTML with DOCTYPE and html root."""
-        # Given: An HTML string with DOCTYPE and html root
+        """Test extracting text nodes from HTML with DOCTYPE, html root, and comments."""
+        # Given: An HTML string with DOCTYPE, html root, and a comment
         html = """
         <!DOCTYPE html>
         <html>
             <body>
+                <!-- This is a comment -->
                 <h1 id="header" class="title">Welcome</h1>
                 <p id="intro" class="text">Hello, world!</p>
             </body>
@@ -236,7 +237,7 @@ class TestExtractTextNodes:
             )
         ]
         result = extract_text_nodes(html, excludes=excludes, timeout_ms=100)
-        # Then: Expect correct text nodes ignoring DOCTYPE and html root
+        # Then: Expect correct text nodes ignoring DOCTYPE, html root, and comments
         assert len(result) == len(expected)
         for r, e in zip(result, expected):
             assert r.tag == e.tag

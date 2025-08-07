@@ -3,6 +3,7 @@ import re
 from typing import Optional, List
 from jet.scrapers.utils import BaseNode, exclude_elements
 from pyquery import PyQuery as pq
+from lxml.etree import Comment
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 
@@ -10,7 +11,11 @@ def extract_nodes(element, depth: int = 0, parent_id: Optional[str] = None) -> L
     nodes = []
     element_pq = pq(element)
     text = element_pq.text().strip() if element_pq.text() else ""
-    tag = element_pq[0].tag.lower() if element_pq else "unknown"
+    tag = element_pq[0].tag if element_pq else "unknown"
+    # Skip comment nodes
+    if tag is Comment or str(tag).startswith('<cyfunction Comment'):
+        return nodes
+    tag = tag.lower() if isinstance(tag, str) else "unknown"
     if tag == "html":
         for child in element_pq.children():
             nodes.extend(extract_nodes(child, depth + 1, parent_id))

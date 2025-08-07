@@ -786,13 +786,13 @@ def preprocess_text(text: str) -> str:
     Returns:
         str: Preprocessed text.
     """
-    import re
-    # Convert to lowercase
-    text = text.lower()
-    # Remove special characters, keeping alphanumeric and spaces
-    text = re.sub(r'[^\w\s]', '', text)
-    # Normalize whitespace (replace multiple spaces with single space, strip)
-    text = re.sub(r'\s+', ' ', text).strip()
+    # import re
+    # # Convert to lowercase
+    # text = text.lower()
+    # # Remove special characters, keeping alphanumeric and spaces
+    # text = re.sub(r'[^\w\s]', '', text)
+    # # Normalize whitespace (replace multiple spaces with single space, strip)
+    # text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 

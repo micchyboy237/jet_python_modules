@@ -6,6 +6,7 @@ from lxml import etree, html
 
 from jet.logger import logger
 from jet.utils.text import fix_and_unidecode
+from jet.transformers.formatters import format_html
 import justext.paragraph
 
 
@@ -216,39 +217,10 @@ def remove_html_comments(text: str) -> str:
         return text  # Return original text on parsing failure
 
 
-def format_html(html_string: str, parser: str = "html.parser", encoding: Optional[str] = None) -> str:
-    """
-    Beautify an HTML string by formatting it with proper indentation.
-
-    Args:
-        html_string (str): The input HTML string to beautify.
-        parser (str, optional): The BeautifulSoup parser to use. Defaults to "html.parser".
-        encoding (str, optional): The encoding for the output string. If None, returns a Unicode string.
-
-    Returns:
-        str: The beautified HTML string with proper indentation.
-
-    Raises:
-        TypeError: If html_string is not a string.
-        ValueError: If the parser is invalid or html_string is empty.
-    """
-    if not isinstance(html_string, str):
-        raise TypeError("html_string must be a string")
-    if not html_string.strip():
-        raise ValueError("html_string cannot be empty")
-
-    try:
-        soup = BeautifulSoup(html_string, parser)
-        pretty_html = soup.prettify(encoding=encoding)
-        # Handle byte string output when encoding is specified
-        return pretty_html.decode(encoding or 'utf-8') if isinstance(pretty_html, bytes) else pretty_html
-    except Exception as e:
-        raise ValueError(f"Failed to beautify HTML: {str(e)}")
-
-
 def preprocess_html(html: str) -> str:
     """
     Preprocess HTML content by removing unwanted elements, comments, adding spacing,
+    transforming dt/dd pairs (with optional div wrappers) to li tags within ul,
     and inserting the title as an h1 at the beginning of the body if no h1 is the first child.
 
     Args:
@@ -277,6 +249,26 @@ def preprocess_html(html: str) -> str:
 
     # Remove HTML comments
     html = re.sub(r'<!--[\s\S]*?-->', '', html, flags=re.DOTALL)
+
+    # Convert <dt> and <dd> pairs to li tags, removing optional <div> wrappers
+    def replace_dt_dd(match):
+        dt_content = match.group(2).strip() if match.group(
+            2) else match.group(5).strip()
+        dd_content = match.group(3).strip() if match.group(
+            3) else match.group(6).strip()
+        return f'<li>{dd_content}: {dt_content}</li>'
+
+    # Replace <dt> and <dd> pairs, optionally wrapped in <div>
+    html = re.sub(
+        r'(<div[^>]*>\s*)?<dt[^>]*>(.*?)</dt>\s*<dd[^>]*>(.*?)</dd>(\s*</div>)?',
+        replace_dt_dd,
+        html,
+        flags=re.DOTALL | re.IGNORECASE
+    )
+
+    # Convert <dl> to <ul>
+    html = re.sub(r'<dl[^>]*>', '<ul>', html, flags=re.IGNORECASE)
+    html = re.sub(r'</dl>', '</ul>', html, flags=re.IGNORECASE)
 
     # Add space between consecutive inline elements
     inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
