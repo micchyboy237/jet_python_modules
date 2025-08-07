@@ -9,7 +9,7 @@ def select_mmr_texts(
     embeddings: np.ndarray,
     texts: List[str],
     query_embedding: np.ndarray,
-    lambda_param: float = 0.5,
+    lambda_param: float = 0.7,
     max_texts: int = 5,
     ids: Optional[List[str]] = None
 ) -> List[DiverseResult]:
