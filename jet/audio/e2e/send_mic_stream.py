@@ -17,13 +17,13 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
         sys.exit(1)
     cmd = [
         "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets",
-        "-report",  # Added for detailed FFmpeg report
+        "-report",
         "-f", "avfoundation", "-i", "none:1",
         "-ar", "44100", "-ac", "2",
         "-c:a", "pcm_s16le",
         "-map", "0:a",
         "-f", "rtp",
-        f"rtp://{receiver_ip}:{port}?rtcpport={port}&pkt_size=188&payload_type=11&buffer_size=1000000",
+        f"rtp://{receiver_ip}:{port}?rtcpport={port+1}&pkt_size=188&payload_type=11&buffer_size=1000000",
         "-f", "wav", "recording.wav"
     ]
     logging.info(

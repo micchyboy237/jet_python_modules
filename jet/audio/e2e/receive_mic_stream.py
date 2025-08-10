@@ -46,10 +46,12 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
     cmd = [
         "ffmpeg", "-y",
         "-loglevel", "debug",
-        "-report",  # Added for detailed FFmpeg report
+        "-report",
         "-protocol_whitelist", "file,udp,rtp",
         "-i", str(sdp_file),
-        "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
+        "-c:a", "pcm_s16le", "-ar", "44100", "-ac", "2",
+        "-avioflags", "direct",  # Reduce buffering
+        "-timeout", "10000000",  # Increase timeout to 10 seconds
         "-f", "wav",
         output_wav
     ]
