@@ -1,14 +1,16 @@
-from datetime import datetime
 import subprocess
+from pathlib import Path
 import platform
+from typing import Optional
 import threading
 import time
-from typing import Optional
+from datetime import datetime
 
 SAMPLE_RATE = 44100
 CHANNELS = 2
-DEFAULT_DEST_IP = "127.0.0.1"  # Change to receiver's LAN IP for different devices
+DEFAULT_DEST_IP = "127.0.0.1"
 DEFAULT_PORT = "5000"
+DEFAULT_SDP_FILE = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/e2e/stream.sdp"
 
 
 def get_ffmpeg_input_device() -> str:
@@ -63,7 +65,13 @@ def list_avfoundation_devices() -> tuple[list[str], list[str]]:
         return [], []
 
 
-def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = DEFAULT_PORT, audio_index: str = "0") -> Optional[subprocess.Popen]:
+def send_mic_stream(
+    duration: int,
+    dest_ip: str = DEFAULT_DEST_IP,
+    port: str = DEFAULT_PORT,
+    audio_index: str = "1",
+    stream_sdp_path: str = DEFAULT_SDP_FILE
+) -> Optional[subprocess.Popen]:
     """
     Stream audio from microphone to a remote receiver using FFmpeg over RTP.
 
@@ -71,7 +79,8 @@ def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = D
         duration: Duration to stream in seconds (0 for indefinite)
         dest_ip: Destination IP address of the receiver
         port: Destination port for the RTP stream
-        audio_index: Audio device index for avfoundation (default: "0")
+        audio_index: Audio device index for avfoundation (default: "1" for MacBook Air Microphone)
+        stream_sdp_path: Path to the SDP file to use for the stream (used for session description protocol)
 
     Returns:
         subprocess.Popen object if streaming started successfully, None otherwise
@@ -89,11 +98,18 @@ def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = D
         device_indices = {str(i): name for i, name in enumerate(audio_devices)}
         print(f"DEBUG: Available device indices: {device_indices}")
 
-        # Use provided audio_index if valid, otherwise default to "0"
-        selected_index = audio_index if audio_index in device_indices else "0"
+        # Use provided audio_index if valid, otherwise default to "1"
+        selected_index = audio_index if audio_index in device_indices else "1"
         selected_device = device_indices.get(selected_index, audio_devices[0])
         print(
             f"DEBUG: Selected device index: {selected_index}, device name: {selected_device}")
+
+        # Check if SDP file exists
+        sdp_file = Path(stream_sdp_path)
+        if not sdp_file.exists():
+            print(f"❌ Error: SDP file {sdp_file} not found. Please create it.")
+            return None
+        print(f"📄 Using SDP file: {sdp_file}")
 
         # Construct FFmpeg command for RTP streaming
         ffmpeg_cmd = [
@@ -107,6 +123,7 @@ def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = D
             "-c:a", "pcm_s16le",
             "-f", "rtp",
             f"rtp://{dest_ip}:{port}",
+            "-sdp_file", str(sdp_file),
         ]
         if duration > 0:
             ffmpeg_cmd.extend(["-t", str(duration)])
@@ -124,12 +141,12 @@ def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = D
         # Thread to monitor FFmpeg stderr for packet sending
         def log_packets():
             packet_count = 0
-            max_packets_to_log = 5  # Limit to avoid flooding
+            max_packets_to_log = 5
             while process.poll() is None:
                 line = process.stderr.readline()
                 if not line:
                     continue
-                if "Sending packet to" in line:
+                if "RTP: sending" in line or "Sending packet" in line:
                     packet_count += 1
                     if packet_count <= max_packets_to_log:
                         print(
