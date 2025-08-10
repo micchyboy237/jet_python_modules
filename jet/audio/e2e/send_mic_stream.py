@@ -14,7 +14,7 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
         "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets",
         "-f", "avfoundation", "-i", "none:1",
         "-ar", "44100", "-ac", "2",
-        "-c:a", "pcm_s16be",  # codec for RTP stream
+        "-c:a", "pcm_s16le",  # FIX: WAV requires little-endian
         "-map", "0:a",
         "-f", "tee",
         f"[f=rtp]rtp://{receiver_ip}:{port}?rtcpport={port}|[f=wav]recording.wav"
