@@ -5,7 +5,6 @@ import socket
 
 def send_mic_stream(receiver_ip: str, port: int = 5000):
     """Send mic audio to a receiver via RTP and save a local copy."""
-    # Verify we can reach receiver
     try:
         socket.gethostbyname(receiver_ip)
     except socket.error as e:
@@ -13,7 +12,7 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
 
     cmd = [
         "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets",
-        "-f", "avfoundation", "-i", "none:1",  # Mac mic capture
+        "-f", "avfoundation", "-i", "none:1",
         "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16be",
         "-map", "0:a",
         "-f", "tee",
