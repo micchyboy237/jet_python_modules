@@ -1,104 +1,50 @@
+import sys
+import socket
 import subprocess
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
-import threading
-import time
-
-SAMPLE_RATE = 44100
-CHANNELS = 2
-DEFAULT_LISTEN_IP = "0.0.0.0"
-DEFAULT_PORT = "5000"
-DEFAULT_SDP_FILE = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/e2e/stream.sdp"
 
 
-def receive_mic_stream(
-    output_file: Path,
-    listen_ip: str = DEFAULT_LISTEN_IP,
-    port: str = DEFAULT_PORT,
-    stream_sdp_path: str = DEFAULT_SDP_FILE
-) -> Optional[subprocess.Popen]:
-    """
-    Receive audio stream over RTP and save to a WAV file.
-    Args:
-        output_file: Path to save the output WAV file
-        listen_ip: IP address to listen on (default: "0.0.0.0" for all interfaces)
-        port: Port to listen for the RTP stream
-        stream_sdp_path: Path to the SDP file describing the incoming RTP stream
-    Returns:
-        subprocess.Popen object if receiving started successfully, None otherwise
-    """
+def get_local_ip() -> str:
+    """Get local IP address used for outbound traffic."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        sdp_file = Path(stream_sdp_path)
-        if not sdp_file.exists():
-            print(f"❌ Error: SDP file {sdp_file} not found. Please create it.")
-            return None
-        print(f"📄 Using SDP file: {sdp_file}")
-        # Log SDP file contents for debugging
-        with sdp_file.open('r') as f:
-            print(f"DEBUG: SDP file contents:\n{f.read()}")
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-loglevel", "debug",
-            "-y",
-            "-protocol_whitelist", "file,udp,rtp",
-            "-i", f"file://{sdp_file}",
-            # Ensure little-endian output
-            "-af", "aformat=sample_fmts=s16:channel_layouts=stereo",
-            "-ar", str(SAMPLE_RATE),
-            "-ac", str(CHANNELS),
-            "-c:a", "pcm_s16le",
-            str(output_file),
-        ]
-        print(
-            f"🎧 Receiving stream on {listen_ip}:{port} and saving to {output_file}...")
-        process = subprocess.Popen(
-            ffmpeg_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    return ip
 
-        def log_packets():
-            packet_count = 0
-            max_packets_to_log = 5
-            while process.poll() is None:
-                line = process.stderr.readline()
-                if not line:
-                    continue
-                if "RTP: packet received" in line or "Received packet" in line:
-                    packet_count += 1
-                    if packet_count <= max_packets_to_log:
-                        print(
-                            f"📡 Sound received at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                    elif packet_count == max_packets_to_log + 1:
-                        print(
-                            "📡 Further packet receives suppressed to avoid flooding logs")
-                if "error" in line.lower() or "timeout" in line.lower():
-                    print(f"❌ FFmpeg error: {line.strip()}")
-                # Periodically check file size
-                if output_file.exists():
-                    print(
-                        f"DEBUG: Output file size: {output_file.stat().st_size} bytes")
-                print(f"DEBUG: FFmpeg: {line.strip()}")
-            # Final output file check
-            if output_file.exists() and output_file.stat().st_size > 100:
-                print(
-                    f"✅ Output file created: {output_file}, size: {output_file.stat().st_size} bytes")
-            else:
-                print(f"❌ Output file not created or empty: {output_file}")
 
-        def log_status():
-            while process.poll() is None:
-                print(
-                    f"📡 Receiving active at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                time.sleep(5)
-        threading.Thread(target=log_packets, daemon=True).start()
-        threading.Thread(target=log_status, daemon=True).start()
-        return process
-    except FileNotFoundError:
-        print("❌ Error: FFmpeg is not installed or not found in PATH")
-        return None
-    except Exception as e:
-        print(f"❌ Error starting receiver: {str(e)}")
-        return None
+def generate_sdp(ip: str, port: int, filename: Path):
+    """Create an SDP file for receiving PCM S16BE audio."""
+    sdp_content = f"""v=0
+o=- 0 0 IN IP4 {ip}
+s=Audio Stream
+c=IN IP4 {ip}
+t=0 0
+m=audio {port} RTP/AVP 11
+a=rtpmap:11 L16/44100/2
+a=fmtp:11
+a=control:streamid=0
+a=buffer_size:1000000
+a=recvonly
+"""
+    filename.write_text(sdp_content)
+    print(f"Generated SDP file at {filename}")
+
+
+def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
+    ip = get_local_ip()
+    sdp_file = Path("stream.sdp")
+    generate_sdp(ip, port, sdp_file)
+
+    cmd = [
+        "ffmpeg", "-loglevel", "debug",
+        "-protocol_whitelist", "file,udp,rtp",
+        "-i", str(sdp_file),
+        "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
+        output_wav
+    ]
+
+    print(f"Listening on {ip}:{port}, saving audio to {output_wav}")
+    subprocess.run(cmd)
