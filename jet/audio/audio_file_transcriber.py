@@ -19,10 +19,8 @@ class AudioFileTranscriber:
 
     async def transcribe_from_file(self, file_path: str, output_dir: Optional[str] = None) -> Optional[str]:
         """Transcribe audio from a file.
-
         Args:
             file_path: Path to the audio file (e.g., WAV, MP3).
-
         Returns:
             Transcribed text or None if no speech is detected or an error occurs.
         """
@@ -39,8 +37,11 @@ class AudioFileTranscriber:
             if audio_data.ndim > 1:
                 audio_data = np.mean(audio_data, axis=1)
             if audio_data.dtype != np.float32:
-                audio_data = audio_data.astype(
-                    np.float32) / np.iinfo(audio_data.dtype).max
+                if np.issubdtype(audio_data.dtype, np.integer):
+                    audio_data = audio_data.astype(
+                        np.float32) / np.iinfo(audio_data.dtype).max
+                else:
+                    audio_data = audio_data.astype(np.float32)
             segments, _ = self.model.transcribe(
                 audio_data,
                 language="en",
@@ -65,3 +66,4 @@ class AudioFileTranscriber:
         except Exception as e:
             logger.error(f"Error transcribing file {file_path}: {str(e)}")
             return None
+        
