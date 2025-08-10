@@ -20,38 +20,36 @@ def receive_mic_stream(
 ) -> Optional[subprocess.Popen]:
     """
     Receive audio stream over RTP and save to a WAV file.
-
     Args:
         output_file: Path to save the output WAV file
         listen_ip: IP address to listen on (default: "0.0.0.0" for all interfaces)
         port: Port to listen for the RTP stream
-        stream_sdp_path: Path to the SDP file describing the incoming RTP stream (used for session description protocol)
-
+        stream_sdp_path: Path to the SDP file describing the incoming RTP stream
     Returns:
         subprocess.Popen object if receiving started successfully, None otherwise
     """
     try:
-        # Check if SDP file exists
         sdp_file = Path(stream_sdp_path)
         if not sdp_file.exists():
             print(f"❌ Error: SDP file {sdp_file} not found. Please create it.")
             return None
         print(f"📄 Using SDP file: {sdp_file}")
-
-        # Construct FFmpeg command for receiving RTP stream
+        # Log SDP file contents for debugging
+        with sdp_file.open('r') as f:
+            print(f"DEBUG: SDP file contents:\n{f.read()}")
         ffmpeg_cmd = [
             "ffmpeg",
             "-loglevel", "debug",
             "-y",
             "-protocol_whitelist", "file,udp,rtp",
-            "-f", "rtp",
+            "-i", f"rtp://{listen_ip}:{port}?localaddr={listen_ip}",
+            "-f", "sdp",
             "-i", f"file://{sdp_file}",
             "-ar", str(SAMPLE_RATE),
             "-ac", str(CHANNELS),
             "-c:a", "pcm_s16le",
             str(output_file),
         ]
-
         print(
             f"🎧 Receiving stream on {listen_ip}:{port} and saving to {output_file}...")
         process = subprocess.Popen(
@@ -61,7 +59,6 @@ def receive_mic_stream(
             universal_newlines=True
         )
 
-        # Thread to monitor FFmpeg stderr for packet receiving
         def log_packets():
             packet_count = 0
             max_packets_to_log = 5
@@ -79,18 +76,14 @@ def receive_mic_stream(
                             "📡 Further packet receives suppressed to avoid flooding logs")
                 print(f"DEBUG: FFmpeg: {line.strip()}")
 
-        # Thread for periodic receiving status
         def log_status():
             while process.poll() is None:
                 print(
                     f"📡 Receiving active at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 time.sleep(5)
-
         threading.Thread(target=log_packets, daemon=True).start()
         threading.Thread(target=log_status, daemon=True).start()
-
         return process
-
     except FileNotFoundError:
         print("❌ Error: FFmpeg is not installed or not found in PATH")
         return None
