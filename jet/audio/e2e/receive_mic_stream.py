@@ -45,6 +45,34 @@ def receive_mic_stream(output_file: Path, listen_ip: str = DEFAULT_LISTEN_IP, po
             universal_newlines=True
         )
 
+        # Thread to monitor FFmpeg stderr for packet receiving
+        def log_packets():
+            packet_count = 0
+            max_packets_to_log = 5  # Limit to avoid flooding
+            while process.poll() is None:
+                line = process.stderr.readline()
+                if not line:
+                    continue
+                if "Received packet from" in line or "RTP: packet received" in line:
+                    packet_count += 1
+                    if packet_count <= max_packets_to_log:
+                        print(
+                            f"📡 Sound received at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    elif packet_count == max_packets_to_log + 1:
+                        print(
+                            "📡 Further packet receives suppressed to avoid flooding logs")
+                print(f"DEBUG: FFmpeg: {line.strip()}")
+
+        # Thread for periodic receiving status
+        def log_status():
+            while process.poll() is None:
+                print(
+                    f"📡 Receiving active at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                time.sleep(5)
+
+        threading.Thread(target=log_packets, daemon=True).start()
+        threading.Thread(target=log_status, daemon=True).start()
+
         return process
 
     except FileNotFoundError:

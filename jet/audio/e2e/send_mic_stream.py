@@ -96,13 +96,13 @@ def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = D
         # Construct FFmpeg command for RTP streaming
         ffmpeg_cmd = [
             "ffmpeg",
-            "-loglevel", "debug",  # Enable debug logging
-            "-re",  # Read input at native frame rate (real-time)
+            "-loglevel", "debug",
+            "-re",
             "-f", input_device,
-            "-i", f"none:{selected_index}",  # Audio only
+            "-i", f"none:{selected_index}",
             "-ar", str(SAMPLE_RATE),
             "-ac", str(CHANNELS),
-            "-c:a", "pcm_s16le",  # 16-bit PCM for compatibility
+            "-c:a", "pcm_s16le",
             "-f", "rtp",
             f"rtp://{dest_ip}:{port}",
         ]
@@ -118,6 +118,34 @@ def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = D
             stderr=subprocess.PIPE,
             universal_newlines=True
         )
+
+        # Thread to monitor FFmpeg stderr for packet sending
+        def log_packets():
+            packet_count = 0
+            max_packets_to_log = 5  # Limit to avoid flooding
+            while process.poll() is None:
+                line = process.stderr.readline()
+                if not line:
+                    continue
+                if "Sending packet to" in line:
+                    packet_count += 1
+                    if packet_count <= max_packets_to_log:
+                        print(
+                            f"📡 Sound sent at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    elif packet_count == max_packets_to_log + 1:
+                        print(
+                            "📡 Further packet sends suppressed to avoid flooding logs")
+                print(f"DEBUG: FFmpeg: {line.strip()}")
+
+        # Thread for periodic streaming status
+        def log_status():
+            while process.poll() is None:
+                print(
+                    f"📡 Streaming active at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                time.sleep(5)
+
+        threading.Thread(target=log_packets, daemon=True).start()
+        threading.Thread(target=log_status, daemon=True).start()
 
         return process
 
