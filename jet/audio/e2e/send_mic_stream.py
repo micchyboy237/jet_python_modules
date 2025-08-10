@@ -17,6 +17,7 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
         sys.exit(1)
     cmd = [
         "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets",
+        "-report",  # Added for detailed FFmpeg report
         "-f", "avfoundation", "-i", "none:1",
         "-ar", "44100", "-ac", "2",
         "-c:a", "pcm_s16le",
@@ -46,7 +47,7 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
     try:
         # Log FFmpeg output in real-time
         start_time = time.time()
-        min_runtime = 60  # Increased to 60 seconds for debugging
+        min_runtime = 60  # seconds
         while time.time() - start_time < min_runtime:
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
