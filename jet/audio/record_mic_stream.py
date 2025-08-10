@@ -82,9 +82,15 @@ def record_mic_stream(duration: int, output_file: Path, audio_index: str = "0") 
             print("❌ No audio devices found")
             return None
 
-        # Use first audio device if available, or fall back to provided index
-        selected_index = audio_index if audio_index in audio_devices else audio_devices[0].split(
-            "[")[1].split("]")[0] if audio_devices else audio_index
+        # Map device names to their indices (0, 1, 2, ...)
+        device_indices = {str(i): name for i, name in enumerate(audio_devices)}
+        print(f"DEBUG: Available device indices: {device_indices}")
+
+        # Use provided audio_index if valid, otherwise default to "0"
+        selected_index = audio_index if audio_index in device_indices else "0"
+        selected_device = device_indices.get(selected_index, audio_devices[0])
+        print(
+            f"DEBUG: Selected device index: {selected_index}, device name: {selected_device}")
 
         # Construct FFmpeg command for audio-only input
         ffmpeg_cmd = [
@@ -101,7 +107,7 @@ def record_mic_stream(duration: int, output_file: Path, audio_index: str = "0") 
         ]
 
         print(
-            f"🎙️ Recording ({CHANNELS} channel{'s' if CHANNELS > 1 else ''}) for {duration} seconds using device index {selected_index}...")
+            f"🎙️ Recording ({CHANNELS} channel{'s' if CHANNELS > 1 else ''}) for {duration} seconds using device index {selected_index} ({selected_device})...")
         process = subprocess.Popen(
             ffmpeg_cmd,
             stdout=subprocess.PIPE,
