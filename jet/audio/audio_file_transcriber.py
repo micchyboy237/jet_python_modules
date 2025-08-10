@@ -11,9 +11,8 @@ from jet.logger import logger
 
 
 class AudioFileTranscriber:
-    def __init__(self, model_size: str = "small", sample_rate: int = 16000):
-        logging.basicConfig()
-        logging.getLogger("faster_whisper").setLevel(logging.DEBUG)
+    def __init__(self, model_size: str = "small", sample_rate: Optional[int] = None):
+        logger.setLevel(logging.DEBUG)
         self.model = WhisperModel(
             model_size, device="auto", compute_type="int8")
         self.sample_rate = sample_rate
@@ -28,24 +27,20 @@ class AudioFileTranscriber:
             Transcribed text or None if no speech is detected or an error occurs.
         """
         try:
-            # Read audio file and resample if necessary
             audio_data, file_sample_rate = sf.read(file_path)
-            if file_sample_rate != self.sample_rate:
+            if self.sample_rate is not None and file_sample_rate != self.sample_rate:
                 logger.info(
                     f"Resampling audio from {file_sample_rate} Hz to {self.sample_rate} Hz")
                 audio_data = librosa.resample(
                     audio_data, orig_sr=file_sample_rate, target_sr=self.sample_rate)
-
-            # Ensure audio is mono
+            else:
+                logger.info(
+                    f"Using native sample rate: {file_sample_rate} Hz")
             if audio_data.ndim > 1:
                 audio_data = np.mean(audio_data, axis=1)
-
-            # Normalize to float32 in range [-1.0, 1.0]
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(
                     np.float32) / np.iinfo(audio_data.dtype).max
-
-            # Transcribe using the same settings as capture_and_transcribe
             segments, _ = self.model.transcribe(
                 audio_data,
                 language="en",
@@ -56,7 +51,6 @@ class AudioFileTranscriber:
             )
             transcription = " ".join(
                 segment.text for segment in segments).strip()
-
             if transcription and output_dir:
                 os.makedirs(output_dir, exist_ok=True)
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
@@ -64,9 +58,7 @@ class AudioFileTranscriber:
                 with open(output_path, "w", encoding="utf-8") as f:
                     f.write(transcription)
                 logger.info(f"Transcription saved to {output_path}")
-
             return transcription if transcription else None
-
         except FileNotFoundError:
             logger.error(f"Audio file not found: {file_path}")
             return None
