@@ -7,12 +7,6 @@ from pathlib import Path
 SAMPLE_RATE = 44100
 DTYPE = 'int16'
 
-OUTPUT_DIR = Path(__file__).parent / "generated" / "run_record_mic"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-OUTPUT_FILE = OUTPUT_DIR / \
-    f"recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-
 
 def get_input_channels() -> int:
     device_info = sd.query_devices(sd.default.device[0], 'input')
@@ -45,9 +39,3 @@ def save_wav_file(filename, audio_data: np.ndarray):
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(audio_data.tobytes())
     print(f"💾 Audio saved to {filename}")
-
-
-if __name__ == "__main__":
-    duration_seconds = 5
-    data = record_from_mic(duration_seconds)
-    save_wav_file(OUTPUT_FILE, data)
