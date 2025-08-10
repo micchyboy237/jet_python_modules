@@ -30,8 +30,8 @@ o=- 0 0 IN IP4 {ip}
 s=Audio Stream
 c=IN IP4 {ip}
 t=0 0
-m=audio {port} RTP/AVP 96
-a=rtpmap:96 L16/44100/2
+m=audio {port} RTP/AVP 11
+a=rtpmap:11 L16/44100/2
 a=control:streamid=0
 a=buffer_size:1000000
 a=recvonly
@@ -48,6 +48,7 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
         "ffmpeg", "-y",
         "-loglevel", "debug",
         "-protocol_whitelist", "file,udp,rtp",
+        "-timeout", "30000000",  # 30 seconds in microseconds
         "-i", str(sdp_file),
         "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
         "-f", "wav",
@@ -73,7 +74,7 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
     try:
         # Log FFmpeg output in real-time
         start_time = time.time()
-        min_runtime = 15  # seconds
+        min_runtime = 30  # Increased to 30 seconds
         while time.time() - start_time < min_runtime:
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
