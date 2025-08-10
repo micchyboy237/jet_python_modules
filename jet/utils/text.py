@@ -109,7 +109,7 @@ def remove_substring(text: str, start: int, end: int) -> str:
 
 
 def format_sub_dir(text: str) -> str:
-    return text.lower().strip('.,!?').replace(' ', '_').replace('.', '_').replace(',', '_').replace('!', '_').replace('?', '_').strip()
+    return re.sub(r'[^\w\s]|[\s]', '_', text.lower()).strip()
 
 
 __all__ = [

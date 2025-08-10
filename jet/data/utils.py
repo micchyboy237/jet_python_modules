@@ -14,6 +14,15 @@ def generate_unique_hash() -> str:
     return str(uuid.uuid4())
 
 
+def generate_hash(*args, max_length=24, **kwargs):
+    """Generate a consistent, truncated hash for given arguments."""
+    # Combine positional and keyword arguments into a single dict for hashing
+    input_data = {"args": args, "kwargs": kwargs}
+    item_str = json.dumps(input_data, sort_keys=True)
+    hash_key = hashlib.sha256(item_str.encode()).hexdigest()
+    return hash_key[:max_length]
+
+
 def generate_key(*args: Any, **kwargs: Any) -> str:
     """
     Generate a deterministic UUID v5 key based on input arguments.

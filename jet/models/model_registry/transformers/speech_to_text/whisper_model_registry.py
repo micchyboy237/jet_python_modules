@@ -7,18 +7,20 @@ from jet.logger import logger
 from jet.models.utils import resolve_model_value
 from jet.models.model_registry.base import BaseModelRegistry, ModelFeatures
 
+WhisperModelsType = Literal[
+    "tiny", "tiny.en", "base", "base.en",
+            "small", "small.en", "distil-small.en", "medium", "medium.en", "distil-medium.en",
+            "large-v1", "large-v2", "large-v3", "large",
+            "distil-large-v2", "distil-large-v3", "large-v3-turbo", "turbo"
+]
+
 
 class WhisperModelRegistry(BaseModelRegistry):
     _models = {}
 
+    @staticmethod
     def load_model(
-        self,
-        model_id: Literal[
-            "tiny", "tiny.en", "base", "base.en",
-            "small", "small.en", "distil-small.en", "medium", "medium.en", "distil-medium.en",
-            "large-v1", "large-v2", "large-v3", "large",
-            "distil-large-v2", "distil-large-v3", "large-v3-turbo", "turbo"
-        ] = "small",
+        model_size: WhisperModelsType = "small",
         device: str = "auto",
         device_index: Union[int, List[int]] = 0,
         compute_type: str = "default",
@@ -29,8 +31,38 @@ class WhisperModelRegistry(BaseModelRegistry):
         files: Optional[dict] = None,
         **model_kwargs
     ) -> WhisperModel:
-        # resolved_model_id = resolve_model_value(model_id)
-        resolved_model_id = model_id
+        """
+        Static method to load or retrieve a WhisperModel instance.
+        """
+        instance = WhisperModelRegistry()
+        return instance._load_model(
+            model_size=model_size,
+            device=device,
+            device_index=device_index,
+            compute_type=compute_type,
+            cpu_threads=cpu_threads,
+            num_workers=num_workers,
+            download_root=download_root,
+            local_files_only=local_files_only,
+            files=files,
+            **model_kwargs
+        )
+
+    def _load_model(
+        self,
+        model_size: WhisperModelsType = "small",
+        device: str = "auto",
+        device_index: Union[int, List[int]] = 0,
+        compute_type: str = "default",
+        cpu_threads: int = 0,
+        num_workers: int = 1,
+        download_root: Optional[str] = None,
+        local_files_only: bool = False,
+        files: Optional[dict] = None,
+        **model_kwargs
+    ) -> WhisperModel:
+        # resolved_model_id = resolve_model_value(model_size)
+        resolved_model_id = model_size
 
         cache_key = generate_key(
             resolved_model_id, compute_type, device_index, cpu_threads, num_workers
@@ -69,11 +101,11 @@ class WhisperModelRegistry(BaseModelRegistry):
             raise ValueError(
                 f"Could not load Whisper model {resolved_model_id}: {e}")
 
-    def get_tokenizer(self, model_id: str) -> Optional[object]:
+    def get_tokenizer(self, model_size: str) -> Optional[object]:
         logger.warning("WhisperModel does not provide a tokenizer instance")
         return None
 
-    def get_config(self, model_id: str) -> Optional[object]:
+    def get_config(self, model_size: str) -> Optional[object]:
         logger.warning("WhisperModel does not provide a config instance")
         return None
 
