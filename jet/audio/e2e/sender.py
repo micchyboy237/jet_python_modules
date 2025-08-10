@@ -3,6 +3,8 @@ from typing import List
 
 from jet.logger import logger
 
+SDP_FILE = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/e2e/stream.sdp"
+
 
 def get_sender_command(ip: str, port: int, sdp_file: str) -> List[str]:
     return [
@@ -20,33 +22,41 @@ def get_sender_command(ip: str, port: int, sdp_file: str) -> List[str]:
 
 
 def check_audio_device() -> bool:
-    """Check if an audio input device is available for avfoundation."""
+    """Check if an audio input device is available for avfoundation by testing the default input."""
     try:
-        cmd = ["ffmpeg", "-f", "avfoundation",
-               "-list_devices", "true", "-i", "dummy"]
+        cmd = [
+            "ffmpeg",
+            "-f", "avfoundation",
+            "-i", ":0",  # Test the default audio device
+            "-t", "1",  # Capture for 1 second to minimize overhead
+            "-f", "null",  # Output to null to avoid creating files
+            "-"
+        ]
         result = subprocess.run(
             cmd,
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE,
             universal_newlines=True,
-            check=True
+            check=False  # Allow non-zero exit codes for robust checking
         )
         stderr_output = result.stderr.lower()
-        if "avfoundation audio devices" in stderr_output and "[avfoundation @" in stderr_output:
-            logger.debug("Audio devices found in FFmpeg output")
+        logger.debug(f"FFmpeg audio device check output: {stderr_output}")
+        if result.returncode == 0:
+            logger.debug("Audio device ':0' is available and functional")
             return True
-        logger.error("No audio devices detected in FFmpeg output")
-        return False
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to list audio devices: {e.stderr}")
+        if "input/output error" in stderr_output or "no such file" in stderr_output:
+            logger.error(
+                "Audio device ':0' is not available or not functional")
+        else:
+            logger.error(
+                f"Unexpected FFmpeg error while checking audio device: {stderr_output}")
         return False
     except Exception as e:
-        logger.error(
-            f"Unexpected error while checking audio devices: {str(e)}")
+        logger.error(f"Unexpected error while checking audio device: {str(e)}")
         return False
 
 
-def run_sender(ip: str = "192.168.68.104", port: int = 5004, sdp_file: str = "stream.sdp", timeout: int = 10):
+def run_sender(ip: str = "192.168.68.104", port: int = 5004, sdp_file: str = SDP_FILE):
     if not check_audio_device():
         raise RuntimeError("No audio input device available")
     try:
@@ -58,17 +68,29 @@ def run_sender(ip: str = "192.168.68.104", port: int = 5004, sdp_file: str = "st
             stdout=subprocess.PIPE,
             universal_newlines=True
         )
-        stdout, stderr = process.communicate(timeout=timeout)
+        # Log output in real-time without timeout
+        while True:
+            try:
+                stderr_line = process.stderr.readline()
+                if stderr_line:
+                    logger.debug(f"FFmpeg stderr: {stderr_line.strip()}")
+                stdout_line = process.stdout.readline()
+                if stdout_line:
+                    logger.debug(f"FFmpeg stdout: {stdout_line.strip()}")
+                if process.poll() is not None:
+                    break
+            except KeyboardInterrupt:
+                logger.info("Received interrupt, stopping sender")
+                process.terminate()
+                process.wait()
+                break
+        stdout, stderr = process.communicate()
         if process.returncode != 0:
             logger.error(
                 f"Sender process failed with return code {process.returncode}: {stderr}")
             raise subprocess.CalledProcessError(
                 process.returncode, cmd, stderr=stderr)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        stdout, stderr = process.communicate()
-        logger.error(f"Sender process timed out: {stderr}")
-        raise
+        logger.debug("Sender process completed successfully")
     except subprocess.CalledProcessError as e:
         logger.error(f"Sender process error: {e.stderr}")
         raise
@@ -79,7 +101,7 @@ def run_sender(ip: str = "192.168.68.104", port: int = 5004, sdp_file: str = "st
 
 if __name__ == "__main__":
     subprocess.run(
-        ["ffmpeg", "-f", "avfoundation", "-list_devices", "true", "-i", "dummy"],
+        ["ffmpeg", "-f", "avfoundation", "-list_devices", "true"],
         stderr=subprocess.PIPE
     )
     run_sender()
