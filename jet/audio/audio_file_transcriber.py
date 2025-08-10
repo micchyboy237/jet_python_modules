@@ -56,10 +56,9 @@ class AudioFileTranscriber:
             if transcription and output_dir:
                 os.makedirs(output_dir, exist_ok=True)
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
-                # Extract chunk index from filename (e.g., stream_chunk_20250810_230837_0002 -> 0002)
                 try:
                     chunk_index = int(base_name.split(
-                        '_')[-1]) if 'stream_chunk' in base_name else -1
+                        '_')[-1]) if 'stream_chunk' in base_name or 'original_stream' in base_name else -1
                     output_filename = f"transcription_{chunk_index:05d}.txt" if chunk_index >= 0 else f"transcription_{base_name}.txt"
                 except ValueError:
                     logger.debug(
@@ -89,7 +88,6 @@ class AudioFileTranscriber:
         """
         Transcribe an audio chunk with optional context from previous and next chunks.
         Returns transcription for the non-overlapping portion, start overlap, and end overlap.
-
         Args:
             file_path: Path to the current audio chunk file.
             prev_file_path: Path to the previous chunk file for start overlap context.
@@ -97,24 +95,19 @@ class AudioFileTranscriber:
             start_overlap_duration: Duration of start overlap in seconds.
             end_overlap_duration: Duration of end overlap in seconds.
             output_dir: Directory to save transcription file.
-
         Returns:
             Tuple of (non-overlap transcription, start overlap transcription, end overlap transcription).
         """
         try:
-            # Load current chunk
             audio_data, file_sample_rate = sf.read(file_path)
             logger.debug(
                 f"Loaded chunk {file_path}, sample rate: {file_sample_rate}, samples: {len(audio_data)}")
-
             if self.sample_rate is not None and file_sample_rate != self.sample_rate:
                 logger.info(
                     f"Resampling chunk from {file_sample_rate} Hz to {self.sample_rate} Hz")
                 audio_data = librosa.resample(
                     audio_data, orig_sr=file_sample_rate, target_sr=self.sample_rate)
                 file_sample_rate = self.sample_rate
-
-            # Load previous chunk for context
             prev_audio = np.array([], dtype=np.float32)
             if prev_file_path and start_overlap_duration > 0:
                 prev_data, prev_sr = sf.read(prev_file_path)
@@ -127,8 +120,6 @@ class AudioFileTranscriber:
                     prev_data) >= start_overlap_samples else prev_data
                 logger.debug(
                     f"Loaded {len(prev_audio)} samples from previous chunk {prev_file_path}")
-
-            # Load next chunk for context
             next_audio = np.array([], dtype=np.float32)
             if next_file_path and end_overlap_duration > 0:
                 next_data, next_sr = sf.read(next_file_path)
@@ -141,11 +132,8 @@ class AudioFileTranscriber:
                     next_data) >= end_overlap_samples else next_data
                 logger.debug(
                     f"Loaded {len(next_audio)} samples from next chunk {next_file_path}")
-
-            # Combine audio: prev_overlap + current + next_overlap
             combined_audio = np.concatenate([prev_audio, audio_data, next_audio]) if (
                 len(prev_audio) > 0 or len(next_audio) > 0) else audio_data
-            # Ensure combined audio is float32
             if combined_audio.dtype != np.float32:
                 if np.issubdtype(combined_audio.dtype, np.integer):
                     combined_audio = combined_audio.astype(
@@ -154,8 +142,6 @@ class AudioFileTranscriber:
                     combined_audio = combined_audio.astype(np.float32)
             logger.debug(
                 f"Combined audio length: {len(combined_audio)} samples, dtype: {combined_audio.dtype}")
-
-            # Transcribe combined audio
             segments, _ = self.model.transcribe(
                 combined_audio,
                 language="en",
@@ -164,48 +150,35 @@ class AudioFileTranscriber:
                 vad_parameters=dict(min_silence_duration_ms=500),
                 log_progress=True
             )
-
-            # Calculate sample ranges for start overlap, non-overlap, and end overlap
             start_overlap_samples = len(prev_audio)
             non_overlap_samples = len(audio_data)
             total_samples = len(combined_audio)
             end_overlap_samples = total_samples - start_overlap_samples - non_overlap_samples
-
-            # Convert samples to seconds
             start_overlap_end_s = start_overlap_samples / \
                 file_sample_rate if start_overlap_samples > 0 else 0.0
             non_overlap_end_s = (start_overlap_samples +
                                  non_overlap_samples) / file_sample_rate
-
-            # Segment transcriptions with partial overlap handling
             start_overlap_text = []
             non_overlap_text = []
             end_overlap_text = []
-
             for segment in segments:
                 segment_start = segment.start
                 segment_end = segment.end
                 segment_text = segment.text.strip()
-
-                # Handle segments that span multiple regions
                 if segment_end <= start_overlap_end_s:
                     start_overlap_text.append(segment_text)
                 elif segment_start >= non_overlap_end_s:
                     end_overlap_text.append(segment_text)
                 else:
-                    # Segment spans regions; split based on time
                     segment_duration = segment_end - segment_start
                     if segment_duration == 0:
-                        continue  # Skip zero-duration segments
-                    # Calculate overlap fractions
+                        continue
                     start_overlap_fraction = max(
                         0.0, min(segment_end, start_overlap_end_s) - segment_start) / segment_duration
                     non_overlap_fraction = max(0.0, min(segment_end, non_overlap_end_s) - max(
                         segment_start, start_overlap_end_s)) / segment_duration
                     end_overlap_fraction = max(
                         0.0, segment_end - max(segment_start, non_overlap_end_s)) / segment_duration
-
-                    # Assign to region with the largest overlap
                     max_fraction = max(
                         start_overlap_fraction, non_overlap_fraction, end_overlap_fraction)
                     if max_fraction == start_overlap_fraction and start_overlap_fraction > 0:
@@ -214,16 +187,12 @@ class AudioFileTranscriber:
                         non_overlap_text.append(segment_text)
                     elif max_fraction == end_overlap_fraction and end_overlap_fraction > 0:
                         end_overlap_text.append(segment_text)
-
-            # Join transcriptions
             start_overlap_transcription = " ".join(
                 start_overlap_text).strip() if start_overlap_text else ""
             non_overlap_transcription = " ".join(
                 non_overlap_text).strip() if non_overlap_text else ""
             end_overlap_transcription = " ".join(
                 end_overlap_text).strip() if end_overlap_text else ""
-
-            # Save non-overlap transcription if output_dir is provided
             if non_overlap_transcription and output_dir:
                 os.makedirs(output_dir, exist_ok=True)
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
@@ -240,11 +209,9 @@ class AudioFileTranscriber:
                     f.write(non_overlap_transcription)
                 logger.info(
                     f"Non-overlap transcription saved to {output_path}")
-
             logger.debug(f"Transcriptions - Start overlap: '{start_overlap_transcription}', "
                          f"Non-overlap: '{non_overlap_transcription}', End overlap: '{end_overlap_transcription}'")
             return non_overlap_transcription, start_overlap_transcription, end_overlap_transcription
-
         except FileNotFoundError:
             logger.error(f"Audio file not found: {file_path}")
             return None, None, None

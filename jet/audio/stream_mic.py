@@ -48,7 +48,7 @@ def trim_silent_portions(chunk: np.ndarray, silence_threshold: float, sub_chunk_
     return trimmed_chunk, start_idx, end_idx
 
 
-def save_chunk(chunk: np.ndarray, chunk_index: int, timestamp: str, cumulative_duration: float, silence_threshold: float, overlap_samples: int, output_dir: str) -> Tuple[Optional[str], Optional[Dict]]:
+def save_chunk(chunk: np.ndarray, chunk_index: int, cumulative_duration: float, silence_threshold: float, overlap_samples: int, output_dir: str) -> Tuple[Optional[str], Optional[Dict]]:
     """Save a trimmed audio chunk to a WAV file, preserving start and end overlaps.
     Trim silence only from the non-overlapping portion. Save if non-overlapping or overlap portions are non-silent.
     """
@@ -59,7 +59,6 @@ def save_chunk(chunk: np.ndarray, chunk_index: int, timestamp: str, cumulative_d
     if non_overlap_end <= non_overlap_start:
         logger.debug(f"Chunk {chunk_index} has no non-overlapping samples "
                      f"(length {len(chunk)} <= start overlap {start_overlap} + end overlap {end_overlap}), checking overlaps")
-        # Check if overlap portions are non-silent
         start_overlap_chunk = chunk[:start_overlap] if start_overlap > 0 else np.array(
             [], dtype=chunk.dtype).reshape(0, chunk.shape[1])
         end_overlap_chunk = chunk[-end_overlap:] if end_overlap > 0 else np.array(
@@ -112,7 +111,7 @@ def save_chunk(chunk: np.ndarray, chunk_index: int, timestamp: str, cumulative_d
                     f"Chunk {chunk_index} is empty after reconstruction, not saved")
                 return None, None
             final_chunk = np.concatenate(chunks_to_concat, axis=0)
-    chunk_filename = f"{output_dir}/stream_chunk_{timestamp}_{chunk_index:04d}.wav"
+    chunk_filename = f"{output_dir}/stream_chunk_{chunk_index:04d}.wav"
     save_wav_file(chunk_filename, final_chunk)
     chunk_duration = len(final_chunk) / SAMPLE_RATE
     logger.debug(
@@ -127,7 +126,6 @@ def save_chunk(chunk: np.ndarray, chunk_index: int, timestamp: str, cumulative_d
         "chunk_index": chunk_index,
         "filename": chunk_filename,
         "duration_s": round(chunk_duration, 3),
-        "timestamp": timestamp,
         "sample_count": len(final_chunk),
         "start_time_s": round(cumulative_duration, 3),
         "end_time_s": round(cumulative_duration + chunk_duration, 3),
