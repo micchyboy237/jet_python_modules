@@ -1,4 +1,3 @@
-# jet_python_modules/jet/audio/e2e/test_sender.py
 import pytest
 from jet.audio.e2e.sender import get_sender_command
 
@@ -16,9 +15,10 @@ class TestSenderCommand:
         # Then the command matches the expected ffmpeg arguments for RTP audio sending
         expected = [
             "ffmpeg",
+            "-loglevel", "debug",
             "-f", "avfoundation",
             "-i", ":0",
-            "-acodec", "pcm_s16be",
+            "-acodec", "pcm_s16le",
             "-ar", "48000",
             "-ac", "2",
             "-f", "rtp",
@@ -39,9 +39,10 @@ class TestSenderCommand:
         # Then the command matches the expected ffmpeg arguments with custom values
         expected = [
             "ffmpeg",
+            "-loglevel", "debug",
             "-f", "avfoundation",
             "-i", ":0",
-            "-acodec", "pcm_s16be",
+            "-acodec", "pcm_s16le",
             "-ar", "48000",
             "-ac", "2",
             "-f", "rtp",

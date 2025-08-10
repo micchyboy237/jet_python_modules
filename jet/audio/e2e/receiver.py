@@ -1,30 +1,57 @@
-# jet_python_modules/jet/audio/e2e/receiver.py
 import subprocess
+import logging
 from typing import List
 
+logging.basicConfig(
+    filename='receiver.log',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
-def get_receiver_command(sdp_file: str, output_pattern: str) -> List[str]:
+
+def get_receiver_command(sdp_file: str, output_file: str, insights_file: str) -> List[str]:
     return [
         "ffmpeg",
+        "-loglevel", "debug",
         "-protocol_whitelist", "file,rtp,udp",
+        "-rtbufsize", "100M",
         "-i", sdp_file,
         "-acodec", "pcm_s16le",
         "-ar", "48000",
         "-ac", "2",
-        "-f", "segment",
-        "-segment_time", "300",
-        "-reset_timestamps", "1",
-        "-strftime", "1",
-        output_pattern
+        "-t", "300",
+        "-y",
+        "-filter:a", "volumedetect",
+        "-f", "wav",
+        output_file,
+        "-f", "null",
+        "-",
+        "-report"
     ]
 
 
 def run_receiver(
     sdp_file: str = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/e2e/stream.sdp",
-    output_pattern: str = "last5min_%Y%m%d-%H%M%S.wav"
+    output_file: str = "last5min.wav",
+    insights_file: str = "audio_insights.log"
 ):
-    cmd = get_receiver_command(sdp_file, output_pattern)
-    subprocess.Popen(cmd)
+    logging.info("Starting receiver with SDP: %s, Output: %s",
+                 sdp_file, output_file)
+    try:
+        cmd = get_receiver_command(sdp_file, output_file, insights_file)
+        process = subprocess.Popen(
+            cmd,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        for line in process.stderr:
+            logging.debug(line.strip())
+            if "volumedetect" in line:
+                with open(insights_file, "a") as f:
+                    f.write(line + "\n")
+    except Exception as e:
+        logging.error("Receiver failed: %s", str(e))
+        raise
 
 
 if __name__ == "__main__":
