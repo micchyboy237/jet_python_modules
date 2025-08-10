@@ -21,8 +21,9 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
         "-ar", "44100", "-ac", "2",
         "-c:a", "pcm_s16le",
         "-map", "0:a",
-        "-f", "tee",
-        f"[f=rtp]rtp://{receiver_ip}:{port}?rtcpport={port}|[f=wav]recording.wav"
+        "-f", "rtp",
+        f"rtp://{receiver_ip}:{port}?rtcpport={port}&pkt_size=188",
+        "-f", "wav", "recording.wav"
     ]
     logging.info(
         f"Sending mic audio to {receiver_ip}:{port} and saving as recording.wav")
