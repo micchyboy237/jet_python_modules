@@ -76,7 +76,7 @@ def send_mic_stream(
         dest_ip: Destination IP address of the receiver
         port: Destination port for the RTP stream
         audio_index: Audio device index for avfoundation (default: "1" for MacBook Air Microphone)
-        stream_sdp_path: Path to the SDP file to use for the stream
+        stream_sdp_path: Path to the SDP file to use for the receiver configuration (not modified)
         output_file: Path to save the recorded audio (e.g., 'output.wav'), None if not saving
     Returns:
         subprocess.Popen object if streaming started successfully, None otherwise
@@ -97,7 +97,7 @@ def send_mic_stream(
         if not sdp_file.exists():
             print(f"❌ Error: SDP file {sdp_file} not found. Please create it.")
             return None
-        print(f"📄 Using SDP file: {sdp_file}")
+        print(f"📄 Receiver should use SDP file: {sdp_file}")
         ffmpeg_cmd = [
             "ffmpeg",
             "-loglevel", "debug",
@@ -119,7 +119,6 @@ def send_mic_stream(
                 "-f", "rtp",
                 f"rtp://{dest_ip}:{port}",
             ])
-        ffmpeg_cmd.extend(["-sdp_file", str(sdp_file)])
         if duration > 0:
             ffmpeg_cmd.extend(["-t", str(duration)])
         print(f"DEBUG: FFmpeg command: {' '.join(ffmpeg_cmd)}")
