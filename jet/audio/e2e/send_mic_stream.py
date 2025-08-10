@@ -43,7 +43,7 @@ def stream_audio_to_receiver(
 def send_mic_stream(
     receiver_ip: Optional[str] = None,
     port: Optional[int] = None,
-    sample_rate: int = 44100,
+    sample_rate: int = 16000,  # Changed from 44100
     channels: int = 2,
     file_prefix: str = "recording",
     device_index: str = "1"
