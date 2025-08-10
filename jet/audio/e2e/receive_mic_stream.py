@@ -42,8 +42,9 @@ def receive_mic_stream(
             "-loglevel", "debug",
             "-y",
             "-protocol_whitelist", "file,udp,rtp",
-            "-timeout", "30000000",  # 30 seconds in microseconds
             "-i", f"file://{sdp_file}",
+            # Ensure little-endian output
+            "-af", "aformat=sample_fmts=s16:channel_layouts=stereo",
             "-ar", str(SAMPLE_RATE),
             "-ac", str(CHANNELS),
             "-c:a", "pcm_s16le",
