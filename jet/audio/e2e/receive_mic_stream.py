@@ -2,6 +2,10 @@ import sys
 import socket
 import subprocess
 from pathlib import Path
+import signal
+import time
+
+from jet.logger import logger
 
 
 def get_local_ip() -> str:
@@ -10,13 +14,16 @@ def get_local_ip() -> str:
     try:
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
+    except socket.error as e:
+        logger.error(f"Failed to get local IP: {e}")
+        raise
     finally:
         s.close()
     return ip
 
 
 def generate_sdp(ip: str, port: int, filename: Path):
-    """Create an SDP file for receiving PCM S16BE audio."""
+    """Create an SDP file for receiving PCM S16LE audio."""
     sdp_content = f"""v=0
 o=- 0 0 IN IP4 {ip}
 s=Audio Stream
@@ -30,21 +37,50 @@ a=buffer_size:1000000
 a=recvonly
 """
     filename.write_text(sdp_content)
-    print(f"Generated SDP file at {filename}")
+    logger.info(f"Generated SDP file at {filename}")
 
 
 def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
     ip = get_local_ip()
     sdp_file = Path("stream.sdp")
     generate_sdp(ip, port, sdp_file)
-
     cmd = [
-        "ffmpeg", "-y",  # auto overwrite output file
+        "ffmpeg", "-y",
         "-loglevel", "debug",
         "-protocol_whitelist", "file,udp,rtp",
         "-i", str(sdp_file),
         "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
+        "-f", "wav",
         output_wav
     ]
-    print(f"Listening on {ip}:{port}, saving audio to {output_wav}")
-    subprocess.run(cmd)
+    logger.info(f"Listening on {ip}:{port}, saving audio to {output_wav}")
+    process = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    def signal_handler(sig, frame):
+        logger.info("Received interrupt, shutting down FFmpeg gracefully...")
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "FFmpeg did not terminate in time, forcing shutdown...")
+            process.kill()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    try:
+        # Wait for at least 10 seconds to allow RTP stream to establish
+        start_time = time.time()
+        min_runtime = 10  # seconds
+        while time.time() - start_time < min_runtime:
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                logger.error(
+                    f"FFmpeg exited unexpectedly. Stdout: {stdout}, Stderr: {stderr}")
+                sys.exit(1)
+            time.sleep(1)
+        stdout, stderr = process.communicate()
+        logger.debug(f"FFmpeg output: {stderr}")
+    except KeyboardInterrupt:
+        signal_handler(signal.SIGINT, None)
