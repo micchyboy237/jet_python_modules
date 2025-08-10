@@ -31,6 +31,7 @@ httptools==0.6.4
 -e git+ssh://git@github.com/MaartenGr/KeyBERT.git@b9c4939d53454b74a97f901b95e3ca7b873eb2a0#egg=keybert
 langchain-text-splitters==0.3.8
 Levenshtein==0.27.1
+librosa==0.11.0
 llama_cpp_python==0.3.14
 -e git+ssh://git@github.com/run-llama/llama_index.git@bfae72e7997ee83a21190feae7b6956618c808c6#egg=llama_index
 llguidance==0.7.29
