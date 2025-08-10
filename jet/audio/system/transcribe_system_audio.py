@@ -8,7 +8,7 @@ import logging
 
 
 class AudioTranscriber:
-    def __init__(self, model_size: str = "tiny", sample_rate: int = 16000, chunk_duration: float = 1.0):
+    def __init__(self, model_size: str = "small", sample_rate: int = 16000, chunk_duration: float = 1.0):
         logging.basicConfig()
         logging.getLogger("faster_whisper").setLevel(logging.DEBUG)
         self.model = WhisperModel(
