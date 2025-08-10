@@ -4,81 +4,74 @@ import subprocess
 import logging
 from typing import List
 
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
 BASE_DIR = os.path.expanduser("~/generated/audio")
 AUDIO_DIR = f"{BASE_DIR}/sounds"
 LOGS_DIR = f"{BASE_DIR}/logs"
-
 os.makedirs(AUDIO_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
 
-# Configure logging to write to a file for debugging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(f"{LOGS_DIR}/receiver_debug.log"),
-        logging.StreamHandler()
-    ]
-)
 
-
-def get_receiver_command(sdp_file: str, output_file: str, insights_file: str) -> List[str]:
+def get_receiver_command(output_file: str, insights_file: str) -> List[str]:
+    # Ensure output_file is in AUDIO_DIR
+    output_path = os.path.join(AUDIO_DIR, os.path.basename(output_file))
     return [
         "ffmpeg",
         "-loglevel", "debug",
         "-protocol_whitelist", "file,rtp,udp",
-        "-rtbufsize", "100M",
-        "-i", sdp_file,
+        "-f", "rtp",
+        "-i", "rtp://0.0.0.0:5004",
         "-acodec", "pcm_s16le",
         "-ar", "48000",
         "-ac", "2",
-        "-t", "300",
-        "-y",
+        "-f", "segment",
+        "-segment_time", "300",
+        "-reset_timestamps", "1",
+        "-strftime", "1",
+        output_path,
         "-filter:a", "volumedetect",
-        "-f", "wav",
-        output_file,
         "-f", "null",
-        "-",
-        "-report"
+        "-"
     ]
 
 
 def run_receiver(
-    sdp_file: str = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/e2e/stream.sdp",
-    output_file: str = f"{AUDIO_DIR}/last5min.wav",
-    insights_file: str = f"{LOGS_DIR}/audio_insights.log"
+    output_file: str = "last5min_%Y%m%d-%H%M%S.wav",
+    insights_file: str = "audio_insights.log"
 ):
     try:
-        cmd = get_receiver_command(sdp_file, output_file, insights_file)
-        logging.debug(f"Executing receiver command: {' '.join(cmd)}")
+        # Ensure insights_file is in LOGS_DIR
+        insights_path = os.path.join(LOGS_DIR, os.path.basename(insights_file))
+        cmd = get_receiver_command(output_file, insights_path)
+        logger.debug(f"Executing receiver command: {' '.join(cmd)}")
         process = subprocess.Popen(
             cmd,
             stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE,  # Capture stdout for additional debug info
+            stdout=subprocess.PIPE,
             universal_newlines=True
         )
-        # Wait for the process to complete and capture output
         stdout, stderr = process.communicate()
-        logging.debug(f"FFmpeg stdout: {stdout}")
-        logging.debug(f"FFmpeg stderr: {stderr}")
-        # Log volumedetect output to insights_file
+        logger.debug(f"FFmpeg stdout: {stdout}")
+        logger.debug(f"FFmpeg stderr: {stderr}")
         for line in stderr.splitlines():
             if "volumedetect" in line:
-                logging.debug(
+                logger.debug(
                     f"Writing volumedetect line to insights file: {line}")
-                with open(insights_file, "a") as f:
+                with open(insights_path, "a") as f:
                     f.write(line + "\n")
         if process.returncode != 0:
-            logging.error(
-                f"FFmpeg process failed with return code {process.returncode}")
+            logger.error(
+                f"Receiver process failed with return code {process.returncode}: {stderr}")
             raise subprocess.CalledProcessError(
                 process.returncode, cmd, stderr=stderr)
-        logging.debug("Receiver process completed successfully")
+        logger.debug("Receiver process completed successfully")
     except subprocess.CalledProcessError as e:
-        logging.error(f"Receiver subprocess error: {e}, stderr: {e.stderr}")
+        logger.error(f"Receiver process error: {e.stderr}")
         raise
     except Exception as e:
-        logging.error(f"Receiver failed: {e}")
+        logger.error(f"Unexpected error in receiver: {str(e)}")
         raise
 
 
