@@ -74,7 +74,7 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
                 sys.exit(1)
             line = process.stderr.readline()
             if line:
-            time.sleep(0.1)
+                time.sleep(0.1)
         stdout, stderr = process.communicate()
         if process.returncode != 0:
             sys.exit(1)
