@@ -1,9 +1,81 @@
 import sounddevice as sd
 import numpy as np
-from typing import Generator, Optional
+from typing import Generator, Dict, Tuple, Optional
 from tqdm import tqdm
-from jet.audio.record_mic import SAMPLE_RATE, CHANNELS, DTYPE, detect_silence, calibrate_silence_threshold
+from jet.audio.record_mic import SAMPLE_RATE, CHANNELS, DTYPE, detect_silence, calibrate_silence_threshold, save_wav_file
 from jet.logger import logger
+
+
+def trim_silent_portions(chunk: np.ndarray, silence_threshold: float, sub_chunk_duration: float = 0.1) -> Tuple[Optional[np.ndarray], int, int]:
+    """
+    Trim silent portions from the start and end of an audio chunk, preserving overlap.
+    Args:
+        chunk: Audio chunk to trim (numpy array, including overlap).
+        silence_threshold: Energy threshold for silence detection.
+        sub_chunk_duration: Duration of sub-chunks for silence detection (seconds).
+    Returns:
+        Tuple of (trimmed chunk or None if all silent, start index, end index).
+    """
+    sub_chunk_size = int(SAMPLE_RATE * sub_chunk_duration)
+    if chunk.shape[0] < sub_chunk_size:
+        logger.debug(f"Chunk too small for trimming: {chunk.shape[0]} samples")
+        return chunk, 0, chunk.shape[0] if not detect_silence(chunk, silence_threshold) else (None, 0, 0)
+
+    # Split chunk into sub-chunks
+    sub_chunks = [chunk[i:i + sub_chunk_size]
+                  for i in range(0, chunk.shape[0], sub_chunk_size)]
+    start_idx = 0
+    end_idx = len(chunk)
+
+    # Find first non-silent sub-chunk
+    for i, sub_chunk in enumerate(sub_chunks):
+        if len(sub_chunk) >= sub_chunk_size and not detect_silence(sub_chunk, silence_threshold):
+            start_idx = i * sub_chunk_size
+            break
+    else:
+        logger.debug("All sub-chunks are silent")
+        return None, 0, 0
+
+    # Find last non-silent sub-chunk
+    for i in range(len(sub_chunks) - 1, -1, -1):
+        if len(sub_chunks[i]) >= sub_chunk_size and not detect_silence(sub_chunks[i], silence_threshold):
+            end_idx = (i + 1) * sub_chunk_size
+            break
+
+    trimmed_chunk = chunk[start_idx:end_idx]
+    logger.debug(
+        f"Trimmed {start_idx} samples from start, {chunk.shape[0] - end_idx} from end, remaining: {len(trimmed_chunk)}")
+    return trimmed_chunk, start_idx, end_idx
+
+
+def save_chunk(chunk: np.ndarray, chunk_index: int, timestamp: str, cumulative_duration: float, silence_threshold: float, overlap_samples: int, output_dir: str) -> Tuple[Optional[str], Optional[Dict]]:
+    """Save a trimmed audio chunk to a WAV file, including overlap, and return metadata."""
+    trimmed_chunk, start_idx, end_idx = trim_silent_portions(
+        chunk, silence_threshold)
+    if trimmed_chunk is None or len(trimmed_chunk) == 0:
+        logger.debug(
+            f"Chunk {chunk_index} is entirely silent after trimming, not saved")
+        return None, None
+
+    chunk_filename = f"{output_dir}/stream_chunk_{timestamp}_{chunk_index:04d}.wav"
+    save_wav_file(chunk_filename, trimmed_chunk)
+    chunk_duration = len(trimmed_chunk) / SAMPLE_RATE
+    logger.debug(
+        f"Saved chunk {chunk_index} to {chunk_filename}, size: {len(trimmed_chunk)} samples, duration: {chunk_duration:.2f}s, "
+        f"overlap: {overlap_samples if chunk_index > 0 else 0} samples")
+    metadata = {
+        "chunk_index": chunk_index,
+        "filename": chunk_filename,
+        "duration_s": round(chunk_duration, 3),
+        "timestamp": timestamp,
+        "sample_count": len(trimmed_chunk),
+        "start_time_s": round(cumulative_duration, 3),
+        "end_time_s": round(cumulative_duration + chunk_duration, 3),
+        "trimmed_samples_start": start_idx,
+        "trimmed_samples_end": chunk.shape[0] - end_idx,
+        "overlap_samples": overlap_samples if chunk_index > 0 else 0
+    }
+    return chunk_filename, metadata
 
 
 def stream_non_silent_audio(
