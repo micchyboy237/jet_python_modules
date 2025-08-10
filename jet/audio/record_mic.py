@@ -4,7 +4,7 @@ import wave
 from datetime import datetime
 from pathlib import Path
 
-SAMPLE_RATE = 44100
+SAMPLE_RATE = 16000
 DTYPE = 'int16'
 
 
