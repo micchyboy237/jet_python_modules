@@ -73,19 +73,6 @@ def send_mic_stream(
     processes.append(capture_and_save_audio(
         sample_rate, channels, file_prefix, device_index
     ))
-
-    def signal_handler(sig, frame):
-        logger.info("Terminating FFmpeg processes...")
-        for process in processes:
-            process.terminate()
-            try:
-                process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                logger.warning(
-                    f"FFmpeg process {process.pid} did not terminate gracefully, killing...")
-                process.kill()
-        sys.exit(0)
-    signal.signal(signal.SIGINT, signal_handler)
     try:
         start_time = time.time()
         min_runtime = 60
@@ -106,7 +93,16 @@ def send_mic_stream(
                 logger.error(f"FFmpeg process {process.pid} failed: {stderr}")
                 sys.exit(1)
     except KeyboardInterrupt:
-        signal_handler(signal.SIGINT, None)
+        logger.info("Terminating FFmpeg processes...")
+        for process in processes:
+            process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    f"FFmpeg process {process.pid} did not terminate gracefully, killing...")
+                process.kill()
+        sys.exit(0)
 
 
 if __name__ == "__main__":
