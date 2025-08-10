@@ -31,7 +31,6 @@ class TestCaptureAndSaveAudio:
                 "-c:a", "pcm_s16le",
                 "-map", "0:a",
                 "-f", "wav",
-                "-y",
                 "recording_00000.wav"
             ]
             # When: Capturing audio with specified parameters
@@ -58,6 +57,21 @@ class TestCaptureAndSaveAudio:
             mock_popen.side_effect = FileNotFoundError("FFmpeg not found")
             # When: Attempting to capture audio
             # Then: A SystemExit should be raised due to FFmpeg not found
+            with pytest.raises(SystemExit):
+                capture_and_save_audio(
+                    sample_rate=44100,
+                    channels=2,
+                    file_prefix="recording",
+                    device_index="1"
+                )
+
+    def test_capture_and_save_audio_file_exists(self):
+        """Test capture_and_save_audio when output file already exists."""
+        # Given: A configuration where the output file exists
+        with patch("os.path.exists", return_value=True), \
+                patch("jet.audio.utils.get_next_file_suffix", return_value=0):
+            # When: Attempting to capture audio
+            # Then: A SystemExit should be raised due to file conflict
             with pytest.raises(SystemExit):
                 capture_and_save_audio(
                     sample_rate=44100,

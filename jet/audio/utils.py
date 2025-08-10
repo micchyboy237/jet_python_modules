@@ -51,13 +51,16 @@ def get_next_file_suffix(file_prefix: str) -> int:
     return next_suffix
 
 
-# jet_python_modules/jet/audio/utils.py (updated capture_and_save_audio)
 def capture_and_save_audio(
     sample_rate: int, channels: int, file_prefix: str, device_index: str
 ) -> subprocess.Popen:
     """Capture audio from microphone and save to a single WAV file."""
     start_suffix = get_next_file_suffix(file_prefix)
     output_file = f"{file_prefix}_{start_suffix:05d}.wav"
+    if os.path.exists(output_file):
+        logger.error(
+            f"Output file {output_file} already exists. Please use a different file prefix or remove existing files.")
+        sys.exit(1)
     cmd = [
         "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets", "-flush_packets", "1",
         "-report",
@@ -66,7 +69,7 @@ def capture_and_save_audio(
         "-c:a", "pcm_s16le",
         "-map", "0:a",
         "-f", "wav",
-        output_file  # Removed -y
+        output_file
     ]
     try:
         process = subprocess.Popen(
@@ -79,9 +82,3 @@ def capture_and_save_audio(
         logger.error(
             "FFmpeg not found. Please ensure it is installed and in your PATH.")
         sys.exit(1)
-    except subprocess.CalledProcessError as e:
-        if "File exists" in e.stderr:
-            logger.error(
-                f"Output file {output_file} already exists. Consider using a different file prefix or clearing existing files.")
-            sys.exit(1)
-        raise
