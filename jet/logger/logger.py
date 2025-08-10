@@ -73,8 +73,20 @@ class CustomLogger:
     def removeHandler(self, handler: logging.Handler) -> None:
         self.logger.removeHandler(handler)
 
-    def set_level(self, level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]) -> None:
-        level = level.upper()
+    def set_level(self, level: Union[int, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]]) -> None:
+        if isinstance(level, int):
+            # Convert int level to string name (e.g. 10 -> "DEBUG")
+            level_name = logging.getLevelName(level)
+            if isinstance(level_name, str):
+                level = level_name
+            else:
+                # fallback to DEBUG if unknown level int
+                level = "DEBUG"
+        elif isinstance(level, str):
+            level = level.upper()
+        else:
+            raise TypeError("Level must be an int or a string")
+
         for handler in self.logger.handlers:
             handler.setLevel(level)
         print(f"DEBUG: Set logger level to {level}")
