@@ -22,7 +22,7 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
         "-c:a", "pcm_s16le",
         "-map", "0:a",
         "-f", "rtp",
-        f"rtp://{receiver_ip}:{port}?rtcpport={port}&pkt_size=188&payload_type=11",
+        f"rtp://{receiver_ip}:{port}?rtcpport={port}&pkt_size=188&payload_type=11&buffer_size=1000000",
         "-f", "wav", "recording.wav"
     ]
     logging.info(
@@ -46,7 +46,7 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
     try:
         # Log FFmpeg output in real-time
         start_time = time.time()
-        min_runtime = 30  # Increased to 30 seconds
+        min_runtime = 30  # seconds
         while time.time() - start_time < min_runtime:
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
