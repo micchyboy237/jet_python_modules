@@ -71,9 +71,9 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
 
     signal.signal(signal.SIGINT, signal_handler)
     try:
-        # Wait for at least 10 seconds to allow RTP stream to establish
+        # Wait for at least 15 seconds to allow RTP stream to establish
         start_time = time.time()
-        min_runtime = 10  # seconds
+        min_runtime = 15  # Increased to give more time for RTP
         while time.time() - start_time < min_runtime:
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
@@ -83,5 +83,8 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
             time.sleep(1)
         stdout, stderr = process.communicate()
         logging.debug(f"FFmpeg output: {stderr}")
+        if process.returncode != 0:
+            logging.error(f"FFmpeg failed with exit code {process.returncode}")
+            sys.exit(1)
     except KeyboardInterrupt:
         signal_handler(signal.SIGINT, None)
