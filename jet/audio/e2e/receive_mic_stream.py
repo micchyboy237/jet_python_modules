@@ -42,6 +42,7 @@ def receive_mic_stream(
             "-loglevel", "debug",
             "-y",
             "-protocol_whitelist", "file,udp,rtp",
+            "-timeout", "30000000",  # 30 seconds in microseconds
             "-i", f"file://{sdp_file}",
             "-ar", str(SAMPLE_RATE),
             "-ac", str(CHANNELS),
@@ -74,9 +75,13 @@ def receive_mic_stream(
                             "📡 Further packet receives suppressed to avoid flooding logs")
                 if "error" in line.lower() or "timeout" in line.lower():
                     print(f"❌ FFmpeg error: {line.strip()}")
+                # Periodically check file size
+                if output_file.exists():
+                    print(
+                        f"DEBUG: Output file size: {output_file.stat().st_size} bytes")
                 print(f"DEBUG: FFmpeg: {line.strip()}")
-            # Check output file status
-            if output_file.exists() and output_file.stat().st_size > 0:
+            # Final output file check
+            if output_file.exists() and output_file.stat().st_size > 100:
                 print(
                     f"✅ Output file created: {output_file}, size: {output_file.stat().st_size} bytes")
             else:
