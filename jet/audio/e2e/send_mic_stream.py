@@ -4,6 +4,7 @@ import socket
 import logging
 import time
 import signal
+import argparse
 from typing import Optional
 
 
@@ -17,7 +18,7 @@ def capture_and_save_audio(sample_rate: int, channels: int, segment_time: int, f
         "-c:a", "pcm_s16le",
         "-map", "0:a",
         "-f", "segment",
-        f"-segment_time={segment_time}", "-segment_format", "wav",
+        "-segment_time", str(segment_time), "-segment_format", "wav",
         f"-segment_list={file_prefix}_list.txt",
         f"{file_prefix}_%05d.wav"
     ]
