@@ -2,10 +2,17 @@ import sounddevice as sd
 import numpy as np
 import wave
 from datetime import datetime
+from pathlib import Path
 
 SAMPLE_RATE = 44100
 DTYPE = 'int16'
-OUTPUT_FILE = f"recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+
+# Adjust this to your desired save location
+OUTPUT_DIR = Path(__file__).parent / "generated" / "run_record_mic"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)  # Auto-create folder
+
+OUTPUT_FILE = OUTPUT_DIR / \
+    f"recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
 
 
 def get_input_channels() -> int:
@@ -31,8 +38,9 @@ def record_from_mic(duration: int):
     return audio_data
 
 
-def save_wav_file(filename: str, audio_data: np.ndarray):
-    with wave.open(filename, 'wb') as wf:
+def save_wav_file(filename: Path, audio_data: np.ndarray):
+    filename.parent.mkdir(parents=True, exist_ok=True)  # Ensure dir exists
+    with wave.open(str(filename), 'wb') as wf:
         wf.setnchannels(CHANNELS)
         wf.setsampwidth(np.dtype(DTYPE).itemsize)
         wf.setframerate(SAMPLE_RATE)
