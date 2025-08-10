@@ -18,18 +18,22 @@ class AudioTranscriber:
         self.chunk_samples = int(sample_rate * chunk_duration)
         self.frames: List[np.ndarray] = []
         self.silent_count = 0
-        self.input_device = self._get_blackhole_device()
+        self.input_device = self._get_default_input_device()
 
-    def _get_blackhole_device(self) -> int:
-        """Find the BlackHole input device ID."""
-        devices = sd.query_devices()
-        for i, device in enumerate(devices):
-            if "BlackHole" in device['name'] and device['max_input_channels'] > 0:
+    def _get_default_input_device(self) -> int:
+        """Find the default input device ID."""
+        try:
+            # Get default input device ID
+            default_device = sd.default.device[0]
+            device_info = sd.query_devices(default_device)
+            if device_info['max_input_channels'] > 0:
                 logging.info(
-                    f"Selected input device: {device['name']} (ID: {i})")
-                return i
-        raise ValueError(
-            "BlackHole device not found. Ensure BlackHole is installed and configured.")
+                    f"Selected default input device: {device_info['name']} (ID: {default_device})")
+                return default_device
+            raise ValueError("Default input device has no input channels.")
+        except Exception as e:
+            raise ValueError(
+                f"Failed to find a valid default input device: {str(e)}")
 
     def callback(self, indata: np.ndarray, frames: int, time: Any, status: sd.CallbackFlags) -> None:
         if status:
