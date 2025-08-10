@@ -7,4 +7,4 @@ m=audio 5000 RTP/AVP 11
 a=rtpmap:11 L16/44100/2
 a=fmtp:11
 a=control:streamid=0
-a=recvonly
+a=sendonly

@@ -110,8 +110,9 @@ def send_mic_stream(
         ]
         if output_file:
             ffmpeg_cmd.extend([
+                "-map", "0:a",
                 "-f", "tee",
-                f"[f=rtp]rtp://{dest_ip}:{port}?rtcpport={port}|{output_file}",
+                f"[f=rtp]rtp://{dest_ip}:{port}?rtcpport={port}|[f=wav]{output_file}",
             ])
         else:
             ffmpeg_cmd.extend([
@@ -121,6 +122,7 @@ def send_mic_stream(
         ffmpeg_cmd.extend(["-sdp_file", str(sdp_file)])
         if duration > 0:
             ffmpeg_cmd.extend(["-t", str(duration)])
+        print(f"DEBUG: FFmpeg command: {' '.join(ffmpeg_cmd)}")
         print(
             f"🎙️ Streaming ({CHANNELS} channel{'s' if CHANNELS > 1 else ''}) to {dest_ip}:{port} using device index {selected_index} ({selected_device})..."
         )
