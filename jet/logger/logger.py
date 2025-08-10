@@ -79,11 +79,20 @@ class CustomLogger:
             handler.setLevel(level)
         print(f"DEBUG: Set logger level to {level}")
 
+    def setLevel(self, level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]) -> None:
+        """
+        Alias for set_level to support calls to setLevel.
+        """
+        self.set_level(level)
+
     def set_format(self, fmt: Union[str, logging.Formatter]) -> None:
         formatter = fmt if isinstance(
             fmt, logging.Formatter) else logging.Formatter(fmt)
         for handler in self.logger.handlers:
             handler.setFormatter(formatter)
+
+    def setFormat(self, fmt: Union[str, logging.Formatter]) -> None:
+        self.set_format(fmt)
 
     def set_config(
         self,
@@ -180,6 +189,36 @@ class CustomLogger:
         # Debug log to inspect configuration
         print(
             f"DEBUG: Configured logger with filename={filename}, level={level}, format={format}")
+
+    def setConfig(
+        self,
+        *,
+        filename: Optional[str] = None,
+        filemode: str = "a",
+        format: str = "%(message)s",
+        datefmt: Optional[str] = None,
+        style: Literal["%", "{", "$"] = "%",
+        level: Optional[Literal["DEBUG", "INFO",
+                                "WARNING", "ERROR", "CRITICAL"]] = None,
+        stream: Optional[Any] = None,
+        handlers: Optional[Iterable[logging.Handler]] = None,
+        force: bool = False,
+        encoding: Optional[str] = None,
+        errors: Optional[str] = None,
+    ) -> None:
+        self.set_config(
+            filename=filename,
+            filemode=filemode,
+            format=format,
+            datefmt=datefmt,
+            style=style,
+            level=level,
+            stream=stream,
+            handlers=handlers,
+            force=force,
+            encoding=encoding,
+            errors=errors,
+        )
 
     def custom_logger_method(self, level: str) -> Callable[[str, Optional[bool]], None]:
         def wrapper(
