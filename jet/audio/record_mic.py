@@ -5,14 +5,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from tqdm import tqdm
-import logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from jet.logger import logger
+
 
 SAMPLE_RATE = 16000
 DTYPE = 'int16'
