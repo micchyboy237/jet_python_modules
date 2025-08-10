@@ -1,9 +1,7 @@
 import subprocess
-import logging
 from typing import List
 
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+from jet.logger import logger
 
 
 def get_sender_command(ip: str, port: int, sdp_file: str) -> List[str]:
