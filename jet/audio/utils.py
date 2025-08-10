@@ -65,7 +65,7 @@ def capture_and_save_audio(
         "-c:a", "pcm_s16le",
         "-map", "0:a",
         "-f", "wav",
-        "-y",  # Overwrite output file if it exists
+        # "-y",  # Overwrite output file if it exists
         output_file
     ]
     try:
