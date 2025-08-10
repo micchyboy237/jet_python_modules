@@ -31,7 +31,8 @@ s=Audio Stream
 c=IN IP4 {ip}
 t=0 0
 m=audio {port} RTP/AVP 11
-a=rtpmap:11 L16/44100/2
+a=rtpmap:11 PCM/44100/2
+a=fmtp:11 bitorder=little
 a=control:streamid=0
 a=recvonly
 """
@@ -72,7 +73,7 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
     try:
         # Log FFmpeg output in real-time
         start_time = time.time()
-        min_runtime = 30  # seconds
+        min_runtime = 60  # Increased to 60 seconds for debugging
         while time.time() - start_time < min_runtime:
             if process.poll() is not None:
                 stdout, stderr = process.communicate()

@@ -46,7 +46,7 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
     try:
         # Log FFmpeg output in real-time
         start_time = time.time()
-        min_runtime = 30  # seconds
+        min_runtime = 60  # Increased to 60 seconds for debugging
         while time.time() - start_time < min_runtime:
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
