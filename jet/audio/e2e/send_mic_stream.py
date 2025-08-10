@@ -13,10 +13,11 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
     cmd = [
         "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets",
         "-f", "avfoundation", "-i", "none:1",
-        "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16be",
+        "-ar", "44100", "-ac", "2",
+        "-c:a", "pcm_s16be",  # codec for RTP stream
         "-map", "0:a",
         "-f", "tee",
-        f"[f=rtp]rtp://{receiver_ip}:{port}?rtcpport={port}|[f=wav:c=a:pcm_s16le]recording.wav"
+        f"[f=rtp]rtp://{receiver_ip}:{port}?rtcpport={port}|[f=wav]recording.wav"
     ]
 
     print(

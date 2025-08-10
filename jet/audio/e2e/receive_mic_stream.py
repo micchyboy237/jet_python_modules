@@ -39,12 +39,12 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
     generate_sdp(ip, port, sdp_file)
 
     cmd = [
-        "ffmpeg", "-loglevel", "debug",
+        "ffmpeg", "-y",  # auto overwrite output file
+        "-loglevel", "debug",
         "-protocol_whitelist", "file,udp,rtp",
         "-i", str(sdp_file),
         "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
         output_wav
     ]
-
     print(f"Listening on {ip}:{port}, saving audio to {output_wav}")
     subprocess.run(cmd)
