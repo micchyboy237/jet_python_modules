@@ -5,7 +5,6 @@ import time
 import signal
 import argparse
 from typing import Optional
-
 from jet.audio.record_mic_stream import list_avfoundation_devices
 from jet.audio.utils import capture_and_save_audio
 from jet.logger import logger
@@ -20,7 +19,6 @@ def stream_audio_to_receiver(
     except socket.error as e:
         logger.error(f"Invalid receiver IP: {e}")
         sys.exit(1)
-
     cmd = [
         "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets",
         "-report",
@@ -47,15 +45,10 @@ def send_mic_stream(
     port: Optional[int] = None,
     sample_rate: int = 44100,
     channels: int = 2,
-    segment_time: int = 30,
     file_prefix: str = "recording",
-    device_index: str = "1",
-    min_duration: float = 1.0,
-    segment_flush_interval: int = 5
+    device_index: str = "1"
 ):
     """Orchestrate audio capture, saving, and optional streaming to a receiver."""
-
-    # Verify device index
     try:
         subprocess.run(
             ["ffmpeg", "-f", "avfoundation", "-i",
@@ -68,7 +61,6 @@ def send_mic_stream(
         logger.info(
             "Ensure FFmpeg has microphone access in System Settings > Privacy & Security > Microphone.")
         sys.exit(1)
-
     processes = []
     if receiver_ip and port:
         logger.info(f"Starting audio streaming to {receiver_ip}:{port}")
@@ -77,10 +69,9 @@ def send_mic_stream(
     else:
         logger.info(
             "No receiver IP/port provided, only capturing and saving audio locally")
-
     logger.info(f"Starting audio capture and saving to {file_prefix}_*.wav")
     processes.append(capture_and_save_audio(
-        sample_rate, channels, segment_time, file_prefix, device_index, min_duration, segment_flush_interval
+        sample_rate, channels, file_prefix, device_index
     ))
 
     def signal_handler(sig, frame):
@@ -88,16 +79,13 @@ def send_mic_stream(
         for process in processes:
             process.terminate()
             try:
-                # Reduced timeout for faster termination
                 process.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 logger.warning(
                     f"FFmpeg process {process.pid} did not terminate gracefully, killing...")
                 process.kill()
         sys.exit(0)
-
     signal.signal(signal.SIGINT, signal_handler)
-
     try:
         start_time = time.time()
         min_runtime = 60
@@ -123,7 +111,7 @@ def send_mic_stream(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Send microphone audio via RTP and save segmented WAV files.")
+        description="Send microphone audio via RTP and save a WAV file.")
     parser.add_argument("--receiver-ip", type=str, default=None,
                         help="IP address of the RTP receiver (optional)")
     parser.add_argument("--port", type=int, default=None,
@@ -132,31 +120,19 @@ if __name__ == "__main__":
                         help="Audio sample rate (Hz, default: 44100)")
     parser.add_argument("--channels", type=int, default=2, choices=[
                         1, 2], help="Number of audio channels (1=mono, 2=stereo, default: 2)")
-    parser.add_argument("--segment-time", type=int, default=30,
-                        help="Maximum duration of each WAV segment in seconds (default: 30)")
     parser.add_argument("--file-prefix", type=str, default="recording",
-                        help="Prefix for output WAV files (default: recording)")
+                        help="Prefix for output WAV file (default: recording)")
     parser.add_argument("--device-index", type=str, default="1",
                         help="avfoundation device index for microphone (default: 1)")
-    parser.add_argument("--min-duration", type=float, default=1.0,
-                        help="Minimum duration of audio to save a segment (seconds, default: 1.0)")
-    parser.add_argument("--segment-flush-interval", type=int, default=5,
-                        help="Interval to flush audio to new segment in seconds (default: 5)")
-
     args = parser.parse_args()
-
     if (args.receiver_ip is None) != (args.port is None):
         parser.error(
             "Both --receiver-ip and --port must be provided together or both omitted")
-
     send_mic_stream(
         args.receiver_ip,
         args.port,
         args.sample_rate,
         args.channels,
-        args.segment_time,
         args.file_prefix,
-        args.device_index,
-        args.min_duration,
-        args.segment_flush_interval
+        args.device_index
     )
