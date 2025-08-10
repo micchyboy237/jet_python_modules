@@ -7,21 +7,19 @@ from pathlib import Path
 SAMPLE_RATE = 44100
 DTYPE = 'int16'
 
-# Adjust this to your desired save location
 OUTPUT_DIR = Path(__file__).parent / "generated" / "run_record_mic"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)  # Auto-create folder
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_FILE = OUTPUT_DIR / \
     f"recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
 
 
 def get_input_channels() -> int:
-    """Detect the max input channels of the default device."""
     device_info = sd.query_devices(sd.default.device[0], 'input')
     return device_info['max_input_channels']
 
 
-CHANNELS = min(2, get_input_channels())  # Use stereo if possible, else mono
+CHANNELS = min(2, get_input_channels())
 
 
 def record_from_mic(duration: int):
@@ -38,8 +36,9 @@ def record_from_mic(duration: int):
     return audio_data
 
 
-def save_wav_file(filename: Path, audio_data: np.ndarray):
-    filename.parent.mkdir(parents=True, exist_ok=True)  # Ensure dir exists
+def save_wav_file(filename, audio_data: np.ndarray):
+    filename = Path(filename)  # ✅ ensure Path object
+    filename.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(filename), 'wb') as wf:
         wf.setnchannels(CHANNELS)
         wf.setsampwidth(np.dtype(DTYPE).itemsize)
