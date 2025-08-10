@@ -1,3 +1,4 @@
+from codecs import ignore_errors
 import os
 import subprocess
 import logging
@@ -6,6 +7,9 @@ from typing import List
 BASE_DIR = os.path.expanduser("~/generated/audio")
 AUDIO_DIR = f"{BASE_DIR}/sounds"
 LOGS_DIR = f"{BASE_DIR}/logs"
+
+os.makedirs(AUDIO_DIR, exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
 
 # Configure logging to write to a file for debugging
 logging.basicConfig(
