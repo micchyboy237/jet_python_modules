@@ -49,31 +49,67 @@ def trim_silent_portions(chunk: np.ndarray, silence_threshold: float, sub_chunk_
 
 
 def save_chunk(chunk: np.ndarray, chunk_index: int, timestamp: str, cumulative_duration: float, silence_threshold: float, overlap_samples: int, output_dir: str) -> Tuple[Optional[str], Optional[Dict]]:
-    """Save a trimmed audio chunk to a WAV file, including overlap, and return metadata."""
-    trimmed_chunk, start_idx, end_idx = trim_silent_portions(
-        chunk, silence_threshold)
-    if trimmed_chunk is None or len(trimmed_chunk) == 0:
-        logger.debug(
-            f"Chunk {chunk_index} is entirely silent after trimming, not saved")
+    """Save a trimmed audio chunk to a WAV file, preserving start and end overlaps.
+    Trim silence only from the non-overlapping portion. Skip saving if the non-overlapping
+    portion is empty or silent, or if all sound is in overlaps.
+    """
+    # Extract overlaps and non-overlapping portion
+    start_overlap = overlap_samples if chunk_index > 0 else 0
+    end_overlap = overlap_samples
+    non_overlap_start = start_overlap
+    non_overlap_end = len(chunk) - end_overlap
+
+    # Check if non-overlapping portion exists
+    if non_overlap_end <= non_overlap_start:
+        logger.debug(f"Chunk {chunk_index} has no non-overlapping samples "
+                     f"(length {len(chunk)} <= start overlap {start_overlap} + end overlap {end_overlap}), not saved")
         return None, None
 
+    # Extract portions
+    start_overlap_chunk = chunk[:start_overlap] if start_overlap > 0 else np.array([], dtype=chunk.dtype).reshape(0, chunk.shape[1])
+    non_overlap_chunk = chunk[non_overlap_start:non_overlap_end]
+    end_overlap_chunk = chunk[-end_overlap:] if end_overlap > 0 else np.array([], dtype=chunk.dtype).reshape(0, chunk.shape[1])
+
+    # Trim silence from non-overlapping portion
+    trimmed_non_overlap, trim_start_idx, trim_end_idx = trim_silent_portions(non_overlap_chunk, silence_threshold)
+    
+    if trimmed_non_overlap is None or len(trimmed_non_overlap) == 0:
+        logger.debug(f"Chunk {chunk_index} non-overlapping portion is entirely silent after trimming, not saved")
+        return None, None
+
+    # Reconstruct chunk: start_overlap + trimmed_non_overlap + end_overlap
+    chunks_to_concat = [start_overlap_chunk, trimmed_non_overlap, end_overlap_chunk]
+    chunks_to_concat = [c for c in chunks_to_concat if len(c) > 0]  # Filter out empty arrays
+    if not chunks_to_concat:
+        logger.debug(f"Chunk {chunk_index} is empty after reconstruction, not saved")
+        return None, None
+    final_chunk = np.concatenate(chunks_to_concat, axis=0)
+
+    # Save the chunk
     chunk_filename = f"{output_dir}/stream_chunk_{timestamp}_{chunk_index:04d}.wav"
-    save_wav_file(chunk_filename, trimmed_chunk)
-    chunk_duration = len(trimmed_chunk) / SAMPLE_RATE
+    save_wav_file(chunk_filename, final_chunk)
+    chunk_duration = len(final_chunk) / SAMPLE_RATE
     logger.debug(
-        f"Saved chunk {chunk_index} to {chunk_filename}, size: {len(trimmed_chunk)} samples, duration: {chunk_duration:.2f}s, "
-        f"overlap: {overlap_samples if chunk_index > 0 else 0} samples")
+        f"Saved chunk {chunk_index} to {chunk_filename}, size: {len(final_chunk)} samples, duration: {chunk_duration:.2f}s, "
+        f"start overlap: {len(start_overlap_chunk)} samples, end overlap: {len(end_overlap_chunk)} samples, "
+        f"non-overlap trimmed: {trim_start_idx} start, {len(non_overlap_chunk) - trim_end_idx} end")
+    
+    # Calculate trimmed samples relative to original chunk
+    trimmed_samples_start = start_overlap + trim_start_idx
+    trimmed_samples_end = len(chunk) - end_overlap - trim_end_idx
+
     metadata = {
         "chunk_index": chunk_index,
         "filename": chunk_filename,
         "duration_s": round(chunk_duration, 3),
         "timestamp": timestamp,
-        "sample_count": len(trimmed_chunk),
+        "sample_count": len(final_chunk),
         "start_time_s": round(cumulative_duration, 3),
         "end_time_s": round(cumulative_duration + chunk_duration, 3),
-        "trimmed_samples_start": start_idx,
-        "trimmed_samples_end": chunk.shape[0] - end_idx,
-        "overlap_samples": overlap_samples if chunk_index > 0 else 0
+        "trimmed_samples_start": trimmed_samples_start,
+        "trimmed_samples_end": trimmed_samples_end,
+        "start_overlap_samples": start_overlap,
+        "end_overlap_samples": end_overlap
     }
     return chunk_filename, metadata
 
@@ -87,14 +123,7 @@ def stream_non_silent_audio(
 ) -> Generator[np.ndarray, None, None]:
     """
     Stream non-silent audio chunks from microphone in real-time using a generator.
-    Args:
-        silence_threshold: Energy threshold for silence detection. If None, calibrates automatically.
-        chunk_duration: Duration of each internal audio chunk in seconds (default: 0.5).
-        silence_duration: Duration of silence to stop streaming (default: 2.0).
-        min_chunk_duration: Minimum duration of non-overlapping portion of yielded chunks (default: 1.0).
-        overlap_duration: Duration of overlap between consecutive chunks in seconds (default: 0.0).
-    Yields:
-        np.ndarray: Non-silent audio chunk with at least min_chunk_duration + overlap_duration.
+    Each chunk includes start overlap (from previous chunk) and end overlap (for next chunk).
     """
     silence_threshold = silence_threshold if silence_threshold is not None else calibrate_silence_threshold()
     chunk_size = int(SAMPLE_RATE * chunk_duration)
@@ -106,14 +135,12 @@ def stream_non_silent_audio(
     buffer = []
     buffer_samples = 0
     overlap_buffer = np.array([], dtype=DTYPE).reshape(0, CHANNELS)
-
     logger.info(
         f"Starting real-time audio streaming: {CHANNELS} channel{'s' if CHANNELS > 1 else ''}, "
         f"internal chunk duration {chunk_duration}s, min chunk duration {min_chunk_duration}s, "
         f"overlap duration {overlap_duration}s, silence threshold {silence_threshold:.6f}, "
         f"silence duration {silence_duration}s"
     )
-
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=CHANNELS,
@@ -121,7 +148,6 @@ def stream_non_silent_audio(
         blocksize=chunk_size
     )
     stream.start()
-
     with tqdm(desc="Streaming chunks", unit="chunk", leave=True) as pbar:
         try:
             while True:
@@ -132,25 +158,23 @@ def stream_non_silent_audio(
                 if chunk.shape[0] != chunk_size:
                     logger.warning(
                         f"Chunk {chunk_count} size mismatch: expected {chunk_size}, got {chunk.shape[0]}")
-
                 buffer.append(chunk)
                 buffer_samples += chunk.shape[0]
-
                 if not detect_silence(chunk, silence_threshold):
                     silent_count = 0
-                    if buffer_samples >= min_chunk_samples:
-                        # Prepend overlap from previous chunk
+                    if buffer_samples >= min_chunk_samples + overlap_samples:
                         yield_chunk = np.concatenate(
                             [overlap_buffer, *buffer], axis=0)
                         chunk_count += 1
                         chunk_duration_yielded = len(yield_chunk) / SAMPLE_RATE
                         logger.debug(
                             f"Yielding non-silent chunk {chunk_count}, size: {len(yield_chunk)} samples, "
-                            f"duration: {chunk_duration_yielded:.2f}s, overlap: {len(overlap_buffer)} samples"
+                            f"duration: {chunk_duration_yielded:.2f}s, "
+                            f"start overlap: {len(overlap_buffer)} samples, end overlap: {overlap_samples} samples"
                         )
                         yield yield_chunk
                         pbar.update(1)
-                        # Update overlap buffer for next chunk
+                        # Update overlap_buffer to include the last overlap_samples for the next chunk
                         overlap_buffer = yield_chunk[-overlap_samples:] if overlap_samples > 0 else np.array(
                             [], dtype=DTYPE).reshape(0, CHANNELS)
                         buffer = []
@@ -160,7 +184,6 @@ def stream_non_silent_audio(
                     logger.debug(
                         f"Silent chunk detected, silent count: {silent_count}/{silence_frames} samples")
                     if silent_count >= silence_frames:
-                        # Yield any remaining non-silent buffer
                         if buffer_samples >= min_chunk_samples and not detect_silence(np.concatenate(buffer, axis=0), silence_threshold):
                             yield_chunk = np.concatenate(
                                 [overlap_buffer, *buffer], axis=0)
@@ -169,7 +192,8 @@ def stream_non_silent_audio(
                                 yield_chunk) / SAMPLE_RATE
                             logger.debug(
                                 f"Yielding final non-silent chunk {chunk_count}, size: {len(yield_chunk)} samples, "
-                                f"duration: {chunk_duration_yielded:.2f}s, overlap: {len(overlap_buffer)} samples"
+                                f"duration: {chunk_duration_yielded:.2f}s, "
+                                f"start overlap: {len(overlap_buffer)} samples, end overlap: {overlap_samples} samples"
                             )
                             yield yield_chunk
                             pbar.update(1)
