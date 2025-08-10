@@ -1,54 +1,44 @@
 import sys
 import subprocess
 import socket
-import logging
 import time
 import signal
 import argparse
 from typing import Optional
 
-
-def capture_and_save_audio(sample_rate: int, channels: int, segment_time: int, file_prefix: str) -> subprocess.Popen:
-    """Capture audio from microphone and save to segmented WAV files."""
-    cmd = [
-        "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets",
-        "-report",
-        "-f", "avfoundation", "-i", "none:1",
-        "-ar", str(sample_rate), "-ac", str(channels),
-        "-c:a", "pcm_s16le",
-        "-map", "0:a",
-        "-f", "segment",
-        "-segment_time", str(segment_time), "-segment_format", "wav",
-        "-segment_list", f"{file_prefix}_list.txt",
-        f"{file_prefix}_%05d.wav"
-    ]
-    process = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True
-    )
-    return process
+from jet.audio.record_mic_stream import list_avfoundation_devices
+from jet.audio.utils import capture_and_save_audio
+from jet.logger import logger
 
 
-def stream_audio_to_receiver(receiver_ip: str, port: int, sample_rate: int, channels: int) -> subprocess.Popen:
+def stream_audio_to_receiver(
+    receiver_ip: str, port: int, sample_rate: int, channels: int, device_index: str
+) -> subprocess.Popen:
     """Stream audio to a receiver via RTP."""
     try:
         socket.gethostbyname(receiver_ip)
     except socket.error as e:
-        logging.error(f"Invalid receiver IP: {e}")
+        logger.error(f"Invalid receiver IP: {e}")
         sys.exit(1)
 
     cmd = [
         "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets",
         "-report",
-        "-f", "avfoundation", "-i", "none:1",
+        "-f", "avfoundation", "-i", f"none:{device_index}",
         "-ar", str(sample_rate), "-ac", str(channels),
         "-c:a", "pcm_s16le",
         "-map", "0:a",
         "-f", "rtp",
         f"rtp://{receiver_ip}:{port}?rtcpport={port}&pkt_size=188&payload_type=11&buffer_size=1000000"
     ]
-    process = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True
-    )
+    try:
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True
+        )
+    except FileNotFoundError:
+        logger.error(
+            "FFmpeg not found. Please ensure it is installed and in your PATH.")
+        sys.exit(1)
     return process
 
 
@@ -58,33 +48,52 @@ def send_mic_stream(
     sample_rate: int = 44100,
     channels: int = 2,
     segment_time: int = 30,
-    file_prefix: str = "recording"
+    file_prefix: str = "recording",
+    device_index: str = "1",
+    min_duration: float = 1.0,
+    segment_flush_interval: int = 5
 ):
     """Orchestrate audio capture, saving, and optional streaming to a receiver."""
-    logging.basicConfig(level=logging.DEBUG,
-                        format="%(asctime)s - %(levelname)s - %(message)s")
+    logger.basicConfig(level=logger.DEBUG,
+                       format="%(asctime)s - %(levelname)s - %(message)s")
+
+    # Verify device index
+    try:
+        subprocess.run(
+            ["ffmpeg", "-f", "avfoundation", "-i",
+                f"none:{device_index}", "-t", "1", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=5, check=True
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Invalid device index {device_index}: {e.stderr}")
+        logger.info(f"Available devices:\n{list_avfoundation_devices()}")
+        logger.info(
+            "Ensure FFmpeg has microphone access in System Settings > Privacy & Security > Microphone.")
+        sys.exit(1)
 
     processes = []
     if receiver_ip and port:
-        logging.info(f"Starting audio streaming to {receiver_ip}:{port}")
+        logger.info(f"Starting audio streaming to {receiver_ip}:{port}")
         processes.append(stream_audio_to_receiver(
-            receiver_ip, port, sample_rate, channels))
+            receiver_ip, port, sample_rate, channels, device_index))
     else:
-        logging.info(
+        logger.info(
             "No receiver IP/port provided, only capturing and saving audio locally")
 
-    logging.info(f"Starting audio capture and saving to {file_prefix}_*.wav")
+    logger.info(f"Starting audio capture and saving to {file_prefix}_*.wav")
     processes.append(capture_and_save_audio(
-        sample_rate, channels, segment_time, file_prefix))
+        sample_rate, channels, segment_time, file_prefix, device_index, min_duration, segment_flush_interval
+    ))
 
     def signal_handler(sig, frame):
-        logging.info("Terminating FFmpeg processes...")
+        logger.info("Terminating FFmpeg processes...")
         for process in processes:
             process.terminate()
             try:
-                process.wait(timeout=5)
+                # Reduced timeout for faster termination
+                process.wait(timeout=1)
             except subprocess.TimeoutExpired:
-                logging.warning(
+                logger.warning(
                     f"FFmpeg process {process.pid} did not terminate gracefully, killing...")
                 process.kill()
         sys.exit(0)
@@ -98,17 +107,17 @@ def send_mic_stream(
             for process in processes:
                 if process.poll() is not None:
                     stdout, stderr = process.communicate()
-                    logging.error(
+                    logger.error(
                         f"FFmpeg process {process.pid} exited unexpectedly: {stderr}")
                     sys.exit(1)
                 line = process.stderr.readline()
                 if line:
-                    logging.debug(line.strip())
+                    logger.debug(line.strip())
             time.sleep(0.1)
         for process in processes:
             stdout, stderr = process.communicate()
             if process.returncode != 0:
-                logging.error(f"FFmpeg process {process.pid} failed: {stderr}")
+                logger.error(f"FFmpeg process {process.pid} failed: {stderr}")
                 sys.exit(1)
     except KeyboardInterrupt:
         signal_handler(signal.SIGINT, None)
@@ -126,9 +135,15 @@ if __name__ == "__main__":
     parser.add_argument("--channels", type=int, default=2, choices=[
                         1, 2], help="Number of audio channels (1=mono, 2=stereo, default: 2)")
     parser.add_argument("--segment-time", type=int, default=30,
-                        help="Duration of each WAV segment in seconds (default: 30)")
+                        help="Maximum duration of each WAV segment in seconds (default: 30)")
     parser.add_argument("--file-prefix", type=str, default="recording",
                         help="Prefix for output WAV files (default: recording)")
+    parser.add_argument("--device-index", type=str, default="1",
+                        help="avfoundation device index for microphone (default: 1)")
+    parser.add_argument("--min-duration", type=float, default=1.0,
+                        help="Minimum duration of audio to save a segment (seconds, default: 1.0)")
+    parser.add_argument("--segment-flush-interval", type=int, default=5,
+                        help="Interval to flush audio to new segment in seconds (default: 5)")
 
     args = parser.parse_args()
 
@@ -142,5 +157,8 @@ if __name__ == "__main__":
         args.sample_rate,
         args.channels,
         args.segment_time,
-        args.file_prefix
+        args.file_prefix,
+        args.device_index,
+        args.min_duration,
+        args.segment_flush_interval
     )

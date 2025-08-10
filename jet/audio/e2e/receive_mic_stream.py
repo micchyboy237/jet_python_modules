@@ -4,9 +4,8 @@ import subprocess
 from pathlib import Path
 import signal
 import time
-import logging
 
-logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+from jet.logger import logger
 
 
 def get_local_ip() -> str:
@@ -16,7 +15,7 @@ def get_local_ip() -> str:
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
     except socket.error as e:
-        logging.error(f"Failed to get local IP: {e}")
+        logger.error(f"Failed to get local IP: {e}")
         raise
     finally:
         s.close()
@@ -36,7 +35,7 @@ a=control:streamid=0
 a=recvonly
 """
     filename.write_text(sdp_content)
-    logging.info(f"Generated SDP file at {filename}")
+    logger.info(f"Generated SDP file at {filename}")
 
 
 def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
@@ -57,18 +56,18 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
         "-f", "wav",
         output_wav
     ]
-    logging.info(f"Listening on {ip}:{port}, saving audio to {output_wav}")
+    logger.info(f"Listening on {ip}:{port}, saving audio to {output_wav}")
     process = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True
     )
 
     def signal_handler(sig, frame):
-        logging.info("Received interrupt, shutting down FFmpeg gracefully...")
+        logger.info("Received interrupt, shutting down FFmpeg gracefully...")
         process.terminate()
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            logging.warning(
+            logger.warning(
                 "FFmpeg did not terminate in time, forcing shutdown...")
             process.kill()
         sys.exit(0)
@@ -81,18 +80,18 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
         while time.time() - start_time < min_runtime:
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
-                logging.error(
+                logger.error(
                     f"FFmpeg exited unexpectedly. Stdout: {stdout}, Stderr: {stderr}")
                 sys.exit(1)
             # Read and log FFmpeg stderr line by line
             line = process.stderr.readline()
             if line:
-                logging.debug(f"FFmpeg: {line.strip()}")
+                logger.debug(f"FFmpeg: {line.strip()}")
             time.sleep(0.1)
         stdout, stderr = process.communicate()
-        logging.debug(f"FFmpeg final output: {stderr}")
+        logger.debug(f"FFmpeg final output: {stderr}")
         if process.returncode != 0:
-            logging.error(f"FFmpeg failed with exit code {process.returncode}")
+            logger.error(f"FFmpeg failed with exit code {process.returncode}")
             sys.exit(1)
     except KeyboardInterrupt:
         signal_handler(signal.SIGINT, None)
