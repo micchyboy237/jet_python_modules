@@ -22,7 +22,7 @@ def send_mic_stream(receiver_ip: str, port: int = 5000):
         "-c:a", "pcm_s16le",
         "-map", "0:a",
         "-f", "rtp",
-        f"rtp://{receiver_ip}:{port}?rtcpport={port}&pkt_size=188",
+        f"rtp://{receiver_ip}:{port}?rtcpport={port}&pkt_size=188&payload_type=96",
         "-f", "wav", "recording.wav"
     ]
     logging.info(

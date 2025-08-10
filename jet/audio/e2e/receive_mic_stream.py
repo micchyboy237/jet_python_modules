@@ -31,8 +31,7 @@ s=Audio Stream
 c=IN IP4 {ip}
 t=0 0
 m=audio {port} RTP/AVP 96
-a=rtpmap:96 PCM/44100/2
-a=fmtp:96 format=s16le
+a=rtpmap:96 L16/44100/2
 a=control:streamid=0
 a=buffer_size:1000000
 a=recvonly
