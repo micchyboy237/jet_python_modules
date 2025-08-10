@@ -72,8 +72,10 @@ def receive_mic_stream(
                     elif packet_count == max_packets_to_log + 1:
                         print(
                             "📡 Further packet receives suppressed to avoid flooding logs")
+                if "error" in line.lower() or "timeout" in line.lower():
+                    print(f"❌ FFmpeg error: {line.strip()}")
                 print(f"DEBUG: FFmpeg: {line.strip()}")
-            # Check if output file was created
+            # Check output file status
             if output_file.exists() and output_file.stat().st_size > 0:
                 print(
                     f"✅ Output file created: {output_file}, size: {output_file.stat().st_size} bytes")
