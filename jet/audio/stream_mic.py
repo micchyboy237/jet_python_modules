@@ -3,6 +3,7 @@ import numpy as np
 from typing import Generator, Optional
 from tqdm import tqdm
 from jet.audio.record_mic import SAMPLE_RATE, CHANNELS, DTYPE, detect_silence, calibrate_silence_threshold
+
 from jet.logger import logger
 
 
@@ -35,14 +36,21 @@ def stream_non_silent_audio(
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=CHANNELS,
-        dtype=DTYPE
+        dtype=DTYPE,
+        blocksize=chunk_size  # Ensure precise chunk size
     )
     stream.start()
 
     with tqdm(desc="Streaming chunks", unit="chunk", leave=True) as pbar:
         try:
             while True:
-                chunk = stream.read(chunk_size)[0]
+                chunk, overflowed = stream.read(chunk_size)
+                if overflowed:
+                    logger.warning(
+                        f"Buffer overflow detected in chunk {chunk_count}, possible data loss")
+                if chunk.shape[0] != chunk_size:
+                    logger.warning(
+                        f"Chunk {chunk_count} size mismatch: expected {chunk_size}, got {chunk.shape[0]}")
                 if not detect_silence(chunk, silence_threshold):
                     silent_count = 0
                     chunk_count += 1

@@ -87,22 +87,23 @@ def trim_silent_chunks(audio_data: list, threshold: float) -> list:
 
 
 def record_from_mic(
-    duration: int,
+    duration: Optional[int] = None,
     silence_threshold: Optional[float] = None,
     silence_duration: float = 2.0
 ) -> Optional[np.ndarray]:
     """Record audio from microphone with silence detection and progress tracking."""
-    # Calibrate threshold if not provided
     silence_threshold = silence_threshold if silence_threshold is not None else calibrate_silence_threshold()
 
+    duration_str = f"{duration}s" if duration is not None else "indefinite"
     logger.info(
         f"Starting recording: {CHANNELS} channel{'s' if CHANNELS > 1 else ''}, "
-        f"max duration {duration}s, silence threshold {silence_threshold:.6f}, "
+        f"max duration {duration_str}, silence threshold {silence_threshold:.6f}, "
         f"silence duration {silence_duration}s"
     )
 
     chunk_size = int(SAMPLE_RATE * 0.5)  # 0.5 second chunks
-    max_frames = int(duration * SAMPLE_RATE)
+    max_frames = int(
+        duration * SAMPLE_RATE) if duration is not None else float('inf')
     silence_frames = int(silence_duration * SAMPLE_RATE)
     grace_frames = int(SAMPLE_RATE * 1.0)  # 1-second grace period
 
@@ -110,8 +111,10 @@ def record_from_mic(
     silent_count = 0
     recorded_frames = 0
 
-    # Initialize progress bar
-    with tqdm(total=duration, desc="Recording", unit="s", leave=True) as pbar:
+    # Initialize progress bar: determinate if duration is set, indeterminate otherwise
+    pbar_kwargs = {'total': duration, 'desc': "Recording", 'unit': "s",
+                   'leave': True} if duration is not None else {'desc': "Recording", 'unit': "s", 'leave': True}
+    with tqdm(**pbar_kwargs) as pbar:
         stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,
@@ -123,7 +126,8 @@ def record_from_mic(
                 chunk = stream.read(chunk_size)[0]
                 audio_data.append(chunk)
                 recorded_frames += chunk_size
-                pbar.update(0.5)  # Update progress bar by 0.5 seconds
+                pbar.update(0.5) if duration is not None else pbar.update(
+                    0.5)  # Update by 0.5s
 
                 # Skip silence detection during grace period
                 if recorded_frames > grace_frames and detect_silence(chunk, silence_threshold):
