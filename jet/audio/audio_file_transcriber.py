@@ -26,14 +26,15 @@ class AudioFileTranscriber:
         """
         try:
             audio_data, file_sample_rate = sf.read(file_path)
+            logger.debug(
+                f"Loaded audio file {file_path}, sample rate: {file_sample_rate}, samples: {len(audio_data)}")
             if self.sample_rate is not None and file_sample_rate != self.sample_rate:
                 logger.info(
                     f"Resampling audio from {file_sample_rate} Hz to {self.sample_rate} Hz")
                 audio_data = librosa.resample(
                     audio_data, orig_sr=file_sample_rate, target_sr=self.sample_rate)
             else:
-                logger.info(
-                    f"Using native sample rate: {file_sample_rate} Hz")
+                logger.info(f"Using native sample rate: {file_sample_rate} Hz")
             if audio_data.ndim > 1:
                 audio_data = np.mean(audio_data, axis=1)
             if audio_data.dtype != np.float32:
@@ -55,7 +56,16 @@ class AudioFileTranscriber:
             if transcription and output_dir:
                 os.makedirs(output_dir, exist_ok=True)
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
-                output_path = os.path.join(output_dir, base_name + ".txt")
+                # Extract chunk index from filename (e.g., stream_chunk_20250810_230837_0002 -> 0002)
+                try:
+                    chunk_index = int(base_name.split(
+                        '_')[-1]) if 'stream_chunk' in base_name else -1
+                    output_filename = f"transcription_{chunk_index:05d}.txt" if chunk_index >= 0 else f"transcription_{base_name}.txt"
+                except ValueError:
+                    logger.debug(
+                        f"Could not parse chunk index from {base_name}, using base name for transcription file")
+                    output_filename = f"transcription_{base_name}.txt"
+                output_path = os.path.join(output_dir, output_filename)
                 with open(output_path, "w", encoding="utf-8") as f:
                     f.write(transcription)
                 logger.info(f"Transcription saved to {output_path}")
@@ -66,4 +76,3 @@ class AudioFileTranscriber:
         except Exception as e:
             logger.error(f"Error transcribing file {file_path}: {str(e)}")
             return None
-        

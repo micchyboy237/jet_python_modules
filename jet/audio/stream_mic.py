@@ -50,54 +50,79 @@ def trim_silent_portions(chunk: np.ndarray, silence_threshold: float, sub_chunk_
 
 def save_chunk(chunk: np.ndarray, chunk_index: int, timestamp: str, cumulative_duration: float, silence_threshold: float, overlap_samples: int, output_dir: str) -> Tuple[Optional[str], Optional[Dict]]:
     """Save a trimmed audio chunk to a WAV file, preserving start and end overlaps.
-    Trim silence only from the non-overlapping portion. Skip saving if the non-overlapping
-    portion is empty or silent, or if all sound is in overlaps.
+    Trim silence only from the non-overlapping portion. Save if non-overlapping or overlap portions are non-silent.
     """
-    # Extract overlaps and non-overlapping portion
     start_overlap = overlap_samples if chunk_index > 0 else 0
     end_overlap = overlap_samples
     non_overlap_start = start_overlap
     non_overlap_end = len(chunk) - end_overlap
-
-    # Check if non-overlapping portion exists
     if non_overlap_end <= non_overlap_start:
         logger.debug(f"Chunk {chunk_index} has no non-overlapping samples "
-                     f"(length {len(chunk)} <= start overlap {start_overlap} + end overlap {end_overlap}), not saved")
-        return None, None
-
-    # Extract portions
-    start_overlap_chunk = chunk[:start_overlap] if start_overlap > 0 else np.array([], dtype=chunk.dtype).reshape(0, chunk.shape[1])
-    non_overlap_chunk = chunk[non_overlap_start:non_overlap_end]
-    end_overlap_chunk = chunk[-end_overlap:] if end_overlap > 0 else np.array([], dtype=chunk.dtype).reshape(0, chunk.shape[1])
-
-    # Trim silence from non-overlapping portion
-    trimmed_non_overlap, trim_start_idx, trim_end_idx = trim_silent_portions(non_overlap_chunk, silence_threshold)
-    
-    if trimmed_non_overlap is None or len(trimmed_non_overlap) == 0:
-        logger.debug(f"Chunk {chunk_index} non-overlapping portion is entirely silent after trimming, not saved")
-        return None, None
-
-    # Reconstruct chunk: start_overlap + trimmed_non_overlap + end_overlap
-    chunks_to_concat = [start_overlap_chunk, trimmed_non_overlap, end_overlap_chunk]
-    chunks_to_concat = [c for c in chunks_to_concat if len(c) > 0]  # Filter out empty arrays
-    if not chunks_to_concat:
-        logger.debug(f"Chunk {chunk_index} is empty after reconstruction, not saved")
-        return None, None
-    final_chunk = np.concatenate(chunks_to_concat, axis=0)
-
-    # Save the chunk
+                     f"(length {len(chunk)} <= start overlap {start_overlap} + end overlap {end_overlap}), checking overlaps")
+        # Check if overlap portions are non-silent
+        start_overlap_chunk = chunk[:start_overlap] if start_overlap > 0 else np.array(
+            [], dtype=chunk.dtype).reshape(0, chunk.shape[1])
+        end_overlap_chunk = chunk[-end_overlap:] if end_overlap > 0 else np.array(
+            [], dtype=chunk.dtype).reshape(0, chunk.shape[1])
+        start_overlap_energy = np.mean(np.abs(start_overlap_chunk)) if len(
+            start_overlap_chunk) > 0 else 0.0
+        end_overlap_energy = np.mean(np.abs(end_overlap_chunk)) if len(
+            end_overlap_chunk) > 0 else 0.0
+        logger.debug(
+            f"Chunk {chunk_index} start overlap energy: {start_overlap_energy:.6f}, end overlap energy: {end_overlap_energy:.6f}, threshold: {silence_threshold:.6f}")
+        if (start_overlap_energy > silence_threshold or end_overlap_energy > silence_threshold):
+            logger.debug(
+                f"Chunk {chunk_index} has non-silent overlap, saving full chunk")
+            final_chunk = chunk
+        else:
+            logger.debug(f"Chunk {chunk_index} overlaps are silent, not saved")
+            return None, None
+    else:
+        start_overlap_chunk = chunk[:start_overlap] if start_overlap > 0 else np.array(
+            [], dtype=chunk.dtype).reshape(0, chunk.shape[1])
+        non_overlap_chunk = chunk[non_overlap_start:non_overlap_end]
+        end_overlap_chunk = chunk[-end_overlap:] if end_overlap > 0 else np.array(
+            [], dtype=chunk.dtype).reshape(0, chunk.shape[1])
+        start_overlap_energy = np.mean(np.abs(start_overlap_chunk)) if len(
+            start_overlap_chunk) > 0 else 0.0
+        end_overlap_energy = np.mean(np.abs(end_overlap_chunk)) if len(
+            end_overlap_chunk) > 0 else 0.0
+        non_overlap_energy = np.mean(np.abs(non_overlap_chunk)) if len(
+            non_overlap_chunk) > 0 else 0.0
+        logger.debug(f"Chunk {chunk_index} start overlap energy: {start_overlap_energy:.6f}, "
+                     f"non-overlap energy: {non_overlap_energy:.6f}, end overlap energy: {end_overlap_energy:.6f}, "
+                     f"threshold: {silence_threshold:.6f}")
+        trimmed_non_overlap, trim_start_idx, trim_end_idx = trim_silent_portions(
+            non_overlap_chunk, silence_threshold)
+        if trimmed_non_overlap is None or len(trimmed_non_overlap) == 0:
+            if start_overlap_energy > silence_threshold or end_overlap_energy > silence_threshold:
+                logger.debug(
+                    f"Chunk {chunk_index} non-overlapping portion silent, but overlaps non-silent, saving full chunk")
+                final_chunk = chunk
+            else:
+                logger.debug(
+                    f"Chunk {chunk_index} non-overlapping portion and overlaps are silent after trimming, not saved")
+                return None, None
+        else:
+            chunks_to_concat = [start_overlap_chunk,
+                                trimmed_non_overlap, end_overlap_chunk]
+            chunks_to_concat = [c for c in chunks_to_concat if len(c) > 0]
+            if not chunks_to_concat:
+                logger.debug(
+                    f"Chunk {chunk_index} is empty after reconstruction, not saved")
+                return None, None
+            final_chunk = np.concatenate(chunks_to_concat, axis=0)
     chunk_filename = f"{output_dir}/stream_chunk_{timestamp}_{chunk_index:04d}.wav"
     save_wav_file(chunk_filename, final_chunk)
     chunk_duration = len(final_chunk) / SAMPLE_RATE
     logger.debug(
         f"Saved chunk {chunk_index} to {chunk_filename}, size: {len(final_chunk)} samples, duration: {chunk_duration:.2f}s, "
         f"start overlap: {len(start_overlap_chunk)} samples, end overlap: {len(end_overlap_chunk)} samples, "
-        f"non-overlap trimmed: {trim_start_idx} start, {len(non_overlap_chunk) - trim_end_idx} end")
-    
-    # Calculate trimmed samples relative to original chunk
-    trimmed_samples_start = start_overlap + trim_start_idx
-    trimmed_samples_end = len(chunk) - end_overlap - trim_end_idx
-
+        f"non-overlap trimmed: {trim_start_idx} start, {len(non_overlap_chunk) - trim_end_idx if 'non_overlap_chunk' in locals() else 0} end")
+    trimmed_samples_start = start_overlap + \
+        (trim_start_idx if 'trim_start_idx' in locals() else 0)
+    trimmed_samples_end = (len(chunk) - end_overlap - (
+        trim_end_idx if 'trim_end_idx' in locals() else 0)) if 'non_overlap_chunk' in locals() else 0
     metadata = {
         "chunk_index": chunk_index,
         "filename": chunk_filename,
