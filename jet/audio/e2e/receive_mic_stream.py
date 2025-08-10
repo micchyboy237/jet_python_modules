@@ -48,10 +48,12 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
         "-loglevel", "debug",
         "-report",
         "-protocol_whitelist", "file,udp,rtp",
+        "-c:a", "pcm_s16le",  # Force input codec to pcm_s16le
         "-i", str(sdp_file),
         "-c:a", "pcm_s16le", "-ar", "44100", "-ac", "2",
-        "-avioflags", "direct",  # Reduce buffering
-        "-timeout", "10000000",  # Increase timeout to 10 seconds
+        "-avioflags", "direct",
+        "-timeout", "30000000",  # Increase timeout to 30 seconds
+        "-buffer_size", "2000000",  # Increase buffer size
         "-f", "wav",
         output_wav
     ]
