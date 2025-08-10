@@ -1,10 +1,11 @@
 from codecs import ignore_errors
 import os
 import subprocess
+import logging
 from typing import List
 
-from jet.logger import logger
-
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.expanduser("~/generated/audio")
 AUDIO_DIR = f"{BASE_DIR}/sounds"
@@ -21,14 +22,18 @@ def get_receiver_command(sdp_file: str, output_file: str, insights_file: str) ->
         "-loglevel", "debug",
         "-protocol_whitelist", "file,rtp,udp",
         "-i", sdp_file,
-        "-acodec", "pcm_s16le",
+        # Main audio output: high-quality WAV with 24-bit depth, 48kHz, mono, and filters
+        "-acodec", "pcm_s24le",
         "-ar", "48000",
-        "-ac", "2",
+        "-ac", "1",
+        "-af", "afftdn=nf=-25,highpass=f=200,lowpass=f=3000,loudnorm=I=-23:LRA=11:tp=-2",
         "-f", "segment",
         "-segment_time", "300",
         "-reset_timestamps", "1",
         "-strftime", "1",
         output_path,
+        # Separate stream for volumedetect to avoid affecting main audio
+        "-map", "0:a",
         "-filter:a", "volumedetect",
         "-f", "null",
         "-"
