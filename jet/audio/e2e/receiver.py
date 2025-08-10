@@ -35,8 +35,6 @@ def run_receiver(
     output_file: str = "last5min.wav",
     insights_file: str = "audio_insights.log"
 ):
-    logging.info("Starting receiver with SDP: %s, Output: %s",
-                 sdp_file, output_file)
     try:
         cmd = get_receiver_command(sdp_file, output_file, insights_file)
         process = subprocess.Popen(
@@ -44,13 +42,18 @@ def run_receiver(
             stderr=subprocess.PIPE,
             universal_newlines=True
         )
-        for line in process.stderr:
-            logging.debug(line.strip())
+        # Wait for the process to complete and capture output
+        stdout, stderr = process.communicate()
+        # Log volumedetect output to insights_file
+        for line in stderr.splitlines():
             if "volumedetect" in line:
                 with open(insights_file, "a") as f:
                     f.write(line + "\n")
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(
+                process.returncode, cmd, stderr=stderr)
     except Exception as e:
-        logging.error("Receiver failed: %s", str(e))
+        logging.error(f"Receiver failed: {e}")
         raise
 
 

@@ -25,8 +25,6 @@ def get_sender_command(ip: str, port: int, sdp_file: str) -> List[str]:
 
 
 def run_sender(ip: str = "192.168.68.104", port: int = 5004, sdp_file: str = "stream.sdp"):
-    logging.info("Starting sender with IP: %s, Port: %d, SDP: %s",
-                 ip, port, sdp_file)
     try:
         cmd = get_sender_command(ip, port, sdp_file)
         process = subprocess.Popen(
@@ -34,10 +32,13 @@ def run_sender(ip: str = "192.168.68.104", port: int = 5004, sdp_file: str = "st
             stderr=subprocess.PIPE,
             universal_newlines=True
         )
-        for line in process.stderr:
-            logging.debug(line.strip())
+        # Wait for the process to complete
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(
+                process.returncode, cmd, stderr=stderr)
     except Exception as e:
-        logging.error("Sender failed: %s", str(e))
+        logging.error(f"Sender failed: {e}")
         raise
 
 
