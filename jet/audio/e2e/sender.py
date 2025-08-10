@@ -18,7 +18,7 @@ def get_sender_command(ip: str, port: int, sdp_file: str) -> List[str]:
         "ffmpeg",
         "-loglevel", "debug",
         "-f", "avfoundation",
-        "-i", ":0",
+        "-i", ":1",  # Use MacBook Air Microphone (index 1)
         "-acodec", "pcm_s16le",
         "-ar", "48000",
         "-ac", "2",
@@ -31,8 +31,7 @@ def get_sender_command(ip: str, port: int, sdp_file: str) -> List[str]:
 def check_audio_device() -> bool:
     """Check if an audio input device is available for avfoundation."""
     try:
-        cmd = ["ffmpeg", "-f", "avfoundation",
-               "-list_devices", "true", "-i", ""]
+        cmd = ["ffmpeg", "-f", "avfoundation", "-list_devices", "true"]
         result = subprocess.run(
             cmd,
             stderr=subprocess.PIPE,
@@ -41,7 +40,7 @@ def check_audio_device() -> bool:
             check=True
         )
         logging.debug(f"Audio device check output: {result.stderr}")
-        return "audio" in result.stderr.lower()
+        return "AVFoundation audio devices" in result.stderr
     except subprocess.CalledProcessError as e:
         logging.error(f"Failed to list audio devices: {e.stderr}")
         return False
