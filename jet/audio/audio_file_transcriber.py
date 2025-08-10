@@ -1,3 +1,4 @@
+import os
 import soundfile as sf
 import numpy as np
 import librosa
@@ -17,7 +18,7 @@ class AudioFileTranscriber:
             model_size, device="auto", compute_type="int8")
         self.sample_rate = sample_rate
 
-    async def transcribe_from_file(self, file_path: str) -> Optional[str]:
+    async def transcribe_from_file(self, file_path: str, output_dir: Optional[str] = None) -> Optional[str]:
         """Transcribe audio from a file.
 
         Args:
@@ -55,7 +56,15 @@ class AudioFileTranscriber:
             )
             transcription = " ".join(
                 segment.text for segment in segments).strip()
-            logger.info(f"Transcription completed for file: {file_path}")
+
+            if transcription and output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+                base_name = os.path.splitext(os.path.basename(file_path))[0]
+                output_path = os.path.join(output_dir, base_name + ".txt")
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(transcription)
+                logger.info(f"Transcription saved to {output_path}")
+
             return transcription if transcription else None
 
         except FileNotFoundError:
