@@ -25,6 +25,7 @@ def receive_mic_stream(output_file: Path, listen_ip: str = DEFAULT_LISTEN_IP, po
         # Construct FFmpeg command for receiving RTP stream
         ffmpeg_cmd = [
             "ffmpeg",
+            "-loglevel", "debug",  # Enable debug logging
             "-y",  # Overwrite output file if it exists
             "-protocol_whitelist", "file,udp,rtp",
             "-f", "rtp",

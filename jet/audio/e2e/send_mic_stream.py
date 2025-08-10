@@ -61,7 +61,7 @@ def list_avfoundation_devices() -> tuple[list[str], list[str]]:
         return [], []
 
 
-def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = DEFAULT_PORT, audio_index: str = "1") -> Optional[subprocess.Popen]:
+def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = DEFAULT_PORT, audio_index: str = "0") -> Optional[subprocess.Popen]:
     """
     Stream audio from microphone to a remote receiver using FFmpeg over RTP.
 
@@ -69,7 +69,7 @@ def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = D
         duration: Duration to stream in seconds (0 for indefinite)
         dest_ip: Destination IP address of the receiver
         port: Destination port for the RTP stream
-        audio_index: Audio device index for avfoundation (default: "1" for MacBook Air Microphone)
+        audio_index: Audio device index for avfoundation (default: "0")
 
     Returns:
         subprocess.Popen object if streaming started successfully, None otherwise
@@ -87,21 +87,16 @@ def send_mic_stream(duration: int, dest_ip: str = DEFAULT_DEST_IP, port: str = D
         device_indices = {str(i): name for i, name in enumerate(audio_devices)}
         print(f"DEBUG: Available device indices: {device_indices}")
 
-        # Prioritize MacBook Air Microphone
-        selected_index = audio_index
-        selected_device = device_indices.get(audio_index, audio_devices[0])
-        for idx, name in device_indices.items():
-            if name == "MacBook Air Microphone":
-                selected_index = idx
-                selected_device = name
-                break
-
+        # Use provided audio_index if valid, otherwise default to "0"
+        selected_index = audio_index if audio_index in device_indices else "0"
+        selected_device = device_indices.get(selected_index, audio_devices[0])
         print(
             f"DEBUG: Selected device index: {selected_index}, device name: {selected_device}")
 
         # Construct FFmpeg command for RTP streaming
         ffmpeg_cmd = [
             "ffmpeg",
+            "-loglevel", "debug",  # Enable debug logging
             "-re",  # Read input at native frame rate (real-time)
             "-f", input_device,
             "-i", f"none:{selected_index}",  # Audio only
