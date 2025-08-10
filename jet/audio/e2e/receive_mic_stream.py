@@ -56,7 +56,8 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
     ]
     logging.info(f"Listening on {ip}:{port}, saving audio to {output_wav}")
     process = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True
+    )
 
     def signal_handler(sig, frame):
         logging.info("Received interrupt, shutting down FFmpeg gracefully...")
@@ -71,18 +72,22 @@ def receive_stream(port: int = 5000, output_wav: str = "output.wav"):
 
     signal.signal(signal.SIGINT, signal_handler)
     try:
-        # Wait for at least 15 seconds to allow RTP stream to establish
+        # Log FFmpeg output in real-time
         start_time = time.time()
-        min_runtime = 15  # Increased to give more time for RTP
+        min_runtime = 15  # seconds
         while time.time() - start_time < min_runtime:
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
                 logging.error(
                     f"FFmpeg exited unexpectedly. Stdout: {stdout}, Stderr: {stderr}")
                 sys.exit(1)
-            time.sleep(1)
+            # Read and log FFmpeg stderr line by line
+            line = process.stderr.readline()
+            if line:
+                logging.debug(f"FFmpeg: {line.strip()}")
+            time.sleep(0.1)
         stdout, stderr = process.communicate()
-        logging.debug(f"FFmpeg output: {stderr}")
+        logging.debug(f"FFmpeg final output: {stderr}")
         if process.returncode != 0:
             logging.error(f"FFmpeg failed with exit code {process.returncode}")
             sys.exit(1)
