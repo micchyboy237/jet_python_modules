@@ -2,15 +2,8 @@ import subprocess
 import logging
 from typing import List
 
-# Configure logging to write to a file for debugging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("sender_debug.log"),
-        logging.StreamHandler()
-    ]
-)
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 def get_sender_command(ip: str, port: int, sdp_file: str) -> List[str]:
@@ -18,7 +11,7 @@ def get_sender_command(ip: str, port: int, sdp_file: str) -> List[str]:
         "ffmpeg",
         "-loglevel", "debug",
         "-f", "avfoundation",
-        "-i", ":1",  # Use MacBook Air Microphone (index 1)
+        "-i", ":0",  # Updated to use default audio device index 0
         "-acodec", "pcm_s16le",
         "-ar", "48000",
         "-ac", "2",
@@ -31,7 +24,8 @@ def get_sender_command(ip: str, port: int, sdp_file: str) -> List[str]:
 def check_audio_device() -> bool:
     """Check if an audio input device is available for avfoundation."""
     try:
-        cmd = ["ffmpeg", "-f", "avfoundation", "-list_devices", "true"]
+        cmd = ["ffmpeg", "-f", "avfoundation",
+               "-list_devices", "true", "-i", "dummy"]
         result = subprocess.run(
             cmd,
             stderr=subprocess.PIPE,
@@ -39,51 +33,55 @@ def check_audio_device() -> bool:
             universal_newlines=True,
             check=True
         )
-        logging.debug(f"Audio device check output: {result.stderr}")
-        return "AVFoundation audio devices" in result.stderr
+        stderr_output = result.stderr.lower()
+        if "avfoundation audio devices" in stderr_output and "[avfoundation @" in stderr_output:
+            logger.debug("Audio devices found in FFmpeg output")
+            return True
+        logger.error("No audio devices detected in FFmpeg output")
+        return False
     except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to list audio devices: {e.stderr}")
+        logger.error(f"Failed to list audio devices: {e.stderr}")
+        return False
+    except Exception as e:
+        logger.error(
+            f"Unexpected error while checking audio devices: {str(e)}")
         return False
 
 
 def run_sender(ip: str = "192.168.68.104", port: int = 5004, sdp_file: str = "stream.sdp", timeout: int = 10):
     if not check_audio_device():
-        logging.error("No audio input device available for avfoundation")
         raise RuntimeError("No audio input device available")
     try:
         cmd = get_sender_command(ip, port, sdp_file)
-        logging.debug(f"Executing sender command: {' '.join(cmd)}")
+        logger.debug(f"Running sender with command: {' '.join(cmd)}")
         process = subprocess.Popen(
             cmd,
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE,
             universal_newlines=True
         )
-        # Wait for the process to complete with a timeout
         stdout, stderr = process.communicate(timeout=timeout)
-        logging.debug(f"FFmpeg stdout: {stdout}")
-        logging.debug(f"FFmpeg stderr: {stderr}")
         if process.returncode != 0:
-            logging.error(
-                f"FFmpeg process failed with return code {process.returncode}")
+            logger.error(
+                f"Sender process failed with return code {process.returncode}: {stderr}")
             raise subprocess.CalledProcessError(
                 process.returncode, cmd, stderr=stderr)
-        logging.debug("Sender process completed successfully")
     except subprocess.TimeoutExpired:
         process.kill()
         stdout, stderr = process.communicate()
-        logging.error(f"Sender timed out after {timeout} seconds: {stderr}")
+        logger.error(f"Sender process timed out: {stderr}")
         raise
     except subprocess.CalledProcessError as e:
-        logging.error(f"Sender subprocess error: {e}, stderr: {e.stderr}")
+        logger.error(f"Sender process error: {e.stderr}")
         raise
     except Exception as e:
-        logging.error(f"Sender failed: {e}")
+        logger.error(f"Unexpected error in sender: {str(e)}")
         raise
 
 
 if __name__ == "__main__":
-    # Debug: List available input devices
-    subprocess.run(["ffmpeg", "-f", "avfoundation",
-                   "-list_devices", "true", "-i", ""], stderr=subprocess.PIPE)
+    subprocess.run(
+        ["ffmpeg", "-f", "avfoundation", "-list_devices", "true", "-i", "dummy"],
+        stderr=subprocess.PIPE
+    )
     run_sender()
