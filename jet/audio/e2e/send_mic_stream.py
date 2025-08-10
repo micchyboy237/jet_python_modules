@@ -54,8 +54,6 @@ def send_mic_stream(
     segment_flush_interval: int = 5
 ):
     """Orchestrate audio capture, saving, and optional streaming to a receiver."""
-    logger.basicConfig(level=logger.DEBUG,
-                       format="%(asctime)s - %(levelname)s - %(message)s")
 
     # Verify device index
     try:
