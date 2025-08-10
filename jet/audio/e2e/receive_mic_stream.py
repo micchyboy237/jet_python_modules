@@ -42,8 +42,6 @@ def receive_mic_stream(
             "-loglevel", "debug",
             "-y",
             "-protocol_whitelist", "file,udp,rtp",
-            "-i", f"rtp://{listen_ip}:{port}?localaddr={listen_ip}",
-            "-f", "sdp",
             "-i", f"file://{sdp_file}",
             "-ar", str(SAMPLE_RATE),
             "-ac", str(CHANNELS),
@@ -75,6 +73,12 @@ def receive_mic_stream(
                         print(
                             "📡 Further packet receives suppressed to avoid flooding logs")
                 print(f"DEBUG: FFmpeg: {line.strip()}")
+            # Check if output file was created
+            if output_file.exists() and output_file.stat().st_size > 0:
+                print(
+                    f"✅ Output file created: {output_file}, size: {output_file.stat().st_size} bytes")
+            else:
+                print(f"❌ Output file not created or empty: {output_file}")
 
         def log_status():
             while process.poll() is None:
