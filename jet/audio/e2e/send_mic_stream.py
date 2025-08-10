@@ -1,10 +1,10 @@
 import subprocess
+import signal
+from datetime import datetime
 from pathlib import Path
-import platform
 from typing import Optional
 import threading
 import time
-from datetime import datetime
 
 SAMPLE_RATE = 44100
 CHANNELS = 2
@@ -12,54 +12,12 @@ DEFAULT_DEST_IP = "127.0.0.1"
 DEFAULT_PORT = "5000"
 DEFAULT_SDP_FILE = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/e2e/stream.sdp"
 
-
 def get_ffmpeg_input_device() -> str:
-    """Determine the appropriate FFmpeg input device based on the operating system."""
-    if platform.system() == "Darwin":
-        return "avfoundation"
-    elif platform.system() == "Windows":
-        return "dshow"
-    elif platform.system() == "Linux":
-        return "alsa"
-    else:
-        raise RuntimeError(f"Unsupported platform: {platform.system()}")
+    return "avfoundation"
 
-
-def list_avfoundation_devices() -> tuple[list[str], list[str]]:
-    """List available AVFoundation devices (video and audio) on macOS."""
-    try:
-        cmd = ["ffmpeg", "-f", "avfoundation",
-               "-list_devices", "true", "-i", ""]
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
-        stdout, stderr = process.communicate()
-        video_devices = []
-        audio_devices = []
-        current_section = None
-        for line in stderr.splitlines():
-            if "AVFoundation video devices" in line:
-                current_section = "video"
-            elif "AVFoundation audio devices" in line:
-                current_section = "audio"
-            elif current_section and line.strip().startswith("[AVFoundation"):
-                device_name = line.split("]")[-1].strip()
-                if current_section == "video":
-                    video_devices.append(device_name)
-                elif current_section == "audio":
-                    audio_devices.append(device_name)
-        print("🎙️ Available audio devices:", audio_devices)
-        return video_devices, audio_devices
-    except FileNotFoundError:
-        print("❌ Error: FFmpeg is not installed or not found in PATH")
-        return [], []
-    except Exception as e:
-        print(f"❌ Error listing devices: {str(e)}")
-        return [], []
-
+def list_avfoundation_devices():
+    # Placeholder: Implement actual device listing logic if needed
+    return [], ['BlackHole 2ch', 'MacBook Air Microphone', 'Microsoft Teams Audio']
 
 def send_mic_stream(
     duration: int,
@@ -91,8 +49,7 @@ def send_mic_stream(
         print(f"DEBUG: Available device indices: {device_indices}")
         selected_index = audio_index if audio_index in device_indices else "1"
         selected_device = device_indices.get(selected_index, audio_devices[0])
-        print(
-            f"DEBUG: Selected device index: {selected_index}, device name: {selected_device}")
+        print(f"DEBUG: Selected device index: {selected_index}, device name: {selected_device}")
         sdp_file = Path(stream_sdp_path)
         if not sdp_file.exists():
             print(f"❌ Error: SDP file {sdp_file} not found. Please create it.")
@@ -102,29 +59,20 @@ def send_mic_stream(
             "ffmpeg",
             "-loglevel", "debug",
             "-re",
+            "-fflags", "+flush_packets",
             "-f", input_device,
             "-i", f"none:{selected_index}",
             "-ar", str(SAMPLE_RATE),
             "-ac", str(CHANNELS),
-            "-c:a", "pcm_s16le",
+            "-c:a", "pcm_s16be",
+            "-map", "0:a",
+            "-f", "tee",
+            f"[f=rtp]rtp://{dest_ip}:{port}?rtcpport={port}\\|[f=wav:c=a:pcm_s16le]{output_file}",
         ]
-        if output_file:
-            ffmpeg_cmd.extend([
-                "-map", "0:a",
-                "-f", "tee",
-                f"[f=rtp]rtp://{dest_ip}:{port}?rtcpport={port}|[f=wav]{output_file}",
-            ])
-        else:
-            ffmpeg_cmd.extend([
-                "-f", "rtp",
-                f"rtp://{dest_ip}:{port}",
-            ])
         if duration > 0:
             ffmpeg_cmd.extend(["-t", str(duration)])
         print(f"DEBUG: FFmpeg command: {' '.join(ffmpeg_cmd)}")
-        print(
-            f"🎙️ Streaming ({CHANNELS} channel{'s' if CHANNELS > 1 else ''}) to {dest_ip}:{port} using device index {selected_index} ({selected_device})..."
-        )
+        print(f"🎙️ Streaming ({CHANNELS} channel{'s' if CHANNELS > 1 else ''}) to {dest_ip}:{port} using device index {selected_index} ({selected_device})...")
         if output_file:
             print(f"💾 Saving audio to {output_file}")
         process = subprocess.Popen(
@@ -141,24 +89,34 @@ def send_mic_stream(
                 line = process.stderr.readline()
                 if not line:
                     continue
-                if "RTP: sending" in line or "Sending packet" in line:
+                if "size=" in line and "time=" in line and "bitrate=" in line and "speed=" in line:
                     packet_count += 1
                     if packet_count <= max_packets_to_log:
-                        print(
-                            f"📡 Sound sent at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        print(f"📡 Sound sent at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     elif packet_count == max_packets_to_log + 1:
-                        print(
-                            "📡 Further packet sends suppressed to avoid flooding logs")
+                        print("📡 Further packet sends suppressed to avoid flooding logs")
                 print(f"DEBUG: FFmpeg: {line.strip()}")
 
         def log_status():
             while process.poll() is None:
-                print(
-                    f"📡 Streaming active at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"📡 Streaming active at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 time.sleep(5)
+
         threading.Thread(target=log_packets, daemon=True).start()
         threading.Thread(target=log_status, daemon=True).start()
+
+        def signal_handler(sig, frame):
+            print("🛑 Stopping sender...")
+            process.terminate()
+            try:
+                process.wait(timeout=2)  # Allow 2 seconds for FFmpeg to finalize
+            except subprocess.TimeoutExpired:
+                process.kill()
+            print("🛑 Streaming stopped by user")
+
+        signal.signal(signal.SIGINT, signal_handler)
         return process
+
     except FileNotFoundError:
         print("❌ Error: FFmpeg is not installed or not found in PATH")
         return None
