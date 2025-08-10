@@ -2,6 +2,7 @@ import builtins
 
 from jet.logger import logger
 from jet.utils.print_utils import print_dict_types
+from jet.utils.debug_utils import get_non_function_locals
 from jet.transformers.object import make_serializable
 from jet.utils.commands import copy_to_clipboard, copy_test_result
 from jet.transformers.formatters import format_json, format_html
@@ -130,6 +131,8 @@ from jet.utils.inspect_utils import (
 def inject_globals():
     if not hasattr(builtins, "logger"):
         builtins.logger = logger
+    if not hasattr(builtins, "get_non_function_locals"):
+        builtins.get_non_function_locals = get_non_function_locals
     if not hasattr(builtins, "print_dict_types"):
         builtins.print_dict_types = print_dict_types
     if not hasattr(builtins, "make_serializable"):
