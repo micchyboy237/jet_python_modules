@@ -3,5 +3,5 @@ o=- 0 0 IN IP4 127.0.0.1
 s=FFmpeg RTP stream
 c=IN IP4 192.168.68.104
 t=0 0
-m=audio 5004 RTP/AVP 97
-a=rtpmap:97 PCM_S16LE/48000/2
+m=audio 5004 RTP/AVP 11
+a=rtpmap:11 L16/48000/2
