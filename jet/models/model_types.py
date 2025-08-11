@@ -398,11 +398,11 @@ EmbedModelValue = Literal[
 EmbedModelValue = Union[EmbedModelValue, LLMModelValue]
 
 # Combined llm model type
-# LLMModelType = Union[LLMModelKey, LLMModelValue, ModelTypeEnum]
-LLMModelType = Union[LLMModelKey, LLMModelValue, ModelTypeEnum]
+# LLMModelType = Union[LLMModelKey, LLMModelValue]
+LLMModelType = Union[LLMModelKey, LLMModelValue]
 
 # Combined embed model type
-EmbedModelType = Union[EmbedModelKey, EmbedModelValue, EmbedModelTypeEnum]
+EmbedModelType = Union[EmbedModelKey, EmbedModelValue]
 
 ModelKey = Union[LLMModelKey, EmbedModelKey]
 ModelValue = Union[LLMModelValue, EmbedModelValue]

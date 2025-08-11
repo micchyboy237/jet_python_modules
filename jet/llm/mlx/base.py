@@ -1,3 +1,4 @@
+from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
 import mlx.core as mx
 from typing import Any, Dict, List, Literal, Optional, Union, Iterator, Tuple
 
@@ -10,7 +11,7 @@ from jet.llm.mlx.client import MLXLMClient, ModelsResponse, CompletionResponse, 
 from jet.llm.mlx.chat_history import ChatHistory
 
 
-# Typed dictionaries for structured data (reused from MLXLMClient for consistency)
+DEFAULT_DB = "mlx_chat_history_db1"
 
 
 class MLX:
@@ -26,11 +27,12 @@ class MLX:
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
         # DB Config
-        dbname: Optional[str] = None,
-        user: Optional[str] = None,
-        password: Optional[str] = None,
-        host: Optional[str] = None,
-        port: Optional[str] = None,
+        dbname: str = DEFAULT_DB,
+        user: str = DEFAULT_USER,
+        password: str = DEFAULT_PASSWORD,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        overwrite_db: bool = False,
         session_id: Optional[str] = None,
         with_history: bool = False,
         seed: Optional[int] = None,
@@ -39,7 +41,7 @@ class MLX:
     ):
         """Initialize the MLX client with configuration and optional database."""
         self.model_path = resolve_model(model)
-        self.with_history = with_history  # Store the with_history flag
+        self.with_history = with_history
         self.log_dir = log_dir
         # Initialize MLXLMClient
         self.client = MLXLMClient(
@@ -64,13 +66,14 @@ class MLX:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         # Initialize chat history
-        if with_history and dbname:
+        if self.with_history:
             self.history = ChatHistory(
                 dbname=dbname,
                 user=user,
                 password=password,
                 host=host,
                 port=port,
+                overwrite_db=overwrite_db,
                 session_id=session_id
             )
         else:

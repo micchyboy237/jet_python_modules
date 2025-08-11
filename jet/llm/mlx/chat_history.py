@@ -1,116 +1,115 @@
 import uuid
 from typing import List, Optional
 
-import psycopg
-from psycopg.rows import dict_row
-
+from jet.db.postgres.client import PostgresClient
+from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
 from jet.llm.mlx.client import Message
 
 
 class PostgresChatMessageHistory:
-    """Class to manage chat message history in a PostgreSQL database using psycopg."""
+    """Class to manage chat message history in a PostgreSQL database using PostgresClient."""
 
-    def __init__(self, dbname: str, user: str, password: str,
-                 host: str, port: str, session_id: Optional[str] = None):
+    def __init__(
+        self,
+        dbname: str,
+        user: str = DEFAULT_USER,
+        password: str = DEFAULT_PASSWORD,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        overwrite_db: bool = False,
+        session_id: Optional[str] = None
+    ):
         """Initialize with PostgreSQL connection parameters and session ID."""
         self.dbname = dbname
-        self.user = user
-        self.password = password
-        self.host = host
-        self.port = port
         self.session_id = session_id or str(uuid.uuid4())
+        self.client = PostgresClient(
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host,
+            port=port,
+            overwrite_db=overwrite_db,
+        )
         self._initialize_table()
 
     def _initialize_table(self):
-        """Create the messages table if it doesn't exist."""
-        with psycopg.connect(
-            dbname=self.dbname,
-            user=self.user,
-            password=self.password,
-            host=self.host,
-            port=self.port
-        ) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS messages (
-                        id SERIAL PRIMARY KEY,
-                        session_id VARCHAR(255) NOT NULL,
-                        role VARCHAR(50) NOT NULL,
-                        content TEXT NOT NULL,
-                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                conn.commit()
+        """Create the messages table if it doesn't exist using PostgresClient."""
+        self.client._ensure_table_exists("messages")
+        with self.client.conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS session_id VARCHAR(255) NOT NULL,
+                ADD COLUMN IF NOT EXISTS role VARCHAR(50) NOT NULL,
+                ADD COLUMN IF NOT EXISTS content TEXT NOT NULL,
+                ADD COLUMN IF NOT EXISTS timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+            """)
+            self.client.commit()
 
     def add_message(self, message: Message):
-        """Add a message to the database."""
-        with psycopg.connect(
-            dbname=self.dbname,
-            user=self.user,
-            password=self.password,
-            host=self.host,
-            port=self.port
-        ) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO messages (session_id, role, content)
-                    VALUES (%s, %s, %s);
-                """, (self.session_id, message["role"], message["content"]))
-                conn.commit()
+        """Add a message to the database using PostgresClient."""
+        row_data = {
+            "session_id": self.session_id,
+            "role": message["role"],
+            "content": message["content"]
+        }
+        self.client.create_row("messages", row_data)
 
     def get_messages(self) -> List[Message]:
-        """Retrieve all messages for the session."""
-        with psycopg.connect(
-            dbname=self.dbname,
-            user=self.user,
-            password=self.password,
-            host=self.host,
-            port=self.port,
-            row_factory=dict_row
-        ) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT role, content
-                    FROM messages
-                    WHERE session_id = %s
-                    ORDER BY timestamp ASC;
-                """, (self.session_id,))
-                return [{"role": row["role"], "content": row["content"]} for row in cur.fetchall()]
+        """Retrieve all messages for the session using PostgresClient."""
+        rows = self.client.get_rows(
+            table_name="messages",
+            ids=None
+        )
+        return [
+            {"role": row["role"], "content": row["content"]}
+            for row in rows
+            if row["session_id"] == self.session_id
+        ]
 
     def clear(self):
-        """Clear all messages for the session."""
-        with psycopg.connect(
-            dbname=self.dbname,
-            user=self.user,
-            password=self.password,
-            host=self.host,
-            port=self.port
-        ) as conn:
-            with conn.cursor() as cur:
+        """Clear all messages for the session using PostgresClient."""
+        rows = self.client.get_rows("messages")
+        session_rows = [
+            row for row in rows if row["session_id"] == self.session_id]
+        if session_rows:
+            with self.client.conn.cursor() as cur:
                 cur.execute("""
                     DELETE FROM messages
                     WHERE session_id = %s;
                 """, (self.session_id,))
-                conn.commit()
+                self.client.commit()
+
+    def __del__(self):
+        """Ensure the database connection is closed."""
+        if hasattr(self, 'client') and self.client:
+            self.client.close()
 
 
 class ChatHistory:
     """Class to manage chat history, with optional PostgreSQL persistence."""
 
-    def __init__(self, dbname: Optional[str] = None, user: Optional[str] = None,
-                 password: Optional[str] = None, host: Optional[str] = None,
-                 port: Optional[str] = None, session_id: Optional[str] = None):
+    def __init__(
+        self,
+        dbname: Optional[str] = None,
+        user: str = DEFAULT_USER,
+        password: str = DEFAULT_PASSWORD,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        overwrite_db: bool = False,
+        session_id: Optional[str] = None
+    ):
         """Initialize with optional PostgreSQL connection parameters and session ID."""
         self.session_id = session_id or str(uuid.uuid4())
-        self.use_db = all([dbname, user, password, host, port])
+        self.use_db = dbname is not None
 
-        if self.use_db:
+        if self.use_db and dbname:
             self.db_history = PostgresChatMessageHistory(
                 dbname=dbname,
                 user=user,
                 password=password,
                 host=host,
                 port=port,
+                overwrite_db=overwrite_db,
                 session_id=self.session_id
             )
             self.messages: List[Message] = self.db_history.get_messages()

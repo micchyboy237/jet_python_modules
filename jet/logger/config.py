@@ -1,6 +1,6 @@
 import logging
 
-DEFAULT_LOGGER = ""
+DEFAULT_LOGGER = "default"
 
 # ANSI color codes
 BOLD = "\u001b[1m"

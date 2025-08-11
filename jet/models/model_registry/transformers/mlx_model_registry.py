@@ -11,8 +11,9 @@ from tokenizers import Tokenizer
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.client import CompletionResponse, Message
 from jet.models.model_types import LLMModelType, RoleMapping, Tool
-from .base import TransformersModelRegistry
 from jet.models.utils import resolve_model_value, get_local_repo_dir
+from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
+from .base import TransformersModelRegistry
 
 
 class ModelFeatures(TypedDict):
@@ -55,10 +56,11 @@ class MLXModelRegistry(TransformersModelRegistry):
         use_default_chat_template: bool = True,
         # DB Config
         dbname: Optional[str] = None,
-        user: Optional[str] = None,
-        password: Optional[str] = None,
-        host: Optional[str] = None,
-        port: Optional[str] = None,
+        user: str = DEFAULT_USER,
+        password: str = DEFAULT_PASSWORD,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        overwrite_db: bool = False,
         session_id: Optional[str] = None,
         with_history: bool = False,
         seed: Optional[int] = None,
@@ -89,6 +91,7 @@ class MLXModelRegistry(TransformersModelRegistry):
                 password=password,
                 host=host,
                 port=port,
+                overwrite_db=overwrite_db,
                 session_id=session_id,
                 with_history=with_history,
                 seed=seed,
