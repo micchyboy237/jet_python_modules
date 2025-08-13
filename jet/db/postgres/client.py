@@ -379,17 +379,19 @@ class PostgresClient:
                 for col in columns
             }
 
-    def get_rows(self, table_name: str, ids: Optional[List[str]] = None) -> List[TableRow]:
-        """Retrieve rows from the specified table, optionally filtered by IDs.
+    def get_rows(self, table_name: str, ids: Optional[List[str]] = None, id_column: str = "id") -> List[TableRow]:
+        """Retrieve rows from the specified table, optionally filtered by IDs, excluding embedding column.
 
         Args:
             table_name: Name of the table to query
             ids: Optional list of IDs to filter results
+            id_column: Column name to filter IDs on (default: 'id')
 
         Returns:
-            List of dictionaries containing all columns for each row
+            List of dictionaries containing all columns except embedding for each row
         """
         with self.conn.cursor() as cur:
+            # Get all column names and their types except embedding
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
@@ -398,16 +400,27 @@ class PostgresClient:
             column_info = {row["column_name"]: row["data_type"]
                            for row in cur.fetchall()}
             if not column_info:
-                raise ValueError(f"No columns found for table {table_name}")
+                raise ValueError(
+                    f"No columns found for table {table_name} (excluding embedding)")
 
             columns = list(column_info.keys())
+            # Build query with dynamic columns, formatting TIMESTAMPTZ columns to ISO 8601 without timezone
+            formatted_columns = [
+                sql.SQL("TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}").format(
+                    sql.Identifier(col), sql.Identifier(col)
+                ) if column_info[col] == "timestamp with time zone"
+                else sql.Identifier(col)
+                for col in columns
+            ]
+            # Build query with dynamic columns
             query = sql.SQL("SELECT {} FROM {}").format(
-                sql.SQL(", ").join(map(sql.Identifier, columns)),
+                sql.SQL(", ").join(formatted_columns),
                 sql.Identifier(table_name)
             )
             params = []
             if ids is not None:
-                query = sql.SQL("{} WHERE id = ANY(%s)").format(query)
+                query = sql.SQL("{} WHERE {} = ANY(%s)").format(
+                    query, sql.Identifier(id_column))
                 params.append(ids)
 
             cur.execute(query, params)

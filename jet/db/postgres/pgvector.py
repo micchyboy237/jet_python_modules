@@ -189,15 +189,24 @@ class PgVectorClient:
         self.conn.execute("ROLLBACK;")
 
     def create_table(self, table_name: str, dimension: int) -> None:
-        """Create a table with an embedding column using hash-based IDs."""
+        """Create a table with an embedding column using hash-based IDs and default timestamp columns."""
         query = sql.SQL(
             "CREATE TABLE IF NOT EXISTS {} ("
             "id TEXT PRIMARY KEY, "
-            "embedding vector({})"
+            "embedding vector({}), "
+            "created_at TIMESTAMPTZ DEFAULT NOW(), "
+            "updated_at TIMESTAMPTZ DEFAULT NOW()"
             ");"
         ).format(sql.Identifier(table_name), sql.Literal(dimension))
         with self.conn.cursor() as cur:
-            cur.execute(query)
+            try:
+                cur.execute(query)
+                logger.success(
+                    f"Created table '{table_name}' with embedding dimension {dimension} and timestamp columns")
+            except Exception as e:
+                logger.error(
+                    f"Failed to create table '{table_name}': {str(e)}")
+                raise
 
     def generate_unique_hash(self) -> str:
         """Generate a unique UUID v4 string."""
@@ -511,12 +520,13 @@ class PgVectorClient:
                 for col in columns
             }
 
-    def get_rows(self, table_name: str, ids: Optional[List[str]] = None) -> List[TableRow]:
+    def get_rows(self, table_name: str, ids: Optional[List[str]] = None, id_column: str = "id") -> List[TableRow]:
         """Retrieve rows from the specified table, optionally filtered by IDs, excluding embedding column.
 
         Args:
             table_name: Name of the table to query
             ids: Optional list of IDs to filter results
+            id_column: Column name to filter IDs on (default: 'id')
 
         Returns:
             List of dictionaries containing all columns except embedding for each row
@@ -535,14 +545,23 @@ class PgVectorClient:
                     f"No columns found for table {table_name} (excluding embedding)")
 
             columns = list(column_info.keys())
+            # Build query with dynamic columns, formatting TIMESTAMPTZ columns to ISO 8601 without timezone
+            formatted_columns = [
+                sql.SQL("TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}").format(
+                    sql.Identifier(col), sql.Identifier(col)
+                ) if column_info[col] == "timestamp with time zone"
+                else sql.Identifier(col)
+                for col in columns
+            ]
             # Build query with dynamic columns
             query = sql.SQL("SELECT {} FROM {}").format(
-                sql.SQL(", ").join(map(sql.Identifier, columns)),
+                sql.SQL(", ").join(formatted_columns),
                 sql.Identifier(table_name)
             )
             params = []
             if ids is not None:
-                query = sql.SQL("{} WHERE id = ANY(%s)").format(query)
+                query = sql.SQL("{} WHERE {} = ANY(%s)").format(
+                    query, sql.Identifier(id_column))
                 params.append(ids)
 
             cur.execute(query, params)
