@@ -1,17 +1,55 @@
+from math import ceil
 import json
-from typing import Optional
+from typing import List, Optional
 import urllib.request
 import yt_dlp
 import os
 from pydub import AudioSegment
 from pydub.utils import make_chunks
 from jet.data.utils import generate_hash
+from jet.logger import logger
 from jet.models.model_registry.transformers.speech_to_text.whisper_model_registry import WhisperModelRegistry
 from jet.wordnet.sentence import split_sentences
 import numpy as np
 import noisereduce as nr
 from pydub.effects import normalize
 from tqdm import tqdm
+
+
+def find_audio(audio_path: str) -> List[str]:
+    """
+    Find audio files from either a single file or a directory, excluding files starting with 'temp_'.
+
+    Args:
+        audio_path: Path to either a single audio file or a directory containing audio files.
+
+    Returns:
+        List of paths to audio files with supported extensions (.mp3, .wav, .ogg, .flac).
+
+    Raises:
+        FileNotFoundError: If the provided path does not exist.
+        NotADirectoryError: If the provided path is neither a file nor a directory.
+    """
+    VALID_EXTENSIONS = ('.mp3', '.wav', '.ogg', '.flac')
+
+    if not os.path.exists(audio_path):
+        raise FileNotFoundError(f"Path does not exist: {audio_path}")
+
+    if os.path.isfile(audio_path):
+        file_name = os.path.basename(audio_path)
+        if file_name.startswith('temp_'):
+            return []
+        if audio_path.lower().endswith(VALID_EXTENSIONS):
+            return [audio_path]
+        return []
+
+    if os.path.isdir(audio_path):
+        audio_files = [os.path.join(audio_path, file) for file in os.listdir(audio_path)
+                       if not file.startswith('temp_') and file.lower().endswith(VALID_EXTENSIONS)]
+        return audio_files
+
+    raise NotADirectoryError(
+        f"Path is neither a file nor a directory: {audio_path}")
 
 
 def download(url: str, target_path: str):
@@ -359,25 +397,47 @@ def deduplicate_transcription_list(transcription_list):
     return deduplicated_list
 
 
-def deduplicate_all_transcriptions(audio_files):
-    for file in tqdm(audio_files, desc="Deduplicating transcriptions"):
-        with open(file, 'r', encoding='utf-8') as f:
-            transcriptions = json.load(f)
+def deduplicate_segments(segments: list[dict]) -> list[dict]:
+    """
+    Deduplicate segments based on overlapping time ranges, keeping the segment with higher confidence.
 
-        # Loop through the transcriptions by getting current (i) and next (i+1) items, check if they are the same "chapter_title"
-        i = 0
-        while i < len(transcriptions) - 1:
-            current_item = transcriptions[i]
-            next_item = transcriptions[i + 1]
-            has_same_transcription = current_item["text"] == next_item["text"]
-            has_same_chapter_title = current_item["chapter_title"] == next_item["chapter_title"]
-            if has_same_transcription and has_same_chapter_title:
-                transcriptions.pop(i)
-            else:
-                i += 1
+    Args:
+        segments: List of segment dictionaries with 'start', 'end', 'text', and 'eval' keys.
 
-        with open(file, 'w', encoding='utf-8') as f:
-            json.dump(transcriptions, f, indent=2, ensure_ascii=False)
+    Returns:
+        List of deduplicated segments sorted by start time.
+    """
+    if not segments:
+        return []
+    # Sort by start time, then by descending confidence to prioritize higher confidence in overlaps
+    sorted_segments = sorted(segments, key=lambda x: (
+        x["start"], -x["eval"]["confidence"]))
+    deduplicated = []
+    for segment in sorted_segments:
+        if not deduplicated:
+            deduplicated.append(segment)
+            logger.debug(
+                f"Kept segment: start={segment['start']}s, end={segment['end']}s, "
+                f"text='{segment['text']}', confidence={segment['eval']['confidence']}"
+            )
+            continue
+        last_segment = deduplicated[-1]
+        # Check if segments overlap (within 0.1s tolerance)
+        if segment["start"] < last_segment["end"] + 0.1:
+            if segment["eval"]["confidence"] > last_segment["eval"]["confidence"]:
+                deduplicated[-1] = segment
+                logger.debug(
+                    f"Deduplicated overlap: replaced segment start={last_segment['start']}s, "
+                    f"with start={segment['start']}s, text='{segment['text']}', "
+                    f"confidence={segment['eval']['confidence']}"
+                )
+        else:
+            deduplicated.append(segment)
+            logger.debug(
+                f"Kept segment: start={segment['start']}s, end={segment['end']}s, "
+                f"text='{segment['text']}', confidence={segment['eval']['confidence']}"
+            )
+    return deduplicated
 
 
 def convert_time_to_minutes(time_str):
@@ -470,6 +530,41 @@ def time_str_to_seconds(time_str: str):
         raise ValueError(f"Unexpected time format: {time_str}")
     total_seconds = (hours * 3600) + (minutes * 60) + seconds
     return total_seconds
+
+
+def make_chunks_with_overlap(audio: AudioSegment, chunk_length_ms: int, overlap_ms: int = 0) -> list[AudioSegment]:
+    """
+    Breaks an AudioSegment into chunks of chunk_length_ms milliseconds with overlap_ms overlap.
+    The last chunk may be shorter than chunk_length_ms.
+
+    Args:
+        audio: AudioSegment to split.
+        chunk_length_ms: Length of each chunk in milliseconds.
+        overlap_ms: Overlap between consecutive chunks in milliseconds.
+
+    Returns:
+        List of AudioSegment chunks.
+    """
+    if chunk_length_ms <= 0:
+        raise ValueError("chunk_length_ms must be positive")
+    if overlap_ms < 0:
+        raise ValueError("overlap_ms must be non-negative")
+    if overlap_ms >= chunk_length_ms:
+        raise ValueError("overlap_ms must be less than chunk_length_ms")
+
+    audio_length_ms = len(audio)
+    step_ms = chunk_length_ms - overlap_ms
+    number_of_chunks = ceil(audio_length_ms / step_ms) if step_ms > 0 else 1
+
+    chunks = []
+    for i in range(number_of_chunks):
+        start_ms = i * step_ms
+        end_ms = min(start_ms + chunk_length_ms, audio_length_ms)
+        chunk = audio[start_ms:end_ms]
+        logger.debug(
+            f"Chunk {i+1}: start={start_ms}ms, end={end_ms}ms, duration={len(chunk)}ms")
+        chunks.append(chunk)
+    return chunks
 
 # if __name__ == '__main__':
 #     model_size = "small"

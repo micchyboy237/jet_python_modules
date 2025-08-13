@@ -9,7 +9,7 @@ from jet.data.utils import generate_hash
 from jet.file.utils import save_file, save_data
 from jet.logger import logger
 from jet.models.model_registry.transformers.speech_to_text.whisper_model_registry import WhisperModelRegistry
-from jet.video.utils import download_audio, deduplicate_all_transcriptions, time_str_to_seconds
+from jet.video.utils import deduplicate_segments, download_audio, make_chunks_with_overlap, time_str_to_seconds
 from jet.video.youtube.youtube_info_extractor import (
     YoutubeInfoExtractor,
     parse_time,
@@ -17,7 +17,6 @@ from jet.video.youtube.youtube_info_extractor import (
 )
 from faster_whisper import WhisperModel
 from pydub import AudioSegment
-from pydub.utils import make_chunks
 from jet.video.youtube.youtube_chapter_downloader import YoutubeChapterDownloader
 from faster_whisper.transcribe import Segment, TranscriptionInfo
 
@@ -26,75 +25,34 @@ from jet.video.youtube.youtube_types import YoutubeMetadata
 
 def transcribe_audio_chunk(chunk, model: WhisperModel, temp_file: str):
     chunk.export(temp_file, format="mp3")
-    segments, info = model.transcribe(temp_file)
+    segments, info = model.transcribe(temp_file, word_timestamps=True)
     return segments, info
 
 
-def transcribe_in_segments(audio_path: str, metadata: YoutubeMetadata, output_dir: str, chunk_duration: int = 120, model_size: str = 'small') -> tuple:
-    print(f"Loading whisper with model size: {model_size}")
-    model = WhisperModelRegistry.load_model(model_size)
-    audio = AudioSegment.from_file(audio_path)
-    chunk_length_ms = chunk_duration * 1000
-    print(f"Creating chunks of duration {chunk_duration}s each")
-    chunks = make_chunks(audio, chunk_length_ms)
-    transcription_segments = []
-    transcription_info = []
-    segment_idx = 0
-    for i, chunk in enumerate(tqdm(chunks, desc="Transcribing chunks", unit="chunk")):
-        chunk_num = i + 1
-        tqdm_desc = f"Transcribing chunk {chunk_num}/{len(chunks)}"
-        tqdm.write(tqdm_desc)
-        temp_dir = os.path.dirname(audio_path)
-        temp_file = f"{temp_dir}/temp_segment.mp3"
-        logger.info(
-            f"Creating and transcribing temp file {chunk_num}:\n{temp_file}")
-        chunk_file_dir = f"{output_dir}/chunks"
-        chunk_segments_file_path = f"{chunk_file_dir}/chunk_{chunk_num}_segments.json"
-        chunk_info_file_path = f"{chunk_file_dir}/chunk_{chunk_num}_info.json"
-
-        segments, info = transcribe_audio_chunk(chunk, model, temp_file)
-
-        save_file(info, chunk_info_file_path)
-
-        processed_segments_stream = process_segments(segments, metadata)
-        processed_segments = []
-        for processed_segment in processed_segments_stream:
-            chunk_data = {
-                "segment_idx": segment_idx,
-                **processed_segment,
-            }
-            processed_segments.append(chunk_data)
-            save_file({
-                "chunk_num": chunk_num,
-                "segments_count": len(processed_segments),
-                "segments": processed_segments
-            }, chunk_segments_file_path)
-
-            transcription_segments.append(chunk_data)
-
-            segment_idx += 1
-        transcription_info.append(info)
-    return transcription_segments, transcription_info
-
-
-def process_segments(segments: Generator[Segment, None, None], metadata: YoutubeMetadata) -> Generator:
+def process_segments(
+    segments: Generator[Segment, None, None],
+    metadata: YoutubeMetadata,
+    chunk_start_ms: float,
+) -> Generator:
     for idx, segment in enumerate(segments):
         logger.teal(f"Transcribing segment {idx+1}")
         if not segment.text:
             continue
         chapter_title = get_chapter_title_by_start_and_end_time(
-            metadata["chapters"], segment.start, segment.end) if metadata["chapters"] else None
-        # Convert avg_logprob from log space to probability
+            metadata["chapters"], segment.start + chunk_start_ms /
+            1000, segment.end + chunk_start_ms / 1000
+        ) if metadata["chapters"] else None
         confidence = round(math.exp(segment.avg_logprob), 4)
         transcription = {
             "id": generate_hash({
                 "video_id": metadata["video_id"],
-                "start": segment.start,
-                "end": segment.end,
+                "start": segment.start + chunk_start_ms / 1000,
+                "end": segment.end + chunk_start_ms / 1000,
             }),
-            "seek": segment.seek,
-            "start": segment.start,
-            "end": segment.end,
+            # seek is in 10ms units
+            "seek": segment.seek + int(chunk_start_ms / 10),
+            "start": segment.start + chunk_start_ms / 1000,
+            "end": segment.end + chunk_start_ms / 1000,
             "chapter_title": chapter_title,
             "text": segment.text,
             "eval": {
@@ -106,6 +64,11 @@ def process_segments(segments: Generator[Segment, None, None], metadata: Youtube
             },
             "words": segment.words,
         }
+        logger.debug(
+            f"Segment {idx+1}: original start={segment.start}s, end={segment.end}s, "
+            f"adjusted start={transcription['start']}s, end={transcription['end']}s, "
+            f"chunk_start_ms={chunk_start_ms}ms"
+        )
         yield transcription
 
 
@@ -140,22 +103,65 @@ def extract_metadata(info: Dict[str, Any], audio_dir: str, video_url: str) -> Yo
     }
 
 
-def transcribe_youtube_video_info_and_chapters(video_url: str, audio_path: str, info: Dict[str, Any], output_dir: str, chunk_duration: int = 120, model_size: str = 'small') -> None:
+def transcribe_youtube_video_info_and_chapters(
+    video_url: str,
+    audio_path: str,
+    info: Dict[str, Any],
+    output_dir: str,
+    chunk_duration: int = 120,
+    model_size: str = "small",
+    overlap_duration: float = 0.0,
+) -> Generator[tuple[list, Any], None, None]:
     audio_dir = output_dir
     os.makedirs(audio_dir, exist_ok=True)
-    transcription_segments_file_path = f"{audio_dir}/transcription_segments.json"
-    transcriptions_info_file_path = f"{audio_dir}/transcriptions_info.json"
-
     metadata = extract_metadata(info, audio_dir, video_url)
-
-    transcription_segments, transcription_info = transcribe_in_segments(
-        audio_path, metadata, output_dir, chunk_duration=chunk_duration, model_size=model_size)
-
-    save_file(transcription_segments, transcription_segments_file_path)
-    save_file(transcription_info, transcriptions_info_file_path)
-
-
-def find_audio(audio_dir: str) -> list:
-    mp3_files = [os.path.join(audio_dir, file) for file in os.listdir(
-        audio_dir) if file.endswith('.mp3')]
-    return mp3_files
+    print(f"Loading whisper with model size: {model_size}")
+    model = WhisperModelRegistry.load_model(model_size)
+    audio = AudioSegment.from_file(audio_path)
+    chunk_length_ms = chunk_duration * 1000
+    overlap_ms = int(overlap_duration * 1000)
+    print(
+        f"Creating chunks of duration {chunk_duration}s with {overlap_duration}s overlap")
+    chunks = make_chunks_with_overlap(
+        audio, chunk_length_ms, overlap_ms=overlap_ms)
+    segment_idx = 0
+    total_duration = len(audio) / 1000
+    all_segments = []
+    with tqdm(total=len(chunks), desc="Transcribing audio chunks", unit="chunk") as pbar:
+        for i, chunk in enumerate(chunks):
+            chunk_num = i + 1
+            chunk_start_ms = i * (chunk_duration - overlap_duration) * 1000
+            chunk_end = min(chunk_start_ms / 1000 +
+                            chunk_duration, total_duration)
+            tqdm_desc = f"Chunk {chunk_num}/{len(chunks)} ({chunk_start_ms/1000:.1f}s - {chunk_end:.1f}s)"
+            pbar.set_description(tqdm_desc)
+            temp_dir = os.path.dirname(audio_path)
+            temp_file = f"{temp_dir}/temp_segment.mp3"
+            logger.info(f"Transcribing chunk {chunk_num}: {temp_file}")
+            logger.debug(
+                f"Chunk {chunk_num}: start={chunk_start_ms/1000}s, end={chunk_end}s, "
+                f"duration={len(chunk)/1000}s"
+            )
+            chunk_file_dir = f"{audio_dir}/chunks"
+            os.makedirs(chunk_file_dir, exist_ok=True)
+            segments, info = transcribe_audio_chunk(chunk, model, temp_file)
+            processed_segments = []
+            for processed_segment in process_segments(segments, metadata, chunk_start_ms):
+                processed_segments.append(
+                    processed_segment)  # No segment_idx yet
+                all_segments.append(processed_segment)
+            deduplicated_segments = deduplicate_segments(all_segments)
+            # Assign segment_idx to deduplicated segments
+            indexed_segments = [
+                {"chunk_idx": i, "segment_idx": segment_idx + j, **segment}
+                for j, segment in enumerate(deduplicated_segments)
+            ]
+            logger.debug(
+                f"Chunk {chunk_num}: {len(processed_segments)} segments before deduplication, "
+                f"{len(deduplicated_segments)} segments after deduplication, "
+                f"assigned indices {segment_idx} to {segment_idx + len(deduplicated_segments) - 1}"
+            )
+            yield indexed_segments, info
+            all_segments = deduplicated_segments
+            segment_idx += len(deduplicated_segments)
+            pbar.update(1)

@@ -9,7 +9,7 @@ from tqdm import tqdm
 from jet.data.utils import generate_hash
 from jet.file.utils import save_data, save_file
 from jet.models.model_registry.transformers.speech_to_text.whisper_model_registry import WhisperModelRegistry
-from jet.video.utils import deduplicate_all_transcriptions, time_str_to_seconds
+from jet.video.utils import time_str_to_seconds
 from jet.video.youtube.youtube_chapter_downloader import YoutubeChapterDownloader
 from jet.video.youtube.youtube_types import YoutubeTranscription
 
