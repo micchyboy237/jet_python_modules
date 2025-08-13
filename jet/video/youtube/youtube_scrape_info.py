@@ -8,7 +8,7 @@ from jet.data.utils import generate_hash
 from jet.file.utils import save_file, save_data
 from jet.logger import logger
 from jet.models.model_registry.transformers.speech_to_text.whisper_model_registry import WhisperModelRegistry
-from jet.video.utils import deduplicate_segments, download_audio, make_chunks_with_overlap, time_str_to_seconds
+from jet.video.utils import download_audio, make_chunks_with_overlap, time_str_to_seconds
 from jet.video.youtube.youtube_info_extractor import (
     YoutubeInfoExtractor,
     parse_time,
@@ -50,6 +50,7 @@ def process_segments(
             }
             for word in segment.words
         ]
+        duration = segment.end - segment.start
         transcription = {
             "id": generate_hash({
                 "video_id": metadata["video_id"],
@@ -59,13 +60,14 @@ def process_segments(
             "seek": int(chunk_start_ms / 10) + segment.seek,
             "start": segment.start + chunk_start_ms / 1000,
             "end": segment.end + chunk_start_ms / 1000,
+            "duration": duration,
             "chapter_title": chapter_title,
             "text": segment.text,
             "eval": {
                 "confidence": confidence,
                 "temperature": segment.temperature,
                 "avg_logprob": segment.avg_logprob,
-                "compression_ratio": segment.compression_ratio,
+                "confidence": segment.compression_ratio,
                 "no_speech_prob": segment.no_speech_prob,
             },
             "words": adjusted_words,
@@ -73,7 +75,7 @@ def process_segments(
         logger.debug(
             f"Segment {idx+1}: original start={segment.start}s, end={segment.end}s, "
             f"adjusted start={transcription['start']}s, end={transcription['end']}s, "
-            f"seek={transcription['seek']}, chunk_start_ms={chunk_start_ms}ms"
+            f"duration={transcription['duration']}s, seek={transcription['seek']}, chunk_start_ms={chunk_start_ms}ms"
         )
         yield transcription
 
@@ -87,7 +89,7 @@ def extract_metadata(info: Dict[str, Any], audio_dir: str, video_url: str) -> Yo
     description = info.get('description', '')
     upload_date = info.get('date_posted', '')
     duration = info.get('duration', '')
-    viewカウント = info.get('view_count', '')
+    view_count = info.get('view_count', '')
     trending_description = info.get('trending_description', '')
     downloader = YoutubeChapterDownloader()
     chapter_audio_items = downloader.split_youtube_chapters(
@@ -101,68 +103,10 @@ def extract_metadata(info: Dict[str, Any], audio_dir: str, video_url: str) -> Yo
         "description": description,
         "upload_date": upload_date,
         "duration": duration,
-        "view_count": viewカウント,
+        "view_count": view_count,
         "trending_description": trending_description,
         "chapters": chapter_audio_items,
     }
-
-
-def deduplicate_segments(segments: list[dict]) -> list[dict]:
-    """
-    Deduplicate segments based on overlapping time ranges, keeping the segment with higher confidence.
-
-    Args:
-        segments: List of segment dictionaries with 'start', 'end', 'text', and 'eval' keys.
-
-    Returns:
-        List of deduplicated segments sorted by start time.
-    """
-    if not segments:
-        return []
-    # Sort by start time, then by descending confidence to prioritize higher confidence in overlaps
-    sorted_segments = sorted(segments, key=lambda x: (
-        x["start"], -x["eval"]["confidence"]))
-    deduplicated = []
-    for segment in sorted_segments:
-        if not deduplicated:
-            deduplicated.append(segment)
-            logger.debug(
-                f"Kept segment: start={segment['start']}s, end={segment['end']}s, "
-                f"text='{segment['text']}', confidence={segment['eval']['confidence']}"
-            )
-            continue
-        last_segment = deduplicated[-1]
-        # Check if segments overlap (within 5s tolerance for chunk overlaps)
-        overlap_tolerance = 5.0  # Match the 5s overlap from run_youtube_scrape_info.py
-        if segment["start"] < last_segment["end"] + overlap_tolerance:
-            # Only deduplicate if text is nearly identical to avoid discarding valid segments
-            if segment["text"].strip() == last_segment["text"].strip():
-                if segment["eval"]["confidence"] > last_segment["eval"]["confidence"]:
-                    deduplicated[-1] = segment
-                    logger.debug(
-                        f"Deduplicated overlap: replaced segment start={last_segment['start']}s, "
-                        f"with start={segment['start']}s, text='{segment['text']}', "
-                        f"confidence={segment['eval']['confidence']}"
-                    )
-                else:
-                    logger.debug(
-                        f"Skipped segment: start={segment['start']}s, end={segment['end']}s, "
-                        f"text='{segment['text']}', confidence={segment['eval']['confidence']}, "
-                        f"overlaps with start={last_segment['start']}s"
-                    )
-            else:
-                deduplicated.append(segment)
-                logger.debug(
-                    f"Kept segment (different text): start={segment['start']}s, end={segment['end']}s, "
-                    f"text='{segment['text']}', confidence={segment['eval']['confidence']}"
-                )
-        else:
-            deduplicated.append(segment)
-            logger.debug(
-                f"Kept segment: start={segment['start']}s, end={segment['end']}s, "
-                f"text='{segment['text']}', confidence={segment['eval']['confidence']}"
-            )
-    return deduplicated
 
 
 def transcribe_youtube_video_info_and_chapters(
@@ -211,33 +155,25 @@ def transcribe_youtube_video_info_and_chapters(
             for processed_segment in process_segments(segments, metadata, chunk_start_ms):
                 chunk_segments.append(processed_segment)
             logger.debug(
-                f"Chunk {chunk_num} raw segments: {[f'{s['start']:.2f}s-{s['end']:.2f}s' for s in chunk_segments]}"
-            )
-            deduplicated_chunk_segments = deduplicate_segments(chunk_segments)
-            logger.debug(
-                f"Chunk {chunk_num} deduplicated segments: {[f'{s['start']:.2f}s-{s['end']:.2f}s' for s in deduplicated_chunk_segments]}"
+                f"Chunk {chunk_num} segments: {[f'{s['start']:.2f}s-{s['end']:.2f}s' for s in chunk_segments]}"
             )
             indexed_segments = [
                 {"chunk_idx": i, "segment_idx": segment_idx + j, **segment}
-                for j, segment in enumerate(deduplicated_chunk_segments)
+                for j, segment in enumerate(chunk_segments)
             ]
             all_segments.extend(indexed_segments)
             logger.debug(
-                f"Chunk {chunk_num}: {len(chunk_segments)} segments before deduplication, "
-                f"{len(deduplicated_chunk_segments)} segments after deduplication, "
-                f"assigned indices {segment_idx} to {segment_idx + len(deduplicated_chunk_segments) - 1}"
+                f"Chunk {chunk_num}: {len(chunk_segments)} segments, "
+                f"assigned indices {segment_idx} to {segment_idx + len(chunk_segments) - 1}"
             )
-            # Check for time gaps
             if indexed_segments and i > 0:
-                # Last segment of previous chunk
                 prev_segment = all_segments[-len(indexed_segments)]
                 first_segment = indexed_segments[0]
-                # Allow 0.5s tolerance for small gaps
                 if first_segment["start"] > prev_segment["end"] + 0.5:
                     logger.warning(
                         f"Time gap detected: Chunk {chunk_num} starts at {first_segment['start']}s, "
                         f"previous chunk ends at {prev_segment['end']}s, gap size={first_segment['start'] - prev_segment['end']}s"
                     )
             yield indexed_segments, info
-            segment_idx += len(deduplicated_chunk_segments)
+            segment_idx += len(chunk_segments)
             pbar.update(1)

@@ -397,12 +397,13 @@ def deduplicate_transcription_list(transcription_list):
     return deduplicated_list
 
 
-def deduplicate_segments(segments: list[dict]) -> list[dict]:
+def deduplicate_segments(segments: list[dict], overlap_duration: float = 0.0, tolerance: float = 0.0) -> list[dict]:
     """
     Deduplicate segments based on overlapping time ranges, keeping the segment with higher confidence.
 
     Args:
         segments: List of segment dictionaries with 'start', 'end', 'text', and 'eval' keys.
+        overlap_duration: Maximum allowed overlap (in seconds) between segments to consider them duplicates.
 
     Returns:
         List of deduplicated segments sorted by start time.
@@ -422,14 +423,30 @@ def deduplicate_segments(segments: list[dict]) -> list[dict]:
             )
             continue
         last_segment = deduplicated[-1]
-        # Check if segments overlap (within 0.1s tolerance)
-        if segment["start"] < last_segment["end"] + 0.1:
-            if segment["eval"]["confidence"] > last_segment["eval"]["confidence"]:
-                deduplicated[-1] = segment
+        # Check if segments overlap (within overlap tolerance for chunk overlaps)
+        # Match the overlap from run_youtube_scrape_info.py
+        overlap_tolerance = overlap_duration
+        if segment["start"] < last_segment["end"] + overlap_tolerance:
+            # Only deduplicate if text is nearly identical to avoid discarding valid segments
+            if segment["text"].strip() == last_segment["text"].strip():
+                if segment["eval"]["confidence"] > last_segment["eval"]["confidence"]:
+                    deduplicated[-1] = segment
+                    logger.debug(
+                        f"Deduplicated overlap: replaced segment start={last_segment['start']}s, "
+                        f"with start={segment['start']}s, text='{segment['text']}', "
+                        f"confidence={segment['eval']['confidence']}"
+                    )
+                else:
+                    logger.debug(
+                        f"Skipped segment: start={segment['start']}s, end={segment['end']}s, "
+                        f"text='{segment['text']}', confidence={segment['eval']['confidence']}, "
+                        f"overlaps with start={last_segment['start']}s"
+                    )
+            else:
+                deduplicated.append(segment)
                 logger.debug(
-                    f"Deduplicated overlap: replaced segment start={last_segment['start']}s, "
-                    f"with start={segment['start']}s, text='{segment['text']}', "
-                    f"confidence={segment['eval']['confidence']}"
+                    f"Kept segment (different text): start={segment['start']}s, end={segment['end']}s, "
+                    f"text='{segment['text']}', confidence={segment['eval']['confidence']}"
                 )
         else:
             deduplicated.append(segment)
