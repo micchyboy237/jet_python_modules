@@ -55,7 +55,7 @@ class ChatLogger:
         if isinstance(prompt_or_messages, str):
             log_data["prompt"] = prompt_or_messages
         else:
-            log_data["messages"] = prompt_or_messages
+            log_data["messages"] = prompt_or_messages.copy()
 
             # Add assistant role message with response text
             if isinstance(response, list):
