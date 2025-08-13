@@ -18,10 +18,12 @@ class AudioFileTranscriber:
             model_size, device="auto", compute_type="int8")
         self.sample_rate = sample_rate
 
-    async def transcribe_from_file(self, file_path: str, output_dir: Optional[str] = None) -> Optional[str]:
+    async def transcribe_from_file(self, file_path: str, output_dir: Optional[str] = None, language="en") -> Optional[str]:
         """Transcribe audio from a file.
         Args:
             file_path: Path to the audio file (e.g., WAV, MP3).
+            output_dir: Directory to save transcription file.
+            language: Language code for transcription. Default is "en".            
         Returns:
             Transcribed text or None if no speech is detected or an error occurs.
         """
@@ -46,7 +48,7 @@ class AudioFileTranscriber:
                     audio_data = audio_data.astype(np.float32)
             segments, _ = self.model.transcribe(
                 audio_data,
-                language="en",
+                language=language,
                 beam_size=1,  # Optimize for speed
                 temperature=0,  # Deterministic output
                 # beam_size=5,

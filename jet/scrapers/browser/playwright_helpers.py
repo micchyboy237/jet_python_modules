@@ -34,13 +34,19 @@ class PageContent(TypedDict):
     html: str
 
 
-def setup_browser_page(page: Optional[SyncPage] = None):
+def setup_browser_page(page: Optional[SyncPage] = None, headless: bool = True):
     global browser_page
 
     if not browser_page:
-        browser_page = page or setup_sync_browser_page()
+        browser_page = page or setup_sync_browser_page(headless=headless)
 
     return browser_page
+
+
+async def asetup_browser_page(*, headless: bool = True) -> AsyncPage:
+    """Sets up an asynchronous Playwright browser page with anti-detection settings."""
+    browser = await setup_async_browser_session(headless=headless)
+    return await browser.new_page()
 
 
 def setup_sync_browser_session(*, headless: bool = True) -> SyncBrowser:
@@ -119,13 +125,13 @@ async def setup_async_browser_page(*, headless: bool = False) -> AsyncPage:
     return await browser.new_page()
 
 
-def fetch_page_content_sync(url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
+def fetch_page_content_sync(url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000, headless: bool = True) -> PageContent:
     """Fetches page content synchronously, including screenshot and HTML."""
     cache = RedisCache(config=REDIS_CONFIG)
     cache_key = url
     cached_result = cache.get(cache_key)
 
-    browser_page = setup_browser_page()
+    browser_page = setup_browser_page(headless=headless)
 
     if cached_result:
         logger.log(f"scrape_url: Cache hit for", cache_key,
@@ -160,58 +166,57 @@ def fetch_page_content_sync(url: str, wait_for_css: Optional[List[str]], max_wai
     return result
 
 
-async def fetch_page_content_async(url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000) -> PageContent:
+async def fetch_page_content_async(url: str, wait_for_css: Optional[List[str]], page: Optional[AsyncPage] = None, max_wait_timeout: int = 10000, headless: bool = True) -> PageContent:
     """Fetches page content asynchronously, including screenshot and HTML."""
     cache = RedisCache(config=REDIS_CONFIG)
     cache_key = url
     cached_result = cache.get(cache_key)
-
-    browser_page = setup_browser_page()
-
-    if cached_result:
-        logger.log(f"scrape_url: Cache hit for", cache_key,
-                   colors=["LOG", "BRIGHT_SUCCESS"])
-        return cached_result
-
-    if wait_for_css:
-        logger.log("Waiting for elements css:",
-                   wait_for_css, colors=["GRAY", "DEBUG"])
-        for css_selector in wait_for_css:
-            await browser_page.wait_for_selector(css_selector, timeout=max_wait_timeout)
-
-    screenshot_path = f'{GENERATED_DIR}/example.png'
-    await browser_page.screenshot(path=screenshot_path)
-
-    dimensions: PageDimensions = await browser_page.evaluate('''() => ({
-        width: document.documentElement.clientWidth,
-        height: document.documentElement.clientHeight,
-        deviceScaleFactor: window.devicePixelRatio
-    })''')
-
-    result: PageContent = {
-        "url": url,
-        "dimensions": dimensions,
-        "screenshot": os.path.realpath(screenshot_path),
-        "html": await browser_page.content()
-    }
-
-    cache.set(cache_key, result)
-
-    return result
+    browser_page = page or await asetup_browser_page(headless=headless)
+    try:
+        if cached_result:
+            logger.log(f"scrape_url: Cache hit for", cache_key,
+                       colors=["LOG", "BRIGHT_SUCCESS"])
+            return cached_result
+        if wait_for_css:
+            logger.log("Waiting for elements css:",
+                       wait_for_css, colors=["GRAY", "DEBUG"])
+            for css_selector in wait_for_css:
+                await browser_page.wait_for_selector(css_selector, timeout=max_wait_timeout)
+        screenshot_path = f'{GENERATED_DIR}/example.png'
+        await browser_page.screenshot(path=screenshot_path)
+        dimensions: PageDimensions = await browser_page.evaluate('''() => ({
+            width: document.documentElement.clientWidth,
+            height: document.documentElement.clientHeight,
+            deviceScaleFactor: window.devicePixelRatio
+        })''')
+        result: PageContent = {
+            "url": url,
+            "dimensions": dimensions,
+            "screenshot": os.path.realpath(screenshot_path),
+            "html": await browser_page.content()
+        }
+        cache.set(cache_key, result)
+        return result
+    finally:
+        if not page:  # Only close the page if we created it
+            await browser_page.close()
 
 
-def scrape_sync(url: str, wait_for_css: Optional[List[str]] = None) -> PageContent:
+def scrape_sync(url: str, wait_for_css: Optional[List[str]] = None, headless: bool = True) -> PageContent:
     """Scrapes a webpage synchronously."""
-    browser_page = setup_browser_page()
+    browser_page = setup_browser_page(headless=headless)
     browser_page.goto(url)
     return fetch_page_content_sync(url, wait_for_css)
 
 
-async def scrape_async(url: str, wait_for_css: Optional[List[str]] = None) -> PageContent:
+async def scrape_async(url: str, wait_for_css: Optional[List[str]] = None, headless: bool = True) -> PageContent:
     """Scrapes a webpage asynchronously."""
-    browser_page = setup_browser_page()
-    await browser_page.goto(url)
-    return await fetch_page_content_async(url, wait_for_css)
+    browser_page = await asetup_browser_page(headless=headless)
+    try:
+        await browser_page.goto(url)
+        return await fetch_page_content_async(url, wait_for_css, page=browser_page)
+    finally:
+        await browser_page.close()
 
 
 async def setup_browser_pool(max_pages: int = 2, headless: bool = False) -> List[AsyncPage]:

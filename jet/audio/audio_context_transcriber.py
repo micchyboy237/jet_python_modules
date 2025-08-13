@@ -44,7 +44,8 @@ class AudioContextTranscriber:
         next_file_path: Optional[str] = None,
         start_overlap_duration: float = 0.0,
         end_overlap_duration: float = 0.0,
-        output_dir: Optional[str] = None
+        output_dir: Optional[str] = None,
+        language="en",
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         Transcribe an audio chunk with optional context from previous and next chunks.
@@ -56,6 +57,7 @@ class AudioContextTranscriber:
             start_overlap_duration: Duration of start overlap in seconds.
             end_overlap_duration: Duration of end overlap in seconds.
             output_dir: Directory to save transcription file.
+            language: Language code for transcription. Default is "en".            
         Returns:
             Tuple of (non-overlap transcription, start overlap transcription, end overlap transcription).
         """
@@ -117,9 +119,9 @@ class AudioContextTranscriber:
                     combined_audio = combined_audio.astype(np.float32)
             logger.debug(
                 f"Combined audio length: {len(combined_audio)} samples, dtype: {combined_audio.dtype}")
-            segments, _ = self.model.transcribe(
+            segments, info = self.model.transcribe(
                 combined_audio,
-                language="en",
+                language=language,
                 beam_size=1,  # Optimize for speed
                 temperature=0,  # Deterministic output
                 # beam_size=5,
