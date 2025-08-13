@@ -1,18 +1,20 @@
 import subprocess
 import os
+from typing import List
 
-from jet.video.utils import download_audio
+from jet.video.utils import download_audio, time_str_to_seconds
+from jet.video.youtube.youtube_types import YoutubeChapter
 
 
 class YoutubeChapterDownloader:
-    def split_youtube_chapters(self, audio_dir, video_url, chapters):
+    def split_youtube_chapters(self, audio_dir, video_url, chapters) -> List[YoutubeChapter]:
         audio_format = "mp3"
         audio_path = download_audio(
             video_url, audio_dir, audio_format)
 
         if not audio_path:
             print("Failed to download audio.")
-            return
+            return []
 
         chapter_audio_items = []
 
@@ -26,10 +28,10 @@ class YoutubeChapterDownloader:
             chapter_file_path = os.path.join(
                 audio_dir, f"chapters/{idx + 1}_{chapter_title}.{audio_format}")
 
-            obj = {
+            obj: YoutubeChapter = {
                 "chapter_title": chapter['chapter_title'],
-                "chapter_start": start,
-                "chapter_end": end,
+                "chapter_start": time_str_to_seconds(start),
+                "chapter_end": time_str_to_seconds(end),
                 "chapter_file_path": chapter_file_path
             }
 

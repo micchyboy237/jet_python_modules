@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 from typing import List, Tuple
@@ -8,7 +9,7 @@ from tqdm import tqdm
 from jet.data.utils import generate_hash
 from jet.file.utils import save_data, save_file
 from jet.models.model_registry.transformers.speech_to_text.whisper_model_registry import WhisperModelRegistry
-from jet.video.utils import deduplicate_all_transcriptions
+from jet.video.utils import deduplicate_all_transcriptions, time_str_to_seconds
 from jet.video.youtube.youtube_chapter_downloader import YoutubeChapterDownloader
 from jet.video.youtube.youtube_types import YoutubeTranscription
 
@@ -133,21 +134,6 @@ def parse_time(time_str):
     return 0
 
 
-def time_str_to_seconds(time_str):
-    """Converts a time string in HH:MM:SS or MM:SS format to seconds."""
-    parts = time_str.split(":")
-    parts = [int(part) for part in parts]
-    if len(parts) == 3:
-        hours, minutes, seconds = parts
-    elif len(parts) == 2:
-        hours = 0
-        minutes, seconds = parts
-    else:
-        raise ValueError(f"Unexpected time format: {time_str}")
-    total_seconds = (hours * 3600) + (minutes * 60) + seconds
-    return total_seconds
-
-
 def get_chapter_title_by_start_and_end_time(chapters, start_time, end_time):
     for chapter in chapters:
         start_time = int(start_time)
@@ -187,21 +173,24 @@ def transcribe_youtube_video_info(video_id: str, transcriptions: List[YoutubeTra
     audio_path = f"{audio_dir}/audio.mp3"
     transcription_segments, transcription_info = model.transcribe(audio_path)
     save_file(transcription_info, transcriptions_info_file_path)
-    batch_items = []
-    batch_size = 2
     converted_chapters = []
     for chapter in chapter_audio_items:
         converted_chapters.append({
             "chapter_title": chapter['chapter_title'],
-            "chapter_start": time_str_to_seconds(chapter['chapter_start']),
-            "chapter_end": time_str_to_seconds(chapter['chapter_end']),
+            "chapter_start": chapter['chapter_start'],
+            "chapter_end": chapter['chapter_end'],
             "chapter_file_path": chapter['chapter_file_path']
         })
-    for segment in transcription_segments:
+
+    for idx, segment in enumerate(tqdm(transcription_segments, desc="Transcribing segments", unit="segment")):
+        tqdm_desc = f"Transcribing segment {idx+1}/{len(transcription_segments)}"
+        tqdm.write(tqdm_desc)
         if not segment.text:
             continue
         chapter_title = get_chapter_title_by_start_and_end_time(
             converted_chapters, segment.start, segment.end)
+        # Convert avg_logprob from log space to probability
+        confidence = round(math.exp(segment.avg_logprob), 4)
         transcription = {
             "id": generate_hash({
                 "video_id": video_id,
@@ -219,6 +208,8 @@ def transcribe_youtube_video_info(video_id: str, transcriptions: List[YoutubeTra
                 "video_title": results['title'],
             },
             "eval": {
+                "confidence": confidence,
+                "temperature": segment.temperature,
                 "avg_logprob": segment.avg_logprob,
                 "compression_ratio": segment.compression_ratio,
                 "no_speech_prob": segment.no_speech_prob,
@@ -226,13 +217,9 @@ def transcribe_youtube_video_info(video_id: str, transcriptions: List[YoutubeTra
             "words": segment.words,
         }
         transcriptions.append(transcription)
-        batch_items.append(transcription)
-        if len(batch_items) >= batch_size:
-            save_data(transcriptions_file_path, batch_items)
-            batch_items = []
-    if batch_items:
-        save_data(transcriptions_file_path, batch_items)
-    deduplicate_all_transcriptions(transcriptions)
+        save_file(transcriptions, transcriptions_file_path)
+
+    # deduplicate_all_transcriptions(transcriptions)
 
 
 def transcribe_youtube_videos_info(video_ids: List[str], output_dir: str) -> List[YoutubeTranscription]:

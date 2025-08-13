@@ -1,8 +1,11 @@
 import json
+import math
 import os
 from typing import Iterable
 from playwright.async_api import async_playwright
 from urllib.parse import urlparse, parse_qs
+
+from tqdm import tqdm
 from jet.data.utils import generate_hash
 from jet.file.utils import save_data, save_file
 from jet.video.utils import download_audio
@@ -81,11 +84,13 @@ def transcribe_youtube_video_playlist(model: WhisperModel, video_id, audio_dir, 
     save_file(transcription_info, transcriptions_info_file_path)
 
     transcriptions = []
-    batch_items = []
-    batch_size = 2
-    for segment in transcription_segments:
+    for idx, segment in enumerate(tqdm(transcription_segments, desc="Transcribing segments", unit="segment")):
+        tqdm_desc = f"Transcribing segment {idx+1}/{len(transcription_segments)}"
+        tqdm.write(tqdm_desc)
         if not segment.text:
             continue
+        # Convert avg_logprob from log space to probability
+        confidence = round(math.exp(segment.avg_logprob), 4)
         transcription = {
             "id": generate_hash({
                 "video_id": video_id,
@@ -101,6 +106,8 @@ def transcribe_youtube_video_playlist(model: WhisperModel, video_id, audio_dir, 
                 "playlist_title": playlist_title,
             },
             "eval": {
+                "confidence": confidence,
+                "temperature": segment.temperature,
                 "avg_logprob": segment.avg_logprob,
                 "compression_ratio": segment.compression_ratio,
                 "no_speech_prob": segment.no_speech_prob,
@@ -108,12 +115,7 @@ def transcribe_youtube_video_playlist(model: WhisperModel, video_id, audio_dir, 
             "words": segment.words,
         }
         transcriptions.append(transcription)
-        batch_items.append(transcription)
-        if len(batch_items) >= batch_size:
-            save_data(transcriptions_file_path, batch_items)
-            batch_items = []
-    if batch_items:
-        save_data(transcriptions_file_path, batch_items)
+        save_file(transcriptions, transcriptions_file_path)
 
 
 def transcribe_youtube_videos_playlist(model, video_ids, playlist_title, output_dir: str):

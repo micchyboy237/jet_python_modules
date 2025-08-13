@@ -457,6 +457,20 @@ if __name__ == '__main__':
         'server/static/models/dost-asti-gpt2/base_model/datasets/conversations.json')
 
 
+def time_str_to_seconds(time_str: str):
+    """Converts a time string in HH:MM:SS or MM:SS format to seconds."""
+    parts = time_str.split(":")
+    parts = [int(part) for part in parts]
+    if len(parts) == 3:
+        hours, minutes, seconds = parts
+    elif len(parts) == 2:
+        hours = 0
+        minutes, seconds = parts
+    else:
+        raise ValueError(f"Unexpected time format: {time_str}")
+    total_seconds = (hours * 3600) + (minutes * 60) + seconds
+    return total_seconds
+
 # if __name__ == '__main__':
 #     model_size = "small"
 #     chunk_length_s = 300

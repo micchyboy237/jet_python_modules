@@ -1,0 +1,33 @@
+device: ${oc.env:DEVICE,"mps"}
+diarizer:
+  manifest_filepath: ./data/input_manifest.json
+  out_dir: ./outputs
+  rttm_filepath: ""
+  oracle_vad: false
+  collar: 0.25
+  ignore_overlap: true
+  msdd_model:
+    model_path: diar_msdd_telephonic
+    parameters:
+      sigmoid_threshold: [0.7, 1.0]
+      diar_window_length: 1.5
+      infer_batch_size: 16
+      seq_eval_mode: false
+  speaker_embeddings:
+    model_path: titanet_large
+    parameters:
+      window_length_in_sec: [1.5, 1.25, 1.0, 0.75, 0.5]
+      shift_length_in_sec: [0.75, 0.625, 0.5, 0.375, 0.25]
+      multiscale_weights: [1, 1, 1, 1, 1]
+      save_embeddings: false
+  vad:
+    model_path: vad_multilingual_marblenet
+    parameters:
+      onset: 0.8
+      offset: 0.6
+      pad_offset: -0.05
+  clustering:
+    parameters:
+      oracle_num_speakers: false
+      max_num_speakers: 8
+num_workers: 1

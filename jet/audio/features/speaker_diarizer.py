@@ -42,14 +42,18 @@ class SpeakerDiarizer:
             OmegaConf: Configuration object for diarization.
         """
         default_config = {
-            "device": "cpu" if not torch.cuda.is_available() else "cuda",
+            "device": "mps" if torch.backends.mps.is_available() else "cpu",
+            "batch_size": 16,  # Added top-level batch_size for ClusteringDiarizer
+            "sample_rate": 16000,
             "diarizer": {
                 "manifest_filepath": self.input_manifest_file,
                 "out_dir": self.output_dir,
-                "rttm_filepath": "",  # Placeholder for RTTM file path
+                "rttm_filepath": "",
                 "oracle_vad": False,
                 "collar": 0.25,
                 "ignore_overlap": True,
+                "batch_size": 16,
+                "verbose": True,  # Added verbose parameter for ClusteringDiarizer
                 "msdd_model": {
                     "model_path": "diar_msdd_telephonic",
                     "parameters": {
@@ -73,7 +77,10 @@ class SpeakerDiarizer:
                     "parameters": {
                         "onset": 0.8,
                         "offset": 0.6,
-                        "pad_offset": -0.05
+                        "pad_offset": -0.05,
+                        "window_length_in_sec": 0.15,
+                        "shift_length_in_sec": 0.01,
+                        "batch_size": 64
                     }
                 },
                 "clustering": {

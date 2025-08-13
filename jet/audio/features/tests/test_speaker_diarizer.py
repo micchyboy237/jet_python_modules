@@ -42,7 +42,7 @@ class TestSpeakerDiarizer:
         vad_model = config.diarizer.vad.model_path
 
         # Then: The configuration should have expected default values
-        expected_device = "cpu" if not torch.cuda.is_available() else "cuda"
+        expected_device = "mps" if torch.backends.mps.is_available() else "cpu"
         expected_manifest = diarizer.input_manifest_file
         expected_msdd_model = "diar_msdd_telephonic"
         expected_vad_model = "vad_multilingual_marblenet"
