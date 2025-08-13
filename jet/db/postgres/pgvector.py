@@ -306,6 +306,63 @@ class PgVectorClient:
                 raise
         return row_results
 
+    def create_or_update_rows(
+        self,
+        table_name: str,
+        rows_data: List[Dict[str, Any]],
+        dimension: Optional[int] = None
+    ) -> List[TableRow]:
+        """Create or update multiple rows in the specified table based on ID existence.
+
+        Args:
+            table_name: Name of the table to insert or update
+            rows_data: List of dictionaries containing 'id' and column names with their values
+            dimension: Dimension of the embedding if applicable
+
+        Returns:
+            List of TableRow dictionaries containing the created or updated row data
+
+        Raises:
+            ValueError: If rows_data is empty, any row lacks an 'id', or rows have inconsistent columns
+        """
+        if not rows_data:
+            raise ValueError("Cannot process empty rows data")
+        if not all("id" in row for row in rows_data):
+            raise ValueError("All rows must include an 'id' field")
+        if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
+            raise ValueError("All rows must have the same columns")
+
+        if any("embedding" in row for row in rows_data) and dimension is None:
+            dimension = len(self._to_list(
+                next(row["embedding"] for row in rows_data if "embedding" in row)))
+
+        self._ensure_table_exists(table_name, dimension or 1536)
+        self._ensure_columns_exist(table_name, rows_data[0])
+
+        # Get existing IDs
+        with self.conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
+                    sql.Identifier(table_name)
+                ),
+                ([row["id"] for row in rows_data],)
+            )
+            existing_ids = {row["id"] for row in cur.fetchall()}
+
+        create_rows = [
+            row for row in rows_data if row["id"] not in existing_ids]
+        update_rows = [row for row in rows_data if row["id"] in existing_ids]
+
+        results = []
+        if create_rows:
+            results.extend(self.create_rows(
+                table_name, create_rows, dimension))
+        if update_rows:
+            results.extend(self.update_rows(
+                table_name, update_rows, dimension))
+
+        return results
+
     def update_row(self, table_name: str, row_id: str, row_data: Dict[str, Any], dimension: Optional[int] = None) -> TableRow:
         """Update a single row in the specified table with new column values, creating new columns if needed.
 
