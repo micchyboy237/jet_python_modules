@@ -59,7 +59,7 @@ class MLXLMClient:
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
         seed: Optional[int] = None,
-        log_dir: str = DEFAULT_LOG_DIR,
+        log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps"
     ) -> None:
         """Initialize the client with configuration."""
@@ -106,7 +106,7 @@ class MLXLMClient:
         self.prompt_cache: PromptCache = PromptCache()
         self.system_fingerprint: str = get_system_fingerprint()
         self.created: int = int(time.time())
-        self.log_dir = log_dir
+        self.log_dir = log_dir or DEFAULT_LOG_DIR
 
         self.model = self.model_provider.model
         self.tokenizer: MLXTokenizer = self.model_provider.tokenizer
@@ -188,7 +188,10 @@ class MLXLMClient:
         # Generate prompt
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
         object_type: str = "chat.completion"
-        if tokenizer.chat_template:
+        if role_mapping:
+            prompt_str: str = convert_chat(messages, role_mapping)
+            prompt = tokenizer.encode(prompt_str)
+        elif tokenizer.chat_template:
             process_message_content(messages)
             prompt: List[int] = tokenizer.apply_chat_template(
                 messages,
@@ -197,9 +200,6 @@ class MLXLMClient:
                 # Switches between thinking and non-thinking modes. Default is True.
                 enable_thinking=False,
             )
-        else:
-            prompt_str: str = convert_chat(messages, role_mapping)
-            prompt = tokenizer.encode(prompt_str)
 
         # Generate completion
         response = self._generate_completion(
@@ -299,7 +299,10 @@ class MLXLMClient:
         # Generate prompt
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
         object_type: str = "chat.completion"
-        if tokenizer.chat_template:
+        if role_mapping:
+            prompt_str: str = convert_chat(messages, role_mapping)
+            prompt = tokenizer.encode(prompt_str)
+        elif tokenizer.chat_template:
             process_message_content(messages)
             prompt: List[int] = tokenizer.apply_chat_template(
                 messages,
@@ -308,9 +311,6 @@ class MLXLMClient:
                 # Switches between thinking and non-thinking modes. Default is True.
                 enable_thinking=False,
             )
-        else:
-            prompt_str: str = convert_chat(messages, role_mapping)
-            prompt = tokenizer.encode(prompt_str)
 
         # Stream completion
         for response in self._stream_generate_completion(

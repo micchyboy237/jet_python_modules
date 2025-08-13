@@ -53,6 +53,7 @@ class MLX:
             use_default_chat_template=use_default_chat_template,
             seed=seed,
             device=device,
+            log_dir=log_dir,
         )
         self.prompt_cache = self.client.prompt_cache
         self.system_fingerprint = self.client.system_fingerprint
