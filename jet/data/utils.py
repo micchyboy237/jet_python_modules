@@ -19,7 +19,7 @@ def generate_hash(*args, max_length=24, **kwargs):
     # Combine positional and keyword arguments into a single dict for hashing
     input_data = {"args": args, "kwargs": kwargs}
     item_str = json.dumps(input_data, sort_keys=True)
-    hash_key = hashlib.sha256(item_str.encode()).hexdigest()
+    hash_key = hashlib.sha256(item_str.encode("utf-8")).hexdigest()
     return hash_key[:max_length]
 
 
@@ -53,4 +53,4 @@ def generate_key(*args: Any, **kwargs: Any) -> str:
 
 def hash_text(text: str | list[str]) -> str:
     """Generate a unique hash for a given text input."""
-    return hashlib.sha256(json.dumps(text, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(text, sort_keys=True).encode("utf-8")).hexdigest()
