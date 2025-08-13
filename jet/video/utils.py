@@ -352,38 +352,6 @@ def is_done(video_id):
     return has_transcriptions(video_id) and not has_chunks(video_id)
 
 
-def main(video_id, chunk_length_s=300, overlap_s=10, video_codec_ext='mp4', audio_codec_ext='mp3', model_size="small"):
-    audio_dir = f'data/scrapers/audio/{video_id}'
-    chunk_dir = f'{audio_dir}/chunks'
-    transcription_dir = f'{audio_dir}/transcriptions'
-    video_path = f'{audio_dir}/video.mp4'
-    # Create chunk_dir and transcription_dir if they don't exist
-    if not os.path.exists(chunk_dir):
-        os.makedirs(chunk_dir)
-    if not os.path.exists(transcription_dir):
-        os.makedirs(transcription_dir)
-
-    if is_done(video_id):
-        print("Already done!")
-    else:
-        if not has_audio(video_id):
-            video_url = f'https://www.youtube.com/watch?v={video_id}'
-            if not has_video(video_id):
-                audio_path = download_audio(
-                    video_url, audio_dir, video_codec_ext)
-            else:
-                audio_path = video_path
-            audio_path = process_audio(audio_path)
-        else:
-            audio_path = video_path
-
-        # Split the audio file into chunks
-        split_audio_and_transcribe(
-            audio_path, chunk_length_s, overlap_s, audio_codec_ext, chunk_dir, transcription_dir, model_size)
-
-        print("Done transcribing all!")
-
-
 def deduplicate_transcription_list(transcription_list):
     seen_texts = set()
     deduplicated_list = []
@@ -582,6 +550,39 @@ def make_chunks_with_overlap(audio: AudioSegment, chunk_length_ms: int, overlap_
             f"Chunk {i+1}: start={start_ms}ms, end={end_ms}ms, duration={len(chunk)}ms")
         chunks.append(chunk)
     return chunks
+
+
+def main(video_id, chunk_length_s=300, overlap_s=10, video_codec_ext='mp4', audio_codec_ext='mp3', model_size="small"):
+    audio_dir = f'data/scrapers/audio/{video_id}'
+    chunk_dir = f'{audio_dir}/chunks'
+    transcription_dir = f'{audio_dir}/transcriptions'
+    video_path = f'{audio_dir}/video.mp4'
+    # Create chunk_dir and transcription_dir if they don't exist
+    if not os.path.exists(chunk_dir):
+        os.makedirs(chunk_dir)
+    if not os.path.exists(transcription_dir):
+        os.makedirs(transcription_dir)
+
+    if is_done(video_id):
+        print("Already done!")
+    else:
+        if not has_audio(video_id):
+            video_url = f'https://www.youtube.com/watch?v={video_id}'
+            if not has_video(video_id):
+                audio_path = download_audio(
+                    video_url, audio_dir, video_codec_ext)
+            else:
+                audio_path = video_path
+            audio_path = process_audio(audio_path)
+        else:
+            audio_path = video_path
+
+        # Split the audio file into chunks
+        split_audio_and_transcribe(
+            audio_path, chunk_length_s, overlap_s, audio_codec_ext, chunk_dir, transcription_dir, model_size)
+
+        print("Done transcribing all!")
+
 
 # if __name__ == '__main__':
 #     model_size = "small"
