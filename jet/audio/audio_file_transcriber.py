@@ -47,10 +47,12 @@ class AudioFileTranscriber:
             segments, _ = self.model.transcribe(
                 audio_data,
                 language="en",
-                beam_size=5,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500),
-                log_progress=True
+                beam_size=1,  # Optimize for speed
+                temperature=0,  # Deterministic output
+                # beam_size=5,
+                # vad_filter=True,
+                # vad_parameters=dict(min_silence_duration_ms=500),
+                # log_progress=True
             )
             transcription = " ".join(
                 segment.text for segment in segments).strip()

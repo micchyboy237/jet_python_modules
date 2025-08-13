@@ -1,6 +1,6 @@
 import sounddevice as sd
 import numpy as np
-from typing import Generator, Dict, Literal, Tuple, Optional
+from typing import Generator, Dict, Tuple, Optional
 from tqdm import tqdm
 from jet.audio.record_mic import SAMPLE_RATE, CHANNELS, DTYPE, detect_silence, calibrate_silence_threshold, save_wav_file
 from jet.logger import logger
@@ -137,39 +137,16 @@ def save_chunk(chunk: np.ndarray, chunk_index: int, cumulative_duration: float, 
     return chunk_filename, metadata
 
 
-# Dynamically fetch available input devices for Literal typing
-def get_available_input_devices() -> Tuple[str, ...]:
-    """Retrieve a tuple of available audio input device names."""
-    try:
-        devices = sd.query_devices()
-        input_devices = [device['name']
-                         for device in devices if device['max_input_channels'] > 0]
-        logger.debug(f"Available input devices: {input_devices}")
-        return tuple(input_devices)
-    except Exception as e:
-        logger.error(f"Failed to query input devices: {str(e)}")
-        return ()
-
-
 def stream_non_silent_audio(
     silence_threshold: Optional[float] = None,
     chunk_duration: float = 0.5,
     silence_duration: float = 2.0,
     min_chunk_duration: float = 1.0,
-    overlap_duration: float = 0.0,
-    device: Optional[str] = None,
+    overlap_duration: float = 0.0
 ) -> Generator[np.ndarray, None, None]:
     """
-    Stream non-silent audio chunks from the specified input device in real-time using a generator.
+    Stream non-silent audio chunks from microphone in real-time using a generator.
     Each chunk includes start overlap (from previous chunk) and end overlap (for next chunk).
-    Args:
-        silence_threshold: Energy threshold for silence detection (None to calibrate).
-        chunk_duration: Duration of each chunk in seconds.
-        silence_duration: Duration of silence to stop streaming in seconds.
-        min_chunk_duration: Minimum duration of a non-silent chunk in seconds.
-        overlap_duration: Duration of overlap between chunks in seconds.
-        device: Audio input device name (e.g., 'BlackHole 2ch', 'MacBook Pro Microphone').
-                If None, uses the system default input device.
     """
     silence_threshold = silence_threshold if silence_threshold is not None else calibrate_silence_threshold()
     chunk_size = int(SAMPLE_RATE * chunk_duration)
@@ -181,29 +158,16 @@ def stream_non_silent_audio(
     buffer = []
     buffer_samples = 0
     overlap_buffer = np.array([], dtype=DTYPE).reshape(0, CHANNELS)
-    available_devices = get_available_input_devices()
-    device_name = device if device is not None else sd.default.device['input']
-    if isinstance(device_name, int):
-        try:
-            device_name = sd.query_devices(device_name)['name']
-        except Exception as e:
-            logger.error(f"Failed to resolve default device index: {str(e)}")
-            raise ValueError("Invalid default input device")
-    if device is not None and device not in available_devices:
-        logger.error(
-            f"Specified device '{device}' not found in available devices: {available_devices}")
-        raise ValueError(f"Invalid input device: {device}")
     logger.info(
         f"Starting real-time audio streaming: {CHANNELS} channel{'s' if CHANNELS > 1 else ''}, "
         f"internal chunk duration {chunk_duration}s, min chunk duration {min_chunk_duration}s, "
         f"overlap duration {overlap_duration}s, silence threshold {silence_threshold:.6f}, "
-        f"silence duration {silence_duration}s, input device: {device_name}"
+        f"silence duration {silence_duration}s"
     )
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=CHANNELS,
         dtype=DTYPE,
-        device=device,
         blocksize=chunk_size
     )
     stream.start()
@@ -233,6 +197,7 @@ def stream_non_silent_audio(
                         )
                         yield yield_chunk
                         pbar.update(1)
+                        # Update overlap_buffer to include the last overlap_samples for the next chunk
                         overlap_buffer = yield_chunk[-overlap_samples:] if overlap_samples > 0 else np.array(
                             [], dtype=DTYPE).reshape(0, CHANNELS)
                         buffer = []

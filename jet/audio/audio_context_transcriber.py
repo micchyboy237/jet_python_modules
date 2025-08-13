@@ -5,7 +5,6 @@ import librosa
 import logging
 
 from typing import Optional, List, Tuple
-from faster_whisper import WhisperModel
 
 from jet.logger import logger
 from jet.models.model_registry.transformers.speech_to_text.whisper_model_registry import WhisperModelRegistry
@@ -64,34 +63,48 @@ class AudioContextTranscriber:
             audio_data, file_sample_rate = sf.read(file_path)
             logger.debug(
                 f"Loaded chunk {file_path}, sample rate: {file_sample_rate}, samples: {len(audio_data)}")
+            # Ensure audio_data is stereo
+            audio_data = ensure_stereo(audio_data)
             if self.sample_rate is not None and file_sample_rate != self.sample_rate:
                 logger.info(
                     f"Resampling chunk from {file_sample_rate} Hz to {self.sample_rate} Hz")
                 audio_data = librosa.resample(
                     audio_data, orig_sr=file_sample_rate, target_sr=self.sample_rate)
                 file_sample_rate = self.sample_rate
-            prev_audio = np.array([], dtype=np.float32)
+
+            # Initialize as empty 2D stereo
+            prev_audio = np.zeros((0, 2), dtype=np.float32)
             if prev_file_path and start_overlap_duration > 0:
                 prev_data, prev_sr = sf.read(prev_file_path)
                 if prev_sr != file_sample_rate:
                     prev_data = librosa.resample(
                         prev_data, orig_sr=prev_sr, target_sr=file_sample_rate)
+                # Ensure stereo for prev_audio
+                prev_data = ensure_stereo(prev_data)
                 start_overlap_samples = int(
                     start_overlap_duration * file_sample_rate)
                 prev_audio = prev_data[-start_overlap_samples:] if len(
                     prev_data) >= start_overlap_samples else prev_data
+                # Ensure stereo after slicing
+                prev_audio = ensure_stereo(prev_audio)
                 logger.debug(
                     f"Loaded {len(prev_audio)} samples from previous chunk {prev_file_path}")
-            next_audio = np.array([], dtype=np.float32)
+
+            # Initialize as empty 2D stereo
+            next_audio = np.zeros((0, 2), dtype=np.float32)
             if next_file_path and end_overlap_duration > 0:
                 next_data, next_sr = sf.read(next_file_path)
                 if next_sr != file_sample_rate:
                     next_data = librosa.resample(
                         next_data, orig_sr=next_sr, target_sr=file_sample_rate)
+                # Ensure stereo for next_audio
+                next_data = ensure_stereo(next_data)
                 end_overlap_samples = int(
                     end_overlap_duration * file_sample_rate)
                 next_audio = next_data[:end_overlap_samples] if len(
                     next_data) >= end_overlap_samples else next_data
+                # Ensure stereo after slicing
+                next_audio = ensure_stereo(next_audio)
                 logger.debug(
                     f"Loaded {len(next_audio)} samples from next chunk {next_file_path}")
             combined_audio = np.concatenate([prev_audio, audio_data, next_audio]) if (
@@ -107,10 +120,12 @@ class AudioContextTranscriber:
             segments, _ = self.model.transcribe(
                 combined_audio,
                 language="en",
-                beam_size=5,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500),
-                log_progress=True
+                beam_size=1,  # Optimize for speed
+                temperature=0,  # Deterministic output
+                # beam_size=5,
+                # vad_filter=True,
+                # vad_parameters=dict(min_silence_duration_ms=500),
+                # log_progress=True
             )
             start_overlap_samples = len(prev_audio)
             non_overlap_samples = len(audio_data)
