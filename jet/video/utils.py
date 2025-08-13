@@ -478,30 +478,6 @@ def combine_all(output_path):
         json.dump(transcriptions, json_file, indent=4, ensure_ascii=False)
 
 
-if __name__ == '__main__':
-    # 5 minutes chunks
-    model_size = "medium"
-    chunk_length_s = 300
-    overlap_s = 10
-    audio_codec_ext = 'mp3'
-
-    video_ids = [
-        'c2iZXYX_3UI',
-        'HSuFxLXnXDQ',
-        'Q4yRe7Bk1Uo',
-        '8UEHsTNLNhY',
-        'qWKMMvyizNI',
-        'ICN5TUg_P3U',
-        'UWeKxl_mI_8'
-    ]
-
-    for video_id in video_ids:
-        main(video_id, model_size=model_size)
-
-    combine_all(
-        'server/static/models/dost-asti-gpt2/base_model/datasets/conversations.json')
-
-
 def time_str_to_seconds(time_str: str):
     """Converts a time string in HH:MM:SS or MM:SS format to seconds."""
     parts = time_str.split(":")
@@ -582,6 +558,30 @@ def main(video_id, chunk_length_s=300, overlap_s=10, video_codec_ext='mp4', audi
             audio_path, chunk_length_s, overlap_s, audio_codec_ext, chunk_dir, transcription_dir, model_size)
 
         print("Done transcribing all!")
+
+
+if __name__ == '__main__':
+    # 5 minutes chunks
+    model_size = "medium"
+    chunk_length_s = 300
+    overlap_s = 10
+    audio_codec_ext = 'mp3'
+
+    video_ids = [
+        'c2iZXYX_3UI',
+        'HSuFxLXnXDQ',
+        'Q4yRe7Bk1Uo',
+        '8UEHsTNLNhY',
+        'qWKMMvyizNI',
+        'ICN5TUg_P3U',
+        'UWeKxl_mI_8'
+    ]
+
+    for video_id in video_ids:
+        main(video_id, model_size=model_size)
+
+    combine_all(
+        'server/static/models/dost-asti-gpt2/base_model/datasets/conversations.json')
 
 
 # if __name__ == '__main__':
