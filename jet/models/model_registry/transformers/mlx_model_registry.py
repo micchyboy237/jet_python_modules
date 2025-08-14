@@ -1,6 +1,8 @@
 from abc import ABC
 from typing import Optional, Dict, Literal, List, Iterator, TypedDict, Union
 from threading import Lock
+import uuid
+from jet.data.utils import generate_hash, generate_unique_hash
 from jet.llm.mlx.config import DEFAULT_MODEL
 from jet.logger import logger
 from pathlib import Path
@@ -45,6 +47,10 @@ class MLXModelRegistry(TransformersModelRegistry):
     _tokenizer_lock = Lock()  # Lock for thread-safe tokenizer caching
     _config_lock = Lock()  # Lock for thread-safe config caching
 
+    def __init__(self):
+        """Initialize the registry with a unique session ID."""
+        self.session_id = generate_unique_hash()
+
     @staticmethod
     def load_model(
         # Model Config
@@ -71,13 +77,34 @@ class MLXModelRegistry(TransformersModelRegistry):
         # Get the Singleton instance
         instance = MLXModelRegistry()
         resolved_model_id = resolve_model_value(model)
+        # Use instance session_id if none provided
+        effective_session_id = session_id if session_id is not None else instance.session_id
+        cache_key = generate_hash(
+            model=resolved_model_id,
+            adapter_path=adapter_path,
+            draft_model=draft_model,
+            trust_remote_code=trust_remote_code,
+            chat_template=chat_template,
+            use_default_chat_template=use_default_chat_template,
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host,
+            port=port,
+            overwrite_db=overwrite_db,
+            session_id=effective_session_id,
+            with_history=with_history,
+            seed=seed,
+            log_dir=log_dir,
+            device=device
+        )
         with instance._model_lock:
-            if resolved_model_id in instance._models:
+            if cache_key in instance._models:
                 logger.info(
-                    f"Reusing existing MLX model for model_id: {resolved_model_id}")
-                return instance._models[resolved_model_id]
+                    f"Reusing existing MLX model for cache_key: {cache_key}")
+                return instance._models[cache_key]
 
-        logger.info(f"Loading MLX model for model_id: {resolved_model_id}")
+        logger.info(f"Loading MLX model for cache_key: {cache_key}")
         try:
             model = instance._load_mlx_model(
                 model=resolved_model_id,
@@ -92,20 +119,20 @@ class MLXModelRegistry(TransformersModelRegistry):
                 host=host,
                 port=port,
                 overwrite_db=overwrite_db,
-                session_id=session_id,
+                session_id=effective_session_id,
                 with_history=with_history,
                 seed=seed,
                 log_dir=log_dir,
                 device=device,
             )
             with instance._model_lock:
-                instance._models[resolved_model_id] = model
+                instance._models[cache_key] = model
             return model
         except Exception as e:
             logger.error(
-                f"Failed to load MLX model {resolved_model_id}: {str(e)}")
+                f"Failed to load MLX model {cache_key}: {str(e)}")
             raise ValueError(
-                f"Could not load MLX model {resolved_model_id}: {str(e)}")
+                f"Could not load MLX model {cache_key}: {str(e)}")
 
     @staticmethod
     def get_tokenizer(model_id: LLMModelType) -> Optional[PreTrainedTokenizerBase]:
