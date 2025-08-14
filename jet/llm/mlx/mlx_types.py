@@ -272,7 +272,7 @@ EmbedModelValue = Literal[
     "sentence-transformers/allenai-specter",
     "sentence-transformers/distilbert-base-nli-stsb-mean-tokens",
     "sentence-transformers/paraphrase-MiniLM-L12-v2",
-    "tomaarsen/static-retrieval-mrl-en-v1"
+    "sentence-transformers/static-retrieval-mrl-en-v1"
 ]
 
 # Combined llm model type

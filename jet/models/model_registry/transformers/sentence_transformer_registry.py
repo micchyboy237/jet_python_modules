@@ -83,26 +83,26 @@ class SentenceTransformerRegistry(BaseModelRegistry):
 
     def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None, prompts: Optional[dict[str, str]] = None, **kwargs) -> Optional[SentenceTransformer]:
         try:
+            logger.warning(f"Loading embedding model on CPU (onnx)")
+            model_instance = SentenceTransformer(
+                model_id, device="cpu", backend="onnx", trust_remote_code=True, truncate_dim=truncate_dim, prompts=prompts,
+                # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
+            )
+        except Exception as e:
             device = "mps" if torch.backends.mps.is_available(
             ) else "cuda" if torch.cuda.is_available() else "cpu"
             logger.info(
                 f"Loading embedding model on {device.upper()}: {model_id}")
             model_instance = SentenceTransformer(
                 model_id, device=device, truncate_dim=truncate_dim, prompts=prompts,)
-        except Exception as e:
-            logger.warning(
-                f"Falling back to CPU (onnx) for embed model due to: {e}")
-            model_instance = SentenceTransformer(
-                model_id, device="cpu", backend="onnx", trust_remote_code=True, truncate_dim=truncate_dim, prompts=prompts,
-                # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
-            )
+
         return model_instance
 
     @staticmethod
-    def get_tokenizer() -> TokenizerWrapper:
+    def get_tokenizer(model_id: Optional[EmbedModelType] = None) -> TokenizerWrapper:
         instance = SentenceTransformerRegistry()
 
-        resolved_model_id = resolve_model_value(instance.model_id)
+        resolved_model_id = resolve_model_value(model_id or instance.model_id)
         if resolved_model_id in SentenceTransformerRegistry._tokenizers:
             logger.info(
                 f"Reusing tokenizer for model_id: {resolved_model_id}")
@@ -110,20 +110,22 @@ class SentenceTransformerRegistry(BaseModelRegistry):
 
         logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
 
-        tokenizer = instance._load_tokenizer()
+        # tokenizer = instance._load_tokenizer()
+        model = SentenceTransformerRegistry.load_model(resolved_model_id)
+        tokenizer = model.tokenizer
         SentenceTransformerRegistry._tokenizers[resolved_model_id] = tokenizer
         return tokenizer
 
-    def _load_tokenizer(self, **kwargs) -> TokenizerWrapper:
-        kwargs = {
-            "model_name_or_tokenizer": self.model_id,
-            "disable_cache": True,
-            "remove_pad_tokens": True,
-            "max_length": self.max_length,
-            **kwargs
-        }
-        tokenizer = get_tokenizer_fn(**kwargs)
-        return tokenizer
+    # def _load_tokenizer(self, **kwargs) -> TokenizerWrapper:
+    #     kwargs = {
+    #         "model_name_or_tokenizer": self.model_id,
+    #         "disable_cache": True,
+    #         "remove_pad_tokens": True,
+    #         "max_length": self.max_length,
+    #         **kwargs
+    #     }
+    #     tokenizer = get_tokenizer_fn(**kwargs)
+    #     return tokenizer
 
     @staticmethod
     def get_config() -> Optional[PretrainedConfig]:

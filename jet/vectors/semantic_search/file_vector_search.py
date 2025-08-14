@@ -1,3 +1,4 @@
+import fnmatch
 import re
 from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
 import os
@@ -9,6 +10,9 @@ from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 import logging
+
+from jet.transformers.formatters import format_json
+from jet.wordnet.text_chunker import chunk_texts_with_data
 
 DEFAULT_EMBED_MODEL: EmbedModelType = 'all-MiniLM-L6-v2'
 MAX_CONTENT_SIZE = 1000
@@ -42,12 +46,58 @@ def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     return dot_product / (norm_a * norm_b) if norm_a * norm_b != 0 else 0.0
 
 
+def get_matched_files(
+    paths: Union[str, List[str]],
+    extensions: Optional[List[str]] = None,
+    includes: Optional[List[str]] = None,
+    excludes: Optional[List[str]] = None
+) -> List[str]:
+    """
+    Collect file paths that match the specified extensions, includes, and excludes patterns.
+    Args:
+        paths: Single path or list of paths to scan
+        extensions: List of file extensions to include (e.g., ['.py', '.txt'])
+        includes: List of glob patterns to include
+        excludes: List of glob patterns to exclude
+    Returns:
+        List of file paths that match the criteria
+    """
+    matched_paths = []
+    path_list = [paths] if isinstance(paths, str) else paths
+
+    for path in path_list:
+        if not os.path.exists(path):
+            raise ValueError(f"Path {path} does not exist")
+        if os.path.isfile(path):
+            matched_paths.append(path)
+        else:
+            for root, _, files in os.walk(path):
+                for file_name in files:
+                    file_path = os.path.join(root, file_name)
+                    matched_paths.append(file_path)
+
+    # Filter paths based on extensions, includes, and excludes
+    filtered_paths = []
+    for file_path in matched_paths:
+        if extensions and not any(file_path.endswith(ext) for ext in extensions):
+            continue
+        if includes and not any(fnmatch.fnmatch(file_path, pattern) for pattern in includes):
+            continue
+        if excludes and any(fnmatch.fnmatch(file_path, pattern) for pattern in excludes):
+            continue
+        filtered_paths.append(file_path)
+
+    return filtered_paths
+
+
 def collect_file_chunks(
     paths: Union[str, List[str]],
     extensions: List[str] = None,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
-    tokenizer: Optional[Callable[[str], int]] = None
+    tokenizer: Optional[Callable[[str], int]] = None,
+    includes: Optional[List[str]] = None,
+    excludes: Optional[List[str]] = None
 ) -> Tuple[List[str], List[str], List[str], List[Tuple[str, str, int, int, int]]]:
     """
     Collect chunked contents for each file along with file paths, names, dirs, and token counts.
@@ -57,6 +107,8 @@ def collect_file_chunks(
         chunk_size: Size of content chunks
         chunk_overlap: Overlap between chunks
         tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
+        includes: List of glob patterns to include
+        excludes: List of glob patterns to exclude
     Returns:
         Tuple of (file_paths, file_names, parent_dirs, contents_with_indices)
         where contents_with_indices = List of (file_path, content_chunk, start_idx, end_idx, num_tokens)
@@ -64,38 +116,42 @@ def collect_file_chunks(
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
-
-    file_paths, file_names, parent_dirs = [], [], []
+    file_paths = get_matched_files(paths, extensions, includes, excludes)
+    file_names = []
+    parent_dirs = []
     contents_with_indices = []
-    path_list = [paths] if isinstance(paths, str) else paths
-    for path in path_list:
-        if not os.path.exists(path):
-            raise ValueError(f"Path {path} does not exist")
-        paths_to_scan = [path] if os.path.isfile(path) else [
-            os.path.join(root, f)
-            for root, _, files in os.walk(path)
-            for f in files
-        ]
-        for file_path in paths_to_scan:
-            if extensions and not any(file_path.lower().endswith(ext) for ext in extensions):
-                continue
-            file_path_obj = Path(file_path)
-            file_paths.append(file_path)
-            file_names.append(file_path_obj.name.lower())
-            parent_dirs.append(file_path_obj.parent.name.lower() or "root")
-            try:
-                if file_path_obj.suffix.lower() in {'.txt', '.py', '.md', '.json', '.csv'}:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        full_content = f.read().lower()
-                        for start in range(0, len(full_content), chunk_size - chunk_overlap):
-                            chunk = full_content[start:start + chunk_size]
-                            if chunk.strip():
-                                end = start + len(chunk)
-                                num_tokens = tokenizer(chunk)  # Count tokens
-                                contents_with_indices.append(
-                                    (file_path, chunk, start, end, num_tokens))
-            except (UnicodeDecodeError, IOError):
-                continue
+
+    for file_path in file_paths:
+        file_path_obj = Path(file_path)
+        file_names.append(file_path_obj.name)
+        parent_dirs.append(file_path_obj.parent.name or "root")
+        try:
+            if file_path_obj.suffix in {'.txt', '.py', '.md', '.json', '.csv'}:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    full_content = f.read()
+                # Use chunk_texts_with_data for chunking
+                chunks = chunk_texts_with_data(
+                    texts=[full_content],
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    model=None,  # Using default word-based tokenization
+                    doc_ids=[file_path],  # Use file_path as doc_id
+                    buffer=0
+                )
+                # Map ChunkResult to contents_with_indices format
+                for chunk in chunks:
+                    contents_with_indices.append(
+                        (
+                            file_path,
+                            chunk['content'],
+                            chunk['start_idx'],
+                            chunk['end_idx'],
+                            chunk['num_tokens']
+                        )
+                    )
+        except (UnicodeDecodeError, IOError):
+            continue
+
     return file_paths, file_names, parent_dirs, contents_with_indices
 
 
@@ -144,7 +200,6 @@ def merge_results(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
 
-    logger.debug(f"Starting merge_results with {len(results)} results")
     # Group results by file_path
     grouped: dict[str, List[FileSearchResult]] = {}
     for result in results:
@@ -157,7 +212,6 @@ def merge_results(
     for file_path, chunks in grouped.items():
         # Sort chunks by start_idx to ensure correct order
         chunks.sort(key=lambda x: x["metadata"]["start_idx"])
-        logger.debug(f"Processing file: {file_path}, {len(chunks)} chunks")
 
         current_chunk = chunks[0]
         merged_code = current_chunk["code"]
@@ -169,23 +223,17 @@ def merge_results(
         content_sims = [current_chunk["metadata"]["content_similarity"]]
         chunk_count = 1
         tokens = tokenizer(merged_code)
-        logger.debug(
-            f"Initial chunk: start_idx={start_idx}, end_idx={end_idx}, code='{merged_code}', tokens={tokens}")
 
         for next_chunk in chunks[1:]:
             next_start = next_chunk["metadata"]["start_idx"]
             next_end = next_chunk["metadata"]["end_idx"]
             next_code = next_chunk["code"]
-            logger.debug(
-                f"Next chunk: start_idx={next_start}, end_idx={next_end}, code='{next_code}'")
             # Check if chunks are adjacent or overlapping
             if next_start <= end_idx:
                 # Extend the merged content
                 new_end = max(end_idx, next_end)
                 overlap = end_idx - next_start
                 additional_content = next_code[overlap:] if overlap > 0 else next_code
-                logger.debug(
-                    f"Merging: overlap={overlap}, additional_content='{additional_content}'")
                 merged_code += additional_content
                 end_idx = new_end
                 total_score += next_chunk["score"]
@@ -193,8 +241,6 @@ def merge_results(
                     next_chunk["metadata"]["content_similarity"])
                 chunk_count += 1
                 tokens = tokenizer(merged_code)
-                logger.debug(
-                    f"After merge: merged_code='{merged_code}', tokens={tokens}")
             else:
                 # Finalize current merged chunk
                 avg_score = total_score / chunk_count
@@ -214,8 +260,6 @@ def merge_results(
                     },
                     "code": merged_code,
                 })
-                logger.debug(
-                    f"Finalized chunk: start_idx={start_idx}, end_idx={end_idx}, tokens={tokens}")
                 # Start new merged chunk
                 current_chunk = next_chunk
                 merged_code = current_chunk["code"]
@@ -228,8 +272,6 @@ def merge_results(
                                 ["content_similarity"]]
                 chunk_count = 1
                 tokens = tokenizer(merged_code)
-                logger.debug(
-                    f"New chunk started: start_idx={start_idx}, end_idx={end_idx}, code='{merged_code}', tokens={tokens}")
 
         # Append the last merged chunk for this file
         avg_score = total_score / chunk_count
@@ -249,14 +291,11 @@ def merge_results(
             },
             "code": merged_code,
         })
-        logger.debug(
-            f"Appended final chunk: start_idx={start_idx}, end_idx={end_idx}, tokens={tokens}")
 
     # Re-sort by score to maintain ranking
     merged_results.sort(key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(merged_results, 1):
         result["rank"] = i
-    logger.debug(f"Merged results: {len(merged_results)} results")
 
     return merged_results
 
@@ -265,28 +304,32 @@ def search_files(
     paths: Union[str, List[str]],
     query: str,
     extensions: Optional[List[str]] = None,
-    top_k: int = 5,
+    top_k: Optional[int] = None,
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     threshold: float = 0.0,
     tokenizer: Optional[Callable[[str], int]] = None,
-    split_chunks: bool = False
+    split_chunks: bool = False,
+    includes: Optional[List[str]] = None,
+    excludes: Optional[List[str]] = None
 ) -> Iterator[FileSearchResult]:
     """
     Search files using vector similarity on chunked contents + file metadata.
-    Yields up to top_k results iteratively that meet the threshold.
+    Yields up to top_k results iteratively that meet the threshold, or all results if top_k is None.
     Args:
         paths: Single path or list of paths to search
         query: Search query string
         extensions: List of file extensions to include
-        top_k: Maximum number of results to yield
+        top_k: Maximum number of results to yield, or None to yield all results
         embed_model: Embedding model to use
         chunk_size: Size of content chunks
         chunk_overlap: Overlap between chunks
         threshold: Minimum similarity score for results
         tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
         split_chunks: If True, return individual chunks; if False, merge adjacent chunks from the same file.
+        includes: List of glob patterns to include
+        excludes: List of glob patterns to exclude
     Returns:
         Iterator of FileSearchResult dictionaries (ranked by similarity)
     """
@@ -296,21 +339,25 @@ def search_files(
     tokenizer = tokenizer or default_tokenizer
 
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
-        paths, extensions, chunk_size, chunk_overlap, tokenizer)
+        paths, extensions, chunk_size, chunk_overlap, tokenizer, includes, excludes)
+    logger.debug(f"Parent dirs:\n\n{format_json(parent_dirs)}")
+    logger.debug(f"File names:\n\n{format_json(file_names)}")
+    logger.debug(f"File paths:\n\n{format_json(file_paths)}")
+
     if not chunk_data:
         return
     unique_files = list(dict.fromkeys(file_paths))
-    name_texts = [Path(p).name.lower() for p in unique_files]
-    dir_texts = [Path(p).parent.name.lower() or "root" for p in unique_files]
+    name_texts = [Path(p).name for p in unique_files]
+    dir_texts = [Path(p).parent.name or "root" for p in unique_files]
     chunk_texts = [chunk for _, chunk, _, _, _ in chunk_data]
-    all_texts = [query] + name_texts + dir_texts + chunk_texts
     logger.info(
-        f"Generating embeddings for {len(all_texts)} texts:\n"
+        f"Generating embeddings for {len(name_texts + dir_texts + chunk_texts) + 1} texts:\n"
         f"  1 query\n"
         f"  {len(name_texts)} names\n"
         f"  {len(dir_texts)} dirs\n"
         f"  {len(chunk_texts)} chunks"
     )
+    all_texts = [query] + name_texts + dir_texts + chunk_texts
     all_vectors = generate_embeddings(
         all_texts,
         embed_model,
@@ -353,6 +400,7 @@ def search_files(
     results.sort(key=lambda x: x["score"], reverse=True)
     if not split_chunks:
         results = merge_results(results, tokenizer)
-    for i, result in enumerate(results[:top_k], 1):
+    # Yield all results if top_k is None, otherwise limit to top_k
+    for i, result in enumerate(results if top_k is None else results[:top_k], 1):
         result["rank"] = i
         yield result

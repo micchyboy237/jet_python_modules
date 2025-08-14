@@ -19,7 +19,7 @@ def download_tokenizer_files(repo_id, cache_dir):
 
 
 # Configuration
-repo_id = "tomaarsen/static-retrieval-mrl-en-v1"
+repo_id = "sentence-transformers/static-retrieval-mrl-en-v1"
 cache_dir = MODELS_CACHE_DIR
 
 # Download tokenizer files

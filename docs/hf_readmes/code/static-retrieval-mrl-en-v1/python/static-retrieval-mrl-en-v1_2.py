@@ -1,6 +1,7 @@
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("tomaarsen/static-retrieval-mrl-en-v1", truncate_dim=256)
+model = SentenceTransformer(
+    "sentence-transformers/static-retrieval-mrl-en-v1", truncate_dim=256).to("cpu")
 embeddings = model.encode([
     "what is the difference between chronological order and spatial order?",
     "can lavender grow indoors?"
