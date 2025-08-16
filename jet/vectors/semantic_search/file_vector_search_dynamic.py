@@ -1,8 +1,9 @@
-from nltk.stem import PorterStemmer
 import os
 import re
 import nltk
+import fnmatch
 import numpy as np
+from nltk.stem import PorterStemmer
 from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
 from sentence_transformers import CrossEncoder
 from rank_bm25 import BM25Okapi
@@ -189,10 +190,6 @@ def compute_dynamic_weights(
         ps.stem(word) for word in file_name.replace('_', ' ').split() if word}
     stemmed_dir_name = {ps.stem(word)
                         for word in dir_name.replace('_', ' ').split() if word}
-    logger.debug(
-        f"Query tokens: {query_tokens}, stemmed: {stemmed_query_tokens}, file_name: {file_name}, dir_name: {dir_name}")
-    logger.debug(
-        f"Stemmed file_name: {stemmed_file_name}, stemmed dir_name: {stemmed_dir_name}")
 
     # Match if stemmed tokens overlap or if short tokens are likely abbreviations
     def is_likely_abbreviation(short_token: str, long_token: str) -> bool:
@@ -217,10 +214,6 @@ def compute_dynamic_weights(
     metadata_weight = 0.1
 
     total = name_weight + dir_weight + content_weight + metadata_weight
-    logger.debug(
-        f"Raw weights: name={name_weight}, dir={dir_weight}, content={content_weight}, metadata={metadata_weight}, total={total}")
-    logger.debug(
-        f"Normalized weights: name={name_weight/total}, dir={dir_weight/total}, content={content_weight/total}, metadata={metadata_weight/total}")
     return (
         name_weight / total,
         dir_weight / total,
@@ -246,29 +239,20 @@ def compute_hybrid_similarity(
     dir_sim = cosine_similarity(query_vector, dir_vector)
     content_sim = cosine_similarity(query_vector, content_vector)
     metadata_sim = cosine_similarity(query_vector, metadata_vector)
-    logger.debug(
-        f"Similarities: name={name_sim}, dir={dir_sim}, content={content_sim}, metadata={metadata_sim}")
 
     bm25 = BM25Okapi(tokenized_corpus)
     tokenized_query = word_tokenize(query.lower())
     bm25_scores = bm25.get_scores(tokenized_query)
-    logger.debug(
-        f"BM25 scores: {bm25_scores}, selected score: {bm25_scores[corpus_index]}")
     bm25_range = max(bm25_scores) - min(bm25_scores)
     bm25_score = (bm25_scores[corpus_index] - min(bm25_scores)) / \
         (bm25_range + 1e-10) if bm25_range > 0 else 0.0
-    logger.debug(f"Normalized BM25 score: {bm25_score}")
 
     raw_cross_encoder_score = cross_encoder.predict([(query, content)])[0]
     # Normalize cross-encoder score to [0, 1] using sigmoid
     cross_encoder_score = 1 / (1 + np.exp(-raw_cross_encoder_score))
-    logger.debug(
-        f"Raw cross-encoder score: {raw_cross_encoder_score}, normalized: {cross_encoder_score}")
 
     name_weight, dir_weight, content_weight, metadata_weight = compute_dynamic_weights(
         query, file_path, content)
-    logger.debug(
-        f"Weights: name={name_weight}, dir={dir_weight}, content={content_weight}, metadata={metadata_weight}")
 
     weighted_sim = (
         name_weight * name_sim +
@@ -278,7 +262,6 @@ def compute_hybrid_similarity(
         0.2 * cross_encoder_score +
         0.1 * bm25_score
     )
-    logger.debug(f"Weighted similarity: {weighted_sim}")
     return weighted_sim, name_sim, dir_sim, content_sim, metadata_sim, cross_encoder_score, bm25_score
 
 
@@ -414,8 +397,6 @@ def merge_results(
     merged_results.sort(key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(merged_results, 1):
         result["rank"] = i
-    logger.debug(
-        f"Merged results: {[r['metadata']['file_path'] for r in merged_results]}")
     return merged_results
 
 
@@ -440,10 +421,7 @@ def search_files(
     cross_encoder = CrossEncoderRegistry.load_model(rerank_model)
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
         paths, extensions, chunk_size, chunk_overlap, tokenizer, includes, excludes)
-    logger.debug(
-        f"Collected chunks: {[(fp, chunk[:20] + '...', start, end, tokens) for fp, chunk, start, end, tokens in chunk_data]}")
     if not chunk_data:
-        logger.debug("No chunks collected")
         return
     unique_files = list(dict.fromkeys(file_paths))
     metadata_texts = [f"{Path(p).suffix} {Path(p).name}" for p in unique_files]
@@ -486,7 +464,6 @@ def search_files(
             content_vectors[i], metadata_vectors[file_index], tokenized_corpus, i,
             cross_encoder, file_path, chunk
         )
-        logger.debug(f"Chunk {i} for {file_path}: weighted_sim={weighted_sim}, name_sim={name_sim}, dir_sim={dir_sim}, content_sim={content_sim}, metadata_sim={metadata_sim}, cross_encoder={cross_encoder_score}, bm25={bm25_score}")
         if weighted_sim >= threshold:
             chunk_counts[file_path] = chunk_counts.get(file_path, -1) + 1
             result = {
@@ -507,19 +484,10 @@ def search_files(
                 },
                 "code": chunk,
             }
-            logger.debug(
-                f"Adding result for {file_path}, weighted_sim={weighted_sim}")
             results.append(result)
-        else:
-            logger.debug(
-                f"Excluding chunk for {file_path}, weighted_sim={weighted_sim} < threshold={threshold}")
-    logger.debug(f"Before sorting: {len(results)} results")
     results.sort(key=lambda x: x["score"], reverse=True)
     if not split_chunks:
         results = merge_results(results, tokenizer)
-    logger.debug(f"After merging: {len(results)} results")
     for i, result in enumerate(results if top_k is None else results[:top_k], 1):
         result["rank"] = i
-        logger.debug(
-            f"Final result {i}: {result['metadata']['file_path']}, score={result['score']}")
         yield result
