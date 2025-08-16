@@ -50,10 +50,11 @@ def pos_tag_spacy(sentence, model: str = spacy_model):
 
 
 def split_words(text: str) -> list[str]:
-    # Updated regex to handle cases like "A.F.&A.M."
-    # This pattern matches words that start and end with an alphanumeric character,
-    # including words with hyphens, apostrophes, periods, and ampersands in the middle
-    return re.findall(r"(\b[\w'.&-]+\b)", text)
+    # Preprocess to replace '/' and '|' with spaces to explicitly split words
+    text = text.replace("/", " ").replace("|", " ")
+    # Use regex to handle cases like "A.F.&A.M." and match words with hyphens, apostrophes, periods, and ampersands
+    pattern = r"(\b[\w'.&-]+\b)"
+    return re.findall(pattern, text)
 
 
 def get_words(

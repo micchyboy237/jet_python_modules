@@ -128,6 +128,12 @@ def get_bm25_similarities(
         term_frequencies = Counter(doc)
         score = 0
         matched: Dict[str, int] = {}
+        metadata_text = ""
+
+        # Stringify metadata values if provided
+        if metadatas is not None and metadatas[idx]:
+            metadata_text = " ".join(str(value)
+                                     for value in metadatas[idx].values())
 
         for query in queries:
             query_terms = get_words(query)
@@ -138,10 +144,12 @@ def get_bm25_similarities(
                     terms_present = False
                     break
 
-            # Count exact phrase occurrences in the original document text
+            # Count exact phrase occurrences in the original document text and metadata
             pattern = re.compile(
                 r'\b' + re.escape(query) + r'\b', re.IGNORECASE)
             match_count = len(pattern.findall(original_documents[idx]))
+            if metadata_text:
+                match_count += len(pattern.findall(metadata_text))
             if match_count > 0:  # Only include queries with non-zero matches
                 matched[query] = match_count
 
