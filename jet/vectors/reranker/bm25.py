@@ -39,7 +39,7 @@ class SimilarityResult(TypedDict):
     similarity: Optional[float]  # Raw BM25 similarity score
     text: str  # The document's content/text
     matched: dict[str, int]  # Query match counts
-    metadata: Optional[Dict]
+    metadata: Dict
 
 
 class SimilarityResultOld(TypedDict):
@@ -164,7 +164,7 @@ def get_bm25_similarities(
             "similarity": score,
             "matched": matched,
             "text": original_documents[idx],
-            "metadata": metadatas[idx] if metadatas is not None else None
+            "metadata": metadatas[idx] if metadatas is not None else {}
         }
         all_scores.append(result)
 
