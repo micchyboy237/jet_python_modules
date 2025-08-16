@@ -1,6 +1,6 @@
 from typing import Any, AsyncGenerator, Iterator, Mapping, Optional, Sequence, Union, cast
 from pydantic import BaseModel
-from autogen_core.models import ChatCompletionClient, CreateResult, LLMMessage, ModelInfo, RequestUsage, ModelCapabilities
+from autogen_core.models import ChatCompletionClient, CreateResult, LLMMessage, ModelInfo, RequestUsage, ModelCapabilities, FinishReasons
 from autogen_core.tools import Tool, ToolSchema
 from autogen_core import CancellationToken
 from jet.llm.mlx.base import MLX
@@ -53,7 +53,6 @@ class MLXChatCompletionClient(ChatCompletionClient):
     ) -> CreateResult:
         """Create a single chat completion response."""
         from autogen_core.models import SystemMessage, UserMessage, AssistantMessage
-
         mlx_tools = [
             {
                 "type": "function",
@@ -70,8 +69,7 @@ class MLXChatCompletionClient(ChatCompletionClient):
                 "role": (
                     "system" if isinstance(msg, SystemMessage) else
                     "user" if isinstance(msg, UserMessage) else
-                    "assistant" if isinstance(msg, AssistantMessage) else
-                    msg.role
+                    "assistant"
                 ),
                 "content": msg.content
             }
@@ -84,7 +82,6 @@ class MLXChatCompletionClient(ChatCompletionClient):
         if system_prompt:
             mlx_messages = [
                 msg for msg in mlx_messages if msg["role"] != "system"]
-
         create_args = {
             "messages": mlx_messages,
             "tools": mlx_tools if mlx_tools else None,
@@ -99,21 +96,18 @@ class MLXChatCompletionClient(ChatCompletionClient):
             "log_dir": extra_create_args.get("log_dir", None),
             "verbose": extra_create_args.get("verbose", False),
         }
-
         response = self.mlx_client.chat(**create_args)
-
         choice = response.get("choices", [{}])[0]
         message = choice.get("message", {})
         content = message.get("content", "")
         tool_calls = message.get("tool_calls", None)
-
         function_calls = []
         if tool_calls:
             for call in tool_calls:
                 function = call.get("function", {})
                 function_calls.append(
                     {
-                        "id": call.get("id", ""),
+                        # "id": call.get("id", ""),
                         "function": {
                             "name": function.get("name", ""),
                             "arguments": function.get("arguments", ""),
@@ -121,21 +115,23 @@ class MLXChatCompletionClient(ChatCompletionClient):
                         "type": "function",
                     }
                 )
-
         prompt_tokens = self.mlx_client.count_tokens(messages)
         completion_tokens = self.mlx_client.count_tokens(content)
         self._usage = RequestUsage(
             prompt_tokens=self._usage.prompt_tokens + prompt_tokens,
             completion_tokens=self._usage.completion_tokens + completion_tokens,
         )
-
+        finish_reason: FinishReasons = "function_calls" if function_calls else "stop"
         return CreateResult(
             content=content,
-            function_calls=function_calls,
             usage=RequestUsage(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             ),
+            finish_reason=finish_reason,
+            cached=False,
+            logprobs=None,
+            thought=None,
         )
 
     async def create_stream(
@@ -150,7 +146,6 @@ class MLXChatCompletionClient(ChatCompletionClient):
     ) -> AsyncGenerator[Union[str, CreateResult], None]:
         """Create a stream of chat completion responses."""
         from autogen_core.models import SystemMessage, UserMessage, AssistantMessage
-
         mlx_tools = [
             {
                 "type": "function",
@@ -167,8 +162,7 @@ class MLXChatCompletionClient(ChatCompletionClient):
                 "role": (
                     "system" if isinstance(msg, SystemMessage) else
                     "user" if isinstance(msg, UserMessage) else
-                    "assistant" if isinstance(msg, AssistantMessage) else
-                    msg.role
+                    "assistant"
                 ),
                 "content": msg.content
             }
@@ -181,7 +175,6 @@ class MLXChatCompletionClient(ChatCompletionClient):
         if system_prompt:
             mlx_messages = [
                 msg for msg in mlx_messages if msg["role"] != "system"]
-
         create_args = {
             "messages": mlx_messages,
             "tools": mlx_tools if mlx_tools else None,
@@ -196,11 +189,9 @@ class MLXChatCompletionClient(ChatCompletionClient):
             "log_dir": extra_create_args.get("log_dir", None),
             "verbose": extra_create_args.get("verbose", False),
         }
-
         prompt_tokens = self.mlx_client.count_tokens(messages)
         completion_tokens = 0
         content = ""
-
         for response in self.mlx_client.stream_chat(**create_args):
             choice = response.get("choices", [{}])[0]
             message = choice.get("message", {})
@@ -208,7 +199,6 @@ class MLXChatCompletionClient(ChatCompletionClient):
             content += chunk_content
             completion_tokens += self.mlx_client.count_tokens(chunk_content)
             yield chunk_content
-
         tool_calls = message.get("tool_calls", None)
         function_calls = []
         if tool_calls:
@@ -216,7 +206,6 @@ class MLXChatCompletionClient(ChatCompletionClient):
                 function = call.get("function", {})
                 function_calls.append(
                     {
-                        "id": call.get("id", ""),
                         "function": {
                             "name": function.get("name", ""),
                             "arguments": function.get("arguments", ""),
@@ -224,12 +213,11 @@ class MLXChatCompletionClient(ChatCompletionClient):
                         "type": "function",
                     }
                 )
-
         self._usage = RequestUsage(
             prompt_tokens=self._usage.prompt_tokens + prompt_tokens,
             completion_tokens=self._usage.completion_tokens + completion_tokens,
         )
-
+        finish_reason: FinishReasons = "function_calls" if function_calls else "stop"
         yield CreateResult(
             content=content,
             function_calls=function_calls,
@@ -237,6 +225,10 @@ class MLXChatCompletionClient(ChatCompletionClient):
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             ),
+            finish_reason=finish_reason,
+            cached=False,
+            logprobs=None,
+            thought=None,
         )
 
     async def close(self) -> None:

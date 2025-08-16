@@ -32,6 +32,10 @@ class CustomLogger:
         fmt: Union[str, logging.Formatter] = "%(message)s",
     ):
         self.log_file = log_file
+        if self.log_file:
+            log_dir = os.path.dirname(os.path.abspath(self.log_file))
+            os.makedirs(log_dir, exist_ok=True)
+
         self.name = name
         self.overwrite = overwrite
         self.console_level = console_level.upper()
