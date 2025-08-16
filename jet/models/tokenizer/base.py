@@ -1,8 +1,8 @@
+import inspect
+import numpy as np
+import tokenizers
 from typing import Any, Callable, Dict, Iterator, Optional, TypedDict, Union, List
 from pathlib import Path
-import numpy as np
-import logging
-import tokenizers
 from transformers import AutoTokenizer, PreTrainedTokenizerBase, PreTrainedTokenizerFast
 from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR
@@ -93,12 +93,21 @@ class TokenizerWrapper:
 
         encode_kwargs = {
             'add_special_tokens': self.add_special_tokens,
-            'max_length': self.max_length,
-            'truncation': kwargs.get('truncation', self.truncation),
-            'return_tensors': None
         }
+        # Check if the tokenizer's encode method accepts max_length, truncation, and return_tensors
+        encode_signature = inspect.signature(self.tokenizer.encode)
+        if 'max_length' in encode_signature.parameters and self.max_length is not None:
+            encode_kwargs['max_length'] = self.max_length
+        if 'truncation' in encode_signature.parameters:
+            encode_kwargs['truncation'] = kwargs.get(
+                'truncation', self.truncation)
+        if 'return_tensors' in encode_signature.parameters:
+            encode_kwargs['return_tensors'] = None
         encode_kwargs.update(kwargs)
-        token_ids = self.tokenizer.encode(text, **encode_kwargs)
+        encoding = self.tokenizer.encode(text, **encode_kwargs)
+        # Handle tokenizers.Encoding objects
+        token_ids = encoding.ids if isinstance(
+            encoding, tokenizers.Encoding) else encoding
         wrapped_encoding = EncodingWrapper(token_ids, self.tokenizer)
         if self.remove_pad_tokens and self.pad_token_id is not None:
             wrapped_encoding._ids = [
@@ -115,14 +124,25 @@ class TokenizerWrapper:
 
         encode_kwargs = {
             'add_special_tokens': self.add_special_tokens,
-            'max_length': self.max_length,
-            'truncation': kwargs.get('truncation', self.truncation),
-            'return_tensors': None
         }
+        # Check if the tokenizer's encode method accepts max_length, truncation, and return_tensors
+        encode_signature = inspect.signature(self.tokenizer.encode)
+        if 'max_length' in encode_signature.parameters and self.max_length is not None:
+            encode_kwargs['max_length'] = self.max_length
+        if 'truncation' in encode_signature.parameters:
+            encode_kwargs['truncation'] = kwargs.get(
+                'truncation', self.truncation)
+        if 'return_tensors' in encode_signature.parameters:
+            encode_kwargs['return_tensors'] = None
         encode_kwargs.update(kwargs)
-        token_ids_list = [
+        encodings = [
             self.tokenizer.encode(text, **encode_kwargs)
             for text in texts
+        ]
+        # Handle tokenizers.Encoding objects
+        token_ids_list = [
+            enc.ids if isinstance(enc, tokenizers.Encoding) else enc
+            for enc in encodings
         ]
         wrapped_encodings = [EncodingWrapper(
             ids, self.tokenizer) for ids in token_ids_list]

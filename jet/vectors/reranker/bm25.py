@@ -39,6 +39,7 @@ class SimilarityResult(TypedDict):
     similarity: Optional[float]  # Raw BM25 similarity score
     text: str  # The document's content/text
     matched: dict[str, int]  # Query match counts
+    metadata: Optional[Dict]
 
 
 class SimilarityResultOld(TypedDict):
@@ -55,15 +56,6 @@ class SimilarityRequestData(TypedDict):
     data_file: str
 
 
-# class SimilarityDataItem(TypedDict):
-#     id: str
-#     score: float
-#     similarity: Optional[float]
-#     words: int
-#     matched: dict[str, int]
-#     text: str
-
-
 class SimilarityResultData(TypedDict):
     queries: list[str]
     count: int
@@ -71,38 +63,22 @@ class SimilarityResultData(TypedDict):
     data: List[SimilarityResult]
 
 
-def rerank_bm25(query: str, documents: List[str], ids: list[str]) -> Tuple[List[str], List[SimilarityResult]]:
+def rerank_bm25(query: str, documents: List[str], ids: Optional[List[str]] = None, metadatas: Optional[List[Dict]] = None) -> Tuple[List[str], List[SimilarityResult]]:
     query_candidates = extract_query_candidates(query)
-    results = get_bm25_similarities(query_candidates, documents, ids=ids)
+    results = get_bm25_similarities(
+        query_candidates, documents, ids=ids, metadatas=metadatas)
     return query_candidates, results
-
-# def rerank_bm25(queries: list[str], sentences: list[str], ids: list[str]) -> SimilarityResultData:
-#     """Processes BM25+ similarity search by handling cache, cleaning data, generating n-grams, and computing similarities."""
-#     if not queries:  # Handle empty queries explicitly
-#         return {
-#             "queries": queries,
-#             "count": 0,
-#             "matched": {},
-#             "data": [],
-#         }
-#     similarity_results = get_bm25_similarities(queries, sentences, ids=)
-#     similarity_results = [
-#         result for result in similarity_results if result["matched"]]
-#     matched = {query.lower(): 0 for query in queries}
-#     for result in similarity_results:
-#         result_matched = result["matched"]
-#         for match_query, match in result_matched.items():
-#             matched[match_query] += 1
-#     return {
-#         "queries": queries,
-#         "count": len(similarity_results),
-#         "matched": matched,
-#         "data": similarity_results,
-#     }
 
 
 def get_bm25_similarities(
-    queries: List[str], documents: List[str], *, ids: Optional[List[str]] = None, k1=1.2, b=0.75, delta=1.0
+    queries: List[str],
+    documents: List[str],
+    *,
+    ids: Optional[List[str]] = None,
+    metadatas: Optional[List[Dict]] = None,
+    k1: float = 1.2,
+    b: float = 0.75,
+    delta: float = 1.0
 ) -> List[SimilarityResult]:
     """
     Compute BM25+ similarities between queries and a list of documents.
@@ -110,13 +86,14 @@ def get_bm25_similarities(
     Args:
         queries (List[str]): List of query strings.
         documents (List[str]): List of document strings.
-        ids (List[str]): List of document ids corresponding to the documents.
+        ids (Optional[List[str]]): Optional list of document IDs corresponding to the documents.
+        metadatas (Optional[List[Dict]]): Optional list of metadata dictionaries corresponding to the documents.
         k1 (float): Term frequency scaling factor.
         b (float): Length normalization parameter.
         delta (float): BM25+ correction factor to reduce the bias against short documents.
 
     Returns:
-        List[SimilarityResult]: A list of similarity results with rank, scores, and match details.
+        List[SimilarityResult]: A list of similarity results with rank, scores, match details, and optional metadata.
     """
     if not queries or not documents:
         raise ValueError("queries and documents must not be empty")
@@ -125,6 +102,9 @@ def get_bm25_similarities(
         ids = [generate_unique_hash() for _ in documents]
     elif len(documents) != len(ids):
         raise ValueError("documents and ids must have the same lengths")
+
+    if metadatas is not None and len(documents) != len(metadatas):
+        raise ValueError("documents and metadatas must have the same lengths")
 
     original_documents = documents  # Store original documents
     documents = preprocess_texts(documents)
@@ -151,7 +131,6 @@ def get_bm25_similarities(
 
         for query in queries:
             query_terms = get_words(query)
-            query_score = 0
             terms_present = True
 
             for term in query_terms:
@@ -159,6 +138,14 @@ def get_bm25_similarities(
                     terms_present = False
                     break
 
+            # Count exact phrase occurrences in the original document text
+            pattern = re.compile(
+                r'\b' + re.escape(query) + r'\b', re.IGNORECASE)
+            match_count = len(pattern.findall(original_documents[idx]))
+            if match_count > 0:  # Only include queries with non-zero matches
+                matched[query] = match_count
+
+            query_score = 0
             if terms_present:
                 for term in query_terms:
                     if term in idf:
@@ -168,19 +155,18 @@ def get_bm25_similarities(
                             (1 - b + b * (doc_length / avg_doc_len)) + delta
                         query_score += idf[term] * (numerator / denominator)
 
-            if query_score > 0:
-                matched[query] = matched.get(query, 0) + 1
-
             score += query_score
 
-        all_scores.append({
+        result: SimilarityResult = {
             "rank": 0,
             "id": ids[idx],
             "score": score,
             "similarity": score,
             "matched": matched,
-            "text": original_documents[idx],  # Use original document text
-        })
+            "text": original_documents[idx],
+            "metadata": metadatas[idx] if metadatas is not None else None
+        }
+        all_scores.append(result)
 
     # Normalize scores if there are any non-zero scores
     if all_scores:
@@ -189,15 +175,6 @@ def get_bm25_similarities(
             entry["score"] = entry["score"] / \
                 max_similarity if max_similarity > 0 else 0
 
-    # # Sort scores by number of matched queries and score
-    # sorted_scores = sorted(
-    #     all_scores,
-    #     key=lambda x: (len(x["matched"]), x["score"]),
-    #     reverse=True
-    # )
-    # all_scores = sorted_scores
-
-    # Sort by length of keys in matched in desc
     # Sort by number of matched queries (descending) only, do not sort by score
     all_scores.sort(key=lambda x: len(x["matched"]), reverse=True)
 
