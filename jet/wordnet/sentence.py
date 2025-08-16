@@ -162,11 +162,6 @@ def is_sentence(text: str) -> bool:
     return len(non_punct_tokens) > 0 and has_punctuation
 
 
-def split_sentences_nltk(text: str) -> list[str]:
-    sentences = sent_tokenize(text)
-    return sentences
-
-
 def split_sentences(text: str, num_sentence: int = 1) -> list[str]:
     if num_sentence < 1:
         raise ValueError("num_sentence must be a positive integer")
@@ -457,7 +452,6 @@ __all__ = [
     "is_ordered_list_marker",
     "is_ordered_list_sentence",
     "adaptive_split",
-    "split_sentences_nltk",
     "split_sentences",
     "split_sentences_with_separators",
     "merge_sentences",

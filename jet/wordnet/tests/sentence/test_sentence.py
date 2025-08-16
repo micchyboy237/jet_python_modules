@@ -12,7 +12,6 @@ from jet.wordnet.sentence import (
     get_sentences,
     split_by_punctuations,
     split_sentences,
-    split_sentences_nltk
 )
 from jet.wordnet.words import count_words
 

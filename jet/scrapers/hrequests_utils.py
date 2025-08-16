@@ -18,7 +18,7 @@ REDIS_CONFIG = RedisConfigParams(port=3102)
 cache = RedisCache(config=REDIS_CONFIG)
 
 
-def sync_scrape_url(url: str) -> Optional[str]:
+def sync_scrape_url(url: str, timeout: Optional[float] = 5.0) -> Optional[str]:
     cache_key = f"html:{url}"
     cached_content = cache.get(cache_key)
 
@@ -28,7 +28,7 @@ def sync_scrape_url(url: str) -> Optional[str]:
     try:
         ua = UserAgent()
         headers = {'User-Agent': ua.random}
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=timeout)
         if response.status_code == 200:
             html_content = response.text
             cache.set(cache_key, {'content': html_content}, ttl=3600)
@@ -47,7 +47,7 @@ async def scrape_url(
     url: str,
     ua: UserAgent,
     timeout: Optional[float] = 5.0,
-    max_retries: int = 1
+    max_retries: int = 2
 ) -> Optional[str]:
     cache_key = f"html:{url}"
     cached_content = cache.get(cache_key)
@@ -72,12 +72,12 @@ async def scrape_url(
                     return None
         except asyncio.TimeoutError:
             logger.error(
-                f"Timeout fetching {url}: Exceeded {timeout} seconds (Attempt {attempt + 1}/{max_retries})")
+                f"Timeout fetching {url}: Exceeded {timeout} seconds (Attempt {attempt + 1}/{max_retries + 1})")
             if attempt == max_retries:
                 return None
         except Exception as e:
             logger.error(
-                f"Error fetching {url}: {str(e)} (Attempt {attempt + 1}/{max_retries})")
+                f"Error fetching {url}: {str(e)} (Attempt {attempt + 1}/{max_retries + 1})")
             if attempt == max_retries:
                 return None
 
@@ -95,7 +95,7 @@ async def scrape_urls(
     limit: Optional[int] = None,
     show_progress: bool = False,
     timeout: Optional[float] = 5.0,
-    max_retries: int = 1
+    max_retries: int = 2
 ) -> AsyncIterator[Tuple[str, ScrapeStatus, Optional[str]]]:
     ua = UserAgent()
     semaphore = asyncio.Semaphore(num_parallel)

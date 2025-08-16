@@ -55,7 +55,7 @@ def split_large_sentence(sentence: str, max_size: int, size_fn) -> List[str]:
 
     # logger.warning(
     #     f"Splitting sentence with {sentence_tokens} tokens exceeding max_size {max_size}")
-    words = sentence.split()
+    words = get_words(sentence)
     sub_sentences = []
     current_sub = []
     current_size = 0

@@ -10,6 +10,7 @@ from llama_index.core.schema import (
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional, TypedDict, Union, cast, ItemsView
 
+from jet.code.markdown_types.markdown_parsed_types import MarkdownToken
 from jet.code.markdown_utils import parse_markdown
 
 
@@ -42,7 +43,7 @@ class HeaderMetadata(TypedDict, total=False):
     content: str
     source_url: str
     chunk_index: int | None
-    tokens: int | None
+    tokens: List[MarkdownToken]
     links: List[str] | None
     texts: List['HeaderTextNode'] | None
 

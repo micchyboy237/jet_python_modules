@@ -74,7 +74,7 @@ class TestPrependMissingHeadersByType:
         # Then: The result should include new headers for non-paragraph, non-header tokens with correct line numbers
         expected = [
             {
-                "content": "Header 1 (unordered list)",
+                "content": "Header 1",
                 "level": 2,
                 "line": 1,
                 "type": "header",
@@ -102,7 +102,7 @@ class TestPrependMissingHeadersByType:
                 "level": None
             },
             {
-                "content": "Header 1 (code)",
+                "content": "Header 1",
                 "line": 4,
                 "type": "header",
                 "level": 2,
@@ -118,7 +118,7 @@ class TestPrependMissingHeadersByType:
                 "level": None
             },
             {
-                "content": "Header 1 (blockquote)",
+                "content": "Header 1",
                 "line": 6,
                 "type": "header",
                 "level": 2,
@@ -212,7 +212,7 @@ class TestPrependMissingHeadersByType:
                 "line": 1
             },
             {
-                "content": "Contact Details (unordered list)",
+                "content": "Contact Details",
                 "line": 2,
                 "type": "header",
                 "level": 3,
@@ -233,7 +233,7 @@ class TestPrependMissingHeadersByType:
                 "line": 3
             },
             {
-                "content": "Personal Details (blockquote)",
+                "content": "Personal Details",
                 "line": 4,
                 "type": "header",
                 "level": 3,

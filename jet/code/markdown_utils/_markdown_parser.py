@@ -458,19 +458,6 @@ def derive_text(token: MarkdownToken) -> str:
     return result.strip()
 
 
-def add_list_table_header_placeholders(html: str) -> str:
-    """
-    Add <h6> placeholders after </ol>, </ul>, and </table> tags to prevent markdown parser issues.
-
-    Args:
-        html: Input HTML string to process.
-
-    Returns:
-        HTML string with <h6> placeholders added after specified tags.
-    """
-    return re.sub(r'</(ol|ul|table)>', r'</\1><h1>placeholder</h1>', html, flags=re.IGNORECASE)
-
-
 def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[MarkdownToken]:
     result: List[MarkdownToken] = []
     last_header = None
@@ -504,9 +491,9 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
             if last_header and result and result[-1]["type"] == "header":
                 last_result = result[-1]
                 if last_result["content"] == last_header:
-                    # Replace the last header with one that includes the token type
+                    # Replace the last header with one that does NOT include the token type
                     result[-1] = {
-                        "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
+                        "content": last_header.lstrip('# ').strip(),
                         "line": last_result["line"],
                         "type": "header",
                         # Use the level from the last header
@@ -516,7 +503,7 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
                 else:
                     # Append new header if the last header doesn't match
                     new_header = {
-                        "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
+                        "content": last_header.lstrip('# ').strip(),
                         "line": current_line,
                         "type": "header",
                         "level": last_header_level,  # Use the stored header level
@@ -527,7 +514,7 @@ def prepend_missing_headers_by_type(tokens: List[MarkdownToken]) -> List[Markdow
             elif last_header:
                 # Append new header if no header exists at the end
                 new_header = {
-                    "content": f"{last_header.lstrip('# ').strip()} ({token['type'].replace('_', ' ').lower()})",
+                    "content": last_header.lstrip('# ').strip(),
                     "line": current_line,
                     "type": "header",
                     "level": last_header_level,  # Use the stored header level

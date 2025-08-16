@@ -29,11 +29,8 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
 
     html_content = format_html(html_content)
 
-    # # Add header placeholder after closing list elements (ul, ol)
-    # list_elements = r'ul|ol'
-    # pattern_list = rf'</({list_elements})>'
-    # html_content = re.sub(
-    #     pattern_list, r'</\1><h6>Others</h6>', html_content)
+    # Add header placeholder after closing list elements (ul, ol, table)
+    html_content = add_list_table_header_placeholders(html_content)
 
     converter = html2text.HTML2Text()
     converter.ignore_links = ignore_links
@@ -49,7 +46,7 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
 
     # # Remove placeholder headers
     # preprocessed_html_content = re.sub(
-    #     r'^\s*#{1,6}\s*Others\s*$', '', preprocessed_html_content, flags=re.MULTILINE)
+    #     r'^\s*#{1,6}\s*Placeholder\s*$', '', preprocessed_html_content, flags=re.MULTILINE)
 
     # preprocessed_md_content = converter.handle(preprocessed_html_content)
 
@@ -119,6 +116,20 @@ def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtension
     return html_content
 
 
+def add_list_table_header_placeholders(html: str) -> str:
+    """
+    Add <h1> placeholders after </ol>, </ul>, and </table> tags to prevent markdown parser issues.
+
+    Args:
+        html: Input HTML string to process.
+
+    Returns:
+        HTML string with <h1> placeholders added after specified tags.
+    """
+    return re.sub(r'</(ol|ul|table)>', r'</\1><h1>placeholder</h1>', html, flags=re.IGNORECASE)
+
+
 __all__ = [
     "convert_html_to_markdown",
+    "convert_markdown_to_html",
 ]

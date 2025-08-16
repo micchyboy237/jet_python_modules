@@ -109,23 +109,29 @@ class SentenceTransformerRegistry(BaseModelRegistry):
                 f"Could not load SentenceTransformer model {resolved_model_id}: {str(e)}")
 
     def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None, prompts: Optional[dict[str, str]] = None, **kwargs) -> Optional[SentenceTransformer]:
-        device = kwargs.get("device", "cpu")
         try:
-            logger.info(f"Loading embedding model on CPU (onnx)")
+            # If model_id contains "static-retrieval", force CPU (onnx)
+            if "static-retrieval" in str(model_id):
+                logger.info(
+                    f"Loading embedding model on CPU (onnx) due to static-retrieval: {model_id}")
+                model_instance = SentenceTransformer(
+                    model_id, device="cpu", backend="onnx", trust_remote_code=True, truncate_dim=truncate_dim, prompts=prompts,
+                    # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
+                )
+            else:
+                device = "mps" if torch.backends.mps.is_available(
+                ) else "cuda" if torch.cuda.is_available() else "cpu"
+                logger.info(
+                    f"Loading embedding model on {device.upper()}: {model_id}")
+                model_instance = SentenceTransformer(
+                    model_id, device=device, truncate_dim=truncate_dim, prompts=prompts,)
+        except Exception as e:
+            logger.warning(
+                f"Falling back to CPU (onnx) for embed model due to: {e}")
             model_instance = SentenceTransformer(
                 model_id, device="cpu", backend="onnx", trust_remote_code=True, truncate_dim=truncate_dim, prompts=prompts,
+                # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
             )
-        except Exception as e:
-            device = "mps" if torch.backends.mps.is_available(
-            ) else "cuda" if torch.cuda.is_available() else "cpu"
-            logger.info(
-                f"Loading embedding model on {device.upper()}: {model_id}")
-            model_instance = SentenceTransformer(
-                model_id, device=device, truncate_dim=truncate_dim, prompts=prompts,
-            )
-        # Ensure MPS memory is released
-        if device == "mps":
-            torch.mps.empty_cache()
         return model_instance
 
     @staticmethod

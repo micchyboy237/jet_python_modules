@@ -271,6 +271,7 @@ def merge_results(
 ) -> List[FileSearchResult]:
     """
     Merge adjacent chunks from the same file into a single result, preserving order and metadata.
+    Uses the largest score among chunks for the merged result.
     Args:
         results: List of FileSearchResult dictionaries, potentially containing adjacent chunks.
         tokenizer: Optional callable to count tokens in text.
@@ -296,11 +297,10 @@ def merge_results(
         chunks.sort(key=lambda x: x["metadata"]["start_idx"])
 
         current_chunk = chunks[0]
-        # Changed from 'merged_code' to 'merged_text'
         merged_text = current_chunk["text"]
         start_idx = current_chunk["metadata"]["start_idx"]
         end_idx = current_chunk["metadata"]["end_idx"]
-        total_score = current_chunk["score"]
+        max_score = current_chunk["score"]
         name_sim = current_chunk["metadata"]["name_similarity"]
         dir_sim = current_chunk["metadata"]["dir_similarity"]
         content_sims = [current_chunk["metadata"]["content_similarity"]]
@@ -308,22 +308,19 @@ def merge_results(
         cross_encoder_sims = [current_chunk["metadata"]["cross_encoder_score"]]
         bm25_sims = [current_chunk["metadata"]["bm25_score"]]
         chunk_count = 1
-        # Changed from 'merged_code' to 'merged_text'
         tokens = tokenizer(merged_text)
 
         for next_chunk in chunks[1:]:
             next_start = next_chunk["metadata"]["start_idx"]
             next_end = next_chunk["metadata"]["end_idx"]
-            # Changed from 'next_code' to 'next_text'
             next_text = next_chunk["text"]
             if next_start <= end_idx:
                 new_end = max(end_idx, next_end)
                 overlap = end_idx - next_start
-                # Changed from 'next_code' to 'next_text'
                 additional_content = next_text[overlap:] if overlap > 0 else next_text
-                merged_text += additional_content  # Changed from 'merged_code' to 'merged_text'
+                merged_text += additional_content
                 end_idx = new_end
-                total_score += next_chunk["score"]
+                max_score = max(max_score, next_chunk["score"])
                 content_sims.append(
                     next_chunk["metadata"]["content_similarity"])
                 metadata_sims.append(
@@ -332,17 +329,15 @@ def merge_results(
                     next_chunk["metadata"]["cross_encoder_score"])
                 bm25_sims.append(next_chunk["metadata"]["bm25_score"])
                 chunk_count += 1
-                # Changed from 'merged_code' to 'merged_text'
                 tokens = tokenizer(merged_text)
             else:
-                avg_score = total_score / chunk_count
                 avg_content_sim = sum(content_sims) / chunk_count
                 avg_metadata_sim = sum(metadata_sims) / chunk_count
                 avg_cross_encoder_sim = sum(cross_encoder_sims) / chunk_count
                 avg_bm25_sim = sum(bm25_sims) / chunk_count
                 merged_results.append({
                     "rank": current_chunk["rank"],
-                    "score": avg_score,
+                    "score": max_score,
                     "metadata": {
                         "file_path": file_path,
                         "start_idx": start_idx,
@@ -356,14 +351,13 @@ def merge_results(
                         "bm25_score": avg_bm25_sim,
                         "num_tokens": tokens
                     },
-                    "text": merged_text,  # Changed from 'code' to 'text'
+                    "text": merged_text,
                 })
                 current_chunk = next_chunk
-                # Changed from 'merged_code' to 'merged_text'
                 merged_text = current_chunk["text"]
                 start_idx = current_chunk["metadata"]["start_idx"]
                 end_idx = current_chunk["metadata"]["end_idx"]
-                total_score = current_chunk["score"]
+                max_score = current_chunk["score"]
                 name_sim = current_chunk["metadata"]["name_similarity"]
                 dir_sim = current_chunk["metadata"]["dir_similarity"]
                 content_sims = [current_chunk["metadata"]
@@ -374,17 +368,15 @@ def merge_results(
                     current_chunk["metadata"]["cross_encoder_score"]]
                 bm25_sims = [current_chunk["metadata"]["bm25_score"]]
                 chunk_count = 1
-                # Changed from 'merged_code' to 'merged_text'
                 tokens = tokenizer(merged_text)
 
-        avg_score = total_score / chunk_count
         avg_content_sim = sum(content_sims) / chunk_count
         avg_metadata_sim = sum(metadata_sims) / chunk_count
         avg_cross_encoder_sim = sum(cross_encoder_sims) / chunk_count
         avg_bm25_sim = sum(bm25_sims) / chunk_count
         merged_results.append({
             "rank": current_chunk["rank"],
-            "score": avg_score,
+            "score": max_score,
             "metadata": {
                 "file_path": file_path,
                 "start_idx": start_idx,
@@ -398,7 +390,7 @@ def merge_results(
                 "bm25_score": avg_bm25_sim,
                 "num_tokens": tokens
             },
-            "text": merged_text,  # Changed from 'code' to 'text'
+            "text": merged_text,
         })
 
     merged_results.sort(key=lambda x: x["score"], reverse=True)

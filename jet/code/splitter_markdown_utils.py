@@ -1,6 +1,7 @@
 from urllib.parse import urljoin
 import uuid
 from jet.code.html_utils import is_html
+from jet.code.markdown_utils._markdown_parser import base_parse_markdown
 from jet.code.markdown_utils._preprocessors import extract_markdown_links
 from jet.llm.mlx.helpers.detect_repetition import clean_repeated_ngrams
 from jet.logger import logger
@@ -185,7 +186,7 @@ def get_header_contents(md_text: str,
 def get_md_header_contents(
     md_text: str,
     headers_to_split_on: List[Tuple[str, str]] = [],
-    ignore_links: bool = True,
+    ignore_links: bool = False,
     base_url: Optional[str] = None
 ) -> List[HeaderDocument]:
     """
@@ -196,7 +197,7 @@ def get_md_header_contents(
     Args:
         md_text: The Markdown (or HTML) text to parse and split.
         headers_to_split_on: List of (prefix, tag) pairs to identify headers.
-        ignore_links: If True, replaces links with text content in links output; if False, preserves links in links output.
+        ignore_links: If False, replaces links with text content in links output; if False, preserves links in links output.
         base_url: Base URL to resolve relative links.
 
     Returns:
@@ -212,6 +213,9 @@ def get_md_header_contents(
     # Clean markdown
     md_text = clean_spaces(clean_newlines(
         clean_text(md_text), max_newlines=2, strip_lines=True))
+
+    # Extract markdown tokens
+    tokens = base_parse_markdown(md_text)
 
     # Extract links with original ignore_links setting for link extraction
     all_links, _ = extract_markdown_links(
@@ -280,7 +284,7 @@ def get_md_header_contents(
                     "content": content,
                     "doc_index": 0,
                     "chunk_index": None,
-                    "tokens": None,
+                    "tokens": tokens,
                     "source_url": base_url,
                     "links": header_links,
                     "texts": texts,
@@ -339,7 +343,7 @@ def get_md_header_contents(
                 "content": content,
                 "doc_index": header_idx + (1 if first_header_line > 1 else 0),
                 "chunk_index": None,
-                "tokens": None,
+                "tokens": tokens,
                 "source_url": base_url,
                 "links": header_links,
                 "texts": texts,

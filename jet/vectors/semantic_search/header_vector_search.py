@@ -258,7 +258,7 @@ def merge_results(
                 merged_content = current_chunk["content"]
                 start_idx = current_chunk["metadata"]["start_idx"]
                 end_idx = current_chunk["metadata"]["end_idx"]
-                total_score = current_chunk["score"]
+                total_score = max(total_score, next_chunk["score"])
                 header_content_sim = current_chunk["metadata"]["header_content_similarity"]
                 headers_sim = current_chunk["metadata"]["headers_similarity"]
                 content_sims = [current_chunk["metadata"]
@@ -275,7 +275,7 @@ def merge_results(
         merged_results.append({
             "id": result_id,  # Use the preserved ID
             "rank": current_chunk["rank"],
-            "score": avg_score,
+            "score": total_score,
             "header": current_chunk["header"],
             "parent_header": current_chunk["parent_header"],
             "content": merged_content,

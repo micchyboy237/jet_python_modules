@@ -31,7 +31,7 @@ class TestSplitWords:
     def test_given_text_with_punctuation_when_splitting_words_then_handles_special_chars(self):
         # Given
         input_text = "A.F.&A.M. isn't complex"
-        expected = ["A.F.&A.M", "isn't", "complex"]
+        expected = ["A.F", "A.M", "isn't", "complex"]
 
         # When
         result = split_words(input_text)
