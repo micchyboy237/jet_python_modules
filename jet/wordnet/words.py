@@ -50,8 +50,16 @@ def pos_tag_spacy(sentence, model: str = spacy_model):
 
 
 def split_words(text: str) -> list[str]:
-    # Preprocess to replace '/' and '|' with spaces to explicitly split words
-    text = text.replace("/", " ").replace("|", " ")
+    # Preprocess to replace standard delimiters with spaces to explicitly split words
+    text = (
+        text.replace("/", " ")
+        .replace("|", " ")
+        .replace("_", " ")
+        .replace(":", " ")
+        .replace(";", " ")
+        .replace(",", " ")
+        .replace("  ", " ")  # Replace multiple spaces with a single space
+    )
     # Use regex to handle cases like "A.F.&A.M." and match words with hyphens, apostrophes, periods, and ampersands
     pattern = r"(\b[\w'.&-]+\b)"
     return re.findall(pattern, text)

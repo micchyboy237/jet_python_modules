@@ -1,7 +1,7 @@
 import pytest
 from typing import List
 
-from jet.wordnet.words import split_words, get_words
+from jet.wordnet.words import get_words
 
 
 @pytest.fixture
@@ -12,54 +12,6 @@ def setup_nltk(monkeypatch):
         return [s.strip() for s in text.replace("!", ".").replace("?", ".").split(".") if s.strip()]
     monkeypatch.setattr("nltk.sent_tokenize", mock_sent_tokenize)
     return mock_sent_tokenize
-
-
-class TestSplitWords:
-    """Tests for the split_words function."""
-
-    def test_given_simple_sentence_when_splitting_words_then_returns_correct_words(self):
-        # Given
-        input_text = "Hello world"
-        expected = ["Hello", "world"]
-
-        # When
-        result = split_words(input_text)
-
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
-
-    def test_given_text_with_punctuation_when_splitting_words_then_handles_special_chars(self):
-        # Given
-        input_text = "A.F.&A.M. isn't complex"
-        expected = ["A.F.&A.M", "isn't", "complex"]
-
-        # When
-        result = split_words(input_text)
-
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
-
-    def test_given_empty_string_when_splitting_words_then_returns_empty_list(self):
-        # Given
-        input_text = ""
-        expected = []
-
-        # When
-        result = split_words(input_text)
-
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
-
-    def test_given_hyphenated_words_when_splitting_words_then_keeps_hyphens(self):
-        # Given
-        input_text = "well-known author"
-        expected = ["well-known", "author"]
-
-        # When
-        result = split_words(input_text)
-
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
 
 
 class TestGetWords:
@@ -144,14 +96,25 @@ class TestGetWords:
         # Then
         assert result == expected, f"Expected {expected}, but got {result}"
 
-    def test_given_text_with_slash_or_pipe_when_splitting_words_then_splits_on_special_chars(self):
+    def test_given_text_with_delimiters_when_getting_words_then_splits_on_special_chars(self, setup_nltk):
         # Given
-        input_text = "save/load yes|no input/output true|false"
-        expected = ["save", "load", "yes", "no",
-                    "input", "output", "true", "false"]
+        input_text = "input/output_yes:no. This;is true,false."
+        expected_n1 = ["input", "output", "yes",
+                       "no", "This", "is", "true", "false"]
+        expected_n2 = ["input output", "output yes",
+                       "yes no", "This is", "is true", "true false"]
+        input_list = ["input/output_yes:no;", "true,false_test."]
+        expected_list_n1 = [
+            ["input", "output", "yes", "no"],
+            ["true", "false", "test"]
+        ]
 
         # When
-        result = split_words(input_text)
+        result_n1 = get_words(input_text, n=1)
+        result_n2 = get_words(input_text, n=2)
+        result_list_n1 = get_words(input_list, n=1)
 
         # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
+        assert result_n1 == expected_n1, f"Expected {expected_n1}, but got {result_n1}"
+        assert result_n2 == expected_n2, f"Expected {expected_n2}, but got {result_n2}"
+        assert result_list_n1 == expected_list_n1, f"Expected {expected_list_n1}, but got {result_list_n1}"
