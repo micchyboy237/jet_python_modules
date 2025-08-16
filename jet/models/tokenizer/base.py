@@ -203,7 +203,7 @@ def get_tokenizer(
     model_path = resolve_model_value(model_name)
 
     if not disable_cache and model_path in _tokenizer_cache:
-        logger.info(f"Using cached tokenizer for: {model_path}")
+        # logger.info(f"Using cached tokenizer for: {model_path}")
         tokenizer = _tokenizer_cache[model_path]
     else:
         try:
