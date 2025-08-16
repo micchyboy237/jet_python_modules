@@ -14,7 +14,7 @@ import logging
 from jet.transformers.formatters import format_json
 from jet.wordnet.text_chunker import chunk_texts_with_data
 
-DEFAULT_EMBED_MODEL: EmbedModelType = 'all-MiniLM-L6-v2'
+DEFAULT_EMBED_MODEL: EmbedModelType = 'static-retrieval-mrl-en-v1'
 MAX_CONTENT_SIZE = 1000
 
 

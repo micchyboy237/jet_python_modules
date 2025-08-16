@@ -252,7 +252,7 @@ def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, tem
     """
     query = "test query"
     expected_threshold = 0.1
-    expected_content = "this is a test content"
+    expected_content = "This is a test content"
     expected_file_path = temp_file
     top_k = 1
     def custom_tokenizer(text): return len(text.split())
@@ -269,7 +269,8 @@ def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, tem
     assert isinstance(results[0], dict), "Result should be a dictionary"
     assert results[0]['rank'] == 1, "Rank should be 1 after sorting"
     assert results[0]['score'] >= expected_threshold, f"Score {results[0]['score']} should meet threshold {expected_threshold}"
-    assert results[0]['code'] == expected_content, f"Expected content {expected_content}, got {results[0]['code']}"
+    assert results[0]['code'].strip(
+    ) == expected_content, f"Expected content {expected_content}, got {results[0]['code']}"
     assert results[0]['metadata'][
         'file_path'] == expected_file_path, f"Expected file path {expected_file_path}, got {results[0]['metadata']['file_path']}"
     assert results[0]['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for single chunk"

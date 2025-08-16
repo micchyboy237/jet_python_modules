@@ -165,8 +165,8 @@ def chunk_texts_with_data(
             current_sentence = processed_sentences[idx]
             start_idx = text.find(current_sentence, current_pos)
             if start_idx == -1:
-                logger.warning(
-                    f"Sentence '{current_sentence}' not found in text at pos {current_pos}")
+                # logger.warning(
+                #     f"Sentence '{current_sentence}' not found in text at pos {current_pos}")
                 sentence_pairs.append(
                     (current_sentence, " ", start_idx, current_pos, line_idx))
                 idx += 1
