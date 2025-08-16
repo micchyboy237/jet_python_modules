@@ -248,7 +248,7 @@ def merge_results(
                         "header_content_similarity": header_content_sim,
                         "headers_similarity": headers_sim,
                         "content_similarity": avg_content_sim,
-                        "num_tokens": len(tokens),
+                        "num_tokens": tokens if isinstance(tokens, int) else len(tokens),
                         "preprocessed_header": preprocessed_header,
                         "preprocessed_headers_context": preprocessed_headers_context,
                         "preprocessed_content": preprocessed_content
@@ -291,7 +291,7 @@ def merge_results(
                 "header_content_similarity": header_content_sim,
                 "headers_similarity": headers_sim,
                 "content_similarity": avg_content_sim,
-                "num_tokens": len(tokens),
+                "num_tokens": tokens if isinstance(tokens, int) else len(tokens),
                 "preprocessed_header": preprocessed_header,
                 "preprocessed_headers_context": preprocessed_headers_context,
                 "preprocessed_content": preprocessed_content
@@ -393,7 +393,7 @@ def search_headers(
                     "header_content_similarity": float(header_content_sim),
                     "headers_similarity": float(headers_sim),
                     "content_similarity": float(content_sim),
-                    "num_tokens": len(num_tokens),
+                    "num_tokens": num_tokens if isinstance(num_tokens, int) else len(num_tokens),
                     "preprocessed_header": preprocessed_header,
                     "preprocessed_headers_context": preprocessed_headers_context,
                     "preprocessed_content": chunk

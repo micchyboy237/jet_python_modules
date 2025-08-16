@@ -2,7 +2,8 @@ from typing import Any, Callable, Dict, Iterator, Optional, TypedDict, Union, Li
 from pathlib import Path
 import numpy as np
 import logging
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+import tokenizers
+from transformers import AutoTokenizer, PreTrainedTokenizerBase, PreTrainedTokenizerFast
 from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR
 from jet.models.utils import get_context_size, resolve_model_value
@@ -70,12 +71,11 @@ class TokenizerWrapper:
         self.add_special_tokens = add_special_tokens
         self.pad_token_id = pad_token_id or (
             tokenizer.pad_token_id
-            if tokenizer.pad_token_id is not None
+            if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None
             else 0
         )
         self.max_length = max_length
-        self.truncation = truncation  # Store truncation parameter
-        # Store truncation_side for completeness
+        self.truncation = truncation
         self.truncation_side = truncation_side
 
     def __call__(self, texts: Union[str, List[str]], **kwargs) -> Union[EncodingWrapper, List[EncodingWrapper]]:
@@ -94,7 +94,6 @@ class TokenizerWrapper:
         encode_kwargs = {
             'add_special_tokens': self.add_special_tokens,
             'max_length': self.max_length,
-            # Respect truncation setting
             'truncation': kwargs.get('truncation', self.truncation),
             'return_tensors': None
         }
@@ -117,7 +116,6 @@ class TokenizerWrapper:
         encode_kwargs = {
             'add_special_tokens': self.add_special_tokens,
             'max_length': self.max_length,
-            # Respect truncation setting
             'truncation': kwargs.get('truncation', self.truncation),
             'return_tensors': None
         }
@@ -190,12 +188,13 @@ def get_tokenizer(
         max_length: Optional maximum length; if None and documents provided, set to max token count.
         documents: Optional input texts to compute max_length dynamically.
         truncation_side: Truncation side ("right" or "left").
+        truncation: If True, enables truncation.
 
     Returns:
         PreTrainedTokenizerBase: The loaded tokenizer.
 
     Raises:
-        ValueError: If the tokenizer cannot be loaded from remote or local sources.
+        ValueError: If the tokenizer cannot be loaded from remote or local cache.
     """
     if isinstance(model_name_or_tokenizer, PreTrainedTokenizerBase):
         return model_name_or_tokenizer
@@ -204,7 +203,7 @@ def get_tokenizer(
     model_path = resolve_model_value(model_name)
 
     if not disable_cache and model_path in _tokenizer_cache:
-        # logger.info(f"Using cached tokenizer for: {model_path}")
+        logger.info(f"Using cached tokenizer for: {model_path}")
         tokenizer = _tokenizer_cache[model_path]
     else:
         try:
@@ -212,18 +211,43 @@ def get_tokenizer(
                 model_path, cache_dir=local_cache_dir, truncation=truncation)
             logger.info(
                 f"Successfully loaded tokenizer from remote: {model_path}")
-            if not disable_cache:
-                _tokenizer_cache[model_path] = tokenizer
         except Exception as e:
-            logger.error(
-                f"Failed to load tokenizer for {model_path}: {str(e)}")
-            raise ValueError(
-                f"Could not load tokenizer for {model_path} from remote or local cache.")
+            logger.info(
+                f"Failed to load tokenizer for {model_path} via AutoTokenizer, attempting SentenceTransformer: {str(e)}")
+            try:
+                from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
+                # Fallback to SentenceTransformerRegistry for SentenceTransformer models
+                tokenizer_wrapper = SentenceTransformerRegistry.get_tokenizer(
+                    model_path)
+                tokenizer = tokenizer_wrapper.tokenizer
+                # Check if tokenizer is a tokenizers.Tokenizer and convert to PreTrainedTokenizerFast
+                if isinstance(tokenizer, tokenizers.Tokenizer):
+                    tokenizer = PreTrainedTokenizerFast(
+                        tokenizer_object=tokenizer)
+                    logger.info(
+                        f"Converted tokenizers.Tokenizer to PreTrainedTokenizerFast for {model_path}")
+                logger.info(
+                    f"Successfully loaded tokenizer for {model_path} via SentenceTransformerRegistry")
+            except Exception as e2:
+                logger.error(
+                    f"Failed to load tokenizer for {model_path} via SentenceTransformer: {str(e2)}")
+                raise ValueError(
+                    f"Could not load tokenizer for {model_path} from remote or local cache.")
+        if not disable_cache:
+            _tokenizer_cache[model_path] = tokenizer
 
-    if pad_token_id is not None and tokenizer.pad_token_id is None:
+    # Handle pad_token_id for tokenizers that lack it
+    if pad_token_id is not None and (not hasattr(tokenizer, 'pad_token_id') or tokenizer.pad_token_id is None):
         tokenizer.pad_token_id = pad_token_id
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.convert_ids_to_tokens(pad_token_id)
+        if not hasattr(tokenizer, 'pad_token') or tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.convert_ids_to_tokens(
+                pad_token_id) or '[PAD]'
+
+    # Handle model_max_length for tokenizers that lack it
+    if not hasattr(tokenizer, 'model_max_length'):
+        # Default fallback for SentenceTransformer tokenizers
+        tokenizer.model_max_length = 512
+        logger.info(f"Set default model_max_length to 512 for {model_path}")
 
     if truncation:
         tokenizer.truncation_side = truncation_side
@@ -234,7 +258,7 @@ def get_tokenizer(
             remove_pad_tokens=True,
             add_special_tokens=False,
             pad_token_id=pad_token_id,
-            max_length=None  # Temporarily set to None to get raw token counts
+            max_length=None
         )
         token_counts = [
             len(tokenizer_wrapper.encode(text, truncation=False)._ids)
@@ -273,12 +297,13 @@ def get_tokenizer_fn(
     else:
         tokenizer = model_name_or_tokenizer
         # Default unset value
-        if documents is not None and tokenizer.model_max_length == int(1e30):
+        if documents is not None and (not hasattr(tokenizer, 'model_max_length') or tokenizer.model_max_length == int(1e30)):
             tokenizer_wrapper = TokenizerWrapper(
                 tokenizer,
                 remove_pad_tokens=remove_pad_tokens,
                 add_special_tokens=add_special_tokens,
-                pad_token_id=tokenizer.pad_token_id,
+                pad_token_id=tokenizer.pad_token_id if hasattr(
+                    tokenizer, 'pad_token_id') else None,
                 truncation=truncation,
                 max_length=None,
             )
@@ -287,7 +312,7 @@ def get_tokenizer_fn(
                 for text in ([documents] if isinstance(documents, str) else documents)
             ]
             max_length = max(
-                token_counts) if token_counts else tokenizer.model_max_length
+                token_counts) if token_counts else (getattr(tokenizer, 'model_max_length', 512))
             tokenizer.model_max_length = max_length
             logger.info(f"Set tokenizer max_length to: {max_length}")
 
@@ -295,10 +320,13 @@ def get_tokenizer_fn(
         tokenizer,
         remove_pad_tokens=remove_pad_tokens,
         add_special_tokens=add_special_tokens,
-        pad_token_id=kwargs.get('pad_token_id', tokenizer.pad_token_id),
-        max_length=kwargs.get('max_length', tokenizer.model_max_length),
+        pad_token_id=kwargs.get('pad_token_id', getattr(
+            tokenizer, 'pad_token_id', 0)),
+        max_length=kwargs.get('max_length', getattr(
+            tokenizer, 'model_max_length', 512)),
+        truncation=truncation,
         truncation_side=kwargs.get(
-            'truncation_side', tokenizer.truncation_side)
+            'truncation_side', getattr(tokenizer, 'truncation_side', 'right'))
     )
 
 

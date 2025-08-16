@@ -235,7 +235,9 @@ def get_embedding_size(model: ModelType) -> int:
     """
     model_key = resolve_model_key(model)
     if model_key not in MODEL_EMBEDDING_TOKENS:
-        raise ValueError(f"Missing embedding size for model: {model_key}")
+        error_msg = f"Missing embedding size for model: {model_key}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
     return MODEL_EMBEDDING_TOKENS[model_key]
 
 
@@ -254,7 +256,9 @@ def get_context_size(model: ModelType) -> int:
     """
     model_key = resolve_model_key(model)
     if model_key not in MODEL_CONTEXTS:
-        raise ValueError(f"Missing context size for model: {model_key}")
+        error_msg = f"Missing context size for model: {model_key}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
     return MODEL_CONTEXTS[model_key]
 
 

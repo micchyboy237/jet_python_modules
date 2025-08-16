@@ -101,20 +101,21 @@ class SentenceTransformerRegistry(BaseModelRegistry):
     @staticmethod
     def get_tokenizer(model_id: Optional[EmbedModelType] = None) -> TokenizerWrapper:
         instance = SentenceTransformerRegistry()
-
         resolved_model_id = resolve_model_value(model_id or instance.model_id)
         if resolved_model_id in SentenceTransformerRegistry._tokenizers:
             logger.info(
                 f"Reusing tokenizer for model_id: {resolved_model_id}")
             return SentenceTransformerRegistry._tokenizers[resolved_model_id]
-
         logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
-
-        # tokenizer = instance._load_tokenizer()
         model = SentenceTransformerRegistry.load_model(resolved_model_id)
         tokenizer = model.tokenizer
-        SentenceTransformerRegistry._tokenizers[resolved_model_id] = tokenizer
-        return tokenizer
+        wrapped_tokenizer = TokenizerWrapper(
+            tokenizer,
+            max_length=instance.max_length,
+            truncation=True
+        )
+        SentenceTransformerRegistry._tokenizers[resolved_model_id] = wrapped_tokenizer
+        return wrapped_tokenizer
 
     # def _load_tokenizer(self, **kwargs) -> TokenizerWrapper:
     #     kwargs = {
