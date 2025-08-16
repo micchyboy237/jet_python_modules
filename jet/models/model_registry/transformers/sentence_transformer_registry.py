@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, List, Optional, OrderedDict, Tuple, Union, Literal, TypedDict
+import psutil
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoConfig, PreTrainedTokenizer, PretrainedConfig
 import onnxruntime as ort
