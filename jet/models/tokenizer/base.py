@@ -212,7 +212,7 @@ def get_tokenizer(
             logger.info(
                 f"Successfully loaded tokenizer from remote: {model_path}")
         except Exception as e:
-            logger.info(
+            logger.warning(
                 f"Failed to load tokenizer for {model_path} via AutoTokenizer, attempting SentenceTransformer: {str(e)}")
             try:
                 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
