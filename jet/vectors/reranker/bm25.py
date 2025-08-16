@@ -6,7 +6,7 @@ from jet.wordnet.keywords.helpers import extract_query_candidates, preprocess_te
 from jet.wordnet.similarity import filter_highest_similarity
 from jet.wordnet.sentence import adaptive_split, split_sentences
 from jet.utils.text import remove_non_alphanumeric
-from jet.data.utils import generate_unique_hash
+from jet.data.utils import generate_unique_id
 from tqdm import tqdm
 from jet.wordnet.words import get_words
 import re
@@ -99,7 +99,7 @@ def get_bm25_similarities(
         raise ValueError("queries and documents must not be empty")
 
     if ids is None:
-        ids = [generate_unique_hash() for _ in documents]
+        ids = [generate_unique_id() for _ in documents]
     elif len(documents) != len(ids):
         raise ValueError("documents and ids must have the same lengths")
 
@@ -198,7 +198,7 @@ def get_bm25_similarities_old(queries: List[str], documents: List[str], ids: Opt
         raise ValueError("queries and documents must not be empty")
 
     if ids is None:
-        ids = [generate_unique_hash() for _ in documents]
+        ids = [generate_unique_id() for _ in documents]
     elif len(documents) != len(ids):
         raise ValueError("documents and ids must have the same lengths")
 
@@ -333,7 +333,7 @@ def get_bm25_similarities_oldest(
         raise ValueError("queries and documents must not be empty")
 
     if ids is None:
-        ids = [generate_unique_hash() for _ in documents]
+        ids = [generate_unique_id() for _ in documents]
     elif len(documents) != len(ids):
         raise ValueError("documents and ids must have the same lengths")
 
