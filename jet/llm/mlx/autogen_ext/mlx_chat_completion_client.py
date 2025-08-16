@@ -7,6 +7,9 @@ from jet.llm.mlx.base import MLX
 from jet.llm.mlx.client import CompletionResponse, Message
 from jet.models.model_types import LLMModelType
 from jet.logger import logger
+from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
+
+DEFAULT_DB = "mlx_agents_chat_history_db1"
 
 
 class MLXChatCompletionClient(ChatCompletionClient):
@@ -20,10 +23,17 @@ class MLXChatCompletionClient(ChatCompletionClient):
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
+        dbname: str = DEFAULT_DB,
+        user: str = DEFAULT_USER,
+        password: str = DEFAULT_PASSWORD,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        overwrite_db: bool = False,
+        session_id: Optional[str] = None,
         with_history: bool = True,
         seed: Optional[int] = None,
-        device: Optional[str] = "mps",
         log_dir: Optional[str] = None,
+        device: Optional[str] = "mps",
     ):
         """Initialize the MLX chat completion client."""
         super().__init__()
@@ -34,10 +44,17 @@ class MLXChatCompletionClient(ChatCompletionClient):
             trust_remote_code=trust_remote_code,
             chat_template=chat_template,
             use_default_chat_template=use_default_chat_template,
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host,
+            port=port,
+            overwrite_db=overwrite_db,
+            session_id=session_id,
             with_history=with_history,
             seed=seed,
-            device=device,
             log_dir=log_dir,
+            device=device,
         )
         self._usage = RequestUsage(prompt_tokens=0, completion_tokens=0)
 

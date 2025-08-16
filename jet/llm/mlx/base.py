@@ -1,3 +1,4 @@
+from jet.data.utils import generate_unique_hash
 from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
 import mlx.core as mx
 from typing import Any, Dict, List, Literal, Optional, Union, Iterator, Tuple
@@ -61,6 +62,11 @@ class MLX:
         self.log_dir = self.client.log_dir
         self.model = self.client.model
         self.tokenizer: MLXTokenizer = self.client.tokenizer
+
+        if with_history and not session_id:
+            session_id = generate_unique_hash()
+
+        self.session_id = session_id
 
         # Set padding token if not already defined
         if self.tokenizer.pad_token is None:
