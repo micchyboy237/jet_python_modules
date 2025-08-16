@@ -278,27 +278,6 @@ def list_all_spacy_pos_tags(model: str = spacy_model):
         print(tag)
 
 
-__all__ = [
-    "setup_nlp",
-    "pos_tag_nltk",
-    "pos_tag_spacy",
-    "split_words",
-    "get_words",
-    "get_non_words",
-    "count_words",
-    "count_non_words",
-    "process_dataset",
-    "process_all_datasets",
-    "compare_words",
-    "count_syllables",
-    "split_by_syllables",
-    "get_named_words",
-    "SpacyWord",
-    "get_spacy_words",
-    "list_all_spacy_pos_tags",
-]
-
-
 if __name__ == "__main__":
     sentence = 'Ang mga pang-uri o adjectives sa Ingles ay salitang nagbibigay turing o naglalarawan sa isang pangngalan o panghalip. Ito ay nagsasaad ng uri o katangian ng tao, bagay, hayop, pook, o pangyayari.'
 
