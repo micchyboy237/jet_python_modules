@@ -44,7 +44,7 @@ class FileSearchResult(TypedDict):
     rank: int
     score: float
     metadata: FileSearchMetadata
-    code: str
+    text: str  # Changed from 'code' to 'text'
 
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
@@ -296,7 +296,8 @@ def merge_results(
         chunks.sort(key=lambda x: x["metadata"]["start_idx"])
 
         current_chunk = chunks[0]
-        merged_code = current_chunk["code"]
+        # Changed from 'merged_code' to 'merged_text'
+        merged_text = current_chunk["text"]
         start_idx = current_chunk["metadata"]["start_idx"]
         end_idx = current_chunk["metadata"]["end_idx"]
         total_score = current_chunk["score"]
@@ -307,17 +308,20 @@ def merge_results(
         cross_encoder_sims = [current_chunk["metadata"]["cross_encoder_score"]]
         bm25_sims = [current_chunk["metadata"]["bm25_score"]]
         chunk_count = 1
-        tokens = tokenizer(merged_code)
+        # Changed from 'merged_code' to 'merged_text'
+        tokens = tokenizer(merged_text)
 
         for next_chunk in chunks[1:]:
             next_start = next_chunk["metadata"]["start_idx"]
             next_end = next_chunk["metadata"]["end_idx"]
-            next_code = next_chunk["code"]
+            # Changed from 'next_code' to 'next_text'
+            next_text = next_chunk["text"]
             if next_start <= end_idx:
                 new_end = max(end_idx, next_end)
                 overlap = end_idx - next_start
-                additional_content = next_code[overlap:] if overlap > 0 else next_code
-                merged_code += additional_content
+                # Changed from 'next_code' to 'next_text'
+                additional_content = next_text[overlap:] if overlap > 0 else next_text
+                merged_text += additional_content  # Changed from 'merged_code' to 'merged_text'
                 end_idx = new_end
                 total_score += next_chunk["score"]
                 content_sims.append(
@@ -328,7 +332,8 @@ def merge_results(
                     next_chunk["metadata"]["cross_encoder_score"])
                 bm25_sims.append(next_chunk["metadata"]["bm25_score"])
                 chunk_count += 1
-                tokens = tokenizer(merged_code)
+                # Changed from 'merged_code' to 'merged_text'
+                tokens = tokenizer(merged_text)
             else:
                 avg_score = total_score / chunk_count
                 avg_content_sim = sum(content_sims) / chunk_count
@@ -351,10 +356,11 @@ def merge_results(
                         "bm25_score": avg_bm25_sim,
                         "num_tokens": tokens
                     },
-                    "code": merged_code,
+                    "text": merged_text,  # Changed from 'code' to 'text'
                 })
                 current_chunk = next_chunk
-                merged_code = current_chunk["code"]
+                # Changed from 'merged_code' to 'merged_text'
+                merged_text = current_chunk["text"]
                 start_idx = current_chunk["metadata"]["start_idx"]
                 end_idx = current_chunk["metadata"]["end_idx"]
                 total_score = current_chunk["score"]
@@ -368,7 +374,8 @@ def merge_results(
                     current_chunk["metadata"]["cross_encoder_score"]]
                 bm25_sims = [current_chunk["metadata"]["bm25_score"]]
                 chunk_count = 1
-                tokens = tokenizer(merged_code)
+                # Changed from 'merged_code' to 'merged_text'
+                tokens = tokenizer(merged_text)
 
         avg_score = total_score / chunk_count
         avg_content_sim = sum(content_sims) / chunk_count
@@ -391,7 +398,7 @@ def merge_results(
                 "bm25_score": avg_bm25_sim,
                 "num_tokens": tokens
             },
-            "code": merged_code,
+            "text": merged_text,  # Changed from 'code' to 'text'
         })
 
     merged_results.sort(key=lambda x: x["score"], reverse=True)
@@ -482,7 +489,7 @@ def search_files(
                     "bm25_score": float(bm25_score),
                     "num_tokens": num_tokens
                 },
-                "code": chunk,
+                "text": chunk,  # Changed from 'code' to 'text'
             }
             results.append(result)
     results.sort(key=lambda x: x["score"], reverse=True)
