@@ -1,6 +1,8 @@
 import os
 from typing import Optional
 
+from jet.models.model_types import LLMModelType
+
 HUGGINGFACE_BASE_DIR = os.path.expanduser("~/.cache/huggingface")
 
 
@@ -23,3 +25,6 @@ def get_hf_token(cache_dir: str = HUGGINGFACE_BASE_DIR) -> Optional[str]:
 MODELS_CACHE_DIR = os.path.join(HUGGINGFACE_BASE_DIR, "hub")
 XET_CACHE_DIR = os.path.join(HUGGINGFACE_BASE_DIR, "xet")
 HF_TOKEN: Optional[str] = get_hf_token()
+
+# LLM Config
+DEFAULT_MODEL: LLMModelType = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"

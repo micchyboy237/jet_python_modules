@@ -3,10 +3,10 @@ import mlx.core as mx
 from typing import Any, Dict, List, Literal, Optional, Union, Iterator, Tuple
 
 from jet.logger import logger
-from jet.llm.mlx.config import DEFAULT_MODEL
-from jet.models.model_types import MLXTokenizer, LLMModelKey, LLMModelType
+from jet.models.config import DEFAULT_MODEL
+from jet.models.model_types import MLXTokenizer, LLMModelKey, LLMModelValue, LLMModelType
 from jet.models.tokenizer.base import count_tokens, merge_texts
-from jet.models.utils import resolve_model, get_context_size
+from jet.models.utils import resolve_model, get_context_size, resolve_model_value
 from jet.llm.mlx.client import MLXLMClient, ModelsResponse, CompletionResponse, Message, RoleMapping, Tool
 from jet.llm.mlx.chat_history import ChatHistory
 
@@ -40,7 +40,7 @@ class MLX:
         device: Optional[Literal["cpu", "mps"]] = "mps"
     ):
         """Initialize the MLX client with configuration and optional database."""
-        self.model_path = resolve_model(model)
+        self.model_path: LLMModelValue = resolve_model_value(model)
         self.with_history = with_history
         self.log_dir = log_dir
         # Initialize MLXLMClient
@@ -109,7 +109,7 @@ class MLX:
     def chat(
         self,
         messages: Union[str, List[Message]],
-        model: LLMModelType = DEFAULT_MODEL,
+        model: Optional[LLMModelType] = None,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = -1,
@@ -166,7 +166,7 @@ class MLX:
         # Call MLXLMClient.chat
         response = self.client.chat(
             messages=all_messages,
-            model=model,
+            model=model or self.model_path,
             draft_model=draft_model,
             adapter=adapter,
             max_tokens=max_tokens,
@@ -200,7 +200,7 @@ class MLX:
     def stream_chat(
         self,
         messages: Union[str, List[Message]],
-        model: LLMModelType = DEFAULT_MODEL,
+        model: Optional[LLMModelType] = None,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = -1,
@@ -257,7 +257,7 @@ class MLX:
         assistant_content = ""
         for response in self.client.stream_chat(
             messages=all_messages,
-            model=model,
+            model=model or self.model_path,
             draft_model=draft_model,
             adapter=adapter,
             max_tokens=max_tokens,
@@ -291,7 +291,7 @@ class MLX:
     def generate(
         self,
         prompt: str,
-        model: LLMModelType = DEFAULT_MODEL,
+        model: Optional[LLMModelType] = None,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = -1,
@@ -319,7 +319,7 @@ class MLX:
 
         response = self.client.generate(
             prompt=prompt,
-            model=model,
+            model=model or self.model_path,
             draft_model=draft_model,
             adapter=adapter,
             max_tokens=max_tokens,
@@ -344,7 +344,7 @@ class MLX:
     def stream_generate(
         self,
         prompt: str,
-        model: LLMModelType = DEFAULT_MODEL,
+        model: Optional[LLMModelType] = None,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
         max_tokens: int = -1,
@@ -372,7 +372,7 @@ class MLX:
 
         for response in self.client.stream_generate(
             prompt=prompt,
-            model=model,
+            model=model or self.model_path,
             draft_model=draft_model,
             adapter=adapter,
             max_tokens=max_tokens,

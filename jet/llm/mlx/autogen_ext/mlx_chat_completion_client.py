@@ -39,8 +39,7 @@ class MLXChatCompletionClient(ChatCompletionClient):
             device=device,
             log_dir=log_dir,
         )
-        self._usage = RequestUsage(
-            prompt_tokens=0, completion_tokens=0)
+        self._usage = RequestUsage(prompt_tokens=0, completion_tokens=0)
 
     async def create(
         self,
@@ -53,19 +52,30 @@ class MLXChatCompletionClient(ChatCompletionClient):
         cancellation_token: Optional[CancellationToken] = None,
     ) -> CreateResult:
         """Create a single chat completion response."""
+        from autogen_core.models import SystemMessage, UserMessage, AssistantMessage
+
         mlx_tools = [
             {
                 "type": "function",
                 "function": {
-                    "name": tool.name if isinstance(tool, Tool) else tool["function"]["name"],
-                    "description": tool.description if isinstance(tool, Tool) else tool["function"]["description"],
-                    "parameters": tool.schema if isinstance(tool, Tool) else tool["function"]["parameters"],
+                    "name": tool.name if isinstance(tool, Tool) else tool.get("name", ""),
+                    "description": tool.description if isinstance(tool, Tool) else tool.get("description", ""),
+                    "parameters": tool.schema if isinstance(tool, Tool) else tool.get("parameters", {}),
                 },
             }
             for tool in tools
         ]
         mlx_messages = [
-            {"role": msg.role, "content": msg.content} for msg in messages
+            {
+                "role": (
+                    "system" if isinstance(msg, SystemMessage) else
+                    "user" if isinstance(msg, UserMessage) else
+                    "assistant" if isinstance(msg, AssistantMessage) else
+                    msg.role
+                ),
+                "content": msg.content
+            }
+            for msg in messages
         ]
         system_prompt = next(
             (msg["content"]
@@ -75,37 +85,28 @@ class MLXChatCompletionClient(ChatCompletionClient):
             mlx_messages = [
                 msg for msg in mlx_messages if msg["role"] != "system"]
 
-        # Extract supported parameters from extra_create_args
-        supported_args = {
-            "logprobs": extra_create_args.get("logprobs"),
-            "logit_bias": extra_create_args.get("logit_bias"),
-            "repetition_penalty": extra_create_args.get("repetition_penalty"),
-            "repetition_context_size": extra_create_args.get("repetition_context_size"),
-            "temperature": extra_create_args.get("temperature"),
-            "stop": extra_create_args.get("stop"),
-            "role_mapping": extra_create_args.get("role_mapping"),
-            "verbose": extra_create_args.get("verbose"),
+        create_args = {
+            "messages": mlx_messages,
+            "tools": mlx_tools if mlx_tools else None,
+            "system_prompt": system_prompt,
+            "max_tokens": extra_create_args.get("max_tokens", -1),
+            "temperature": extra_create_args.get("temperature", 0.0),
+            "top_p": extra_create_args.get("top_p", 1.0),
+            "stop": extra_create_args.get("stop", None),
+            "logprobs": extra_create_args.get("logprobs", -1),
+            "repetition_penalty": extra_create_args.get("repetition_penalty", None),
+            "repetition_context_size": extra_create_args.get("repetition_context_size", 20),
+            "log_dir": extra_create_args.get("log_dir", None),
+            "verbose": extra_create_args.get("verbose", False),
         }
-        # Remove None values
-        supported_args = {k: v for k,
-                          v in supported_args.items() if v is not None}
 
-        # Warn if model parameter is passed
-        if "model" in extra_create_args:
-            logger.warning(
-                "Model parameter is set during MLXChatCompletionClient initialization and cannot be overridden. Ignoring provided model argument.")
+        response = self.mlx_client.chat(**create_args)
 
-        response = self.mlx_client.chat(
-            messages=mlx_messages,
-            tools=mlx_tools if mlx_tools else None,
-            system_prompt=system_prompt,
-            **supported_args,
-        )
         choice = response.get("choices", [{}])[0]
         message = choice.get("message", {})
         content = message.get("content", "")
         tool_calls = message.get("tool_calls", None)
-        finish_reason = choice.get("finish_reason", None)
+
         function_calls = []
         if tool_calls:
             for call in tool_calls:
@@ -120,12 +121,14 @@ class MLXChatCompletionClient(ChatCompletionClient):
                         "type": "function",
                     }
                 )
+
         prompt_tokens = self.mlx_client.count_tokens(messages)
         completion_tokens = self.mlx_client.count_tokens(content)
         self._usage = RequestUsage(
             prompt_tokens=self._usage.prompt_tokens + prompt_tokens,
             completion_tokens=self._usage.completion_tokens + completion_tokens,
         )
+
         return CreateResult(
             content=content,
             function_calls=function_calls,
@@ -133,7 +136,6 @@ class MLXChatCompletionClient(ChatCompletionClient):
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             ),
-            finish_reason=finish_reason,
         )
 
     async def create_stream(
@@ -147,19 +149,30 @@ class MLXChatCompletionClient(ChatCompletionClient):
         cancellation_token: Optional[CancellationToken] = None,
     ) -> AsyncGenerator[Union[str, CreateResult], None]:
         """Create a stream of chat completion responses."""
+        from autogen_core.models import SystemMessage, UserMessage, AssistantMessage
+
         mlx_tools = [
             {
                 "type": "function",
                 "function": {
-                    "name": tool.name if isinstance(tool, Tool) else tool["function"]["name"],
-                    "description": tool.description if isinstance(tool, Tool) else tool["function"]["description"],
-                    "parameters": tool.schema if isinstance(tool, Tool) else tool["function"]["parameters"],
+                    "name": tool.name if isinstance(tool, Tool) else tool.get("name", ""),
+                    "description": tool.description if isinstance(tool, Tool) else tool.get("description", ""),
+                    "parameters": tool.schema if isinstance(tool, Tool) else tool.get("parameters", {}),
                 },
             }
             for tool in tools
         ]
         mlx_messages = [
-            {"role": msg.role, "content": msg.content} for msg in messages
+            {
+                "role": (
+                    "system" if isinstance(msg, SystemMessage) else
+                    "user" if isinstance(msg, UserMessage) else
+                    "assistant" if isinstance(msg, AssistantMessage) else
+                    msg.role
+                ),
+                "content": msg.content
+            }
+            for msg in messages
         ]
         system_prompt = next(
             (msg["content"]
@@ -169,46 +182,34 @@ class MLXChatCompletionClient(ChatCompletionClient):
             mlx_messages = [
                 msg for msg in mlx_messages if msg["role"] != "system"]
 
-        # Extract supported parameters from extra_create_args
-        supported_args = {
-            "logprobs": extra_create_args.get("logprobs"),
-            "logit_bias": extra_create_args.get("logit_bias"),
-            "repetition_penalty": extra_create_args.get("repetition_penalty"),
-            "repetition_context_size": extra_create_args.get("repetition_context_size"),
-            "temperature": extra_create_args.get("temperature"),
-            "stop": extra_create_args.get("stop"),
-            "role_mapping": extra_create_args.get("role_mapping"),
-            "verbose": extra_create_args.get("verbose"),
+        create_args = {
+            "messages": mlx_messages,
+            "tools": mlx_tools if mlx_tools else None,
+            "system_prompt": system_prompt,
+            "max_tokens": extra_create_args.get("max_tokens", -1),
+            "temperature": extra_create_args.get("temperature", 0.0),
+            "top_p": extra_create_args.get("top_p", 1.0),
+            "stop": extra_create_args.get("stop", None),
+            "logprobs": extra_create_args.get("logprobs", -1),
+            "repetition_penalty": extra_create_args.get("repetition_penalty", None),
+            "repetition_context_size": extra_create_args.get("repetition_context_size", 20),
+            "log_dir": extra_create_args.get("log_dir", None),
+            "verbose": extra_create_args.get("verbose", False),
         }
-        # Remove None values
-        supported_args = {k: v for k,
-                          v in supported_args.items() if v is not None}
-
-        # Warn if model parameter is passed
-        if "model" in extra_create_args:
-            logger.warning(
-                "Model parameter is set during MLXChatCompletionClient initialization and cannot be overridden. Ignoring provided model argument.")
 
         prompt_tokens = self.mlx_client.count_tokens(messages)
         completion_tokens = 0
         content = ""
-        tool_calls = None
-        finish_reason = None
-        for response in self.mlx_client.stream_chat(
-            messages=mlx_messages,
-            tools=mlx_tools if mlx_tools else None,
-            system_prompt=system_prompt,
-            **supported_args,
-        ):
+
+        for response in self.mlx_client.stream_chat(**create_args):
             choice = response.get("choices", [{}])[0]
             message = choice.get("message", {})
             chunk_content = message.get("content", "")
             content += chunk_content
             completion_tokens += self.mlx_client.count_tokens(chunk_content)
-            tool_calls = message.get("tool_calls", None)
-            finish_reason = choice.get("finish_reason", None)
             yield chunk_content
 
+        tool_calls = message.get("tool_calls", None)
         function_calls = []
         if tool_calls:
             for call in tool_calls:
@@ -223,10 +224,12 @@ class MLXChatCompletionClient(ChatCompletionClient):
                         "type": "function",
                     }
                 )
+
         self._usage = RequestUsage(
             prompt_tokens=self._usage.prompt_tokens + prompt_tokens,
             completion_tokens=self._usage.completion_tokens + completion_tokens,
         )
+
         yield CreateResult(
             content=content,
             function_calls=function_calls,
@@ -234,7 +237,6 @@ class MLXChatCompletionClient(ChatCompletionClient):
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             ),
-            finish_reason=finish_reason,
         )
 
     async def close(self) -> None:
