@@ -94,7 +94,7 @@ class MLXChatCompletionClient(ChatCompletionClient):
             "repetition_penalty": extra_create_args.get("repetition_penalty", None),
             "repetition_context_size": extra_create_args.get("repetition_context_size", 20),
             "log_dir": extra_create_args.get("log_dir", None),
-            "verbose": extra_create_args.get("verbose", False),
+            "verbose": extra_create_args.get("verbose", True),
         }
         response = self.mlx_client.chat(**create_args)
         choice = response.get("choices", [{}])[0]
