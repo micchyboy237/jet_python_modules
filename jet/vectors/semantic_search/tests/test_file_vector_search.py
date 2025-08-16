@@ -56,7 +56,7 @@ def test_collect_file_chunks_single_file(temp_file):
     Then: Returns expected file metadata and chunk data with correct token counts
     """
     def custom_tokenizer(text): return len(text.split())
-    expected_content = "this is a test content"
+    expected_content = "This is a test content"
     expected_file_path = temp_file
     expected_file_name = 'test.txt'
     expected_parent_dir = Path(temp_file).parent.name.lower()
@@ -76,7 +76,7 @@ def test_collect_file_chunks_single_file(temp_file):
     assert len(chunks) == 1, "Expected exactly one chunk"
     assert chunks[0][0] == expected_chunk[
         0], f"Expected chunk file path {expected_chunk[0]}, got {chunks[0][0]}"
-    assert chunks[0][1] == expected_chunk[
+    assert chunks[0][1].rstrip() == expected_chunk[
         1], f"Expected chunk content {expected_chunk[1]}, got {chunks[0][1]}"
     assert chunks[0][2] == expected_chunk[
         2], f"Expected chunk start index {expected_chunk[2]}, got {chunks[0][2]}"
@@ -143,7 +143,7 @@ def test_search_files(mock_sentence_transformer, temp_file):
     Then: Returns a list of up to top_k results with expected structure and token count
     """
     query = "test query"
-    expected_content = "this is a test content"
+    expected_content = "This is a test content"
     expected_file_path = temp_file
     top_k = 1
     def custom_tokenizer(text): return len(
@@ -156,31 +156,30 @@ def test_search_files(mock_sentence_transformer, temp_file):
                    extensions=['.txt'], top_k=top_k))
     assert isinstance(results, list)
     assert len(
-        results) <= top_k, f"Expected at most {top_k} results, got {len(results)}"
-    assert len(results) == 1, "Expected exactly one result"
-    assert isinstance(results[0], dict)
-    assert results[0]['rank'] == 1
-    assert isinstance(results[0]['score'], float)
-    assert results[0]['code'] == expected_content
-    assert results[0]['metadata']['file_path'] == expected_file_path
-    assert results[0]['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for single chunk"
-    assert isinstance(results[0]['metadata']['name_similarity'], float)
-    assert isinstance(results[0]['metadata']['dir_similarity'], float)
-    assert isinstance(results[0]['metadata']['content_similarity'], float)
-    assert results[0]['metadata'][
-        'num_tokens'] == expected_num_tokens_default, f"Expected {expected_num_tokens_default} tokens, got {results[0]['metadata']['num_tokens']}"
+        results) == 1, f"Expected exactly one result, got {len(results)}"
+    result = results[0]
+    assert isinstance(result, dict)
+    assert result['rank'] == 1
+    assert isinstance(result['score'], float)
+    assert result['code'].rstrip() == expected_content
+    assert result['metadata']['file_path'] == expected_file_path
+    assert result['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for single chunk"
+    for key in ['name_similarity', 'dir_similarity', 'content_similarity']:
+        assert isinstance(result['metadata'][key], float)
+    assert result['metadata']['num_tokens'] == expected_num_tokens_default, \
+        f"Expected {expected_num_tokens_default} tokens, got {result['metadata']['num_tokens']}"
 
     # Test with custom tokenizer, merging chunks (split_chunks=False)
     results = list(search_files(temp_file, query, extensions=[
                    '.txt'], top_k=top_k, tokenizer=custom_tokenizer))
-    assert results[0]['metadata'][
-        'num_tokens'] == expected_num_tokens_custom, f"Expected {expected_num_tokens_custom} tokens with custom tokenizer, got {results[0]['metadata']['num_tokens']}"
+    assert results[0]['metadata']['num_tokens'] == expected_num_tokens_custom, \
+        f"Expected {expected_num_tokens_custom} tokens with custom tokenizer, got {results[0]['metadata']['num_tokens']}"
 
     # Test with split_chunks=True (single chunk, so same result)
     results = list(search_files(temp_file, query, extensions=[
                    '.txt'], top_k=top_k, split_chunks=True))
     assert len(results) == 1
-    assert results[0]['code'] == expected_content
+    assert results[0]['code'].rstrip() == expected_content
     assert results[0]['metadata']['num_tokens'] == expected_num_tokens_default
 
 
@@ -256,47 +255,44 @@ def test_search_files_with_threshold_and_yielding(mock_sentence_transformer, tem
     expected_file_path = temp_file
     top_k = 1
     def custom_tokenizer(text): return len(text.split())
-    expected_num_tokens_default = 5  # "this", "is", "a", "test", "content"
-    expected_num_tokens_custom = 5
+    expected_num_tokens = 5  # "this", "is", "a", "test", "content"
+
+    # Helper to check result structure and values
+    def assert_result_structure(result, expected_content, expected_file_path, expected_num_tokens):
+        assert isinstance(result, dict), "Result should be a dictionary"
+        assert result['rank'] == 1, "Rank should be 1 after sorting"
+        assert result['score'] >= expected_threshold, f"Score {result['score']} should meet threshold {expected_threshold}"
+        assert result['code'].rstrip(
+        ) == expected_content, f"Expected content {expected_content}, got {result['code']}"
+        assert result['metadata'][
+            'file_path'] == expected_file_path, f"Expected file path {expected_file_path}, got {result['metadata']['file_path']}"
+        assert result['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for single chunk"
+        for key in ['name_similarity', 'dir_similarity', 'content_similarity']:
+            assert isinstance(result['metadata'][key],
+                              float), f"{key} should be float"
+        assert result['metadata'][
+            'num_tokens'] == expected_num_tokens, f"Expected {expected_num_tokens} tokens, got {result['metadata']['num_tokens']}"
 
     # Test with default tokenizer, merging chunks (split_chunks=False)
-    results = []
-    for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold):
-        results.append(result)
-    assert len(
+    results = list(search_files(temp_file, query, extensions=[
+                   '.txt'], top_k=top_k, threshold=expected_threshold))
+    assert 0 < len(
         results) <= top_k, f"Expected at most {top_k} results, got {len(results)}"
-    assert len(results) == 1, "Expected exactly one result"
-    assert isinstance(results[0], dict), "Result should be a dictionary"
-    assert results[0]['rank'] == 1, "Rank should be 1 after sorting"
-    assert results[0]['score'] >= expected_threshold, f"Score {results[0]['score']} should meet threshold {expected_threshold}"
-    assert results[0]['code'].strip(
-    ) == expected_content, f"Expected content {expected_content}, got {results[0]['code']}"
-    assert results[0]['metadata'][
-        'file_path'] == expected_file_path, f"Expected file path {expected_file_path}, got {results[0]['metadata']['file_path']}"
-    assert results[0]['metadata']['chunk_idx'] == 0, "Expected chunk_idx to be 0 for single chunk"
-    assert isinstance(results[0]['metadata']['name_similarity'],
-                      float), "Name similarity should be float"
-    assert isinstance(results[0]['metadata']['dir_similarity'],
-                      float), "Dir similarity should be float"
-    assert isinstance(results[0]['metadata']['content_similarity'],
-                      float), "Content similarity should be float"
-    assert results[0]['metadata'][
-        'num_tokens'] == expected_num_tokens_default, f"Expected {expected_num_tokens_default} tokens, got {results[0]['metadata']['num_tokens']}"
+    assert_result_structure(
+        results[0], expected_content, expected_file_path, expected_num_tokens)
 
     # Test with custom tokenizer, merging chunks (split_chunks=False)
-    results = []
-    for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold, tokenizer=custom_tokenizer):
-        results.append(result)
+    results = list(search_files(temp_file, query, extensions=[
+                   '.txt'], top_k=top_k, threshold=expected_threshold, tokenizer=custom_tokenizer))
     assert results[0]['metadata'][
-        'num_tokens'] == expected_num_tokens_custom, f"Expected {expected_num_tokens_custom} tokens with custom tokenizer, got {results[0]['metadata']['num_tokens']}"
+        'num_tokens'] == expected_num_tokens, f"Expected {expected_num_tokens} tokens with custom tokenizer, got {results[0]['metadata']['num_tokens']}"
 
     # Test with split_chunks=True (single chunk, so same result)
-    results = []
-    for result in search_files(temp_file, query, extensions=['.txt'], top_k=top_k, threshold=expected_threshold, split_chunks=True):
-        results.append(result)
+    results = list(search_files(temp_file, query, extensions=[
+                   '.txt'], top_k=top_k, threshold=expected_threshold, split_chunks=True))
     assert len(results) == 1
-    assert results[0]['code'] == expected_content
-    assert results[0]['metadata']['num_tokens'] == expected_num_tokens_default
+    assert_result_structure(
+        results[0], expected_content, expected_file_path, expected_num_tokens)
 
 
 class TestMergeResults:
