@@ -1,20 +1,26 @@
-import fnmatch
-import re
-from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
+from nltk.stem import PorterStemmer
 import os
-from pathlib import Path
+import re
+import nltk
 import numpy as np
-from sentence_transformers import SentenceTransformer
-from jet.logger import logger
+from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
+from sentence_transformers import CrossEncoder
+from rank_bm25 import BM25Okapi
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from pathlib import Path
 from jet.models.embeddings.base import generate_embeddings
-from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
-from jet.models.model_types import EmbedModelType
-
-from jet.transformers.formatters import format_json
+from jet.models.model_registry.transformers.cross_encoder_model_registry import CrossEncoderRegistry
+from jet.models.model_types import EmbedModelType, RerankModelType
+from jet.logger import logger
 from jet.wordnet.text_chunker import chunk_texts_with_data
 
 DEFAULT_EMBED_MODEL: EmbedModelType = 'static-retrieval-mrl-en-v1'
-MAX_CONTENT_SIZE = 1000
+DEFAULT_RERANK_MODEL: RerankModelType = 'ms-marco-MiniLM-L6-v2'
+
+# Download NLTK data for BM25 tokenization
+nltk.download('punkt', quiet=True)
+nltk.download('stopwords', quiet=True)
 
 
 class FileSearchMetadata(TypedDict):
@@ -26,6 +32,9 @@ class FileSearchMetadata(TypedDict):
     name_similarity: float
     dir_similarity: float
     content_similarity: float
+    metadata_similarity: float
+    cross_encoder_score: float
+    bm25_score: float
     num_tokens: int
 
 
@@ -154,29 +163,123 @@ def collect_file_chunks(
     return file_paths, file_names, parent_dirs, contents_with_indices
 
 
-def compute_weighted_similarity(
+def compute_dynamic_weights(
+    query: str,
+    file_path: str,
+    content: str,
+    stop_words: set = set(stopwords.words('english'))
+) -> Tuple[float, float, float, float]:
+    """
+    Compute dynamic weights for similarity scores based on query and document characteristics.
+    Args:
+        query: Search query string
+        file_path: File path for metadata
+        content: Content chunk
+        stop_words: Set of stop words for keyword analysis
+    Returns:
+        Tuple of (name_weight, dir_weight, content_weight, metadata_weight)
+    """
+    ps = PorterStemmer()
+    query_tokens = set(word_tokenize(query.lower())) - stop_words
+    stemmed_query_tokens = {ps.stem(token) for token in query_tokens}
+    file_path_obj = Path(file_path)
+    file_name = file_path_obj.stem.lower()
+    dir_name = file_path_obj.parent.name.lower()
+    stemmed_file_name = {
+        ps.stem(word) for word in file_name.replace('_', ' ').split() if word}
+    stemmed_dir_name = {ps.stem(word)
+                        for word in dir_name.replace('_', ' ').split() if word}
+    logger.debug(
+        f"Query tokens: {query_tokens}, stemmed: {stemmed_query_tokens}, file_name: {file_name}, dir_name: {dir_name}")
+    logger.debug(
+        f"Stemmed file_name: {stemmed_file_name}, stemmed dir_name: {stemmed_dir_name}")
+
+    # Match if stemmed tokens overlap or if short tokens are likely abbreviations
+    def is_likely_abbreviation(short_token: str, long_token: str) -> bool:
+        if len(short_token) > 3:
+            return False
+        # Check if short_token shares at least two initial characters or is 'ml' for machine learning
+        return (short_token == 'ml' and long_token in {'machin', 'learn'}) or (
+            long_token.startswith(short_token[:2]) and len(short_token) >= 2
+        )
+
+    dir_weight = 0.3 if (
+        any(stem in stemmed_dir_name for stem in stemmed_query_tokens) or
+        any(is_likely_abbreviation(stem_dir, stem_query)
+            for stem_dir in stemmed_dir_name for stem_query in stemmed_query_tokens)
+    ) else 0.2
+    name_weight = 0.4 if (
+        any(stem in stemmed_file_name for stem in stemmed_query_tokens) or
+        any(is_likely_abbreviation(stem_file, stem_query)
+            for stem_file in stemmed_file_name for stem_query in stemmed_query_tokens)
+    ) else 0.3
+    content_weight = 0.5 if len(content.split()) < 200 else 0.4
+    metadata_weight = 0.1
+
+    total = name_weight + dir_weight + content_weight + metadata_weight
+    logger.debug(
+        f"Raw weights: name={name_weight}, dir={dir_weight}, content={content_weight}, metadata={metadata_weight}, total={total}")
+    logger.debug(
+        f"Normalized weights: name={name_weight/total}, dir={dir_weight/total}, content={content_weight/total}, metadata={metadata_weight/total}")
+    return (
+        name_weight / total,
+        dir_weight / total,
+        content_weight / total,
+        metadata_weight / total
+    )
+
+
+def compute_hybrid_similarity(
+    query: str,
     query_vector: np.ndarray,
     name_vector: np.ndarray,
     dir_vector: np.ndarray,
-    content_vector: Optional[np.ndarray]
-) -> Tuple[float, float, float, float]:
-    """
-    Compute weighted similarity score and individual scores for a file based on its components.
-    Args:
-        query_vector: Encoded query vector
-        name_vector: Encoded file name vector
-        dir_vector: Encoded parent directory vector
-        content_vector: Encoded content vector (if available)
-    Returns:
-        Tuple of (weighted_similarity, name_similarity, dir_similarity, content_similarity)
-    """
+    content_vector: np.ndarray,
+    metadata_vector: np.ndarray,
+    tokenized_corpus: List[List[str]],
+    corpus_index: int,
+    cross_encoder: CrossEncoder,
+    file_path: str,
+    content: str
+) -> Tuple[float, float, float, float, float, float]:
     name_sim = cosine_similarity(query_vector, name_vector)
     dir_sim = cosine_similarity(query_vector, dir_vector)
-    content_sim = 0.0
-    if content_vector is not None:
-        content_sim = cosine_similarity(query_vector, content_vector)
-    weighted_sim = 0.4 * name_sim + 0.2 * dir_sim + 0.4 * content_sim
-    return weighted_sim, name_sim, dir_sim, content_sim
+    content_sim = cosine_similarity(query_vector, content_vector)
+    metadata_sim = cosine_similarity(query_vector, metadata_vector)
+    logger.debug(
+        f"Similarities: name={name_sim}, dir={dir_sim}, content={content_sim}, metadata={metadata_sim}")
+
+    bm25 = BM25Okapi(tokenized_corpus)
+    tokenized_query = word_tokenize(query.lower())
+    bm25_scores = bm25.get_scores(tokenized_query)
+    logger.debug(
+        f"BM25 scores: {bm25_scores}, selected score: {bm25_scores[corpus_index]}")
+    bm25_range = max(bm25_scores) - min(bm25_scores)
+    bm25_score = (bm25_scores[corpus_index] - min(bm25_scores)) / \
+        (bm25_range + 1e-10) if bm25_range > 0 else 0.0
+    logger.debug(f"Normalized BM25 score: {bm25_score}")
+
+    raw_cross_encoder_score = cross_encoder.predict([(query, content)])[0]
+    # Normalize cross-encoder score to [0, 1] using sigmoid
+    cross_encoder_score = 1 / (1 + np.exp(-raw_cross_encoder_score))
+    logger.debug(
+        f"Raw cross-encoder score: {raw_cross_encoder_score}, normalized: {cross_encoder_score}")
+
+    name_weight, dir_weight, content_weight, metadata_weight = compute_dynamic_weights(
+        query, file_path, content)
+    logger.debug(
+        f"Weights: name={name_weight}, dir={dir_weight}, content={content_weight}, metadata={metadata_weight}")
+
+    weighted_sim = (
+        name_weight * name_sim +
+        dir_weight * dir_sim +
+        content_weight * content_sim +
+        metadata_weight * metadata_sim +
+        0.2 * cross_encoder_score +
+        0.1 * bm25_score
+    )
+    logger.debug(f"Weighted similarity: {weighted_sim}")
+    return weighted_sim, name_sim, dir_sim, content_sim, metadata_sim, cross_encoder_score, bm25_score
 
 
 def merge_results(
@@ -187,19 +290,17 @@ def merge_results(
     Merge adjacent chunks from the same file into a single result, preserving order and metadata.
     Args:
         results: List of FileSearchResult dictionaries, potentially containing adjacent chunks.
-        tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
+        tokenizer: Optional callable to count tokens in text.
     Returns:
         List of FileSearchResult dictionaries with adjacent chunks merged.
     """
     if not results:
         return []
 
-    # Default tokenizer if none provided
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
 
-    # Group results by file_path
     grouped: dict[str, List[FileSearchResult]] = {}
     for result in results:
         file_path = result["metadata"]["file_path"]
@@ -209,7 +310,6 @@ def merge_results(
 
     merged_results: List[FileSearchResult] = []
     for file_path, chunks in grouped.items():
-        # Sort chunks by start_idx to ensure correct order
         chunks.sort(key=lambda x: x["metadata"]["start_idx"])
 
         current_chunk = chunks[0]
@@ -220,6 +320,9 @@ def merge_results(
         name_sim = current_chunk["metadata"]["name_similarity"]
         dir_sim = current_chunk["metadata"]["dir_similarity"]
         content_sims = [current_chunk["metadata"]["content_similarity"]]
+        metadata_sims = [current_chunk["metadata"]["metadata_similarity"]]
+        cross_encoder_sims = [current_chunk["metadata"]["cross_encoder_score"]]
+        bm25_sims = [current_chunk["metadata"]["bm25_score"]]
         chunk_count = 1
         tokens = tokenizer(merged_code)
 
@@ -227,9 +330,7 @@ def merge_results(
             next_start = next_chunk["metadata"]["start_idx"]
             next_end = next_chunk["metadata"]["end_idx"]
             next_code = next_chunk["code"]
-            # Check if chunks are adjacent or overlapping
             if next_start <= end_idx:
-                # Extend the merged content
                 new_end = max(end_idx, next_end)
                 overlap = end_idx - next_start
                 additional_content = next_code[overlap:] if overlap > 0 else next_code
@@ -238,12 +339,19 @@ def merge_results(
                 total_score += next_chunk["score"]
                 content_sims.append(
                     next_chunk["metadata"]["content_similarity"])
+                metadata_sims.append(
+                    next_chunk["metadata"]["metadata_similarity"])
+                cross_encoder_sims.append(
+                    next_chunk["metadata"]["cross_encoder_score"])
+                bm25_sims.append(next_chunk["metadata"]["bm25_score"])
                 chunk_count += 1
                 tokens = tokenizer(merged_code)
             else:
-                # Finalize current merged chunk
                 avg_score = total_score / chunk_count
                 avg_content_sim = sum(content_sims) / chunk_count
+                avg_metadata_sim = sum(metadata_sims) / chunk_count
+                avg_cross_encoder_sim = sum(cross_encoder_sims) / chunk_count
+                avg_bm25_sim = sum(bm25_sims) / chunk_count
                 merged_results.append({
                     "rank": current_chunk["rank"],
                     "score": avg_score,
@@ -255,11 +363,13 @@ def merge_results(
                         "name_similarity": name_sim,
                         "dir_similarity": dir_sim,
                         "content_similarity": avg_content_sim,
+                        "metadata_similarity": avg_metadata_sim,
+                        "cross_encoder_score": avg_cross_encoder_sim,
+                        "bm25_score": avg_bm25_sim,
                         "num_tokens": tokens
                     },
                     "code": merged_code,
                 })
-                # Start new merged chunk
                 current_chunk = next_chunk
                 merged_code = current_chunk["code"]
                 start_idx = current_chunk["metadata"]["start_idx"]
@@ -269,12 +379,19 @@ def merge_results(
                 dir_sim = current_chunk["metadata"]["dir_similarity"]
                 content_sims = [current_chunk["metadata"]
                                 ["content_similarity"]]
+                metadata_sims = [current_chunk["metadata"]
+                                 ["metadata_similarity"]]
+                cross_encoder_sims = [
+                    current_chunk["metadata"]["cross_encoder_score"]]
+                bm25_sims = [current_chunk["metadata"]["bm25_score"]]
                 chunk_count = 1
                 tokens = tokenizer(merged_code)
 
-        # Append the last merged chunk for this file
         avg_score = total_score / chunk_count
         avg_content_sim = sum(content_sims) / chunk_count
+        avg_metadata_sim = sum(metadata_sims) / chunk_count
+        avg_cross_encoder_sim = sum(cross_encoder_sims) / chunk_count
+        avg_bm25_sim = sum(bm25_sims) / chunk_count
         merged_results.append({
             "rank": current_chunk["rank"],
             "score": avg_score,
@@ -286,16 +403,19 @@ def merge_results(
                 "name_similarity": name_sim,
                 "dir_similarity": dir_sim,
                 "content_similarity": avg_content_sim,
+                "metadata_similarity": avg_metadata_sim,
+                "cross_encoder_score": avg_cross_encoder_sim,
+                "bm25_score": avg_bm25_sim,
                 "num_tokens": tokens
             },
             "code": merged_code,
         })
 
-    # Re-sort by score to maintain ranking
     merged_results.sort(key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(merged_results, 1):
         result["rank"] = i
-
+    logger.debug(
+        f"Merged results: {[r['metadata']['file_path'] for r in merged_results]}")
     return merged_results
 
 
@@ -305,6 +425,7 @@ def search_files(
     extensions: Optional[List[str]] = None,
     top_k: Optional[int] = None,
     embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
+    rerank_model: RerankModelType = DEFAULT_RERANK_MODEL,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     threshold: float = 0.0,
@@ -313,50 +434,33 @@ def search_files(
     includes: Optional[List[str]] = None,
     excludes: Optional[List[str]] = None
 ) -> Iterator[FileSearchResult]:
-    """
-    Search files using vector similarity on chunked contents + file metadata.
-    Yields up to top_k results iteratively that meet the threshold, or all results if top_k is None.
-    Args:
-        paths: Single path or list of paths to search
-        query: Search query string
-        extensions: List of file extensions to include
-        top_k: Maximum number of results to yield, or None to yield all results
-        embed_model: Embedding model to use
-        chunk_size: Size of content chunks
-        chunk_overlap: Overlap between chunks
-        threshold: Minimum similarity score for results
-        tokenizer: Optional callable to count tokens in text. Defaults to regex-based word and punctuation counting.
-        split_chunks: If True, return individual chunks; if False, merge adjacent chunks from the same file.
-        includes: List of glob patterns to include
-        excludes: List of glob patterns to exclude
-    Returns:
-        Iterator of FileSearchResult dictionaries (ranked by similarity)
-    """
-    # Default tokenizer if none provided
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
-
+    cross_encoder = CrossEncoderRegistry.load_model(rerank_model)
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
         paths, extensions, chunk_size, chunk_overlap, tokenizer, includes, excludes)
-    logger.debug(f"Parent dirs:\n\n{format_json(parent_dirs)}")
-    logger.debug(f"File names:\n\n{format_json(file_names)}")
-    logger.debug(f"File paths:\n\n{format_json(file_paths)}")
-
+    logger.debug(
+        f"Collected chunks: {[(fp, chunk[:20] + '...', start, end, tokens) for fp, chunk, start, end, tokens in chunk_data]}")
     if not chunk_data:
+        logger.debug("No chunks collected")
         return
     unique_files = list(dict.fromkeys(file_paths))
+    metadata_texts = [f"{Path(p).suffix} {Path(p).name}" for p in unique_files]
+    tokenized_corpus = [word_tokenize(chunk.lower())
+                        for _, chunk, _, _, _ in chunk_data]
     name_texts = [Path(p).name for p in unique_files]
     dir_texts = [Path(p).parent.name or "root" for p in unique_files]
     chunk_texts = [chunk for _, chunk, _, _, _ in chunk_data]
     logger.info(
-        f"Generating embeddings for {len(name_texts + dir_texts + chunk_texts) + 1} texts:\n"
+        f"Generating embeddings for {len(name_texts + dir_texts + chunk_texts + metadata_texts) + 1} texts:\n"
         f"  1 query\n"
         f"  {len(name_texts)} names\n"
         f"  {len(dir_texts)} dirs\n"
-        f"  {len(chunk_texts)} chunks"
+        f"  {len(chunk_texts)} chunks\n"
+        f"  {len(metadata_texts)} metadata"
     )
-    all_texts = [query] + name_texts + dir_texts + chunk_texts
+    all_texts = [query] + name_texts + dir_texts + chunk_texts + metadata_texts
     all_vectors = generate_embeddings(
         all_texts,
         embed_model,
@@ -367,17 +471,22 @@ def search_files(
     query_vector = all_vectors[0]
     num_names = len(name_texts)
     num_dirs = len(dir_texts)
+    num_chunks = len(chunk_texts)
     name_vectors = all_vectors[1:num_names + 1]
     dir_vectors = all_vectors[num_names + 1:num_names + 1 + num_dirs]
-    content_vectors = all_vectors[num_names + 1 + num_dirs:]
+    content_vectors = all_vectors[num_names + 1 +
+                                  num_dirs:num_names + 1 + num_dirs + num_chunks]
+    metadata_vectors = all_vectors[num_names + 1 + num_dirs + num_chunks:]
     results: List[FileSearchResult] = []
     chunk_counts = {}
     for i, (file_path, chunk, start_idx, end_idx, num_tokens) in enumerate(chunk_data):
         file_index = unique_files.index(file_path)
-        content_vector = content_vectors[i]
-        weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
-            query_vector, name_vectors[file_index], dir_vectors[file_index], content_vector
+        weighted_sim, name_sim, dir_sim, content_sim, metadata_sim, cross_encoder_score, bm25_score = compute_hybrid_similarity(
+            query, query_vector, name_vectors[file_index], dir_vectors[file_index],
+            content_vectors[i], metadata_vectors[file_index], tokenized_corpus, i,
+            cross_encoder, file_path, chunk
         )
+        logger.debug(f"Chunk {i} for {file_path}: weighted_sim={weighted_sim}, name_sim={name_sim}, dir_sim={dir_sim}, content_sim={content_sim}, metadata_sim={metadata_sim}, cross_encoder={cross_encoder_score}, bm25={bm25_score}")
         if weighted_sim >= threshold:
             chunk_counts[file_path] = chunk_counts.get(file_path, -1) + 1
             result = {
@@ -391,15 +500,26 @@ def search_files(
                     "name_similarity": float(name_sim),
                     "dir_similarity": float(dir_sim),
                     "content_similarity": float(content_sim),
+                    "metadata_similarity": float(metadata_sim),
+                    "cross_encoder_score": float(cross_encoder_score),
+                    "bm25_score": float(bm25_score),
                     "num_tokens": num_tokens
                 },
                 "code": chunk,
             }
+            logger.debug(
+                f"Adding result for {file_path}, weighted_sim={weighted_sim}")
             results.append(result)
+        else:
+            logger.debug(
+                f"Excluding chunk for {file_path}, weighted_sim={weighted_sim} < threshold={threshold}")
+    logger.debug(f"Before sorting: {len(results)} results")
     results.sort(key=lambda x: x["score"], reverse=True)
     if not split_chunks:
         results = merge_results(results, tokenizer)
-    # Yield all results if top_k is None, otherwise limit to top_k
+    logger.debug(f"After merging: {len(results)} results")
     for i, result in enumerate(results if top_k is None else results[:top_k], 1):
         result["rank"] = i
+        logger.debug(
+            f"Final result {i}: {result['metadata']['file_path']}, score={result['score']}")
         yield result

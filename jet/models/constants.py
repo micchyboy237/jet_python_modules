@@ -7,6 +7,8 @@ from jet.models.model_types import (
     ModelKey,
     ModelType,
     ModelValue,
+    RerankModelKey,
+    RerankModelValue,
     model_keys_list,
     model_values_list,
     model_types_list,
@@ -123,6 +125,9 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "paraphrase-multilingual": "sentence-transformers/paraphrase-MiniLM-L12-v2",
     "multi-qa-MiniLM-L6-cos-v1": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
     "static-retrieval-mrl-en-v1": "sentence-transformers/static-retrieval-mrl-en-v1",
+}
+
+AVAILABLE_RERANK_MODELS: Dict[RerankModelKey, RerankModelValue] = {
     "ms-marco-MiniLM-L-6-v2": "cross-encoder/ms-marco-MiniLM-L6-v2",
     "ms-marco-MiniLM-L6-v2": "cross-encoder/ms-marco-MiniLM-L6-v2",
     "ms-marco-MiniLM-L-12-v2": "cross-encoder/ms-marco-MiniLM-L12-v2",
@@ -133,12 +138,14 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
 AVAILABLE_MODELS: Dict[ModelKey, ModelValue] = {
     **AVAILABLE_LLM_MODELS,
     **AVAILABLE_EMBED_MODELS,
+    **AVAILABLE_RERANK_MODELS,
 }
 
 
 ALL_MODELS: Dict[ModelKey, ModelValue] = {
     **AVAILABLE_LLM_MODELS,
     **AVAILABLE_EMBED_MODELS,
+    **AVAILABLE_RERANK_MODELS,
 }
 ALL_MODELS_REVERSED: Dict[ModelValue, ModelKey] = {
     v: k for k, v in ALL_MODELS.items()}

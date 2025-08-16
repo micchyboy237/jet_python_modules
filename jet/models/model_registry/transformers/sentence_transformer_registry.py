@@ -83,7 +83,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
 
     def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None, prompts: Optional[dict[str, str]] = None, **kwargs) -> Optional[SentenceTransformer]:
         try:
-            logger.warning(f"Loading embedding model on CPU (onnx)")
+            logger.info(f"Loading embedding model on CPU (onnx)")
             model_instance = SentenceTransformer(
                 model_id, device="cpu", backend="onnx", trust_remote_code=True, truncate_dim=truncate_dim, prompts=prompts,
                 # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}

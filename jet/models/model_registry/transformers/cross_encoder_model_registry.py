@@ -13,7 +13,7 @@ from jet.logger import logger
 from jet.models.model_registry.base import BaseModelRegistry
 from jet.models.tokenizer.base import TokenizerWrapper, get_tokenizer_fn
 from jet.models.utils import get_context_size, resolve_model_value
-from jet.models.model_types import EmbedModelType
+from jet.models.model_types import RerankModelType
 
 
 class CrossEncoderRegistry(BaseModelRegistry):
@@ -39,7 +39,7 @@ class CrossEncoderRegistry(BaseModelRegistry):
 
     @staticmethod
     def load_model(
-        model_id: EmbedModelType = "cross-encoder/ms-marco-MiniLM-L6-v2",
+        model_id: RerankModelType = "cross-encoder/ms-marco-MiniLM-L6-v2",
         max_length: Optional[int] = None,
         device: Optional[Literal["cpu", "mps"]] = None
     ) -> CrossEncoder:
@@ -72,21 +72,20 @@ class CrossEncoderRegistry(BaseModelRegistry):
             raise ValueError(
                 f"Could not load CrossEncoder model {resolved_model_id}: {str(e)}")
 
-    def _load_model(self, model_id: EmbedModelType, max_length: Optional[int] = None, **kwargs) -> Optional[CrossEncoder]:
+    def _load_model(self, model_id: RerankModelType, max_length: Optional[int] = None, **kwargs) -> Optional[CrossEncoder]:
         try:
+            logger.info(f"Loading embedding model on CPU (onnx)")
+            model_instance = CrossEncoder(
+                model_id, device="cpu", backend="onnx", trust_remote_code=True, max_length=max_length,
+                # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
+            )
+        except Exception as e:
             device = "mps" if torch.backends.mps.is_available(
             ) else "cuda" if torch.cuda.is_available() else "cpu"
             logger.info(
                 f"Loading embedding model on {device.upper()}: {model_id}")
             model_instance = CrossEncoder(
                 model_id, device=device, max_length=max_length)
-        except Exception as e:
-            logger.warning(
-                f"Falling back to CPU (onnx) for CrossEncoder model due to: {e}")
-            model_instance = CrossEncoder(
-                model_id, device="cpu", backend="onnx", trust_remote_code=True, max_length=max_length,
-                # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
-            )
         return model_instance
 
     @staticmethod

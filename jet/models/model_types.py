@@ -397,6 +397,19 @@ EmbedModelValue = Literal[
 ]
 EmbedModelValue = Union[EmbedModelValue, LLMModelValue]
 
+RerankModelKey = Literal[
+    "ms-marco-MiniLM-L-6-v2",
+    "ms-marco-MiniLM-L6-v2",
+    "ms-marco-MiniLM-L-12-v2",
+    "ms-marco-MiniLM-L12-v2",
+]
+
+# Rerank model value types
+RerankModelValue = Literal[
+    "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "cross-encoder/ms-marco-MiniLM-L12-v2",
+]
+
 # Combined llm model type
 # LLMModelType = Union[LLMModelKey, LLMModelValue]
 LLMModelType = Union[LLMModelKey, LLMModelValue]
@@ -404,9 +417,12 @@ LLMModelType = Union[LLMModelKey, LLMModelValue]
 # Combined embed model type
 EmbedModelType = Union[EmbedModelKey, EmbedModelValue]
 
-ModelKey = Union[LLMModelKey, EmbedModelKey]
-ModelValue = Union[LLMModelValue, EmbedModelValue]
-ModelType = Union[LLMModelType, EmbedModelType]
+# Combined rerank model type
+RerankModelType = Union[RerankModelKey, RerankModelValue]
+
+ModelKey = Union[LLMModelKey, EmbedModelKey, RerankModelKey]
+ModelValue = Union[LLMModelValue, EmbedModelValue, RerankModelValue]
+ModelType = Union[LLMModelType, EmbedModelType, RerankModelType]
 
 
 # Extract Enum classes from the union
