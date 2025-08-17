@@ -115,8 +115,8 @@ class TestMemoryManagerUpdateContext:
         # Given
         context = MagicMock(spec=ChatCompletionContext)
         context.get_messages = AsyncMock(return_value=[
-            UserMessage(
-                content="What are my dietary preferences?", role="user")
+            UserMessage(content="What are my dietary preferences?",
+                        role="user", source="test_user")
         ])
         expected_query = "What are my dietary preferences?"
         expected_results = [MemoryContent(

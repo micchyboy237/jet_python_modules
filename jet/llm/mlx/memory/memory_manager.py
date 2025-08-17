@@ -28,8 +28,7 @@ class MemoryManager(Memory):
             embedder_model_path: Path to the local Sentence Transformer model directory.
         """
         super().__init__()
-        self.embedder = SentenceTransformerRegistry.load_model(
-            embedder_model_path, device="mps")
+
         self.config = {
             "llm": {
                 "provider": "mlx",
@@ -90,7 +89,10 @@ class MemoryManager(Memory):
         Returns:
             UpdateContextResult containing relevant memories.
         """
+        import inspect
         messages = model_context.get_messages()
+        if inspect.iscoroutine(messages):
+            messages = await messages
         query = ""
         if messages:
             last_message = messages[-1]
