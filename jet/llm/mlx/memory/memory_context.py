@@ -2,12 +2,6 @@ from pydantic import BaseModel
 from autogen_core.models import LLMMessage
 from autogen_core.memory._base_memory import ChatCompletionContext
 from typing import List
-import os
-import shutil
-import asyncio
-from jet.llm.mlx.memory import MemoryManager
-from autogen_core.memory import MemoryContent, MemoryMimeType
-from autogen_core.models import UserMessage
 
 
 class ConcreteChatCompletionContext(ChatCompletionContext):
