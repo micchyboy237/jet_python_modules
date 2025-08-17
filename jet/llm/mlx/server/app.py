@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from huggingface_hub import scan_cache_dir
 from jet.llm.mlx.server.parallel_stream_script import parallel_stream_generate, parallel_chat_generate
 from jet.llm.mlx.server.task_manager import TaskManager, TaskStatus
-from jet.llm.mlx.mlx_types import LLMModelType, Message, ModelTypeEnum, RoleMapping, Tool
+from jet.models.model_types import LLMModelType, Message, ModelTypeEnum, RoleMapping, Tool
 from jet.llm.mlx.models import AVAILABLE_MODELS, get_model_limits
 from jet.logger import logger
 

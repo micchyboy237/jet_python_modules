@@ -1,5 +1,5 @@
 import pytest
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from jet.llm.mlx.tasks.answer_multiple_yes_no_with_context import (
     answer_multiple_yes_no_with_context,
     InvalidMethodError,

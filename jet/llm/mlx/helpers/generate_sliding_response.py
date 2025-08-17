@@ -1,5 +1,5 @@
 from jet.llm.mlx.generation import stream_chat
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.token_utils import get_tokenizer
 import json

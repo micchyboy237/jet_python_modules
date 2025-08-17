@@ -4,7 +4,7 @@ from typing import List, Optional, Union, Dict
 from jet.llm.mlx.base import MLX
 from jet.logger import logger
 from mpi4py import MPI
-from jet.llm.mlx.mlx_types import Message, LLMModelType, RoleMapping, Tool, CompletionResponse
+from jet.models.model_types import Message, LLMModelType, RoleMapping, Tool, CompletionResponse
 from jet.llm.mlx.models import AVAILABLE_MODELS, get_model_limits, resolve_model
 
 comm = MPI.COMM_WORLD

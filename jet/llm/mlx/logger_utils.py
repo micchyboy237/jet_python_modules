@@ -4,7 +4,7 @@ from typing import Any, Literal, Union, List
 from uuid import uuid4
 
 from jet.file.utils import save_file
-from jet.llm.mlx.mlx_types import CompletionResponse, Message
+from jet.models.model_types import CompletionResponse, Message
 from jet.transformers.formatters import format_json
 
 

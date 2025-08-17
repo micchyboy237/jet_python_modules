@@ -3,7 +3,7 @@ from typing import List, Tuple
 import mlx.core as mx
 from mlx_lm.evaluate import MLXLM
 from lm_eval.api.instance import Instance
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.evaluation.base import (
     compute_perplexity,

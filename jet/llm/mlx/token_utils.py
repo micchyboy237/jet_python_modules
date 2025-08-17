@@ -1,7 +1,7 @@
 from jet.llm.mlx.utils.base import get_model_max_tokens
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from typing import Callable, List, Dict, Optional, TypedDict, Union
-from jet.llm.mlx.mlx_types import LLMModelType, ModelType
+from jet.models.model_types import LLMModelType, ModelType
 from jet.llm.mlx.models import resolve_model
 from jet.wordnet.sentence import split_sentences
 from mlx_lm import load

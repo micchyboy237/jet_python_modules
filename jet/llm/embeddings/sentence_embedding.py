@@ -1,5 +1,5 @@
 from typing import List, Union, Callable, Optional
-from jet.llm.mlx.mlx_types import ModelType
+from jet.models.model_types import ModelType
 from jet.llm.mlx.models import resolve_model_value
 import numpy as np
 from sentence_transformers import SentenceTransformer

@@ -8,7 +8,7 @@ from jet.wordnet.words import get_words
 from textstat import textstat as ts
 from jet.wordnet.analyzers.text_analysis import calculate_mtld, calculate_mtld_category
 from jet.llm.mlx.base import MLX
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from jet.logger import logger
 
 # MLX setup

@@ -1,7 +1,7 @@
 import psutil
 from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 import atexit
-from jet.llm.mlx.mlx_types import EmbedModelType
+from jet.models.model_types import EmbedModelType
 from jet.llm.mlx.models import AVAILABLE_EMBED_MODELS, get_context_size, resolve_model_key
 import numpy as np
 from typing import List, Optional, TypedDict, Union, Callable, Tuple

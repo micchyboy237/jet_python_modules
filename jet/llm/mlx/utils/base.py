@@ -1,4 +1,4 @@
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from jet.llm.mlx.models import AVAILABLE_MODELS, MODEL_CONTEXTS, MODEL_EMBEDDING_TOKENS
 from mlx_lm import stream_generate
 from mlx_lm.tokenizer_utils import TokenizerWrapper

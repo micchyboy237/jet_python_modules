@@ -2,7 +2,7 @@ import numpy as np
 import psutil
 from tokenizers import Tokenizer
 from typing import Dict, Optional, Union, List
-from jet.llm.mlx.mlx_types import ModelType
+from jet.models.model_types import ModelType
 from jet.models.tokenizer.base import count_tokens, get_tokenizer
 from jet.models.utils import get_embedding_size
 

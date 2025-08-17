@@ -1,5 +1,5 @@
 import unittest
-from jet.llm.mlx.mlx_types import EmbedModelType
+from jet.models.model_types import EmbedModelType
 import numpy as np
 from jet.llm.utils.transformer_embeddings import (
     generate_embeddings,

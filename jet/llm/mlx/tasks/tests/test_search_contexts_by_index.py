@@ -1,5 +1,5 @@
 import pytest
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from jet.llm.mlx.tasks.search_contexts_by_index import search_contexts_by_index
 
 MODEL_PATH: LLMModelType = "llama-3.2-3b-instruct-4bit"

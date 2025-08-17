@@ -1,11 +1,11 @@
 from typing import List, Union, Callable, Optional
 from transformers import PreTrainedTokenizer, BatchEncoding
 import numpy as np
-from jet.llm.mlx.mlx_types import ModelType
+from jet.models.model_types import ModelType
 from typing import Tuple
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
-from jet.llm.mlx.mlx_types import EmbedModelType, MLXTokenizer, LLMModelType, ModelType
+from jet.models.model_types import EmbedModelType, MLXTokenizer, LLMModelType, ModelType
 from jet.llm.mlx.models import AVAILABLE_MODELS, resolve_model, resolve_model_key
 from jet.llm.mlx.models import resolve_model_value
 

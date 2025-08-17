@@ -4,7 +4,7 @@ from typing import List, Optional, TypedDict
 
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.client import MLXLMClient
-from jet.llm.mlx.mlx_types import LLMModelKey
+from jet.models.model_types import LLMModelKey
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 

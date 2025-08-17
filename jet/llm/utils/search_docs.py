@@ -1,7 +1,7 @@
 from jet.llm.utils.transformer_embeddings import generate_embeddings
 from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
 import atexit
-from jet.llm.mlx.mlx_types import EmbedModelType
+from jet.models.model_types import EmbedModelType
 from jet.models.constants import AVAILABLE_EMBED_MODELS
 from jet.models.utils import resolve_model_key
 import numpy as np

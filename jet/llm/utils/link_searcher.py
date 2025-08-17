@@ -1,6 +1,6 @@
 from typing import List, TypedDict, Optional
 import urllib.parse
-from jet.llm.mlx.mlx_types import EmbedModelType
+from jet.models.model_types import EmbedModelType
 from jet.llm.mlx.models import resolve_model
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer, util

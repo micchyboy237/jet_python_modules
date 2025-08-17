@@ -1,7 +1,7 @@
 from mlx_lm import load
 from mlx_lm.utils import TokenizerWrapper
 from jet.llm.mlx.models import resolve_model
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 
 
 class ModelLoadError(Exception):

@@ -1,6 +1,6 @@
 import logging
 from typing import Optional, Union, Dict, List, ContextManager
-from jet.llm.mlx.mlx_types import MLXTokenizer
+from jet.models.model_types import MLXTokenizer
 from contextlib import contextmanager
 import mlx.core as mx
 

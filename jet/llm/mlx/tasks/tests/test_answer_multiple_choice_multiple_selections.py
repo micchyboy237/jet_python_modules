@@ -1,4 +1,4 @@
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 import pytest
 from typing import List
 from jet.llm.mlx.tasks.answer_multiple_choice_multiple_selections import answer_multiple_choice_multiple_selections, AnswerResult, InvalidChoiceFormatError, InvalidInputError, InvalidOutputError, validate_answer

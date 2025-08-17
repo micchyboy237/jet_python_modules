@@ -4,7 +4,7 @@ import os
 from typing import Any, Callable, Literal, Optional
 
 from jet.llm.mlx.generation import chat
-from jet.llm.mlx.mlx_types import EmbedModelType, LLMModelType
+from jet.models.model_types import EmbedModelType, LLMModelType
 from jet.llm.mlx.models import get_embedding_size
 from jet.llm.mlx.token_utils import get_tokenizer
 from tqdm import tqdm

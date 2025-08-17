@@ -1,6 +1,6 @@
 import json
 from typing import List, Dict, Optional, TypedDict
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from jet.llm.mlx.tasks.utils import ModelComponents, load_model_components
 from jet.logger import logger
 import mlx.core as mx

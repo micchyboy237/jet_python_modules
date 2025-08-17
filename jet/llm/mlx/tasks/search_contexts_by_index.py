@@ -1,5 +1,5 @@
 from typing import List, Dict, Optional, TypedDict
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.logger import logger
 import mlx.core as mx

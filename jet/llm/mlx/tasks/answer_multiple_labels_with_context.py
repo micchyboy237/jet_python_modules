@@ -11,7 +11,7 @@ from mlx_lm import load
 import mlx.core as mx
 from jet.logger import logger
 from jet.llm.mlx.models import resolve_model
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from typing import List, Dict, Optional, TypedDict, Literal
 import pytest
 import os

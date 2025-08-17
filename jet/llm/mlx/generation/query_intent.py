@@ -1,7 +1,7 @@
 from typing import Literal, TypedDict
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.helpers.base import get_system_date_prompt
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 
 
 class QueryIntent(TypedDict):

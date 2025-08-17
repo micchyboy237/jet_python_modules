@@ -23,7 +23,7 @@ from jet.llm.models import (
     OLLAMA_MODEL_EMBEDDING_TOKENS,
     OLLAMA_MODEL_NAMES,
 )
-from jet.llm.mlx.mlx_types import ModelType
+from jet.models.model_types import ModelType
 
 
 def get_ollama_models():

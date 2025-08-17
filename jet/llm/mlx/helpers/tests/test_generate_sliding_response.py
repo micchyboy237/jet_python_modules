@@ -6,7 +6,7 @@ from jet.llm.mlx.helpers.generate_sliding_response import (
     sliding_window,
     generate_sliding_response,
 )
-from jet.llm.mlx.mlx_types import LLMModelType
+from jet.models.model_types import LLMModelType
 from jet.llm.mlx.models import resolve_model
 from jet.llm.mlx.token_utils import get_tokenizer
 import pytest

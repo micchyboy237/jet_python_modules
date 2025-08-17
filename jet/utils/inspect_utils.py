@@ -243,6 +243,20 @@ def get_entry_file_name():
         return "server"
 
 
+def get_entry_file_path() -> Optional[str]:
+    """
+    Returns the absolute file path of the entry point script.
+    Returns None if the entry point cannot be determined or is not a valid path.
+    """
+    try:
+        file_path = Path(sys.modules["__main__"].__file__).resolve()
+        if validate_filepath(str(file_path)):
+            return str(file_path)
+        return None
+    except (KeyError, AttributeError):
+        return None
+
+
 __all__ = [
     "inspect_original_script_path",
     "print_inspect_original_script_path",
@@ -250,6 +264,8 @@ __all__ = [
     "get_stack_frames",
     "find_stack_frames",
     "get_current_running_function",
+    "get_entry_file_name",
+    "get_entry_file_path",
 ]
 
 # Example usage

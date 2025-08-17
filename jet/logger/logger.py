@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import logging
@@ -296,28 +297,43 @@ class CustomLogger:
 
             # Build colored output
             colored_output = ""
-            if os.isatty(sys.stdout.fileno()):
-                colored_output = "".join(
-                    f"{COLORS.get(color, COLORS['LOG'])}{msg}{RESET}"
-                    for msg, color in processed_messages
-                )
-            else:
+            try:
+                if hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno()):
+                    colored_output = "".join(
+                        f"{COLORS.get(color, COLORS['LOG'])}{msg}{RESET}"
+                        for msg, color in processed_messages
+                    )
+                else:
+                    colored_output = " ".join(
+                        msg for msg, _ in processed_messages)
+            except io.UnsupportedOperation:
                 colored_output = " ".join(msg for msg, _ in processed_messages)
-            final_output = colored_output
+                print(
+                    f"[WARNING] Fallback to non-colored output due to io.UnsupportedOperation")
 
             if level.lower() == "error" and exc_info:
                 error_msg = colorize_log("Trace exception:", "gray")
-                if not os.isatty(sys.stdout.fileno()):
+                try:
+                    if not (hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno())):
+                        error_msg = clean_ansi(error_msg)
+                except io.UnsupportedOperation:
                     error_msg = clean_ansi(error_msg)
+                    print(
+                        f"[WARNING] Fallback to non-colored error message due to io.UnsupportedOperation")
                 print(error_msg)
                 error_trace = colorize_log(traceback.format_exc(), level)
-                if not os.isatty(sys.stdout.fileno()):
+                try:
+                    if not (hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno())):
+                        error_trace = clean_ansi(error_trace)
+                except io.UnsupportedOperation:
                     error_trace = clean_ansi(error_trace)
+                    print(
+                        f"[WARNING] Fallback to non-colored error trace due to io.UnsupportedOperation")
                 print(error_trace)
 
             if not end:
                 end = "" if flush else "\n"
-            print(final_output, end=end)
+            print(colored_output, end=end)
 
             if self.log_file:
                 end = "" if flush else "\n\n"
@@ -381,10 +397,15 @@ class CustomLogger:
 
         prompt_log = _inner(prompt, level)
         # Apply colors only if stdout is a terminal
-        if os.isatty(sys.stdout.fileno()):
-            print(prompt_log)
-        else:
+        try:
+            if hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno()):
+                print(prompt_log)
+            else:
+                print(clean_ansi(prompt_log))
+        except io.UnsupportedOperation:
             print(clean_ansi(prompt_log))
+            print(
+                f"[WARNING] Fallback to non-colored output in pretty method due to io.UnsupportedOperation")
 
         if self.log_file:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
