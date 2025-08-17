@@ -76,6 +76,7 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
             ignore_patterns=[
                 "*.bin",
                 "*.h5",
+                "*.onnx",
                 "onnx/*.onnx",
                 "onnx/*/*.onnx",
                 "openvino/*",
@@ -101,7 +102,7 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
 
 
 if __name__ == "__main__":
-    repo_id = "mixedbread-ai/mxbai-embed-large-v1"
+    repo_id = "jinaai/jina-embeddings-v2-base-en"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")
