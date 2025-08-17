@@ -111,7 +111,7 @@ if __name__ == "__main__":
     redis_data_dir = "scraped_urls"
     generate_redis_files(
         redis_path=f"/Users/jethroestrada/redis/{redis_data_dir}",
-        redis_port=3102,
+        redis_port=6379,
         generated_dir=generated_dir
     )
     execute_scripts(generated_dir)

@@ -14,7 +14,7 @@ from tqdm.asyncio import tqdm_asyncio
 ScrapeStatus = Literal["started", "completed",
                        "failed_no_html", "failed_error"]
 
-REDIS_CONFIG = RedisConfigParams(port=3102)
+REDIS_CONFIG = RedisConfigParams(port=6379)
 cache = RedisCache(config=REDIS_CONFIG)
 
 

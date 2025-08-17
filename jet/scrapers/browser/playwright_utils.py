@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 from typing import Any, AsyncGenerator, List, Tuple, Generator
 
 REDIS_CONFIG = RedisConfigParams(
-    port=3102
+    port=6379
 )
 
 

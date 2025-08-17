@@ -15,7 +15,7 @@ GENERATED_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/my-
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
 REDIS_CONFIG = RedisConfigParams(
-    port=3102
+    port=6379
 )
 
 browser_page = None

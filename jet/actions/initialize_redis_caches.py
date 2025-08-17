@@ -3,7 +3,7 @@ from jet.cache.redis import generate_redis_files, execute_scripts
 from jet.executor import run_commands
 
 
-def setup_and_start_scraped_urls_cache(port=3102):
+def setup_and_start_scraped_urls_cache(port=6379):
     redis_base_dir = "/Users/jethroestrada/redis"
     redis_data_dir = os.path.join(redis_base_dir, "scraped_urls")
     generated_dir = os.path.join(redis_data_dir, "src")

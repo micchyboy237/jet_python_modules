@@ -9,7 +9,7 @@ from jet.logger import logger
 from jet.scrapers.hrequests_utils import scrape_url
 
 REDIS_CONFIG = RedisConfigParams(
-    port=3102
+    port=6379
 )
 
 # cache_dir = os.path.join(os.getcwd(), "cache")
