@@ -1,11 +1,10 @@
 from abc import ABC
 from typing import Optional, Dict, Literal, List, Iterator, TypedDict, Union
 from threading import Lock
-import uuid
-from jet.data.utils import generate_hash, generate_unique_hash
 from jet.llm.mlx.config import DEFAULT_MODEL
 from jet.logger import logger
 from pathlib import Path
+from jet.models.model_registry.base import BaseModelRegistry
 import mlx.core as mx
 import mlx.nn as nn
 from transformers import AutoTokenizer, PreTrainedTokenizerBase, AutoConfig, PretrainedConfig
@@ -15,7 +14,7 @@ from jet.llm.mlx.client import CompletionResponse, Message
 from jet.models.model_types import LLMModelType, RoleMapping, Tool
 from jet.models.utils import resolve_model_value, get_local_repo_dir
 from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
-from .base import TransformersModelRegistry
+from jet.data.utils import generate_hash
 
 
 class ModelFeatures(TypedDict):
@@ -38,7 +37,7 @@ class ModelFeatures(TypedDict):
     device: Optional[Literal["cpu", "mps"]]
 
 
-class MLXModelRegistry(TransformersModelRegistry):
+class MLXModelRegistry(BaseModelRegistry):
     """Abstract base class for MLX-based model registries."""
     _models: Dict[str, nn.Module] = {}
     _tokenizers: Dict[str, PreTrainedTokenizerBase] = {}
@@ -46,10 +45,6 @@ class MLXModelRegistry(TransformersModelRegistry):
     _model_lock = Lock()  # Lock for thread-safe model caching
     _tokenizer_lock = Lock()  # Lock for thread-safe tokenizer caching
     _config_lock = Lock()  # Lock for thread-safe config caching
-
-    def __init__(self):
-        """Initialize the registry with a unique session ID."""
-        self.session_id = generate_unique_hash()
 
     @staticmethod
     def load_model(
@@ -74,15 +69,12 @@ class MLXModelRegistry(TransformersModelRegistry):
         device: Optional[Literal["cpu", "mps"]] = "mps"
     ) -> MLX:
         """Load or retrieve an MLX model statically."""
-        # Get the Singleton instance
-        instance = MLXModelRegistry()
-        resolved_model_id = resolve_model_value(model)
-        # Use instance session_id if none provided
-        effective_session_id = session_id if session_id is not None else instance.session_id
+        # Generate cache key based on model-defining parameters
         cache_key = generate_hash(
-            model=resolved_model_id,
+            model=resolve_model_value(model),
             adapter_path=adapter_path,
-            draft_model=draft_model,
+            draft_model=resolve_model_value(
+                draft_model) if draft_model else None,
             trust_remote_code=trust_remote_code,
             chat_template=chat_template,
             use_default_chat_template=use_default_chat_template,
@@ -92,12 +84,9 @@ class MLXModelRegistry(TransformersModelRegistry):
             host=host,
             port=port,
             overwrite_db=overwrite_db,
-            session_id=effective_session_id,
-            with_history=with_history,
-            seed=seed,
-            log_dir=log_dir,
             device=device
         )
+        instance = MLXModelRegistry()
         with instance._model_lock:
             if cache_key in instance._models:
                 logger.info(
@@ -106,8 +95,8 @@ class MLXModelRegistry(TransformersModelRegistry):
 
         logger.info(f"Loading MLX model for cache_key: {cache_key}")
         try:
-            model = instance._load_mlx_model(
-                model=resolved_model_id,
+            model_instance = instance._load_mlx_model(
+                model=model,
                 adapter_path=adapter_path,
                 draft_model=draft_model,
                 trust_remote_code=trust_remote_code,
@@ -119,57 +108,57 @@ class MLXModelRegistry(TransformersModelRegistry):
                 host=host,
                 port=port,
                 overwrite_db=overwrite_db,
-                session_id=effective_session_id,
+                session_id=session_id,
                 with_history=with_history,
                 seed=seed,
                 log_dir=log_dir,
                 device=device,
             )
             with instance._model_lock:
-                instance._models[cache_key] = model
-            return model
+                instance._models[cache_key] = model_instance
+            return model_instance
         except Exception as e:
             logger.error(
-                f"Failed to load MLX model {cache_key}: {str(e)}")
+                f"Failed to load MLX model for cache_key {cache_key}: {str(e)}")
             raise ValueError(
-                f"Could not load MLX model {cache_key}: {str(e)}")
+                f"Could not load MLX model for cache_key {cache_key}: {str(e)}")
 
     @staticmethod
     def get_tokenizer(model_id: LLMModelType) -> Optional[PreTrainedTokenizerBase]:
         """Load or retrieve a tokenizer for the MLX model."""
         resolved_model_id = resolve_model_value(model_id)
+        cache_key = generate_hash(model_id=resolved_model_id)
         with MLXModelRegistry._tokenizer_lock:
-            if resolved_model_id in MLXModelRegistry._tokenizers:
-                logger.info(
-                    f"Reusing tokenizer for model_id: {resolved_model_id}")
-                return MLXModelRegistry._tokenizers[resolved_model_id]
+            if cache_key in MLXModelRegistry._tokenizers:
+                logger.info(f"Reusing tokenizer for cache_key: {cache_key}")
+                return MLXModelRegistry._tokenizers[cache_key]
 
-        logger.info(f"Loading tokenizer for model_id: {resolved_model_id}")
+        logger.info(f"Loading tokenizer for cache_key: {cache_key}")
         try:
             cache_dir = Path(get_local_repo_dir(resolved_model_id))
             tokenizer = AutoTokenizer.from_pretrained(resolved_model_id)
             logger.info(
                 f"Successfully loaded tokenizer for {resolved_model_id} from local cache: {cache_dir}")
             with MLXModelRegistry._tokenizer_lock:
-                MLXModelRegistry._tokenizers[resolved_model_id] = tokenizer
+                MLXModelRegistry._tokenizers[cache_key] = tokenizer
             return tokenizer
         except Exception as e:
             logger.error(
-                f"Failed to load tokenizer for {resolved_model_id}: {str(e)}")
+                f"Failed to load tokenizer for cache_key {cache_key}: {str(e)}")
             raise ValueError(
-                f"Could not load tokenizer for {resolved_model_id}: {str(e)}")
+                f"Could not load tokenizer for cache_key {cache_key}: {str(e)}")
 
     @staticmethod
     def get_config(model_id: LLMModelType) -> Optional[PretrainedConfig]:
         """Load or retrieve a config for the MLX model."""
         resolved_model_id = resolve_model_value(model_id)
+        cache_key = generate_hash(model_id=resolved_model_id)
         with MLXModelRegistry._config_lock:
-            if resolved_model_id in MLXModelRegistry._configs:
-                logger.info(
-                    f"Reusing config for model_id: {resolved_model_id}")
-                return MLXModelRegistry._configs[resolved_model_id]
+            if cache_key in MLXModelRegistry._configs:
+                logger.info(f"Reusing config for cache_key: {cache_key}")
+                return MLXModelRegistry._configs[cache_key]
 
-        logger.info(f"Loading config for model_id: {resolved_model_id}")
+        logger.info(f"Loading config for cache_key: {cache_key}")
         try:
             cache_dir = Path(get_local_repo_dir(resolved_model_id))
             snapshot_dir = cache_dir / "snapshots"
@@ -189,21 +178,21 @@ class MLXModelRegistry(TransformersModelRegistry):
                     logger.info(
                         f"Successfully loaded config from local cache: {resolved_path}")
                     with MLXModelRegistry._config_lock:
-                        MLXModelRegistry._configs[resolved_model_id] = config
+                        MLXModelRegistry._configs[cache_key] = config
                     return config
                 except Exception as local_e:
                     logger.error(
                         f"Failed to load config from {resolved_path}: {str(local_e)}")
                     continue
 
-            error_msg = f"Could not load config for {resolved_model_id} from local cache."
+            error_msg = f"Could not load config for cache_key {cache_key} from local cache."
             logger.error(error_msg)
             raise ValueError(error_msg)
         except Exception as e:
             logger.error(
-                f"Failed to load config {resolved_model_id}: {str(e)}")
+                f"Failed to load config for cache_key {cache_key}: {str(e)}")
             raise ValueError(
-                f"Could not load config {resolved_model_id}: {str(e)}")
+                f"Could not load config for cache_key {cache_key}: {str(e)}")
 
     def clear(self) -> None:
         """Clear all cached models, tokenizers, and configs."""

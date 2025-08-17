@@ -1,12 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional, TypedDict, Literal
 from threading import Lock
-import logging
 import torch
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 class ModelFeatures(TypedDict):

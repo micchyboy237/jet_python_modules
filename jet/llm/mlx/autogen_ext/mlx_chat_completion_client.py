@@ -1,10 +1,11 @@
-from typing import Any, AsyncGenerator, Iterator, Mapping, Optional, Sequence, Union, cast
+from typing import Any, AsyncGenerator, Iterator, Literal, Mapping, Optional, Sequence, Union, cast
 from pydantic import BaseModel
 from autogen_core.models import ChatCompletionClient, CreateResult, LLMMessage, ModelInfo, RequestUsage, ModelCapabilities, FinishReasons
 from autogen_core.tools import Tool, ToolSchema
 from autogen_core import CancellationToken
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.client import CompletionResponse, Message
+from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
 from jet.models.model_types import LLMModelType
 from jet.logger import logger
 from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
@@ -33,11 +34,11 @@ class MLXChatCompletionClient(ChatCompletionClient):
         with_history: bool = True,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
-        device: Optional[str] = "mps",
+        device: Optional[Literal["cpu", "mps"]] = "mps",
     ):
         """Initialize the MLX chat completion client."""
         super().__init__()
-        self.mlx_client = MLX(
+        self.mlx_client = MLXModelRegistry.load_model(
             model=model,
             adapter_path=adapter_path,
             draft_model=draft_model,
