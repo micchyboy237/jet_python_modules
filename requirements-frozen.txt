@@ -109,6 +109,7 @@ pyvis==0.3.2
 pyzmq==26.4.0
 rake-nltk==1.0.6
 readability-lxml==0.8.4.1
+redisvl==0.8.0
 resampy==0.4.3
 rq==2.3.2
 rumps==0.4.0
