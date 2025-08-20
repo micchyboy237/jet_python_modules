@@ -284,7 +284,12 @@ async def chat_session(model: LLMModelType, output_dir: str, mcp_server_path: st
         tools = await discover_tools(mcp_server_path)
         logger.gray(f"\nTools ({len(tools)})")
         logger.success(format_json(tools))
-        save_file(tools, f"{sub_dir}/tools.json")
+        save_file({
+            "mcp_server_path": mcp_server_path,
+            "count": len(tools),
+            "tool_names": [tool["name"] for tool in tools],
+            "tools": tools
+        }, f"{sub_dir}/tools.json")
 
         logger.debug(
             f"Discovered {len(tools)} tools: {[t['name'] for t in tools]}")
