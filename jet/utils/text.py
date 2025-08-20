@@ -109,7 +109,14 @@ def remove_substring(text: str, start: int, end: int) -> str:
 
 
 def format_sub_dir(text: str) -> str:
-    return re.sub(r'[^\w\s]|[\s]', '_', text.lower()).strip()
+    # Replace non-alphanumeric characters (except spaces) with underscore and convert to lowercase
+    result = re.sub(r'[^\w\s]', '_', text.lower())
+    # Replace one or more spaces with a single underscore
+    result = re.sub(r'\s+', '_', result)
+    # Replace multiple consecutive underscores with a single underscore
+    result = re.sub(r'_+', '_', result)
+    # Remove leading and trailing underscores
+    return result.strip('_')
 
 
 __all__ = [
