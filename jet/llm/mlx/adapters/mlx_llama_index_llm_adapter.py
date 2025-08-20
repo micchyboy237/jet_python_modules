@@ -5,9 +5,12 @@ from llama_index.core.base.llms.types import (
     ChatResponseAsyncGen,
     CompletionResponseGen,
     CompletionResponseAsyncGen,
+    LLMMetadata,
+    MessageRole
 )
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.mlx_types import Message
+from jet.models.utils import get_context_size
 import asyncio
 
 
@@ -20,6 +23,19 @@ class MLXLlamaIndexLLMAdapter(LLM):
     ):
         super().__init__(**kwargs)
         self._mlx = MLX(model=model, log_dir=log_dir)
+        self._metadata = LLMMetadata(
+            context_window=get_context_size(self._mlx.model_path),
+            num_output=256,  # Default output token limit, adjustable
+            is_chat_model=True,  # MLX supports chat functionality
+            # MLX does not support function calling by default
+            is_function_calling_model=False,
+            model_name=model,
+            system_role=MessageRole.SYSTEM,  # Standard system role for MLX
+        )
+
+    @property
+    def metadata(self) -> LLMMetadata:
+        return self._metadata
 
     def chat(self, messages: List[ChatMessage], **kwargs: Any) -> ChatResponse:
         """
@@ -152,8 +168,3 @@ class MLXLlamaIndexLLMAdapter(LLM):
                     break
 
         return async_generator()
-
-    # ---- Metadata ----
-    @property
-    def metadata(self):
-        return self._mlx.model  # minimal stub, adapt if llama-index requires more
