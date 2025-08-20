@@ -1,1 +1,1 @@
-python server/mcp_server.py
+python server/mcp_agent.py
