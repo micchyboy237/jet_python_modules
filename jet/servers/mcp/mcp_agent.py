@@ -18,9 +18,12 @@ from jet.servers.mcp.mcp_utils import discover_tools, execute_tool, validate_too
 from jet.servers.mcp.config import MCP_SERVER_PATH
 
 SYSTEM_PROMPT = """
-You are an AI assistant with MCP tools:
+You are an AI assistant with access to the following MCP tools:
 {tool_descriptions}
-Use JSON for tool requests: {{'tool': 'name', 'arguments': {{'arg': 'value'}}}}.
+
+When a tool is required, return exactly one tool call in JSON format: {{"tool": "name", "arguments": {{"arg": "value"}}}}.
+If no tool is needed, return an empty response: "".
+Do not return multiple tool calls or non-JSON responses for tool requests.
 """.strip()
 
 
@@ -65,14 +68,21 @@ async def validate_and_execute_tool(
 
 async def query_tool_requests(llm_response_text: str) -> List[Dict[str, Any]]:
     """
-    Parse tool requests from LLM response and return as a list of tool request dicts.
+    Parse a single JSON tool request from LLM response.
     Args:
-        llm_response_text: The LLM response containing tool call(s).
+        llm_response_text: The LLM response containing a single tool call or empty string.
     Returns:
-        List[Dict[str, Any]]: List of parsed tool request dictionaries with 'tool' key.
+        List[Dict[str, Any]]: A list containing at most one parsed tool request dictionary, or empty list if no tool call.
     """
     from jet.llm.mlx.mlx_utils import parse_tool_call
-    return parse_tool_call(llm_response_text)
+    if not llm_response_text.strip():
+        return []
+    tool_calls = parse_tool_call(llm_response_text)
+    if isinstance(tool_calls, list) and tool_calls:
+        return [tool_calls[0]]  # Return only the first tool call
+    elif isinstance(tool_calls, dict):
+        return [tool_calls]
+    return []
 
 
 async def query_tool_responses(
@@ -171,51 +181,72 @@ async def query_llm(
     output_dir: str,
     previous_messages: List[Message] = [],
     mcp_server_path: str = MCP_SERVER_PATH,
-):
-    # Initialize message history with tool request messages
+    max_recursion_depth: int = 5,
+) -> tuple[str, List[Message]]:
+    """
+    Query the LLM with a prompt, process a single tool call recursively, and terminate if no tool is needed.
+    Args:
+        prompt: User input prompt.
+        model: The LLM model type to use.
+        tools: List of available tools.
+        output_dir: Directory to save logs and outputs.
+        previous_messages: Previous messages in the conversation.
+        mcp_server_path: Path to the MCP server for tool execution.
+        max_recursion_depth: Maximum depth for recursive tool calls to prevent infinite loops.
+    Returns:
+        Tuple of the final LLM response text and updated messages.
+    """
+    if max_recursion_depth <= 0:
+        logger.error("Maximum recursion depth reached.")
+        return "Error: Maximum recursion depth reached.", previous_messages
+
+    # Format messages with the system prompt and user input
     all_messages = format_tool_request_messages(
-        prompt, tools, previous_messages=previous_messages)
+        prompt, tools, previous_messages=previous_messages
+    )
     log_dir = f"{output_dir}/chats"
+
+    # Generate LLM response
     llm_response_text = generate_response(
-        all_messages, model, log_dir, tools=tools)
+        all_messages, model, log_dir, tools=tools
+    )
+
+    # Parse tool requests (expecting at most one)
     tool_requests = await query_tool_requests(llm_response_text)
     logger.gray(f"\nTool Requests ({len(tool_requests)})")
     logger.success(format_json(tool_requests))
     save_file(tool_requests, f"{output_dir}/tool_requests.json")
-    tool_responses = await query_tool_responses(tool_requests, tools, mcp_server_path)
-    logger.gray(f"\nTool Responses ({len(tool_responses)})")
-    logger.success(format_json(tool_responses))
-    save_file(tool_responses, f"{output_dir}/tool_responses.json")
+
+    # If no tool requests, return the LLM response as final
+    if not tool_requests:
+        return llm_response_text, all_messages
+
+    # Process the single tool request
+    tool_response = await query_tool_responses(tool_requests, tools, mcp_server_path)
+    logger.gray(f"\nTool Responses ({len(tool_response)})")
+    logger.success(format_json(tool_response))
+    save_file(tool_response, f"{output_dir}/tool_responses.json")
+
+    # Format messages with the tool response
+    current_messages = format_tool_response_messages(
+        llm_response_text, tool_response[0], all_messages
+    )
+
+    # Save tool results
     tool_results = [response["structuredContent"]
-                    for response in tool_responses]
+                    for response in tool_response]
     save_file(tool_results, f"{output_dir}/tool_results.json")
-    llm_tool_response_texts = []
-    llm_tool_response_tool_results = []
-    current_messages = all_messages
-    for tool_response in tool_responses:
-        # Update message history with tool response messages
-        current_messages = format_tool_response_messages(
-            llm_response_text, tool_response, current_messages)
-        tool_response_text = generate_response(
-            current_messages, model, log_dir)
-        llm_tool_response_texts.append(tool_response_text)
-        save_file(llm_tool_response_texts,
-                  f"{output_dir}/llm_tool_response_texts.json")
-        tool_calls = parse_tool_call(tool_response_text)
-        save_file(
-            tool_calls, f"{output_dir}/llm_tool_response_tool_calls.json")
-        if isinstance(tool_calls, list):
-            for tool_call in tool_calls:
-                sub_tool_response = await query_tool_responses([tool_call], tools, mcp_server_path)
-                llm_tool_response_tool_results.extend(
-                    [r["structuredContent"] for r in sub_tool_response])
-        elif tool_calls:
-            sub_tool_response = await query_tool_responses([tool_calls], tools, mcp_server_path)
-            llm_tool_response_tool_results.extend(
-                [r["structuredContent"] for r in sub_tool_response])
-        save_file(llm_tool_response_tool_results,
-                  f"{output_dir}/llm_tool_response_tool_results.json")
-    return llm_response_text, current_messages
+
+    # Recursively query LLM with updated messages
+    return await query_llm(
+        prompt="",
+        model=model,
+        tools=tools,
+        output_dir=output_dir,
+        previous_messages=current_messages,
+        mcp_server_path=mcp_server_path,
+        max_recursion_depth=max_recursion_depth - 1,
+    )
 
 
 async def chat_session(model: LLMModelType, output_dir: str, mcp_server_path: str = MCP_SERVER_PATH):
