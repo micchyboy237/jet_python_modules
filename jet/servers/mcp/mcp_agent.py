@@ -1,3 +1,5 @@
+import os
+import shutil
 import asyncio
 import json
 import mcp.types
@@ -5,6 +7,7 @@ import mcp.types
 from typing import Any, Dict, List, Optional, TypedDict
 
 
+from jet.data.utils import generate_hash
 from jet.file.utils import save_file
 from jet.llm.mlx.mlx_types import ChatTemplateArgs, Message
 from jet.llm.mlx.mlx_utils import create_mlx_tools, create_tool_function, parse_tool_call
@@ -16,6 +19,7 @@ from jet.transformers.formatters import format_json
 from jet.servers.mcp.mcp_classes import ToolRequest, ToolInfo, ExecutedToolResponse
 from jet.servers.mcp.mcp_utils import discover_tools, execute_tool, validate_tool_arguments
 from jet.servers.mcp.config import MCP_SERVER_PATH
+from jet.utils.text import format_sub_dir
 
 SYSTEM_PROMPT = """
 You are an AI assistant with access to the following MCP tools:
@@ -117,9 +121,11 @@ def generate_response(
     model_path: LLMModelType,
     log_dir: str,
     tools: Optional[List[ToolInfo]] = None,
+    session_id: Optional[str] = None,
 ) -> str:
     # Load MLX model
-    model = MLXModelRegistry.load_model(model_path, log_dir=log_dir)
+    model = MLXModelRegistry.load_model(
+        model_path, log_dir=log_dir, session_id=session_id)
     chat_template_args: ChatTemplateArgs = {
         "enable_thinking": False,
     }
@@ -191,6 +197,7 @@ async def query_llm(
     previous_messages: List[Message] = [],
     mcp_server_path: str = MCP_SERVER_PATH,
     max_recursion_depth: int = 5,
+    session_id: Optional[str] = None
 ) -> tuple[str, List[Message]]:
     """
     Query the LLM with a prompt, process a single tool call recursively, and terminate if no tool is needed.
@@ -219,7 +226,7 @@ async def query_llm(
 
     # Generate LLM response
     llm_response_text = generate_response(
-        current_messages, model, log_dir, tools=tools
+        current_messages, model, log_dir, tools=tools, session_id=session_id
     )
 
     # Parse tool requests (expecting at most one)
@@ -257,41 +264,47 @@ async def query_llm(
         previous_messages=current_messages,
         mcp_server_path=mcp_server_path,
         max_recursion_depth=max_recursion_depth - 1,
+        session_id=session_id,
     )
 
 
 async def chat_session(model: LLMModelType, output_dir: str, mcp_server_path: str = MCP_SERVER_PATH):
-    tools = await discover_tools(mcp_server_path)
-    logger.gray(f"\nTools ({len(tools)})")
-    logger.success(format_json(tools))
-    save_file(tools, f"{output_dir}/tools.json")
-
-    logger.debug(
-        f"Discovered {len(tools)} tools: {[t['name'] for t in tools]}")
     messages = []
     while True:
         user_input = input("You: ")
         if user_input.lower() in ['exit', 'quit']:
             logger.debug("Ending chat session.")
             break
+
+        session_id = generate_hash(user_input)
+        sub_dir = os.path.join(output_dir, format_sub_dir(
+            user_input))
+        shutil.rmtree(sub_dir, ignore_errors=True)
+
+        tools = await discover_tools(mcp_server_path)
+        logger.gray(f"\nTools ({len(tools)})")
+        logger.success(format_json(tools))
+        save_file(tools, f"{sub_dir}/tools.json")
+
+        logger.debug(
+            f"Discovered {len(tools)} tools: {[t['name'] for t in tools]}")
+
         response, messages = await query_llm(
             user_input,
             model=model,
             tools=tools,
-            output_dir=output_dir,
+            output_dir=sub_dir,
             previous_messages=messages,
             mcp_server_path=mcp_server_path,
+            session_id=session_id
         )
         print(f"Assistant: {response}")
 
 if __name__ == "__main__":
-    import os
-    import shutil
     from pathlib import Path
 
     output_dir = os.path.join(
         os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
-    shutil.rmtree(output_dir, ignore_errors=True)
 
     mcp_server_path = str(Path(__file__).parent / "mcp_server.py")
 

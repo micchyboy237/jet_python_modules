@@ -162,12 +162,12 @@ async def summarize_text(arguments: SummarizeTextInput, ctx: Context) -> Summari
         return SummarizeTextOutput(text=f"Error: {str(e)}", word_count=0)
 
 
-@server.tool(description="Process data with progress.", annotations={"audience": ["user"]})
-async def process_data(data: str, ctx: Context) -> str:
-    for i in range(1, 101, 10):
-        await ctx.report_progress(i, 100, f"Processing step {i}%")
-        await asyncio.sleep(0.1)
-    return f"Processed: {data}"
+# @server.tool(description="Process data with progress.", annotations={"audience": ["user"]})
+# async def process_data(data: str, ctx: Context) -> str:
+#     for i in range(1, 101, 10):
+#         await ctx.report_progress(i, 100, f"Processing step {i}%")
+#         await asyncio.sleep(0.1)
+#     return f"Processed: {data}"
 
 
 # Custom routes
