@@ -46,7 +46,7 @@ AVAILABLE_LLM_MODELS: Dict[LLMModelKey, LLMModelValue] = {
     "qwen2.5-14b-instruct-4bit": "mlx-community/Qwen2.5-14B-Instruct-4bit",
     "qwen2.5-7b-instruct-4bit": "mlx-community/Qwen2.5-7B-Instruct-4bit",
     "qwen2.5-coder-14b-instruct-4bit": "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
-    "qwen3-0.6b-4bit": "mlx-community/Qwen3-0.6B-4bit",
+    "qwen3-0.6b-4bit": "mlx-community/Qwen3-0.6B-4bit-DWQ-053125",
     "qwen3-0.6b-4bit-dwq-053125": "mlx-community/Qwen3-0.6B-4bit-DWQ-053125",
     "qwen3-1.7b-3bit": "mlx-community/Qwen3-1.7B-3bit",
     "qwen3-1.7b-4bit": "mlx-community/Qwen3-1.7B-4bit-DWQ-053125",

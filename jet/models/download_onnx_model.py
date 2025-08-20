@@ -148,6 +148,10 @@ def download_onnx_model(
             logger.warning(
                 f"Target file {target_path} already exists. Overwriting with cp -f.")
 
+        # Ensure target directory exists before copying
+        target_dir = target_path.parent
+        target_dir.mkdir(parents=True, exist_ok=True)
+
         # cp -f -L <source_path> <target_path>
         run_shell_command(
             ["cp", "-f", "-L", str(source_path), str(target_path)],
@@ -162,7 +166,7 @@ def download_onnx_model(
 
         # Remove all symlinks in onnx folder except model.onnx and their referenced files
         onnx_dir = snapshot_path / "onnx"
-        if onnx_dir.exists():
+        if onnx_dir.exists() and onnx_dir.is_dir():
             for item in onnx_dir.iterdir():
                 if item.name != "model.onnx" and item.is_symlink():
                     try:
@@ -179,11 +183,15 @@ def download_onnx_model(
                         logger.error(
                             f"Failed to remove symlink {item} or its target: {e}")
 
-        # ls -l <onnx_dir>
-        run_shell_command(
-            ["ls", "-l", str(onnx_dir)],
-            f"Listing directory {onnx_dir}",
-        )
+        # ls -l <onnx_dir> only if onnx_dir exists
+        if onnx_dir.exists() and onnx_dir.is_dir():
+            run_shell_command(
+                ["ls", "-l", str(onnx_dir)],
+                f"Listing directory {onnx_dir}",
+            )
+        else:
+            logger.info(
+                f"onnx/ directory does not exist, skipping ls -l command")
 
         # du -sh <target_path>
         run_shell_command(

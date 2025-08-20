@@ -131,7 +131,7 @@ LLMModelValue = Literal[
     "mlx-community/Qwen2.5-14B-Instruct-4bit",
     "mlx-community/Qwen2.5-7B-Instruct-4bit",
     "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
-    "mlx-community/Qwen3-0.6B-4bit",
+    "mlx-community/Qwen3-0.6B-4bit-DWQ-053125",
     "mlx-community/Qwen3-0.6B-4bit-DWQ-053125",
     "mlx-community/Qwen3-1.7B-3bit",
     "mlx-community/Qwen3-1.7B-4bit-DWQ-053125",

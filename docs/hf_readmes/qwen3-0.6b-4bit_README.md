@@ -5,7 +5,7 @@ license_link: https://huggingface.co/Qwen/Qwen3-0.6B/blob/main/LICENSE
 pipeline_tag: text-generation
 base_model: Qwen/Qwen3-0.6B
 tags:
-- mlx
+  - mlx
 ---
 
 # mlx-community/Qwen3-0.6B-4bit
@@ -23,7 +23,7 @@ pip install mlx-lm
 ```python
 from mlx_lm import load, generate
 
-model, tokenizer = load("mlx-community/Qwen3-0.6B-4bit")
+model, tokenizer = load("mlx-community/Qwen3-0.6B-4bit-DWQ-053125")
 
 prompt = "hello"
 

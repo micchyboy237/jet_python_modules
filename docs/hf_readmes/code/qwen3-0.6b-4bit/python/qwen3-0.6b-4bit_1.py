@@ -1,6 +1,6 @@
 from mlx_lm import load, generate
 
-model, tokenizer = load("mlx-community/Qwen3-0.6B-4bit")
+model, tokenizer = load("mlx-community/Qwen3-0.6B-4bit-DWQ-053125")
 
 prompt = "hello"
 
