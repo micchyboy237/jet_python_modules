@@ -149,17 +149,28 @@ def generate_response(
 
 
 def format_tool_request_messages(prompt: str, tools: List[ToolInfo], previous_messages: List[Message] = []) -> List[Message]:
+    """
+    Format messages for tool request, including system prompt and user input.
+    Args:
+        prompt: User input prompt (may be empty for recursive calls).
+        tools: List of available tools.
+        previous_messages: Previous messages in the conversation.
+    Returns:
+        List[Message]: Formatted message list with system and user messages.
+    """
     tool_descriptions = "\n\n".join(
-        [f"Tool: {t['name']}\nDescription: {t['description']}\nInput Schema: {json.dumps(t['schema'], indent=2)}\nOutput Schema: {json.dumps(t['outputSchema'], indent=2)}" for t in tools])
+        [f"Tool: {t['name']}\nDescription: {t['description']}\nInput Schema: {json.dumps(t['schema'], indent=2)}\nOutput Schema: {json.dumps(t['outputSchema'], indent=2)}" for t in tools]
+    )
     system_prompt = SYSTEM_PROMPT.format(tool_descriptions=tool_descriptions)
-
-    # Filter out existing system messages and keep only user/assistant messages
     filtered_messages = [m for m in previous_messages if m["role"] != "system"]
-    # Add the new user prompt
-    filtered_messages.append({"role": "user", "content": prompt})
-    # Prepend the single system message
     all_messages: List[Message] = [
-        {"role": "system", "content": system_prompt}] + filtered_messages
+        {"role": "system", "content": system_prompt}]
+
+    # Only append the prompt if it's non-empty
+    if prompt:
+        filtered_messages.append({"role": "user", "content": prompt})
+
+    all_messages.extend(filtered_messages)
     return all_messages
 
 
@@ -186,7 +197,7 @@ async def query_llm(
     """
     Query the LLM with a prompt, process a single tool call recursively, and terminate if no tool is needed.
     Args:
-        prompt: User input prompt.
+        prompt: User input prompt (empty for recursive tool response handling).
         model: The LLM model type to use.
         tools: List of available tools.
         output_dir: Directory to save logs and outputs.
@@ -200,15 +211,17 @@ async def query_llm(
         logger.error("Maximum recursion depth reached.")
         return "Error: Maximum recursion depth reached.", previous_messages
 
-    # Format messages with the system prompt and user input
-    all_messages = format_tool_request_messages(
-        prompt, tools, previous_messages=previous_messages
-    )
+    # Format messages with the system prompt and user input (if prompt is non-empty)
+    current_messages = previous_messages
+    if prompt:
+        current_messages = format_tool_request_messages(
+            prompt, tools, previous_messages=previous_messages
+        )
     log_dir = f"{output_dir}/chats"
 
     # Generate LLM response
     llm_response_text = generate_response(
-        all_messages, model, log_dir, tools=tools
+        current_messages, model, log_dir, tools=tools
     )
 
     # Parse tool requests (expecting at most one)
@@ -219,7 +232,7 @@ async def query_llm(
 
     # If no tool requests, return the LLM response as final
     if not tool_requests:
-        return llm_response_text, all_messages
+        return llm_response_text, current_messages
 
     # Process the single tool request
     tool_response = await query_tool_responses(tool_requests, tools, mcp_server_path)
@@ -229,7 +242,7 @@ async def query_llm(
 
     # Format messages with the tool response
     current_messages = format_tool_response_messages(
-        llm_response_text, tool_response[0], all_messages
+        llm_response_text, tool_response[0], current_messages
     )
 
     # Save tool results
@@ -237,9 +250,9 @@ async def query_llm(
                     for response in tool_response]
     save_file(tool_results, f"{output_dir}/tool_results.json")
 
-    # Recursively query LLM with updated messages
+    # Recursively query LLM with updated messages, without adding a new prompt
     return await query_llm(
-        prompt="",
+        prompt="",  # No new user prompt for recursive calls
         model=model,
         tools=tools,
         output_dir=output_dir,
