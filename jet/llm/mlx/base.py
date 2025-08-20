@@ -1,5 +1,6 @@
 from jet.data.utils import generate_unique_hash
 from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
+from jet.llm.mlx.mlx_types import ChatTemplateArgs
 import mlx.core as mx
 from typing import Any, Dict, List, Literal, Optional, Union, Iterator, Tuple
 
@@ -27,7 +28,7 @@ class MLX:
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
-        chat_template_args: Optional[Dict[str, Any]] = None,
+        chat_template_args: Optional[ChatTemplateArgs] = None,
         # DB Config
         dbname: str = DEFAULT_DB,
         user: str = DEFAULT_USER,
@@ -139,7 +140,7 @@ class MLX:
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
         verbose: bool = False,
-        chat_template_args: Optional[Dict[str, Any]] = None
+        chat_template_args: Optional[ChatTemplateArgs] = None
     ) -> CompletionResponse:
         """Generate a chat completion with history management."""
 
@@ -232,7 +233,7 @@ class MLX:
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
         verbose: bool = False,
-        chat_template_args: Optional[Dict[str, Any]] = None
+        chat_template_args: Optional[ChatTemplateArgs] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions with history management."""
         # Prepare messages with history

@@ -1,4 +1,5 @@
 from typing import Any, Union, List, Optional, Dict, Iterator
+from jet.llm.mlx.mlx_types import ChatTemplateArgs
 from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
 from jet.models.model_types import LLMModelType, RoleMapping, Tool
 from jet.llm.mlx.client import CompletionResponse, Message
@@ -67,7 +68,7 @@ def chat(
     verbose: bool = False,
     client: Optional[MLX] = None,
     seed: Optional[int] = None,
-    chat_template_args: Optional[Dict[str, Any]] = None
+    chat_template_args: Optional[ChatTemplateArgs] = None
 ) -> CompletionResponse:
     """Generate a chat completion."""
     if client is None:
@@ -128,7 +129,7 @@ def stream_chat(
     verbose: bool = False,
     client: Optional[MLX] = None,
     seed: Optional[int] = None,
-    chat_template_args: Optional[Dict[str, Any]] = None
+    chat_template_args: Optional[ChatTemplateArgs] = None
 ) -> Iterator[CompletionResponse]:
     """Stream chat completions."""
     if client is None:

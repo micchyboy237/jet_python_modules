@@ -4,6 +4,7 @@ import uuid
 import json
 import time
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat, find_repeated_consecutive_ngrams
+from jet.llm.mlx.mlx_types import ChatTemplateArgs
 import jet.llm.mlx.model_cache  # Activates cleanup listener
 from typing import Dict, List, Optional, Tuple, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass, field
@@ -37,9 +38,9 @@ from jet.utils.inspect_utils import get_entry_file_name
 DEFAULT_LOG_DIR = os.path.expanduser(
     f"~/.cache/mlx-logs/{get_entry_file_name()}")
 
-DEFAULT_CHAT_TEMPLATE_ARGS = {
+DEFAULT_CHAT_TEMPLATE_ARGS: ChatTemplateArgs = {
     "add_generation_prompt": True,
-    # Switches between thinking and non-thinking modes. Default is True.
+    # Switches between thinking and non-thinking modes. Default is False.
     "enable_thinking": False,
 }
 
@@ -55,7 +56,7 @@ class MLXLMClient:
         trust_remote_code: bool = False
         chat_template: Optional[str] = None
         use_default_chat_template: bool = True
-        chat_template_args: Optional[Dict[str, Any]] = field(
+        chat_template_args: Optional[ChatTemplateArgs] = field(
             default_factory=lambda: DEFAULT_CHAT_TEMPLATE_ARGS.copy()
         )
 
@@ -67,7 +68,7 @@ class MLXLMClient:
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
-        chat_template_args: Optional[Dict[str, Any]] = None,
+        chat_template_args: Optional[ChatTemplateArgs] = None,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps"
@@ -176,7 +177,7 @@ class MLXLMClient:
         tools: Optional[List[Tool]] = None,
         log_dir: Optional[str] = None,
         verbose: bool = False,
-        chat_template_args: Optional[Dict[str, Any]] = None
+        chat_template_args: Optional[ChatTemplateArgs] = None
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion."""
         # Convert model keys to values
@@ -213,7 +214,7 @@ class MLXLMClient:
             prompt = tokenizer.encode(prompt_str)
         elif tokenizer.chat_template:
             process_message_content(messages)
-            chat_template_settings = {
+            chat_template_settings: ChatTemplateArgs = {
                 **(self._chat_template_args or {}),
                 **(chat_template_args or {})
             }
@@ -294,7 +295,7 @@ class MLXLMClient:
         tools: Optional[List[Tool]] = None,
         log_dir: Optional[str] = None,
         verbose: bool = False,
-        chat_template_args: Optional[Dict[str, Any]] = None
+        chat_template_args: Optional[ChatTemplateArgs] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions as they are generated."""
         # Convert model keys to values
@@ -331,7 +332,7 @@ class MLXLMClient:
             prompt = tokenizer.encode(prompt_str)
         elif tokenizer.chat_template:
             process_message_content(messages)
-            chat_template_settings = {
+            chat_template_settings: ChatTemplateArgs = {
                 **(self._chat_template_args or {}),
                 **(chat_template_args or {})
             }
