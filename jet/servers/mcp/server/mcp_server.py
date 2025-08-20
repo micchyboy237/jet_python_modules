@@ -83,7 +83,7 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
-                headless=True,
+                headless=False,
                 executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
             )
             page = await browser.new_page()
