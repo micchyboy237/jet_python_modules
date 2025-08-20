@@ -216,10 +216,12 @@ class MLXModelRegistry(BaseModelRegistry):
     def _load_mlx_model(self, model: LLMModelType, device: Optional[Literal["cpu", "mps"]], *args, **kwargs) -> MLX:
         """Load an MLX model with specified device, precision, and generation features."""
         try:
-            model = MLX(model=model, device=device, *args, **kwargs)
+            _model = MLX(model=model, device=device, *args, **kwargs)
+            # Reset model prompt cache
+            _model.reset_model()
             logger.info(
                 f"Successfully loaded MLX model {model} on device {device}")
-            return model
+            return _model
         except Exception as e:
             logger.error(f"Failed to load MLX model {model}: {str(e)}")
             raise ValueError(f"Could not load MLX model {model}: {str(e)}")

@@ -129,22 +129,20 @@ def generate_response(
         # Create sync tool functions for MLX compatibility
         mlx_tools = create_mlx_tools(tools)
 
-    if model.prompt_cache:
-        model.print_cache()
-    model.reset_model()
-    if model.prompt_cache:
-        model.print_cache()
-
     # Generate response
     llm_response = model.chat(
         messages,
         max_tokens=4000,
-        temperature=0.7,
+        temperature=0.3,
         verbose=True,
         chat_template_args=chat_template_args,
         tools=mlx_tools,
     )
     llm_response_text = llm_response["content"]
+
+    if model.prompt_cache:
+        model.print_cache()
+
     return llm_response_text
 
 
