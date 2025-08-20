@@ -70,29 +70,6 @@ class ModelsResponse(TypedDict):
     data: List[ModelInfo]
 
 
-class ModelTypeEnum(Enum):
-    DOLPHIN3_LLAMA3_8B_4BIT = "dolphin3.0-llama3.1-8b-4bit"
-    LLAMA_3_1_8B_INSTRUCT_4BIT = "llama-3.1-8b-instruct-4bit"
-    LLAMA_3_2_1B_INSTRUCT_4BIT = "llama-3.2-1b-instruct-4bit"
-    LLAMA_3_2_3B_INSTRUCT_4BIT = "llama-3.2-3b-instruct-4bit"
-    MISTRAL_NEMO_INSTRUCT_2407_4BIT = "mistral-nemo-instruct-2407-4bit"
-    QWEN2_5_7B_INSTRUCT_4BIT = "qwen2.5-7b-instruct-4bit"
-    QWEN2_5_14B_INSTRUCT_4BIT = "qwen2.5-14b-instruct-4bit"
-    QWEN2_5_CODER_14B_INSTRUCT_4BIT = "qwen2.5-coder-14b-instruct-4bit"
-    QWEN3_0_6B_4BIT = "qwen3-0.6b-4bit"
-    QWEN3_1_7B_4BIT = "qwen3-1.7b-4bit"
-    QWEN3_4B_4BIT = "qwen3-4b-4bit"
-    QWEN3_8B_4BIT = "qwen3-8b-4bit"
-
-    @property
-    def key(self) -> str:
-        return self.value
-
-    @property
-    def model_path(self) -> str:
-        return f"mlx-community/{self.value.replace('.', '.').replace('_', '-')}"
-
-
 # Model key types
 LLMModelKey = Literal[
     # LLMs only
@@ -164,21 +141,6 @@ LLMModelValue = Literal[
     "mlx-community/dolphin3.0-llama3.2-3B-4Bit",
     "EleutherAI/pythia-70m",
 ]
-
-
-class EmbedModelTypeEnum(Enum):
-    EMBED_ALL_MINILM_L6_V2_BF16 = "all-minilm-l6-v2-bf16"
-    EMBED_ALL_MINILM_L6_V2_8BIT = "all-minilm-l6-v2-8bit"
-    EMBED_ALL_MINILM_L6_V2_6BIT = "all-minilm-l6-v2-6bit"
-    EMBED_ALL_MINILM_L6_V2_4BIT = "all-minilm-l6-v2-4bit"
-
-    @property
-    def key(self) -> str:
-        return self.value
-
-    @property
-    def model_path(self) -> str:
-        return f"mlx-community/{self.value.replace('.', '.').replace('_', '-')}"
 
 
 # Embed model key types

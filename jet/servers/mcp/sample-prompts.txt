@@ -1,2 +1,4 @@
 Navigate to https://www.iana.org
 Navigate to https://www.iana.org and summarize the text content in 100 words or less.
+Navigate to https://example.com
+Navigate to https:/example.com and summarize the text content in 100 words or less.

@@ -1,7 +1,8 @@
 from abc import ABC
-from typing import Optional, Dict, Literal, List, Iterator, TypedDict, Union
+from typing import Any, Optional, Dict, Literal, List, Iterator, TypedDict, Union
 from threading import Lock
 from jet.llm.mlx.config import DEFAULT_MODEL
+from jet.llm.mlx.mlx_types import ChatTemplateArgs
 from jet.logger import logger
 from pathlib import Path
 from jet.models.model_registry.base import BaseModelRegistry
@@ -25,6 +26,8 @@ class ModelFeatures(TypedDict):
     trust_remote_code: bool
     chat_template: Optional[str]
     use_default_chat_template: bool
+    chat_template_args: Optional[ChatTemplateArgs]
+    prompt_cache: Optional[List[Any]]
     dbname: Optional[str]
     user: Optional[str]
     password: Optional[str]
@@ -55,6 +58,8 @@ class MLXModelRegistry(BaseModelRegistry):
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
+        chat_template_args: Optional[ChatTemplateArgs] = None,
+        prompt_cache: Optional[List[Any]] = None,
         # DB Config
         dbname: Optional[str] = None,
         user: str = DEFAULT_USER,
@@ -78,6 +83,8 @@ class MLXModelRegistry(BaseModelRegistry):
             trust_remote_code=trust_remote_code,
             chat_template=chat_template,
             use_default_chat_template=use_default_chat_template,
+            chat_template_args=chat_template_args,
+            prompt_cache=prompt_cache,
             dbname=dbname,
             user=user,
             password=password,
@@ -102,6 +109,8 @@ class MLXModelRegistry(BaseModelRegistry):
                 trust_remote_code=trust_remote_code,
                 chat_template=chat_template,
                 use_default_chat_template=use_default_chat_template,
+                chat_template_args=chat_template_args,
+                prompt_cache=prompt_cache,
                 dbname=dbname,
                 user=user,
                 password=password,

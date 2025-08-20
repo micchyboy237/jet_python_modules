@@ -6,9 +6,12 @@ from typing import AsyncIterator, List, Dict, Optional
 from contextlib import asynccontextmanager
 from mcp.server.fastmcp.server import FastMCP, Context
 from mcp.types import ContentBlock
+from mcp.server.session import ServerSession
 from pydantic import BaseModel, Field
 from typing import Literal
+from fake_useragent import UserAgent
 from playwright.async_api import async_playwright
+
 
 PLAYWRIGHT_CHROMIUM_EXECUTABLE = "/Users/jethroestrada/Library/Caches/ms-playwright/chromium-1181/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
 
@@ -21,7 +24,7 @@ class FileInput(BaseModel):
 
 
 class FileOutput(BaseModel):
-    content: str = Field(..., description="File contents or error message")
+    text: str = Field(..., description="File contents or error message")
 
 
 class UrlInput(BaseModel):
@@ -30,10 +33,12 @@ class UrlInput(BaseModel):
 
 
 class UrlOutput(BaseModel):
-    title: str = Field(..., description="Page title or error message")
+    url: str = Field(..., description="The URL that was navigated to")
+    title: Optional[str] = Field(
+        None, description="Page title or error message")
     nav_links: Optional[List[str]] = Field(
         None, description="List of links from the same server")
-    text_content: Optional[str] = Field(
+    text: Optional[str] = Field(
         None, description="All visible text content on the page")
 
 
@@ -44,8 +49,8 @@ class SummarizeTextInput(BaseModel):
 
 
 class SummarizeTextOutput(BaseModel):
-    summary: str = Field(..., description="Summarized text")
     word_count: int = Field(..., description="Number of words in the summary")
+    text: str = Field(..., description="Summarized text")
 
 
 @asynccontextmanager
@@ -71,10 +76,10 @@ async def read_file(arguments: FileInput, ctx: Context) -> FileOutput:
         with open(arguments.file_path, "r", encoding=arguments.encoding) as f:
             content = f.read()
         await ctx.report_progress(100, 100, "File read successfully")
-        return FileOutput(content=content)
+        return FileOutput(text=content)
     except Exception as e:
         await ctx.error(f"Error reading file: {str(e)}")
-        return FileOutput(content=f"Error reading file: {str(e)}")
+        return FileOutput(text=f"Error reading file: {str(e)}")
 
 
 @server.tool(description="Navigate to a URL and return the page title, links from the same server, and all visible text content.", annotations={"audience": ["assistant"], "priority": 0.8})
@@ -85,13 +90,24 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
             browser = await p.chromium.launch(
                 headless=False,
                 executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+                timeout=10000,
             )
-            page = await browser.new_page()
-            await page.goto(arguments.url)
+            ua = UserAgent()
+            page = await browser.new_page(user_agent=ua.random)
+            # Navigate and wait only for DOM content to load
+            await page.goto(arguments.url, wait_until="domcontentloaded", timeout=10000)
+            # Wait for JavaScript to render text (e.g., wait for body text to stabilize or a specific selector)
+            await page.wait_for_function(
+                '''() => {
+                    return document.body.innerText.trim().length > 0;
+                }''',
+                timeout=10000
+            )
             title = await page.title()
             # Extract all links with href attributes
             link_elements = await page.query_selector_all('a[href]')
-            links = []
+            seen_links = set()  # Track unique links
+            links = []  # Preserve order
             # Get the domain of the input URL
             parsed_url = urlparse(arguments.url)
             base_domain = parsed_url.netloc
@@ -101,9 +117,11 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
                     # Resolve relative URLs to absolute
                     absolute_url = urljoin(arguments.url, href)
                     parsed_link = urlparse(absolute_url)
-                    # Include only links from the same domain or non-http schemes (e.g., mailto)
+                    # Include only links from the same domain or non-http schemes
                     if not parsed_link.netloc or parsed_link.netloc == base_domain:
-                        links.append(absolute_url)
+                        if absolute_url not in seen_links:
+                            seen_links.add(absolute_url)
+                            links.append(absolute_url)
             # Extract all visible text content
             text_content = await page.evaluate('''() => {
                 return document.body.innerText.trim();
@@ -111,13 +129,19 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
             await browser.close()
         await ctx.report_progress(100, 100, "Navigation complete")
         return UrlOutput(
-            title=f"Navigated to {arguments.url}. Page title: {title}",
+            url=arguments.url,
+            title=title,
             nav_links=links or None,  # Return None if no links
-            text_content=text_content or None
+            text=text_content or None
         )
     except Exception as e:
         await ctx.error(f"Error navigating to {arguments.url}: {str(e)}")
-        return UrlOutput(title=f"Error navigating to {arguments.url}: {str(e)}", nav_links=None, text_content=None)
+        return UrlOutput(
+            url=arguments.url,
+            title=None,
+            nav_links=None,
+            text=f"Error navigating to {arguments.url}: {str(e)}"
+        )
 
 
 @server.tool(description="Summarize text content to a specified word limit.", annotations={"audience": ["assistant"], "priority": 0.7})
@@ -132,10 +156,10 @@ async def summarize_text(arguments: SummarizeTextInput, ctx: Context) -> Summari
             summary += "..."
         word_count = len(summary_words)
         await ctx.report_progress(100, 100, "Summary generated")
-        return SummarizeTextOutput(summary=summary, word_count=word_count)
+        return SummarizeTextOutput(text=summary, word_count=word_count)
     except Exception as e:
         await ctx.error(f"Error summarizing text: {str(e)}")
-        return SummarizeTextOutput(summary=f"Error: {str(e)}", word_count=0)
+        return SummarizeTextOutput(text=f"Error: {str(e)}", word_count=0)
 
 
 @server.tool(description="Process data with progress.", annotations={"audience": ["user"]})
