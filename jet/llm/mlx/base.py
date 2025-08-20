@@ -40,7 +40,8 @@ class MLX:
         with_history: bool = False,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
-        device: Optional[Literal["cpu", "mps"]] = "mps"
+        device: Optional[Literal["cpu", "mps"]] = "mps",
+        prompt_cache: Optional[List[Any]] = None
     ):
         """Initialize the MLX client with configuration and optional database."""
         self.model_path: LLMModelValue = resolve_model_value(model)
@@ -57,7 +58,8 @@ class MLX:
             seed=seed,
             device=device,
             log_dir=log_dir,
-            chat_template_args=chat_template_args
+            chat_template_args=chat_template_args,
+            prompt_cache=prompt_cache
         )
         self.prompt_cache = self.client.prompt_cache
         self.system_fingerprint = self.client.system_fingerprint
@@ -140,7 +142,8 @@ class MLX:
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
         verbose: bool = False,
-        chat_template_args: Optional[ChatTemplateArgs] = None
+        chat_template_args: Optional[ChatTemplateArgs] = None,
+        prompt_cache: Optional[List[Any]] = None
     ) -> CompletionResponse:
         """Generate a chat completion with history management."""
 
@@ -197,6 +200,7 @@ class MLX:
             log_dir=log_dir,
             verbose=verbose,
             chat_template_args=chat_template_args,
+            prompt_cache=prompt_cache
         )
 
         # Add assistant response to history
@@ -233,7 +237,8 @@ class MLX:
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
         verbose: bool = False,
-        chat_template_args: Optional[ChatTemplateArgs] = None
+        chat_template_args: Optional[ChatTemplateArgs] = None,
+        prompt_cache: Optional[List[Any]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions with history management."""
         # Prepare messages with history
@@ -290,6 +295,7 @@ class MLX:
             log_dir=log_dir,
             verbose=verbose,
             chat_template_args=chat_template_args,
+            prompt_cache=prompt_cache
         ):
             if response.get("choices"):
                 content = response["choices"][0].get(
@@ -322,7 +328,8 @@ class MLX:
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        prompt_cache: Optional[List[Any]] = None
     ) -> CompletionResponse:
         """Generate a text completion (no history)."""
 
@@ -350,6 +357,7 @@ class MLX:
             stop=stop,
             log_dir=log_dir,
             verbose=verbose,
+            prompt_cache=prompt_cache
         )
 
         return response
@@ -375,7 +383,8 @@ class MLX:
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        prompt_cache: Optional[List[Any]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream text completions (no history)."""
 
@@ -403,6 +412,7 @@ class MLX:
             stop=stop,
             log_dir=log_dir,
             verbose=verbose,
+            prompt_cache=prompt_cache
         ):
             yield response
 

@@ -5,6 +5,7 @@ from jet.models.model_types import LLMModelType, RoleMapping, Tool
 from jet.llm.mlx.client import CompletionResponse, Message
 from jet.llm.mlx.chat_history import ChatHistory
 from jet.llm.mlx.base import MLX
+from mlx_lm.server import PromptCache
 
 
 def prepare_messages(
@@ -68,7 +69,8 @@ def chat(
     verbose: bool = False,
     client: Optional[MLX] = None,
     seed: Optional[int] = None,
-    chat_template_args: Optional[ChatTemplateArgs] = None
+    chat_template_args: Optional[ChatTemplateArgs] = None,
+    prompt_cache: Optional[PromptCache] = None
 ) -> CompletionResponse:
     """Generate a chat completion."""
     if client is None:
@@ -101,6 +103,7 @@ def chat(
         log_dir=log_dir,
         verbose=verbose,
         chat_template_args=chat_template_args,
+        prompt_cache=prompt_cache
     )
 
 
@@ -129,7 +132,8 @@ def stream_chat(
     verbose: bool = False,
     client: Optional[MLX] = None,
     seed: Optional[int] = None,
-    chat_template_args: Optional[ChatTemplateArgs] = None
+    chat_template_args: Optional[ChatTemplateArgs] = None,
+    prompt_cache: Optional[PromptCache] = None
 ) -> Iterator[CompletionResponse]:
     """Stream chat completions."""
     if client is None:
@@ -162,6 +166,7 @@ def stream_chat(
         log_dir=log_dir,
         verbose=verbose,
         chat_template_args=chat_template_args,
+        prompt_cache=prompt_cache
     )
 
 
@@ -188,6 +193,7 @@ def generate(
     verbose: bool = False,
     client: Optional[MLX] = None,
     seed: Optional[int] = None,
+    prompt_cache: Optional[PromptCache] = None
 ) -> CompletionResponse:
     """Generate a text completion."""
     if client is None:
@@ -217,6 +223,7 @@ def generate(
         stop=stop,
         log_dir=log_dir,
         verbose=verbose,
+        prompt_cache=prompt_cache
     )
 
 
@@ -243,6 +250,7 @@ def stream_generate(
     verbose: bool = False,
     client: Optional[MLX] = None,
     seed: Optional[int] = None,
+    prompt_cache: Optional[PromptCache] = None
 ) -> Iterator[CompletionResponse]:
     """Stream text completions."""
     if client is None:
@@ -272,6 +280,7 @@ def stream_generate(
         stop=stop,
         log_dir=log_dir,
         verbose=verbose,
+        prompt_cache=prompt_cache
     )
 
 
