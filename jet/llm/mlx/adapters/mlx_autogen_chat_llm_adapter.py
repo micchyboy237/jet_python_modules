@@ -205,7 +205,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             "repetition_penalty": extra_create_args.get("repetition_penalty", None),
             "repetition_context_size": extra_create_args.get("repetition_context_size", 20),
             "log_dir": extra_create_args.get("log_dir", None),
-            "verbose": extra_create_args.get("verbose", False),
+            "verbose": extra_create_args.get("verbose", True),
         }
         prompt_tokens = self.mlx_client.count_tokens(messages)
         completion_tokens = 0
