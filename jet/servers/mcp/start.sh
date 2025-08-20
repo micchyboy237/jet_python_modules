@@ -1,1 +1,1 @@
-python server/mcp_agent.py
+python "$(dirname "$0")/mcp_agent.py"

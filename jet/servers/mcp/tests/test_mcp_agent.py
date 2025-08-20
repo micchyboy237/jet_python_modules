@@ -1,3 +1,9 @@
+import asyncio
+import json
+from jet.servers.mcp.llm_client import query_llm
+from jet.servers.mcp.mcp_classes import ToolRequest
+
+
 def test_chained_tool_requests(mocker):
     """Given a prompt requiring chained tools, when query_llm is called, then tools are executed with correct arguments."""
     prompt = "Navigate to https://example.com and summarize its content."

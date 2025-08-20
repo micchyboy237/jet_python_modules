@@ -1,8 +1,8 @@
 import pytest
 from typing import List
 from jet.logger import CustomLogger
-from jet.servers.mcp.server.mcp_classes import ToolRequest
-from jet.servers.mcp.server.utils import parse_tool_requests
+from jet.servers.mcp.mcp_classes import ToolRequest
+from jet.servers.mcp.utils import parse_tool_requests
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@ import re
 from typing import List
 from pydantic import ValidationError
 from jet.logger import CustomLogger
-from .mcp_classes import ToolRequest
+from jet.servers.mcp.mcp_classes import ToolRequest
 
 
 def parse_tool_requests(llm_response: str, logger: CustomLogger) -> List[ToolRequest]:
