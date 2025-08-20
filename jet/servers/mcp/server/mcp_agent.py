@@ -62,7 +62,11 @@ async def query_llm(prompt: str, tool_info: List[Dict], previous_messages: List[
     """
     tool_descriptions = "\n\n".join(
         [f"Tool: {t['name']}\nDescription: {t['description']}\nInput Schema: {json.dumps(t['schema'], indent=2)}\nOutput Schema: {json.dumps(t['outputSchema'], indent=2)}" for t in tool_info])
-    system_prompt = f"You are an AI assistant with MCP tools:\n{tool_descriptions}\nUse JSON for tool requests: {{'tool': 'name', 'arguments': {{'arg': 'value'}}}}."
+    system_prompt = (
+        f"You are an AI assistant with MCP tools:\n{tool_descriptions}\n"
+        "Use JSON for tool requests: {'tool': 'name', 'arguments': {'arg': 'value'}}.\n"
+        "For chained tools, use placeholders like {{tool_name.output_field}} (e.g., {{navigate_to_url.text_content}})."
+    )
     messages = [m for m in previous_messages if m["role"]
                 != "system"] + [{"role": "user", "content": prompt}]
     formatted_messages = [
@@ -80,12 +84,13 @@ async def query_llm(prompt: str, tool_info: List[Dict], previous_messages: List[
             sampler=sampler,
             verbose=True,
         )
-        # Parse multiple tool requests using parse_tool_requests
+        # Parse multiple tool requests
         tool_requests = parse_tool_requests(llm_response, logger)
         if tool_requests:
             messages.append({"role": "assistant", "content": llm_response})
+            tool_outputs = {}  # Store outputs: {tool_name: output_dict}
             for tool_request in tool_requests:
-                # Find matching tool in tool_info
+                # Find matching tool
                 matching_tool = next(
                     (tool for tool in tool_info if tool["name"] == tool_request.tool), None)
                 if not matching_tool:
@@ -94,20 +99,85 @@ async def query_llm(prompt: str, tool_info: List[Dict], previous_messages: List[
                         "content": f"Error: Tool '{tool_request.tool}' not found"
                     })
                     continue
+
+                # Resolve placeholders in arguments
+                resolved_args = {}
+                for key, value in tool_request.arguments.items():
+                    if isinstance(value, str) and value.startswith("{{") and value.endswith("}}"):
+                        placeholder = value[2:-2]
+                        try:
+                            tool_name, field = placeholder.split(".")
+                            if tool_name in tool_outputs and field in tool_outputs[tool_name]:
+                                resolved_args[key] = tool_outputs[tool_name][field]
+                            else:
+                                messages.append({
+                                    "role": "user",
+                                    "content": f"Error: Invalid placeholder {value} for tool '{tool_request.tool}'"
+                                })
+                                continue
+                        except ValueError:
+                            messages.append({
+                                "role": "user",
+                                "content": f"Error: Malformed placeholder {value} for tool '{tool_request.tool}'"
+                            })
+                            continue
+                    else:
+                        resolved_args[key] = value
+
+                # Validate resolved arguments
                 try:
                     @validate_call(config=dict(validate_json_schema=True))
                     def validate_schema(data: Dict[str, Any], schema: Dict[str, Any]) -> None:
                         pass
-                    validate_schema(tool_request.arguments,
-                                    matching_tool["schema"])
-                    tool_result = await execute_tool(tool_request.tool, tool_request.arguments)
-                    messages.append(
-                        {"role": "user", "content": f"Tool result: {tool_result}"})
+                    validate_schema(resolved_args, matching_tool["schema"])
                 except ValidationError as e:
                     messages.append({
                         "role": "user",
                         "content": f"Invalid tool arguments for '{tool_request.tool}': {str(e)}"
                     })
+                    continue
+
+                # Execute tool with retry
+                for attempt in range(2):
+                    tool_result = await execute_tool(tool_request.tool, resolved_args)
+                    try:
+                        # Parse tool result as JSON
+                        result_dict = json.loads(tool_result) if isinstance(
+                            tool_result, str) and tool_result.strip().startswith("{") else {"content": tool_result}
+                        # Validate output
+                        if tool_request.tool == "navigate_to_url" and "text_content" in result_dict:
+                            if not result_dict["text_content"] or len(result_dict["text_content"].strip().split()) < 10:
+                                messages.append({
+                                    "role": "user",
+                                    "content": f"Error: Insufficient text content from '{tool_request.tool}'"
+                                })
+                                break
+                        elif tool_request.tool == "summarize_text" and "word_count" in result_dict:
+                            if result_dict["word_count"] < 5:
+                                messages.append({
+                                    "role": "user",
+                                    "content": f"Error: Summary too short from '{tool_request.tool}' (word_count: {result_dict['word_count']})"
+                                })
+                                break
+                        tool_outputs[tool_request.tool] = result_dict
+                        messages.append(
+                            {"role": "user", "content": f"Tool result: {tool_result}"})
+                        break
+                    except json.JSONDecodeError:
+                        tool_outputs[tool_request.tool] = {
+                            "content": tool_result}
+                        messages.append(
+                            {"role": "user", "content": f"Tool result: {tool_result}"})
+                        break
+                    except Exception as e:
+                        if attempt == 1:
+                            messages.append({
+                                "role": "user",
+                                "content": f"Error executing '{tool_request.tool}': {str(e)}"
+                            })
+                            break
+                        await asyncio.sleep(0.5)
+
             # Perform follow-up LLM query with all tool results
             follow_up_messages = [
                 {"role": "system", "content": system_prompt}] + messages
