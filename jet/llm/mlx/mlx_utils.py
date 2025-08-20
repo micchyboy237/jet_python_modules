@@ -8,21 +8,19 @@ from jet.servers.mcp.mcp_utils import validate_tool_arguments, execute_tool
 import asyncio
 
 
-def parse_tool_call(llm_response: str) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+def parse_tool_call(llm_response: str) -> List[Dict[str, Any]]:
     """
     Parses one or more tool calls from the LLM response.
-
     Args:
         llm_response: The LLM response containing tool call(s) in <tool_call> tags.
-
     Returns:
-        Union[Dict[str, Any], List[Dict[str, Any]]]: A single tool call dict or a list of tool call dicts.
+        List[Dict[str, Any]]: A list of tool call dictionaries.
     """
+    from jet.logger import logger
     tool_open = "<tool_call>"
     tool_close = "</tool_call>"
     tool_calls = []
     start_idx = 0
-
     while True:
         start_tool = llm_response.find(tool_open, start_idx)
         if start_tool == -1:
@@ -31,14 +29,16 @@ def parse_tool_call(llm_response: str) -> Union[Dict[str, Any], List[Dict[str, A
         end_tool = llm_response.find(tool_close, start_tool)
         if end_tool == -1:
             break
-        tool_call = json.loads(llm_response[start_tool:end_tool].strip())
-        # Rename 'name' to 'tool' to match ToolRequest model
-        if "name" in tool_call:
-            tool_call["tool"] = tool_call.pop("name")
-        tool_calls.append(tool_call)
+        try:
+            tool_call = json.loads(llm_response[start_tool:end_tool].strip())
+            if "name" in tool_call:
+                tool_call["tool"] = tool_call.pop("name")
+            tool_calls.append(tool_call)
+        except json.JSONDecodeError:
+            logger.error(
+                f"Invalid JSON in tool call: {llm_response[start_tool:end_tool]}")
         start_idx = end_tool + len(tool_close)
-
-    return tool_calls if len(tool_calls) > 1 else tool_calls[0] if tool_calls else {}
+    return tool_calls
 
 
 def create_mlx_tools(tools: List[ToolInfo]) -> List[Callable]:

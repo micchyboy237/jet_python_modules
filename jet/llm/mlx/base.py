@@ -67,6 +67,8 @@ class MLX:
         self.log_dir = self.client.log_dir
         self.model = self.client.model
         self.tokenizer: MLXTokenizer = self.client.tokenizer
+        self.reset_model = self.client.reset_model
+        self.print_cache = self.client.print_cache
 
         if with_history and not session_id:
             session_id = generate_unique_hash()

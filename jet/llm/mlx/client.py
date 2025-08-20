@@ -15,7 +15,7 @@ from jet.transformers.formatters import format_json
 import mlx.core as mx
 from mlx_lm.server import ModelProvider, PromptCache, get_system_fingerprint, sequence_overlap, stopping_criteria, convert_chat, process_message_content
 from mlx_lm.generate import stream_generate
-from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache, can_trim_prompt_cache
+from mlx_lm.models.cache import KVCache, make_prompt_cache, trim_prompt_cache, can_trim_prompt_cache
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import load
 from jet.llm.mlx.utils.logit_bias import convert_logit_bias
@@ -154,6 +154,17 @@ class MLXLMClient:
 
         logger.debug("Calling model with args: %s, kwargs: %s", args, kwargs)
         return self.model(*args, **kwargs)
+
+    def __del__(self) -> None:
+        """Clean up resources when the instance is destroyed."""
+        logger.debug("Cleaning up MLXLMClient instance")
+        try:
+            self.reset_model()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}")
+        finally:
+            # Ensure MLX cache is cleared
+            mx.clear_cache()
 
     def chat(
         self,
@@ -1048,3 +1059,61 @@ class MLXLMClient:
             if finish_reason:
                 logger.newline()
                 break
+
+    def reset_model(self) -> None:
+        """Reset the model and clear associated caches."""
+        logger.debug("\nResetting model and clearing caches")
+
+        # Clear the prompt cache
+        self.prompt_cache.clear()
+
+        # Reset model provider
+        self.model_provider = ModelProvider(self.cli_args)
+        self.model = self.model_provider.model
+        self.tokenizer = self.model_provider.tokenizer
+
+        # Reset peak memory tracking
+        mx.reset_peak_memory()
+
+        # Clear MLX cache
+        mx.clear_cache()
+
+        logger.debug("Model reset completed")
+
+    def print_cache(self) -> None:
+        logger.debug("\nPrinting prompt cache details")
+        if not self.prompt_cache:
+            logger.info("Prompt cache is empty")
+            return
+        logger.info("Prompt Cache Details:")
+        logger.info(f"  Cache size: {len(self.prompt_cache)} entries")
+        total_memory = 0
+        for i, cache_entry in enumerate(self.prompt_cache):
+            logger.info(f"  Cache entry {i}:")
+            logger.info(f"    Type: {type(cache_entry).__name__}")
+            if isinstance(cache_entry, (list, tuple)):
+                logger.info(f"    Length: {len(cache_entry)}")
+            elif isinstance(cache_entry, KVCache):
+                logger.info(f"    Offset: {cache_entry.offset}")
+                logger.info(f"    Step: {cache_entry.step}")
+                keys_shape = cache_entry.keys.shape if cache_entry.keys is not None else None
+                values_shape = cache_entry.values.shape if cache_entry.values is not None else None
+                logger.info(f"    Keys shape: {keys_shape or 'None'}")
+                logger.info(f"    Values shape: {values_shape or 'None'}")
+                if keys_shape and values_shape:
+                    keys_memory = keys_shape[0] * keys_shape[1] * \
+                        keys_shape[2] * keys_shape[3] * 4 / 1024 / 1024
+                    values_memory = values_shape[0] * values_shape[1] * \
+                        values_shape[2] * values_shape[3] * 4 / 1024 / 1024
+                    logger.info(
+                        f"    Memory usage: {keys_memory + values_memory:.2f} MB")
+                    total_memory += keys_memory + values_memory
+            elif hasattr(cache_entry, 'max_size'):
+                logger.info(
+                    f"    Max size: {getattr(cache_entry, 'max_size', 'N/A')}")
+                logger.info(
+                    f"    Keep: {getattr(cache_entry, 'keep', 'N/A')}")
+            else:
+                logger.info(
+                    "    Contents: (Non-list/tuple cache, details not displayed)")
+        logger.info(f"  Total memory usage: {total_memory:.2f} MB")

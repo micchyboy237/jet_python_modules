@@ -17,6 +17,12 @@ from jet.servers.mcp.mcp_classes import ToolRequest, ToolInfo, ExecutedToolRespo
 from jet.servers.mcp.mcp_utils import discover_tools, execute_tool, validate_tool_arguments
 from jet.servers.mcp.config import MCP_SERVER_PATH
 
+SYSTEM_PROMPT = """
+You are an AI assistant with MCP tools:
+{tool_descriptions}
+Use JSON for tool requests: {{'tool': 'name', 'arguments': {{'arg': 'value'}}}}.
+""".strip()
+
 
 async def validate_and_execute_tool(
     tool_request: Dict[str, Any],
@@ -60,39 +66,13 @@ async def validate_and_execute_tool(
 async def query_tool_requests(llm_response_text: str) -> List[Dict[str, Any]]:
     """
     Parse tool requests from LLM response and return as a list of tool request dicts.
-
     Args:
         llm_response_text: The LLM response containing tool call(s).
-
     Returns:
         List[Dict[str, Any]]: List of parsed tool request dictionaries with 'tool' key.
     """
-    tool_open = "<tool_call>"
-    tool_close = "</tool_call>"
-    tool_requests = []
-    start_idx = 0
-
-    while True:
-        start_tool = llm_response_text.find(tool_open, start_idx)
-        if start_tool == -1:
-            break
-        start_tool += len(tool_open)
-        end_tool = llm_response_text.find(tool_close, start_tool)
-        if end_tool == -1:
-            break
-        try:
-            tool_call = json.loads(
-                llm_response_text[start_tool:end_tool].strip())
-            # Rename 'name' to 'tool' to match ToolRequest model
-            if "name" in tool_call:
-                tool_call["tool"] = tool_call.pop("name")
-            tool_requests.append(tool_call)
-        except json.JSONDecodeError:
-            logger.error(
-                f"Invalid JSON in tool call: {llm_response_text[start_tool:end_tool]}")
-        start_idx = end_tool + len(tool_close)
-
-    return tool_requests
+    from jet.llm.mlx.mlx_utils import parse_tool_call
+    return parse_tool_call(llm_response_text)
 
 
 async def query_tool_responses(
@@ -139,6 +119,12 @@ def generate_response(
         # Create sync tool functions for MLX compatibility
         mlx_tools = create_mlx_tools(tools)
 
+    if model.prompt_cache:
+        model.print_cache()
+    model.reset_model()
+    if model.prompt_cache:
+        model.print_cache()
+
     # Generate response
     llm_response = model.chat(
         messages,
@@ -155,7 +141,7 @@ def generate_response(
 def format_tool_request_messages(prompt: str, tools: List[ToolInfo], previous_messages: List[Message] = []) -> List[Message]:
     tool_descriptions = "\n\n".join(
         [f"Tool: {t['name']}\nDescription: {t['description']}\nInput Schema: {json.dumps(t['schema'], indent=2)}\nOutput Schema: {json.dumps(t['outputSchema'], indent=2)}" for t in tools])
-    system_prompt = f"You are an AI assistant with MCP tools:\n{tool_descriptions}\nUse JSON for tool requests: {{'tool': 'name', 'arguments': {{'arg': 'value'}}}}."
+    system_prompt = SYSTEM_PROMPT.format(tool_descriptions=tool_descriptions)
 
     # Filter out existing system messages and keep only user/assistant messages
     filtered_messages = [m for m in previous_messages if m["role"] != "system"]
