@@ -16,10 +16,11 @@ def preprocess_content(content: str):
     return processed_content
 
 
-def strip_comments(content: str) -> str:
+def strip_comments(content: str, remove_triple_quoted_definitions: bool = False) -> str:
     """
-    Remove comments outside of triple-quoted strings.
-    Preserves entire triple-quoted strings including any inline `#` comments within.
+    Remove comments outside of triple-quoted strings and string literals.
+    Preserves entire triple-quoted strings and inline '#' inside quotes.
+    If remove_triple_quoted_definitions=True, removes all triple double quoted block definitions.
     """
     triple_quote_pattern = re.compile(r"('''|\"\"\")")
     lines = content.splitlines()
@@ -33,28 +34,48 @@ def strip_comments(content: str) -> str:
             if match:
                 current_quote = match.group(1)
                 if line.count(current_quote) == 2:
-                    # Opening and closing on the same line — preserve entire line
-                    result_lines.append(line)
+                    # Opening and closing on the same line
+                    if not (remove_triple_quoted_definitions and current_quote == '"""'):
+                        result_lines.append(line)
                     continue
                 in_triple_quote = True
-                result_lines.append(line)
+                if not (remove_triple_quoted_definitions and current_quote == '"""'):
+                    result_lines.append(line)
             else:
                 stripped = line.strip()
                 if stripped.startswith('#'):
                     continue  # remove full-line comment
-                elif '#' in line:
-                    code = line.split('#', 1)[0].rstrip()
-                    if code:
-                        result_lines.append(code)
-                else:
-                    result_lines.append(line)
+
+                # walk through chars and detect # only if not inside quotes
+                new_line = []
+                in_single = in_double = False
+                i = 0
+                while i < len(line):
+                    ch = line[i]
+                    if ch == "'" and not in_double:
+                        in_single = not in_single
+                        new_line.append(ch)
+                    elif ch == '"' and not in_single:
+                        in_double = not in_double
+                        new_line.append(ch)
+                    elif ch == '#' and not in_single and not in_double:
+                        break  # start of comment outside quotes
+                    else:
+                        new_line.append(ch)
+                    i += 1
+
+                cleaned = "".join(new_line).rstrip()
+                if cleaned:
+                    result_lines.append(cleaned)
         else:
-            result_lines.append(line)
+            # inside triple quotes
+            if not (remove_triple_quoted_definitions and current_quote == '"""'):
+                result_lines.append(line)
+
             if current_quote in line:
                 if line.count(current_quote) % 2 == 1:
                     in_triple_quote = False
 
-    # Clean up multiple blank lines
     cleaned = re.sub(r'\n\s*\n', '\n', '\n'.join(result_lines)).strip()
     return cleaned
 

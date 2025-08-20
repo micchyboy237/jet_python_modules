@@ -1,66 +1,157 @@
-from typing import List, Optional, Any, Iterator, Union
-from llama_index.core.llms.llm import LLM
+from typing import Any, Dict, List, Optional, Iterator, AsyncIterator
+from llama_index.core.llms import LLM, ChatMessage, ChatResponse, CompletionResponse
 from llama_index.core.base.llms.types import (
-    ChatMessage,
-    ChatResponse,
-    CompletionResponse,
-)
-from llama_index.core.base.llms.generic_utils import (
-    chat_response_to_completion_response,
+    ChatResponseGen,
+    ChatResponseAsyncGen,
+    CompletionResponseGen,
+    CompletionResponseAsyncGen,
 )
 from jet.llm.mlx.base import MLX
-from jet.logger import logger
+from jet.llm.mlx.mlx_types import Message
+import asyncio
 
 
 class MLXLlamaIndexLLMAdapter(LLM):
-    """LLM wrapper to integrate MLX with llama_index."""
-
     def __init__(
         self,
-        model: str,
-        system_prompt: Optional[str] = None,
-        with_history: bool = False,
+        model: str = "qwen3-1.7b-4bit",
+        log_dir: Optional[str] = None,
         **kwargs: Any,
     ):
-        super().__init__(system_prompt=system_prompt, **kwargs)
-        self._mlx = MLX(model=model, with_history=with_history, **kwargs)
+        super().__init__(**kwargs)
+        self._mlx = MLX(model=model, log_dir=log_dir)
 
-    # ---- Completion API ----
-    def complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
-        logger.debug("MLXLlama.complete called with prompt=%s", prompt)
-        response = self._mlx.generate(prompt, **kwargs)
-        return CompletionResponse(text=response["choices"][0]["text"])
-
-    def stream_complete(
-        self, prompt: str, formatted: bool = False, **kwargs: Any
-    ) -> Iterator[CompletionResponse]:
-        logger.debug("MLXLlama.stream_complete called with prompt=%s", prompt)
-        for response in self._mlx.client.stream_generate(prompt=prompt, **kwargs):
-            yield CompletionResponse(text=response["choices"][0]["text"])
-
-    # ---- Chat API ----
     def chat(self, messages: List[ChatMessage], **kwargs: Any) -> ChatResponse:
-        logger.debug("MLXLlama.chat called with messages=%s", messages)
-        mlx_messages = [{"role": m.role.value, "content": m.content}
-                        for m in messages]
-        response = self._mlx.chat(
-            messages=mlx_messages, system_prompt=self.system_prompt, **kwargs)
+        """
+        Synchronous chat implementation.
+        Converts llama_index ChatMessages to MLX Message format and uses MLX chat method.
+        """
+        mlx_messages = [
+            {"role": msg.role.value, "content": msg.content}
+            for msg in messages
+            if msg.content is not None
+        ]
+        response = self._mlx.chat(messages=mlx_messages, **kwargs)
+        # Assuming response is a CompletionResponse with a choices list
+        choice = response.get("choices", [{}])[0]
+        message = choice.get("message", {})
         return ChatResponse(
             message=ChatMessage(
-                role="assistant", content=response["choices"][0]["message"]["content"])
+                role="assistant",
+                content=message.get("content", ""),
+            ),
+            raw=response,
         )
 
-    def stream_chat(
-        self, messages: List[ChatMessage], **kwargs: Any
-    ) -> Iterator[ChatResponse]:
-        logger.debug("MLXLlama.stream_chat called with messages=%s", messages)
-        mlx_messages = [{"role": m.role.value, "content": m.content}
-                        for m in messages]
-        for response in self._mlx.stream_chat(messages=mlx_messages, system_prompt=self.system_prompt, **kwargs):
+    async def achat(self, messages: List[ChatMessage], **kwargs: Any) -> ChatResponse:
+        """
+        Asynchronous chat implementation.
+        Wraps the synchronous chat method in an async context.
+        """
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, lambda: self.chat(messages, **kwargs)
+        )
+        return result
+
+    def complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
+        """
+        Synchronous completion implementation.
+        Uses MLX generate method for text completion.
+        """
+        response = self._mlx.generate(prompt=prompt, **kwargs)
+        # Assuming response is a CompletionResponse with a choices list
+        choice = response.get("choices", [{}])[0]
+        return CompletionResponse(
+            text=choice.get("text", ""),
+            raw=response,
+        )
+
+    async def acomplete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
+        """
+        Asynchronous completion implementation.
+        Wraps the synchronous complete method in an async context.
+        """
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, lambda: self.complete(prompt, formatted, **kwargs)
+        )
+        return result
+
+    def stream_chat(self, messages: List[ChatMessage], **kwargs: Any) -> ChatResponseGen:
+        """
+        Synchronous streaming chat implementation.
+        Converts llama_index ChatMessages to MLX Message format and uses MLX stream_chat.
+        """
+        mlx_messages = [
+            {"role": msg.role.value, "content": msg.content}
+            for msg in messages
+            if msg.content is not None
+        ]
+        for response in self._mlx.stream_chat(messages=mlx_messages, **kwargs):
+            choice = response.get("choices", [{}])[0]
+            message = choice.get("message", {})
             yield ChatResponse(
                 message=ChatMessage(
-                    role="assistant", content=response["choices"][0]["message"]["content"])
+                    role="assistant",
+                    content=message.get("content", ""),
+                ),
+                delta=message.get("content", ""),
+                raw=response,
             )
+
+    async def astream_chat(self, messages: List[ChatMessage], **kwargs: Any) -> ChatResponseAsyncGen:
+        """
+        Asynchronous streaming chat implementation.
+        Wraps the synchronous stream_chat method in an async context.
+        """
+        def sync_iterator():
+            return self.stream_chat(messages, **kwargs)
+
+        async def async_generator() -> ChatResponseAsyncGen:
+            loop = asyncio.get_event_loop()
+            sync_gen = sync_iterator()
+            while True:
+                try:
+                    result = await loop.run_in_executor(None, lambda: next(sync_gen))
+                    yield result
+                except StopIteration:
+                    break
+
+        return async_generator()
+
+    def stream_complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponseGen:
+        """
+        Synchronous streaming completion implementation.
+        Uses MLX stream_generate method for streaming text completion.
+        """
+        for response in self._mlx.stream_generate(prompt=prompt, **kwargs):
+            choice = response.get("choices", [{}])[0]
+            yield CompletionResponse(
+                text=choice.get("text", ""),
+                delta=choice.get("text", ""),
+                raw=response,
+            )
+
+    async def astream_complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponseAsyncGen:
+        """
+        Asynchronous streaming completion implementation.
+        Wraps the synchronous stream_complete method in an async context.
+        """
+        def sync_iterator():
+            return self.stream_complete(prompt, formatted, **kwargs)
+
+        async def async_generator() -> CompletionResponseAsyncGen:
+            loop = asyncio.get_event_loop()
+            sync_gen = sync_iterator()
+            while True:
+                try:
+                    result = await loop.run_in_executor(None, lambda: next(sync_gen))
+                    yield result
+                except StopIteration:
+                    break
+
+        return async_generator()
 
     # ---- Metadata ----
     @property
