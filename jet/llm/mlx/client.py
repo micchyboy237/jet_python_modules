@@ -6,7 +6,7 @@ import time
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat, find_repeated_consecutive_ngrams
 import jet.llm.mlx.model_cache  # Activates cleanup listener
 from typing import Dict, List, Optional, Tuple, Union, Literal, TypedDict, Any, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from huggingface_hub import scan_cache_dir
 from jet.llm.mlx.config import DEFAULT_MODEL
 from jet.logger import logger
@@ -37,6 +37,12 @@ from jet.utils.inspect_utils import get_entry_file_name
 DEFAULT_LOG_DIR = os.path.expanduser(
     f"~/.cache/mlx-logs/{get_entry_file_name()}")
 
+DEFAULT_CHAT_TEMPLATE_ARGS = {
+    "add_generation_prompt": True,
+    # Switches between thinking and non-thinking modes. Default is True.
+    "enable_thinking": False,
+}
+
 
 class MLXLMClient:
     """A client for interacting with MLX-LM models directly in Python."""
@@ -49,6 +55,9 @@ class MLXLMClient:
         trust_remote_code: bool = False
         chat_template: Optional[str] = None
         use_default_chat_template: bool = True
+        chat_template_args: Optional[Dict[str, Any]] = field(
+            default_factory=lambda: DEFAULT_CHAT_TEMPLATE_ARGS.copy()
+        )
 
     def __init__(
         self,
@@ -58,6 +67,7 @@ class MLXLMClient:
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
+        chat_template_args: Optional[Dict[str, Any]] = None,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps"
@@ -82,13 +92,19 @@ class MLXLMClient:
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
 
+        # Merge chat_template_args with defaults
+        merged_chat_template_args = DEFAULT_CHAT_TEMPLATE_ARGS.copy()
+        if chat_template_args is not None:
+            merged_chat_template_args.update(chat_template_args)
+
         config = self.Config(
             model=model_value,
             adapter_path=adapter_path,
             draft_model=draft_model_value,
             trust_remote_code=trust_remote_code,
             chat_template=chat_template,
-            use_default_chat_template=use_default_chat_template
+            use_default_chat_template=use_default_chat_template,
+            chat_template_args=merged_chat_template_args
         )
 
         # Create CLI args equivalent
@@ -98,7 +114,8 @@ class MLXLMClient:
             draft_model=config.draft_model,
             trust_remote_code=config.trust_remote_code,
             chat_template=config.chat_template,
-            use_default_chat_template=config.use_default_chat_template
+            use_default_chat_template=config.use_default_chat_template,
+            chat_template_args=config.chat_template_args
         )
 
         # Initialize model provider and other attributes
@@ -110,6 +127,8 @@ class MLXLMClient:
 
         self.model = self.model_provider.model
         self.tokenizer: MLXTokenizer = self.model_provider.tokenizer
+
+        self._chat_template_args = config.chat_template_args
 
     def __call__(self, *args, **kwargs) -> Union[mx.array, Tuple[mx.array, Any]]:
         """
@@ -156,7 +175,8 @@ class MLXLMClient:
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        chat_template_args: Optional[Dict[str, Any]] = None
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion."""
         # Convert model keys to values
@@ -193,12 +213,18 @@ class MLXLMClient:
             prompt = tokenizer.encode(prompt_str)
         elif tokenizer.chat_template:
             process_message_content(messages)
+            chat_template_settings = {
+                **(self._chat_template_args or {}),
+                **(chat_template_args or {})
+            }
+            if verbose:
+                logger.newline()
+                logger.info("Chat Template Args:")
+                logger.debug(format_json(chat_template_settings))
             prompt: List[int] = tokenizer.apply_chat_template(
                 messages,
                 tools,
-                add_generation_prompt=True,
-                # Switches between thinking and non-thinking modes. Default is True.
-                enable_thinking=False,
+                **chat_template_settings
             )
 
         # Generate completion
@@ -267,7 +293,8 @@ class MLXLMClient:
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        chat_template_args: Optional[Dict[str, Any]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions as they are generated."""
         # Convert model keys to values
@@ -304,12 +331,18 @@ class MLXLMClient:
             prompt = tokenizer.encode(prompt_str)
         elif tokenizer.chat_template:
             process_message_content(messages)
+            chat_template_settings = {
+                **(self._chat_template_args or {}),
+                **(chat_template_args or {})
+            }
+            if verbose:
+                logger.newline()
+                logger.info("Chat Template Args:")
+                logger.debug(format_json(chat_template_settings))
             prompt: List[int] = tokenizer.apply_chat_template(
                 messages,
                 tools,
-                add_generation_prompt=True,
-                # Switches between thinking and non-thinking modes. Default is True.
-                enable_thinking=False,
+                **chat_template_settings
             )
 
         # Stream completion
@@ -376,7 +409,7 @@ class MLXLMClient:
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a text completion."""
         # Convert model keys to values
@@ -474,7 +507,7 @@ class MLXLMClient:
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
     ) -> Iterator[CompletionResponse]:
         """Stream text completions as they are generated."""
         # Convert model keys to values

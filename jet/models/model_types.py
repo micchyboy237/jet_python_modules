@@ -9,13 +9,16 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 MLXTokenizer = Union[TokenizerWrapper, PreTrainedTokenizer]
 
 
+ChatRole = Literal["system", "user", "assistant", "tool"]
+
+
 class Message(TypedDict):
-    role: str
+    role: ChatRole
     content: str
 
 
 class Delta(TypedDict):
-    role: Optional[str]
+    role: Optional[ChatRole]
     content: Optional[str]
 
 

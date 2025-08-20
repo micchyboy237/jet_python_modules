@@ -7,14 +7,17 @@ from mcp.client.stdio import stdio_client
 from mcp import ClientSession, StdioServerParameters
 from pydantic import BaseModel, ValidationError, validate_call
 from jet.logger import CustomLogger
+from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
+from jet.models.model_types import LLMModelType, Message
 from jet.servers.mcp.utils import parse_tool_requests
 from mlx_lm import load, generate
 from mlx_lm.sample_utils import make_sampler
 
 LOGS_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_server/playwright_mcp/server/logs"
+CHAT_LOGS = f"{LOGS_DIR}/chats"
 logger = CustomLogger(f"{LOGS_DIR}/mcp_agent.log", overwrite=True)
 MCP_SERVER_PATH = str(Path(__file__).parent / "mcp_server.py")
-MODEL_PATH = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
+MODEL_PATH: LLMModelType = "qwen3-1.7b-4bit"
 
 
 async def discover_tools() -> List[Dict]:
@@ -48,7 +51,7 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
                     await asyncio.sleep(0.5)
 
 
-async def query_llm(prompt: str, tool_info: List[Dict], previous_messages: List[Dict] = []) -> tuple[str, List[Dict]]:
+async def query_llm(prompt: str, tool_info: List[Dict], previous_messages: List[Dict] = []) -> tuple[str, List[Message]]:
     """
     Query the LLM with a prompt and tool information, handling chained tool requests.
 
@@ -67,27 +70,25 @@ async def query_llm(prompt: str, tool_info: List[Dict], previous_messages: List[
         "Use JSON for tool requests: {'tool': 'name', 'arguments': {'arg': 'value'}}.\n"
         "For chained tools, use placeholders like {{tool_name.output_field}} (e.g., {{navigate_to_url.text_content}})."
     )
-    messages = [m for m in previous_messages if m["role"]
-                != "system"] + [{"role": "user", "content": prompt}]
-    formatted_messages = [
+    messages: List[Message] = [m for m in previous_messages if m["role"]
+                               != "system"] + [{"role": "user", "content": prompt}]
+    formatted_messages: List[Message] = [
         {"role": "system", "content": system_prompt}] + messages
 
     try:
-        model, tokenizer = load(MODEL_PATH)
-        sampler = make_sampler(temp=0.7)
-        llm_response = generate(
-            model,
-            tokenizer,
-            prompt=tokenizer.apply_chat_template(
-                formatted_messages, tokenize=False, enable_thinking=False),
+        model = MLXModelRegistry.load_model(MODEL_PATH)
+        llm_response = model.chat(
+            formatted_messages,
             max_tokens=4000,
-            sampler=sampler,
+            temperature=0.7,
+            log_dir=CHAT_LOGS,
             verbose=True,
         )
+        response_text = llm_response["content"]
         # Parse multiple tool requests
-        tool_requests = parse_tool_requests(llm_response, logger)
+        tool_requests = parse_tool_requests(response_text, logger)
         if tool_requests:
-            messages.append({"role": "assistant", "content": llm_response})
+            messages.append({"role": "assistant", "content": response_text})
             tool_outputs = {}  # Store outputs: {tool_name: output_dict}
             for tool_request in tool_requests:
                 # Find matching tool
@@ -178,19 +179,17 @@ async def query_llm(prompt: str, tool_info: List[Dict], previous_messages: List[
                             break
                         await asyncio.sleep(0.5)
 
-            # Perform follow-up LLM query with all tool results
-            follow_up_messages = [
-                {"role": "system", "content": system_prompt}] + messages
-            llm_response = generate(
-                model,
-                tokenizer,
-                prompt=tokenizer.apply_chat_template(
-                    follow_up_messages, tokenize=False, enable_thinking=False),
-                max_tokens=4000,
-                sampler=sampler,
-                verbose=True,
-            )
-        return llm_response, messages
+            # # Perform follow-up LLM query with all tool results
+            # follow_up_messages: List[Message] = [
+            #     {"role": "system", "content": system_prompt}] + messages
+            # llm_response = model.chat(
+            #     follow_up_messages,
+            #     max_tokens=4000,
+            #     temperature=0.7,
+            #     log_dir=CHAT_LOGS,
+            #     verbose=True,
+            # )
+        return response_text, messages
     except Exception as e:
         logger.error(f"MLX inference failed: {str(e)}")
         return f"Error querying LLM: {str(e)}", messages

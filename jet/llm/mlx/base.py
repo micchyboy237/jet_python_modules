@@ -27,6 +27,7 @@ class MLX:
         trust_remote_code: bool = False,
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
+        chat_template_args: Optional[Dict[str, Any]] = None,
         # DB Config
         dbname: str = DEFAULT_DB,
         user: str = DEFAULT_USER,
@@ -55,6 +56,7 @@ class MLX:
             seed=seed,
             device=device,
             log_dir=log_dir,
+            chat_template_args=chat_template_args
         )
         self.prompt_cache = self.client.prompt_cache
         self.system_fingerprint = self.client.system_fingerprint
@@ -136,7 +138,8 @@ class MLX:
         tools: Optional[List[Tool]] = None,
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        chat_template_args: Optional[Dict[str, Any]] = None
     ) -> CompletionResponse:
         """Generate a chat completion with history management."""
 
@@ -192,6 +195,7 @@ class MLX:
             tools=tools,
             log_dir=log_dir,
             verbose=verbose,
+            chat_template_args=chat_template_args,
         )
 
         # Add assistant response to history
@@ -227,7 +231,8 @@ class MLX:
         tools: Optional[List[Tool]] = None,
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        chat_template_args: Optional[Dict[str, Any]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions with history management."""
         # Prepare messages with history
@@ -283,6 +288,7 @@ class MLX:
             tools=tools,
             log_dir=log_dir,
             verbose=verbose,
+            chat_template_args=chat_template_args,
         ):
             if response.get("choices"):
                 content = response["choices"][0].get(
