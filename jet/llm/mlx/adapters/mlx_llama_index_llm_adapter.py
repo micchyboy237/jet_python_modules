@@ -10,6 +10,8 @@ from llama_index.core.base.llms.types import (
 )
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.mlx_types import Message
+from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
+from jet.models.model_types import LLMModelType
 from jet.models.utils import get_context_size
 import asyncio
 
@@ -17,12 +19,12 @@ import asyncio
 class MLXLlamaIndexLLMAdapter(LLM):
     def __init__(
         self,
-        model: str = "qwen3-1.7b-4bit",
+        model: LLMModelType = "qwen3-1.7b-4bit",
         log_dir: Optional[str] = None,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
-        self._mlx = MLX(model=model, log_dir=log_dir)
+        self._mlx = MLXModelRegistry.load_model(model=model, log_dir=log_dir)
         self._metadata = LLMMetadata(
             context_window=get_context_size(self._mlx.model_path),
             num_output=256,  # Default output token limit, adjustable
@@ -47,7 +49,13 @@ class MLXLlamaIndexLLMAdapter(LLM):
             for msg in messages
             if msg.content is not None
         ]
-        response = self._mlx.chat(messages=mlx_messages, **kwargs)
+        generation_settings = {
+            "messages": mlx_messages,
+            "verbose": True,
+            "temperature": 0.3,
+            **kwargs,
+        }
+        response = self._mlx.chat(**generation_settings)
         # Assuming response is a CompletionResponse with a choices list
         choice = response.get("choices", [{}])[0]
         message = choice.get("message", {})
@@ -75,7 +83,13 @@ class MLXLlamaIndexLLMAdapter(LLM):
         Synchronous completion implementation.
         Uses MLX generate method for text completion.
         """
-        response = self._mlx.generate(prompt=prompt, **kwargs)
+        generation_settings = {
+            "prompt": prompt,
+            "verbose": True,
+            "temperature": 0.3,
+            **kwargs,
+        }
+        response = self._mlx.generate(**generation_settings)
         # Assuming response is a CompletionResponse with a choices list
         choice = response.get("choices", [{}])[0]
         return CompletionResponse(
@@ -104,7 +118,13 @@ class MLXLlamaIndexLLMAdapter(LLM):
             for msg in messages
             if msg.content is not None
         ]
-        for response in self._mlx.stream_chat(messages=mlx_messages, **kwargs):
+        generation_settings = {
+            "messages": mlx_messages,
+            "verbose": True,
+            "temperature": 0.3,
+            **kwargs,
+        }
+        for response in self._mlx.stream_chat(**generation_settings):
             choice = response.get("choices", [{}])[0]
             message = choice.get("message", {})
             yield ChatResponse(
@@ -141,7 +161,13 @@ class MLXLlamaIndexLLMAdapter(LLM):
         Synchronous streaming completion implementation.
         Uses MLX stream_generate method for streaming text completion.
         """
-        for response in self._mlx.stream_generate(prompt=prompt, **kwargs):
+        generation_settings = {
+            "prompt": prompt,
+            "verbose": True,
+            "temperature": 0.3,
+            **kwargs,
+        }
+        for response in self._mlx.stream_generate(**generation_settings):
             choice = response.get("choices", [{}])[0]
             yield CompletionResponse(
                 text=choice.get("text", ""),

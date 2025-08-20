@@ -827,8 +827,7 @@ class MLXLMClient:
 
         if verbose:
             logger.newline()
-            logger.info("Prompt:")
-            logger.debug(tokenizer.decode(prompt))
+            logger.info(f"Prompt: ({len(prompt)})")
 
             if logit_bias:
                 logger.newline()
@@ -960,8 +959,7 @@ class MLXLMClient:
 
         if verbose:
             logger.newline()
-            logger.info("Prompt:")
-            logger.debug(tokenizer.decode(prompt))
+            logger.info(f"Prompt: ({len(prompt)})")
 
             if logit_bias:
                 logger.newline()
