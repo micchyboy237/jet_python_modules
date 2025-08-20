@@ -41,10 +41,16 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
                     await session.initialize()
                     logger.debug(
                         f"Calling tool: {tool_name} with arguments: {arguments}")
-                    # Wrap arguments in a nested 'arguments' field
                     wrapped_arguments = {"arguments": arguments}
                     result = await session.call_tool(tool_name, wrapped_arguments)
-                    return str(result[0]["content"] if isinstance(result, list) and result and "content" in result[0] else result)
+                    # Extract the JSON string from the TextContent object
+                    if isinstance(result, list) and result and "content" in result[0]:
+                        content = result[0]["content"]
+                        if isinstance(content, list) and content and hasattr(content[0], 'text'):
+                            # Extract the 'text' field from TextContent
+                            return content[0].text
+                        return content
+                    return str(result)
                 except Exception as e:
                     if attempt == 2:
                         logger.error(
@@ -116,7 +122,7 @@ async def query_llm(prompt: str, tool_info: List[Dict], previous_messages: List[
                         logger.error(f"Invalid tool arguments: {str(e)}")
                         return f"Invalid tool arguments: {str(e)}", messages
                     tool_result = await execute_tool(tool_request.tool, tool_request.arguments)
-                    logger.debug(f"Tool result: {tool_result}")
+                    logger.debug(f"Tool result (raw): {tool_result}")
                     if tool_request.tool == "navigate_to_url":
                         try:
                             url_output = json.loads(tool_result)
@@ -134,6 +140,10 @@ async def query_llm(prompt: str, tool_info: List[Dict], previous_messages: List[
                                 tool_result = await execute_tool(summarize_request["tool"], summarize_request["arguments"])
                                 messages.append(
                                     {"role": "user", "content": f"Tool result: {tool_result}"})
+                            else:
+                                logger.debug(
+                                    "No text_content available for summarization")
+                                return f"Failed to retrieve text content from {tool_request.arguments['url']}: {url_output.get('title', 'Unknown error')}", messages
                         except json.JSONDecodeError as e:
                             logger.error(
                                 f"Failed to parse navigate_to_url output: {str(e)}")
