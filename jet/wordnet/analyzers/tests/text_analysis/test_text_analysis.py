@@ -15,7 +15,7 @@ from jet.logger import logger
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "generated", "test_text_analysis")
 MLX_LOG_DIR = f"{OUTPUT_DIR}/mlx-logs"
-MODEL: LLMModelType = "llama-3.2-1b-instruct-4bit"
+MODEL: LLMModelType = "qwen3-1.7b-4bit"
 SEED = 42
 MLX_CLIENT = MLX(seed=SEED)
 

@@ -1,7 +1,7 @@
-# .venv/bin/python
+# /Users/jethroestrada/.pyenv/shims/python
 application_properties==0.8.3
-autogen-agentchat @ file:///Users/jethroestrada/Desktop/External_Projects/AI/chatbot/autogen/python/packages/autogen-agentchat
-autogen-ext @ file:///Users/jethroestrada/Desktop/External_Projects/AI/chatbot/autogen/python/packages/autogen-ext
+autogen-agentchat @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/autogen/python/packages/autogen-agentchat
+autogen-ext @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/autogen/python/packages/autogen-ext
 azure-ai-documentintelligence==1.0.2
 azure-identity==1.23.0
 -e git+ssh://git@github.com/MaartenGr/BERTopic.git@32b2dddea3df57e9982b166e5b1847c9fbe7e6da#egg=bertopic
@@ -23,6 +23,7 @@ en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_
 faiss-cpu==1.11.0
 fastapi-cli==0.0.7
 faster-whisper==1.1.1
+fastmcp==2.11.3
 fasttext-langdetect==1.0.5
 ffmpeg-python==0.2.0
 fiddle==0.3.0
@@ -38,12 +39,13 @@ inflect==7.5.0
 jiwer==3.1.0
 kaldi-python-io==1.2.2
 -e git+ssh://git@github.com/MaartenGr/KeyBERT.git@b9c4939d53454b74a97f901b95e3ca7b873eb2a0#egg=keybert
-langchain-text-splitters==0.3.8
+-e git+ssh://git@github.com/langchain-ai/langchain-community.git@7414609c4e41e9304fdaed22fe9ef3314d36d073#egg=langchain_community&subdirectory=libs/community
+langchain-monorepo @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain
 lhotse==1.30.3
 librosa==0.11.0
 lightning==2.4.0
 llama_cpp_python==0.3.14
--e git+ssh://git@github.com/run-llama/llama_index.git@232ebfe7c68639f560f45a7a73118791e390cc9e#egg=llama_index
+-e git+ssh://git@github.com/run-llama/llama_index.git@8f3e94ce11a3d004ed930606210fac5edefd8291#egg=llama_index
 llguidance==0.7.29
 lm-format-enforcer==0.10.11
 lxml_html_clean==0.4.2
@@ -51,7 +53,7 @@ m3u8==6.0.0
 magika==0.6.2
 mammoth==1.9.1
 mediapy==1.1.6
--e git+ssh://git@github.com/mem0ai/mem0.git@a6a3928091b6018451da116e11adbdafcf8d3a2e#egg=mem0ai
+-e git+ssh://git@github.com/mem0ai/mem0.git@a7ac8bf13b5e728ffb2ad8525a00e1ddd90750d0#egg=mem0ai
 mistral_common==1.5.6
 -e git+ssh://git@github.com/ml-explore/mlx-lm.git@e673a97c80a5e1108aff93113ff2ee8df49918e0#egg=mlx_lm
 -e git+ssh://git@github.com/yannbanas/mrkdwn_analysis.git@0f0b1808f3405cfe200f94286a3ec087e9cd2ad7#egg=mrkdwn_analysis
@@ -100,7 +102,6 @@ pytest-benchmark==5.1.0
 pytest-mock==3.14.1
 pytest-playwright==0.7.0
 python-json-logger==3.3.0
-python-multipart==0.0.20
 python-pptx==1.0.2
 pytrec_eval==0.5
 pyttsx3==2.98
