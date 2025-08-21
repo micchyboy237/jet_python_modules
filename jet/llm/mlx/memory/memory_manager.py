@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 from autogen_core.memory import Memory, MemoryContent, MemoryMimeType, MemoryQueryResult, UpdateContextResult
 from autogen_core.memory._base_memory import ChatCompletionContext, CancellationToken
 from autogen_core.models import LLMMessage, UserMessage, AssistantMessage
@@ -11,6 +12,14 @@ from jet.models.utils import get_context_size, get_embedding_size, resolve_model
 from mem0 import Memory as Memory0
 import numpy as np
 import os
+
+
+class MemoryManagerConfig(BaseModel):
+    user_id: Optional[str]
+    limit: int
+    llm_model_path: str
+    embedder_model_path: str
+    config: Dict[str, Any]
 
 
 class MemoryManager(Memory):
@@ -117,3 +126,13 @@ class MemoryManager(Memory):
         else:
             # No-op if close is not supported
             pass
+
+    def dump_component(self) -> MemoryManagerConfig:
+        """Dump the component configuration to a serializable format."""
+        return MemoryManagerConfig(
+            user_id=self.memory.user_id,
+            limit=self.memory.limit,
+            llm_model_path=self.config["llm"]["config"]["model"],
+            embedder_model_path=self.config["embedder"]["config"]["model"],
+            config=self.config
+        )
