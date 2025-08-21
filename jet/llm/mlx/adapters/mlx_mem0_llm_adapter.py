@@ -146,7 +146,7 @@ class MLXMem0LLMAdapter(LLMBase):
         supported_params = self._get_supported_params(
             messages=messages,
             tools=tools,
-            tool_choice=tool_choice,
+            # tool_choice=tool_choice,
             **kwargs
         )
         # Use kwargs if provided, otherwise fall back to config values
