@@ -170,6 +170,7 @@ class MLXMem0LLMAdapter(LLMBase):
             # "tool_choice": tool_choice,
             **supported_params
         }
+        generation_settings.pop("response_format")
         response = self.mlx_client.chat(**generation_settings)
         if isinstance(response, dict) and response.get("choices"):
             return response["choices"][0].get("message", {}).get("content", "")
