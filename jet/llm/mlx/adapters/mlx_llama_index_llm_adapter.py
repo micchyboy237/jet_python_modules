@@ -30,7 +30,7 @@ class MLXLlamaIndexLLMAdapter(LLM):
             num_output=256,  # Default output token limit, adjustable
             is_chat_model=True,  # MLX supports chat functionality
             # MLX does not support function calling by default
-            is_function_calling_model=False,
+            is_function_calling_model=True,
             model_name=model,
             system_role=MessageRole.SYSTEM,  # Standard system role for MLX
         )
