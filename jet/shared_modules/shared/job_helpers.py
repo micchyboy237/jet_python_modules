@@ -7,6 +7,7 @@ from jet.data.utils import generate_hash, generate_key
 from jet.logger import logger
 from jet.models.embeddings.base import generate_embeddings
 from jet.models.model_types import EmbedModelType
+from jet.models.utils import get_embedding_size
 from jet.wordnet.text_chunker import chunk_texts_with_data, truncate_texts
 from shared.data_types.job import JobData, JobMetadata, JobSearchResult
 from jet.db.postgres.pgvector import PgVectorClient, EmbeddingInput, SearchResult
@@ -111,8 +112,9 @@ def save_job_embeddings(
             overwrite_db=overwrite_db
         )
 
-    # Ensure metadata table exists before fetching rows
+    # Ensure both metadata and embeddings tables exist before fetching rows
     with db_client:
+        # Create or verify metadata table
         metadata_table_query = f"""
         CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA_NAME} (
             id TEXT PRIMARY KEY,
@@ -138,6 +140,13 @@ def save_job_embeddings(
             cur.execute(metadata_table_query)
             logger.debug(
                 f"Created or verified '{DEFAULT_TABLE_DATA_NAME}' table with 'content_hash', 'text_hash', and 'posted_date' columns.")
+
+        # Create or verify embeddings table
+        embedding_dimension = get_embedding_size(embed_model)
+        db_client.create_table(
+            DEFAULT_TABLE_NAME, dimension=embedding_dimension)
+        logger.debug(
+            f"Created or verified '{DEFAULT_TABLE_NAME}' table with dimension {embedding_dimension}.")
 
         # Fetch existing job metadata with hashes, filtering by doc_id
         existing_jobs = db_client.get_rows(
