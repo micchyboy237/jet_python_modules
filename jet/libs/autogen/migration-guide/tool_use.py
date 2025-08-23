@@ -5,15 +5,19 @@ This module demonstrates how to configure an `AssistantAgent` in AutoGen v0.4 to
 
 import asyncio
 from autogen_core import CancellationToken
-from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.messages import TextMessage
+
+from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
+
 
 def get_weather(city: str) -> str:
     return f"The weather in {city} is 72 degree and sunny."
 
+
 async def main() -> None:
-    model_client = OpenAIChatCompletionClient(model="gpt-4o", seed=42, temperature=0)
+    model_client = MLXAutogenChatLLMAdapter(
+        model="llama-3.2-3b-instruct-4bit", seed=42, temperature=0)
     assistant = AssistantAgent(
         name="assistant",
         system_message="You are a helpful assistant. You can call tools to help user.",
