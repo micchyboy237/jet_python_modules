@@ -3,7 +3,14 @@ from pathlib import Path
 from langchain_core.runnables.graph import MermaidDrawMethod
 
 
-def render_mermaid_graph(agent, output_filename="graph_output.png", draw_method=MermaidDrawMethod.PYPPETEER, max_retries: int = 5, retry_delay: float = 2.0):
+def render_mermaid_graph(
+    agent,
+    output_filename="graph_output.png",
+    draw_method=MermaidDrawMethod.PYPPETEER,
+    max_retries: int = 5,
+    retry_delay: float = 2.0,
+    open_file: bool = False
+):
     """
     Generates a Mermaid graph PNG from the agent and opens it using the system's default viewer on macOS.
 
@@ -20,5 +27,6 @@ def render_mermaid_graph(agent, output_filename="graph_output.png", draw_method=
     output_path = Path(output_filename)
     output_path.write_bytes(png_bytes)
 
-    # Open the PNG file with the default image viewer on macOS
-    os.system(f"open {output_path}")
+    if open_file:
+        # Open the PNG file with the default image viewer on macOS
+        os.system(f"open {output_path}")
