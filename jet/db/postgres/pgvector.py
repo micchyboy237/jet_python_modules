@@ -315,6 +315,112 @@ class PgVectorClient:
                 raise
         return row_results
 
+    def create_or_update_row(self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None) -> TableRow:
+        """Create a new row or update an existing one in the specified table based on the provided ID.
+
+        Args:
+            table_name: Name of the table to insert into or update
+            row_data: Dictionary of column names and their values, including nested dicts and optional embedding. Must include 'id' field.
+            dimension: Dimension of the embedding if applicable
+
+        Returns:
+            TableRow dictionary containing the inserted or updated row data
+
+        Raises:
+            ValueError: If row_data is empty or lacks an 'id' field
+        """
+        if not row_data:
+            raise ValueError("Cannot create or update with empty row data")
+        if "id" not in row_data:
+            raise ValueError("Row data must include an 'id' field")
+
+        if "embedding" in row_data and dimension is None:
+            dimension = len(self._to_list(row_data["embedding"]))
+        self._ensure_table_exists(table_name, dimension or 1536)
+        self._ensure_columns_exist(table_name, row_data)
+
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s;",
+                (table_name,)
+            )
+            column_types = {row["column_name"]: row["data_type"]
+                            for row in cur.fetchall()}
+
+            # Check if row exists
+            cur.execute(
+                sql.SQL("SELECT 1 FROM {} WHERE id = %s").format(
+                    sql.Identifier(table_name)),
+                (row_data["id"],)
+            )
+            exists = cur.fetchone()
+
+            if exists:
+                # Update existing row
+                columns = [col for col in row_data.keys() if col != "id"]
+                values = []
+                set_clauses = []
+
+                for col in columns:
+                    value = row_data[col]
+                    if col == "embedding":
+                        values.append(self._to_list(value))
+                        set_clauses.append(f"{col} = %s::vector")
+                    elif isinstance(value, (dict, list)):
+                        values.append(json.dumps(value))
+                        set_clauses.append(f"{col} = %s::jsonb")
+                    else:
+                        values.append(value)
+                        set_clauses.append(f"{col} = %s")
+
+                values.append(row_data["id"])
+                query = sql.SQL("UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;").format(
+                    sql.Identifier(table_name),
+                    sql.SQL(", ").join(map(sql.SQL, set_clauses))
+                )
+            else:
+                # Insert new row
+                columns = ["id"] + \
+                    [col for col in row_data.keys() if col != "id"]
+                values = [row_data["id"]]
+                placeholders = ["%s"]
+
+                for col in columns[1:]:
+                    value = row_data[col]
+                    if col == "embedding":
+                        values.append(self._to_list(value))
+                        placeholders.append("%s::vector")
+                    elif isinstance(value, (dict, list)):
+                        values.append(json.dumps(value))
+                        placeholders.append("%s::jsonb")
+                    else:
+                        values.append(value)
+                        placeholders.append("%s")
+
+                query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING *;").format(
+                    sql.Identifier(table_name),
+                    sql.SQL(", ").join(map(sql.Identifier, columns)),
+                    sql.SQL(", ").join(map(sql.SQL, placeholders))
+                )
+
+            try:
+                cur.execute(query, values)
+                result = cur.fetchone()
+                if not result:
+                    raise ValueError(
+                        f"Failed to create or update row with id {row_data['id']} in table {table_name}")
+                return {
+                    col: result[col].tolist() if col == "embedding" and isinstance(result[col], np.ndarray)
+                    else json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                    else result[col]
+                    for col in result.keys()
+                }
+            except Exception as e:
+                logger.error("Failed to create or update row %s in %s: %s",
+                             row_data["id"], table_name, str(e))
+                raise
+
     def create_or_update_rows(
         self,
         table_name: str,
@@ -405,29 +511,29 @@ class PgVectorClient:
             column_types = {row["column_name"]: row["data_type"]
                             for row in cur.fetchall()}
 
-        columns = [col for col in row_data.keys()]
-        values = []
-        set_clauses = []
+            columns = [col for col in row_data.keys()]
+            values = []
+            set_clauses = []
 
-        for col in columns:
-            value = row_data[col]
-            if col == "embedding":
-                values.append(self._to_list(value))
-                set_clauses.append(f"{col} = %s::vector")
-            elif isinstance(value, (dict, list)):
-                values.append(json.dumps(value))
-                set_clauses.append(f"{col} = %s::jsonb")
-            else:
-                values.append(value)
-                set_clauses.append(f"{col} = %s")
+            for col in columns:
+                value = row_data[col]
+                if col == "embedding":
+                    values.append(self._to_list(value))
+                    set_clauses.append(f"{col} = %s::vector")
+                elif isinstance(value, (dict, list)):
+                    values.append(json.dumps(value))
+                    set_clauses.append(f"{col} = %s::jsonb")
+                else:
+                    values.append(value)
+                    set_clauses.append(f"{col} = %s")
 
-        values.append(row_id)  # For WHERE clause
-        query = sql.SQL("UPDATE {} SET {} WHERE id = %s RETURNING *;").format(
-            sql.Identifier(table_name),
-            sql.SQL(", ").join(map(sql.SQL, set_clauses))
-        )
+            values.append(row_id)  # For WHERE clause
+            # Modified query to include updated_at = NOW()
+            query = sql.SQL("UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;").format(
+                sql.Identifier(table_name),
+                sql.SQL(", ").join(map(sql.SQL, set_clauses))
+            )
 
-        with self.conn.cursor() as cur:
             try:
                 cur.execute(query, values)
                 result = cur.fetchone()

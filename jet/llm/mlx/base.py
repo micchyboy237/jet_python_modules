@@ -173,39 +173,39 @@ class MLX:
                                                 "json"], JsonSchemaValue]] = None
     ) -> CompletionResponse:
         """Generate a chat completion with history management."""
-        if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
-            if self.with_history:
+        if self.with_history:
+            # Add system prompt if provided and not already in history
+            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
                 self.history.add_message("system", system_prompt)
-        if isinstance(messages, str):
-            if self.with_history:
+            # Add user messages based on input type
+            if isinstance(messages, str):
                 self.history.add_message("user", messages)
-        elif isinstance(messages, list):
-            for msg in messages:
-                if "role" in msg and "content" in msg:
-                    if self.with_history:
-                        self.history.add_message(
-                            msg["role"], msg["content"], msg.get("id"))
-                    else:
-                        if "session_id" not in msg:
-                            msg["session_id"] = self.session_id
-                        if "id" not in msg:
-                            msg["id"] = None
-                else:
-                    raise ValueError(
-                        "Each message in the list must have 'role' and 'content' keys")
-        else:
-            raise TypeError(
-                "messages must be a string or a list of Message dictionaries")
-        formatted_messages = ([{"role": "user", "content": messages, "session_id": self.session_id, "id": None}] if isinstance(
-            messages, str) else messages)
-        all_messages = self.history.get_messages() if self.with_history else (
-            ([{"role": "system", "content": system_prompt, "session_id": self.session_id,
-             "id": None}] if system_prompt else []) + formatted_messages
+            elif isinstance(messages, list):
+                self.history.add_messages(messages)
+            else:
+                raise TypeError(
+                    "messages must be a string or a list of Message dictionaries")
+
+        # Format messages for the client, excluding session_id and id
+        formatted_messages = (
+            [{"role": "user", "content": messages}] if isinstance(messages, str)
+            else [{"role": msg["role"], "content": msg["content"]} for msg in messages]
         )
+
+        # Combine history (if enabled) with current messages
+        all_messages = (
+            self.history.get_messages() if self.with_history
+            else (
+                [{"role": "system", "content": system_prompt}] if system_prompt
+                else []
+            ) + formatted_messages
+        )
+
         if max_tokens is None:
             max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
             max_tokens = self.get_remaining_tokens(all_messages)
+
         response = self.client.chat(
             messages=all_messages,
             model=model or self.model_path,
@@ -232,11 +232,14 @@ class MLX:
             prompt_cache=prompt_cache,
             response_format=response_format if response_format is not None else self.client.cli_args.response_format
         )
+
+        # Store assistant response if history is enabled
         if self.with_history and isinstance(response, dict) and response.get("choices"):
             assistant_content = response["choices"][0].get(
                 "message", {}).get("content", "")
             if assistant_content:
                 self.history.add_message("assistant", assistant_content)
+
         return response
 
     def stream_chat(
@@ -270,39 +273,39 @@ class MLX:
                                                 "json"], JsonSchemaValue]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions with history management."""
-        if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
-            if self.with_history:
+        if self.with_history:
+            # Add system prompt if provided and not already in history
+            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
                 self.history.add_message("system", system_prompt)
-        if isinstance(messages, str):
-            if self.with_history:
+            # Add user messages based on input type
+            if isinstance(messages, str):
                 self.history.add_message("user", messages)
-        elif isinstance(messages, list):
-            for msg in messages:
-                if "role" in msg and "content" in msg:
-                    if self.with_history:
-                        self.history.add_message(
-                            msg["role"], msg["content"], msg.get("id"))
-                    else:
-                        if "session_id" not in msg:
-                            msg["session_id"] = self.session_id
-                        if "id" not in msg:
-                            msg["id"] = None
-                else:
-                    raise ValueError(
-                        "Each message in the list must have 'role' and 'content' keys")
-        else:
-            raise TypeError(
-                "messages must be a string or a list of Message dictionaries")
-        formatted_messages = ([{"role": "user", "content": messages, "session_id": self.session_id, "id": None}] if isinstance(
-            messages, str) else messages)
-        all_messages = self.history.get_messages() if self.with_history else (
-            ([{"role": "system", "content": system_prompt, "session_id": self.session_id,
-             "id": None}] if system_prompt else []) + formatted_messages
+            elif isinstance(messages, list):
+                self.history.add_messages(messages)
+            else:
+                raise TypeError(
+                    "messages must be a string or a list of Message dictionaries")
+
+        # Format messages for the client, excluding session_id and id
+        formatted_messages = (
+            [{"role": "user", "content": messages}] if isinstance(messages, str)
+            else [{"role": msg["role"], "content": msg["content"]} for msg in messages]
         )
+
+        # Combine history (if enabled) with current messages
+        all_messages = (
+            self.history.get_messages() if self.with_history
+            else (
+                [{"role": "system", "content": system_prompt}] if system_prompt
+                else []
+            ) + formatted_messages
+        )
+
         if max_tokens is None:
             max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
             max_tokens = self.get_remaining_tokens(all_messages)
+
         assistant_content = ""
         for response in self.client.stream_chat(
             messages=all_messages,
@@ -335,6 +338,8 @@ class MLX:
                     "message", {}).get("content", "")
                 assistant_content += content
             yield response
+
+        # Store assistant response if history is enabled
         if self.with_history and assistant_content:
             self.history.add_message("assistant", assistant_content)
 

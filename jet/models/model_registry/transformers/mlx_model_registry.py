@@ -96,7 +96,7 @@ class MLXModelRegistry(BaseModelRegistry):
             host=host,
             port=port,
             overwrite_db=overwrite_db,
-            session_id=session_id,
+            # session_id=session_id,
             device=device,
             verbose=verbose,
             temperature=temperature,

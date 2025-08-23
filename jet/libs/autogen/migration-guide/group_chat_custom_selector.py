@@ -12,6 +12,7 @@ from autogen_agentchat.conditions import MaxMessageTermination, TextMentionTermi
 from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
 from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.ui import Console
+from jet.data.utils import generate_hash
 from jet.file.utils import save_file
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
 from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchAPIWrapper, DuckDuckGoSearchRun
@@ -40,11 +41,12 @@ def percentage_change_tool(start: float, end: float) -> float:
     return ((end - start) / start) * 100
 
 
-def create_team(model_client: MLXAutogenChatLLMAdapter) -> SelectorGroupChat:
+def create_team() -> SelectorGroupChat:
     planning_agent = AssistantAgent(
         "PlanningAgent",
         description="An agent for planning tasks, this agent should be the first to engage when given a new task.",
-        model_client=model_client,
+        model_client=MLXAutogenChatLLMAdapter(
+            model="llama-3.2-1b-instruct-4bit", session_id=generate_hash("PlanningAgent"), log_dir=f"{OUTPUT_DIR}/planning_chats"),
         system_message="""
         You are a planning agent.
         Your job is to break down complex tasks into smaller, manageable subtasks.
@@ -61,7 +63,8 @@ def create_team(model_client: MLXAutogenChatLLMAdapter) -> SelectorGroupChat:
         "WebSearchAgent",
         description="A web search agent.",
         tools=[search_web_tool],
-        model_client=model_client,
+        model_client=MLXAutogenChatLLMAdapter(
+            model="llama-3.2-1b-instruct-4bit", session_id=generate_hash("WebSearchAgent"), log_dir=f"{OUTPUT_DIR}/web_search_chats"),
         system_message="""
         You are a web search agent.
         Your only tool is search_tool - use it to find information.
@@ -72,7 +75,8 @@ def create_team(model_client: MLXAutogenChatLLMAdapter) -> SelectorGroupChat:
     data_analyst_agent = AssistantAgent(
         "DataAnalystAgent",
         description="A data analyst agent. Useful for performing calculations.",
-        model_client=model_client,
+        model_client=MLXAutogenChatLLMAdapter(
+            model="llama-3.2-1b-instruct-4bit", session_id=generate_hash("DataAnalystAgent"), log_dir=f"{OUTPUT_DIR}/data_analyst_chats"),
         tools=[percentage_change_tool],
         system_message="""
         You are a data analyst.
@@ -80,7 +84,7 @@ def create_team(model_client: MLXAutogenChatLLMAdapter) -> SelectorGroupChat:
         """,
     )
     text_mention_termination = TextMentionTermination("TERMINATE")
-    max_messages_termination = MaxMessageTermination(max_messages=25)
+    max_messages_termination = MaxMessageTermination(max_messages=10)
     termination = text_mention_termination | max_messages_termination
 
     def selector_func(messages: Sequence[BaseAgentEvent | BaseChatMessage]) -> str | None:
@@ -89,8 +93,9 @@ def create_team(model_client: MLXAutogenChatLLMAdapter) -> SelectorGroupChat:
         return None
     team = SelectorGroupChat(
         [planning_agent, web_search_agent, data_analyst_agent],
+        name="ManagerAgent",
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-3b-instruct-4bit", log_dir=f"{OUTPUT_DIR}/group_chats"),
+            model="llama-3.2-3b-instruct-4bit", session_id=generate_hash("ManagerAgent"), log_dir=f"{OUTPUT_DIR}/manager_chats"),
         termination_condition=termination,
         selector_func=selector_func,
     )
@@ -98,9 +103,7 @@ def create_team(model_client: MLXAutogenChatLLMAdapter) -> SelectorGroupChat:
 
 
 async def main() -> None:
-    model_client = MLXAutogenChatLLMAdapter(
-        model="llama-3.2-1b-instruct-4bit", log_dir=f"{OUTPUT_DIR}/chats")
-    team = create_team(model_client)
+    team = create_team()
     task = "Who was the Miami Heat player with the highest points in the 2006-2007 season, and what was the percentage change in his total rebounds between the 2007-2008 and 2008-2009 seasons?"
     await Console(team.run_stream(task=task))
     state = await team.save_state()

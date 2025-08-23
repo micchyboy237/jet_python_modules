@@ -150,7 +150,9 @@ class PostgresClient:
         """Create a table with an ID column."""
         query = sql.SQL(
             "CREATE TABLE IF NOT EXISTS {} ("
-            "id TEXT PRIMARY KEY"
+            "id TEXT PRIMARY KEY, "
+            "created_at TIMESTAMPTZ DEFAULT NOW(), "
+            "updated_at TIMESTAMPTZ DEFAULT NOW()"
             ");"
         ).format(sql.Identifier(table_name))
         with self.conn.cursor() as cur:
@@ -247,19 +249,6 @@ class PostgresClient:
         return row_results
 
     def update_row(self, table_name: str, row_id: str, row_data: Dict[str, Any]) -> TableRow:
-        """Update a single row in the specified table with new column values, creating new columns if needed.
-
-        Args:
-            table_name: Name of the table to update
-            row_id: ID of the row to update
-            row_data: Dictionary of column names and their new values, including nested dicts
-
-        Returns:
-            TableRow dictionary containing the updated row data
-
-        Raises:
-            ValueError: If row_data is empty or row_id does not exist
-        """
         if not row_data:
             raise ValueError("Cannot update with empty row data")
 
@@ -275,41 +264,42 @@ class PostgresClient:
             column_types = {row["column_name"]: row["data_type"]
                             for row in cur.fetchall()}
 
-        columns = [col for col in row_data.keys()]
-        values = []
-        set_clauses = []
+            columns = [col for col in row_data.keys()]
+            values = []
+            set_clauses = []
 
-        for col in columns:
-            value = row_data[col]
-            if isinstance(value, (dict, list)):
-                values.append(json.dumps(value))
-                set_clauses.append(f"{col} = %s::jsonb")
-            else:
-                values.append(value)
-                set_clauses.append(f"{col} = %s")
+            for col in columns:
+                value = row_data[col]
+                if isinstance(value, (dict, list)):
+                    values.append(json.dumps(value))
+                    set_clauses.append(f"{col} = %s::jsonb")
+                else:
+                    values.append(value)
+                    set_clauses.append(f"{col} = %s")
 
-        values.append(row_id)
-        query = sql.SQL("UPDATE {} SET {} WHERE id = %s RETURNING *;").format(
-            sql.Identifier(table_name),
-            sql.SQL(", ").join(map(sql.SQL, set_clauses))
-        )
+            values.append(row_id)
+            # Modified query to include updated_at = NOW()
+            query = sql.SQL("UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;").format(
+                sql.Identifier(table_name),
+                sql.SQL(", ").join(map(sql.SQL, set_clauses))
+            )
 
-        with self.conn.cursor() as cur:
-            try:
-                cur.execute(query, values)
-                result = cur.fetchone()
-                if not result:
-                    raise ValueError(
-                        f"No row found with id {row_id} in table {table_name}")
-                return {
-                    col: json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
-                    else result[col]
-                    for col in result.keys()
-                }
-            except Exception as e:
-                logger.error("Failed to update row %s in %s: %s",
-                             row_id, table_name, str(e))
-                raise
+            with self.conn.cursor() as cur:
+                try:
+                    cur.execute(query, values)
+                    result = cur.fetchone()
+                    if not result:
+                        raise ValueError(
+                            f"No row found with id {row_id} in table {table_name}")
+                    return {
+                        col: json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                        else result[col]
+                        for col in result.keys()
+                    }
+                except Exception as e:
+                    logger.error("Failed to update row %s in %s: %s",
+                                 row_id, table_name, str(e))
+                    raise
 
     def update_rows(self, table_name: str, rows_data: List[Dict[str, Any]]) -> List[TableRow]:
         """Update multiple rows in the specified table with new column values, creating new columns if needed.
@@ -344,6 +334,135 @@ class PostgresClient:
                              row["id"], table_name, str(e))
                 raise
         return updated_rows
+
+    def create_or_update_row(self, table_name: str, row_data: Dict[str, Any]) -> TableRow:
+        """Create a new row or update an existing one in the specified table based on the provided ID.
+
+        Args:
+            table_name: Name of the table to insert into or update
+            row_data: Dictionary of column names and their values, including nested dicts. Must include 'id' field.
+
+        Returns:
+            TableRow dictionary containing the inserted or updated row data
+
+        Raises:
+            ValueError: If row_data is empty or lacks an 'id' field
+        """
+        if not row_data:
+            raise ValueError("Cannot create or update with empty row data")
+        if "id" not in row_data:
+            raise ValueError("Row data must include an 'id' field")
+
+        self._ensure_table_exists(table_name)
+        self._ensure_columns_exist(table_name, row_data)
+
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s;",
+                (table_name,)
+            )
+            column_types = {row["column_name"]: row["data_type"]
+                            for row in cur.fetchall()}
+
+            # Check if row exists
+            cur.execute(
+                sql.SQL("SELECT 1 FROM {} WHERE id = %s").format(
+                    sql.Identifier(table_name)),
+                (row_data["id"],)
+            )
+            exists = cur.fetchone()
+
+            if exists:
+                # Update existing row
+                columns = [col for col in row_data.keys() if col != "id"]
+                values = []
+                set_clauses = []
+
+                for col in columns:
+                    value = row_data[col]
+                    if isinstance(value, (dict, list)):
+                        values.append(json.dumps(value))
+                        set_clauses.append(f"{col} = %s::jsonb")
+                    else:
+                        values.append(value)
+                        set_clauses.append(f"{col} = %s")
+
+                values.append(row_data["id"])
+                query = sql.SQL("UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;").format(
+                    sql.Identifier(table_name),
+                    sql.SQL(", ").join(map(sql.SQL, set_clauses))
+                )
+            else:
+                # Insert new row
+                columns = ["id"] + \
+                    [col for col in row_data.keys() if col != "id"]
+                values = [row_data["id"]]
+                placeholders = ["%s"]
+
+                for col in columns[1:]:
+                    value = row_data[col]
+                    if isinstance(value, (dict, list)):
+                        values.append(json.dumps(value))
+                        placeholders.append("%s::jsonb")
+                    else:
+                        values.append(value)
+                        placeholders.append("%s")
+
+                query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING *;").format(
+                    sql.Identifier(table_name),
+                    sql.SQL(", ").join(map(sql.Identifier, columns)),
+                    sql.SQL(", ").join(map(sql.SQL, placeholders))
+                )
+
+            try:
+                cur.execute(query, values)
+                result = cur.fetchone()
+                if not result:
+                    raise ValueError(
+                        f"Failed to create or update row with id {row_data['id']} in table {table_name}")
+                return {
+                    col: json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                    else result[col]
+                    for col in result.keys()
+                }
+            except Exception as e:
+                logger.error("Failed to create or update row %s in %s: %s",
+                             row_data["id"], table_name, str(e))
+                raise
+
+    def create_or_update_rows(self, table_name: str, rows_data: List[Dict[str, Any]]) -> List[TableRow]:
+        """Create new rows or update existing ones in the specified table based on provided IDs.
+
+        Args:
+            table_name: Name of the table to insert into or update
+            rows_data: List of dictionaries containing 'id' and column names with their values, including nested dicts
+
+        Returns:
+            List of TableRow dictionaries containing the inserted or updated row data
+
+        Raises:
+            ValueError: If rows_data is empty, any row lacks an 'id', or rows have inconsistent columns
+        """
+        if not rows_data:
+            raise ValueError("Cannot create or update empty rows data")
+        if not all("id" in row for row in rows_data):
+            raise ValueError("All rows must include an 'id' field")
+        self._ensure_table_exists(table_name)
+        self._ensure_columns_exist(table_name, rows_data[0])
+        if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
+            raise ValueError("All rows must have the same columns")
+
+        results = []
+        for row in rows_data:
+            try:
+                result = self.create_or_update_row(table_name, row)
+                results.append(result)
+            except Exception as e:
+                logger.error(
+                    "Failed to create or update row %s in %s: %s", row["id"], table_name, str(e))
+                raise
+        return results
 
     def get_row(self, table_name: str, row_id: str) -> Optional[TableRow]:
         """Retrieve a single row by ID from the specified table.

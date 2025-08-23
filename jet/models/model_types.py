@@ -13,8 +13,6 @@ ChatRole = Literal["system", "user", "assistant", "tool"]
 
 
 class Message(TypedDict):
-    id: Optional[str]
-    session_id: Optional[str]
     role: ChatRole
     content: str
 

@@ -2,6 +2,7 @@ from typing import Literal, Union, Dict, List, Optional, TypedDict, Any, get_arg
 from enum import Enum
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat
 from jet.models.model_types import (
+    ChatRole,
     LLMModelType,
     MLXTokenizer,
     Message,
@@ -16,6 +17,14 @@ from jet.models.model_types import (
     CompletionResponse,
 )
 from mlx_lm.tokenizer_utils import TokenizerWrapper
+
+
+class DBMessage(Message):
+    id: str
+    session_id: str
+    message_order: int
+    updated_at: Optional[str]
+    created_at: Optional[str]
 
 
 class ChatTemplateArgs(TypedDict, total=False):

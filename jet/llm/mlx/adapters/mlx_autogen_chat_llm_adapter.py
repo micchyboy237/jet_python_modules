@@ -1,5 +1,5 @@
 import os
-from typing import Any, AsyncGenerator, Iterator, List, Literal, Mapping, Optional, Sequence, Union, cast
+from typing import Any, AsyncGenerator, Dict, Iterator, List, Literal, Mapping, Optional, Sequence, Union, cast
 from pydantic import BaseModel
 from autogen_core.models import ChatCompletionClient, CreateResult, LLMMessage, ModelInfo, RequestUsage, ModelCapabilities, FinishReasons
 from autogen_core.tools import Tool, ToolSchema
@@ -64,7 +64,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         self._usage = RequestUsage(prompt_tokens=0, completion_tokens=0)
         self.log_dir = log_dir
 
-    def _save_logs(self, messages: List[Message]) -> None:
+    def _save_logs(self, args_dict: Dict) -> None:
         if self.log_dir:
             autogen_dir = os.path.join(self.log_dir, "previous_chats")
             os.makedirs(autogen_dir, exist_ok=True)
@@ -79,8 +79,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
                     continue
             next_number = max(numbers) + 1 if numbers else 1
             incremented_filename = f"{next_number}"
-            save_file(messages,
-                      f"{autogen_dir}/{incremented_filename}.json")
+            save_file(args_dict, f"{autogen_dir}/{incremented_filename}.json")
 
     async def create(
         self,
@@ -94,6 +93,15 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
     ) -> CreateResult:
         """Create a single chat completion response."""
         from autogen_core.models import SystemMessage, UserMessage, AssistantMessage
+        self._save_logs({
+            "stream": False,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "json_output": json_output,
+            "extra_create_args": extra_create_args,
+            "cancellation_token": cancellation_token,
+        })
         mlx_tools = [
             {
                 "type": "function",
@@ -123,8 +131,6 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         if system_prompt:
             mlx_messages = [
                 msg for msg in mlx_messages if msg["role"] != "system"]
-        self._save_logs(
-            ([system_prompt] if system_prompt else []) + mlx_messages)
 
         create_args = {
             "messages": mlx_messages,
@@ -190,6 +196,15 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
     ) -> AsyncGenerator[Union[str, CreateResult], None]:
         """Create a stream of chat completion responses."""
         from autogen_core.models import SystemMessage, UserMessage, AssistantMessage
+        self._save_logs({
+            "stream": True,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "json_output": json_output,
+            "extra_create_args": extra_create_args,
+            "cancellation_token": cancellation_token,
+        })
         mlx_tools = [
             {
                 "type": "function",
@@ -219,8 +234,6 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         if system_prompt:
             mlx_messages = [
                 msg for msg in mlx_messages if msg["role"] != "system"]
-        self._save_logs(
-            ([system_prompt] if system_prompt else []) + mlx_messages)
 
         create_args = {
             "messages": mlx_messages,
