@@ -102,7 +102,7 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
 
 
 if __name__ == "__main__":
-    repo_id = "jinaai/jina-embeddings-v2-base-en"
+    repo_id = "jinaai/jina-embeddings-v2-small-en"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")

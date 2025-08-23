@@ -182,6 +182,7 @@ EmbedModelKey = Literal[
     "multi-qa-MiniLM-L6-cos-v1",
     "static-retrieval-mrl-en-v1",
     "jina-embeddings-v2-base",
+    "jina-embeddings-v2-small",
 ]
 
 # Embed model value types
@@ -221,6 +222,7 @@ EmbedModelValue = Literal[
     "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
     "sentence-transformers/static-retrieval-mrl-en-v1",
     "jinaai/jina-embeddings-v2-base-en",
+    "jinaai/jina-embeddings-v2-small-en",
 ]
 
 RerankModelKey = Literal[
