@@ -1,9 +1,12 @@
-from typing import TypedDict, Optional, Dict, Any, Literal
+from typing import TypedDict, Optional, Dict, Any, Literal, Union
 from ddgs import DDGS
 from ddgs.exceptions import DDGSException, TimeoutException
 from jet.logger import logger
 
-# Type definitions based on sample results
+# Type definitions for search parameters
+SafeSearchType = Literal["on", "moderate", "off"]
+# Supports "d", "w", "m", "y" or custom date range (e.g., "2023-01-01:2023-12-31")
+TimelimitType = Optional[Union[Literal["d", "w", "m", "y"], str]]
 
 
 class TextResult(TypedDict):
@@ -90,8 +93,8 @@ class DuckDuckGoSearch:
         self,
         query: str,
         region: str = "us-en",
-        safesearch: str = "moderate",
-        timelimit: Optional[str] = None,
+        safesearch: SafeSearchType = "moderate",
+        timelimit: TimelimitType = None,
         max_results: Optional[int] = 10,
         page: int = 1,
         backend: str = "auto"
@@ -115,7 +118,7 @@ class DuckDuckGoSearch:
     def news(
         self,
         query: str,
-        timelimit: Optional[str] = None,
+        timelimit: TimelimitType = None,
         max_results: Optional[int] = 10,
         backend: str = "auto"
     ) -> list[NewsResult]:
@@ -136,7 +139,7 @@ class DuckDuckGoSearch:
         self,
         query: str,
         region: str = "us-en",
-        safesearch: str = "moderate",
+        safesearch: SafeSearchType = "moderate",
         max_results: Optional[int] = 10,
         backend: str = "auto"
     ) -> list[ImageResult]:
