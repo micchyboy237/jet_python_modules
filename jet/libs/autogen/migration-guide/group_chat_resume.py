@@ -12,6 +12,7 @@ from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.ui import Console
 from jet.data.utils import generate_unique_hash
+from jet.file.utils import load_file, save_file
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
 
 OUTPUT_DIR = os.path.join(
@@ -56,13 +57,14 @@ async def main() -> None:
         task="Write a short story about a robot that discovers it has feelings.")
     await Console(stream)
     state = await group_chat.save_state()
-    with open(f"{OUTPUT_DIR}/group_chat_state.json", "w") as f:
-        json.dump(state, f)
+    save_file(state, f"{OUTPUT_DIR}/group_chat_state.json")
+
     group_chat = create_team()
-    with open(f"{OUTPUT_DIR}/group_chat_state.json", "r") as f:
-        state = json.load(f)
+    state = load_file(f"{OUTPUT_DIR}/group_chat_state.json")
     await group_chat.load_state(state)
     stream = group_chat.run_stream(task="Translate the story into Tagalog.")
     await Console(stream)
+    state = await group_chat.save_state()
+    save_file(state, f"{OUTPUT_DIR}/group_chat_state.json")
 
 asyncio.run(main())

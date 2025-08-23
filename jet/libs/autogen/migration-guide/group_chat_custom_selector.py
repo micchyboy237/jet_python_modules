@@ -12,6 +12,7 @@ from autogen_agentchat.conditions import MaxMessageTermination, TextMentionTermi
 from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
 from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.ui import Console
+from jet.file.utils import save_file
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
 from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchAPIWrapper, DuckDuckGoSearchRun
 
@@ -89,7 +90,7 @@ def create_team(model_client: MLXAutogenChatLLMAdapter) -> SelectorGroupChat:
     team = SelectorGroupChat(
         [planning_agent, web_search_agent, data_analyst_agent],
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-3b-instruct-4bit"),
+            model="llama-3.2-3b-instruct-4bit", log_dir=f"{OUTPUT_DIR}/group_chats"),
         termination_condition=termination,
         selector_func=selector_func,
     )
@@ -102,5 +103,7 @@ async def main() -> None:
     team = create_team(model_client)
     task = "Who was the Miami Heat player with the highest points in the 2006-2007 season, and what was the percentage change in his total rebounds between the 2007-2008 and 2008-2009 seasons?"
     await Console(team.run_stream(task=task))
+    state = await team.save_state()
+    save_file(state, f"{OUTPUT_DIR}/group_chat_state.json")
 
 asyncio.run(main())
