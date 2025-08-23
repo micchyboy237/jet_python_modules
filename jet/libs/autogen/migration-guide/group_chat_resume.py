@@ -46,7 +46,7 @@ def create_team() -> RoundRobinGroupChat:
 def create_model_client() -> MLXAutogenChatLLMAdapter:
     session_id = generate_unique_hash()
     model_client = MLXAutogenChatLLMAdapter(
-        model="llama-3.2-1b-instruct-4bit", seed=42, session_id=session_id, log_dir=f"{OUTPUT_DIR}/chats_{session_id}")
+        model="llama-3.2-3b-instruct-4bit", seed=42, session_id=session_id, log_dir=f"{OUTPUT_DIR}/chats_{session_id}")
     return model_client
 
 
@@ -56,13 +56,13 @@ async def main() -> None:
         task="Write a short story about a robot that discovers it has feelings.")
     await Console(stream)
     state = await group_chat.save_state()
-    with open("group_chat_state.json", "w") as f:
+    with open(f"{OUTPUT_DIR}/group_chat_state.json", "w") as f:
         json.dump(state, f)
     group_chat = create_team()
-    with open("group_chat_state.json", "r") as f:
+    with open(f"{OUTPUT_DIR}/group_chat_state.json", "r") as f:
         state = json.load(f)
     await group_chat.load_state(state)
-    stream = group_chat.run_stream(task="Translate the story into Chinese.")
+    stream = group_chat.run_stream(task="Translate the story into Tagalog.")
     await Console(stream)
 
 asyncio.run(main())

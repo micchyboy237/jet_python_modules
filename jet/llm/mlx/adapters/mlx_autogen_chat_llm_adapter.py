@@ -41,7 +41,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
     ):
         """Initialize the MLX chat completion client."""
         super().__init__()
-        self.mlx_client = MLXModelRegistry.load_model(
+        self.client = MLXModelRegistry.load_model(
             model=model,
             adapter_path=adapter_path,
             draft_model=draft_model,
@@ -140,7 +140,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             "log_dir": extra_create_args.get("log_dir", None),
             "verbose": extra_create_args.get("verbose", True),
         }
-        response = self.mlx_client.chat(**create_args)
+        response = self.client.chat(**create_args)
         choice = response.get("choices", [{}])[0]
         message = choice.get("message", {})
         content = message.get("content", "")
@@ -159,8 +159,8 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
                         "type": "function",
                     }
                 )
-        prompt_tokens = self.mlx_client.count_tokens(messages)
-        completion_tokens = self.mlx_client.count_tokens(content)
+        prompt_tokens = self.client.count_tokens(messages)
+        completion_tokens = self.client.count_tokens(content)
         self._usage = RequestUsage(
             prompt_tokens=self._usage.prompt_tokens + prompt_tokens,
             completion_tokens=self._usage.completion_tokens + completion_tokens,
@@ -236,15 +236,15 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             "log_dir": extra_create_args.get("log_dir", None),
             "verbose": extra_create_args.get("verbose", True),
         }
-        prompt_tokens = self.mlx_client.count_tokens(messages)
+        prompt_tokens = self.client.count_tokens(messages)
         completion_tokens = 0
         content = ""
-        for response in self.mlx_client.stream_chat(**create_args):
+        for response in self.client.stream_chat(**create_args):
             choice = response.get("choices", [{}])[0]
             message = choice.get("message", {})
             chunk_content = message.get("content", "")
             content += chunk_content
-            completion_tokens += self.mlx_client.count_tokens(chunk_content)
+            completion_tokens += self.client.count_tokens(chunk_content)
             yield chunk_content
         tool_calls = message.get("tool_calls", None)
         function_calls = []
@@ -280,7 +280,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
 
     async def close(self) -> None:
         """Close the client and clear history."""
-        self.mlx_client.reset_model()
+        self.client.reset_model()
         logger.info("MLXAutogenChatLLMAdapter closed.")
 
     def actual_usage(self) -> RequestUsage:
@@ -300,12 +300,12 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
                 tool, Tool) else tool["function"]["description"] + str(tool["function"]["parameters"])
             for tool in tools
         )
-        return self.mlx_client.count_tokens(mlx_messages) + self.mlx_client.count_tokens(tool_content)
+        return self.client.count_tokens(mlx_messages) + self.client.count_tokens(tool_content)
 
     def remaining_tokens(self, messages: Sequence[LLMMessage], *, tools: Sequence[Tool | ToolSchema] = []) -> int:
         """Calculate remaining tokens."""
         used_tokens = self.count_tokens(messages, tools=tools)
-        return self.mlx_client.get_remaining_tokens(messages) - used_tokens
+        return self.client.get_remaining_tokens(messages) - used_tokens
 
     @property
     def model_info(self) -> ModelInfo:
