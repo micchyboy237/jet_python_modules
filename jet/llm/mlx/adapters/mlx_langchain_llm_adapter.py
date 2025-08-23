@@ -1,3 +1,4 @@
+from jet.logger import logger
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
@@ -7,10 +8,29 @@ from jet.llm.mlx.base import MLX
 from jet.llm.mlx.mlx_types import ChatTemplateArgs, RoleMapping, Tool
 from jet.models.model_types import LLMModelType
 from uuid import uuid4
+from pydantic import BaseModel, Field
 
 
 class ChatMLX(BaseChatModel):
     """Chat model integration for MLX framework using LangChain interface."""
+
+    # Explicitly declare fields with defaults or mark as optional
+    mlx_client: Optional[MLX] = Field(
+        default=None, description="MLX client instance")
+    model: LLMModelType = Field(
+        default="qwen3-1.7b-4bit", description="Model type")
+    temperature: Optional[float] = Field(
+        default=0.8, description="Sampling temperature")
+    max_tokens: Optional[int] = Field(
+        default=128, description="Maximum tokens to generate")
+    top_p: Optional[float] = Field(
+        default=0.9, description="Top-p sampling probability")
+    top_k: Optional[int] = Field(
+        default=40, description="Top-k sampling value")
+
+    class Config:
+        """Pydantic configuration to allow arbitrary types."""
+        arbitrary_types_allowed = True
 
     def __init__(
         self,
@@ -40,28 +60,49 @@ class ChatMLX(BaseChatModel):
         **kwargs: Any
     ):
         """Initialize ChatMLX with MLX client and configuration."""
-        super().__init__(**kwargs)
-        self.mlx_client = MLX(
+        # Provide a fallback chat template for models like llama-3.2-3b-instruct
+        if chat_template is None and use_default_chat_template:
+            chat_template = (
+                "{% for message in messages %}"
+                "{{ '<|startoftext|>' if loop.first else '' }}"
+                "{{ '<|user|> ' if message.role == 'user' else '<|assistant|> ' }}"
+                "{{ message.content }}"
+                "{{ '<|endoftext|>' if loop.last else '' }}"
+                "{% endfor %}"
+            )
+
+        super().__init__(
             model=model,
-            adapter_path=adapter_path,
-            draft_model=draft_model,
-            trust_remote_code=trust_remote_code,
-            chat_template=chat_template,
-            use_default_chat_template=use_default_chat_template,
-            chat_template_args=chat_template_args,
-            dbname=dbname,
-            user=user,
-            password=password,
-            host=host,
-            port=port,
-            overwrite_db=overwrite_db,
-            session_id=session_id,
-            with_history=with_history,
-            seed=seed,
-            log_dir=log_dir,
-            device=device,
-            prompt_cache=prompt_cache
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            top_k=top_k,
+            **kwargs
         )
+        try:
+            self.mlx_client = MLX(
+                model=model,
+                adapter_path=adapter_path,
+                draft_model=draft_model,
+                trust_remote_code=trust_remote_code,
+                chat_template=chat_template,
+                use_default_chat_template=use_default_chat_template,
+                chat_template_args=chat_template_args,
+                dbname=dbname,
+                user=user,
+                password=password,
+                host=host,
+                port=port,
+                overwrite_db=overwrite_db,
+                session_id=session_id,
+                with_history=with_history,
+                seed=seed,
+                log_dir=log_dir,
+                device=device,
+                prompt_cache=prompt_cache
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to initialize MLX client: {str(e)}")
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -70,6 +111,8 @@ class ChatMLX(BaseChatModel):
 
     def _convert_messages_to_mlx_format(self, messages: List[BaseMessage]) -> List[dict]:
         """Convert LangChain messages to MLX message format."""
+        if not messages:
+            raise ValueError("Messages list cannot be empty or None")
         mlx_messages = []
         for message in messages:
             role: str
