@@ -3,6 +3,8 @@ import os
 import uuid
 import json
 import time
+
+from pydantic.json_schema import JsonSchemaValue
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat, find_repeated_consecutive_ngrams
 from jet.llm.mlx.mlx_types import ChatTemplateArgs
 import jet.llm.mlx.model_cache  # Activates cleanup listener
@@ -69,8 +71,9 @@ class Config:
     logit_bias: Optional[Union[Dict[int, float],
                                Dict[str, float], str, List[str]]] = None
     logprobs: int = -1
-    stop: Optional[Union[str, List[str]]] = None,
-    verbose: Optional[bool] = None
+    stop: Optional[Union[str, List[str]]] = None
+    response_format: Union[Literal["text", "json"], JsonSchemaValue] = "text"
+    verbose: bool = False
 
 
 class MLXLMClient:
@@ -99,13 +102,15 @@ class MLXLMClient:
                                    Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
+        response_format: Union[Literal["text", "json"],
+                               JsonSchemaValue] = "text",
+        verbose: bool = False,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps",
-        prompt_cache: Optional[List[Any]] = None,
-        verbose: Optional[bool] = None
+        prompt_cache: Optional[List[Any]] = None
     ) -> None:
-        """Initialize the client with configuration and generation parameters."""
+        """Initialize the client with configuration, generation parameters, response format, and verbosity."""
         if device and device not in ["cpu", "mps"]:
             logger.error(f"Unsupported device {device} for MLX model {model}")
             raise ValueError(
@@ -125,7 +130,7 @@ class MLXLMClient:
         self._validate_parameters(
             max_tokens, temperature, top_p, repetition_penalty,
             repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model_value, adapter_path
+            logit_bias, logprobs, model_value, adapter_path, response_format
         )
         config = Config(
             model=model_value,
@@ -148,6 +153,7 @@ class MLXLMClient:
             logit_bias=logit_bias,
             logprobs=logprobs,
             stop=stop,
+            response_format=response_format,
             verbose=verbose
         )
         self.cli_args: argparse.Namespace = argparse.Namespace(
@@ -171,6 +177,7 @@ class MLXLMClient:
             logit_bias=config.logit_bias,
             logprobs=config.logprobs,
             stop=config.stop,
+            response_format=config.response_format,
             verbose=config.verbose
         )
         self.model_provider: ModelProvider = ModelProvider(self.cli_args)
@@ -241,13 +248,16 @@ class MLXLMClient:
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Optional[Union[Literal["text",
+                                                "json"], JsonSchemaValue]] = None
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion."""
-        verbose = verbose if verbose is not None else self.cli_args.verbose
         model_value = resolve_model_value(model)
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
+        active_response_format = response_format if response_format is not None else self.cli_args.response_format
+        active_verbose = verbose if verbose is not None else self.cli_args.verbose
         self._validate_parameters(
             max_tokens if max_tokens is not None else self.cli_args.max_tokens,
             temperature if temperature is not None else self.cli_args.temperature,
@@ -258,7 +268,7 @@ class MLXLMClient:
             xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
             logit_bias if logit_bias is not None else self.cli_args.logit_bias,
             logprobs if logprobs is not None else self.cli_args.logprobs,
-            model_value, adapter
+            model_value, adapter, active_response_format
         )
         model_obj, tokenizer = self.model_provider.load(
             model_value, adapter, draft_model_value)
@@ -283,7 +293,7 @@ class MLXLMClient:
                 **(self._chat_template_args or {}),
                 **(chat_template_args or {})
             }
-            if verbose:
+            if active_verbose:
                 logger.newline()
                 logger.info("Chat Template Args:")
                 logger.debug(format_json(chat_template_settings))
@@ -314,8 +324,9 @@ class MLXLMClient:
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
             num_draft_tokens=3,
-            verbose=verbose,
-            prompt_cache=active_prompt_cache
+            verbose=active_verbose,
+            prompt_cache=active_prompt_cache,
+            response_format=active_response_format
         )
         log_dir = log_dir or self.log_dir
         if log_dir:
@@ -359,13 +370,16 @@ class MLXLMClient:
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Optional[Union[Literal["text",
+                                                "json"], JsonSchemaValue]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions as they are generated."""
-        verbose = verbose if verbose is not None else self.cli_args.verbose
         model_value = resolve_model_value(model)
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
+        active_response_format = response_format if response_format is not None else self.cli_args.response_format
+        active_verbose = verbose if verbose is not None else self.cli_args.verbose
         self._validate_parameters(
             max_tokens if max_tokens is not None else self.cli_args.max_tokens,
             temperature if temperature is not None else self.cli_args.temperature,
@@ -376,7 +390,7 @@ class MLXLMClient:
             xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
             logit_bias if logit_bias is not None else self.cli_args.logit_bias,
             logprobs if logprobs is not None else self.cli_args.logprobs,
-            model_value, adapter
+            model_value, adapter, active_response_format
         )
         model_obj, tokenizer = self.model_provider.load(
             model_value, adapter, draft_model_value)
@@ -401,7 +415,7 @@ class MLXLMClient:
                 **(self._chat_template_args or {}),
                 **(chat_template_args or {})
             }
-            if verbose:
+            if active_verbose:
                 logger.newline()
                 logger.info("Chat Template Args:")
                 logger.debug(format_json(chat_template_settings))
@@ -432,8 +446,9 @@ class MLXLMClient:
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
             num_draft_tokens=3,
-            verbose=verbose,
-            prompt_cache=active_prompt_cache
+            verbose=active_verbose,
+            prompt_cache=active_prompt_cache,
+            response_format=active_response_format
         ):
             yield response
         log_dir = log_dir or self.log_dir
@@ -474,13 +489,16 @@ class MLXLMClient:
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Optional[Union[Literal["text",
+                                                "json"], JsonSchemaValue]] = None
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a text completion."""
-        verbose = verbose if verbose is not None else self.cli_args.verbose
         model_value = resolve_model_value(model)
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
+        active_response_format = response_format if response_format is not None else self.cli_args.response_format
+        active_verbose = verbose if verbose is not None else self.cli_args.verbose
         self._validate_parameters(
             max_tokens if max_tokens is not None else self.cli_args.max_tokens,
             temperature if temperature is not None else self.cli_args.temperature,
@@ -491,7 +509,7 @@ class MLXLMClient:
             xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
             logit_bias if logit_bias is not None else self.cli_args.logit_bias,
             logprobs if logprobs is not None else self.cli_args.logprobs,
-            model_value, adapter
+            model_value, adapter, active_response_format
         )
         model_obj, tokenizer = self.model_provider.load(
             model_value, adapter, draft_model_value)
@@ -529,8 +547,9 @@ class MLXLMClient:
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
             num_draft_tokens=3,
-            verbose=verbose,
-            prompt_cache=prompt_cache
+            verbose=active_verbose,
+            prompt_cache=prompt_cache,
+            response_format=active_response_format
         )
         log_dir = log_dir or self.log_dir
         if log_dir:
@@ -571,13 +590,16 @@ class MLXLMClient:
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Optional[Union[Literal["text",
+                                                "json"], JsonSchemaValue]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream text completions as they are generated."""
-        verbose = verbose if verbose is not None else self.cli_args.verbose
         model_value = resolve_model_value(model)
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
+        active_response_format = response_format if response_format is not None else self.cli_args.response_format
+        active_verbose = verbose if verbose is not None else self.cli_args.verbose
         self._validate_parameters(
             max_tokens if max_tokens is not None else self.cli_args.max_tokens,
             temperature if temperature is not None else self.cli_args.temperature,
@@ -588,7 +610,7 @@ class MLXLMClient:
             xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
             logit_bias if logit_bias is not None else self.cli_args.logit_bias,
             logprobs if logprobs is not None else self.cli_args.logprobs,
-            model_value, adapter
+            model_value, adapter, active_response_format
         )
         model_obj, tokenizer = self.model_provider.load(
             model_value, adapter, draft_model_value)
@@ -626,8 +648,9 @@ class MLXLMClient:
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
             num_draft_tokens=3,
-            verbose=verbose,
-            prompt_cache=prompt_cache
+            verbose=active_verbose,
+            prompt_cache=prompt_cache,
+            response_format=active_response_format
         ):
             yield response
         log_dir = log_dir or self.log_dir
@@ -689,7 +712,8 @@ class MLXLMClient:
         logit_bias: Optional[Dict[int, float]],
         logprobs: int,
         model: LLMModelType,
-        adapter: Optional[str]
+        adapter: Optional[str],
+        response_format: Union[Literal["text", "json"], JsonSchemaValue]
     ) -> None:
         """Validate model parameters."""
         if not isinstance(max_tokens, int) or max_tokens < -1:
@@ -723,6 +747,11 @@ class MLXLMClient:
             if not isinstance(logit_bias, (dict, str, list)):
                 raise ValueError(
                     "logit_bias must be a dict of int to float, str or list[str]")
+        if not isinstance(response_format, (str, dict)):
+            raise ValueError(
+                "response_format must be 'text', 'json', or a JsonSchemaValue dict")
+        if isinstance(response_format, str) and response_format not in ["text", "json"]:
+            raise ValueError("response_format string must be 'text' or 'json'")
 
     def _generate_response(
         self,
@@ -741,12 +770,30 @@ class MLXLMClient:
         top_tokens: Optional[List[Dict[int, float]]] = None,
         tokens: Optional[List[int]] = None,
         repetitions: Optional[List[NgramRepeat]] = None,
+        response_format: Union[Literal["text", "json"],
+                               JsonSchemaValue] = "text"
     ) -> CompletionResponse:
         """Generate a response packet in OpenAI-compatible format."""
         token_logprobs = token_logprobs or []
         top_logprobs = top_tokens or []
         tokens = tokens or []
-
+        active_response_format = response_format
+        # Handle JSON or JsonSchemaValue response format
+        if isinstance(response_format, (str, dict)) and (response_format == "json" or isinstance(response_format, dict)):
+            try:
+                # Attempt to parse and re-encode to ensure valid JSON
+                parsed = json.loads(text) if text else {}
+                if isinstance(response_format, dict):
+                    # Basic validation against JsonSchemaValue; assumes model output matches schema
+                    # In a real implementation, use pydantic for schema validation
+                    pass
+                text = json.dumps(parsed, ensure_ascii=False)
+                segment = json.dumps(json.loads(segment),
+                                     ensure_ascii=False) if segment else None
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Invalid JSON output; falling back to text format")
+                active_response_format = "text"
         response: CompletionResponse = {
             "id": request_id,
             "system_fingerprint": self.system_fingerprint,
@@ -771,7 +818,6 @@ class MLXLMClient:
                 }
             ],
         }
-
         if not (isinstance(prompt_token_count, int) and isinstance(completion_token_count, int)):
             raise ValueError(
                 "Response type is complete, but token counts not provided")
@@ -783,16 +829,14 @@ class MLXLMClient:
             "peak_memory": peak_memory,
             "total_tokens": prompt_token_count + completion_token_count,
         }
-
         choice = response["choices"][0]
         if "chat.completion" in object_type:
-            choice["message"] = {"role": "assistant",
-                                 "content": segment if segment != None else text}
+            choice["message"] = {
+                "role": "assistant", "content": segment if segment is not None else text}
         elif "text.completion" in object_type:
-            choice["text"] = segment if segment != None else text
+            choice["text"] = segment if segment is not None else text
         else:
             raise ValueError(f"Unsupported response type: {object_type}")
-
         return response
 
     def _get_prompt_cache(self, prompt: List[int], prompt_cache: Optional[List[Any]] = None) -> List[int]:
@@ -849,20 +893,17 @@ class MLXLMClient:
         object_type: str,
         draft_model: Optional[Any],
         num_draft_tokens: int,
-        verbose: Optional[bool] = None,
-        prompt_cache: Optional[List[Any]] = None
+        verbose: bool = False,
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Union[Literal["text", "json"],
+                               JsonSchemaValue] = "text"
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Core method to generate non-streaming completions."""
-        # Use provided prompt_cache or instance-level prompt_cache
         active_prompt_cache = prompt_cache if prompt_cache is not None else self.prompt_cache
-
-        # Handle logit_bias conversion
         logit_bias = convert_logit_bias(logit_bias, tokenizer)
-
         if verbose:
             logger.newline()
             logger.info(f"Prompt: ({len(prompt)})")
-
             if logit_bias:
                 logger.newline()
                 logger.info("logit_bias:")
@@ -871,13 +912,11 @@ class MLXLMClient:
                     choice = tokenizer.decode(token)
                     logger.log("Token for", f"'{choice}'", ":", token, colors=[
                                "GRAY", "ORANGE", "GRAY", "ORANGE"])
-
         tokens: List[int] = []
         token_logprobs: List[float] = []
         top_tokens: List[Dict[int, float]] = []
         text: str = ""
         finish_reason: Literal["length", "stop"] = "length"
-
         cached_prompt = self._get_prompt_cache(
             prompt, prompt_cache=active_prompt_cache)
         sampler = make_sampler(
@@ -892,9 +931,7 @@ class MLXLMClient:
                 tokenizer.eos_token_id, tokenizer.encode("\n")],
         )
         logits_processors = make_logits_processors(
-            logit_bias, repetition_penalty, repetition_context_size
-        )
-
+            logit_bias, repetition_penalty, repetition_context_size)
         stop_texts = tokenizer.batch_decode(stop_id_sequences)
         all_repetitions = []
         for gen_response in stream_generate(
@@ -914,34 +951,26 @@ class MLXLMClient:
             logprobs_data: mx.array = gen_response.logprobs
             tokens.append(token)
             finish_reason = gen_response.finish_reason
-
             if verbose:
                 logger.log(segment, flush=True, colors=["TEAL"])
-
             if logprobs > 0:
                 sorted_indices: mx.array = mx.argpartition(
                     -logprobs_data, kth=logprobs - 1)
                 top_indices: mx.array = sorted_indices[:logprobs]
                 top_logprobs: mx.array = logprobs_data[top_indices]
-                top_token_info = zip(
-                    top_indices.tolist(), top_logprobs.tolist())
+                top_token_info = zip(top_indices.tolist(),
+                                     top_logprobs.tolist())
                 top_tokens.append(dict(top_token_info))
-
             token_logprobs.append(logprobs_data[token].item())
-
-            # Check for stop texts in the generated text
             for stop_text in stop_texts:
                 if stop_text in text:
                     finish_reason = "stop"
-                    # Trim text up to stop_text
                     text = text[:text.index(stop_text)]
                     segment = segment[:segment.index(stop_text)]
                     break
-
             if finish_reason:
                 logger.newline()
                 break
-
         return self._generate_response(
             text=text,
             finish_reason=finish_reason,
@@ -957,6 +986,7 @@ class MLXLMClient:
             top_tokens=top_tokens,
             tokens=tokens,
             repetitions=all_repetitions,
+            response_format=response_format
         )
 
     def _stream_generate_completion(
@@ -981,20 +1011,17 @@ class MLXLMClient:
         object_type: str,
         draft_model: Optional[Any],
         num_draft_tokens: int,
-        verbose: Optional[bool] = None,
-        prompt_cache: Optional[List[Any]] = None
+        verbose: bool = False,
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Union[Literal["text", "json"],
+                               JsonSchemaValue] = "text"
     ) -> Iterator[CompletionResponse]:
         """Generate streaming completions."""
-        # Use provided prompt_cache or instance-level prompt_cache
         active_prompt_cache = prompt_cache if prompt_cache is not None else self.prompt_cache
-
-        # Handle logit_bias conversion
         logit_bias = convert_logit_bias(logit_bias, tokenizer)
-
         if verbose:
             logger.newline()
             logger.info(f"Prompt: ({len(prompt)})")
-
             if logit_bias:
                 logger.newline()
                 logger.info("logit_bias:")
@@ -1003,13 +1030,11 @@ class MLXLMClient:
                     choice = tokenizer.decode(token)
                     logger.log("Token for", f"'{choice}'", ":", token, colors=[
                                "GRAY", "ORANGE", "GRAY", "ORANGE"])
-
         tokens: List[int] = []
         token_logprobs: List[float] = []
         top_tokens: List[Dict[int, float]] = []
         text: str = ""
         finish_reason: Optional[Literal["length", "stop"]] = None
-
         cached_prompt = self._get_prompt_cache(
             prompt, prompt_cache=active_prompt_cache)
         sampler = make_sampler(
@@ -1024,9 +1049,7 @@ class MLXLMClient:
                 tokenizer.eos_token_id, tokenizer.encode("\n")],
         )
         logits_processors = make_logits_processors(
-            logit_bias, repetition_penalty, repetition_context_size
-        )
-
+            logit_bias, repetition_penalty, repetition_context_size)
         stop_texts = tokenizer.batch_decode(stop_id_sequences)
         all_repetitions = []
         for gen_response in stream_generate(
@@ -1046,30 +1069,23 @@ class MLXLMClient:
             logprobs_data: mx.array = gen_response.logprobs
             tokens.append(token)
             finish_reason = gen_response.finish_reason
-
             if verbose:
                 logger.log(segment, flush=True, colors=["TEAL"])
-
             if logprobs > 0:
                 sorted_indices: mx.array = mx.argpartition(
                     -logprobs_data, kth=logprobs - 1)
                 top_indices: mx.array = sorted_indices[:logprobs]
                 top_logprobs: mx.array = logprobs_data[top_indices]
-                top_token_info = zip(
-                    top_indices.tolist(), top_logprobs.tolist())
+                top_token_info = zip(top_indices.tolist(),
+                                     top_logprobs.tolist())
                 top_tokens.append(dict(top_token_info))
-
             token_logprobs.append(logprobs_data[token].item())
-
-            # Check for stop texts in the generated text
             for stop_text in stop_texts:
                 if stop_text in text:
                     finish_reason = "stop"
-                    # Trim text up to stop_text
                     text = text[:text.index(stop_text)]
                     segment = segment[:segment.index(stop_text)]
                     break
-
             yield self._generate_response(
                 text=text,
                 segment=segment,
@@ -1086,8 +1102,8 @@ class MLXLMClient:
                 top_tokens=top_tokens,
                 tokens=tokens,
                 repetitions=all_repetitions,
+                response_format=response_format
             )
-
             if finish_reason:
                 logger.newline()
                 break

@@ -1,9 +1,9 @@
+import mlx.core as mx
+from pydantic.json_schema import JsonSchemaValue
+from typing import Any, Dict, List, Literal, Optional, Union, Iterator, Tuple
 from jet.data.utils import generate_unique_hash
 from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
 from jet.llm.mlx.mlx_types import ChatTemplateArgs
-import mlx.core as mx
-from typing import Any, Dict, List, Literal, Optional, Union, Iterator, Tuple
-
 from jet.logger import logger
 from jet.models.config import DEFAULT_MODEL
 from jet.models.model_types import MLXTokenizer, LLMModelKey, LLMModelValue, LLMModelType
@@ -42,6 +42,9 @@ class MLX:
                                    Dict[str, float], str, List[str]]] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
+        response_format: Union[Literal["text", "json"],
+                               JsonSchemaValue] = "text",
+        verbose: bool = False,
         dbname: str = DEFAULT_DB,
         user: str = DEFAULT_USER,
         password: str = DEFAULT_PASSWORD,
@@ -53,10 +56,9 @@ class MLX:
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps",
-        prompt_cache: Optional[List[Any]] = None,
-        verbose: Optional[bool] = None
+        prompt_cache: Optional[List[Any]] = None
     ):
-        """Initialize the MLX client with configuration, generation parameters, and optional database."""
+        """Initialize the MLX client with configuration, generation parameters, response format, verbosity, and optional database."""
         self.model_path: LLMModelValue = resolve_model_value(model)
         self.with_history = with_history
         self.log_dir = log_dir
@@ -81,11 +83,12 @@ class MLX:
             logit_bias=logit_bias,
             logprobs=logprobs,
             stop=stop,
+            response_format=response_format,
+            verbose=verbose,
             seed=seed,
             device=device,
             log_dir=log_dir,
-            prompt_cache=prompt_cache,
-            verbose=verbose
+            prompt_cache=prompt_cache
         )
         self.prompt_cache = self.client.prompt_cache
         self.system_fingerprint = self.client.system_fingerprint
@@ -165,10 +168,11 @@ class MLX:
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Optional[Union[Literal["text",
+                                                "json"], JsonSchemaValue]] = None
     ) -> CompletionResponse:
         """Generate a chat completion with history management."""
-        verbose = verbose if verbose is not None else self.client.cli_args.verbose
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
             if self.with_history:
                 self.history.add_message("system", system_prompt)
@@ -205,7 +209,7 @@ class MLX:
             min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.client.cli_args.min_tokens_to_keep,
             top_k=top_k if top_k is not None else self.client.cli_args.top_k,
             repetition_penalty=repetition_penalty if repetition_penalty is not None else self.client.cli_args.repetition_penalty,
-            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.client.cli_args.repetition_context_size,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
             xtc_probability=xtc_probability if xtc_probability is not None else self.client.cli_args.xtc_probability,
             xtc_threshold=xtc_threshold if xtc_threshold is not None else self.client.cli_args.xtc_threshold,
             logit_bias=logit_bias if logit_bias is not None else self.client.cli_args.logit_bias,
@@ -214,9 +218,10 @@ class MLX:
             role_mapping=role_mapping,
             tools=tools,
             log_dir=log_dir,
-            verbose=verbose,
+            verbose=verbose if verbose is not None else self.client.cli_args.verbose,
             chat_template_args=chat_template_args,
-            prompt_cache=prompt_cache
+            prompt_cache=prompt_cache,
+            response_format=response_format if response_format is not None else self.client.cli_args.response_format
         )
         if self.with_history and isinstance(response, dict) and response.get("choices"):
             assistant_content = response["choices"][0].get(
@@ -251,10 +256,11 @@ class MLX:
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Optional[Union[Literal["text",
+                                                "json"], JsonSchemaValue]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions with history management."""
-        verbose = verbose if verbose is not None else self.client.cli_args.verbose
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
             if self.with_history:
                 self.history.add_message("system", system_prompt)
@@ -292,7 +298,7 @@ class MLX:
             min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.client.cli_args.min_tokens_to_keep,
             top_k=top_k if top_k is not None else self.client.cli_args.top_k,
             repetition_penalty=repetition_penalty if repetition_penalty is not None else self.client.cli_args.repetition_penalty,
-            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.client.cli_args.repetition_context_size,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
             xtc_probability=xtc_probability if xtc_probability is not None else self.client.cli_args.xtc_probability,
             xtc_threshold=xtc_threshold if xtc_threshold is not None else self.client.cli_args.xtc_threshold,
             logit_bias=logit_bias if logit_bias is not None else self.client.cli_args.logit_bias,
@@ -301,9 +307,10 @@ class MLX:
             role_mapping=role_mapping,
             tools=tools,
             log_dir=log_dir,
-            verbose=verbose,
+            verbose=verbose if verbose is not None else self.client.cli_args.verbose,
             chat_template_args=chat_template_args,
-            prompt_cache=prompt_cache
+            prompt_cache=prompt_cache,
+            response_format=response_format if response_format is not None else self.client.cli_args.response_format
         ):
             if response.get("choices"):
                 content = response["choices"][0].get(
@@ -335,10 +342,11 @@ class MLX:
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Optional[Union[Literal["text",
+                                                "json"], JsonSchemaValue]] = None
     ) -> CompletionResponse:
         """Generate a text completion (no history)."""
-        verbose = verbose if verbose is not None else self.client.cli_args.verbose
         if max_tokens is None:
             max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
@@ -355,15 +363,16 @@ class MLX:
             min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.client.cli_args.min_tokens_to_keep,
             top_k=top_k if top_k is not None else self.client.cli_args.top_k,
             repetition_penalty=repetition_penalty if repetition_penalty is not None else self.client.cli_args.repetition_penalty,
-            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.client.cli_args.repetition_context_size,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
             xtc_probability=xtc_probability if xtc_probability is not None else self.client.cli_args.xtc_probability,
             xtc_threshold=xtc_threshold if xtc_threshold is not None else self.client.cli_args.xtc_threshold,
             logit_bias=logit_bias if logit_bias is not None else self.client.cli_args.logit_bias,
             logprobs=logprobs if logprobs is not None else self.client.cli_args.logprobs,
             stop=stop if stop is not None else self.client.cli_args.stop,
             log_dir=log_dir,
-            verbose=verbose,
-            prompt_cache=prompt_cache
+            verbose=verbose if verbose is not None else self.client.cli_args.verbose,
+            prompt_cache=prompt_cache,
+            response_format=response_format if response_format is not None else self.client.cli_args.response_format
         )
         return response
 
@@ -389,10 +398,11 @@ class MLX:
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Optional[Union[Literal["text",
+                                                "json"], JsonSchemaValue]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream text completions (no history)."""
-        verbose = verbose if verbose is not None else self.client.cli_args.verbose
         if max_tokens is None:
             max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
@@ -409,15 +419,16 @@ class MLX:
             min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.client.cli_args.min_tokens_to_keep,
             top_k=top_k if top_k is not None else self.client.cli_args.top_k,
             repetition_penalty=repetition_penalty if repetition_penalty is not None else self.client.cli_args.repetition_penalty,
-            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.client.cli_args.repetition_context_size,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
             xtc_probability=xtc_probability if xtc_probability is not None else self.client.cli_args.xtc_probability,
             xtc_threshold=xtc_threshold if xtc_threshold is not None else self.client.cli_args.xtc_threshold,
             logit_bias=logit_bias if logit_bias is not None else self.client.cli_args.logit_bias,
             logprobs=logprobs if logprobs is not None else self.client.cli_args.logprobs,
             stop=stop if stop is not None else self.client.cli_args.stop,
             log_dir=log_dir,
-            verbose=verbose,
-            prompt_cache=prompt_cache
+            verbose=verbose if verbose is not None else self.client.cli_args.verbose,
+            prompt_cache=prompt_cache,
+            response_format=response_format if response_format is not None else self.client.cli_args.response_format
         ):
             yield response
 
