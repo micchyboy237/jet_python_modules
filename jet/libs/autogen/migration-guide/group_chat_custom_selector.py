@@ -13,6 +13,7 @@ from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
 from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.ui import Console
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
+from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchAPIWrapper, DuckDuckGoSearchRun
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
@@ -20,18 +21,18 @@ shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 
 def search_web_tool(query: str) -> str:
-    if "2006-2007" in query:
-        return """Here are the total points scored by Miami Heat players in the 2006-2007 season:
-        Udonis Haslem: 844 points
-        Dwayne Wade: 1397 points
-        James Posey: 550 points
-        ...
-        """
-    elif "2007-2008" in query:
-        return "The number of total rebounds for Dwayne Wade in the Miami Heat season 2007-2008 is 214."
-    elif "2008-2009" in query:
-        return "The number of total rebounds for Dwayne Wade in the Miami Heat season 2008-2009 is 398."
-    return "No data found."
+    # Initialize the DuckDuckGoSearchAPIWrapper with custom parameters
+    api_wrapper = DuckDuckGoSearchAPIWrapper(
+        region="wt-wt",  # Worldwide region
+        safesearch="moderate",  # Moderate safe search
+        time="y",  # Results from the past year
+        max_results=5,  # Maximum of 5 results
+        source="text"  # Text search
+    )
+    # Initialize the DuckDuckGoSearchRun tool
+    search_tool = DuckDuckGoSearchRun(api_wrapper=api_wrapper)
+    result = search_tool._run(query)
+    return result
 
 
 def percentage_change_tool(start: float, end: float) -> float:
