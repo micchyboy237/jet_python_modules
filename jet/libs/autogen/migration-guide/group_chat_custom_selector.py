@@ -96,7 +96,8 @@ def create_team(model_client: MLXAutogenChatLLMAdapter) -> SelectorGroupChat:
 
 
 async def main() -> None:
-    model_client = MLXAutogenChatLLMAdapter(model="llama-3.2-1b-instruct-4bit")
+    model_client = MLXAutogenChatLLMAdapter(
+        model="llama-3.2-1b-instruct-4bit", log_dir=f"{OUTPUT_DIR}/chats")
     team = create_team(model_client)
     task = "Who was the Miami Heat player with the highest points in the 2006-2007 season, and what was the percentage change in his total rebounds between the 2007-2008 and 2008-2009 seasons?"
     await Console(team.run_stream(task=task))

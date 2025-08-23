@@ -1,7 +1,7 @@
 import json
 import uuid
 from psycopg import connect, sql, errors
-from typing import Any, List, Dict, Optional, Union
+from typing import Any, List, Dict, Literal, Optional, Tuple, Union
 from psycopg.rows import dict_row
 from jet.logger import logger
 from .pg_types import (
@@ -379,16 +379,30 @@ class PostgresClient:
                 for col in columns
             }
 
-    def get_rows(self, table_name: str, ids: Optional[List[str]] = None, id_column: str = "id") -> List[TableRow]:
-        """Retrieve rows from the specified table, optionally filtered by IDs, excluding embedding column.
+    def get_rows(
+        self,
+        table_name: str,
+        ids: Optional[List[str]] = None,
+        id_column: str = "id",
+        where_conditions: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None,
+        order_by: Optional[Tuple[str, Literal["ASC", "DESC"]]] = None
+    ) -> List[TableRow]:
+        """Retrieve rows from the specified table, optionally filtered by IDs, where conditions, limited, and ordered.
 
         Args:
             table_name: Name of the table to query
             ids: Optional list of IDs to filter results
             id_column: Column name to filter IDs on (default: 'id')
+            where_conditions: Optional dictionary of column names and values for WHERE clause
+            limit: Optional maximum number of rows to return
+            order_by: Optional tuple of (column_name, 'ASC' or 'DESC') for ORDER BY clause
 
         Returns:
             List of dictionaries containing all columns except embedding for each row
+
+        Raises:
+            ValueError: If table has no columns, invalid limit, or invalid order_by
         """
         with self.conn.cursor() as cur:
             # Get all column names and their types except embedding
@@ -404,7 +418,7 @@ class PostgresClient:
                     f"No columns found for table {table_name} (excluding embedding)")
 
             columns = list(column_info.keys())
-            # Build query with dynamic columns, formatting TIMESTAMPTZ columns to ISO 8601 without timezone
+            # Build query with dynamic columns, formatting TIMESTAMPTZ to ISO 8601 without timezone
             formatted_columns = [
                 sql.SQL("TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}").format(
                     sql.Identifier(col), sql.Identifier(col)
@@ -412,16 +426,54 @@ class PostgresClient:
                 else sql.Identifier(col)
                 for col in columns
             ]
-            # Build query with dynamic columns
             query = sql.SQL("SELECT {} FROM {}").format(
                 sql.SQL(", ").join(formatted_columns),
                 sql.Identifier(table_name)
             )
             params = []
+
+            # Handle WHERE clause
+            where_clauses = []
             if ids is not None:
-                query = sql.SQL("{} WHERE {} = ANY(%s)").format(
-                    query, sql.Identifier(id_column))
+                where_clauses.append(
+                    sql.SQL("{} = ANY(%s)").format(sql.Identifier(id_column)))
                 params.append(ids)
+            if where_conditions:
+                for col, value in where_conditions.items():
+                    if col not in columns:
+                        raise ValueError(
+                            f"Column {col} not found in table {table_name}")
+                    where_clauses.append(
+                        sql.SQL("{} = %s").format(sql.Identifier(col)))
+                    params.append(value)
+
+            if where_clauses:
+                query = sql.SQL("{} WHERE {}").format(
+                    query, sql.SQL(" AND ").join(where_clauses)
+                )
+
+            # Handle ORDER BY clause
+            if order_by:
+                if not isinstance(order_by, tuple) or len(order_by) != 2:
+                    raise ValueError(
+                        "order_by must be a tuple of (column_name, 'ASC' or 'DESC')")
+                order_col, direction = order_by
+                if order_col not in columns:
+                    raise ValueError(
+                        f"Column {order_col} not found in table {table_name}")
+                if direction not in ("ASC", "DESC"):
+                    raise ValueError(
+                        "order_by direction must be 'ASC' or 'DESC'")
+                query = sql.SQL("{} ORDER BY {} {}").format(
+                    query, sql.Identifier(order_col), sql.SQL(direction)
+                )
+
+            # Handle LIMIT clause
+            if limit is not None:
+                if not isinstance(limit, int) or limit <= 0:
+                    raise ValueError("limit must be a positive integer")
+                query = sql.SQL("{} LIMIT %s").format(query)
+                params.append(limit)
 
             cur.execute(query, params)
             results = cur.fetchall()

@@ -1,8 +1,10 @@
-from typing import Any, AsyncGenerator, Iterator, Literal, Mapping, Optional, Sequence, Union, cast
+import os
+from typing import Any, AsyncGenerator, Iterator, List, Literal, Mapping, Optional, Sequence, Union, cast
 from pydantic import BaseModel
 from autogen_core.models import ChatCompletionClient, CreateResult, LLMMessage, ModelInfo, RequestUsage, ModelCapabilities, FinishReasons
 from autogen_core.tools import Tool, ToolSchema
 from autogen_core import CancellationToken
+from jet.file.utils import save_file
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.client import CompletionResponse, Message
 from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
@@ -35,6 +37,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps",
+        temperature: float = 0.0,
     ):
         """Initialize the MLX chat completion client."""
         super().__init__()
@@ -56,8 +59,28 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             seed=seed,
             log_dir=log_dir,
             device=device,
+            temperature=temperature,
         )
         self._usage = RequestUsage(prompt_tokens=0, completion_tokens=0)
+        self.log_dir = log_dir
+
+    def _save_logs(self, messages: List[Message]) -> None:
+        if self.log_dir:
+            autogen_dir = os.path.join(self.log_dir, "previous_chats")
+            os.makedirs(autogen_dir, exist_ok=True)
+            existing_files = [f for f in os.listdir(
+                autogen_dir) if f.endswith(".json")]
+            numbers = []
+            for fname in existing_files:
+                try:
+                    num = int(fname.split(".")[0])
+                    numbers.append(num)
+                except Exception:
+                    continue
+            next_number = max(numbers) + 1 if numbers else 1
+            incremented_filename = f"{next_number}"
+            save_file(messages,
+                      f"{autogen_dir}/{incremented_filename}.json")
 
     async def create(
         self,
@@ -100,6 +123,9 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         if system_prompt:
             mlx_messages = [
                 msg for msg in mlx_messages if msg["role"] != "system"]
+        self._save_logs(
+            ([system_prompt] if system_prompt else []) + mlx_messages)
+
         create_args = {
             "messages": mlx_messages,
             "tools": mlx_tools if mlx_tools else None,
@@ -193,6 +219,9 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         if system_prompt:
             mlx_messages = [
                 msg for msg in mlx_messages if msg["role"] != "system"]
+        self._save_logs(
+            ([system_prompt] if system_prompt else []) + mlx_messages)
+
         create_args = {
             "messages": mlx_messages,
             "tools": mlx_tools if mlx_tools else None,
@@ -251,7 +280,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
 
     async def close(self) -> None:
         """Close the client and clear history."""
-        self.mlx_client.clear_history()
+        self.mlx_client.reset_model()
         logger.info("MLXAutogenChatLLMAdapter closed.")
 
     def actual_usage(self) -> RequestUsage:

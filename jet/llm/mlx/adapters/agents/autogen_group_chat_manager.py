@@ -4,12 +4,11 @@ from autogen_core.models import LLMMessage
 from autogen_core.model_context import ChatCompletionContext, UnboundedChatCompletionContext
 from autogen_core.models import ChatCompletionClient
 from autogen_agentchat.agents import BaseChatAgent
-from autogen_agentchat.messages import BaseChatMessage, TextMessage
+from autogen_agentchat.messages import BaseChatMessage, TextMessage, MultiModalMessage, StopMessage, HandoffMessage, ToolCallSummaryMessage, StructuredMessage
 from autogen_agentchat.base import Response
 import asyncio
 import random
 import uuid
-
 from jet.llm.mlx.adapters.agents.autogen_group_chat import GroupChat
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
 
@@ -27,7 +26,6 @@ class GroupChatManager(BaseChatAgent):
     ) -> None:
         """
         Initialize the GroupChatManager.
-
         Args:
             groupchat: The GroupChat instance to manage.
             llm_config: Configuration for the LLM client.
@@ -46,6 +44,18 @@ class GroupChatManager(BaseChatAgent):
         self._model_context.add_message(LLMMessage(
             content=system_message, role="system"))
 
+    @property
+    def produced_message_types(self) -> Sequence[type[BaseChatMessage]]:
+        """The types of messages that the GroupChatManager produces in the Response.chat_message field."""
+        return [
+            TextMessage,
+            MultiModalMessage,
+            StopMessage,
+            HandoffMessage,
+            ToolCallSummaryMessage,
+            StructuredMessage,
+        ]
+
     async def on_messages(
         self,
         messages: Sequence[BaseChatMessage],
@@ -53,11 +63,9 @@ class GroupChatManager(BaseChatAgent):
     ) -> Response:
         """
         Process incoming messages and coordinate the group chat.
-
         Args:
             messages: Sequence of incoming messages.
             cancellation_token: Token for cancelling operation.
-
         Returns:
             Response containing the final message and inner messages.
         """
@@ -65,27 +73,21 @@ class GroupChatManager(BaseChatAgent):
         for msg in messages:
             await self.groupchat.add_message(msg)
             inner_messages.append(msg)
-
         last_speaker = None
         for round_num in range(self.groupchat.max_round):
             if cancellation_token.is_cancelled():
                 break
-
             next_speaker = await self.groupchat.select_speaker(
                 last_speaker=last_speaker,
                 model_client=self._model_client,
                 cancellation_token=cancellation_token
             )
-
             response = await next_speaker.on_messages(messages=[msg for msg in messages], cancellation_token=cancellation_token)
             inner_messages.append(response.chat_message)
             await self.groupchat.add_message(response.chat_message)
-
             if response.chat_message.content == "TERMINATE":
                 break
-
             last_speaker = next_speaker
-
         return Response(
             chat_message=inner_messages[-1],
             inner_messages=inner_messages
@@ -98,11 +100,9 @@ class GroupChatManager(BaseChatAgent):
     ) -> AsyncGenerator[Union[BaseChatMessage, Response], None]:
         """
         Process messages and stream responses.
-
         Args:
             messages: Sequence of incoming messages.
             cancellation_token: Token for cancelling operation.
-
         Yields:
             Messages and final response during processing.
         """
@@ -111,18 +111,15 @@ class GroupChatManager(BaseChatAgent):
             await self.groupchat.add_message(msg)
             inner_messages.append(msg)
             yield msg
-
         last_speaker = None
         for round_num in range(self.groupchat.max_round):
             if cancellation_token.is_cancelled():
                 break
-
             next_speaker = await self.groupchat.select_speaker(
                 last_speaker=last_speaker,
                 model_client=self._model_client,
                 cancellation_token=cancellation_token
             )
-
             async for event in next_speaker.on_messages_stream(messages=[msg for msg in messages], cancellation_token=cancellation_token):
                 if isinstance(event, Response):
                     inner_messages.append(event.chat_message)
@@ -133,9 +130,7 @@ class GroupChatManager(BaseChatAgent):
                 else:
                     inner_messages.append(event)
                     yield event
-
             last_speaker = next_speaker
-
         yield Response(
             chat_message=inner_messages[-1],
             inner_messages=inner_messages

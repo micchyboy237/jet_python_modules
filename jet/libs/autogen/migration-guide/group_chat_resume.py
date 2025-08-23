@@ -11,6 +11,7 @@ from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.ui import Console
+from jet.data.utils import generate_unique_hash
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
 
 OUTPUT_DIR = os.path.join(
@@ -18,41 +19,50 @@ OUTPUT_DIR = os.path.join(
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 
-def create_team(model_client: MLXAutogenChatLLMAdapter) -> RoundRobinGroupChat:
+def create_team() -> RoundRobinGroupChat:
+    model_client_writer = create_model_client()
     writer = AssistantAgent(
         name="writer",
         description="A writer.",
         system_message="You are a writer.",
-        model_client=model_client,
+        model_client=model_client_writer,
     )
+
+    model_client_critic = create_model_client()
     critic = AssistantAgent(
         name="critic",
         description="A critic.",
         system_message="You are a critic, provide feedback on the writing. Reply only 'APPROVE' if the task is done.",
-        model_client=model_client,
+        model_client=model_client_critic,
     )
+
     termination = TextMentionTermination("APPROVE")
     group_chat = RoundRobinGroupChat(
         [writer, critic], termination_condition=termination)
+
     return group_chat
 
 
-async def main() -> None:
+def create_model_client() -> MLXAutogenChatLLMAdapter:
+    session_id = generate_unique_hash()
     model_client = MLXAutogenChatLLMAdapter(
-        model="llama-3.2-3b-instruct-4bit", seed=42, log_dir=f"{OUTPUT_DIR}/chats")
-    group_chat = create_team(model_client)
+        model="llama-3.2-1b-instruct-4bit", seed=42, session_id=session_id, log_dir=f"{OUTPUT_DIR}/chats_{session_id}")
+    return model_client
+
+
+async def main() -> None:
+    group_chat = create_team()
     stream = group_chat.run_stream(
         task="Write a short story about a robot that discovers it has feelings.")
     await Console(stream)
     state = await group_chat.save_state()
     with open("group_chat_state.json", "w") as f:
         json.dump(state, f)
-    group_chat = create_team(model_client)
+    group_chat = create_team()
     with open("group_chat_state.json", "r") as f:
         state = json.load(f)
     await group_chat.load_state(state)
     stream = group_chat.run_stream(task="Translate the story into Chinese.")
     await Console(stream)
-    await model_client.close()
 
 asyncio.run(main())

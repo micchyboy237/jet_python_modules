@@ -183,16 +183,25 @@ class MLX:
             for msg in messages:
                 if "role" in msg and "content" in msg:
                     if self.with_history:
-                        self.history.add_message(msg["role"], msg["content"])
+                        self.history.add_message(
+                            msg["role"], msg["content"], msg.get("id"))
+                    else:
+                        if "session_id" not in msg:
+                            msg["session_id"] = self.session_id
+                        if "id" not in msg:
+                            msg["id"] = None
                 else:
                     raise ValueError(
                         "Each message in the list must have 'role' and 'content' keys")
         else:
             raise TypeError(
                 "messages must be a string or a list of Message dictionaries")
+        formatted_messages = ([{"role": "user", "content": messages, "session_id": self.session_id, "id": None}] if isinstance(
+            messages, str) else messages)
         all_messages = self.history.get_messages() if self.with_history else (
-            [{"role": "system", "content": system_prompt}] if system_prompt else []
-        ) + ([{"role": "user", "content": messages}] if isinstance(messages, str) else messages)
+            ([{"role": "system", "content": system_prompt, "session_id": self.session_id,
+             "id": None}] if system_prompt else []) + formatted_messages
+        )
         if max_tokens is None:
             max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
@@ -271,16 +280,25 @@ class MLX:
             for msg in messages:
                 if "role" in msg and "content" in msg:
                     if self.with_history:
-                        self.history.add_message(msg["role"], msg["content"])
+                        self.history.add_message(
+                            msg["role"], msg["content"], msg.get("id"))
+                    else:
+                        if "session_id" not in msg:
+                            msg["session_id"] = self.session_id
+                        if "id" not in msg:
+                            msg["id"] = None
                 else:
                     raise ValueError(
                         "Each message in the list must have 'role' and 'content' keys")
         else:
             raise TypeError(
                 "messages must be a string or a list of Message dictionaries")
+        formatted_messages = ([{"role": "user", "content": messages, "session_id": self.session_id, "id": None}] if isinstance(
+            messages, str) else messages)
         all_messages = self.history.get_messages() if self.with_history else (
-            [{"role": "system", "content": system_prompt}] if system_prompt else []
-        ) + ([{"role": "user", "content": messages}] if isinstance(messages, str) else messages)
+            ([{"role": "system", "content": system_prompt, "session_id": self.session_id,
+             "id": None}] if system_prompt else []) + formatted_messages
+        )
         if max_tokens is None:
             max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:

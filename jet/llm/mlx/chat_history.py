@@ -4,6 +4,7 @@ from typing import List, Optional
 from jet.db.postgres.client import PostgresClient
 from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
 from jet.llm.mlx.client import Message
+from jet.models.model_types import ChatRole
 
 
 class PostgresChatMessageHistory:
@@ -48,22 +49,26 @@ class PostgresChatMessageHistory:
     def add_message(self, message: Message):
         """Add a message to the database using PostgresClient."""
         row_data = {
-            "session_id": self.session_id,
+            "session_id": message["session_id"],
             "role": message["role"],
             "content": message["content"]
         }
+        if message.get("id"):
+            row_data["id"] = message["id"]
         self.client.create_row("messages", row_data)
 
     def get_messages(self) -> List[Message]:
         """Retrieve all messages for the session using PostgresClient."""
         rows = self.client.get_rows(
             table_name="messages",
-            ids=None
+            where_conditions={
+                "session_id": self.session_id
+            }
         )
         return [
-            {"role": row["role"], "content": row["content"]}
+            {"id": row["id"], "session_id": row["session_id"],
+                "role": row["role"], "content": row["content"]}
             for row in rows
-            if row["session_id"] == self.session_id
         ]
 
     def clear(self):
@@ -117,15 +122,18 @@ class ChatHistory:
             self.db_history = None
             self.messages: List[Message] = []
 
-    def add_message(self, role: str, content: str):
+    def add_message(self, role: ChatRole, content: str, id: Optional[str] = None):
         """Add a message to the history and persist it if using database."""
-        message = {"role": role, "content": content}
+        message: Message = {"role": role, "content": content,
+                            "session_id": self.session_id, "id": id}
         self.messages.append(message)
         if self.use_db and self.db_history:
             self.db_history.add_message(message)
 
     def get_messages(self) -> List[Message]:
         """Return the current list of messages."""
+        if self.use_db and self.db_history:
+            return self.db_history.get_messages()
         return self.messages
 
     def clear(self):
