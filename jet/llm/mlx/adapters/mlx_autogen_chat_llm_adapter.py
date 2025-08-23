@@ -66,7 +66,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
 
     def _save_logs(self, args_dict: Dict) -> None:
         if self.log_dir:
-            autogen_dir = os.path.join(self.log_dir, "previous_chats")
+            autogen_dir = os.path.join(self.log_dir, "create_args")
             os.makedirs(autogen_dir, exist_ok=True)
             existing_files = [f for f in os.listdir(
                 autogen_dir) if f.endswith(".json")]
@@ -79,7 +79,8 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
                     continue
             next_number = max(numbers) + 1 if numbers else 1
             incremented_filename = f"{next_number}"
-            save_file(args_dict, f"{autogen_dir}/{incremented_filename}.json")
+            save_file(
+                args_dict, f"{autogen_dir}/args_{incremented_filename}.json")
 
     async def create(
         self,
