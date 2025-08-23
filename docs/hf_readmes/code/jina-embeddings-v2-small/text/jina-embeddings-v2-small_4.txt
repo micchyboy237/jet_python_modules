@@ -1,0 +1,2 @@
+
+The latest sentence-transformers also supports Jina embeddings:

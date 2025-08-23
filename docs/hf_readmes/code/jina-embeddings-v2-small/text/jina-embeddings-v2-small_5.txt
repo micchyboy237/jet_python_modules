@@ -1,0 +1,27 @@
+
+## Alternatives to Using Transformers Package
+
+1. _Managed SaaS_: Get started with a free key on Jina AI's [Embedding API](https://jina.ai/embeddings/). 
+2. _Private and high-performance deployment_: Get started by picking from our suite of models and deploy them on [AWS Sagemaker](https://aws.amazon.com/marketplace/seller-profile?id=seller-stch2ludm6vgy).
+
+## RAG Performance
+
+According to the latest blog post from [LLamaIndex](https://blog.llamaindex.ai/boosting-rag-picking-the-best-embedding-reranker-models-42d079022e83),
+
+> In summary, to achieve the peak performance in both hit rate and MRR, the combination of OpenAI or JinaAI-Base embeddings with the CohereRerank/bge-reranker-large reranker stands out.
+
+
+<img src="https://miro.medium.com/v2/resize:fit:4800/format:webp/1*ZP2RVejCZovF3FDCg-Bx3A.png" width="780px">
+
+## Plans
+
+1. Bilingual embedding models supporting more European & Asian languages, including Spanish, French, Italian and Japanese.
+2. Multimodal embedding models enable Multimodal RAG applications.
+3. High-performt rerankers.
+
+## Trouble Shooting
+
+**Loading of Model Code failed**
+
+If you forgot to pass the `trust_remote_code=True` flag when calling `AutoModel.from_pretrained` or initializing the model via the `SentenceTransformer` class, you will receive an error that the model weights could not be initialized.
+This is caused by tranformers falling back to creating a default BERT model, instead of a jina-embedding model:

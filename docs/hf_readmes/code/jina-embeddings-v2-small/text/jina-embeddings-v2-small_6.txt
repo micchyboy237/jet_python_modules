@@ -1,0 +1,8 @@
+
+## Contact
+
+Join our [Discord community](https://discord.jina.ai) and chat with other community members about ideas.
+
+## Citation
+
+If you find Jina Embeddings useful in your research, please cite the following paper:
