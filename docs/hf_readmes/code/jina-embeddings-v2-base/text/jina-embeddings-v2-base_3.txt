@@ -1,0 +1,2 @@
+
+If you only want to handle shorter sequence, such as 2k, pass the `max_length` parameter to the `encode` function:

@@ -1,0 +1,2 @@
+OSError: jinaai/jina-embeddings-v2-base-en is not a local folder and is not a valid model identifier listed on 'https://huggingface.co/models'
+If this is a private repository, make sure to pass a token having permission to this repo with `use_auth_token` or log in with `huggingface-cli login` and pass `use_auth_token=True`.

@@ -1,0 +1,7 @@
+
+
+**User is not logged into Huggingface**
+
+The model is only availabe under [gated access](https://huggingface.co/docs/hub/models-gated).
+This means you need to be logged into huggingface load load it.
+If you receive the following error, you need to provide an access token, either by using the huggingface-cli or providing the token via an environment variable as described above:

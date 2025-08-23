@@ -294,7 +294,7 @@ def download_huggingface_repo(
     return path
 
 
-def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite: bool = False, extract_code: bool = False) -> bool:
+def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite: bool = False, extract_code: bool = True) -> bool:
     """
     Download README.md for a Hugging Face model using API, fallback to web scraping if necessary.
     Optionally extract code blocks from the downloaded README.
