@@ -46,7 +46,7 @@ def create_team() -> RoundRobinGroupChat:
 def create_model_client() -> MLXAutogenChatLLMAdapter:
     session_id = generate_unique_hash()
     model_client = MLXAutogenChatLLMAdapter(
-        model="llama-3.2-3b-instruct-4bit", seed=42, session_id=session_id, log_dir=f"{OUTPUT_DIR}/chats_{session_id}")
+        model="llama-3.2-3b-instruct-4bit", seed=42, session_id=session_id, log_dir=f"{OUTPUT_DIR}/chats")
     return model_client
 
 
