@@ -95,6 +95,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "paraphrase-multilingual": "sentence-transformers/paraphrase-MiniLM-L12-v2",
     "multi-qa-MiniLM-L6-cos-v1": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
     "static-retrieval-mrl-en-v1": "sentence-transformers/static-retrieval-mrl-en-v1",
+    "jina-embeddings-v2-base": "jinaai/jina-embeddings-v2-base-en",
 }
 
 AVAILABLE_RERANK_MODELS: Dict[RerankModelKey, RerankModelValue] = {
@@ -192,6 +193,7 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "ms-marco-MiniLM-L6-v2": 512,
     "ms-marco-MiniLM-L-12-v2": 512,
     "ms-marco-MiniLM-L12-v2": 512,
+    "jina-embeddings-v2-base": 8192,
 }
 
 MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
@@ -263,4 +265,5 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "ms-marco-MiniLM-L6-v2": 384,
     "ms-marco-MiniLM-L-12-v2": 384,
     "ms-marco-MiniLM-L12-v2": 384,
+    "jina-embeddings-v2-base": 768,
 }
