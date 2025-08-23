@@ -1,4 +1,5 @@
 from jet.logger import logger
+from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
@@ -80,7 +81,7 @@ class ChatMLX(BaseChatModel):
             **kwargs
         )
         try:
-            self.mlx_client = MLX(
+            self.mlx_client = MLXModelRegistry.load_model(
                 model=model,
                 adapter_path=adapter_path,
                 draft_model=draft_model,
@@ -99,7 +100,8 @@ class ChatMLX(BaseChatModel):
                 seed=seed,
                 log_dir=log_dir,
                 device=device,
-                prompt_cache=prompt_cache
+                prompt_cache=prompt_cache,
+                verbose=True
             )
         except Exception as e:
             raise ValueError(f"Failed to initialize MLX client: {str(e)}")

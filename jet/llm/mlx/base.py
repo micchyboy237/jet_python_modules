@@ -21,7 +21,6 @@ class MLX:
 
     def __init__(
         self,
-        # Model Config
         model: LLMModelType = DEFAULT_MODEL,
         adapter_path: Optional[str] = None,
         draft_model: Optional[LLMModelType] = None,
@@ -29,7 +28,20 @@ class MLX:
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
         chat_template_args: Optional[ChatTemplateArgs] = None,
-        # DB Config
+        max_tokens: int = -1,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        min_p: float = 0.0,
+        min_tokens_to_keep: int = 0,
+        top_k: int = 0,
+        repetition_penalty: Optional[float] = None,
+        repetition_context_size: int = 20,
+        xtc_probability: float = 0.0,
+        xtc_threshold: float = 0.0,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
+        logprobs: int = -1,
+        stop: Optional[Union[str, List[str]]] = None,
         dbname: str = DEFAULT_DB,
         user: str = DEFAULT_USER,
         password: str = DEFAULT_PASSWORD,
@@ -41,13 +53,13 @@ class MLX:
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps",
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        verbose: Optional[bool] = None
     ):
-        """Initialize the MLX client with configuration and optional database."""
+        """Initialize the MLX client with configuration, generation parameters, and optional database."""
         self.model_path: LLMModelValue = resolve_model_value(model)
         self.with_history = with_history
         self.log_dir = log_dir
-        # Initialize MLXLMClient
         self.client = MLXLMClient(
             model=model,
             adapter_path=adapter_path,
@@ -55,11 +67,25 @@ class MLX:
             trust_remote_code=trust_remote_code,
             chat_template=chat_template,
             use_default_chat_template=use_default_chat_template,
+            chat_template_args=chat_template_args,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            min_p=min_p,
+            min_tokens_to_keep=min_tokens_to_keep,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            repetition_context_size=repetition_context_size,
+            xtc_probability=xtc_probability,
+            xtc_threshold=xtc_threshold,
+            logit_bias=logit_bias,
+            logprobs=logprobs,
+            stop=stop,
             seed=seed,
             device=device,
             log_dir=log_dir,
-            chat_template_args=chat_template_args,
-            prompt_cache=prompt_cache
+            prompt_cache=prompt_cache,
+            verbose=verbose
         )
         self.prompt_cache = self.client.prompt_cache
         self.system_fingerprint = self.client.system_fingerprint
@@ -69,17 +95,11 @@ class MLX:
         self.tokenizer: MLXTokenizer = self.client.tokenizer
         self.reset_model = self.client.reset_model
         self.print_cache = self.client.print_cache
-
         if with_history and not session_id:
             session_id = generate_unique_hash()
-
         self.session_id = session_id
-
-        # Set padding token if not already defined
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        # Initialize chat history
         if self.with_history:
             self.history = ChatHistory(
                 dbname=dbname,
@@ -125,36 +145,33 @@ class MLX:
         model: Optional[LLMModelType] = None,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
-        max_tokens: int = -1,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        min_p: float = 0.0,
-        min_tokens_to_keep: int = 0,
-        top_k: int = 0,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        min_p: Optional[float] = None,
+        min_tokens_to_keep: Optional[int] = None,
+        top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
+        repetition_context_size: Optional[int] = None,
+        xtc_probability: Optional[float] = None,
+        xtc_threshold: Optional[float] = None,
         logit_bias: Optional[Union[Dict[int, float],
                                    Dict[str, float], str, List[str]]] = None,
-        logprobs: int = -1,
+        logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> CompletionResponse:
         """Generate a chat completion with history management."""
-
-        # Prepare messages with history
+        verbose = verbose if verbose is not None else self.client.cli_args.verbose
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
             if self.with_history:
                 self.history.add_message("system", system_prompt)
-
-        # Handle messages input: str or List[Message]
         if isinstance(messages, str):
             if self.with_history:
                 self.history.add_message("user", messages)
@@ -169,34 +186,31 @@ class MLX:
         else:
             raise TypeError(
                 "messages must be a string or a list of Message dictionaries")
-
         all_messages = self.history.get_messages() if self.with_history else (
             [{"role": "system", "content": system_prompt}] if system_prompt else []
         ) + ([{"role": "user", "content": messages}] if isinstance(messages, str) else messages)
-
+        if max_tokens is None:
+            max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
-            # Set remaining tokens as max tokens
             max_tokens = self.get_remaining_tokens(all_messages)
-
-        # Call MLXLMClient.chat
         response = self.client.chat(
             messages=all_messages,
             model=model or self.model_path,
             draft_model=draft_model,
             adapter=adapter,
             max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            min_p=min_p,
-            min_tokens_to_keep=min_tokens_to_keep,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
-            stop=stop,
+            temperature=temperature if temperature is not None else self.client.cli_args.temperature,
+            top_p=top_p if top_p is not None else self.client.cli_args.top_p,
+            min_p=min_p if min_p is not None else self.client.cli_args.min_p,
+            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.client.cli_args.min_tokens_to_keep,
+            top_k=top_k if top_k is not None else self.client.cli_args.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.client.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.client.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability if xtc_probability is not None else self.client.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.client.cli_args.xtc_threshold,
+            logit_bias=logit_bias if logit_bias is not None else self.client.cli_args.logit_bias,
+            logprobs=logprobs if logprobs is not None else self.client.cli_args.logprobs,
+            stop=stop if stop is not None else self.client.cli_args.stop,
             role_mapping=role_mapping,
             tools=tools,
             log_dir=log_dir,
@@ -204,14 +218,11 @@ class MLX:
             chat_template_args=chat_template_args,
             prompt_cache=prompt_cache
         )
-
-        # Add assistant response to history
         if self.with_history and isinstance(response, dict) and response.get("choices"):
             assistant_content = response["choices"][0].get(
                 "message", {}).get("content", "")
             if assistant_content:
                 self.history.add_message("assistant", assistant_content)
-
         return response
 
     def stream_chat(
@@ -220,35 +231,33 @@ class MLX:
         model: Optional[LLMModelType] = None,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
-        max_tokens: int = -1,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        min_p: float = 0.0,
-        min_tokens_to_keep: int = 0,
-        top_k: int = 0,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        min_p: Optional[float] = None,
+        min_tokens_to_keep: Optional[int] = None,
+        top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
+        repetition_context_size: Optional[int] = None,
+        xtc_probability: Optional[float] = None,
+        xtc_threshold: Optional[float] = None,
         logit_bias: Optional[Union[Dict[int, float],
                                    Dict[str, float], str, List[str]]] = None,
-        logprobs: int = -1,
+        logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
         system_prompt: Optional[str] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions with history management."""
-        # Prepare messages with history
+        verbose = verbose if verbose is not None else self.client.cli_args.verbose
         if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
             if self.with_history:
                 self.history.add_message("system", system_prompt)
-
-        # Handle messages input: str or List[Message]
         if isinstance(messages, str):
             if self.with_history:
                 self.history.add_message("user", messages)
@@ -263,16 +272,13 @@ class MLX:
         else:
             raise TypeError(
                 "messages must be a string or a list of Message dictionaries")
-
         all_messages = self.history.get_messages() if self.with_history else (
             [{"role": "system", "content": system_prompt}] if system_prompt else []
         ) + ([{"role": "user", "content": messages}] if isinstance(messages, str) else messages)
-
+        if max_tokens is None:
+            max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
-            # Set remaining tokens as max tokens
             max_tokens = self.get_remaining_tokens(all_messages)
-
-        # Stream responses
         assistant_content = ""
         for response in self.client.stream_chat(
             messages=all_messages,
@@ -280,18 +286,18 @@ class MLX:
             draft_model=draft_model,
             adapter=adapter,
             max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            min_p=min_p,
-            min_tokens_to_keep=min_tokens_to_keep,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
-            stop=stop,
+            temperature=temperature if temperature is not None else self.client.cli_args.temperature,
+            top_p=top_p if top_p is not None else self.client.cli_args.top_p,
+            min_p=min_p if min_p is not None else self.client.cli_args.min_p,
+            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.client.cli_args.min_tokens_to_keep,
+            top_k=top_k if top_k is not None else self.client.cli_args.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.client.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.client.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability if xtc_probability is not None else self.client.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.client.cli_args.xtc_threshold,
+            logit_bias=logit_bias if logit_bias is not None else self.client.cli_args.logit_bias,
+            logprobs=logprobs if logprobs is not None else self.client.cli_args.logprobs,
+            stop=stop if stop is not None else self.client.cli_args.stop,
             role_mapping=role_mapping,
             tools=tools,
             log_dir=log_dir,
@@ -304,8 +310,6 @@ class MLX:
                     "message", {}).get("content", "")
                 assistant_content += content
             yield response
-
-        # Add assistant response to history
         if self.with_history and assistant_content:
             self.history.add_message("assistant", assistant_content)
 
@@ -315,53 +319,52 @@ class MLX:
         model: Optional[LLMModelType] = None,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
-        max_tokens: int = -1,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        min_p: float = 0.0,
-        min_tokens_to_keep: int = 0,
-        top_k: int = 0,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        min_p: Optional[float] = None,
+        min_tokens_to_keep: Optional[int] = None,
+        top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
+        repetition_context_size: Optional[int] = None,
+        xtc_probability: Optional[float] = None,
+        xtc_threshold: Optional[float] = None,
         logit_bias: Optional[Union[Dict[int, float],
                                    Dict[str, float], str, List[str]]] = None,
-        logprobs: int = -1,
+        logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> CompletionResponse:
         """Generate a text completion (no history)."""
-
+        verbose = verbose if verbose is not None else self.client.cli_args.verbose
+        if max_tokens is None:
+            max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
-            # Set remaining tokens as max tokens
             max_tokens = self.get_remaining_tokens(prompt)
-
         response = self.client.generate(
             prompt=prompt,
             model=model or self.model_path,
             draft_model=draft_model,
             adapter=adapter,
             max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            min_p=min_p,
-            min_tokens_to_keep=min_tokens_to_keep,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
-            stop=stop,
+            temperature=temperature if temperature is not None else self.client.cli_args.temperature,
+            top_p=top_p if top_p is not None else self.client.cli_args.top_p,
+            min_p=min_p if min_p is not None else self.client.cli_args.min_p,
+            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.client.cli_args.min_tokens_to_keep,
+            top_k=top_k if top_k is not None else self.client.cli_args.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.client.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.client.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability if xtc_probability is not None else self.client.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.client.cli_args.xtc_threshold,
+            logit_bias=logit_bias if logit_bias is not None else self.client.cli_args.logit_bias,
+            logprobs=logprobs if logprobs is not None else self.client.cli_args.logprobs,
+            stop=stop if stop is not None else self.client.cli_args.stop,
             log_dir=log_dir,
             verbose=verbose,
             prompt_cache=prompt_cache
         )
-
         return response
 
     def stream_generate(
@@ -370,48 +373,48 @@ class MLX:
         model: Optional[LLMModelType] = None,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
-        max_tokens: int = -1,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        min_p: float = 0.0,
-        min_tokens_to_keep: int = 0,
-        top_k: int = 0,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        min_p: Optional[float] = None,
+        min_tokens_to_keep: Optional[int] = None,
+        top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
+        repetition_context_size: Optional[int] = None,
+        xtc_probability: Optional[float] = None,
+        xtc_threshold: Optional[float] = None,
         logit_bias: Optional[Union[Dict[int, float],
                                    Dict[str, float], str, List[str]]] = None,
-        logprobs: int = -1,
+        logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream text completions (no history)."""
-
+        verbose = verbose if verbose is not None else self.client.cli_args.verbose
+        if max_tokens is None:
+            max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
-            # Set remaining tokens as max tokens
             max_tokens = self.get_remaining_tokens(prompt)
-
         for response in self.client.stream_generate(
             prompt=prompt,
             model=model or self.model_path,
             draft_model=draft_model,
             adapter=adapter,
             max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            min_p=min_p,
-            min_tokens_to_keep=min_tokens_to_keep,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
-            stop=stop,
+            temperature=temperature if temperature is not None else self.client.cli_args.temperature,
+            top_p=top_p if top_p is not None else self.client.cli_args.top_p,
+            min_p=min_p if min_p is not None else self.client.cli_args.min_p,
+            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.client.cli_args.min_tokens_to_keep,
+            top_k=top_k if top_k is not None else self.client.cli_args.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.client.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.client.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability if xtc_probability is not None else self.client.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.client.cli_args.xtc_threshold,
+            logit_bias=logit_bias if logit_bias is not None else self.client.cli_args.logit_bias,
+            logprobs=logprobs if logprobs is not None else self.client.cli_args.logprobs,
+            stop=stop if stop is not None else self.client.cli_args.stop,
             log_dir=log_dir,
             verbose=verbose,
             prompt_cache=prompt_cache

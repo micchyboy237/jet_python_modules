@@ -45,20 +45,36 @@ DEFAULT_CHAT_TEMPLATE_ARGS: ChatTemplateArgs = {
 }
 
 
+@dataclass
+class Config:
+    model: Optional[LLMModelType] = None
+    adapter_path: Optional[str] = None
+    draft_model: Optional[LLMModelType] = None
+    trust_remote_code: bool = False
+    chat_template: Optional[str] = None
+    use_default_chat_template: bool = True
+    chat_template_args: Optional[ChatTemplateArgs] = field(
+        default_factory=lambda: DEFAULT_CHAT_TEMPLATE_ARGS.copy()
+    )
+    max_tokens: int = -1
+    temperature: float = 0.0
+    top_p: float = 1.0
+    min_p: float = 0.0
+    min_tokens_to_keep: int = 0
+    top_k: int = 0
+    repetition_penalty: Optional[float] = None
+    repetition_context_size: int = 20
+    xtc_probability: float = 0.0
+    xtc_threshold: float = 0.0
+    logit_bias: Optional[Union[Dict[int, float],
+                               Dict[str, float], str, List[str]]] = None
+    logprobs: int = -1
+    stop: Optional[Union[str, List[str]]] = None,
+    verbose: Optional[bool] = None
+
+
 class MLXLMClient:
     """A client for interacting with MLX-LM models directly in Python."""
-
-    @dataclass
-    class Config:
-        model: Optional[LLMModelType] = None
-        adapter_path: Optional[str] = None
-        draft_model: Optional[LLMModelType] = None
-        trust_remote_code: bool = False
-        chat_template: Optional[str] = None
-        use_default_chat_template: bool = True
-        chat_template_args: Optional[ChatTemplateArgs] = field(
-            default_factory=lambda: DEFAULT_CHAT_TEMPLATE_ARGS.copy()
-        )
 
     def __init__(
         self,
@@ -69,47 +85,71 @@ class MLXLMClient:
         chat_template: Optional[str] = None,
         use_default_chat_template: bool = True,
         chat_template_args: Optional[ChatTemplateArgs] = None,
+        max_tokens: int = -1,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        min_p: float = 0.0,
+        min_tokens_to_keep: int = 0,
+        top_k: int = 0,
+        repetition_penalty: Optional[float] = None,
+        repetition_context_size: int = 20,
+        xtc_probability: float = 0.0,
+        xtc_threshold: float = 0.0,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
+        logprobs: int = -1,
+        stop: Optional[Union[str, List[str]]] = None,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps",
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
+        verbose: Optional[bool] = None
     ) -> None:
-        """Initialize the client with configuration."""
+        """Initialize the client with configuration and generation parameters."""
         if device and device not in ["cpu", "mps"]:
-            logger.error(
-                f"Unsupported device {device} for MLX model {model}")
+            logger.error(f"Unsupported device {device} for MLX model {model}")
             raise ValueError(
                 f"Device {device} is not supported for MLX (use 'cpu' or 'mps')")
-
         if device == "cpu":
             mx.set_default_device(mx.cpu)
         else:
             mx.set_default_device(mx.gpu)
-
         if seed:
             mx.random.seed(seed)
-
-        # Convert model keys to values
         model_value = resolve_model_value(model) if model else None
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
-
-        # Merge chat_template_args with defaults
         merged_chat_template_args = DEFAULT_CHAT_TEMPLATE_ARGS.copy()
         if chat_template_args is not None:
             merged_chat_template_args.update(chat_template_args)
-
-        config = self.Config(
+        self._validate_parameters(
+            max_tokens, temperature, top_p, repetition_penalty,
+            repetition_context_size, xtc_probability, xtc_threshold,
+            logit_bias, logprobs, model_value, adapter_path
+        )
+        config = Config(
             model=model_value,
             adapter_path=adapter_path,
             draft_model=draft_model_value,
             trust_remote_code=trust_remote_code,
             chat_template=chat_template,
             use_default_chat_template=use_default_chat_template,
-            chat_template_args=merged_chat_template_args
+            chat_template_args=merged_chat_template_args,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            min_p=min_p,
+            min_tokens_to_keep=min_tokens_to_keep,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            repetition_context_size=repetition_context_size,
+            xtc_probability=xtc_probability,
+            xtc_threshold=xtc_threshold,
+            logit_bias=logit_bias,
+            logprobs=logprobs,
+            stop=stop,
+            verbose=verbose
         )
-
-        # Create CLI args equivalent
         self.cli_args: argparse.Namespace = argparse.Namespace(
             model=config.model,
             adapter_path=config.adapter_path,
@@ -117,20 +157,30 @@ class MLXLMClient:
             trust_remote_code=config.trust_remote_code,
             chat_template=config.chat_template,
             use_default_chat_template=config.use_default_chat_template,
-            chat_template_args=config.chat_template_args
+            chat_template_args=config.chat_template_args,
+            max_tokens=config.max_tokens,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            min_p=config.min_p,
+            min_tokens_to_keep=config.min_tokens_to_keep,
+            top_k=config.top_k,
+            repetition_penalty=config.repetition_penalty,
+            repetition_context_size=config.repetition_context_size,
+            xtc_probability=config.xtc_probability,
+            xtc_threshold=config.xtc_threshold,
+            logit_bias=config.logit_bias,
+            logprobs=config.logprobs,
+            stop=config.stop,
+            verbose=config.verbose
         )
-
-        # Initialize model provider and other attributes
         self.model_provider: ModelProvider = ModelProvider(self.cli_args)
         self.prompt_cache: List[Any] = prompt_cache if prompt_cache is not None else [
         ]
         self.system_fingerprint: str = get_system_fingerprint()
         self.created: int = int(time.time())
         self.log_dir = log_dir or DEFAULT_LOG_DIR
-
         self.model = self.model_provider.model
         self.tokenizer: MLXTokenizer = self.model_provider.tokenizer
-
         self._chat_template_args = config.chat_template_args
 
     def __call__(self, *args, **kwargs) -> Union[mx.array, Tuple[mx.array, Any]]:
@@ -172,55 +222,56 @@ class MLXLMClient:
         model: LLMModelType = DEFAULT_MODEL,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
-        max_tokens: int = -1,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        min_p: float = 0.0,
-        min_tokens_to_keep: int = 0,
-        top_k: int = 0,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        min_p: Optional[float] = None,
+        min_tokens_to_keep: Optional[int] = None,
+        top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
+        repetition_context_size: Optional[int] = None,
+        xtc_probability: Optional[float] = None,
+        xtc_threshold: Optional[float] = None,
         logit_bias: Optional[Union[Dict[int, float],
                                    Dict[str, float], str, List[str]]] = None,
-        logprobs: int = -1,
+        logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion."""
-        # Convert model keys to values
+        verbose = verbose if verbose is not None else self.cli_args.verbose
         model_value = resolve_model_value(model)
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
-
-        # Validate parameters
         self._validate_parameters(
-            max_tokens, temperature, top_p, repetition_penalty,
-            repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model_value, adapter
+            max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature if temperature is not None else self.cli_args.temperature,
+            top_p if top_p is not None else self.cli_args.top_p,
+            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs if logprobs is not None else self.cli_args.logprobs,
+            model_value, adapter
         )
-
-        # Load model
         model_obj, tokenizer = self.model_provider.load(
             model_value, adapter, draft_model_value)
-
         if tokenizer is None:
             raise ValueError("Failed to load tokenizer")
-
-        # Prepare stop sequences
-        stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
+        stop_words: List[str] = (
+            [stop] if isinstance(
+                stop, str) else stop or self.cli_args.stop or []
+        )
         stop_id_sequences: List[List[int]] = [
             tokenizer.encode(stop_word, add_special_tokens=False)
             for stop_word in stop_words
         ]
-
-        # Generate prompt
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
         object_type: str = "chat.completion"
         if role_mapping:
@@ -241,28 +292,24 @@ class MLXLMClient:
                 tools,
                 **chat_template_settings
             )
-
-        # Use provided prompt_cache or instance-level prompt_cache
         active_prompt_cache = prompt_cache if prompt_cache is not None else self.prompt_cache
-
-        # Generate completion
         response = self._generate_completion(
             prompt=prompt,
             model_obj=model_obj,
             tokenizer=tokenizer,
             stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            min_p=min_p,
-            min_tokens_to_keep=min_tokens_to_keep,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
+            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature=temperature if temperature is not None else self.cli_args.temperature,
+            top_p=top_p if top_p is not None else self.cli_args.top_p,
+            min_p=min_p if min_p is not None else self.cli_args.min_p,
+            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
+            top_k=top_k if top_k is not None else self.cli_args.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
@@ -270,22 +317,20 @@ class MLXLMClient:
             verbose=verbose,
             prompt_cache=active_prompt_cache
         )
-
-        # Log interaction
         log_dir = log_dir or self.log_dir
         if log_dir:
             ChatLogger(log_dir, method="chat").log_interaction(
                 messages,
                 response,
                 model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                repetition_penalty=repetition_penalty,
-                repetition_context_size=repetition_context_size,
-                xtc_probability=xtc_probability,
-                xtc_threshold=xtc_threshold,
-                logprobs=logprobs,
+                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+                temperature=temperature if temperature is not None else self.cli_args.temperature,
+                top_p=top_p if top_p is not None else self.cli_args.top_p,
+                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+                logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
         return response
 
@@ -295,55 +340,56 @@ class MLXLMClient:
         model: LLMModelType = DEFAULT_MODEL,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
-        max_tokens: int = -1,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        min_p: float = 0.0,
-        min_tokens_to_keep: int = 0,
-        top_k: int = 0,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        min_p: Optional[float] = None,
+        min_tokens_to_keep: Optional[int] = None,
+        top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
+        repetition_context_size: Optional[int] = None,
+        xtc_probability: Optional[float] = None,
+        xtc_threshold: Optional[float] = None,
         logit_bias: Optional[Union[Dict[int, float],
                                    Dict[str, float], str, List[str]]] = None,
-        logprobs: int = -1,
+        logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
         tools: Optional[List[Tool]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions as they are generated."""
-        # Convert model keys to values
+        verbose = verbose if verbose is not None else self.cli_args.verbose
         model_value = resolve_model_value(model)
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
-
-        # Validate parameters
         self._validate_parameters(
-            max_tokens, temperature, top_p, repetition_penalty,
-            repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model_value, adapter
+            max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature if temperature is not None else self.cli_args.temperature,
+            top_p if top_p is not None else self.cli_args.top_p,
+            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs if logprobs is not None else self.cli_args.logprobs,
+            model_value, adapter
         )
-
-        # Load model
         model_obj, tokenizer = self.model_provider.load(
             model_value, adapter, draft_model_value)
-
         if tokenizer is None:
             raise ValueError("Failed to load tokenizer")
-
-        # Prepare stop sequences
-        stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
+        stop_words: List[str] = (
+            [stop] if isinstance(
+                stop, str) else stop or self.cli_args.stop or []
+        )
         stop_id_sequences: List[List[int]] = [
             tokenizer.encode(stop_word, add_special_tokens=False)
             for stop_word in stop_words
         ]
-
-        # Generate prompt
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
         object_type: str = "chat.completion"
         if role_mapping:
@@ -364,28 +410,24 @@ class MLXLMClient:
                 tools,
                 **chat_template_settings
             )
-
-        # Use provided prompt_cache or instance-level prompt_cache
         active_prompt_cache = prompt_cache if prompt_cache is not None else self.prompt_cache
-
-        # Stream completion
         for response in self._stream_generate_completion(
             prompt=prompt,
             model_obj=model_obj,
             tokenizer=tokenizer,
             stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            min_p=min_p,
-            min_tokens_to_keep=min_tokens_to_keep,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
+            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature=temperature if temperature is not None else self.cli_args.temperature,
+            top_p=top_p if top_p is not None else self.cli_args.top_p,
+            min_p=min_p if min_p is not None else self.cli_args.min_p,
+            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
+            top_k=top_k if top_k is not None else self.cli_args.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
@@ -394,22 +436,20 @@ class MLXLMClient:
             prompt_cache=active_prompt_cache
         ):
             yield response
-
-        # Log interaction
         log_dir = log_dir or self.log_dir
         if log_dir:
             ChatLogger(log_dir, method="stream_chat").log_interaction(
                 messages,
                 response,
                 model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                repetition_penalty=repetition_penalty,
-                repetition_context_size=repetition_context_size,
-                xtc_probability=xtc_probability,
-                xtc_threshold=xtc_threshold,
-                logprobs=logprobs,
+                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+                temperature=temperature if temperature is not None else self.cli_args.temperature,
+                top_p=top_p if top_p is not None else self.cli_args.top_p,
+                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+                logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
 
     def generate(
@@ -418,74 +458,73 @@ class MLXLMClient:
         model: LLMModelType = DEFAULT_MODEL,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
-        max_tokens: int = -1,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        min_p: float = 0.0,
-        min_tokens_to_keep: int = 0,
-        top_k: int = 0,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        min_p: Optional[float] = None,
+        min_tokens_to_keep: Optional[int] = None,
+        top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
+        repetition_context_size: Optional[int] = None,
+        xtc_probability: Optional[float] = None,
+        xtc_threshold: Optional[float] = None,
         logit_bias: Optional[Union[Dict[int, float],
                                    Dict[str, float], str, List[str]]] = None,
-        logprobs: int = -1,
+        logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a text completion."""
-        # Convert model keys to values
+        verbose = verbose if verbose is not None else self.cli_args.verbose
         model_value = resolve_model_value(model)
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
-
-        # Validate parameters
         self._validate_parameters(
-            max_tokens, temperature, top_p, repetition_penalty,
-            repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model_value, adapter
+            max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature if temperature is not None else self.cli_args.temperature,
+            top_p if top_p is not None else self.cli_args.top_p,
+            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs if logprobs is not None else self.cli_args.logprobs,
+            model_value, adapter
         )
-
-        # Load model
         model_obj, tokenizer = self.model_provider.load(
             model_value, adapter, draft_model_value)
-
         if tokenizer is None:
             raise ValueError("Failed to load tokenizer")
-
-        # Prepare stop sequences
-        stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
+        stop_words: List[str] = (
+            [stop] if isinstance(
+                stop, str) else stop or self.cli_args.stop or []
+        )
         stop_id_sequences: List[List[int]] = [
             tokenizer.encode(stop_word, add_special_tokens=False)
             for stop_word in stop_words
         ]
-
-        # Generate prompt
         request_id: str = f"cmpl-{uuid.uuid4()}"
         object_type: str = "text.completion"
         prompt_tokens: List[int] = tokenizer.encode(prompt)
-
-        # Generate completion
         response = self._generate_completion(
             prompt=prompt_tokens,
             model_obj=model_obj,
             tokenizer=tokenizer,
             stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            min_p=min_p,
-            min_tokens_to_keep=min_tokens_to_keep,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
+            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature=temperature if temperature is not None else self.cli_args.temperature,
+            top_p=top_p if top_p is not None else self.cli_args.top_p,
+            min_p=min_p if min_p is not None else self.cli_args.min_p,
+            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
+            top_k=top_k if top_k is not None else self.cli_args.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
@@ -493,22 +532,20 @@ class MLXLMClient:
             verbose=verbose,
             prompt_cache=prompt_cache
         )
-
-        # Log interaction
         log_dir = log_dir or self.log_dir
         if log_dir:
             ChatLogger(log_dir, method="generate").log_interaction(
                 prompt,
                 response,
                 model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                repetition_penalty=repetition_penalty,
-                repetition_context_size=repetition_context_size,
-                xtc_probability=xtc_probability,
-                xtc_threshold=xtc_threshold,
-                logprobs=logprobs,
+                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+                temperature=temperature if temperature is not None else self.cli_args.temperature,
+                top_p=top_p if top_p is not None else self.cli_args.top_p,
+                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+                logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
         return response
 
@@ -518,74 +555,73 @@ class MLXLMClient:
         model: LLMModelType = DEFAULT_MODEL,
         draft_model: Optional[LLMModelType] = None,
         adapter: Optional[str] = None,
-        max_tokens: int = -1,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        min_p: float = 0.0,
-        min_tokens_to_keep: int = 0,
-        top_k: int = 0,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        min_p: Optional[float] = None,
+        min_tokens_to_keep: Optional[int] = None,
+        top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
-        repetition_context_size: int = 20,
-        xtc_probability: float = 0.0,
-        xtc_threshold: float = 0.0,
+        repetition_context_size: Optional[int] = None,
+        xtc_probability: Optional[float] = None,
+        xtc_threshold: Optional[float] = None,
         logit_bias: Optional[Union[Dict[int, float],
                                    Dict[str, float], str, List[str]]] = None,
-        logprobs: int = -1,
+        logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> Iterator[CompletionResponse]:
         """Stream text completions as they are generated."""
-        # Convert model keys to values
+        verbose = verbose if verbose is not None else self.cli_args.verbose
         model_value = resolve_model_value(model)
         draft_model_value = resolve_model_value(
             draft_model) if draft_model else None
-
-        # Validate parameters
         self._validate_parameters(
-            max_tokens, temperature, top_p, repetition_penalty,
-            repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model_value, adapter
+            max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature if temperature is not None else self.cli_args.temperature,
+            top_p if top_p is not None else self.cli_args.top_p,
+            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs if logprobs is not None else self.cli_args.logprobs,
+            model_value, adapter
         )
-
-        # Load model
         model_obj, tokenizer = self.model_provider.load(
             model_value, adapter, draft_model_value)
-
         if tokenizer is None:
             raise ValueError("Failed to load tokenizer")
-
-        # Prepare stop sequences
-        stop_words: List[str] = [stop] if isinstance(stop, str) else stop or []
+        stop_words: List[str] = (
+            [stop] if isinstance(
+                stop, str) else stop or self.cli_args.stop or []
+        )
         stop_id_sequences: List[List[int]] = [
             tokenizer.encode(stop_word, add_special_tokens=False)
             for stop_word in stop_words
         ]
-
-        # Generate prompt
         request_id: str = f"cmpl-{uuid.uuid4()}"
         object_type: str = "text.completion"
         prompt_tokens: List[int] = tokenizer.encode(prompt)
-
-        # Stream completion
         for response in self._stream_generate_completion(
             prompt=prompt_tokens,
             model_obj=model_obj,
             tokenizer=tokenizer,
             stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            min_p=min_p,
-            min_tokens_to_keep=min_tokens_to_keep,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            repetition_context_size=repetition_context_size,
-            xtc_probability=xtc_probability,
-            xtc_threshold=xtc_threshold,
-            logit_bias=logit_bias,
-            logprobs=logprobs,
+            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature=temperature if temperature is not None else self.cli_args.temperature,
+            top_p=top_p if top_p is not None else self.cli_args.top_p,
+            min_p=min_p if min_p is not None else self.cli_args.min_p,
+            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
+            top_k=top_k if top_k is not None else self.cli_args.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             request_id=request_id,
             object_type=object_type,
             draft_model=self.model_provider.draft_model,
@@ -594,22 +630,20 @@ class MLXLMClient:
             prompt_cache=prompt_cache
         ):
             yield response
-
-        # Log interaction
         log_dir = log_dir or self.log_dir
         if log_dir:
             ChatLogger(log_dir, method="stream_generate").log_interaction(
                 prompt,
                 response,
                 model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                repetition_penalty=repetition_penalty,
-                repetition_context_size=repetition_context_size,
-                xtc_probability=xtc_probability,
-                xtc_threshold=xtc_threshold,
-                logprobs=logprobs,
+                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+                temperature=temperature if temperature is not None else self.cli_args.temperature,
+                top_p=top_p if top_p is not None else self.cli_args.top_p,
+                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+                logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
 
     def get_models(self) -> ModelsResponse:
@@ -815,7 +849,7 @@ class MLXLMClient:
         object_type: str,
         draft_model: Optional[Any],
         num_draft_tokens: int,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Core method to generate non-streaming completions."""
@@ -947,7 +981,7 @@ class MLXLMClient:
         object_type: str,
         draft_model: Optional[Any],
         num_draft_tokens: int,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         prompt_cache: Optional[List[Any]] = None
     ) -> Iterator[CompletionResponse]:
         """Generate streaming completions."""

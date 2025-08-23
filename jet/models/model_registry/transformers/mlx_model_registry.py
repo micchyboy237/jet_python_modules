@@ -38,6 +38,7 @@ class ModelFeatures(TypedDict):
     seed: Optional[int]
     log_dir: Optional[str]
     device: Optional[Literal["cpu", "mps"]]
+    verbose: Optional[bool]
 
 
 class MLXModelRegistry(BaseModelRegistry):
@@ -71,7 +72,8 @@ class MLXModelRegistry(BaseModelRegistry):
         with_history: bool = False,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
-        device: Optional[Literal["cpu", "mps"]] = "mps"
+        device: Optional[Literal["cpu", "mps"]] = "mps",
+        verbose: Optional[bool] = None
     ) -> MLX:
         """Load or retrieve an MLX model statically."""
         # Generate cache key based on model-defining parameters
@@ -91,7 +93,8 @@ class MLXModelRegistry(BaseModelRegistry):
             host=host,
             port=port,
             overwrite_db=overwrite_db,
-            device=device
+            device=device,
+            verbose=verbose,
         )
         instance = MLXModelRegistry()
         with instance._model_lock:
@@ -122,6 +125,7 @@ class MLXModelRegistry(BaseModelRegistry):
                 seed=seed,
                 log_dir=log_dir,
                 device=device,
+                verbose=verbose,
             )
             with instance._model_lock:
                 instance._models[cache_key] = model_instance
