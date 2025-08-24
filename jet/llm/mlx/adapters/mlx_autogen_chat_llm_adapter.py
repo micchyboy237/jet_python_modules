@@ -130,7 +130,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
                     "user" if isinstance(msg, UserMessage) else
                     "assistant"
                 ),
-                "content": msg.content
+                "content": msg.content if isinstance(msg.content, str) else str(msg.content)
             }
             for msg in messages
             if msg.content
@@ -236,7 +236,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
                     "user" if isinstance(msg, UserMessage) else
                     "assistant"
                 ),
-                "content": msg.content
+                "content": msg.content if isinstance(msg.content, str) else str(msg.content)
             }
             for msg in messages
         ]
