@@ -189,7 +189,7 @@ class MLX:
                     session_id=effective_session_id,
                     conversation_id=self.history.conversation_id
                 )
-            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
+            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages(session_id=effective_session_id)):
                 self.history.add_message("system", system_prompt)
             if isinstance(messages, str):
                 self.history.add_message("user", messages)
@@ -203,7 +203,7 @@ class MLX:
             else [{"role": msg["role"], "content": msg["content"]} for msg in messages]
         )
         all_messages = (
-            self.history.get_messages() if self.with_history
+            self.history.get_messages(session_id=effective_session_id) if self.with_history
             else (
                 [{"role": "system", "content": system_prompt}] if system_prompt
                 else []
@@ -291,7 +291,7 @@ class MLX:
                     session_id=effective_session_id,
                     conversation_id=self.history.conversation_id
                 )
-            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
+            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages(session_id=effective_session_id)):
                 self.history.add_message("system", system_prompt)
             if isinstance(messages, str):
                 self.history.add_message("user", messages)
@@ -305,7 +305,7 @@ class MLX:
             else [{"role": msg["role"], "content": msg["content"]} for msg in messages]
         )
         all_messages = (
-            self.history.get_messages() if self.with_history
+            self.history.get_messages(session_id=effective_session_id) if self.with_history
             else (
                 [{"role": "system", "content": system_prompt}] if system_prompt
                 else []

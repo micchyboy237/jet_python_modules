@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Literal, TypedDict
@@ -166,16 +166,15 @@ class PostgresChatMessageHistory:
         logger.debug(f"Added/updated {len(db_messages)} messages")
         return db_messages
 
-    def get_messages(self) -> List[DBMessage]:
+    def get_messages(self, where_conditions: Optional[Dict[str, str]] = None) -> List[DBMessage]:
         """Retrieve all messages for the conversation using PostgresClient, ordered by message_order."""
         logger.debug(
-            f"Retrieving messages for conversation_id: {self.conversation_id}")
+            f"Retrieving messages for conversation_id: {self.conversation_id} with conditions: {where_conditions}")
         try:
             rows: List[DBMessage] = self.client.get_rows(
                 table_name="messages",
-                where_conditions={
-                    "conversation_id": self.conversation_id
-                },
+                where_conditions=where_conditions or {
+                    "conversation_id": self.conversation_id},
                 order_by=("message_order", "ASC")
             )
             messages = [
@@ -336,10 +335,15 @@ class ChatHistory:
                 self.messages.append(db_message)
             logger.debug("Added %d messages to history", len(new_messages))
 
-    def get_messages(self) -> List[DBMessage]:
-        """Return the current list of messages."""
+    def get_messages(self, session_id: Optional[str] = None) -> List[DBMessage]:
+        """Return the current list of messages, optionally filtered by session_id."""
         if self.use_db and self.db_history:
-            return self.db_history.get_messages()
+            where_conditions = {"conversation_id": self.conversation_id}
+            if session_id:
+                where_conditions["session_id"] = session_id
+            return self.db_history.get_messages(where_conditions=where_conditions)
+        if session_id and session_id != self.session_id:
+            return []
         return self.messages
 
     def clear(self):

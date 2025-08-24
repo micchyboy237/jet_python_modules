@@ -1,5 +1,6 @@
 import os
 from typing import Any, AsyncGenerator, Dict, Iterator, List, Literal, Mapping, Optional, Sequence, Union, cast
+import uuid
 from pydantic import BaseModel
 from autogen_core.models import ChatCompletionClient, CreateResult, LLMMessage, ModelInfo, RequestUsage, ModelCapabilities, FinishReasons
 from autogen_core.tools import Tool, ToolSchema
@@ -42,6 +43,8 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
     ):
         """Initialize the MLX chat completion client."""
         super().__init__()
+        if not session_id:
+            session_id = str(uuid.uuid4())
         self.client = MLXModelRegistry.load_model(
             model=model,
             adapter_path=adapter_path,
