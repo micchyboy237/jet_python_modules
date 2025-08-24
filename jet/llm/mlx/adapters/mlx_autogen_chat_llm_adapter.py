@@ -133,6 +133,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
                 "content": msg.content
             }
             for msg in messages
+            if msg.content
         ]
         system_prompt = next(
             (msg["content"]
