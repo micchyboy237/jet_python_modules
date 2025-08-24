@@ -1,3 +1,4 @@
+from jet.llm.mlx.mlx_utils import parse_tool_calls
 from jet.logger import logger
 from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -10,6 +11,7 @@ from jet.llm.mlx.mlx_types import ChatTemplateArgs, RoleMapping, Tool
 from jet.models.model_types import LLMModelType
 from uuid import uuid4
 from pydantic import BaseModel, Field
+from langchain_core.messages.tool import ToolCall
 
 
 class ChatMLX(BaseChatModel):
@@ -168,13 +170,17 @@ class ChatMLX(BaseChatModel):
 
         content = response["choices"][0]["message"]["content"] if response.get(
             "choices") else ""
-        tool_calls = response["choices"][0]["message"].get(
-            "tool_calls", []) if response.get("choices") else []
+
+        tool_calls = parse_tool_calls(response["content"])
+        formatted_tool_calls: List[ToolCall] = [
+            {"name": tc["name"], "args": tc["arguments"],
+                "id": None, "type": "tool_call"}
+            for tc in tool_calls]
 
         chat_generation = ChatGeneration(
             message=AIMessage(
                 content=content,
-                tool_calls=tool_calls,
+                tool_calls=formatted_tool_calls,
                 id=str(uuid4())
             ),
             generation_info=response
@@ -208,13 +214,19 @@ class ChatMLX(BaseChatModel):
         ):
             content = response["choices"][0]["message"]["content"] if response.get(
                 "choices") else ""
-            tool_calls = response["choices"][0]["message"].get(
-                "tool_calls", []) if response.get("choices") else []
+
+            tool_calls = []
+            if response["choices"][0]["finish_reason"]:
+                tool_calls = parse_tool_calls(response["content"])
+            formatted_tool_calls: List[ToolCall] = [
+                {"name": tc["name"], "args": tc["arguments"],
+                    "id": None, "type": "tool_call"}
+                for tc in tool_calls]
 
             chunk = ChatGenerationChunk(
                 message=AIMessageChunk(
                     content=content,
-                    tool_calls=tool_calls,
+                    tool_calls=formatted_tool_calls,
                     id=str(uuid4())
                 ),
                 generation_info=response

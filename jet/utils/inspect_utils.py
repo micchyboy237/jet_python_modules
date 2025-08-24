@@ -264,13 +264,14 @@ def get_method_info(method: Any) -> dict[str, str]:
         method: The class method to inspect.
 
     Returns:
-        A dictionary with method name, parameters, return type, and docstring.
+        A dictionary with method name, parameters, return type, docstring, and body.
     """
     method_info = {
         "name": method.__name__,
         "parameters": "",
         "return_type": "",
         "docstring": inspect.getdoc(method) or "No docstring available",
+        "body": "",
     }
 
     # Get type hints for parameters and return type
@@ -289,6 +290,26 @@ def get_method_info(method: Any) -> dict[str, str]:
     return_type = type_hints.get("return", Any)
     method_info["return_type"] = return_type.__name__ if hasattr(
         return_type, "__name__") else str(return_type)
+
+    # Get method body
+    try:
+        source = inspect.getsource(method)
+        # Remove the method signature and docstring to isolate the body
+        lines = source.splitlines()
+        body_start = 0
+        for i, line in enumerate(lines):
+            if line.strip().startswith('"""') or line.strip().startswith("'''"):
+                body_start = i + 1
+                if i + 2 < len(lines) and (lines[i + 1].strip().endswith('"""') or lines[i + 1].strip().endswith("'''")):
+                    body_start += 1
+                break
+            elif not line.strip() or line.strip().startswith("@") or line.strip().startswith("def"):
+                body_start = i + 1
+        # Join lines, dedent, and strip empty lines
+        body = "\n".join(lines[body_start:]).strip()
+        method_info["body"] = body if body else "Source code unavailable"
+    except (OSError, TypeError):
+        method_info["body"] = "Source code unavailable"
 
     return method_info
 

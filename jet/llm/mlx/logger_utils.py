@@ -46,7 +46,8 @@ class ChatLogger:
         if "tools" in kwargs:
             tools = (kwargs.pop("tools") or []).copy()
             for tool_idx, tool_fn in enumerate(tools):
-                tools[tool_idx] = get_method_info(tool_fn)
+                if callable(tool_fn):
+                    tools[tool_idx] = get_method_info(tool_fn)
 
         # Initialize log_data with core attributes
         log_data = {
