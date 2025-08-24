@@ -42,11 +42,17 @@ def percentage_change_tool(start: float, end: float) -> float:
 
 
 def create_team() -> SelectorGroupChat:
+    # Generate a single conversation_id for all agents
+    conversation_id = generate_hash("GroupChatConversation")
+
     planning_agent = AssistantAgent(
         "PlanningAgent",
         description="An agent for planning tasks, this agent should be the first to engage when given a new task.",
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-1b-instruct-4bit", session_id=generate_hash("PlanningAgent"), log_dir=f"{OUTPUT_DIR}/planning_chats"),
+            model="llama-3.2-1b-instruct-4bit",
+            session_id=generate_hash("PlanningAgent"),
+            conversation_id=conversation_id,  # Pass shared conversation_id
+            log_dir=f"{OUTPUT_DIR}/planning_chats"),
         system_message="""
         You are a planning agent.
         Your job is to break down complex tasks into smaller, manageable subtasks.
@@ -64,7 +70,10 @@ def create_team() -> SelectorGroupChat:
         description="A web search agent.",
         tools=[search_web_tool],
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-1b-instruct-4bit", session_id=generate_hash("WebSearchAgent"), log_dir=f"{OUTPUT_DIR}/web_search_chats"),
+            model="llama-3.2-1b-instruct-4bit",
+            session_id=generate_hash("WebSearchAgent"),
+            conversation_id=conversation_id,  # Pass shared conversation_id
+            log_dir=f"{OUTPUT_DIR}/web_search_chats"),
         system_message="""
         You are a web search agent.
         Your only tool is search_tool - use it to find information.
@@ -76,7 +85,10 @@ def create_team() -> SelectorGroupChat:
         "DataAnalystAgent",
         description="A data analyst agent. Useful for performing calculations.",
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-1b-instruct-4bit", session_id=generate_hash("DataAnalystAgent"), log_dir=f"{OUTPUT_DIR}/data_analyst_chats"),
+            model="llama-3.2-1b-instruct-4bit",
+            session_id=generate_hash("DataAnalystAgent"),
+            conversation_id=conversation_id,  # Pass shared conversation_id
+            log_dir=f"{OUTPUT_DIR}/data_analyst_chats"),
         tools=[percentage_change_tool],
         system_message="""
         You are a data analyst.
@@ -95,7 +107,10 @@ def create_team() -> SelectorGroupChat:
         [planning_agent, web_search_agent, data_analyst_agent],
         name="ManagerAgent",
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-3b-instruct-4bit", session_id=generate_hash("ManagerAgent"), log_dir=f"{OUTPUT_DIR}/manager_chats"),
+            model="llama-3.2-1b-instruct-4bit",
+            session_id=generate_hash("ManagerAgent"),
+            conversation_id=conversation_id,  # Pass shared conversation_id
+            log_dir=f"{OUTPUT_DIR}/manager_chats"),
         termination_condition=termination,
         selector_func=selector_func,
     )

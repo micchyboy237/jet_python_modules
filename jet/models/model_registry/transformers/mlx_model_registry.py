@@ -34,6 +34,7 @@ class ModelFeatures(TypedDict):
     host: Optional[str]
     port: Optional[str]
     session_id: Optional[str]
+    conversation_id: Optional[str]
     with_history: bool
     seed: Optional[int]
     log_dir: Optional[str]
@@ -71,6 +72,7 @@ class MLXModelRegistry(BaseModelRegistry):
         port: int = DEFAULT_PORT,
         overwrite_db: bool = False,
         session_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
         with_history: bool = False,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
@@ -96,7 +98,8 @@ class MLXModelRegistry(BaseModelRegistry):
             host=host,
             port=port,
             overwrite_db=overwrite_db,
-            # session_id=session_id,
+            session_id=session_id,
+            conversation_id=conversation_id,
             device=device,
             verbose=verbose,
             temperature=temperature,
@@ -126,6 +129,7 @@ class MLXModelRegistry(BaseModelRegistry):
                 port=port,
                 overwrite_db=overwrite_db,
                 session_id=session_id,
+                conversation_id=conversation_id,
                 with_history=with_history,
                 seed=seed,
                 log_dir=log_dir,

@@ -33,6 +33,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         port: int = DEFAULT_PORT,
         overwrite_db: bool = False,
         session_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
         with_history: bool = True,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
@@ -54,7 +55,8 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             host=host,
             port=port,
             overwrite_db=overwrite_db,
-            session_id=session_id,
+            # session_id=session_id,
+            conversation_id=conversation_id,
             with_history=with_history,
             seed=seed,
             log_dir=log_dir,
@@ -63,6 +65,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         )
         self._usage = RequestUsage(prompt_tokens=0, completion_tokens=0)
         self.log_dir = log_dir
+        self.session_id = session_id
 
     def _save_logs(self, args_dict: Dict) -> None:
         if self.log_dir:
@@ -146,6 +149,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             "repetition_context_size": extra_create_args.get("repetition_context_size", 20),
             "log_dir": extra_create_args.get("log_dir", None),
             "verbose": extra_create_args.get("verbose", True),
+            "session_id": extra_create_args.get("session_id", self.session_id),
         }
         response = self.client.chat(**create_args)
         choice = response.get("choices", [{}])[0]
@@ -249,6 +253,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             "repetition_context_size": extra_create_args.get("repetition_context_size", 20),
             "log_dir": extra_create_args.get("log_dir", None),
             "verbose": extra_create_args.get("verbose", True),
+            "session_id": extra_create_args.get("session_id", self.session_id),
         }
         prompt_tokens = self.client.count_tokens(messages)
         completion_tokens = 0
