@@ -35,11 +35,12 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         overwrite_db: bool = False,
         session_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        name: Optional[str] = None,
         with_history: bool = True,
-        seed: Optional[int] = None,
+        seed: Optional[int] = 42,
         log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps",
-        temperature: float = 0.0,
+        temperature: float = 0.3,
     ):
         """Initialize the MLX chat completion client."""
         super().__init__()
@@ -60,6 +61,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             overwrite_db=overwrite_db,
             # session_id=session_id,
             conversation_id=conversation_id,
+            # name=name,
             with_history=with_history,
             seed=seed,
             log_dir=log_dir,
@@ -69,6 +71,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
         self._usage = RequestUsage(prompt_tokens=0, completion_tokens=0)
         self.log_dir = log_dir
         self.session_id = session_id
+        self.name = name
 
     def _save_logs(self, args_dict: Dict) -> None:
         if self.log_dir:
@@ -153,6 +156,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             "log_dir": extra_create_args.get("log_dir", None),
             "verbose": extra_create_args.get("verbose", True),
             "session_id": extra_create_args.get("session_id", self.session_id),
+            "name": extra_create_args.get("name", self.name),
         }
         response = self.client.chat(**create_args)
         choice = response.get("choices", [{}])[0]
@@ -257,6 +261,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             "log_dir": extra_create_args.get("log_dir", None),
             "verbose": extra_create_args.get("verbose", True),
             "session_id": extra_create_args.get("session_id", self.session_id),
+            "name": extra_create_args.get("name", self.name),
         }
         prompt_tokens = self.client.count_tokens(messages)
         completion_tokens = 0

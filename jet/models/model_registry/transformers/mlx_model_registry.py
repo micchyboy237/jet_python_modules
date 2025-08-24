@@ -18,32 +18,6 @@ from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT,
 from jet.data.utils import generate_hash
 
 
-class ModelFeatures(TypedDict):
-    """Configuration options for loading models."""
-    model: LLMModelType
-    adapter_path: Optional[str]
-    draft_model: Optional[LLMModelType]
-    trust_remote_code: bool
-    chat_template: Optional[str]
-    use_default_chat_template: bool
-    chat_template_args: Optional[ChatTemplateArgs]
-    prompt_cache: Optional[List[Any]]
-    dbname: Optional[str]
-    user: Optional[str]
-    password: Optional[str]
-    host: Optional[str]
-    port: Optional[str]
-    session_id: Optional[str]
-    conversation_id: Optional[str]
-    with_history: bool
-    seed: Optional[int]
-    log_dir: Optional[str]
-    device: Optional[Literal["cpu", "mps"]]
-    verbose: Optional[bool]
-    # Generation params
-    temperature: float
-
-
 class MLXModelRegistry(BaseModelRegistry):
     """Abstract base class for MLX-based model registries."""
     _models: Dict[str, nn.Module] = {}
@@ -73,6 +47,7 @@ class MLXModelRegistry(BaseModelRegistry):
         overwrite_db: bool = False,
         session_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        name: Optional[str] = None,
         with_history: bool = False,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
@@ -100,9 +75,10 @@ class MLXModelRegistry(BaseModelRegistry):
             overwrite_db=overwrite_db,
             session_id=session_id,
             conversation_id=conversation_id,
+            name=name,
             device=device,
-            verbose=verbose,
-            temperature=temperature,
+            # verbose=verbose,
+            # temperature=temperature,
         )
         instance = MLXModelRegistry()
         with instance._model_lock:
@@ -130,6 +106,7 @@ class MLXModelRegistry(BaseModelRegistry):
                 overwrite_db=overwrite_db,
                 session_id=session_id,
                 conversation_id=conversation_id,
+                name=name,
                 with_history=with_history,
                 seed=seed,
                 log_dir=log_dir,

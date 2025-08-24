@@ -1,5 +1,5 @@
 import uuid
-from typing import Dict, List, Optional, Union
+from typing import List, Optional, Union
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Literal, TypedDict
@@ -27,6 +27,7 @@ class DBMessage(Message):
     message_order: int
     updated_at: Optional[datetime]
     created_at: Optional[datetime]
+    name: Optional[str]
 
 
 class PostgresChatMessageHistory:
@@ -41,12 +42,14 @@ class PostgresChatMessageHistory:
         port: int = DEFAULT_PORT,
         overwrite_db: bool = False,
         session_id: Optional[str] = None,
-        conversation_id: Optional[str] = None
+        conversation_id: Optional[str] = None,
+        name: Optional[str] = None
     ):
-        """Initialize with PostgreSQL connection parameters, session ID, and conversation ID."""
+        """Initialize with PostgreSQL connection parameters, session ID, conversation ID, and optional name."""
         self.dbname = dbname
         self.session_id = session_id or str(uuid.uuid4())
         self.conversation_id = conversation_id or str(uuid.uuid4())
+        self.name = name
         self.client = PostgresClient(
             dbname=dbname,
             user=user,
@@ -69,6 +72,7 @@ class PostgresChatMessageHistory:
             "message_order": 1,
             "updated_at": None,
             "created_at": None,
+            "name": None,
         }
         self.client._ensure_table_exists("messages")
         self.client._ensure_columns_exist("messages", schema_template)
@@ -96,7 +100,7 @@ class PostgresChatMessageHistory:
             self.client.commit()
         logger.debug("Messages table initialized successfully")
 
-    def add_message(self, message: Message) -> DBMessage:
+    def add_message(self, message: Message, name: Optional[str] = None) -> DBMessage:
         """Add a message to the database using PostgresClient."""
         logger.debug(
             f"Adding message for conversation_id: {self.conversation_id}")
@@ -124,12 +128,13 @@ class PostgresChatMessageHistory:
             "message_order": next_order,
             "updated_at": now,
             "created_at": now,
+            "name": name,
         }
         logger.debug(f"Row data to insert: {row_data}")
         self.client.create_or_update_row("messages", row_data)
         return row_data
 
-    def add_messages(self, messages: List[Message]) -> List[DBMessage]:
+    def add_messages(self, messages: List[Message], name: Optional[str] = None) -> List[DBMessage]:
         """Add multiple messages to the database using create_or_update_rows."""
         logger.debug(
             f"Adding {len(messages)} messages for conversation_id: {self.conversation_id}")
@@ -160,21 +165,23 @@ class PostgresChatMessageHistory:
                     "message_order": next_order,
                     "updated_at": now,
                     "created_at": now,
+                    "name": name,
                 }
                 db_messages.append(row_data)
         self.client.create_or_update_rows("messages", db_messages)
         logger.debug(f"Added/updated {len(db_messages)} messages")
         return db_messages
 
-    def get_messages(self, where_conditions: Optional[Dict[str, str]] = None) -> List[DBMessage]:
+    def get_messages(self) -> List[DBMessage]:
         """Retrieve all messages for the conversation using PostgresClient, ordered by message_order."""
         logger.debug(
-            f"Retrieving messages for conversation_id: {self.conversation_id} with conditions: {where_conditions}")
+            f"Retrieving messages for conversation_id: {self.conversation_id}")
         try:
             rows: List[DBMessage] = self.client.get_rows(
                 table_name="messages",
-                where_conditions=where_conditions or {
-                    "conversation_id": self.conversation_id},
+                where_conditions={
+                    "conversation_id": self.conversation_id
+                },
                 order_by=("message_order", "ASC")
             )
             messages = [
@@ -187,6 +194,7 @@ class PostgresChatMessageHistory:
                     "content": row["content"],
                     "updated_at": row["updated_at"],
                     "created_at": row["created_at"],
+                    "name": row["name"],
                 }
                 for row in rows
             ]
@@ -235,11 +243,13 @@ class ChatHistory:
         port: int = DEFAULT_PORT,
         overwrite_db: bool = False,
         session_id: Optional[str] = None,
-        conversation_id: Optional[str] = None
+        conversation_id: Optional[str] = None,
+        name: Optional[str] = None
     ):
-        """Initialize with optional PostgreSQL connection parameters, session ID, and conversation ID."""
+        """Initialize with optional PostgreSQL connection parameters, session ID, conversation ID, and name."""
         self.session_id = session_id or str(uuid.uuid4())
         self.conversation_id = conversation_id or str(uuid.uuid4())
+        self.name = name
         self.use_db = dbname is not None
         self.messages: Union[List[DBMessage], List[Message]] = []
         self.dbname = dbname
@@ -257,18 +267,19 @@ class ChatHistory:
                 port=port,
                 overwrite_db=overwrite_db,
                 session_id=self.session_id,
-                conversation_id=self.conversation_id
+                conversation_id=self.conversation_id,
+                name=name
             )
             self.messages = self.db_history.get_messages()
         else:
             self.db_history = None
             self.messages = []
 
-    def add_message(self, role: ChatRole, content: str, id: Optional[str] = None):
+    def add_message(self, role: ChatRole, content: str, id: Optional[str] = None, name: Optional[str] = None):
         """Add a message to the history and persist it if using database."""
         if self.use_db and self.db_history:
             message: Message = {"role": role, "content": content}
-            result = self.db_history.add_message(message)
+            result = self.db_history.add_message(message, name=name)
             self.messages.append(result)
         else:
             now = datetime.now(ZoneInfo("America/Los_Angeles"))
@@ -281,10 +292,11 @@ class ChatHistory:
                 "message_order": len(self.messages) + 1,
                 "updated_at": now,
                 "created_at": now,
+                "name": name,
             }
             self.messages.append(message)
 
-    def add_messages(self, messages: List[Message]) -> None:
+    def add_messages(self, messages: List[Message], name: Optional[str] = None) -> None:
         """Add multiple messages to the history, updating rows with same conversation_id and message_order or creating new ones."""
         logger.debug("Adding %d messages for conversation_id: %s",
                      len(messages), self.conversation_id)
@@ -305,7 +317,7 @@ class ChatHistory:
             logger.debug("No new messages after filtering duplicates")
             return
         if self.use_db and self.db_history:
-            db_messages = self.db_history.add_messages(new_messages)
+            db_messages = self.db_history.add_messages(new_messages, name=name)
             logger.debug("Persisted %d messages to database", len(db_messages))
             max_order = max((m["message_order"]
                             for m in current_messages), default=0)
@@ -328,6 +340,7 @@ class ChatHistory:
                     "message_order": next_order,
                     "updated_at": now,
                     "created_at": now,
+                    "name": name,
                 }
                 logger.debug("Adding in-memory message: %s", db_message)
                 self.messages = [
@@ -335,15 +348,10 @@ class ChatHistory:
                 self.messages.append(db_message)
             logger.debug("Added %d messages to history", len(new_messages))
 
-    def get_messages(self, session_id: Optional[str] = None) -> List[DBMessage]:
-        """Return the current list of messages, optionally filtered by session_id."""
+    def get_messages(self) -> List[DBMessage]:
+        """Return the current list of messages."""
         if self.use_db and self.db_history:
-            where_conditions = {"conversation_id": self.conversation_id}
-            if session_id:
-                where_conditions["session_id"] = session_id
-            return self.db_history.get_messages(where_conditions=where_conditions)
-        if session_id and session_id != self.session_id:
-            return []
+            return self.db_history.get_messages()
         return self.messages
 
     def clear(self):

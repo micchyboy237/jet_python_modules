@@ -53,6 +53,7 @@ class MLX:
         overwrite_db: bool = False,
         session_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        name: Optional[str] = None,
         with_history: bool = False,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
@@ -63,6 +64,7 @@ class MLX:
         self.model_path: LLMModelValue = resolve_model_value(model)
         self.with_history = with_history
         self.log_dir = log_dir
+        self.name = name
         self.client = MLXLMClient(
             model=model,
             adapter_path=adapter_path,
@@ -114,9 +116,10 @@ class MLX:
                 overwrite_db=overwrite_db,
                 session_id=session_id,
                 conversation_id=conversation_id,
+                name=name
             )
         else:
-            self.history = ChatHistory()
+            self.history = ChatHistory(name=name)
 
     def __call__(self, *args, **kwargs) -> Union[mx.array, Tuple[mx.array, Any]]:
         """
@@ -173,12 +176,14 @@ class MLX:
         prompt_cache: Optional[List[Any]] = None,
         response_format: Optional[Union[Literal["text",
                                                 "json"], JsonSchemaValue]] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        name: Optional[str] = None
     ) -> CompletionResponse:
         """Generate a chat completion with history management."""
         effective_session_id = session_id or self.session_id
+        effective_name = name or self.name
         if self.with_history:
-            if effective_session_id != self.session_id:
+            if effective_session_id != self.session_id or effective_name != self.name:
                 self.history = ChatHistory(
                     dbname=self.history.dbname if self.history.use_db else None,
                     user=self.history.user if self.history.use_db else DEFAULT_USER,
@@ -187,14 +192,16 @@ class MLX:
                     port=self.history.port if self.history.use_db else DEFAULT_PORT,
                     overwrite_db=False,
                     session_id=effective_session_id,
-                    conversation_id=self.history.conversation_id
+                    conversation_id=self.history.conversation_id,
+                    name=effective_name
                 )
-            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages(session_id=effective_session_id)):
-                self.history.add_message("system", system_prompt)
+            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
+                self.history.add_message(
+                    "system", system_prompt, name=effective_name)
             if isinstance(messages, str):
-                self.history.add_message("user", messages)
+                self.history.add_message("user", messages, name=effective_name)
             elif isinstance(messages, list):
-                self.history.add_messages(messages)
+                self.history.add_messages(messages, name=effective_name)
             else:
                 raise TypeError(
                     "messages must be a string or a list of Message dictionaries")
@@ -203,7 +210,7 @@ class MLX:
             else [{"role": msg["role"], "content": msg["content"]} for msg in messages]
         )
         all_messages = (
-            self.history.get_messages(session_id=effective_session_id) if self.with_history
+            self.history.get_messages() if self.with_history
             else (
                 [{"role": "system", "content": system_prompt}] if system_prompt
                 else []
@@ -243,7 +250,8 @@ class MLX:
             assistant_content = response["choices"][0].get(
                 "message", {}).get("content", "")
             if assistant_content:
-                self.history.add_message("assistant", assistant_content)
+                self.history.add_message(
+                    "assistant", assistant_content, name=effective_name)
         return response
 
     def stream_chat(
@@ -275,12 +283,14 @@ class MLX:
         prompt_cache: Optional[List[Any]] = None,
         response_format: Optional[Union[Literal["text",
                                                 "json"], JsonSchemaValue]] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        name: Optional[str] = None
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions with history management."""
         effective_session_id = session_id or self.session_id
+        effective_name = name or self.name
         if self.with_history:
-            if effective_session_id != self.session_id:
+            if effective_session_id != self.session_id or effective_name != self.name:
                 self.history = ChatHistory(
                     dbname=self.history.dbname if self.history.use_db else None,
                     user=self.history.user if self.history.use_db else DEFAULT_USER,
@@ -289,14 +299,16 @@ class MLX:
                     port=self.history.port if self.history.use_db else DEFAULT_PORT,
                     overwrite_db=False,
                     session_id=effective_session_id,
-                    conversation_id=self.history.conversation_id
+                    conversation_id=self.history.conversation_id,
+                    name=effective_name
                 )
-            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages(session_id=effective_session_id)):
-                self.history.add_message("system", system_prompt)
+            if system_prompt and not any(msg["role"] == "system" for msg in self.history.get_messages()):
+                self.history.add_message(
+                    "system", system_prompt, name=effective_name)
             if isinstance(messages, str):
-                self.history.add_message("user", messages)
+                self.history.add_message("user", messages, name=effective_name)
             elif isinstance(messages, list):
-                self.history.add_messages(messages)
+                self.history.add_messages(messages, name=effective_name)
             else:
                 raise TypeError(
                     "messages must be a string or a list of Message dictionaries")
@@ -305,7 +317,7 @@ class MLX:
             else [{"role": msg["role"], "content": msg["content"]} for msg in messages]
         )
         all_messages = (
-            self.history.get_messages(session_id=effective_session_id) if self.with_history
+            self.history.get_messages() if self.with_history
             else (
                 [{"role": "system", "content": system_prompt}] if system_prompt
                 else []
@@ -348,7 +360,8 @@ class MLX:
                 assistant_content += content
             yield response
         if self.with_history and assistant_content:
-            self.history.add_message("assistant", assistant_content)
+            self.history.add_message(
+                "assistant", assistant_content, name=effective_name)
 
     def generate(
         self,

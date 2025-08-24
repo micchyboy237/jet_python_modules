@@ -1,0 +1,84 @@
+import os
+import shutil
+import asyncio
+import uuid
+from autogen_core.model_context import BufferedChatCompletionContext
+from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.teams import SelectorGroupChat
+from autogen_agentchat.conditions import TextMentionTermination
+from autogen_agentchat.ui import Console
+
+from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+# Define agent tools for project planning
+
+
+async def assign_task(task: str, assignee: str) -> str:
+    return f"Task '{task}' assigned to {assignee}."
+
+
+async def estimate_time(task: str) -> str:
+    return f"Estimated time for '{task}' is 3 days."
+
+
+async def review_plan(plan: str) -> str:
+    return f"Plan '{plan}' looks feasible, approved."
+
+
+async def main() -> None:
+    # Initialize a buffered model context to keep only the last 3 messages
+    model_context = BufferedChatCompletionContext(buffer_size=3)
+
+    conversation_id = str(uuid.uuid4())
+
+    # Create agents with specific roles
+    project_manager = AssistantAgent(
+        name="Project_Manager",
+        model_client=MLXAutogenChatLLMAdapter(
+            model="llama-3.2-3b-instruct-4bit", name="Project_Manager", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/project_manager_chats"),
+        description="Coordinates project tasks and assigns responsibilities.",
+        tools=[assign_task],
+    )
+    analyst = AssistantAgent(
+        name="Analyst",
+        model_client=MLXAutogenChatLLMAdapter(
+            model="llama-3.2-3b-instruct-4bit", name="Analyst", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/analyst_chats"),
+        description="Estimates task durations and resource needs.",
+        tools=[estimate_time],
+    )
+    reviewer = AssistantAgent(
+        name="Reviewer",
+        model_client=MLXAutogenChatLLMAdapter(
+            model="llama-3.2-3b-instruct-4bit", name="Reviewer", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/reviewer_chats"),
+        description="Reviews and approves project plans.",
+        tools=[review_plan],
+    )
+
+    # Define termination condition
+    termination = TextMentionTermination("APPROVED")
+
+    # Create the SelectorGroupChat team with custom model context
+    team = SelectorGroupChat(
+        participants=[project_manager, analyst, reviewer],
+        model_client=MLXAutogenChatLLMAdapter(
+            model="llama-3.2-3b-instruct-4bit", name="GroupChatManager", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/group_chat_manager_chats"),
+        termination_condition=termination,
+        max_turns=4,
+        model_context=model_context,
+        selector_prompt="""You are managing a project planning team. The following roles are available:
+{roles}.
+Based on the conversation, select the next role from {participants} to respond. Only return the role name.
+{history}""",
+        allow_repeated_speaker=True,
+    )
+
+    # Run the team with a project planning task
+    task = "Plan a new feature development for our app, including task assignment and time estimation."
+    await Console(team.run_stream(task=task))
+
+if __name__ == "__main__":
+    asyncio.run(main())
