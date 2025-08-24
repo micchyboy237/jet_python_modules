@@ -8,6 +8,7 @@ from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.ui import Console
 
+from jet.file.utils import save_file
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
 
 OUTPUT_DIR = os.path.join(
@@ -79,6 +80,9 @@ Based on the conversation, select the next role from {participants} to respond. 
     # Run the team with a project planning task
     task = "Plan a new feature development for our app, including task assignment and time estimation."
     await Console(team.run_stream(task=task))
+
+    state = team.save_state()
+    save_file(state, f"{OUTPUT_DIR}/team_state.json")
 
 if __name__ == "__main__":
     asyncio.run(main())

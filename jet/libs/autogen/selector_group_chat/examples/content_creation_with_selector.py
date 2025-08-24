@@ -9,6 +9,7 @@ from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.ui import Console
 from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
 
+from jet.file.utils import save_file
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
 
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
@@ -80,6 +81,9 @@ Select the next role from {participants} to respond. Only return the role name.
     # Run the team with a content creation task
     task = "Create a blog post about sustainable energy solutions."
     await Console(team.run_stream(task=task))
+
+    state = team.save_state()
+    save_file(state, f"{OUTPUT_DIR}/team_state.json")
 
 if __name__ == "__main__":
     asyncio.run(main())

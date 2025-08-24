@@ -7,6 +7,7 @@ from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.ui import Console
 
+from jet.file.utils import save_file
 from jet.llm.mlx.adapters.mlx_autogen_chat_llm_adapter import MLXAutogenChatLLMAdapter
 
 OUTPUT_DIR = os.path.join(
@@ -35,27 +36,27 @@ async def main() -> None:
     support_agent = AssistantAgent(
         name="Support_Agent",
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-3b-instruct-4bit", name="Support_Agent", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/planning_chats"),
+            model="llama-3.2-3b-instruct-4bit", name="Support_Agent", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/support_chats"),
         description="Handles general customer inquiries and escalates complex issues.",
     )
     order_agent = AssistantAgent(
         name="Order_Agent",
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-3b-instruct-4bit", name="Order_Agent", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/planning_chats"),
+            model="llama-3.2-3b-instruct-4bit", name="Order_Agent", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/order_chats"),
         tools=[check_order_status],
         description="Specializes in checking order statuses.",
     )
     refund_agent = AssistantAgent(
         name="Refund_Agent",
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-3b-instruct-4bit", name="Refund_Agent", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/planning_chats"),
+            model="llama-3.2-3b-instruct-4bit", name="Refund_Agent", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/refund_chats"),
         tools=[process_refund],
         description="Handles refund requests.",
     )
     product_agent = AssistantAgent(
         name="Product_Agent",
         model_client=MLXAutogenChatLLMAdapter(
-            model="llama-3.2-3b-instruct-4bit", name="Product_Agent", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/planning_chats"),
+            model="llama-3.2-3b-instruct-4bit", name="Product_Agent", conversation_id=conversation_id, log_dir=f"{OUTPUT_DIR}/product_chats"),
         tools=[provide_product_info],
         description="Provides detailed product information.",
     )
@@ -81,6 +82,9 @@ Read the conversation history and select the next role from {participants} to re
     # Run the team with a customer query
     task = "I have a question about my order #12345 and want to know about the product details."
     await Console(team.run_stream(task=task))
+
+    state = team.save_state()
+    save_file(state, f"{OUTPUT_DIR}/team_state.json")
 
 if __name__ == "__main__":
     asyncio.run(main())
