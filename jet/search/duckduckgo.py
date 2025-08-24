@@ -192,3 +192,17 @@ class DuckDuckGoSearch:
         except DDGSException as e:
             logger.error(f"Book search error: {e}")
             return []
+
+
+def search_web(query: str) -> str:
+    from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchAPIWrapper, DuckDuckGoSearchRun
+    api_wrapper = DuckDuckGoSearchAPIWrapper(
+        region="wt-wt",
+        safesearch="moderate",
+        time="y",
+        max_results=10,
+        source="text"
+    )
+    search_tool = DuckDuckGoSearchRun(api_wrapper=api_wrapper)
+    result = search_tool._run(query)
+    return result
