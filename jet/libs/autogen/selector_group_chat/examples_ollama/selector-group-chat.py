@@ -22,7 +22,7 @@ logger = CustomLogger(log_file, overwrite=True)
 logger.info(f"Logs: {log_file}")
 
 model_client = OllamaChatCompletionClient(
-    model="llama3.2", host="http://jethros-macbook-air.local:11434")
+    model="llama3.2", host="http://localhost:11434")
 
 """
 # Selector Group Chat

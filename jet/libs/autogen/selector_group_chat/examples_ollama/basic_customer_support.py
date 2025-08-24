@@ -32,7 +32,7 @@ async def provide_product_info(product_id: str) -> str:
 
 async def main() -> None:
     model_client = OllamaChatCompletionClient(
-        model="llama3.2", host="http://jethros-macbook-air.local:11434")
+        model="llama3.2", host="http://localhost:11434")
 
     # Create agents with specific roles
     support_agent = AssistantAgent(

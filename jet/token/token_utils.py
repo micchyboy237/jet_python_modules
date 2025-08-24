@@ -1,10 +1,4 @@
-import logging
-from jet.llm.mlx.utils.base import get_model_max_tokens
-from jet.vectors.document_types import HeaderTextNode
-from typing import Optional, Callable, Union
 from typing import Callable, Literal, Optional, TypedDict, Union
-from jet.models.tokenizer.base import get_tokenizer, get_tokenizer_fn, tokenize
-from jet.models.utils import get_embedding_size
 from jet.logger import logger
 from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
 from jet.vectors.document_types import HeaderDocument, HeaderTextNode
@@ -23,7 +17,6 @@ from jet.llm.models import (
     OLLAMA_MODEL_EMBEDDING_TOKENS,
     OLLAMA_MODEL_NAMES,
 )
-from jet.models.model_types import ModelType
 
 
 def get_ollama_models():
@@ -44,9 +37,41 @@ def get_ollama_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_
     raise ValueError(f"Model \"{model_name}\" not found")
 
 
+def get_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
+    if model_name in OLLAMA_MODEL_NAMES.__args__:
+        model_name = OLLAMA_HF_MODELS[model_name]
+
+    if model_name in OLLAMA_HF_MODEL_NAMES.__args__:
+        return get_ollama_tokenizer(model_name)
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        return tokenizer
+    except Exception:
+        encoding = tiktoken.get_encoding("cl100k_base")
+        return encoding
+
+
+def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | list[str] | list[dict]) -> list[int] | list[list[int]]:
+    tokenizer = get_tokenizer(model_name)
+
+    if isinstance(text, list):
+        texts = [str(t) for t in text]
+
+        if isinstance(tokenizer, tiktoken.Encoding):
+            tokenized = tokenizer.encode_batch(texts)
+        else:
+            tokenized = tokenizer.batch_encode_plus(texts, return_tensors=None)
+            tokenized = tokenized["input_ids"]
+        return tokenized
+    else:
+        tokens = tokenizer.encode(str(text))
+        return tokens
+
+
 def token_counter(
     text: str | list[str] | list[ChatMessage] | list[Message],
-    model: ModelType = "qwen3-1.7b-4bit",
+    model: Optional[str | OLLAMA_MODEL_NAMES] = "mistral",
     prevent_total: bool = False
 ) -> int | list[int]:
     if not text:
@@ -58,31 +83,6 @@ def token_counter(
     else:
         token_counts = [len(item) for item in tokenized]
         return sum(token_counts) if not prevent_total else token_counts
-
-
-def get_model_by_max_predict(text: str, max_predict: int = 500, type: Literal["llm", "embed"] = "llm") -> OLLAMA_LLM_MODELS:
-    """
-    Returns the first OLLAMA model (sorted by max tokens) that can accommodate
-    the given text plus max_predict tokens. Raises error if none fits.
-    """
-    models = OLLAMA_LLM_MODELS.__args__ if type == "llm" else OLLAMA_EMBED_MODELS.__args__
-
-    sorted_models = sorted(
-        models,
-        key=lambda name: OLLAMA_MODEL_EMBEDDING_TOKENS[name]
-    )
-
-    text_token_count: int = token_counter(text)
-
-    for model in sorted_models:
-        max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
-        if text_token_count + max_predict <= max_tokens:
-            return model
-
-    raise ValueError(
-        f"No suitable model found. Required tokens: {text_token_count + max_predict}, "
-        f"but highest model max is {OLLAMA_MODEL_EMBEDDING_TOKENS[sorted_models[-1]]}"
-    )
 
 
 class TokenCountsInfoResult(TypedDict):
@@ -113,15 +113,29 @@ def get_token_counts_info(texts: list[str], model: OLLAMA_MODEL_NAMES) -> TokenC
     }
 
 
+def get_model_max_tokens(
+    model: Optional[str | OLLAMA_MODEL_NAMES] = "mistral",
+) -> int:
+    if model in OLLAMA_MODEL_EMBEDDING_TOKENS:
+        return OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        return tokenizer.model_max_length
+    except Exception:
+        encoding = tiktoken.get_encoding("cl100k_base")
+        return encoding.max_token_value
+
+
 def filter_texts(
     text: str | list[str] | list[ChatMessage] | list[Message],
-    model: str | ModelType = "qwen3-1.7b-4bit",
+    model: str | OLLAMA_MODEL_NAMES = "mistral",
     max_tokens: Optional[int | float] = None,
 ) -> str | list[str] | list[dict] | list[ChatMessage]:
     if not max_tokens:
         max_tokens = 0.5
 
-    tokenizer = get_tokenizer(model)
+    tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
     if isinstance(max_tokens, float) and max_tokens < 1:
         max_tokens = int(
             get_model_max_tokens(model) * max_tokens)
@@ -134,7 +148,7 @@ def filter_texts(
             return [text]
 
         # Split into manageable chunks
-        tokens = tokenize(model, text)
+        tokens = tokenize(OLLAMA_HF_MODELS[model], text)
         return tokenizer.decode(tokens[0:max_tokens], skip_special_tokens=False)
     else:
         if isinstance(text[0], str):
@@ -170,20 +184,20 @@ def filter_texts(
 
 def group_texts(
     text: str | list[str] | list[ChatMessage] | list[Message],
-    model: str | ModelType = "qwen3-1.7b-4bit",
+    model: str | OLLAMA_MODEL_NAMES = "mistral",
     max_tokens: Optional[int | float] = None,
 ) -> list[list[str]]:
     if not max_tokens:
         max_tokens = 0.5
 
-    tokenizer = get_tokenizer(model)
+    tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
     if isinstance(max_tokens, float) and max_tokens < 1:
         max_tokens = int(get_model_max_tokens(model) * max_tokens)
     else:
         max_tokens = max_tokens or get_model_max_tokens(model)
 
     if isinstance(text, str):
-        tokens = tokenize(model, text)
+        tokens = tokenize(OLLAMA_HF_MODELS[model], text)
         grouped_texts = []
 
         for i in range(0, len(tokens), max_tokens):
@@ -220,7 +234,7 @@ def group_texts(
 
 def group_nodes(
     nodes: list[TextNode] | list[NodeWithScore],
-    model: str | OLLAMA_MODEL_NAMES = "qwen3-1.7b-4bit",
+    model: str | OLLAMA_MODEL_NAMES = "mistral",
     # New argument to enforce minimum token count per group
     min_tokens: Optional[int | float] = None,
     max_tokens: Optional[int | float] = None,
@@ -525,8 +539,8 @@ def split_docs(
 
 def split_headers(
     docs: HeaderDocument | list[HeaderDocument],
-    model: Optional[str | ModelType] = None,
-    chunk_size: Optional[int] = None,
+    model: Optional[str | OLLAMA_MODEL_NAMES] = None,
+    chunk_size: int = 128,
     chunk_overlap: int = 0,
     *,
     tokenizer: Optional[Callable[[Union[str, list[str]]],
@@ -539,15 +553,6 @@ def split_headers(
     if tokens and not isinstance(tokens[0], list):
         tokens = [tokens]
 
-    # Set up tokenizer
-    if tokenizer:
-        tokenizer_fn = tokenizer
-    elif model:
-        tokenizer_fn = get_tokenizer_fn(model)
-    else:
-        tokenizer_fn = get_words  # Default tokenizer
-
-    # Process tokens or tokenize documents
     if tokens is not None:
         if len(tokens) != len(docs):
             raise ValueError(
@@ -556,18 +561,26 @@ def split_headers(
         tokens_matrix = tokens
         token_counts = [len(t) for t in tokens_matrix]
     else:
+        if tokenizer:
+            tokenizer_fn = tokenizer
+        elif model:
+            def _tokenizer(input):
+                return tokenize(model, input)
+            tokenizer_fn = _tokenizer
+        else:
+            tokenizer_fn = get_words
+
         doc_texts = [doc.text for doc in docs]
         tokens_matrix: list[list] = tokenizer_fn(doc_texts)
         token_counts: list[int] = [len(t) for t in tokens_matrix]
 
-    # Set chunk_size
     if not chunk_size:
         if model:
-            chunk_size = get_embedding_size(model)
+            chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
         else:
             average_tokens = sum(token_counts) / \
                 len(token_counts) if token_counts else 0
-            chunk_size = int(average_tokens)
+            chunk_size = average_tokens
 
     if chunk_size <= chunk_overlap:
         raise ValueError(
@@ -582,60 +595,41 @@ def split_headers(
 
     nodes: list[HeaderTextNode] = []
 
-    for doc_idx, (doc, token_count) in enumerate(zip(docs, token_counts)):
-        # Create base node with original text and metadata
+    for doc, token_count in zip(docs, token_counts):
         node = HeaderTextNode(
             text=doc.text,
             metadata={
                 **doc.metadata,
-                # Use current node list length as doc_index
-                "doc_index": len(nodes),
-                "content": doc.metadata["content"],
                 "start_idx": 0,
                 "end_idx": len(doc.text),
                 "chunk_index": None,
-                "token_count": token_count,  # Add token count for unsplit document
-                "texts": None,  # Initialize texts field
-            }
-        )
+            })
 
         if token_count > effective_max_tokens:
             splitter = SentenceSplitter(
                 chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-            splitted_texts = splitter.split_text(doc.metadata["content"])
-
-            # Update parent node with split texts
-            node.metadata["texts"] = splitted_texts
+            splitted_texts = splitter.split_text(doc.text)
 
             prev_sibling: Optional[HeaderTextNode] = None
-            last_pos = 0
+            last_pos = 0  # Track last position to handle overlapping or repeated subtexts
+            # Start chunk_idx at 0 for sub-chunks
             for chunk_idx, subtext in enumerate(splitted_texts, start=0):
                 # Find the next occurrence of subtext after last_pos
-                start_idx = doc.metadata["content"].find(subtext, last_pos)
+                start_idx = doc.text.find(subtext, last_pos)
                 if start_idx == -1:
+                    # If subtext not found, use last_pos as fallback
                     start_idx = last_pos
                 end_idx = start_idx + len(subtext)
-                last_pos = start_idx
+                last_pos = start_idx  # Update last_pos for next iteration
 
-                # Calculate token count for the chunk
-                chunk_tokens = tokenizer_fn(subtext)
-                chunk_token_count = len(chunk_tokens)
-
-                # Create sub-node with updated content metadata
                 sub_node = HeaderTextNode(
                     text=subtext,
                     metadata={
                         **doc.metadata,
-                        # Use current node list length as doc_index
-                        "doc_index": len(nodes),
-                        "content": subtext,
                         "start_idx": start_idx,
                         "end_idx": end_idx,
                         "chunk_index": chunk_idx,
-                        "token_count": chunk_token_count,  # Add token count for chunk
-                        "texts": None,  # Child nodes don't need texts field
-                    }
-                )
+                    })
                 nodes.append(sub_node)
                 add_parent_child_relationship(
                     parent_node=node,
@@ -652,174 +646,29 @@ def split_headers(
     return nodes
 
 
-def merge_headers(
-    nodes: list[HeaderTextNode],
-    model_id: Optional[str] = None,
-    chunk_size: Optional[int] = None,
-    chunk_overlap: int = 0,
-    *,
-    tokenizer: Optional[Callable[[Union[str, list[str]]],
-                                 Union[list[int], list[list[int]]]]] = None,
-    buffer: int = 0
-) -> list[HeaderTextNode]:
-    if not nodes:
-        return []
+def get_model_by_max_predict(text: str, max_predict: int = 500, type: Literal["llm", "embed"] = "llm") -> OLLAMA_LLM_MODELS:
+    """
+    Returns the first OLLAMA model (sorted by max tokens) that can accommodate
+    the given text plus max_predict tokens. Raises error if none fits.
+    """
+    models = OLLAMA_LLM_MODELS.__args__ if type == "llm" else OLLAMA_EMBED_MODELS.__args__
 
-    # Validate chunk_size and chunk_overlap
-    if not chunk_size:
-        texts = [node.text for node in nodes]
-        token_counts = [len(text.split()) for text in texts]
-        chunk_size = int(sum(token_counts) / len(token_counts)
-                         ) if token_counts else 128
-
-    if chunk_size <= chunk_overlap:
-        raise ValueError(
-            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})")
-
-    effective_max_tokens = max(chunk_size - buffer, 1)
-    if effective_max_tokens <= chunk_overlap:
-        raise ValueError(
-            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk_overlap ({chunk_overlap})")
-
-    # Set up tokenizer
-    if tokenizer:
-        tokenizer_fn = tokenizer
-    elif model_id:
-        try:
-            tokenizer_fn = get_tokenizer_fn(model_id)
-        except ImportError:
-            raise ImportError(
-                "Please install sentence_transformers: pip install sentence_transformers")
-    else:
-        raise ValueError("Either model_id or tokenizer must be provided")
-
-    def encode_wrapper(texts: Union[str, list[str]]) -> Union[list[int], list[list[int]]]:
-        result = tokenizer_fn.encode(
-            texts, truncation=True, max_length=chunk_size)
-        return result if isinstance(texts, list) else [result]
-
-    def decode_wrapper(tokens: list[int], **kwargs) -> str:
-        return tokenizer_fn.decode(tokens)
-
-    # Compute token counts
-    texts = [node.text for node in nodes]
-    tokens_matrix = encode_wrapper(texts)
-    token_counts = [len(tokens) for tokens in tokens_matrix]
-
-    merged_nodes: list[HeaderTextNode] = []
-    current_text = ""
-    current_token_count = 0
-    current_metadata = {}
-    start_idx = 0
-    chunk_idx = 0
-    used_nodes: set[str] = set()
-    i = 0
-
-    while i < len(nodes):
-        node = nodes[i]
-        node_id = node.id_
-        token_count = token_counts[i]
-
-        if node_id in used_nodes:
-            i += 1
-            continue
-
-        if current_token_count + token_count <= effective_max_tokens:
-            current_text += (node.text + " ") if current_text else node.text
-            current_token_count += token_count
-            used_nodes.add(node_id)
-            for key, value in node.metadata.items():
-                if key not in current_metadata or not current_metadata[key]:
-                    current_metadata[key] = value
-            i += 1
-            continue
-
-        if current_text:
-            end_idx = start_idx + len(current_text.strip())
-            merged_node = HeaderTextNode(
-                text=current_text.strip(),
-                metadata={
-                    **current_metadata,
-                    "content": current_text.strip(),  # Set content to merged text
-                    "start_idx": start_idx,
-                    "end_idx": end_idx,
-                    "chunk_index": chunk_idx,
-                }
-            )
-            merged_nodes.append(merged_node)
-            chunk_idx += 1
-            current_metadata = {}
-            start_idx = end_idx
-
-        if chunk_overlap > 0 and current_text:
-            overlap_tokens = encode_wrapper(current_text)[-1][-chunk_overlap:]
-            overlap_text = decode_wrapper(
-                overlap_tokens, skip_special_tokens=True).strip()
-            current_text = overlap_text
-            current_token_count = len(overlap_tokens)
-        else:
-            current_text = ""
-            current_token_count = 0
-
-        if token_count > effective_max_tokens:
-            splitter = SentenceSplitter(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-            splitted_texts = splitter.split_text(node.text)
-            for sub_idx, subtext in enumerate(splitted_texts):
-                sub_node = HeaderTextNode(
-                    text=subtext,
-                    metadata={
-                        **node.metadata,
-                        "content": subtext,  # Set content to subtext
-                        "start_idx": start_idx,
-                        "end_idx": start_idx + len(subtext),
-                        "chunk_index": chunk_idx,
-                        "sub_chunk": sub_idx,
-                    }
-                )
-                merged_nodes.append(sub_node)
-                start_idx += len(subtext)
-                chunk_idx += 1
-            used_nodes.add(node_id)
-            i += 1
-            current_text = ""
-            current_token_count = 0
-            continue
-
-        current_text = node.text
-        current_token_count = token_count
-        current_metadata = node.metadata.copy()
-        current_metadata["content"] = node.text  # Ensure content matches text
-        used_nodes.add(node_id)
-        i += 1
-
-    if current_text:
-        end_idx = start_idx + len(current_text.strip())
-        merged_node = HeaderTextNode(
-            text=current_text.strip(),
-            metadata={
-                **current_metadata,
-                "content": current_text.strip(),  # Set content to final text
-                "start_idx": start_idx,
-                "end_idx": end_idx,
-                "chunk_index": chunk_idx,
-            }
-        )
-        merged_nodes.append(merged_node)
-
-    # Deduplicate based on text
-    seen_texts: set[str] = set()
-    unique_nodes: list[HeaderTextNode] = []
-    for node in merged_nodes:
-        if node.text not in seen_texts:
-            seen_texts.add(node.text)
-            unique_nodes.append(node)
-
-    logging.debug(
-        f"Merged {len(nodes)} HeaderTextNodes into {len(unique_nodes)} chunks "
-        f"(chunk_size={chunk_size}, overlap={chunk_overlap}, buffer={buffer})."
+    sorted_models = sorted(
+        models,
+        key=lambda name: OLLAMA_MODEL_EMBEDDING_TOKENS[name]
     )
-    return unique_nodes
+
+    text_token_count: int = token_counter(text)
+
+    for model in sorted_models:
+        max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+        if text_token_count + max_predict <= max_tokens:
+            return model
+
+    raise ValueError(
+        f"No suitable model found. Required tokens: {text_token_count + max_predict}, "
+        f"but highest model max is {OLLAMA_MODEL_EMBEDDING_TOKENS[sorted_models[-1]]}"
+    )
 
 
 if __name__ == "__main__":

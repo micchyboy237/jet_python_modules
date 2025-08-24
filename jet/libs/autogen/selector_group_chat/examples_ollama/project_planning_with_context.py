@@ -35,7 +35,7 @@ async def main() -> None:
     model_context = BufferedChatCompletionContext(buffer_size=3)
 
     model_client = OllamaChatCompletionClient(
-        model="llama3.2", host="http://jethros-macbook-air.local:11434")
+        model="llama3.2", host="http://localhost:11434")
 
     # Create agents with specific roles
     project_manager = AssistantAgent(
