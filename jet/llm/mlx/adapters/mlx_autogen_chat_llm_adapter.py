@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any, AsyncGenerator, Dict, Iterator, List, Literal, Mapping, Optional, Sequence, Union, cast
 import uuid
@@ -130,7 +131,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
                     "user" if isinstance(msg, UserMessage) else
                     "assistant"
                 ),
-                "content": msg.content if isinstance(msg.content, str) else str(msg.content)
+                "content": msg.content if isinstance(msg.content, str) else json.dumps(msg.content, default=str)
             }
             for msg in messages
             if msg.content
@@ -236,7 +237,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
                     "user" if isinstance(msg, UserMessage) else
                     "assistant"
                 ),
-                "content": msg.content if isinstance(msg.content, str) else str(msg.content)
+                "content": msg.content if isinstance(msg.content, str) else json.dumps(msg.content, default=str)
             }
             for msg in messages
         ]
