@@ -59,6 +59,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         truncate_dim: Optional[int] = None,
         prompts: Optional[dict[str, str]] = None,
         max_length: Optional[int] = None,
+        max_seq_length: Optional[int] = None,
         device: Optional[Literal["cpu", "mps"]] = None
     ) -> SentenceTransformer:
         """Load or retrieve a SentenceTransformer model statically."""
@@ -95,6 +96,8 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         try:
             model = instance._load_model(
                 resolved_model_id, truncate_dim=truncate_dim, prompts=prompts, device=device)
+            if max_seq_length:
+                model.max_seq_length = max_seq_length
             instance._models[_cache_key] = model
             instance._models.move_to_end(_cache_key)  # Update LRU order
             # Log memory usage
@@ -125,7 +128,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
                 logger.info(
                     f"Loading embedding model on {device.upper()}: {model_id}")
                 model_instance = SentenceTransformer(
-                    model_id, device=device, truncate_dim=truncate_dim, prompts=prompts,)
+                    model_id, trust_remote_code=True, device=device, truncate_dim=truncate_dim, prompts=prompts)
         except Exception as e:
             logger.warning(
                 f"Falling back to CPU (onnx) for embed model due to: {e}")

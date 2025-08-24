@@ -79,12 +79,12 @@ class CrossEncoderRegistry(BaseModelRegistry):
             logger.info(
                 f"Loading embedding model on {device.upper()}: {model_id}")
             model_instance = CrossEncoder(
-                model_id, device=device, max_length=max_length)
+                model_id, trust_remote_code=True, device=device, max_length=max_length)
         except Exception as e:
             logger.warning(
                 f"Falling back to CPU (onnx) for CrossEncoder model due to: {e}")
             model_instance = CrossEncoder(
-                model_id, device="cpu", backend="onnx", trust_remote_code=True, max_length=max_length,
+                model_id, trust_remote_code=True, device="cpu", backend="onnx", max_length=max_length,
                 # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
             )
         return model_instance

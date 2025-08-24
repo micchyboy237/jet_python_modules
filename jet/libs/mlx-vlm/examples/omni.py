@@ -31,7 +31,8 @@ class ImageAudioStreamer:
     def __init__(
         self,
         api_url="http://localhost:8000/generate",
-        model="mlx-community/gemma-3n-E2B-it-5bit",
+        # model="mlx-community/gemma-3n-E2B-it-5bit",
+        model="mlx-community/Qwen2.5-VL-3B-Instruct-3bit",
         silence_threshold=0.03,
         silence_duration=2.0,
         sample_rate=16_000,
@@ -83,12 +84,14 @@ class ImageAudioStreamer:
         try:
             self.camera = cv2.VideoCapture(self.camera_index)
             if not self.camera.isOpened():
-                logger.error(f"Failed to open camera at index {self.camera_index}")
+                logger.error(
+                    f"Failed to open camera at index {self.camera_index}")
                 self.enable_camera = False
                 return
 
             # Start camera capture thread
-            self.camera_thread = threading.Thread(target=self._camera_capture_loop)
+            self.camera_thread = threading.Thread(
+                target=self._camera_capture_loop)
             self.camera_thread.daemon = True
             self.camera_thread.start()
             logger.info("Camera initialized successfully")
@@ -210,7 +213,8 @@ class ImageAudioStreamer:
                             line_text = line.decode("utf-8").strip()
 
                             if line_text.startswith("data: "):
-                                json_str = line_text[6:]  # Remove 'data: ' prefix
+                                # Remove 'data: ' prefix
+                                json_str = line_text[6:]
 
                                 if json_str == "[DONE]":
                                     break
@@ -222,7 +226,8 @@ class ImageAudioStreamer:
                                     chunk_content = data["chunk"]
                                     if chunk_content:  # Only add non-empty chunks
                                         transcription += chunk_content
-                                        print(chunk_content, end="", flush=True)
+                                        print(chunk_content,
+                                              end="", flush=True)
                         except json.JSONDecodeError as e:
                             logger.error(f"JSON decode error: {e}")
                             continue
@@ -300,9 +305,11 @@ class ImageAudioStreamer:
 
                             # Save in current working directory with simple name
                             temp_audio_filename = f"debug_audio_{audio_counter}.wav"
-                            full_audio_path = os.path.abspath(temp_audio_filename)
+                            full_audio_path = os.path.abspath(
+                                temp_audio_filename)
 
-                            self._save_audio_to_wav(audio_data, full_audio_path)
+                            self._save_audio_to_wav(
+                                audio_data, full_audio_path)
 
                             # Save camera frame if available
                             temp_image_filename = None

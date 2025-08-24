@@ -102,7 +102,7 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
 
 
 if __name__ == "__main__":
-    repo_id = "mlx-community/Qwen2.5-VL-3B-Instruct-3bit"
+    repo_id = "mlx-community/llava-interleave-qwen-0.5b-4bit"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")
