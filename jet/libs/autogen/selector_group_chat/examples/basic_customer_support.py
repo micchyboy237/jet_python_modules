@@ -83,7 +83,7 @@ Read the conversation history and select the next role from {participants} to re
     task = "I have a question about my order #12345 and want to know about the product details."
     await Console(team.run_stream(task=task))
 
-    state = team.save_state()
+    state = await team.save_state()
     save_file(state, f"{OUTPUT_DIR}/team_state.json")
 
 if __name__ == "__main__":

@@ -81,7 +81,7 @@ Based on the conversation, select the next role from {participants} to respond. 
     task = "Plan a new feature development for our app, including task assignment and time estimation."
     await Console(team.run_stream(task=task))
 
-    state = team.save_state()
+    state = await team.save_state()
     save_file(state, f"{OUTPUT_DIR}/team_state.json")
 
 if __name__ == "__main__":
