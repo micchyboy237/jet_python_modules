@@ -86,7 +86,7 @@ class MLXAutogenChatLLMAdapter(ChatCompletionClient):
             next_number = max(numbers) + 1 if numbers else 1
             incremented_filename = f"{next_number}"
             save_file(
-                args_dict, f"{autogen_dir}/args_{incremented_filename}.json")
+                args_dict, f"{autogen_dir}/{incremented_filename}.json")
 
     async def create(
         self,
