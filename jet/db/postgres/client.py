@@ -505,9 +505,13 @@ class PostgresClient:
         id_column: str = "id",
         where_conditions: Optional[Dict[str, Any]] = None,
         limit: Optional[int] = None,
-        order_by: Optional[Tuple[str, Literal["ASC", "DESC"]]] = None
+        order_by: Optional[Tuple[str, Literal["ASC", "DESC"]]] = None,
+        group_by: Optional[List[str]] = None,
+        aggregates: Optional[
+            Dict[str, Tuple[str, Literal["COUNT", "SUM", "AVG", "MIN", "MAX"]]]
+        ] = None
     ) -> List[TableRow]:
-        """Retrieve rows from the specified table, optionally filtered by IDs, where conditions, limited, and ordered.
+        """Retrieve rows from the specified table, optionally filtered by IDs, where conditions, limited, ordered, and grouped.
 
         Args:
             table_name: Name of the table to query
@@ -516,12 +520,14 @@ class PostgresClient:
             where_conditions: Optional dictionary of column names and values for WHERE clause
             limit: Optional maximum number of rows to return
             order_by: Optional tuple of (column_name, 'ASC' or 'DESC') for ORDER BY clause
+            group_by: Optional list of column names to group by
+            aggregates: Optional dictionary of column aliases to (column_name, aggregate_function) tuples
 
         Returns:
-            List of dictionaries containing all columns except embedding for each row
+            List of dictionaries containing selected columns and aggregates for each row or group
 
         Raises:
-            ValueError: If table has no columns, invalid limit, or invalid order_by
+            ValueError: If table has no columns, invalid limit, invalid order_by, invalid group_by, or invalid aggregates
         """
         with self.conn.cursor() as cur:
             # Get all column names and their types except embedding
@@ -537,14 +543,51 @@ class PostgresClient:
                     f"No columns found for table {table_name} (excluding embedding)")
 
             columns = list(column_info.keys())
-            # Build query with dynamic columns, formatting TIMESTAMPTZ to ISO 8601 without timezone
-            formatted_columns = [
-                sql.SQL("TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}").format(
-                    sql.Identifier(col), sql.Identifier(col)
-                ) if column_info[col] == "timestamp with time zone"
-                else sql.Identifier(col)
-                for col in columns
-            ]
+            # Build select clause
+            formatted_columns = []
+            select_columns = []
+
+            # Handle group_by columns
+            if group_by:
+                for col in group_by:
+                    if col not in columns:
+                        raise ValueError(
+                            f"Group by column {col} not found in table {table_name}")
+                    formatted_columns.append(
+                        sql.SQL("{}").format(sql.Identifier(col)))
+                    select_columns.append(col)
+
+            # Handle aggregate functions
+            if aggregates:
+                if not group_by:
+                    raise ValueError(
+                        "Aggregates require at least one group_by column")
+                for alias, (col, agg_func) in aggregates.items():
+                    if col not in columns:
+                        raise ValueError(
+                            f"Aggregate column {col} not found in table {table_name}")
+                    if agg_func not in ("COUNT", "SUM", "AVG", "MIN", "MAX"):
+                        raise ValueError(
+                            f"Unsupported aggregate function {agg_func}")
+                    formatted_columns.append(
+                        sql.SQL("{}({}) AS {}").format(
+                            sql.SQL(agg_func), sql.Identifier(
+                                col), sql.Identifier(alias)
+                        )
+                    )
+                    select_columns.append(alias)
+            else:
+                # If no aggregates, select all columns (or group_by columns if specified)
+                if not group_by:
+                    formatted_columns = [
+                        sql.SQL("TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}").format(
+                            sql.Identifier(col), sql.Identifier(col)
+                        ) if column_info[col] == "timestamp with time zone"
+                        else sql.Identifier(col)
+                        for col in columns
+                    ]
+                    select_columns = columns
+
             query = sql.SQL("SELECT {} FROM {}").format(
                 sql.SQL(", ").join(formatted_columns),
                 sql.Identifier(table_name)
@@ -571,15 +614,21 @@ class PostgresClient:
                     query, sql.SQL(" AND ").join(where_clauses)
                 )
 
+            # Handle GROUP BY clause
+            if group_by:
+                query = sql.SQL("{} GROUP BY {}").format(
+                    query, sql.SQL(", ").join(map(sql.Identifier, group_by))
+                )
+
             # Handle ORDER BY clause
             if order_by:
                 if not isinstance(order_by, tuple) or len(order_by) != 2:
                     raise ValueError(
                         "order_by must be a tuple of (column_name, 'ASC' or 'DESC')")
                 order_col, direction = order_by
-                if order_col not in columns:
+                if order_col not in (columns + list(aggregates.keys()) if aggregates else columns):
                     raise ValueError(
-                        f"Column {order_col} not found in table {table_name}")
+                        f"Column {order_col} not found in table {table_name} or aggregates")
                 if direction not in ("ASC", "DESC"):
                     raise ValueError(
                         "order_by direction must be 'ASC' or 'DESC'")
@@ -598,9 +647,9 @@ class PostgresClient:
             results = cur.fetchall()
             return [
                 {
-                    col: row[col] if not (column_info[col] == "jsonb" and isinstance(
+                    col: row[col] if not (column_info.get(col) == "jsonb" and isinstance(
                         row[col], str)) else json.loads(row[col]) if row[col] else None
-                    for col in columns
+                    for col in select_columns
                 }
                 for row in results
             ]
