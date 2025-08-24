@@ -13,6 +13,7 @@ from jet.utils.inspect_utils import (
     get_stack_frames,
     find_stack_frames,
     get_current_running_function,
+    get_method_info,
 )
 
 
@@ -46,6 +47,8 @@ def inject_globals():
         builtins.find_stack_frames = find_stack_frames
     if not hasattr(builtins, "get_current_running_function"):
         builtins.get_current_running_function = get_current_running_function
+    if not hasattr(builtins, "get_method_info"):
+        builtins.get_method_info = get_method_info
 
 
 inject_globals()

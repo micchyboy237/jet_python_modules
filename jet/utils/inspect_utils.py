@@ -4,7 +4,7 @@ import traceback
 import inspect
 import os
 from collections import defaultdict
-from typing import Optional, TypedDict
+from typing import Any, Optional, TypedDict, get_type_hints
 
 from jet.transformers.object import make_serializable
 from shared.setup.types import BaseEventData
@@ -257,6 +257,42 @@ def get_entry_file_path() -> Optional[str]:
         return None
 
 
+def get_method_info(method: Any) -> dict[str, str]:
+    """Extract string information from a typed class method.
+
+    Args:
+        method: The class method to inspect.
+
+    Returns:
+        A dictionary with method name, parameters, return type, and docstring.
+    """
+    method_info = {
+        "name": method.__name__,
+        "parameters": "",
+        "return_type": "",
+        "docstring": inspect.getdoc(method) or "No docstring available",
+    }
+
+    # Get type hints for parameters and return type
+    type_hints = get_type_hints(method)
+
+    # Format parameters with their types
+    params = inspect.signature(method).parameters
+    param_strings = [
+        f"{name}: {type_hints.get(name, Any).__name__}"
+        for name in params if name != "self"
+    ]
+    method_info["parameters"] = ", ".join(
+        param_strings) if param_strings else "None"
+
+    # Get return type
+    return_type = type_hints.get("return", Any)
+    method_info["return_type"] = return_type.__name__ if hasattr(
+        return_type, "__name__") else str(return_type)
+
+    return method_info
+
+
 __all__ = [
     "inspect_original_script_path",
     "print_inspect_original_script_path",
@@ -266,6 +302,7 @@ __all__ = [
     "get_current_running_function",
     "get_entry_file_name",
     "get_entry_file_path",
+    "get_method_info",
 ]
 
 # Example usage

@@ -6,6 +6,7 @@ from uuid import uuid4
 from jet.file.utils import save_file
 from jet.models.model_types import CompletionResponse, Message
 from jet.transformers.formatters import format_json
+from jet.utils.inspect_utils import get_method_info
 
 
 def short_sortable_filename() -> str:
@@ -41,11 +42,18 @@ class ChatLogger:
 
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
 
+        tools = None
+        if "tools" in kwargs:
+            tools = (kwargs.pop("tools") or []).copy()
+            for tool_idx, tool_fn in enumerate(tools):
+                tools[tool_idx] = get_method_info(tool_fn)
+
         # Initialize log_data with core attributes
         log_data = {
             "timestamp": timestamp,
             "session_id": self.session_id,
             "method": self.method,
+            "tools": tools,
         }
 
         # Add remaining kwargs (excluding usage for now)

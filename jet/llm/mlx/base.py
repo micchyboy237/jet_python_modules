@@ -216,6 +216,13 @@ class MLX:
                 else []
             ) + formatted_messages
         )
+
+        # If a system message is in all_messages, filter out prior items if any
+        system_idx = next((i for i, msg in enumerate(
+            all_messages) if msg.get("role") == "system"), None)
+        if system_idx is not None and system_idx > 0:
+            all_messages = all_messages[system_idx:]
+
         if max_tokens is None:
             max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:
@@ -323,6 +330,13 @@ class MLX:
                 else []
             ) + formatted_messages
         )
+
+        # If a system message is in all_messages, filter out prior items if any
+        system_idx = next((i for i, msg in enumerate(
+            all_messages) if msg.get("role") == "system"), None)
+        if system_idx is not None and system_idx > 0:
+            all_messages = all_messages[system_idx:]
+
         if max_tokens is None:
             max_tokens = self.client.cli_args.max_tokens
         if max_tokens == -1:

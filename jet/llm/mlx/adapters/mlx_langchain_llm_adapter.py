@@ -149,6 +149,12 @@ class ChatMLX(BaseChatModel):
     ) -> ChatResult:
         """Generate a chat response using MLX client."""
         mlx_messages = self._convert_messages_to_mlx_format(messages)
+
+        tools: List[Tool] = kwargs.pop("tools", None)
+        if "functions" in kwargs:
+            functions = kwargs.pop("functions")
+            tools = [Tool(type="function", function=fn) for fn in functions]
+
         response = self.mlx_client.chat(
             messages=mlx_messages,
             max_tokens=self.max_tokens,
@@ -156,6 +162,7 @@ class ChatMLX(BaseChatModel):
             top_p=self.top_p,
             top_k=self.top_k,
             stop=stop,
+            tools=tools,
             **kwargs
         )
 
@@ -183,6 +190,12 @@ class ChatMLX(BaseChatModel):
     ) -> Iterator[ChatGenerationChunk]:
         """Stream chat responses using MLX client."""
         mlx_messages = self._convert_messages_to_mlx_format(messages)
+
+        tools: List[Tool] = kwargs.pop("tools", None)
+        if "functions" in kwargs:
+            functions = kwargs.pop("functions")
+            tools = [Tool(type="function", function=fn) for fn in functions]
+
         for response in self.mlx_client.stream_chat(
             messages=mlx_messages,
             max_tokens=self.max_tokens,
@@ -190,6 +203,7 @@ class ChatMLX(BaseChatModel):
             top_p=self.top_p,
             top_k=self.top_k,
             stop=stop,
+            tools=tools,
             **kwargs
         ):
             content = response["choices"][0]["message"]["content"] if response.get(
