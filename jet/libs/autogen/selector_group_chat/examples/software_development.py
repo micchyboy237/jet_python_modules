@@ -74,5 +74,8 @@ async def main() -> None:
                 continue
             assert message.source in filtered_participants, "Candidate function didn't filter the participants"
 
+    state = await team.save_state()
+    save_file(state, f"{OUTPUT_DIR}/team_state.json")
+
 if __name__ == "__main__":
     asyncio.run(main())
