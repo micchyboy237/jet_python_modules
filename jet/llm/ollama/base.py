@@ -6,9 +6,8 @@ from langchain_postgres import PostgresChatMessageHistory
 import psycopg
 import uuid
 from jet.data.utils import generate_unique_hash
-# from jet.llm.utils.embeddings import get_embedding_function
-from jet.llm.utils.transformer_embeddings import get_embedding_function
-from jet.llm.mlx.token_utils import get_model_max_tokens, tokenize
+from jet.llm.utils.embeddings import get_embedding_function
+from jet.token.token_utils import get_model_max_tokens, tokenize
 from jet.transformers.object import make_serializable
 from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from collections import defaultdict

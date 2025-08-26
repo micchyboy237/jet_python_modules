@@ -27,7 +27,7 @@ DETERMINISTIC_LLM_SETTINGS = {
 class ChatOllama(BaseChatOllama):
     def __init__(
         self,
-        model: str = "llama3.1",
+        model: str = "llama3.2",
         base_url: str = "http://localhost:11434",
         client_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs,

@@ -18,7 +18,9 @@ class _EventSettings:
 
     _events: Dict[Literal["pre_start_hook", "post_start_hook"]
                   | str, EventData] = field(default_factory=dict)
-    _event_data: EventData = field(default_factory=dict)
+    _event_data: EventData = field(default_factory=lambda: {
+        "pre_start_hook": {"start_time": ""}
+    })
     _current_event: Optional[Literal["pre_start_hook",
                                      "post_start_hook"] | str] = None
 

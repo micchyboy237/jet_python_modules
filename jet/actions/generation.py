@@ -74,6 +74,7 @@ def call_ollama_chat(
     buffer: int = 0,
     # Parameter for cancellation
     stop_event: Optional[threading.Event] = None,
+    **kwargs
 ) -> Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
     """
     Wraps call_ollama_chat to track the prompt and response using Aim.
