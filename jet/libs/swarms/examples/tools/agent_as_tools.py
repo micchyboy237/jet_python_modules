@@ -230,6 +230,7 @@ def run_quant_trading_agent(task: str) -> str:
     # Initialize the agent
     agent = Agent(
         agent_name="Quantitative-Trading-Agent",
+        streaming_on=True,
         agent_description="Advanced quantitative trading and algorithmic analysis agent",
         system_prompt="""You are an expert quantitative trading agent with deep expertise in:
         - Algorithmic trading strategies and implementation
@@ -362,6 +363,7 @@ def run_crypto_quant_agent(task: str) -> str:
     # Initialize the agent with expanded tools
     quant_agent = Agent(
         agent_name="Crypto-Quant-Agent",
+        streaming_on=True,
         agent_description="Advanced quantitative trading agent specializing in cryptocurrency markets with algorithmic analysis capabilities",
         system_prompt="""You are an expert quantitative trading agent specializing in cryptocurrency markets. Your capabilities include:
         - Algorithmic trading strategy development and backtesting
@@ -399,6 +401,7 @@ def run_crypto_quant_agent(task: str) -> str:
 # Initialize the agent
 agent = Agent(
     agent_name="Director-Agent",
+    streaming_on=True,
     agent_description="Strategic director and project management agent",
     system_prompt="""You are an expert Director Agent with comprehensive capabilities in:
     - Strategic planning and decision making
