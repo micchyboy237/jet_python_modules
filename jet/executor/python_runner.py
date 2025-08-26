@@ -92,11 +92,11 @@ def run_python_files_in_directory(
 
     files.sort(key=lambda f: sort_key(str(f.name)))
 
-    logger = CustomLogger()
+    logger = CustomLogger(name="")
 
     if output_dir:
         main_log_file = output_dir / "main.log"
-        logger = CustomLogger(str(main_log_file), overwrite=True)
+        logger = CustomLogger(str(main_log_file), name="", overwrite=True)
 
     logger.info(
         f"\nRunning {len(files)} Python files in: {target_dir} (recursive={recursive})\n")
