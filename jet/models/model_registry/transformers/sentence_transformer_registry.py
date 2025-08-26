@@ -52,6 +52,8 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             self.truncate_dim = None
         if not hasattr(self, 'max_length'):
             self.max_length = None
+        if not hasattr(self, 'max_seq_length'):
+            self.max_seq_length = None
 
     @staticmethod
     def load_model(
@@ -66,16 +68,18 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         instance = SentenceTransformerRegistry()
 
         resolved_model_id = resolve_model_value(model_id)
-        _cache_key = generate_key(
-            resolved_model_id, truncate_dim, max_seq_length)
         instance.model_id = resolved_model_id
         instance.context_window = get_context_size(resolved_model_id)
         instance.dimensions = get_embedding_size(resolved_model_id)
-        instance.truncate_dim = truncate_dim
-        instance.max_length = max_length or truncate_dim or instance.context_window
+        instance.truncate_dim = truncate_dim or instance.truncate_dim
+        instance.max_seq_length = max_seq_length or instance.max_seq_length
+        instance.max_length = max_length or instance.max_seq_length or instance.context_window
         if instance.max_length > instance.context_window:
             raise ValueError(
                 f"max_length ({instance.max_length}) cannot be greater than context window ({instance.context_window})")
+
+        _cache_key = generate_key(
+            resolved_model_id, instance.truncate_dim, instance.max_seq_length)
 
         # Check cache size and evict oldest if necessary
         if _cache_key not in instance._models and len(instance._models) >= instance._max_cache_size:
@@ -88,19 +92,21 @@ class SentenceTransformerRegistry(BaseModelRegistry):
 
         if _cache_key in instance._models:
             logger.info(
-                f"Reusing cached SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")
+                f"Reusing cached SentenceTransformer model for model_id: {resolved_model_id}")
+            logger.debug(
+                f"truncate_dim: {instance.truncate_dim} | max_seq_length: {instance.max_seq_length}")
             instance._models.move_to_end(_cache_key)  # Update LRU order
             return instance._models[_cache_key]
 
         logger.info(
-            f"Loading SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")
+            f"Loading SentenceTransformer model for model_id: {resolved_model_id}")
         try:
             logger.debug(
-                f"truncate_dim: {truncate_dim} | max_seq_length: {max_seq_length}")
+                f"truncate_dim: {instance.truncate_dim} | max_seq_length: {instance.max_seq_length}")
             model = instance._load_model(
-                resolved_model_id, truncate_dim=truncate_dim, prompts=prompts, device=device)
+                resolved_model_id, truncate_dim=instance.truncate_dim, prompts=prompts, device=device)
             if max_seq_length:
-                model.max_seq_length = max_seq_length
+                model.max_seq_length = instance.max_seq_length
             instance._models[_cache_key] = model
             instance._models.move_to_end(_cache_key)  # Update LRU order
             # Log memory usage
@@ -115,7 +121,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
             raise ValueError(
                 f"Could not load SentenceTransformer model {resolved_model_id}: {str(e)}")
 
-    def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None, prompts: Optional[dict[str, str]] = None, **kwargs) -> Optional[SentenceTransformer]:
+    def _load_model(self, model_id: EmbedModelType, truncate_dim: Optional[int] = None, prompts: Optional[dict[str, str]] = None, device: Optional[Literal["cpu", "mps"]] = None, **kwargs) -> Optional[SentenceTransformer]:
         try:
             # If model_id contains "static-retrieval", force CPU (onnx)
             if "static-retrieval" in str(model_id):
@@ -126,12 +132,15 @@ class SentenceTransformerRegistry(BaseModelRegistry):
                     # model_kwargs={'file_name': 'model.onnx', 'subfolder': 'onnx'}
                 )
             else:
-                device = "mps" if torch.backends.mps.is_available(
-                ) else "cuda" if torch.cuda.is_available() else "cpu"
+                _device = device or ("mps" if torch.backends.mps.is_available(
+                ) else "cuda" if torch.cuda.is_available() else "cpu")
                 logger.info(
-                    f"Loading embedding model on {device.upper()}: {model_id}")
+                    f"Loading embedding model on {_device.upper()}: {model_id}")
+                backend = "torch" if _device != "cpu" else "onnx"
+                if backend == "onnx":
+                    logger.debug(f"Using CPU (onnx) for embed model")
                 model_instance = SentenceTransformer(
-                    model_id, trust_remote_code=True, device=device, truncate_dim=truncate_dim, prompts=prompts)
+                    model_id, trust_remote_code=True, device=_device, backend=backend, truncate_dim=truncate_dim, prompts=prompts)
         except Exception as e:
             logger.warning(
                 f"Falling back to CPU (onnx) for embed model due to: {e}")
@@ -260,6 +269,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         model = instance.load_model(
             model_id=instance.model_id,
             truncate_dim=instance.truncate_dim,
+            max_seq_length=instance.max_seq_length,
         )
         return generate_embeddings(
             input_data,

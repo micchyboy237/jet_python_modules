@@ -142,6 +142,10 @@ def generate_embeddings(
             else model
         )
 
+        logger.gray(f"\nGenerating embeddings...")
+        logger.debug(
+            f"truncate_dim: {embedder.get_sentence_embedding_dimension()}\nmax_seq_length: {embedder.max_seq_length}")
+
         if isinstance(input_data, str):
             embedding = embedder.encode(
                 input_data, convert_to_numpy=True, show_progress_bar=False)
@@ -152,15 +156,20 @@ def generate_embeddings(
 
         elif isinstance(input_data, list) and all(isinstance(item, str) for item in input_data):
             if not input_data:
-                return [] if return_format == "list" else np.array([])
+                return [] if return_format == "list" else np.array([], dtype=np.float32)
 
-            embeddings = []
+            # Pre-allocate NumPy array for embeddings
+            embedding_dim = embedder.get_sentence_embedding_dimension()
+            if truncate_dim is not None and truncate_dim < embedding_dim:
+                embedding_dim = truncate_dim
+            embeddings = np.empty(
+                (len(input_data), embedding_dim), dtype=np.float32)
+
             total_batches = math.ceil(len(input_data) / batch_size)
-
             if show_progress:
-                print(
-                    f"Total texts: {len(input_data)}, Batch size: {batch_size}, Total batches: {total_batches}")
-                sys.stdout.flush()
+                from tqdm import tqdm  # Use tqdm for efficient progress bar
+                progress_bar = tqdm(total=total_batches,
+                                    desc="Processing batches", disable=False)
 
             for i in range(0, len(input_data), batch_size):
                 batch = input_data[i:i + batch_size]
@@ -174,21 +183,18 @@ def generate_embeddings(
                     batch_embeddings.astype(np.float32))
                 if truncate_dim is not None and batch_embeddings.shape[-1] > truncate_dim:
                     batch_embeddings = batch_embeddings[:, :truncate_dim]
-                embeddings.extend(batch_embeddings.tolist())
+
+                # Directly assign to pre-allocated array
+                embeddings[i:i + len(batch)] = batch_embeddings
 
                 if show_progress:
-                    batch_num = i // batch_size + 1
-                    print(
-                        f"\rProcessing batch {batch_num}/{total_batches} (indices {i}:{i + batch_size})", end="")
-                    print(
-                        f"\rProgress bar updated to {batch_num}/{total_batches}", end="")
-                    sys.stdout.flush()
+                    progress_bar.update(1)
 
             if show_progress:
-                print()  # Newline after progress to finalize output
-                sys.stdout.flush()
+                progress_bar.close()
 
-            embeddings = np.array(embeddings, dtype=np.float32)
+            # Clear model memory after processing
+            embedder._clear_memory()
             return embeddings.tolist() if return_format == "list" else embeddings
 
         else:
