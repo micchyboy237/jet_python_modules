@@ -1,4 +1,5 @@
 # /Users/jethroestrada/.pyenv/shims/python
+ag-ui-protocol==0.1.8
 application_properties==0.8.3
 asyncio-atexit==1.0.1
 autogen-agentchat @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/autogen/python/packages/autogen-agentchat
@@ -7,9 +8,11 @@ azure-ai-documentintelligence==1.0.2
 azure-identity==1.23.0
 bertopic==0.17.3
 blake3==1.0.5
+boto3==1.40.17
 bs4==0.0.2
 chainlit==2.7.1.1
 chromadb==1.0.12
+cohere==5.17.0
 Columnar==1.4.1
 compressed-tensors==0.9.4
 coremltools==8.3.0
@@ -34,6 +37,7 @@ fiddle==0.3.0
 gguf==0.17.0
 gliner-spacy==0.0.11
 google-genai==1.31.0
+groq==0.31.0
 gTTS==2.5.4
 hrequests==0.9.2
 html2text==2025.4.15
@@ -62,6 +66,7 @@ mammoth==1.9.1
 mediapy==1.1.6
 -e git+ssh://git@github.com/mem0ai/mem0.git@a7ac8bf13b5e728ffb2ad8525a00e1ddd90750d0#egg=mem0ai
 mistral_common==1.5.6
+mistralai==1.9.8
 mitmproxy==12.1.1
 -e git+ssh://git@github.com/Blaizzy/mlx-vlm.git@70518218334f87b1320ae0b7dc9435754f6c8117#egg=mlx_vlm
 mrkdwn_analysis==0.1.6
@@ -87,6 +92,8 @@ pipdeptree==2.26.1
 prometheus-fastapi-instrumentator==7.1.0
 psycopg2-binary==2.9.10
 pyannote.metrics==3.2.1
+-e git+ssh://git@github.com/pydantic/pydantic-ai.git@b2f29adee56c3dc3d697ea6c1c55aa02db15bb65#egg=pydantic_ai
+-e git+ssh://git@github.com/pydantic/pydantic-ai.git@b2f29adee56c3dc3d697ea6c1c55aa02db15bb65#egg=pydantic_evals&subdirectory=pydantic_evals
 pydub==0.25.1
 pygame==2.6.1
 PyGetWindow==0.0.9
@@ -127,6 +134,8 @@ span_marker==1.7.0
 SpeechRecognition==3.14.3
 sqlite-utils==3.38
 streamlit==1.41.1
+tavily-python==0.7.11
+temporalio==1.15.0
 textacy==0.13.0
 textblob==0.19.0
 texterrors==0.5.1
