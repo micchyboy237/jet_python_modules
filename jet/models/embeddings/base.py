@@ -193,8 +193,6 @@ def generate_embeddings(
             if show_progress:
                 progress_bar.close()
 
-            # Clear model memory after processing
-            embedder._clear_memory()
             return embeddings.tolist() if return_format == "list" else embeddings
 
         else:
