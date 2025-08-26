@@ -12,6 +12,12 @@ DEFAULT_SF_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
 
 # Get the list of ollama models
 OLLAMA_MODEL_NAMES = Literal[
+    "llava",
+    "theqtcompany/codellama-7b-qml",
+    "qwen3",
+    "mxbai-embed-large",
+    "gemma3",
+    "deepseek-r1",
     "llama3.2",
     "qwen3:4b",
     "gemma3:1b-it-qat",
@@ -22,37 +28,41 @@ OLLAMA_MODEL_NAMES = Literal[
     "paraphrase-multilingual",
     "bge-large",
     "all-minilm:33m",
-    "all-minilm:22m",
-    "snowflake-arctic-embed:33m",
-    "snowflake-arctic-embed:137m",
-    "snowflake-arctic-embed",
-    "nomic-embed-text",
-    "mxbai-embed-large"
+    "all-minilm:22m"
 ]
 
 OLLAMA_LLM_MODELS = Literal[
+    "llava",
+    "theqtcompany/codellama-7b-qml",
+    "qwen3",
+    "gemma3",
+    "deepseek-r1",
+    "llama3.2",
+    "qwen3:4b",
     "gemma3:1b-it-qat",
     "deepseek-r1:1.5b",
     "llama3.2:1b",
 ]
 
 OLLAMA_EMBED_MODELS = Literal[
-    "nomic-embed-text",
     "mxbai-embed-large",
-    "snowflake-arctic-embed",
-    "snowflake-arctic-embed:137m",
-    "snowflake-arctic-embed:33m",
-    "all-minilm:22m",
-    "all-minilm:33m",
-    "bge-large",
-    "paraphrase-multilingual",
-    "granite-embedding",
     "granite-embedding:278m",
+    "granite-embedding",
+    "paraphrase-multilingual",
+    "bge-large",
+    "all-minilm:33m",
+    "all-minilm:22m",
 ]
 
 
 # Map models to context window sizes
 OLLAMA_MODEL_CONTEXTS = {
+    "llava": 32768,
+    "theqtcompany/codellama-7b-qml": 16384,
+    "qwen3": 40960,
+    "mxbai-embed-large": 512,
+    "gemma3": 131072,
+    "deepseek-r1": 131072,
     "llama3.2": 131072,
     "qwen3:4b": 40960,
     "gemma3:1b-it-qat": 32768,
@@ -63,16 +73,17 @@ OLLAMA_MODEL_CONTEXTS = {
     "paraphrase-multilingual": 512,
     "bge-large": 512,
     "all-minilm:33m": 512,
-    "all-minilm:22m": 512,
-    "snowflake-arctic-embed:33m": 512,
-    "snowflake-arctic-embed:137m": 2048,
-    "snowflake-arctic-embed": 512,
-    "nomic-embed-text": 2048,
-    "mxbai-embed-large": 512
+    "all-minilm:22m": 512
 }
 
 # Map models to embedding sizes
 OLLAMA_MODEL_EMBEDDING_TOKENS = {
+    "llava": 4096,
+    "theqtcompany/codellama-7b-qml": 4096,
+    "qwen3": 4096,
+    "mxbai-embed-large": 1024,
+    "gemma3": 2560,
+    "deepseek-r1": 4096,
     "llama3.2": 3072,
     "qwen3:4b": 2560,
     "gemma3:1b-it-qat": 1152,
@@ -83,12 +94,7 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "paraphrase-multilingual": 768,
     "bge-large": 1024,
     "all-minilm:33m": 384,
-    "all-minilm:22m": 384,
-    "snowflake-arctic-embed:33m": 384,
-    "snowflake-arctic-embed:137m": 768,
-    "snowflake-arctic-embed": 1024,
-    "nomic-embed-text": 768,
-    "mxbai-embed-large": 1024
+    "all-minilm:22m": 384
 }
 
 

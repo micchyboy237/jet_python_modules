@@ -8,7 +8,7 @@ suffix = """
 """
 
 response = generate(
-    model='codellama-7b-qml',
+    model='theqtcompany/codellama-7b-qml',
     prompt=prompt,
     suffix=suffix,
     options={
