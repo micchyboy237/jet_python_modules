@@ -326,7 +326,8 @@ def search_files(
     query: str,
     extensions: Optional[List[str]] = None,
     top_k: Optional[int] = None,
-    embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
+    embed_model: Union[SentenceTransformer,
+                       EmbedModelType] = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     threshold: float = 0.0,
@@ -345,7 +346,7 @@ def search_files(
         query: Search query string
         extensions: List of file extensions to include
         top_k: Maximum number of results to yield, or None to yield all results
-        embed_model: Embedding model to use
+        embed_model: Embedding model or model name to use for vectorization.
         chunk_size: Size of content chunks
         chunk_overlap: Overlap between chunks
         threshold: Minimum similarity score for results

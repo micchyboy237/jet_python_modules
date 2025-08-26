@@ -66,7 +66,8 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         instance = SentenceTransformerRegistry()
 
         resolved_model_id = resolve_model_value(model_id)
-        _cache_key = generate_key(resolved_model_id, truncate_dim)
+        _cache_key = generate_key(
+            resolved_model_id, truncate_dim, max_seq_length)
         instance.model_id = resolved_model_id
         instance.context_window = get_context_size(resolved_model_id)
         instance.dimensions = get_embedding_size(resolved_model_id)
@@ -94,6 +95,8 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         logger.info(
             f"Loading SentenceTransformer model for model_id: {resolved_model_id} | truncate_dim: {truncate_dim}")
         try:
+            logger.debug(
+                f"truncate_dim: {truncate_dim} | max_seq_length: {max_seq_length}")
             model = instance._load_model(
                 resolved_model_id, truncate_dim=truncate_dim, prompts=prompts, device=device)
             if max_seq_length:
