@@ -1,13 +1,13 @@
 import asyncio
 
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, ChatOllama
 
 
 async def main():
-	task = 'Find the founders of browser-use'
-	agent = Agent(task=task, llm=ChatOpenAI(model='gpt-4.1-mini'))
-	await agent.run()
+    task = 'Find the founders of browser-use'
+    agent = Agent(task=task, llm=ChatOllama(model='llama3.2'))
+    await agent.run()
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    asyncio.run(main())

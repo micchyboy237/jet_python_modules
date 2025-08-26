@@ -12,6 +12,7 @@ market_researcher = Agent(
     model_name="ollama/llama3.2",
     max_loops=1,
     temperature=0.7,
+    streaming_on=True,
 )
 
 # Initialize financial analyst agent
@@ -26,6 +27,7 @@ financial_analyst = Agent(
     model_name="ollama/llama3.2",
     max_loops=1,
     temperature=0.7,
+    streaming_on=True,
 )
 
 # Initialize technical analyst agent
@@ -40,6 +42,7 @@ technical_analyst = Agent(
     model_name="ollama/llama3.2",
     max_loops=1,
     temperature=0.7,
+    streaming_on=True,
 )
 
 # Create list of agents
