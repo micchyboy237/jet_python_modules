@@ -261,7 +261,7 @@ def run_quant_trading_agent(task: str) -> str:
         
         You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
         max_loops=2,
-        model_name="claude-3-5-sonnet-20240620",
+        model_name="ollama/llama3.2",
         tools=[
             create_python_file,
             update_python_file,
@@ -385,7 +385,7 @@ def run_crypto_quant_agent(task: str) -> str:
         You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
         max_loops=1,
         max_tokens=4096,
-        model_name="gpt-4.1-mini",
+        model_name="ollama/llama3.2",
         dynamic_temperature_enabled=True,
         output_type="final",
         tools=[
