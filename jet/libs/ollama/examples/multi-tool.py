@@ -47,7 +47,7 @@ messages = [{'role': 'user',
              'content': f'What is the temperature in {city}? and what are the weather conditions in {city2}?'}]
 print('----- Prompt:', messages[0]['content'], '\n')
 
-model = 'deepseek-r1:latest'
+model = 'qwen3'
 client = Client()
 response: Iterator[ChatResponse] = client.chat(model, stream=True, messages=messages, tools=[
                                                get_temperature, get_conditions], think=True)
