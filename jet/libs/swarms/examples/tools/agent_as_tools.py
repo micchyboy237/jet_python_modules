@@ -7,6 +7,7 @@ OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(
         os.path.basename(__file__))[0]
 )
+LOGS_DIR = os.path.join(OUTPUT_DIR, "logs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
@@ -241,6 +242,7 @@ def run_quant_trading_agent(task: str) -> str:
         artifacts_on=True,
         artifacts_output_path=OUTPUT_DIR,
         artifacts_file_extension=".md",
+        logs_to_filename=LOGS_DIR,
         agent_description="Advanced quantitative trading and algorithmic analysis agent",
         system_prompt="""You are an expert quantitative trading agent with deep expertise in:
         - Algorithmic trading strategies and implementation
@@ -272,7 +274,7 @@ def run_quant_trading_agent(task: str) -> str:
         
         You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
         max_loops=2,
-        model_name="ollama/qwen3:4b",
+        model_name="ollama/llama3.2",
         tools=[
             create_python_file,
             update_python_file,
@@ -377,6 +379,7 @@ def run_crypto_quant_agent(task: str) -> str:
         artifacts_on=True,
         artifacts_output_path=OUTPUT_DIR,
         artifacts_file_extension=".md",
+        logs_to_filename=LOGS_DIR,
         agent_description="Advanced quantitative trading agent specializing in cryptocurrency markets with algorithmic analysis capabilities",
         system_prompt="""You are an expert quantitative trading agent specializing in cryptocurrency markets. Your capabilities include:
         - Algorithmic trading strategy development and backtesting
@@ -400,7 +403,7 @@ def run_crypto_quant_agent(task: str) -> str:
         You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
         max_loops=1,
         max_tokens=4096,
-        model_name="ollama/qwen3:4b",
+        model_name="ollama/llama3.2",
         dynamic_temperature_enabled=True,
         output_type="final",
         tools=[
@@ -418,6 +421,7 @@ agent = Agent(
     artifacts_on=True,
     artifacts_output_path=OUTPUT_DIR,
     artifacts_file_extension=".md",
+    logs_to_filename=LOGS_DIR,
     agent_description="Strategic director and project management agent",
     system_prompt="""You are an expert Director Agent with comprehensive capabilities in:
     - Strategic planning and decision making
@@ -449,7 +453,7 @@ agent = Agent(
     
     You communicate with clarity and authority while maintaining professionalism and ensuring all stakeholders are aligned.""",
     max_loops=1,
-    model_name="ollama/qwen3:4b",
+    model_name="ollama/llama3.2",
     output_type="final",
     interactive=False,
     tools=[run_quant_trading_agent],

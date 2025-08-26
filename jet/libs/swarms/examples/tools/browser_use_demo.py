@@ -1,8 +1,7 @@
 import asyncio
 
-from browser_use import Agent
+from browser_use import Agent, ChatOllama
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 
 from swarms import ConcurrentWorkflow
 
@@ -31,7 +30,7 @@ class BrowserAgent:
         """
         agent = Agent(
             task=task,
-            llm=ChatOpenAI(model="gpt-4.1"),
+            llm=ChatOllama(model="llama3.2"),
         )
         result = await agent.run()
         return result
@@ -49,8 +48,9 @@ class BrowserAgent:
         return asyncio.run(self.browser_agent_test(task))
 
 
+pool_count = 2
 swarm = ConcurrentWorkflow(
-    agents=[BrowserAgent() for _ in range(10)],
+    agents=[BrowserAgent() for _ in range(pool_count)],
 )
 
 swarm.run(
