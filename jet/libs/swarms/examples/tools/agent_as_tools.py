@@ -261,7 +261,7 @@ def run_quant_trading_agent(task: str) -> str:
         
         You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
         max_loops=2,
-        model_name="ollama/llama3.2",
+        model_name="ollama/qwen3",
         tools=[
             create_python_file,
             update_python_file,
@@ -385,7 +385,7 @@ def run_crypto_quant_agent(task: str) -> str:
         You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
         max_loops=1,
         max_tokens=4096,
-        model_name="ollama/llama3.2",
+        model_name="ollama/qwen3",
         dynamic_temperature_enabled=True,
         output_type="final",
         tools=[
@@ -430,7 +430,7 @@ agent = Agent(
     
     You communicate with clarity and authority while maintaining professionalism and ensuring all stakeholders are aligned.""",
     max_loops=1,
-    model_name="ollama/llama3.2",
+    model_name="ollama/qwen3",
     output_type="final",
     interactive=False,
     tools=[run_quant_trading_agent],

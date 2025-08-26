@@ -110,6 +110,7 @@ OLLAMA_HF_MODELS = {
     "gemma3:4b": "google/gemma-3-4b-it",
     "codegemma": "google/codegemma-7b",
     "codellama": "meta-llama/CodeLlama-7b-hf",
+    "qwen3": "Qwen/Qwen3-8B",
     "qwen2.5-coder": "Qwen/Qwen2.5-Coder-7B-Instruct",
     # Embed
     "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
@@ -140,6 +141,7 @@ OLLAMA_HF_MODEL_NAMES = Literal[
     "google/codegemma-7b",
     "meta-llama/CodeLlama-7b-hf",
     "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "Qwen/Qwen3-8B",
     # Embed
     "nomic-ai/nomic-embed-text-v1.5",
     "mixedbread-ai/mxbai-embed-large-v1",
