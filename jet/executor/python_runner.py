@@ -8,6 +8,10 @@ from tqdm import tqdm
 from fnmatch import fnmatch
 from datetime import datetime
 
+from jet.file.utils import save_file
+from jet.logger import CustomLogger
+from jet.transformers.formatters import format_json
+
 
 def sort_key(path: str) -> Tuple[int, str]:
     filename = os.path.basename(path)
@@ -84,12 +88,24 @@ def run_python_files_in_directory(
 
     files.sort(key=lambda f: sort_key(str(f.name)))
 
-    print(
+    logger = CustomLogger()
+
+    if output_dir:
+        log_file = os.path.join(str(logs_dir), "_main.log")
+        logger = CustomLogger(log_file, overwrite=True)
+
+    logger.info(
         f"\nRunning {len(files)} Python files in: {target_dir} (recursive={recursive})\n")
 
     for file_path in files:
+        if output_dir:
+            log_file = os.path.join(
+                str(logs_dir), f"{os.path.splitext(os.path.basename(file_path.name))[0]}.log")
+            logger = CustomLogger(log_file, overwrite=True)
+            logger.orange(f"Logs: {log_file}")
+
         rel_path = file_path.relative_to(target_dir)
-        print(f"\n▶️ Running: {rel_path}\n{'=' * 60}")
+        logger.debug(f"\n▶️ Running: {rel_path}\n{'=' * 60}")
 
         process = subprocess.Popen(
             [python_interpreter, str(file_path)],
@@ -102,13 +118,13 @@ def run_python_files_in_directory(
         output_lines = []
         if process.stdout:
             for line in process.stdout:
-                print(line, end="")
+                logger.teal(line, end="")
                 output_lines.append(line)
 
         process.wait()
 
         status = "Success" if process.returncode == 0 else f"Failed (code {process.returncode})"
-        print(
+        logger.gray(
             f"\n{'-' * 60}\n{'✅' if process.returncode == 0 else '❌'} {status}: {rel_path}\n")
 
         # Prepare status data
@@ -122,7 +138,8 @@ def run_python_files_in_directory(
 
         # Write individual log file
         if logs_dir:
-            log_file = logs_dir / f"{file_path.name}.log"
+            log_file = logs_dir / \
+                f"{os.path.splitext(os.path.basename(file_path.name))[0]}.log"
             with log_file.open('w') as f:
                 f.write(f"Timestamp: {status_entry['timestamp']}\n")
                 f.write(f"File: {rel_path}\n")
@@ -130,7 +147,6 @@ def run_python_files_in_directory(
                 f.write(f"Output:\n{''.join(output_lines)}\n")
                 f.write("-" * 60 + "\n")
 
-    # Write status JSON file
-    if status_file:
-        with status_file.open('w') as f:
-            json.dump(status_data, f, indent=2)
+        # Write status JSON file
+        if status_file:
+            save_file(status_data, status_file)
