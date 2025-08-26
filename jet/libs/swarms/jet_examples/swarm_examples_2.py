@@ -13,8 +13,7 @@ def template_retry_example() -> str:
     """Demonstrates template, retry_attempts, retry_interval, and return_history."""
     template = "Task: {task}\nProvide a concise response."
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         template=template,
         retry_attempts=2,
         retry_interval=1,
@@ -30,8 +29,7 @@ def template_retry_example() -> str:
 def stopping_token_dynamic_loops_example() -> str:
     """Demonstrates stopping_token, dynamic_loops, and loop_interval."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         stopping_token="<STOP>",
         dynamic_loops=True,
         loop_interval=2,
@@ -46,8 +44,7 @@ def stopping_token_dynamic_loops_example() -> str:
 def dashboard_exit_command_example() -> str:
     """Demonstrates dashboard, agent_name, agent_description, and custom_exit_command."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         dashboard=True,
         agent_name="FinanceBot",
         agent_description="A bot for financial analysis.",
@@ -63,8 +60,7 @@ def dashboard_exit_command_example() -> str:
 def sop_autosave_example() -> str:
     """Demonstrates sop, sop_list, autosave, and saved_state_path."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         sop="Follow financial analysis SOP.",
         sop_list=["Step 1: Analyze data", "Step 2: Generate report"],
         autosave=True,
@@ -81,8 +77,7 @@ def sop_autosave_example() -> str:
 def self_healing_code_interpreter_example() -> str:
     """Demonstrates self_healing_enabled, code_interpreter, and run_with_timeout."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         self_healing_enabled=True,
         code_interpreter=True,
         timeout=30,
@@ -98,8 +93,7 @@ def self_healing_code_interpreter_example() -> str:
 def multi_modal_pdf_example() -> str:
     """Demonstrates multi_modal, pdf_path, list_of_pdf, and tokenizer."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         multi_modal=True,
         pdf_path="financial_report.pdf",
         list_of_pdf=["financial_report.pdf"],
@@ -118,8 +112,7 @@ def callbacks_metadata_example() -> str:
         print(f"Callback received: {response}")
 
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         callback=sample_callback,
         callbacks=[sample_callback],
         metadata={"task_id": "123"},
@@ -141,8 +134,7 @@ def search_evaluator_example() -> str:
         return 0.9 if "result" in response.lower() else 0.1
 
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         search_algorithm=sample_search_algorithm,
         evaluator=sample_evaluator,
         best_of_n=2,
@@ -160,8 +152,7 @@ def logging_custom_loop_example() -> str:
         return "continue" not in response.lower()
 
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         logs_to_filename="agent_log.txt",
         log_directory="./logs",
         custom_loop_condition=custom_loop_condition,
@@ -179,8 +170,7 @@ def function_calling_cleaner_example() -> str:
         return response.strip().upper()
 
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         function_calling_type="json",
         function_calling_format_type="json",
         output_cleaner=output_cleaner,
@@ -195,8 +185,7 @@ def function_calling_cleaner_example() -> str:
 def planning_tools_prompt_example() -> str:
     """Demonstrates planning, planning_prompt, custom_tools_prompt, and tool_system_prompt."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         planning="Plan financial analysis steps.",
         planning_prompt="Create a step-by-step plan for the task.",
         custom_tools_prompt=lambda x: f"Tool prompt: {x}",
@@ -212,8 +201,7 @@ def planning_tools_prompt_example() -> str:
 def advanced_parameters_example() -> str:
     """Demonstrates frequency_penalty, presence_penalty, temperature, and max_tokens."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         frequency_penalty=0.5,
         presence_penalty=0.3,
         temperature=0.7,
@@ -229,8 +217,7 @@ def advanced_parameters_example() -> str:
 def scheduled_workspace_example() -> str:
     """Demonstrates scheduled_run_date, workspace_dir, and agent_ops_on."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         scheduled_run_date=datetime(2025, 8, 27, 3, 37),
         workspace_dir="./workspace",
         agent_ops_on=True,
@@ -246,8 +233,7 @@ def scheduled_workspace_example() -> str:
 def bulk_concurrent_example() -> List[str]:
     """Demonstrates bulk_run, run_concurrent, and run_async."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         max_loops=1,
         verbose=True
     )
@@ -260,8 +246,7 @@ def bulk_concurrent_example() -> List[str]:
 def history_feedback_example() -> str:
     """Demonstrates print_history_and_memory, analyze_feedback, and truncate_history."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         return_history=True,
         max_loops=1,
         verbose=True

@@ -9,8 +9,7 @@ import os
 def basic_agent_example() -> str:
     """Demonstrates basic Agent setup with ollama/llama3.2 and system prompt."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         system_prompt="You are a helpful financial analyst.",
         max_loops=1,
         verbose=True
@@ -26,8 +25,7 @@ def agent_with_tools_example() -> str:
         return f"Tool processed: {query}"
 
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         tools=[sample_tool],
         tool_schema="json",
         execute_tool=True,
@@ -42,14 +40,13 @@ def agent_with_tools_example() -> str:
 def interactive_streaming_example() -> str:
     """Demonstrates interactive mode with streaming output."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         interactive=True,
         streaming_on=True,
         max_loops=1,
         verbose=True
     )
-    response = agent.interactive_run("Tell me a short story.")
+    response = agent.run("Tell me a short story.")
     return response
 
 
@@ -57,8 +54,7 @@ def interactive_streaming_example() -> str:
 def memory_and_docs_example() -> str:
     """Demonstrates long-term memory and document ingestion."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         long_term_memory=None,  # Placeholder, assumes BaseVectorDatabase
         docs=["sample_doc.txt"],
         docs_folder="./docs",
@@ -77,8 +73,7 @@ def dynamic_temperature_example() -> str:
         return 0.8 if "positive" in text.lower() else 0.2
 
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         dynamic_temperature_enabled=True,
         sentiment_analyzer=sentiment_analyzer,
         sentiment_threshold=0.5,
@@ -93,8 +88,7 @@ def dynamic_temperature_example() -> str:
 def artifacts_example() -> str:
     """Demonstrates artifact generation and custom output type."""
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         artifacts_on=True,
         artifacts_output_path="./artifacts",
         artifacts_file_extension=".md",
@@ -113,8 +107,7 @@ def chain_of_thoughts_example() -> str:
         return "complete" in response.lower()
 
     agent = Agent(
-        llm=ollama,
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         chain_of_thoughts=True,
         stopping_condition=stopping_condition,
         max_loops=3,
