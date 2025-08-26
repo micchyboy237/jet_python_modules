@@ -23,8 +23,9 @@ def render_mermaid_graph(
     png_bytes = agent.get_graph().draw_mermaid_png(
         draw_method=draw_method, max_retries=max_retries, retry_delay=retry_delay)
 
-    # Define the output file path
+    # Define the output file path and ensure the directory exists
     output_path = Path(output_filename)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(png_bytes)
 
     if open_file:
