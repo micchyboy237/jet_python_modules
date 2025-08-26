@@ -34,7 +34,8 @@ def run_python_files_in_directory(
 ) -> None:
     """
     Runs all Python files in the target directory and prints live logs.
-    Optionally writes execution results to a JSON file and individual log files.
+    Optionally writes execution results to a JSON file and individual log files
+    in separate success/failed directories.
 
     Args:
         target_dir (Union[str, Path]): The root directory to search for Python files.
@@ -43,7 +44,7 @@ def run_python_files_in_directory(
         excludes (Optional[List[str]]): List of filename patterns to exclude.
         python_interpreter (str): Python executable to use. Default is 'python'.
         recursive (bool): Whether to search subdirectories recursively.
-        output_dir (Optional[Union[str, Path]]): Directory to save the JSON file and logs directory.
+        output_dir (Optional[Union[str, Path]]): Directory to save the JSON file and success/failed directories.
     """
     if isinstance(target_dir, str):
         target_dir = Path(target_dir)
@@ -53,12 +54,15 @@ def run_python_files_in_directory(
         if isinstance(output_dir, str):
             output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        logs_dir = output_dir / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
+        success_dir = output_dir / "success"
+        failed_dir = output_dir / "failed"
+        success_dir.mkdir(parents=True, exist_ok=True)
+        failed_dir.mkdir(parents=True, exist_ok=True)
         status_file = output_dir / "files_status.json"
         status_data: List[Dict[str, str]] = []
     else:
-        logs_dir = None
+        success_dir = None
+        failed_dir = None
         status_file = None
         status_data = []
 
@@ -91,19 +95,13 @@ def run_python_files_in_directory(
     logger = CustomLogger()
 
     if output_dir:
-        log_file = os.path.join(str(logs_dir), "_main.log")
-        logger = CustomLogger(log_file, overwrite=True)
+        main_log_file = output_dir / "main.log"
+        logger = CustomLogger(str(main_log_file), overwrite=True)
 
     logger.info(
         f"\nRunning {len(files)} Python files in: {target_dir} (recursive={recursive})\n")
 
     for file_path in files:
-        if output_dir:
-            log_file = os.path.join(
-                str(logs_dir), f"{os.path.splitext(os.path.basename(file_path.name))[0]}.log")
-            logger = CustomLogger(log_file, overwrite=True)
-            logger.orange(f"Logs: {log_file}")
-
         rel_path = file_path.relative_to(target_dir)
         logger.debug(f"\n▶️ Running: {rel_path}\n{'=' * 60}")
 
@@ -136,10 +134,12 @@ def run_python_files_in_directory(
         }
         status_data.append(status_entry)
 
-        # Write individual log file
-        if logs_dir:
-            log_file = logs_dir / \
-                f"{os.path.splitext(os.path.basename(file_path.name))[0]}.log"
+        # Write individual log file to success or failed directory
+        if success_dir and failed_dir:
+            log_dir = success_dir if process.returncode == 0 else failed_dir
+            log_file = log_dir / f"{os.path.splitext(file_path.name)[0]}.log"
+            logger = CustomLogger(str(log_file), overwrite=True)
+            logger.orange(f"Logs: {log_file}")
             with log_file.open('w') as f:
                 f.write(f"Timestamp: {status_entry['timestamp']}\n")
                 f.write(f"File: {rel_path}\n")
