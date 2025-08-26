@@ -137,7 +137,12 @@ def run_python_files_in_directory(
         # Write individual log file to success or failed directory
         if success_dir and failed_dir:
             log_dir = success_dir if process.returncode == 0 else failed_dir
-            log_file = log_dir / f"{os.path.splitext(file_path.name)[0]}.log"
+            # Create relative path directories in success/failed
+            relative_dir = file_path.parent.relative_to(target_dir)
+            target_log_dir = log_dir / relative_dir
+            target_log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = target_log_dir / \
+                f"{os.path.splitext(file_path.name)[0]}.log"
             logger = CustomLogger(str(log_file), overwrite=True)
             logger.orange(f"Logs: {log_file}")
             with log_file.open('w') as f:
