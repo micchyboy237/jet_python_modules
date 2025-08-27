@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
-from jet.scrapers.hrequests_utils import scrape_url, scrape_urls, sync_scrape_url
+from jet.scrapers.hrequests_utils import scrape_url, scrape_urls, scrape_url_sync
 from fake_useragent import UserAgent
 
 
@@ -207,7 +207,7 @@ class TestHRequestsUtils(unittest.TestCase):
         with patch("requests.get", return_value=mock_response):
             with patch("jet.scrapers.hrequests_utils.cache.get", return_value=None):
                 with patch("jet.scrapers.hrequests_utils.cache.set") as mock_cache_set:
-                    result = sync_scrape_url("https://example.com")
+                    result = scrape_url_sync("https://example.com")
                     self.assertEqual(result, "<html>Sync Test</html>")
                     mock_cache_set.assert_called_once_with(
                         "html:https://example.com",
@@ -223,7 +223,7 @@ class TestHRequestsUtils(unittest.TestCase):
         with patch("requests.get", return_value=mock_response):
             with patch("jet.scrapers.hrequests_utils.cache.get", return_value=None):
                 with patch("jet.scrapers.hrequests_utils.logger") as mock_logger:
-                    result = sync_scrape_url("https://invalid-url.com")
+                    result = scrape_url_sync("https://invalid-url.com")
                     self.assertIsNone(result)
                     mock_logger.warning.assert_called_once_with(
                         "Failed: https://invalid-url.com - Status Code: 404, Reason: Not Found"

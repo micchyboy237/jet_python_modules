@@ -2,6 +2,7 @@ import requests
 import aiohttp
 import asyncio
 import sys
+import platform
 from fake_useragent import UserAgent
 from typing import AsyncIterator, List, Literal, Optional, Tuple
 from jet.code.splitter_markdown_utils import get_md_header_contents
@@ -18,7 +19,7 @@ REDIS_CONFIG = RedisConfigParams(port=6379)
 cache = RedisCache(config=REDIS_CONFIG)
 
 
-def sync_scrape_url(url: str, timeout: Optional[float] = 5.0) -> Optional[str]:
+def scrape_url_sync(url: str, timeout: Optional[float] = 5.0) -> Optional[str]:
     cache_key = f"html:{url}"
     cached_content = cache.get(cache_key)
 
@@ -176,11 +177,98 @@ async def scrape_urls(
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
+def scrape_urls_sync(
+    urls: List[str],
+    num_parallel: int = 10,
+    limit: Optional[int] = None,
+    show_progress: bool = False,
+    timeout: Optional[float] = 5.0,
+    max_retries: int = 2
+) -> List[Tuple[str, ScrapeStatus, Optional[str]]]:
+    """
+    Synchronously scrape multiple URLs while leveraging async parallel capabilities.
+    Handles event loop creation for both standard Python and Pyodide (Emscripten).
+
+    Args:
+        urls: List of URLs to scrape
+        num_parallel: Number of parallel requests
+        limit: Maximum number of successful responses to collect
+        show_progress: Whether to show a progress bar
+        timeout: Timeout per request in seconds
+        max_retries: Maximum number of retries per URL
+
+    Returns:
+        List of tuples containing (url, status, html_content)
+    """
+    async def run_scraper():
+        return await consume_generator(
+            scrape_urls(urls, num_parallel, limit,
+                        show_progress, timeout, max_retries)
+        )
+
+    if platform.system() == "Emscripten":
+        # Pyodide environment: Use ensure_future for async execution
+        return asyncio.ensure_future(run_scraper()).result()
+    else:
+        # Standard Python: Get or create event loop
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        try:
+            return loop.run_until_complete(run_scraper())
+        finally:
+            # Clean up event loop if we created it
+            if not loop.is_running():
+                loop.close()
+
+
 async def consume_generator(gen: AsyncIterator[Tuple[str, ScrapeStatus, Optional[str]]]) -> List[Tuple[str, ScrapeStatus, Optional[str]]]:
     return [item async for item in gen]
 
 
-async def main():
+def main(urls):
+    """
+    Synchronously scrape the given URLs and log summary information.
+    """
+    # Use the synchronous scrape_urls_sync function to get results
+    results = scrape_urls_sync(
+        urls,
+        num_parallel=3,
+        limit=5,
+        show_progress=True,
+        timeout=5.0,
+        max_retries=3
+    )
+    html_list = []
+    for url, status, html in results:
+        if status == "completed":
+            if not html:
+                continue
+            all_links = scrape_links(html, base_url=url)
+            logger.success(
+                f"Scraped {url}, links count: {len(all_links)}"
+            )
+            html_list.append(html)
+    logger.info(f"Done sync scraped {len(html_list)} htmls")
+
+
+async def amain(urls):
+    html_list = []
+    async for url, status, html in scrape_urls(urls, num_parallel=3, limit=5, show_progress=True, timeout=5.0, max_retries=3):
+        if status == "completed":
+            if not html:
+                continue
+            all_links = scrape_links(html, base_url=url)
+            logger.success(
+                f"Scraped {url}, links count: {len(all_links)}")
+            html_list.append(html)
+
+    logger.info(f"Done async scraped {len(html_list)} htmls")
+
+if __name__ == "__main__":
     urls = [
         "https://www.asfcxcvqawe.com",
         "https://www.imdb.com/list/ls505070747",
@@ -194,18 +282,5 @@ async def main():
         "https://www.stackoverflow.com",
     ]
 
-    html_list = []
-    async for url, status, html in scrape_urls(urls, num_parallel=3, limit=5, show_progress=True, timeout=5.0, max_retries=3):
-        if status == "completed":
-            if not html:
-                continue
-            all_links = scrape_links(html, base_url=url)
-            headers = get_md_header_contents(html)
-            logger.success(
-                f"Scraped {url}, headers length: {len(headers)}, links count: {len(all_links)}")
-            html_list.append(html)
-
-    logger.info(f"Scraped {len(html_list)} htmls")
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    main(urls)
+    asyncio.run(amain(urls))
