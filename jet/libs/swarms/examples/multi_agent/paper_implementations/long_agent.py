@@ -1,7 +1,7 @@
 import concurrent.futures
 import os
 from typing import Union, List
-import PyPDF2
+import pypdf
 import markdown
 from pathlib import Path
 from swarms.utils.litellm_tokenizer import count_tokens
@@ -25,8 +25,8 @@ class LongAgent:
         description: str = "A long-form content processing agent",
         token_count_per_agent: int = 16000,
         output_type: str = "final",
-        model_name: str = "gpt-4o-mini",
-        aggregator_model_name: str = "gpt-4o-mini",
+        model_name: str = "ollama/llama3.2",
+        aggregator_model_name: str = "ollama/llama3.2",
     ):
         """Initialize the LongAgent."""
         self.name = name
@@ -57,7 +57,7 @@ class LongAgent:
 
         text = ""
         with open(file_path, "rb") as file:
-            pdf_reader = PyPDF2.PdfReader(file)
+            pdf_reader = pypdf.PdfReader(file)
             for page in pdf_reader.pages:
                 text += page.extract_text()
 
@@ -220,6 +220,7 @@ class LongAgent:
             for i, chunk in enumerate(chunks):
                 agent = Agent(
                     agent_name=f"Document Analysis Agent - {Path(file_path).name} - Chunk {i+1}",
+                    streaming_on=True,
                     system_prompt="""
                     You are an expert document analysis and summarization agent specialized in processing and understanding complex documents. Your primary responsibilities include:
 
@@ -328,6 +329,7 @@ class LongAgent:
         """
         return Agent(
             agent_name="Document Aggregator Agent",
+            streaming_on=True,
             system_prompt="""
             You are an expert document synthesis agent specialized in creating comprehensive reports from multiple document summaries. Your responsibilities include:
 
