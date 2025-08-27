@@ -1,6 +1,7 @@
 from pathlib import Path
-from typing import List, Union
+from typing import Dict, List, Union
 import os
+import fnmatch
 
 
 def search_files(
@@ -11,13 +12,11 @@ def search_files(
 ) -> list[str]:
     """
     Scrape directories for files matching specific extensions and inclusion/exclusion criteria.
-
     Args:
         base_dir (str | list[str]): Base directory or list of directories to search.
         extensions (list[str]): File extensions to include.
-        include_files (list[str], optional): Files to include. Defaults to [].
-        exclude_files (list[str], optional): Files to exclude. Defaults to [].
-
+        include_files (list[str], optional): Files or directories to include (supports wildcards). Defaults to [].
+        exclude_files (list[str], optional): Files or directories to exclude (supports wildcards). Defaults to [].
     Returns:
         list[str]: List of filtered file paths.
     """
@@ -35,12 +34,26 @@ def search_files(
             if any(f.endswith(ext) for ext in extensions)
         )
 
+    def matches_pattern(path: str, patterns: list[str]) -> bool:
+        """Check if the path or its filename matches any of the given patterns."""
+        file_name = os.path.basename(path)
+        dir_path = os.path.dirname(path)
+        for pattern in patterns:
+            # Check if pattern matches the file name
+            if fnmatch.fnmatch(file_name, pattern):
+                return True
+            # Check if pattern matches any part of the directory path
+            if any(fnmatch.fnmatch(part, pattern) for part in dir_path.split(os.sep)):
+                return True
+        return False
+
     if include_files:
-        files = [file for file in files if any(
-            inc in file for inc in include_files)]
+        files = [file for file in files if matches_pattern(
+            file, include_files)]
+
     if exclude_files:
-        files = [file for file in files if not any(
-            exc in file for exc in exclude_files)]
+        files = [file for file in files if not matches_pattern(
+            file, exclude_files)]
 
     return files
 
@@ -61,3 +74,35 @@ def find_files_recursively(pattern: str, base_dir: Union[str, Path] = ".") -> Li
         raise ValueError(f"Base path '{base_path}' is not a valid directory.")
 
     return [str(p) for p in base_path.rglob(pattern)]
+
+
+def group_by_base_dir(paths: List[str], base_dir: str) -> Dict[str, List[str]]:
+    """
+    Groups file paths by their shared base directory relative to the provided base_dir.
+
+    Args:
+        paths: List of file paths to group.
+        base_dir: Base directory to compute relative paths from.
+
+    Returns:
+        Dictionary mapping base directories to lists of file paths sharing that base.
+    """
+    base_path = Path(base_dir).resolve()
+    grouped: Dict[str, List[str]] = {}
+
+    for path in paths:
+        full_path = Path(path)
+        if not full_path.is_absolute():
+            full_path = base_path / path
+        try:
+            full_path = full_path.resolve()
+            relative = full_path.relative_to(base_path)
+            parent = str(relative.parent) if relative.parent != Path(
+                ".") else ""
+            if parent not in grouped:
+                grouped[parent] = []
+            grouped[parent].append(str(full_path))
+        except ValueError:
+            continue
+
+    return grouped
