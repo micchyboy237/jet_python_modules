@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 import sys
-from typing import Literal
+from typing import List, Literal, Union
 from pathlib import Path
 from jet.file.utils import save_file
 from jet.code.utils import remove_single_line_comments_preserving_triple_quotes
@@ -215,18 +215,25 @@ def process_file(input_path, output_dir=None, include_outputs=True, include_code
         save_file(content, str(output_path))
 
 
-def run_text_extraction(input_path: str, output_dir: str, save_as: Literal['md', 'py'] = 'md'):
+def run_text_extraction(
+    input_path: str,
+    output_dir: str,
+    extensions: Union[str, List[str]] = ['.ipynb', '.md', '.py'],
+    save_as: Literal['md', 'py'] = 'md',
+    *,
+    include_outputs: bool = False,
+    include_code: bool = False,
+    include_comments: bool = True,
+):
     """Main function to process notebook, markdown, and python files."""
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
 
-    include_outputs = False
-    include_code = False
-    include_comments = True
+    extensions = [extensions] if isinstance(extensions, str) else extensions
 
     if os.path.isdir(input_path):
-        for ext in ['*.ipynb', '*.md', '*.py']:
-            for file in Path(input_path).rglob(ext):
+        for ext in extensions:
+            for file in Path(input_path).rglob(f"*.{ext.lstrip('*.')}"):
                 process_file(
                     file,
                     output_dir,
@@ -246,12 +253,37 @@ def run_text_extraction(input_path: str, output_dir: str, save_as: Literal['md',
         )
 
 
+def run_notebook_extraction(
+    input_path: str,
+    output_dir: str,
+    save_as: Literal['md', 'py'] = 'md',
+    *,
+    include_outputs: bool = False,
+    include_code: bool = False,
+    include_comments: bool = True,
+):
+    """Main function to process notebook files."""
+    extension = "*.ipynb"
+    run_text_extraction(
+        input_path,
+        output_dir,
+        extension,
+        save_as,
+        include_outputs=include_outputs,
+        include_code=include_code,
+        include_comments=include_comments,
+    )
+
+
 if __name__ == "__main__":
     input_path = "/Users/jethroestrada/Desktop/External_Projects/AI/rag_05_2025/RAG_Techniques/all_rag_techniques"
     output_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/converted_doc_scripts/RAG_Techniques/all_rag_techniques"
 
-    logger.info("Extracting code...")
-    run_text_extraction(input_path, output_dir, save_as="py")
+    logger.info("Extracting texts from notebooks...")
+    run_notebook_extraction(input_path, output_dir)
+
+    # logger.info("Extracting documentation markdown...")
+    # run_text_extraction(input_path, output_dir, save_as="py")
 
     # logger.info("Extracting documentation markdown...")
     # run_text_extraction(input_path, output_dir, save_as="md")
