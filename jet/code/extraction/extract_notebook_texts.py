@@ -177,9 +177,50 @@ def extract_text_from_md(
 
             return blocks
 
-        if save_as == "md":
-            # (existing markdown logic unchanged)
-            ...
+        if save_as == 'md':
+            markdown_content = []
+            buffer_lang = None
+            buffer_code = []
+
+            def flush_buffer():
+                nonlocal buffer_lang, buffer_code
+                if buffer_lang and buffer_code:
+                    markdown_content.append(f"```{buffer_lang}")
+                    markdown_content.append("\n".join(buffer_code))
+                    markdown_content.append("```")
+                    markdown_content.append("")
+                buffer_lang, buffer_code = None, []
+
+            for block in code_blocks:
+                if block['language'] == 'text':
+                    if merge_consecutive_code:
+                        flush_buffer()
+                    markdown_content.append(block['code'])
+                    markdown_content.append("")
+                else:
+                    code_content = block['code']
+                    if not include_comments and block['language'] == 'python':
+                        code_content = remove_single_line_comments_preserving_triple_quotes(
+                            code_content)
+
+                    if merge_consecutive_code:
+                        if buffer_lang == block['language']:
+                            buffer_code.append(code_content)
+                        else:
+                            flush_buffer()
+                            buffer_lang = block['language']
+                            buffer_code = [code_content]
+                    else:
+                        markdown_content.append(f"```{block['language']}")
+                        markdown_content.append(code_content)
+                        markdown_content.append("```")
+                        markdown_content.append("")
+
+            if merge_consecutive_code:
+                flush_buffer()
+
+            return "\n".join(line.rstrip() for line in markdown_content)
+
         elif save_as == "py":
             return extractor.remove_code_blocks(content, keep_file_paths=False)
 
