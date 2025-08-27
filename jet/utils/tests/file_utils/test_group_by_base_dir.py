@@ -95,3 +95,44 @@ class TestGroupByBaseDir:
 
         # Then: The relative paths are correctly resolved and grouped
         assert result == expected
+
+    def test_with_max_depth(self, temp_dir):
+        # Given: Relative paths, a base directory and a max depth of 1
+        max_depth = 1
+        base = str(temp_dir)
+        paths = [
+            "file1.txt",
+            "docs/doc1.txt",
+            "docs/text/text1.txt"
+        ]
+        expected = {
+            "": [str(temp_dir / "file1.txt")],
+            "docs": [str(temp_dir / "docs" / "doc1.txt"), str(temp_dir / "docs" / "text" / "text1.txt")],
+        }
+
+        # When: We group the paths relative to base_dir
+        result = group_by_base_dir(paths, base, max_depth)
+
+        # Then: The relative paths are correctly resolved and grouped
+        assert result == expected
+
+    def test_with_higher_max_depth(self, temp_dir):
+        # Given: Relative paths, a base directory and a max depth of 2
+        max_depth = 2
+        base = str(temp_dir)
+        paths = [
+            "file1.txt",
+            "docs/doc1.txt",
+            "docs/text/text1.txt"
+        ]
+        expected = {
+            "": [str(temp_dir / "file1.txt")],
+            "docs": [str(temp_dir / "docs" / "doc1.txt")],
+            "docs/text": [str(temp_dir / "docs" / "text" / "text1.txt")]
+        }
+
+        # When: We group the paths relative to base_dir
+        result = group_by_base_dir(paths, base, max_depth)
+
+        # Then: The relative paths are correctly resolved and grouped
+        assert result == expected

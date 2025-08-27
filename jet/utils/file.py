@@ -24,7 +24,6 @@ def search_files(
         base_dirs = [base_dir]
     else:
         base_dirs = base_dir
-
     files = []
     for dir_path in base_dirs:
         files.extend(
@@ -39,10 +38,8 @@ def search_files(
         file_name = os.path.basename(path)
         dir_path = os.path.dirname(path)
         for pattern in patterns:
-            # Check if pattern matches the file name
             if fnmatch.fnmatch(file_name, pattern):
                 return True
-            # Check if pattern matches any part of the directory path
             if any(fnmatch.fnmatch(part, pattern) for part in dir_path.split(os.sep)):
                 return True
         return False
@@ -50,7 +47,6 @@ def search_files(
     if include_files:
         files = [file for file in files if matches_pattern(
             file, include_files)]
-
     if exclude_files:
         files = [file for file in files if not matches_pattern(
             file, exclude_files)]
@@ -61,29 +57,25 @@ def search_files(
 def find_files_recursively(pattern: str, base_dir: Union[str, Path] = ".") -> List[str]:
     """
     Recursively find files matching the given pattern starting from base_dir.
-
     Args:
         pattern (str): Glob pattern (e.g., '*.py', '**/*.txt').
         base_dir (str | Path): Directory to start from. Defaults to current directory '.'.
-
     Returns:
         List[str]: List of matched file paths as strings.
     """
     base_path = Path(base_dir)
     if not base_path.is_dir():
         raise ValueError(f"Base path '{base_path}' is not a valid directory.")
-
     return [str(p) for p in base_path.rglob(pattern)]
 
 
-def group_by_base_dir(paths: List[str], base_dir: str) -> Dict[str, List[str]]:
+def group_by_base_dir(paths: List[str], base_dir: str, max_depth: int = None) -> Dict[str, List[str]]:
     """
     Groups file paths by their shared base directory relative to the provided base_dir.
-
     Args:
         paths: List of file paths to group.
         base_dir: Base directory to compute relative paths from.
-
+        max_depth: Maximum depth of directories to group by (optional).
     Returns:
         Dictionary mapping base directories to lists of file paths sharing that base.
     """
@@ -97,8 +89,11 @@ def group_by_base_dir(paths: List[str], base_dir: str) -> Dict[str, List[str]]:
         try:
             full_path = full_path.resolve()
             relative = full_path.relative_to(base_path)
-            parent = str(relative.parent) if relative.parent != Path(
-                ".") else ""
+            parent_parts = relative.parent.parts
+            # Apply max_depth limit if specified
+            if max_depth is not None:
+                parent_parts = parent_parts[:max_depth]
+            parent = os.path.join(*parent_parts) if parent_parts else ""
             if parent not in grouped:
                 grouped[parent] = []
             grouped[parent].append(str(full_path))
