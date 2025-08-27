@@ -16,16 +16,17 @@ def extract_text_from_ipynb(
     include_code=False,
     include_comments=False,
     merge_consecutive_code=False,
-    save_as: Literal['md', 'py'] = 'md'
+    save_as: Literal['md', 'py', 'blocks'] = 'md'
 ):
-    """Extract text content from a Jupyter notebook and return as markdown or Python code."""
+    """Extract text content from a Jupyter notebook and return as markdown, Python code, or CodeBlocks."""
     try:
         with open(notebook_path, 'r', encoding='utf-8') as f:
             notebook = json.load(f)
 
-        content = []
-        text_blocks = []
-        last_code_buffer = []
+        content: List[str] = []
+        blocks: List[CodeBlock] = []
+        text_blocks: List[str] = []
+        last_code_buffer: List[str] = []
 
         def flush_code_buffer():
             """Helper to flush buffered consecutive code cells."""
@@ -33,19 +34,24 @@ def extract_text_from_ipynb(
             if not last_code_buffer:
                 return
             code_content = "\n".join(last_code_buffer)
-            content.append("```python")
-            content.append(code_content)
-            content.append("```")
-            content.append("")
+            if save_as == "blocks":
+                blocks.append(CodeBlock(language="python", code=code_content))
+            else:
+                content.append("```python")
+                content.append(code_content)
+                content.append("```")
+                content.append("")
             last_code_buffer = []
 
         for cell in notebook.get('cells', []):
             if cell['cell_type'] == 'markdown':
-                # flush any buffered code first
                 if merge_consecutive_code:
                     flush_code_buffer()
 
-                if save_as == 'md':
+                md_text = "".join(cell['source'])
+                if save_as == "blocks":
+                    blocks.append(CodeBlock(language="text", code=md_text))
+                elif save_as == 'md':
                     content.extend(cell['source'])
                     content.append("")
                 else:
@@ -67,7 +73,10 @@ def extract_text_from_ipynb(
                         code_content = remove_single_line_comments_preserving_triple_quotes(
                             code_content)
 
-                    if save_as == 'md':
+                    if save_as == 'blocks':
+                        blocks.append(
+                            CodeBlock(language="python", code=code_content))
+                    elif save_as == 'md':
                         if merge_consecutive_code:
                             last_code_buffer.append(code_content)
                         else:
@@ -79,18 +88,23 @@ def extract_text_from_ipynb(
                         content.append(code_content)
                         content.append("")
 
-                if include_outputs and save_as == 'md':
-                    if merge_consecutive_code:
-                        flush_code_buffer()
+                if include_outputs:
+                    outputs = []
                     for output in cell.get('outputs', []):
                         if 'text' in output:
-                            content.append("```output")
-                            content.extend(output['text'])
-                            content.append("```")
-                            content.append("")
+                            outputs.extend(output['text'])
                         elif 'data' in output and 'text/plain' in output['data']:
+                            outputs.extend(output['data']['text/plain'])
+                    if outputs:
+                        output_text = "".join(outputs)
+                        if save_as == "blocks":
+                            blocks.append(
+                                CodeBlock(language="output", code=output_text))
+                        elif save_as == "md":
+                            if merge_consecutive_code:
+                                flush_code_buffer()
                             content.append("```output")
-                            content.extend(output['data']['text/plain'])
+                            content.extend(outputs)
                             content.append("```")
                             content.append("")
 
@@ -104,6 +118,8 @@ def extract_text_from_ipynb(
         if merge_consecutive_code:
             flush_code_buffer()
 
+        if save_as == "blocks":
+            return blocks
         return "\n".join(line.rstrip() for line in content)
 
     except Exception as e:
@@ -116,7 +132,7 @@ def extract_text_from_md(
     include_code=True,
     include_comments=True,
     merge_consecutive_code=False,
-    save_as: Literal['md', 'py'] = 'md'
+    save_as: Literal['md', 'py', 'blocks'] = 'md'
 ):
     """Extract text content from a markdown file using MarkdownCodeExtractor."""
     try:
@@ -124,66 +140,96 @@ def extract_text_from_md(
             content = f.read()
 
         extractor = MarkdownCodeExtractor()
-        if save_as == 'md':
-            if include_code:
-                code_blocks = extractor.extract_code_blocks(
-                    content, with_text=True)
-                markdown_content = []
-                buffer_lang = None
-                buffer_code = []
+        code_blocks = extractor.extract_code_blocks(content, with_text=True)
 
-                def flush_buffer():
-                    nonlocal buffer_lang, buffer_code
-                    if buffer_lang and buffer_code:
-                        markdown_content.append(f"```{buffer_lang}")
-                        markdown_content.append("\n".join(buffer_code))
+        if save_as == "blocks":
+            blocks: List[CodeBlock] = []
+            for block in code_blocks:
+                code_content = block['code']
+                if not include_comments and block['language'] == 'python':
+                    code_content = remove_single_line_comments_preserving_triple_quotes(
+                        code_content)
+                blocks.append(
+                    CodeBlock(language=block['language'], code=code_content))
+            return blocks
+
+        if save_as == 'md':
+            markdown_content = []
+            buffer_lang = None
+            buffer_code = []
+
+            def flush_buffer():
+                nonlocal buffer_lang, buffer_code
+                if buffer_lang and buffer_code:
+                    markdown_content.append(f"```{buffer_lang}")
+                    markdown_content.append("\n".join(buffer_code))
+                    markdown_content.append("```")
+                    markdown_content.append("")
+                buffer_lang, buffer_code = None, []
+
+            for block in code_blocks:
+                if block['language'] == 'text':
+                    if merge_consecutive_code:
+                        flush_buffer()
+                    markdown_content.append(block['code'])
+                    markdown_content.append("")
+                else:
+                    code_content = block['code']
+                    if not include_comments and block['language'] == 'python':
+                        code_content = remove_single_line_comments_preserving_triple_quotes(
+                            code_content)
+
+                    if merge_consecutive_code:
+                        if buffer_lang == block['language']:
+                            buffer_code.append(code_content)
+                        else:
+                            flush_buffer()
+                            buffer_lang = block['language']
+                            buffer_code = [code_content]
+                    else:
+                        markdown_content.append(f"```{block['language']}")
+                        markdown_content.append(code_content)
                         markdown_content.append("```")
                         markdown_content.append("")
-                    buffer_lang, buffer_code = None, []
 
-                for block in code_blocks:
-                    if block['language'] == 'text':
-                        if merge_consecutive_code:
-                            flush_buffer()
-                        markdown_content.append(block['code'])
-                        markdown_content.append("")
-                    else:
-                        code_content = block['code']
-                        if not include_comments and block['language'] == 'python':
-                            code_content = remove_single_line_comments_preserving_triple_quotes(
-                                code_content)
+            if merge_consecutive_code:
+                flush_buffer()
 
-                        if merge_consecutive_code:
-                            if buffer_lang == block['language']:
-                                buffer_code.append(code_content)
-                            else:
-                                flush_buffer()
-                                buffer_lang = block['language']
-                                buffer_code = [code_content]
-                        else:
-                            markdown_content.append(f"```{block['language']}")
-                            markdown_content.append(code_content)
-                            markdown_content.append("```")
-                            markdown_content.append("")
+            return "\n".join(line.rstrip() for line in markdown_content)
 
-                if merge_consecutive_code:
-                    flush_buffer()
+        if save_as == "py":
+            return extractor.remove_code_blocks(content, keep_file_paths=False)
 
-                return "\n".join(line.rstrip() for line in markdown_content)
-            else:
-                return extractor.remove_code_blocks(content, keep_file_paths=False)
-
-        # (py mode left unchanged for brevity but could apply same idea)
-        ...
     except Exception as e:
         print(f"Error processing {md_path}: {str(e)}")
         return None
 
 
-def extract_text_from_py(py_path, include_code=True, include_comments=True, save_as: Literal['md', 'py'] = 'md'):
-    """Extract text content from a Python file as markdown or Python code."""
-    # Implement using ast
-    pass
+def extract_text_from_py(
+    py_path,
+    include_code=True,
+    include_comments=True,
+    save_as: Literal['md', 'py', 'blocks'] = 'md'
+):
+    """Extract text content from a Python file as markdown, Python code, or CodeBlocks."""
+    try:
+        with open(py_path, 'r', encoding='utf-8') as f:
+            source = f.read()
+
+        if not include_comments:
+            source = remove_single_line_comments_preserving_triple_quotes(
+                source)
+
+        if save_as == "blocks":
+            return [CodeBlock(language="python", code=source)]
+        elif save_as == "py":
+            return source
+        else:  # md
+            return f"```python\n{source}\n```"
+
+    except Exception as e:
+        print(f"Error processing {py_path}: {str(e)}")
+        return None
 
 
 def process_file(
@@ -193,9 +239,9 @@ def process_file(
     include_code=False,
     include_comments=False,
     merge_consecutive_code=False,
-    save_as: Literal['md', 'py'] = 'md'
+    save_as: Literal['md', 'py', 'blocks'] = 'md'
 ):
-    """Process a single file (notebook, markdown, or python) and save as markdown or Python code."""
+    """Process a single file (notebook, markdown, or python)."""
     input_path = Path(input_path)
 
     if output_dir is None:
@@ -204,7 +250,8 @@ def process_file(
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_path = output_dir / f"{input_path.stem}.{save_as}"
+    extension = "json" if save_as == "blocks" else save_as
+    output_path = output_dir / f"{input_path.stem}.{extension}"
 
     if input_path.suffix == '.ipynb':
         content = extract_text_from_ipynb(
@@ -228,7 +275,6 @@ def process_file(
             input_path,
             include_code=include_code,
             include_comments=include_comments,
-            merge_consecutive_code=merge_consecutive_code,
             save_as=save_as
         )
     else:
@@ -236,14 +282,22 @@ def process_file(
         return
 
     if content:
-        save_file(content, str(output_path))
+        if save_as == "blocks":
+            # Normalize: convert CodeBlock objects to dicts if needed
+            normalized = [
+                block.__dict__ if hasattr(block, "__dict__") else block
+                for block in content
+            ]
+            save_file(json.dumps(normalized, indent=2), str(output_path))
+        else:
+            save_file(content, str(output_path))
 
 
 def run_text_extraction(
     input_path: str,
     output_dir: str,
     extensions: Union[str, List[str]] = ['.ipynb', '.md', '.py'],
-    save_as: Literal['md', 'py'] = 'md',
+    save_as: Literal['md', 'py', 'blocks'] = 'md',
     include_outputs: bool = False,
     include_code: bool = False,
     include_comments: bool = True,
@@ -282,7 +336,7 @@ def run_text_extraction(
 def run_notebook_extraction(
     input_path: str,
     output_dir: str,
-    save_as: Literal['md', 'py'] = 'md',
+    save_as: Literal['md', 'py', 'blocks'] = 'md',
     include_outputs: bool = False,
     include_code: bool = False,
     include_comments: bool = True,

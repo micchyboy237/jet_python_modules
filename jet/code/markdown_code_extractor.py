@@ -12,7 +12,7 @@ class CodeBlock(TypedDict):
     language: str  # Programming language of the code block.
     file_path: Optional[str]  # The file path associated with the code block.
     # The file extension inferred from the language or file path.
-    extension: str
+    extension: Optional[str]
 
 
 class MarkdownCodeExtractor:
