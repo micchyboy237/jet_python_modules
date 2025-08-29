@@ -1783,7 +1783,7 @@ def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResu
 
     try:
         results: list[SearchResult] = search_searxng(
-            query_url="http://Jethros-MacBook-Air.local:3000/search",
+            query_url="http://jethros-macbook-air.local:3000/search",
             query=query,
             filter_sites=filter_sites,
             engines=engines,

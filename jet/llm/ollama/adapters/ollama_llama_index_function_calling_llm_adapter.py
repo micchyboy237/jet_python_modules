@@ -96,7 +96,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         description="The temperature to use for sampling.",
     )
     context_window: int = Field(
-        default=-1,
+        default=DEFAULT_CONTEXT_WINDOW,
         description="The maximum number of context tokens for the model.",
     )
     request_timeout: float = Field(
@@ -135,7 +135,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         model: str,
         base_url: str = "http://localhost:11434",
         temperature: Optional[float] = None,
-        context_window: int = -1,
+        context_window: int = DEFAULT_CONTEXT_WINDOW,
         request_timeout: Optional[float] = DEFAULT_REQUEST_TIMEOUT,
         prompt_key: str = "prompt",
         json_mode: bool = False,
