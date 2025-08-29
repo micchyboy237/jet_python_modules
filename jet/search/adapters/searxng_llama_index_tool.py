@@ -15,15 +15,21 @@ DEFAULT_REDIS_PORT = 3101
 DEFAULT_URL = "http://jethros-macbook-air.local:3000/search"
 
 
+class SimplifiedSearchResult(TypedDict):
+    title: str
+    content: str
+    url: str
+    publishedDate: Optional[str]
+    score: float
+
+
 class SearXNGSearchToolSpec(BaseToolSpec):
     """SearXNGSearch tool spec."""
-
     spec_functions = ["searxng_instant_search", "searxng_full_search"]
 
     def __init__(self, base_url: str = DEFAULT_URL, redis_config: Optional[RedisConfigParams] = None) -> None:
         """
         Initialize the SearXNG search tool with a base URL and optional Redis configuration.
-
         Args:
             base_url (str): The base URL for the SearXNG instance (e.g., 'https://searxng.example.com').
             redis_config (Optional[RedisConfigParams]): Configuration for Redis caching.
@@ -44,13 +50,10 @@ class SearXNGSearchToolSpec(BaseToolSpec):
     def searxng_instant_search(self, query: str) -> List[Dict]:
         """
         Make a query to SearXNG to receive instant answers.
-
         Args:
             query (str): The query to be passed to SearXNG.
-
         Returns:
             List[Dict]: List of instant answer results.
-
         Raises:
             Exception: If the API call fails after retries.
         """
@@ -85,18 +88,34 @@ class SearXNGSearchToolSpec(BaseToolSpec):
         self,
         query: str,
         count: Optional[int] = 10,
-    ) -> List[SearchResult]:
+    ) -> List[SimplifiedSearchResult]:
         """
         Make a query to SearXNG to receive full search results.
         Args:
             query (str): The query to be passed to SearXNG.
             count (Optional[int]): Maximum number of results to return.
         Returns:
-            List[SearchResult]: List of filtered and sorted search results.
+            List[SimplifiedSearchResult]: List of filtered and sorted search results with title, content, url, optional publishedDate, and score.
         Raises:
             Exception: If the API call fails after retries.
+            TypeError: If count is provided but is not an integer or None.
         """
         try:
+            # Validate and coerce count
+            if count is not None:
+                if not isinstance(count, int):
+                    try:
+                        count = int(count)  # Attempt to convert to int
+                        logger.info(f"Coerced count to integer: {count}")
+                    except (ValueError, TypeError) as e:
+                        logger.error(
+                            f"Invalid count type: {type(count)}, value: {count}")
+                        raise TypeError("count must be an integer or None")
+                if count < 0:
+                    logger.error(
+                        f"Invalid count value: {count}, must be non-negative")
+                    raise ValueError("count must be non-negative")
+
             query = decode_encoded_characters(query)
             params = {
                 "q": query,
@@ -105,7 +124,7 @@ class SearXNGSearchToolSpec(BaseToolSpec):
                 "safesearch": 2,
                 "language": "en",
                 "categories": "general",
-                "engines": "google,duckduckgo",
+                "engines": "google,brave,duckduckgo,bing,yahoo",
             }
             query_url = build_query_url(self.base_url, params)
             headers = {"Accept": "application/json"}
@@ -115,7 +134,16 @@ class SearXNGSearchToolSpec(BaseToolSpec):
                 cached_count = len(cached_result["results"])
                 if count is None or cached_count >= count:
                     logger.info(f"Cache hit for {cache_key}")
-                    return cached_result["results"][:count]
+                    simplified_results = [
+                        SimplifiedSearchResult(
+                            title=result["title"],
+                            content=result["content"],
+                            url=result["url"],
+                            publishedDate=result.get("publishedDate"),
+                            score=result["score"]
+                        ) for result in cached_result["results"][:count]
+                    ]
+                    return simplified_results
                 else:
                     logger.warning(
                         f"Cache hit but insufficient results ({cached_count} < {count}) for {cache_key}")
@@ -128,12 +156,21 @@ class SearXNGSearchToolSpec(BaseToolSpec):
             results = deduplicate_results(results)
             results = sort_by_score(results)
             results = results[:count] if count is not None else results
+            simplified_results = [
+                SimplifiedSearchResult(
+                    title=result["title"],
+                    content=result["content"],
+                    url=result["url"],
+                    publishedDate=result.get("publishedDate"),
+                    score=result["score"]
+                ) for result in results
+            ]
             cache_data = {"results": results,
                           "number_of_results": len(results)}
             self.cache.set(cache_key, cache_data)
             logger.info(
                 f"Full search returned {len(results)} results for query: {query}")
-            return results
+            return simplified_results
         except Exception as e:
             logger.error(f"Full search failed for query '{query}': {str(e)}")
             raise

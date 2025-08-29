@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from llama_index.core.tools.types import BaseTool
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
+DEFAULT_TEMPERATURE = 0.1
 dispatcher = get_dispatcher(__name__)
 
 
@@ -92,7 +93,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
     )
     model: str = Field(description="The Ollama model to use.")
     temperature: Optional[float] = Field(
-        default=None,
+        default=DEFAULT_TEMPERATURE,
         description="The temperature to use for sampling.",
     )
     context_window: int = Field(
@@ -134,7 +135,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         self,
         model: str,
         base_url: str = "http://localhost:11434",
-        temperature: Optional[float] = None,
+        temperature: Optional[float] = DEFAULT_TEMPERATURE,
         context_window: int = DEFAULT_CONTEXT_WINDOW,
         request_timeout: Optional[float] = DEFAULT_REQUEST_TIMEOUT,
         prompt_key: str = "prompt",
