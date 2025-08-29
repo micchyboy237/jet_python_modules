@@ -15,8 +15,8 @@ DEFAULT_REDIS_PORT = 3101
 DEFAULT_URL = "http://jethros-macbook-air.local:3000/search"
 
 
-class SearxngSearchToolSpec(BaseToolSpec):
-    """SearXNG search tool spec with rate limit handling and caching."""
+class SearXNGSearchToolSpec(BaseToolSpec):
+    """SearXNGSearch tool spec."""
 
     spec_functions = ["searxng_instant_search", "searxng_full_search"]
 
@@ -85,89 +85,52 @@ class SearxngSearchToolSpec(BaseToolSpec):
         self,
         query: str,
         count: Optional[int] = 10,
-        min_score: float = 0.1,
-        min_date: Optional[datetime] = None,
-        include_sites: Optional[List[str]] = None,
-        exclude_sites: Optional[List[str]] = None,
-        language: str = "en",
-        categories: List[str] = ["general"],
-        engines: List[str] = ["google", "brave",
-                              "duckduckgo", "bing", "yahoo"],
-        use_cache: bool = True,
     ) -> List[SearchResult]:
         """
         Make a query to SearXNG to receive full search results.
-
         Args:
             query (str): The query to be passed to SearXNG.
             count (Optional[int]): Maximum number of results to return.
-            min_score (float): Minimum relevance score for results.
-            min_date (Optional[datetime]): Minimum date for results.
-            include_sites (Optional[List[str]]): Sites to include in the search.
-            exclude_sites (Optional[List[str]]): Sites to exclude from the search.
-            language (str): Language for the search (e.g., 'en').
-            categories (List[str]): Categories to search in (e.g., ['general', 'news']).
-            engines (List[str]): Search engines to use.
-            use_cache (bool): Whether to use Redis caching.
-
         Returns:
             List[SearchResult]: List of filtered and sorted search results.
-
         Raises:
             Exception: If the API call fails after retries.
         """
         try:
             query = decode_encoded_characters(query)
-            if include_sites:
-                query += " " + \
-                    " OR ".join([f"site:{site}" for site in include_sites])
-            if exclude_sites:
-                query += " " + \
-                    " ".join([f"-site:{site}" for site in exclude_sites])
-
             params = {
                 "q": query,
                 "format": "json",
                 "pageno": 1,
                 "safesearch": 2,
-                "language": language,
-                "categories": ",".join(categories),
-                "engines": ",".join(engines),
+                "language": "en",
+                "categories": "general",
+                "engines": "google,duckduckgo",
             }
             query_url = build_query_url(self.base_url, params)
             headers = {"Accept": "application/json"}
             cache_key = query_url
-
-            if use_cache:
-                cached_result = self.cache.get(cache_key)
-                if cached_result and cached_result.get("results", []):
-                    cached_count = len(cached_result["results"])
-                    if count is None or cached_count >= count:
-                        logger.info(f"Cache hit for {cache_key}")
-                        return cached_result["results"][:count]
-                    else:
-                        logger.warning(
-                            f"Cache hit but insufficient results ({cached_count} < {count}) for {cache_key}")
-
+            cached_result = self.cache.get(cache_key)
+            if cached_result and cached_result.get("results", []):
+                cached_count = len(cached_result["results"])
+                if count is None or cached_count >= count:
+                    logger.info(f"Cache hit for {cache_key}")
+                    return cached_result["results"][:count]
+                else:
+                    logger.warning(
+                        f"Cache hit but insufficient results ({cached_count} < {count}) for {cache_key}")
             result = fetch_search_results(query_url, headers, params)
             if not result.get("results", []):
                 logger.warning("No results found for query")
                 return []
-
             results = result.get("results", [])
-            results = filter_relevant(results, threshold=min_score)
-            if min_date:
-                min_date = format_min_date(min_date)
-                results = filter_by_date(results, min_date)
+            results = filter_relevant(results, threshold=0.1)
             results = deduplicate_results(results)
             results = sort_by_score(results)
             results = results[:count] if count is not None else results
-
             cache_data = {"results": results,
                           "number_of_results": len(results)}
-            if use_cache:
-                self.cache.set(cache_key, cache_data)
-
+            self.cache.set(cache_key, cache_data)
             logger.info(
                 f"Full search returned {len(results)} results for query: {query}")
             return results

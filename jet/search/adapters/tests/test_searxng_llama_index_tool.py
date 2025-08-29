@@ -3,16 +3,16 @@ from typing import List, Dict
 from datetime import datetime
 from unittest.mock import patch, Mock
 from jet.search.searxng import SearchResult, QueryResponse
-from jet.search.adapters.searxng_llama_index_tool import SearxngSearchToolSpec
+from jet.search.adapters.searxng_llama_index_tool import SearXNGSearchToolSpec
 from jet.cache.redis import RedisCache
 
 
 @pytest.fixture
 def search_tool():
-    return SearxngSearchToolSpec(base_url="https://searxng.example.com", redis_config={"port": 3101})
+    return SearXNGSearchToolSpec(base_url="https://searxng.example.com", redis_config={"port": 3101})
 
 
-class TestSearxngInstantSearch:
+class TestSearXNGInstantSearch:
     def test_instant_search_success(self, search_tool):
         # Given: A valid query for instant search
         query = "python programming"
@@ -41,7 +41,7 @@ class TestSearxngInstantSearch:
         assert result == expected, f"Expected empty list, but got {result}"
 
 
-class TestSearxngFullSearch:
+class TestSearXNGFullSearch:
     def test_full_search_success(self, search_tool):
         # Given: A valid query for full search with specific parameters
         query = "python programming"

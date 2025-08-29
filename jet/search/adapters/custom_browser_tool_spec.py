@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from playwright.async_api import Browser as AsyncBrowser, Page
 from llama_index.core.tools.tool_spec.base import BaseToolSpec
 
@@ -9,6 +9,9 @@ DEFAULT_WAIT_FOR_NETWORK_IDLE = True
 DEFAULT_INCLUDE_HIDDEN_DATA = True
 DEFAULT_INCLUDE_HIDDEN_ELEMENTS = False
 DEFAULT_RESPONSE_MODE = "fast"
+DEFAULT_CONTENT_SELECTORS = ["body", "main", "article", "[role='main']"]
+DEFAULT_EXCLUDE_SELECTORS = [
+    "script", "style", "nav", "footer", "[class*='ad']"]
 
 # Error messages
 QUERY_PROMPT_REQUIRED_ERROR_MESSAGE = "Either query or prompt must be provided."
@@ -75,16 +78,22 @@ class CustomBrowserToolSpec(BaseToolSpec):
         self,
         query: Optional[str] = None,
         prompt: Optional[str] = None,
+        content_selectors: Optional[List[str]] = None,
+        exclude_selectors: Optional[List[str]] = None,
+        extra_metadata: Optional[List[str]] = None,
     ) -> dict:
         """
-        Extracts structured data as JSON from a web page using a query or prompt.
+        Extracts structured data as JSON from a web page using a query or prompt, including body content.
 
         Args:
             query: A structured query to extract data (e.g., CSS selector or custom format).
             prompt: Natural language description of the data to extract.
+            content_selectors: List of CSS selectors for main content (e.g., ['main', 'article']).
+            exclude_selectors: List of CSS selectors to exclude (e.g., ['script', 'nav']).
+            extra_metadata: List of additional metadata fields to extract (e.g., ['keywords', 'description']).
 
         Returns:
-            dict: Extracted data (e.g., title, author, abstract, etc.).
+            dict: Extracted data including body content and metadata (e.g., title, author, content).
 
         Raises:
             ValueError: If neither query nor prompt is provided, or if both are provided.
@@ -99,48 +108,70 @@ class CustomBrowserToolSpec(BaseToolSpec):
         if self.wait_for_network_idle:
             await page.wait_for_load_state("networkidle", timeout=self.timeout_for_data * 1000)
 
-        # Simplified data extraction logic
         data = {}
 
+        # Extract body content
+        try:
+            content_selectors = content_selectors or DEFAULT_CONTENT_SELECTORS
+            exclude_selectors = exclude_selectors or DEFAULT_EXCLUDE_SELECTORS
+            content = []
+            for selector in content_selectors:
+                elements = await page.query_selector_all(selector)
+                for element in elements:
+                    if await element.is_visible() or self.include_hidden_for_data:
+                        # Exclude unwanted elements
+                        for exclude in exclude_selectors:
+                            excluded = await element.query_selector_all(exclude)
+                            for ex in excluded:
+                                await ex.evaluate("element => element.remove()")
+                        text = await element.text_content()
+                        if text:
+                            # Clean up text (remove excessive whitespace)
+                            cleaned_text = " ".join(text.strip().split())
+                            if cleaned_text:
+                                content.append(cleaned_text)
+            data["content"] = content if content else [
+                "No visible content found"]
+        except Exception as e:
+            data["content_error"] = f"Body content extraction failed: {str(e)}"
+
         if query:
-            # Handle query-based extraction (e.g., CSS selector or custom format)
+            # Handle query-based extraction (e.g., CSS selector)
             try:
                 elements = await page.query_selector_all(query)
                 if elements:
-                    # Extract text content from matched elements
                     texts = [await element.text_content() for element in elements if await element.is_visible() or self.include_hidden_for_data]
                     data["query_results"] = [text.strip()
                                              for text in texts if text]
                 else:
                     data["query_results"] = []
             except Exception as e:
-                data["error"] = f"Query extraction failed: {str(e)}"
+                data["query_error"] = f"Query extraction failed: {str(e)}"
         else:
-            # Handle prompt-based extraction using heuristic DOM parsing
+            # Handle prompt-based extraction with metadata
             try:
-                # Example: Extract common metadata (title, author, abstract)
+                # Extract standard metadata
                 title = await page.title()
                 data["title"] = title.strip() if title else "Unknown"
 
-                # Attempt to find author (common patterns: meta tags, specific classes)
                 author_meta = await page.query_selector("meta[name='author']")
                 data["author"] = (await author_meta.get_attribute("content")).strip() if author_meta else "Unknown"
 
-                # Attempt to find publication date
                 date_meta = await page.query_selector("meta[name='publication-date'], meta[property='article:published_time']")
                 data["publication_date"] = (await date_meta.get_attribute("content")).strip() if date_meta else "Unknown"
 
-                # Attempt to find abstract (common patterns: abstract class or section)
                 abstract = await page.query_selector(".abstract, [class*='abstract'], section p")
                 data["abstract"] = (await abstract.text_content()).strip() if abstract and (await abstract.is_visible() or self.include_hidden_for_data) else "Unknown"
 
-                # Placeholder for journal, volume, issue (customize based on page structure)
-                data["journal"] = "Unknown"
-                data["volume"] = "Unknown"
-                data["issue"] = "Unknown"
                 data["url"] = page.url
+
+                # Extract extra metadata if provided
+                if extra_metadata:
+                    for field in extra_metadata:
+                        meta = await page.query_selector(f"meta[name='{field}'], meta[property='{field}']")
+                        data[field] = (await meta.get_attribute("content")).strip() if meta else "Unknown"
             except Exception as e:
-                data["error"] = f"Prompt extraction failed: {str(e)}"
+                data["prompt_error"] = f"Prompt extraction failed: {str(e)}"
 
         return data
 
