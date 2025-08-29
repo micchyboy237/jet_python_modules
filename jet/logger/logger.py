@@ -41,14 +41,11 @@ class CustomLogger:
         self.overwrite = overwrite
         self.console_level = console_level.upper()
         self.level = level.upper()
-        # Initialize formatter first to ensure it's available before _initialize_logger
         formatter = fmt if isinstance(
             fmt, logging.Formatter) else logging.Formatter(fmt)
         self.formatter = formatter
-        # Initialize logger after formatter is set
         self.logger = self._initialize_logger(name)
         self._last_message_flushed = False
-        # Debug log to inspect initialization
         print(
             f"DEBUG: Initialized logger with console_level={self.console_level}, log_file={self.log_file}")
 
@@ -80,12 +77,10 @@ class CustomLogger:
 
     def set_level(self, level: Union[int, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]]) -> None:
         if isinstance(level, int):
-            # Convert int level to string name (e.g. 10 -> "DEBUG")
             level_name = logging.getLevelName(level)
             if isinstance(level_name, str):
                 level = level_name
             else:
-                # fallback to DEBUG if unknown level int
                 level = "DEBUG"
         elif isinstance(level, str):
             level = level.upper()
@@ -97,9 +92,6 @@ class CustomLogger:
         print(f"DEBUG: Set logger level to {level}")
 
     def setLevel(self, level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]) -> None:
-        """
-        Alias for set_level to support calls to setLevel.
-        """
         self.set_level(level)
 
     def set_format(self, fmt: Union[str, logging.Formatter]) -> None:
@@ -143,11 +135,9 @@ class CustomLogger:
             encoding: Encoding for the file handler, if filename is specified.
             errors: Error handling scheme for the file handler, if filename is specified.
         """
-        # Clear existing handlers if force is True
         if force:
             self.logger.handlers.clear()
 
-        # Update formatter with the provided format, datefmt, and style
         formatter = logging.Formatter(
             fmt=format,
             datefmt=datefmt,
@@ -155,13 +145,11 @@ class CustomLogger:
         )
         self.formatter = formatter
 
-        # Update log file and file-related settings
         if filename:
             self.log_file = filename
             self.overwrite = filemode == "w"
             if self.overwrite and os.path.exists(self.log_file):
                 os.remove(self.log_file)
-            # Remove existing FileHandler, if any
             for handler in self.logger.handlers[:]:
                 if isinstance(handler, logging.FileHandler):
                     self.logger.removeHandler(handler)
@@ -176,7 +164,6 @@ class CustomLogger:
             file_handler.setFormatter(self.formatter)
             self.logger.addHandler(file_handler)
 
-        # Update console handler with stream, if provided
         if stream is not None:
             for handler in self.logger.handlers[:]:
                 if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
@@ -187,7 +174,6 @@ class CustomLogger:
             console_handler.setFormatter(self.formatter)
             self.logger.addHandler(console_handler)
 
-        # Replace all handlers if handlers are provided
         if handlers is not None:
             self.logger.handlers.clear()
             for handler in handlers:
@@ -196,14 +182,12 @@ class CustomLogger:
                     handler.setLevel(level.upper())
                 self.logger.addHandler(handler)
 
-        # Update levels for all handlers if level is provided
         if level is not None:
             self.console_level = level.upper()
             self.level = level.upper()
             for handler in self.logger.handlers:
                 handler.setLevel(self.console_level)
 
-        # Debug log to inspect configuration
         print(
             f"DEBUG: Configured logger with filename={filename}, level={level}, format={format}")
 
@@ -246,8 +230,8 @@ class CustomLogger:
             end: str = None,
             colors: list[str] = None,
             exc_info: bool = True,
+            log_file: Optional[str] = None,
         ) -> None:
-            # Map string levels to numeric values for comparison
             level_map = {
                 "DEBUG": 10,
                 "INFO": 20,
@@ -256,29 +240,24 @@ class CustomLogger:
                 "CRITICAL": 50
             }
             if level_map.get(level.upper(), 10) < level_map.get(self.console_level, 10):
-                return  # Skip logging if level is below console_level
+                return
 
-            # Handle % formatting if message contains format specifiers and args are provided
             if "%" in message and args:
                 try:
                     message = message % args
-                    args = ()  # Clear args after formatting to avoid duplicate processing
+                    args = ()
                 except (TypeError, ValueError) as e:
-                    # If formatting fails, log the error and proceed with original message
                     self.warning(
                         f"Failed to format message '{message}' with args {args}: {str(e)}")
 
-            # Prepare colors list
             if colors is None:
                 colors = [f"BRIGHT_{level}" if bright else level]
             else:
                 colors = [f"BRIGHT_{c}" if bright and c.upper(
                 ) in level_map else c for c in colors]
-                # Extend colors list to match number of arguments
                 colors = colors * \
                     ((len(args) + 1 + len(colors) - 1) // len(colors))
 
-            # Process message and arguments
             messages = [message] + list(map(str, args))
             processed_messages = []
 
@@ -295,7 +274,6 @@ class CustomLogger:
                 processed_messages.append(
                     (msg, colors[i % len(colors)] if colors else level))
 
-            # Build colored output
             colored_output = ""
             try:
                 if hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno()):
@@ -335,12 +313,17 @@ class CustomLogger:
                 end = "" if flush else "\n"
             print(colored_output, end=end)
 
-            if self.log_file:
+            target_log_file = log_file if log_file is not None else self.log_file
+            if target_log_file:
+                log_dir = os.path.dirname(os.path.abspath(target_log_file))
+                os.makedirs(log_dir, exist_ok=True)
+                if log_file is not None and self.overwrite and os.path.exists(target_log_file):
+                    os.remove(target_log_file)
                 end = "" if flush else "\n\n"
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 metadata = f"[{level.upper()}] {timestamp}"
 
-                with open(self.log_file, "a") as file:
+                with open(target_log_file, "a") as file:
                     if not flush and self._last_message_flushed:
                         file.write("\n\n")
                     if not flush or (flush and not self._last_message_flushed):
@@ -359,7 +342,7 @@ class CustomLogger:
                 file.write("\n")
         self._last_message_flushed = False
 
-    def pretty(self, prompt, level=0):
+    def pretty(self, prompt, level=0, log_file: Optional[str] = None) -> None:
         MAX_STRING_LENGTH = 100
 
         def _inner(prompt, level):
@@ -396,7 +379,6 @@ class CustomLogger:
             return prompt_log
 
         prompt_log = _inner(prompt, level)
-        # Apply colors only if stdout is a terminal
         try:
             if hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno()):
                 print(prompt_log)
@@ -407,10 +389,15 @@ class CustomLogger:
             print(
                 f"[WARNING] Fallback to non-colored output in pretty method due to io.UnsupportedOperation")
 
-        if self.log_file:
+        target_log_file = log_file if log_file is not None else self.log_file
+        if target_log_file:
+            log_dir = os.path.dirname(os.path.abspath(target_log_file))
+            os.makedirs(log_dir, exist_ok=True)
+            if log_file is not None and self.overwrite and os.path.exists(target_log_file):
+                os.remove(target_log_file)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             metadata = f"[PRETTY] {timestamp}"
-            with open(self.log_file, "a") as file:
+            with open(target_log_file, "a") as file:
                 file.write(metadata + "\n")
                 file.write(format_json(prompt) + "\n")
         self._last_message_flushed = False
@@ -418,12 +405,12 @@ class CustomLogger:
     def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
         if name.upper() in COLORS:
             return self.custom_logger_method(name.upper())
-        # raise AttributeError(
-        #     f"'CustomLogger' object has no attribute '{name}'")
         self.warning(f"'CustomLogger' object has no attribute '{name}'")
 
 
 def logger_examples(logger: CustomLogger):
+    file_dir = os.path.dirname(os.path.abspath(__file__))
+
     logger.log("\n==== LOGGER METHODS =====")
     logger.newline()
     logger.log("This is a default log message.")
@@ -494,9 +481,36 @@ def logger_examples(logger: CustomLogger):
         },
         "status": "active"
     })
+    logger.pretty({
+        "event": "User Login",
+        "details": {
+            "timestamp": "2025-08-30 12:00:00",
+            "user_id": 123,
+            "roles": ["admin", "editor"]
+        }
+    }, log_file=f"{file_dir}/custom_pretty_log.txt")
+    logger.pretty({
+        "event": "Append Log",
+    }, log_file=f"{file_dir}/custom_pretty_log.txt")
     logger.info("Splitting document ID %d into chunks", 42)
     logger.info("Hello %s, your task is complete.", "Jet")
     logger.newline()
+    logger.log("Logging to default log file (if set).")
+    logger.log("Logging to custom log file.",
+               log_file=f"{file_dir}/custom_log.txt")
+    logger.info("Info message to custom log file.",
+                log_file=f"{file_dir}/custom_log.txt")
+    logger.warning("Warning message to custom log file.",
+                   log_file=f"{file_dir}/custom_log.txt")
+    logger.error("Error message to custom log file.",
+                 log_file=f"{file_dir}/custom_log.txt")
+    logger.critical("Append critical message to custom log file.",
+                    log_file=f"{file_dir}/custom_log.txt")
+    logger.pretty({"example": "Append pretty message"},
+                  log_file=f"{file_dir}/custom_log.txt")
+    logger.newline()
+    logger.log("Append logging with multiple arguments to custom file.", "Arg1", "Arg2",
+               colors=["DEBUG", "SUCCESS"], log_file=f"{file_dir}/custom_log.txt")
     logger.log("====== END LOGGER METHODS ======\n")
 
 
@@ -524,11 +538,6 @@ def getLogger(
                    "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
     fmt: Union[str, logging.Formatter] = "%(message)s",
 ):
-    """
-    Return a logger with the specified name, creating it if necessary.
-
-    If no name is specified, return the root logger.
-    """
     if not name or isinstance(name, str) and name == logger.name:
         return logger
     return CustomLogger(log_file, name, overwrite, console_level, level, fmt)
@@ -548,7 +557,7 @@ if __name__ == "__main__":
     logger_examples(logger)
 
     file_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(file_dir, "log.txt")
+    file_path = f"{file_dir}/log.txt"
     logger_with_file = CustomLogger(
         log_file=file_path,
         overwrite=True,

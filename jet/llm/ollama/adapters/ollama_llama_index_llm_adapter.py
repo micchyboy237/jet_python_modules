@@ -14,6 +14,8 @@ from typing import (
 
 from ollama import AsyncClient, Client
 
+from jet.token.token_utils import token_counter
+
 from llama_index.core.base.llms.generic_utils import (
     achat_to_completion_decorator,
     astream_chat_to_completion_decorator,
@@ -34,7 +36,6 @@ from llama_index.core.base.llms.types import (
     TextBlock,
 )
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
-from llama_index.core.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_NUM_OUTPUTS
 from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms.callbacks import llm_chat_callback, llm_completion_callback
 from llama_index.core.llms.function_calling import FunctionCallingLLM
@@ -42,11 +43,14 @@ from llama_index.core.llms.llm import ToolSelection, Model
 from llama_index.core.program.utils import process_streaming_objects, FlexibleModel
 from llama_index.core.prompts import PromptTemplate
 from llama_index.core.types import PydanticProgramMode
+import json
 
 if TYPE_CHECKING:
     from llama_index.core.tools.types import BaseTool
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
+DEFAULT_CONTEXT_WINDOW = 2048
+DEFAULT_NUM_OUTPUTS = 256
 DEFAULT_TEMPERATURE = 0.1
 dispatcher = get_dispatcher(__name__)
 
@@ -65,7 +69,7 @@ def force_single_tool_call(response: ChatResponse) -> None:
 
 class OllamaFunctionCallingAdapter(FunctionCallingLLM):
     """
-    Ollama LLM.
+    Ollama LLM with dynamic context window based on input token count, including tools.
 
     Visit https://ollama.com/ to download and install Ollama.
 
@@ -79,7 +83,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         ```python
         from llama_index.llms.ollama import Ollama
 
-        llm = Ollama(model="llama2", request_timeout=60.0)
+        llm = Ollama(model="llama3.2", request_timeout=60.0)
 
         response = llm.complete("What is the capital of France?")
         print(response)
@@ -97,8 +101,8 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         description="The temperature to use for sampling.",
     )
     context_window: int = Field(
-        default=DEFAULT_CONTEXT_WINDOW,
-        description="The maximum number of context tokens for the model.",
+        default=2048,
+        description="The maximum number of context tokens for the model, dynamically adjusted based on input.",
     )
     request_timeout: float = Field(
         default=DEFAULT_REQUEST_TIMEOUT,
@@ -112,8 +116,8 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         description="Whether to use JSON mode for the Ollama API.",
     )
     additional_kwargs: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional model parameters for the Ollama API.",
+        default_factory=lambda: {"num_gpu": 28},
+        description="Additional model parameters for the Ollama API, including GPU offloading.",
     )
     is_function_calling_model: bool = Field(
         default=True,
@@ -121,7 +125,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
     )
     keep_alive: Optional[Union[float, str]] = Field(
         default="5m",
-        description="controls how long the model will stay loaded into memory following the request(default: 5m)",
+        description="Controls how long the model will stay loaded into memory following the request (default: 5m)",
     )
     thinking: Optional[bool] = Field(
         default=None,
@@ -146,6 +150,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         is_function_calling_model: bool = True,
         keep_alive: Optional[Union[float, str]] = None,
         thinking: Optional[bool] = None,
+        log_dir: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -156,13 +161,14 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             request_timeout=request_timeout,
             prompt_key=prompt_key,
             json_mode=json_mode,
-            additional_kwargs=additional_kwargs or {},
+            additional_kwargs={**{"num_gpu": 28}, **(additional_kwargs or {})},
             is_function_calling_model=is_function_calling_model,
             keep_alive=keep_alive,
             thinking=thinking,
             **kwargs,
         )
 
+        self.log_dir = log_dir
         self._client = client
         self._async_client = async_client
 
@@ -201,7 +207,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
     def _model_kwargs(self) -> Dict[str, Any]:
         base_kwargs = {
             "temperature": self.temperature,
-            "num_ctx": self.get_context_window(),
+            "num_ctx": self.context_window,
         }
         return {
             **base_kwargs,
@@ -219,8 +225,23 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
 
         # If the context window is still -1, use the default context window
         return (
-            self.context_window if self.context_window != -1 else DEFAULT_CONTEXT_WINDOW
+            self.context_window if self.context_window != -1 else 2048
         )
+
+    def _get_dynamic_context_window(self, messages: Sequence[ChatMessage], tools: Optional[List[Any]] = None) -> int:
+        """Calculate dynamic context window based on input token count, including messages and tools."""
+        token_count = 0
+        if messages:
+            message_content = [msg.content for msg in messages if msg.content]
+            token_count += token_counter(message_content, model=self.model)
+        if tools:
+            tool_specs = []
+            for tool in tools:
+                tool_specs.append(tool)
+            tool_json = json.dumps(tool_specs)
+            token_count += token_counter(tool_json, model=self.model)
+        token_count += 50
+        return min(int(token_count * 1.2), 2048)
 
     def _convert_to_ollama_messages(self, messages: Sequence[ChatMessage]) -> Dict:
         ollama_messages = []
@@ -340,8 +361,10 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
     @llm_chat_callback()
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         ollama_messages = self._convert_to_ollama_messages(messages)
-
         tools = kwargs.pop("tools", None)
+        dynamic_context = self._get_dynamic_context_window(messages, tools)
+        options = {**self._model_kwargs, "num_ctx": dynamic_context}
+
         think = kwargs.pop("think", None) or self.thinking
         format = kwargs.pop("format", "json" if self.json_mode else None)
 
@@ -352,7 +375,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             format=format,
             tools=tools,
             think=think,
-            options=self._model_kwargs,
+            options=options,
             keep_alive=self.keep_alive,
         )
 
@@ -379,8 +402,10 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         self, messages: Sequence[ChatMessage], **kwargs: Any
     ) -> ChatResponseGen:
         ollama_messages = self._convert_to_ollama_messages(messages)
-
         tools = kwargs.pop("tools", None)
+        dynamic_context = self._get_dynamic_context_window(messages, tools)
+        options = {**self._model_kwargs, "num_ctx": dynamic_context}
+
         think = kwargs.pop("think", None) or self.thinking
         format = kwargs.pop("format", "json" if self.json_mode else None)
 
@@ -392,7 +417,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 format=format,
                 tools=tools,
                 think=think,
-                options=self._model_kwargs,
+                options=options,
                 keep_alive=self.keep_alive,
             )
 
@@ -448,12 +473,55 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         return gen()
 
     @llm_chat_callback()
+    async def achat(
+        self, messages: Sequence[ChatMessage], **kwargs: Any
+    ) -> ChatResponse:
+        ollama_messages = self._convert_to_ollama_messages(messages)
+        tools = kwargs.pop("tools", None)
+        dynamic_context = self._get_dynamic_context_window(messages, tools)
+        options = {**self._model_kwargs, "num_ctx": dynamic_context}
+
+        think = kwargs.pop("think", None) or self.thinking
+        format = kwargs.pop("format", "json" if self.json_mode else None)
+
+        response = await self.async_client.chat(
+            model=self.model,
+            messages=ollama_messages,
+            stream=False,
+            format=format,
+            tools=tools,
+            think=think,
+            options=options,
+            keep_alive=self.keep_alive,
+        )
+
+        response = dict(response)
+
+        tool_calls = response["message"].get("tool_calls", [])
+        thinking = response["message"].get("thinking", None)
+        token_counts = self._get_response_token_counts(response)
+        if token_counts:
+            response["usage"] = token_counts
+
+        return ChatResponse(
+            message=ChatMessage(
+                content=response["message"].get("content", ""),
+                role=response["message"].get("role", MessageRole.ASSISTANT),
+                additional_kwargs={
+                    "tool_calls": tool_calls, "thinking": thinking},
+            ),
+            raw=response,
+        )
+
+    @llm_chat_callback()
     async def astream_chat(
         self, messages: Sequence[ChatMessage], **kwargs: Any
     ) -> ChatResponseAsyncGen:
         ollama_messages = self._convert_to_ollama_messages(messages)
-
         tools = kwargs.pop("tools", None)
+        dynamic_context = self._get_dynamic_context_window(messages, tools)
+        options = {**self._model_kwargs, "num_ctx": dynamic_context}
+
         think = kwargs.pop("think", None) or self.thinking
         format = kwargs.pop("format", "json" if self.json_mode else None)
 
@@ -465,7 +533,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 format=format,
                 tools=tools,
                 think=think,
-                options=self._model_kwargs,
+                options=options,
                 keep_alive=self.keep_alive,
             )
 
@@ -519,45 +587,6 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 )
 
         return gen()
-
-    @llm_chat_callback()
-    async def achat(
-        self, messages: Sequence[ChatMessage], **kwargs: Any
-    ) -> ChatResponse:
-        ollama_messages = self._convert_to_ollama_messages(messages)
-
-        tools = kwargs.pop("tools", None)
-        think = kwargs.pop("think", None) or self.thinking
-        format = kwargs.pop("format", "json" if self.json_mode else None)
-
-        response = await self.async_client.chat(
-            model=self.model,
-            messages=ollama_messages,
-            stream=False,
-            format=format,
-            tools=tools,
-            think=think,
-            options=self._model_kwargs,
-            keep_alive=self.keep_alive,
-        )
-
-        response = dict(response)
-
-        tool_calls = response["message"].get("tool_calls", [])
-        thinking = response["message"].get("thinking", None)
-        token_counts = self._get_response_token_counts(response)
-        if token_counts:
-            response["usage"] = token_counts
-
-        return ChatResponse(
-            message=ChatMessage(
-                content=response["message"].get("content", ""),
-                role=response["message"].get("role", MessageRole.ASSISTANT),
-                additional_kwargs={
-                    "tool_calls": tool_calls, "thinking": thinking},
-            ),
-            raw=response,
-        )
 
     @llm_completion_callback()
     def complete(
