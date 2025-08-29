@@ -1,3 +1,4 @@
+import hashlib
 import time
 from typing import (
     TYPE_CHECKING,
@@ -17,6 +18,7 @@ import uuid
 from ollama import AsyncClient, Client
 
 from jet.token.token_utils import token_counter
+from jet.transformers.formatters import format_json
 from jet.logger import CustomLogger
 
 from llama_index.core.base.llms.generic_utils import (
@@ -337,10 +339,15 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         """Save request and response logs to a file if log_dir is specified."""
         if not self.log_dir:
             return
+        # Serialize request and response to JSON for consistent hashing
+        content = format_json({"request": request, "response": response})
+        # Compute MD5 hash of the content
+        # Use first 8 chars for brevity
+        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()[:8]
         timestamp = int(time.time())
         # Use first 8 chars of UUID for brevity
         unique_id = str(uuid.uuid4())[:8]
-        log_file_name = f"{timestamp}_{unique_id}.log"
+        log_file_name = f"{timestamp}_{content_hash}_{unique_id}.log"
         log_file_path = f"{self.log_dir}/{log_file_name}"
         _logger = CustomLogger(log_file_path, name=log_file_name)
         _logger.orange(f"Logs: {log_file_path}")
@@ -416,6 +423,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             thinking_txt = ""
             seen_tool_calls = set()
             all_tool_calls = []
+            final_response = {}  # Store final response for logging
 
             for r in response:
                 if r["message"]["content"] is None:
@@ -435,7 +443,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 token_counts = self._get_response_token_counts(r)
                 if token_counts:
                     r["usage"] = token_counts
-                self._save_logs(request, r)
+                final_response = r  # Update final response
                 yield ChatResponse(
                     message=ChatMessage(
                         content=response_txt,
@@ -448,6 +456,10 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                     additional_kwargs={
                         "thinking_delta": r["message"].get("thinking", None)},
                 )
+
+            # Log only the final aggregated response
+            if final_response:
+                self._save_logs(request, final_response)
 
         return gen()
 
@@ -518,6 +530,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             thinking_txt = ""
             seen_tool_calls = set()
             all_tool_calls = []
+            final_response = {}  # Store final response for logging
 
             async for r in response:
                 if r["message"]["content"] is None:
@@ -537,7 +550,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 token_counts = self._get_response_token_counts(r)
                 if token_counts:
                     r["usage"] = token_counts
-                self._save_logs(request, r)
+                final_response = r  # Update final response
                 yield ChatResponse(
                     message=ChatMessage(
                         content=response_txt,
@@ -550,6 +563,10 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                     additional_kwargs={
                         "thinking_delta": r["message"].get("thinking", None)},
                 )
+
+            # Log only the final aggregated response
+            if final_response:
+                self._save_logs(request, final_response)
 
         return gen()
 
