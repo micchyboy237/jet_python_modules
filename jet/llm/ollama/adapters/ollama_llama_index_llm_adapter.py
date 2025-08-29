@@ -455,7 +455,11 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 token_counts = self._get_response_token_counts(r)
                 if token_counts:
                     r["usage"] = token_counts
-                final_response = r  # Update final response
+                final_response = r
+                # Safely set response_txt in final_response["message"]["content"]
+                if "message" not in final_response:
+                    final_response["message"] = {}
+                final_response["message"]["content"] = response_txt
                 yield ChatResponse(
                     message=ChatMessage(
                         content=response_txt,
@@ -469,7 +473,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                         "thinking_delta": r["message"].get("thinking", None)},
                 )
 
-            # Log only the final aggregated response
+            # Log the final aggregated response
             if final_response:
                 self._save_logs(request, final_response)
 
@@ -558,6 +562,10 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 if token_counts:
                     r["usage"] = token_counts
                 final_response = r
+                # Safely set response_txt in final_response["message"]["content"]
+                if "message" not in final_response:
+                    final_response["message"] = {}
+                final_response["message"]["content"] = response_txt
                 yield ChatResponse(
                     message=ChatMessage(
                         content=response_txt,
