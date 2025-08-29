@@ -1,5 +1,7 @@
+import json
 import hashlib
 import time
+import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -13,14 +15,17 @@ from typing import (
     Type,
     Union,
 )
-import uuid
-
+from contextvars import copy_context
+from functools import wraps
 from ollama import AsyncClient, Client
-
-from jet.token.token_utils import token_counter
-from jet.transformers.formatters import format_json
-from jet.logger import CustomLogger
-
+from llama_index.core.bridge.pydantic import Field, PrivateAttr
+from llama_index.core.instrumentation import get_dispatcher
+from llama_index.core.llms.callbacks import llm_chat_callback, llm_completion_callback
+from llama_index.core.llms.function_calling import FunctionCallingLLM
+from llama_index.core.llms.llm import ToolSelection, Model
+from llama_index.core.program.utils import process_streaming_objects, FlexibleModel
+from llama_index.core.prompts import PromptTemplate
+from llama_index.core.types import PydanticProgramMode
 from llama_index.core.base.llms.generic_utils import (
     achat_to_completion_decorator,
     astream_chat_to_completion_decorator,
@@ -40,15 +45,11 @@ from llama_index.core.base.llms.types import (
     MessageRole,
     TextBlock,
 )
-from llama_index.core.bridge.pydantic import Field, PrivateAttr
-from llama_index.core.instrumentation import get_dispatcher
-from llama_index.core.llms.callbacks import llm_chat_callback, llm_completion_callback
-from llama_index.core.llms.function_calling import FunctionCallingLLM
-from llama_index.core.llms.llm import ToolSelection, Model
-from llama_index.core.program.utils import process_streaming_objects, FlexibleModel
-from llama_index.core.prompts import PromptTemplate
-from llama_index.core.types import PydanticProgramMode
-import json
+
+from jet.token.token_utils import token_counter
+from jet.transformers.formatters import format_json
+from jet.logger import CustomLogger
+
 
 if TYPE_CHECKING:
     from llama_index.core.tools.types import BaseTool
@@ -70,6 +71,17 @@ def force_single_tool_call(response: ChatResponse) -> None:
     tool_calls = response.message.additional_kwargs.get("tool_calls", []) or []
     if len(tool_calls) > 1:
         response.message.additional_kwargs["tool_calls"] = [tool_calls[0]]
+
+# Helper to preserve context in async calls
+
+
+def preserve_context_async(func):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        ctx = copy_context()  # Capture the current context
+        # Run function in copied context
+        return await ctx.run(func, *args, **kwargs)
+    return wrapper
 
 
 class OllamaFunctionCallingAdapter(FunctionCallingLLM):
@@ -464,6 +476,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         return gen()
 
     @llm_chat_callback()
+    @preserve_context_async
     async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         ollama_messages = self._convert_to_ollama_messages(messages)
         tools = kwargs.pop("tools", None)
@@ -471,7 +484,6 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         options = {**self._model_kwargs, "num_ctx": dynamic_context}
         think = kwargs.pop("think", None) or self.thinking
         format = kwargs.pop("format", "json" if self.json_mode else None)
-
         request = {
             "model": self.model,
             "messages": ollama_messages,
@@ -482,18 +494,14 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             "options": options,
             "keep_alive": self.keep_alive,
         }
-
         response = await self.async_client.chat(**request)
         response = dict(response)
-
         tool_calls = response["message"].get("tool_calls", [])
         thinking = response["message"].get("thinking", None)
         token_counts = self._get_response_token_counts(response)
         if token_counts:
             response["usage"] = token_counts
-
         self._save_logs(request, response)
-
         return ChatResponse(
             message=ChatMessage(
                 content=response["message"].get("content", ""),
@@ -505,6 +513,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         )
 
     @llm_chat_callback()
+    @preserve_context_async
     async def astream_chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponseAsyncGen:
         ollama_messages = self._convert_to_ollama_messages(messages)
         tools = kwargs.pop("tools", None)
@@ -512,7 +521,6 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         options = {**self._model_kwargs, "num_ctx": dynamic_context}
         think = kwargs.pop("think", None) or self.thinking
         format = kwargs.pop("format", "json" if self.json_mode else None)
-
         request = {
             "model": self.model,
             "messages": ollama_messages,
@@ -530,8 +538,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             thinking_txt = ""
             seen_tool_calls = set()
             all_tool_calls = []
-            final_response = {}  # Store final response for logging
-
+            final_response = {}
             async for r in response:
                 if r["message"]["content"] is None:
                     continue
@@ -550,7 +557,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 token_counts = self._get_response_token_counts(r)
                 if token_counts:
                     r["usage"] = token_counts
-                final_response = r  # Update final response
+                final_response = r
                 yield ChatResponse(
                     message=ChatMessage(
                         content=response_txt,
@@ -563,11 +570,8 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                     additional_kwargs={
                         "thinking_delta": r["message"].get("thinking", None)},
                 )
-
-            # Log only the final aggregated response
             if final_response:
                 self._save_logs(request, final_response)
-
         return gen()
 
     @llm_completion_callback()
@@ -575,6 +579,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         return chat_to_completion_decorator(self.chat)(prompt, **kwargs)
 
     @llm_completion_callback()
+    @preserve_context_async
     async def acomplete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
         return await achat_to_completion_decorator(self.achat)(prompt, **kwargs)
 
@@ -583,6 +588,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         return stream_chat_to_completion_decorator(self.stream_chat)(prompt, **kwargs)
 
     @llm_completion_callback()
+    @preserve_context_async
     async def astream_complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponseAsyncGen:
         return await astream_chat_to_completion_decorator(self.astream_chat)(prompt, **kwargs)
 
@@ -604,6 +610,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             return super().structured_predict(output_cls, prompt, llm_kwargs, **prompt_args)
 
     @dispatcher.span
+    @preserve_context_async
     async def astructured_predict(
         self,
         output_cls: Type[Model],
@@ -659,6 +666,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             return super().stream_structured_predict(output_cls, prompt, llm_kwargs, **prompt_args)
 
     @dispatcher.span
+    @preserve_context_async
     async def astream_structured_predict(
         self,
         output_cls: Type[Model],
