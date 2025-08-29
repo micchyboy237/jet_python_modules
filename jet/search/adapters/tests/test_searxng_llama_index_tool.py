@@ -12,7 +12,7 @@ def search_tool():
     return SearxngSearchToolSpec(base_url="https://searxng.example.com", redis_config={"port": 3101})
 
 
-class TestSearxNGInstantSearch:
+class TestSearxngInstantSearch:
     def test_instant_search_success(self, search_tool):
         # Given: A valid query for instant search
         query = "python programming"
@@ -41,7 +41,7 @@ class TestSearxNGInstantSearch:
         assert result == expected, f"Expected empty list, but got {result}"
 
 
-class TestSearxNGFullSearch:
+class TestSearxngFullSearch:
     def test_full_search_success(self, search_tool):
         # Given: A valid query for full search with specific parameters
         query = "python programming"
