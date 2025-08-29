@@ -1,5 +1,6 @@
 import io
 import os
+import shutil
 import sys
 import logging
 import traceback
@@ -12,6 +13,10 @@ from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
 from jet.utils.text import fix_and_unidecode
 from jet.utils.class_utils import is_class_instance
+
+OUTPUT_DIR = os.path.join(os.path.dirname(
+    os.path.abspath(__file__)), "generated")
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 
 def clean_ansi(text: str) -> str:
@@ -399,7 +404,7 @@ class CustomLogger:
             metadata = f"[PRETTY] {timestamp}"
             with open(target_log_file, "a") as file:
                 file.write(metadata + "\n")
-                file.write(format_json(prompt) + "\n")
+                file.write(format_json(prompt) + "\n\n")
         self._last_message_flushed = False
 
     def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
@@ -409,8 +414,6 @@ class CustomLogger:
 
 
 def logger_examples(logger: CustomLogger):
-    file_dir = os.path.dirname(os.path.abspath(__file__))
-
     logger.log("\n==== LOGGER METHODS =====")
     logger.newline()
     logger.log("This is a default log message.")
@@ -488,29 +491,31 @@ def logger_examples(logger: CustomLogger):
             "user_id": 123,
             "roles": ["admin", "editor"]
         }
-    }, log_file=f"{file_dir}/custom_pretty_log.txt")
+    }, log_file=f"{OUTPUT_DIR}/custom_pretty_log.txt")
     logger.pretty({
         "event": "Append Log",
-    }, log_file=f"{file_dir}/custom_pretty_log.txt")
+    }, log_file=f"{OUTPUT_DIR}/custom_pretty_log.txt")
     logger.info("Splitting document ID %d into chunks", 42)
     logger.info("Hello %s, your task is complete.", "Jet")
     logger.newline()
     logger.log("Logging to default log file (if set).")
     logger.log("Logging to custom log file.",
-               log_file=f"{file_dir}/custom_log.txt")
+               log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.info("Info message to custom log file.",
-                log_file=f"{file_dir}/custom_log.txt")
+                log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.warning("Warning message to custom log file.",
-                   log_file=f"{file_dir}/custom_log.txt")
+                   log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.error("Error message to custom log file.",
-                 log_file=f"{file_dir}/custom_log.txt")
+                 log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.critical("Append critical message to custom log file.",
-                    log_file=f"{file_dir}/custom_log.txt")
+                    log_file=f"{OUTPUT_DIR}/custom_log.txt")
+    logger.pretty({"example": "Append pretty message to custom log file."},
+                  log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.pretty({"example": "Append pretty message"},
-                  log_file=f"{file_dir}/custom_log.txt")
+                  log_file=f"{OUTPUT_DIR}/custom_pretty_log.txt")
     logger.newline()
     logger.log("Append logging with multiple arguments to custom file.", "Arg1", "Arg2",
-               colors=["DEBUG", "SUCCESS"], log_file=f"{file_dir}/custom_log.txt")
+               colors=["DEBUG", "SUCCESS"], log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.log("====== END LOGGER METHODS ======\n")
 
 
@@ -553,14 +558,11 @@ __all__ = [
 
 if __name__ == "__main__":
     args = parse_arguments()
-    logger = CustomLogger(console_level=args.log_cli_level)
-    logger_examples(logger)
 
-    file_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = f"{file_dir}/log.txt"
+    file_path = f"{OUTPUT_DIR}/log.txt"
     logger_with_file = CustomLogger(
         log_file=file_path,
-        overwrite=True,
+        overwrite=False,
         console_level=args.log_cli_level
     )
     logger_examples(logger_with_file)
