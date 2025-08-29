@@ -9,6 +9,8 @@ from llama_index.core import Settings
 from jet.llm.ollama.adapters.ollama_llama_index_llm_adapter import OllamaFunctionCallingAdapter
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
+DEFAULT_ASYNC_DB_URI = "postgresql+asyncpg://jethroestrada@localhost:5432/async_db1"
+
 # Setup logging
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(
@@ -31,7 +33,7 @@ async def run_basic_memory(question: str, tools: List) -> str:
     Demonstrates basic memory configuration with default settings.
     """
     memory = Memory.from_defaults(
-        session_id="basic_session", token_limit=40000)
+        session_id="basic_session", token_limit=40000, async_database_uri=DEFAULT_ASYNC_DB_URI)
     agent = FunctionAgent(llm=Settings.llm, tools=tools)
     response = await agent.run(question, memory=memory)
     logger.info(f"Response: {response}")
