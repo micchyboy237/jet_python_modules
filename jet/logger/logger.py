@@ -28,8 +28,8 @@ class CustomLogger:
         overwrite: bool = False,
         console_level: Literal["DEBUG", "INFO",
                                "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
-        file_level: Literal["DEBUG", "INFO",
-                            "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
+        level: Literal["DEBUG", "INFO",
+                       "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
         fmt: Union[str, logging.Formatter] = "%(message)s",
     ):
         self.log_file = log_file
@@ -40,7 +40,7 @@ class CustomLogger:
         self.name = name
         self.overwrite = overwrite
         self.console_level = console_level.upper()
-        self.file_level = file_level.upper()
+        self.level = level.upper()
         # Initialize formatter first to ensure it's available before _initialize_logger
         formatter = fmt if isinstance(
             fmt, logging.Formatter) else logging.Formatter(fmt)
@@ -66,7 +66,7 @@ class CustomLogger:
             if self.overwrite and os.path.exists(self.log_file):
                 os.remove(self.log_file)
             file_handler = logging.FileHandler(self.log_file)
-            file_handler.setLevel(self.file_level)
+            file_handler.setLevel(self.level)
             file_handler.setFormatter(self.formatter)
             logger.addHandler(file_handler)
 
@@ -172,7 +172,7 @@ class CustomLogger:
                 errors=errors
             )
             file_handler.setLevel(
-                self.file_level if level is None else level.upper())
+                self.level if level is None else level.upper())
             file_handler.setFormatter(self.formatter)
             self.logger.addHandler(file_handler)
 
@@ -199,7 +199,7 @@ class CustomLogger:
         # Update levels for all handlers if level is provided
         if level is not None:
             self.console_level = level.upper()
-            self.file_level = level.upper()
+            self.level = level.upper()
             for handler in self.logger.handlers:
                 handler.setLevel(self.console_level)
 
@@ -520,8 +520,8 @@ def getLogger(
     overwrite: bool = False,
     console_level: Literal["DEBUG", "INFO",
                            "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
-    file_level: Literal["DEBUG", "INFO",
-                        "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
+    level: Literal["DEBUG", "INFO",
+                   "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
     fmt: Union[str, logging.Formatter] = "%(message)s",
 ):
     """
@@ -531,7 +531,7 @@ def getLogger(
     """
     if not name or isinstance(name, str) and name == logger.name:
         return logger
-    return CustomLogger(log_file, name, overwrite, console_level, file_level, fmt)
+    return CustomLogger(log_file, name, overwrite, console_level, level, fmt)
 
 
 logger = CustomLogger()
