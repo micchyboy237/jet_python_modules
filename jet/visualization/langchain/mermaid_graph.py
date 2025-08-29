@@ -9,7 +9,8 @@ def render_mermaid_graph(
     draw_method=MermaidDrawMethod.PYPPETEER,
     max_retries: int = 5,
     retry_delay: float = 2.0,
-    open_file: bool = False
+    open_file: bool = False,
+    **kwargs
 ):
     """
     Generates a Mermaid graph PNG from the agent and opens it using the system's default viewer on macOS.
@@ -20,7 +21,7 @@ def render_mermaid_graph(
         draw_method: Drawing method (e.g., MermaidDrawMethod.API).
     """
     # Generate PNG bytes from the Mermaid graph
-    png_bytes = agent.get_graph().draw_mermaid_png(
+    png_bytes = agent.get_graph(**kwargs).draw_mermaid_png(
         draw_method=draw_method, max_retries=max_retries, retry_delay=retry_delay)
 
     # Define the output file path and ensure the directory exists
