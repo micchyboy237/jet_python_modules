@@ -14,7 +14,6 @@ from jet.cache.redis import RedisConfigParams
 from jet.data.utils import generate_key
 
 DEFAULT_REDIS_PORT = 3101
-DEFAULT_URL = "http://jethros-macbook-air.local:3000/search"
 
 
 class SearchResult(TypedDict):

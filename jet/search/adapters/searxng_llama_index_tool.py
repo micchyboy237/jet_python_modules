@@ -12,6 +12,7 @@ from jet.cache.redis import RedisConfigParams, RedisCache
 from jet.data.utils import generate_key
 
 DEFAULT_REDIS_PORT = 3101
+DEFAULT_URL = "http://jethros-macbook-air.local:3000/search"
 
 
 class SearxngSearchToolSpec(BaseToolSpec):
@@ -19,7 +20,7 @@ class SearxngSearchToolSpec(BaseToolSpec):
 
     spec_functions = ["searxng_instant_search", "searxng_full_search"]
 
-    def __init__(self, base_url: str, redis_config: Optional[RedisConfigParams] = None) -> None:
+    def __init__(self, base_url: str = DEFAULT_URL, redis_config: Optional[RedisConfigParams] = None) -> None:
         """
         Initialize the SearXNG search tool with a base URL and optional Redis configuration.
 
