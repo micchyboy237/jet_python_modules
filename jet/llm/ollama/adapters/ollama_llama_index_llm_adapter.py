@@ -456,10 +456,11 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 if token_counts:
                     r["usage"] = token_counts
                 final_response = r
-                # Safely set response_txt in final_response["message"]["content"]
+                # Safely set response_txt and all_tool_calls in final_response["message"]
                 if "message" not in final_response:
                     final_response["message"] = {}
                 final_response["message"]["content"] = response_txt
+                final_response["message"]["tool_calls"] = all_tool_calls
                 yield ChatResponse(
                     message=ChatMessage(
                         content=response_txt,
@@ -562,10 +563,11 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                 if token_counts:
                     r["usage"] = token_counts
                 final_response = r
-                # Safely set response_txt in final_response["message"]["content"]
+                # Safely set response_txt and all_tool_calls in final_response["message"]
                 if "message" not in final_response:
                     final_response["message"] = {}
                 final_response["message"]["content"] = response_txt
+                final_response["message"]["tool_calls"] = all_tool_calls
                 yield ChatResponse(
                     message=ChatMessage(
                         content=response_txt,
