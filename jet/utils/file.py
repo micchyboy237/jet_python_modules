@@ -34,14 +34,21 @@ def search_files(
         )
 
     def matches_pattern(path: str, patterns: list[str]) -> bool:
-        """Check if the path or its filename matches any of the given patterns."""
+        """Check if the path, filename, or directories match any of the given patterns."""
         file_name = os.path.basename(path)
         dir_path = os.path.dirname(path)
+
         for pattern in patterns:
+            # Full path match (relative or absolute)
+            if fnmatch.fnmatch(path, f"*{pattern}*"):
+                return True
+            # Exact filename match
             if fnmatch.fnmatch(file_name, pattern):
                 return True
+            # Directory segments match
             if any(fnmatch.fnmatch(part, pattern) for part in dir_path.split(os.sep)):
                 return True
+
         return False
 
     if include_files:
