@@ -50,7 +50,7 @@ kaldi-python-io==1.2.2
 keybert==0.9.0
 -e git+ssh://git@github.com/langchain-ai/langchain-experimental.git@5cdbf02e3771da35d1438bb7597be4575610684e#egg=langchain_experimental&subdirectory=libs/experimental
 langchain-monorepo @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain
--e git+ssh://git@github.com/langchain-ai/langchain.git@f896bcdb1d4001aae08bd46b3e07585ea9f08e5a#egg=langchain_ollama&subdirectory=libs/partners/ollama
+-e git+ssh://git@github.com/langchain-ai/langchain.git@b26e52aa4d188b4b478d6e4cc25455af339b5c90#egg=langchain_ollama&subdirectory=libs/partners/ollama
 langchain-postgres @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres
 langchain-tavily==0.2.11
 -e git+ssh://git@github.com/langchain-ai/langmem.git@992b9363064812a9d93c08a769cf83f5f3fa4378#egg=langmem
@@ -58,10 +58,11 @@ lhotse==1.30.3
 librosa==0.11.0
 lightning==2.4.0
 llama_cpp_python==0.3.14
--e git+ssh://git@github.com/run-llama/llama_index.git@8f3e94ce11a3d004ed930606210fac5edefd8291#egg=llama_index
--e git+ssh://git@github.com/run-llama/llama_index.git@8f3e94ce11a3d004ed930606210fac5edefd8291#egg=llama_index_embeddings_huggingface&subdirectory=llama-index-integrations/embeddings/llama-index-embeddings-huggingface
--e git+ssh://git@github.com/run-llama/llama_index.git@8f3e94ce11a3d004ed930606210fac5edefd8291#egg=llama_index_tools_duckduckgo&subdirectory=llama-index-integrations/tools/llama-index-tools-duckduckgo
--e git+ssh://git@github.com/run-llama/llama_index.git@8f3e94ce11a3d004ed930606210fac5edefd8291#egg=llama_index_tools_playwright&subdirectory=llama-index-integrations/tools/llama-index-tools-playwright
+-e git+ssh://git@github.com/run-llama/llama_index.git@8e9395ca04aeda25d021a57501c1ed0b1bbcb7b7#egg=llama_index
+-e git+ssh://git@github.com/run-llama/llama_index.git@8e9395ca04aeda25d021a57501c1ed0b1bbcb7b7#egg=llama_index_embeddings_huggingface&subdirectory=llama-index-integrations/embeddings/llama-index-embeddings-huggingface
+-e git+ssh://git@github.com/run-llama/llama_index.git@8e9395ca04aeda25d021a57501c1ed0b1bbcb7b7#egg=llama_index_tools_duckduckgo&subdirectory=llama-index-integrations/tools/llama-index-tools-duckduckgo
+-e git+ssh://git@github.com/run-llama/llama_index.git@8e9395ca04aeda25d021a57501c1ed0b1bbcb7b7#egg=llama_index_tools_playwright&subdirectory=llama-index-integrations/tools/llama-index-tools-playwright
+-e git+ssh://git@github.com/run-llama/llama_index.git@8e9395ca04aeda25d021a57501c1ed0b1bbcb7b7#egg=llama_index_utils_workflow&subdirectory=llama-index-utils/llama-index-utils-workflow
 llguidance==0.7.29
 lm-format-enforcer==0.10.11
 lxml_html_clean==0.4.2
@@ -69,7 +70,7 @@ m3u8==6.0.0
 mammoth==1.10.0
 markitdown==0.1.3
 mediapy==1.1.6
--e git+ssh://git@github.com/mem0ai/mem0.git@a7ac8bf13b5e728ffb2ad8525a00e1ddd90750d0#egg=mem0ai
+-e git+ssh://git@github.com/mem0ai/mem0.git@3d0ece1bcf63823244ef1dedd8e7e5e604ec4a4c#egg=mem0ai
 mistral_common==1.5.6
 mistralai==1.9.8
 mitmproxy==12.1.1
@@ -121,7 +122,6 @@ python-pptx==1.0.2
 pytrec_eval==0.5
 pyttsx3==2.98
 pytweening==1.2.0
-pyvis==0.3.2
 rake-nltk==1.0.6
 readability-lxml==0.8.4.1
 redisvl==0.8.0
