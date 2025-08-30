@@ -1,7 +1,3 @@
-import json
-import hashlib
-import time
-import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -15,17 +11,9 @@ from typing import (
     Type,
     Union,
 )
-from contextvars import copy_context
-from functools import wraps
+
 from ollama import AsyncClient, Client
-from llama_index.core.bridge.pydantic import Field, PrivateAttr
-from llama_index.core.instrumentation import get_dispatcher
-from llama_index.core.llms.callbacks import llm_chat_callback, llm_completion_callback
-from llama_index.core.llms.function_calling import FunctionCallingLLM
-from llama_index.core.llms.llm import ToolSelection, Model
-from llama_index.core.program.utils import process_streaming_objects, FlexibleModel
-from llama_index.core.prompts import PromptTemplate
-from llama_index.core.types import PydanticProgramMode
+
 from llama_index.core.base.llms.generic_utils import (
     achat_to_completion_decorator,
     astream_chat_to_completion_decorator,
@@ -45,18 +33,20 @@ from llama_index.core.base.llms.types import (
     MessageRole,
     TextBlock,
 )
-
-from jet.token.token_utils import token_counter
-from jet.transformers.formatters import format_json
-from jet.logger import CustomLogger
-
+from llama_index.core.bridge.pydantic import Field, PrivateAttr
+from llama_index.core.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_NUM_OUTPUTS
+from llama_index.core.instrumentation import get_dispatcher
+from llama_index.core.llms.callbacks import llm_chat_callback, llm_completion_callback
+from llama_index.core.llms.function_calling import FunctionCallingLLM
+from llama_index.core.llms.llm import ToolSelection, Model
+from llama_index.core.program.utils import process_streaming_objects, FlexibleModel
+from llama_index.core.prompts import PromptTemplate
+from llama_index.core.types import PydanticProgramMode
 
 if TYPE_CHECKING:
     from llama_index.core.tools.types import BaseTool
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
-DEFAULT_CONTEXT_WINDOW = 2048
-DEFAULT_NUM_OUTPUTS = 512
 DEFAULT_TEMPERATURE = 0.1
 dispatcher = get_dispatcher(__name__)
 
@@ -72,21 +62,10 @@ def force_single_tool_call(response: ChatResponse) -> None:
     if len(tool_calls) > 1:
         response.message.additional_kwargs["tool_calls"] = [tool_calls[0]]
 
-# Helper to preserve context in async calls
-
-
-def preserve_context_async(func):
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        ctx = copy_context()  # Capture the current context
-        # Run function in copied context
-        return await ctx.run(func, *args, **kwargs)
-    return wrapper
-
 
 class OllamaFunctionCallingAdapter(FunctionCallingLLM):
     """
-    Ollama LLM with dynamic context window based on input token count, including tools.
+    Ollama LLM.
 
     Visit https://ollama.com/ to download and install Ollama.
 
@@ -100,7 +79,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         ```python
         from llama_index.llms.ollama import Ollama
 
-        llm = Ollama(model="llama3.2", request_timeout=60.0)
+        llm = Ollama(model="llama2", request_timeout=60.0)
 
         response = llm.complete("What is the capital of France?")
         print(response)
@@ -118,8 +97,8 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         description="The temperature to use for sampling.",
     )
     context_window: int = Field(
-        default=2048,
-        description="The maximum number of context tokens for the model, dynamically adjusted based on input.",
+        default=DEFAULT_CONTEXT_WINDOW,
+        description="The maximum number of context tokens for the model.",
     )
     request_timeout: float = Field(
         default=DEFAULT_REQUEST_TIMEOUT,
@@ -133,8 +112,8 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         description="Whether to use JSON mode for the Ollama API.",
     )
     additional_kwargs: Dict[str, Any] = Field(
-        default_factory=lambda: {"num_gpu": 28},
-        description="Additional model parameters for the Ollama API, including GPU offloading.",
+        default_factory=dict,
+        description="Additional model parameters for the Ollama API.",
     )
     is_function_calling_model: bool = Field(
         default=True,
@@ -142,15 +121,11 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
     )
     keep_alive: Optional[Union[float, str]] = Field(
         default="5m",
-        description="Controls how long the model will stay loaded into memory following the request (default: 5m)",
+        description="controls how long the model will stay loaded into memory following the request(default: 5m)",
     )
     thinking: Optional[bool] = Field(
         default=None,
         description="Whether to enable or disable thinking in the model.",
-    )
-    log_dir: Optional[str] = Field(
-        default=None,
-        description="Directory path for saving log files.",
     )
 
     _client: Optional[Client] = PrivateAttr()
@@ -171,7 +146,6 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         is_function_calling_model: bool = True,
         keep_alive: Optional[Union[float, str]] = None,
         thinking: Optional[bool] = None,
-        log_dir: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -182,7 +156,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             request_timeout=request_timeout,
             prompt_key=prompt_key,
             json_mode=json_mode,
-            additional_kwargs={**{"num_gpu": 28}, **(additional_kwargs or {})},
+            additional_kwargs=additional_kwargs or {},
             is_function_calling_model=is_function_calling_model,
             keep_alive=keep_alive,
             thinking=thinking,
@@ -191,7 +165,6 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
 
         self._client = client
         self._async_client = async_client
-        self.log_dir = log_dir
 
     @classmethod
     def class_name(cls) -> str:
@@ -204,7 +177,8 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             context_window=self.get_context_window(),
             num_output=DEFAULT_NUM_OUTPUTS,
             model_name=self.model,
-            is_chat_model=True,
+            is_chat_model=True,  # Ollama supports chat API for all models
+            # TODO: Detect if selected model is a function calling model?
             is_function_calling_model=self.is_function_calling_model,
         )
 
@@ -219,40 +193,34 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
     def async_client(self) -> AsyncClient:
         if self._async_client is None:
             self._async_client = AsyncClient(
-                host=self.base_url, timeout=self.request_timeout)
+                host=self.base_url, timeout=self.request_timeout
+            )
         return self._async_client
 
     @property
     def _model_kwargs(self) -> Dict[str, Any]:
         base_kwargs = {
             "temperature": self.temperature,
-            "num_ctx": self.context_window,
+            "num_ctx": self.get_context_window(),
         }
-        return {**base_kwargs, **self.additional_kwargs}
+        return {
+            **base_kwargs,
+            **self.additional_kwargs,
+        }
 
     def get_context_window(self) -> int:
         if self.context_window == -1:
+            # Try to get the context window from the model info if not set
             info = self.client.show(self.model).modelinfo
             for key, value in info.items():
                 if "context_length" in key:
                     self.context_window = int(value)
                     break
-        return self.context_window if self.context_window != -1 else 2048
 
-    def _get_dynamic_context_window(self, messages: Sequence[ChatMessage], tools: Optional[List[Any]] = None) -> int:
-        """Calculate dynamic context window based on input token count, including messages and tools."""
-        token_count = 0
-        if messages:
-            message_content = [msg.content for msg in messages if msg.content]
-            token_count += token_counter(message_content, model=self.model)
-        if tools:
-            tool_specs = []
-            for tool in tools:
-                tool_specs.append(tool)
-            tool_json = json.dumps(tool_specs)
-            token_count += token_counter(tool_json, model=self.model)
-        token_count += 50
-        return min(int(token_count * 1.2), 2048)
+        # If the context window is still -1, use the default context window
+        return (
+            self.context_window if self.context_window != -1 else DEFAULT_CONTEXT_WINDOW
+        )
 
     def _convert_to_ollama_messages(self, messages: Sequence[ChatMessage]) -> Dict:
         ollama_messages = []
@@ -273,9 +241,14 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                     )
                 else:
                     raise ValueError(f"Unsupported block type: {type(block)}")
+
             if "tool_calls" in message.additional_kwargs:
-                cur_ollama_message["tool_calls"] = message.additional_kwargs["tool_calls"]
+                cur_ollama_message["tool_calls"] = message.additional_kwargs[
+                    "tool_calls"
+                ]
+
             ollama_messages.append(cur_ollama_message)
+
         return ollama_messages
 
     def _get_response_token_counts(self, raw_response: dict) -> dict:
@@ -300,18 +273,27 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         user_msg: Optional[Union[str, ChatMessage]] = None,
         chat_history: Optional[List[ChatMessage]] = None,
         verbose: bool = False,
+        # doesn't appear to be supported by Ollama
         allow_parallel_tool_calls: bool = False,
+        # not yet supported https://github.com/ollama/ollama/blob/main/docs/openai.md#supported-request-fields
         tool_required: bool = False,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        tool_specs = [tool.metadata.to_openai_tool(
-            skip_length_check=True) for tool in tools]
+        tool_specs = [
+            tool.metadata.to_openai_tool(skip_length_check=True) for tool in tools
+        ]
+
         if isinstance(user_msg, str):
             user_msg = ChatMessage(role=MessageRole.USER, content=user_msg)
+
         messages = chat_history or []
         if user_msg:
             messages.append(user_msg)
-        return {"messages": messages, "tools": tool_specs or None}
+
+        return {
+            "messages": messages,
+            "tools": tool_specs or None,
+        }
 
     def _validate_chat_with_tools_response(
         self,
@@ -332,63 +314,48 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
     ) -> List[ToolSelection]:
         """Predict and call the tool."""
         tool_calls = response.message.additional_kwargs.get("tool_calls", [])
-        if len(tool_calls) < 1 and error_on_no_tool_call:
-            raise ValueError(
-                f"Expected at least one tool call, but got {len(tool_calls)} tool calls.")
+        if len(tool_calls) < 1:
+            if error_on_no_tool_call:
+                raise ValueError(
+                    f"Expected at least one tool call, but got {len(tool_calls)} tool calls."
+                )
+            else:
+                return []
+
         tool_selections = []
         for tool_call in tool_calls:
             argument_dict = tool_call["function"]["arguments"]
+
             tool_selections.append(
                 ToolSelection(
+                    # tool ids not provided by Ollama
                     tool_id=tool_call["function"]["name"],
                     tool_name=tool_call["function"]["name"],
                     tool_kwargs=argument_dict,
                 )
             )
-        return tool_selections
 
-    def _save_logs(self, request: Dict[str, Any], response: Dict[str, Any]) -> None:
-        """Save request and response logs to a file if log_dir is specified."""
-        if not self.log_dir:
-            return
-        # Serialize request and response to JSON for consistent hashing
-        content = format_json({"request": request, "response": response})
-        # Compute MD5 hash of the content
-        # Use first 8 chars for brevity
-        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()[:8]
-        timestamp = int(time.time())
-        # Use first 8 chars of UUID for brevity
-        unique_id = str(uuid.uuid4())[:8]
-        log_file_name = f"{timestamp}_{content_hash}_{unique_id}.log"
-        log_file_path = f"{self.log_dir}/{log_file_name}"
-        _logger = CustomLogger(log_file_path, name=log_file_name)
-        _logger.orange(f"Logs: {log_file_path}")
-        _logger.pretty({
-            "request": request,
-            "response": response
-        })
+        return tool_selections
 
     @llm_chat_callback()
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
         ollama_messages = self._convert_to_ollama_messages(messages)
+
         tools = kwargs.pop("tools", None)
-        dynamic_context = self._get_dynamic_context_window(messages, tools)
-        options = {**self._model_kwargs, "num_ctx": dynamic_context}
         think = kwargs.pop("think", None) or self.thinking
         format = kwargs.pop("format", "json" if self.json_mode else None)
 
-        request = {
-            "model": self.model,
-            "messages": ollama_messages,
-            "stream": False,
-            "format": format,
-            "tools": tools,
-            "think": think,
-            "options": options,
-            "keep_alive": self.keep_alive,
-        }
+        response = self.client.chat(
+            model=self.model,
+            messages=ollama_messages,
+            stream=False,
+            format=format,
+            tools=tools,
+            think=think,
+            options=self._model_kwargs,
+            keep_alive=self.keep_alive,
+        )
 
-        response = self.client.chat(**request)
         response = dict(response)
 
         tool_calls = response["message"].get("tool_calls", [])
@@ -396,8 +363,6 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         token_counts = self._get_response_token_counts(response)
         if token_counts:
             response["usage"] = token_counts
-
-        self._save_logs(request, response)
 
         return ChatResponse(
             message=ChatMessage(
@@ -410,197 +375,215 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         )
 
     @llm_chat_callback()
-    def stream_chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponseGen:
+    def stream_chat(
+        self, messages: Sequence[ChatMessage], **kwargs: Any
+    ) -> ChatResponseGen:
         ollama_messages = self._convert_to_ollama_messages(messages)
+
         tools = kwargs.pop("tools", None)
-        dynamic_context = self._get_dynamic_context_window(messages, tools)
-        options = {**self._model_kwargs, "num_ctx": dynamic_context}
         think = kwargs.pop("think", None) or self.thinking
         format = kwargs.pop("format", "json" if self.json_mode else None)
 
-        request = {
-            "model": self.model,
-            "messages": ollama_messages,
-            "stream": True,
-            "format": format,
-            "tools": tools,
-            "think": think,
-            "options": options,
-            "keep_alive": self.keep_alive,
-        }
-
         def gen() -> ChatResponseGen:
-            response = self.client.chat(**request)
+            response = self.client.chat(
+                model=self.model,
+                messages=ollama_messages,
+                stream=True,
+                format=format,
+                tools=tools,
+                think=think,
+                options=self._model_kwargs,
+                keep_alive=self.keep_alive,
+            )
+
             response_txt = ""
             thinking_txt = ""
             seen_tool_calls = set()
             all_tool_calls = []
-            final_response = {}  # Store final response for logging
 
             for r in response:
                 if r["message"]["content"] is None:
                     continue
+
                 r = dict(r)
+
                 response_txt += r["message"].get("content", "") or ""
                 thinking_txt += r["message"].get("thinking", "") or ""
+
                 new_tool_calls = [dict(t)
                                   for t in r["message"].get("tool_calls") or []]
                 for tool_call in new_tool_calls:
-                    tool_key = (str(tool_call["function"]["name"]), str(
-                        tool_call["function"]["arguments"]))
-                    if tool_key in seen_tool_calls:
+                    if (
+                        str(tool_call["function"]["name"]),
+                        str(tool_call["function"]["arguments"]),
+                    ) in seen_tool_calls:
                         continue
-                    seen_tool_calls.add(tool_key)
+                    seen_tool_calls.add(
+                        (
+                            str(tool_call["function"]["name"]),
+                            str(tool_call["function"]["arguments"]),
+                        )
+                    )
                     all_tool_calls.append(tool_call)
                 token_counts = self._get_response_token_counts(r)
                 if token_counts:
                     r["usage"] = token_counts
-                final_response = r
-                # Safely set response_txt and all_tool_calls in final_response["message"]
-                if "message" not in final_response:
-                    final_response["message"] = {}
-                final_response["message"]["content"] = response_txt
-                final_response["message"]["tool_calls"] = all_tool_calls
-                yield ChatResponse(
-                    message=ChatMessage(
-                        content=response_txt,
-                        role=r["message"].get("role", MessageRole.ASSISTANT),
-                        additional_kwargs={"tool_calls": list(
-                            set(all_tool_calls)), "thinking": thinking_txt},
-                    ),
-                    delta=r["message"].get("content", ""),
-                    raw=r,
-                    additional_kwargs={
-                        "thinking_delta": r["message"].get("thinking", None)},
-                )
 
-            # Log the final aggregated response
-            if final_response:
-                self._save_logs(request, final_response)
-
-        return gen()
-
-    @llm_chat_callback()
-    @preserve_context_async
-    async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
-        ollama_messages = self._convert_to_ollama_messages(messages)
-        tools = kwargs.pop("tools", None)
-        dynamic_context = self._get_dynamic_context_window(messages, tools)
-        options = {**self._model_kwargs, "num_ctx": dynamic_context}
-        think = kwargs.pop("think", None) or self.thinking
-        format = kwargs.pop("format", "json" if self.json_mode else None)
-        request = {
-            "model": self.model,
-            "messages": ollama_messages,
-            "stream": False,
-            "format": format,
-            "tools": tools,
-            "think": think,
-            "options": options,
-            "keep_alive": self.keep_alive,
-        }
-        response = await self.async_client.chat(**request)
-        response = dict(response)
-        tool_calls = response["message"].get("tool_calls", [])
-        thinking = response["message"].get("thinking", None)
-        token_counts = self._get_response_token_counts(response)
-        if token_counts:
-            response["usage"] = token_counts
-        self._save_logs(request, response)
-        return ChatResponse(
-            message=ChatMessage(
-                content=response["message"].get("content", ""),
-                role=response["message"].get("role", MessageRole.ASSISTANT),
-                additional_kwargs={
-                    "tool_calls": tool_calls, "thinking": thinking},
-            ),
-            raw=response,
-        )
-
-    @llm_chat_callback()
-    @preserve_context_async
-    async def astream_chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponseAsyncGen:
-        ollama_messages = self._convert_to_ollama_messages(messages)
-        tools = kwargs.pop("tools", None)
-        dynamic_context = self._get_dynamic_context_window(messages, tools)
-        options = {**self._model_kwargs, "num_ctx": dynamic_context}
-        think = kwargs.pop("think", None) or self.thinking
-        format = kwargs.pop("format", "json" if self.json_mode else None)
-        request = {
-            "model": self.model,
-            "messages": ollama_messages,
-            "stream": True,
-            "format": format,
-            "tools": tools,
-            "think": think,
-            "options": options,
-            "keep_alive": self.keep_alive,
-        }
-
-        async def gen() -> ChatResponseAsyncGen:
-            response = await self.async_client.chat(**request)
-            response_txt = ""
-            thinking_txt = ""
-            seen_tool_calls = set()
-            all_tool_calls = []
-            final_response = {}
-            async for r in response:
-                if r["message"]["content"] is None:
-                    continue
-                r = dict(r)
-                response_txt += r["message"].get("content", "") or ""
-                thinking_txt += r["message"].get("thinking", "") or ""
-                new_tool_calls = [dict(t)
-                                  for t in r["message"].get("tool_calls") or []]
-                for tool_call in new_tool_calls:
-                    tool_key = (str(tool_call["function"]["name"]), str(
-                        tool_call["function"]["arguments"]))
-                    if tool_key in seen_tool_calls:
-                        continue
-                    seen_tool_calls.add(tool_key)
-                    all_tool_calls.append(tool_call)
-                token_counts = self._get_response_token_counts(r)
-                if token_counts:
-                    r["usage"] = token_counts
-                final_response = r
-                # Safely set response_txt and all_tool_calls in final_response["message"]
-                if "message" not in final_response:
-                    final_response["message"] = {}
-                final_response["message"]["content"] = response_txt
-                final_response["message"]["tool_calls"] = all_tool_calls
                 yield ChatResponse(
                     message=ChatMessage(
                         content=response_txt,
                         role=r["message"].get("role", MessageRole.ASSISTANT),
                         additional_kwargs={
-                            "tool_calls": all_tool_calls, "thinking": thinking_txt},
+                            "tool_calls": list(set(all_tool_calls)),
+                            "thinking": thinking_txt,
+                        },
                     ),
                     delta=r["message"].get("content", ""),
                     raw=r,
                     additional_kwargs={
-                        "thinking_delta": r["message"].get("thinking", None)},
+                        "thinking_delta": r["message"].get("thinking", None),
+                    },
                 )
-            if final_response:
-                self._save_logs(request, final_response)
+
         return gen()
 
+    @llm_chat_callback()
+    async def astream_chat(
+        self, messages: Sequence[ChatMessage], **kwargs: Any
+    ) -> ChatResponseAsyncGen:
+        ollama_messages = self._convert_to_ollama_messages(messages)
+
+        tools = kwargs.pop("tools", None)
+        think = kwargs.pop("think", None) or self.thinking
+        format = kwargs.pop("format", "json" if self.json_mode else None)
+
+        async def gen() -> ChatResponseAsyncGen:
+            response = await self.async_client.chat(
+                model=self.model,
+                messages=ollama_messages,
+                stream=True,
+                format=format,
+                tools=tools,
+                think=think,
+                options=self._model_kwargs,
+                keep_alive=self.keep_alive,
+            )
+
+            response_txt = ""
+            thinking_txt = ""
+            seen_tool_calls = set()
+            all_tool_calls = []
+
+            async for r in response:
+                if r["message"]["content"] is None:
+                    continue
+
+                r = dict(r)
+
+                response_txt += r["message"].get("content", "") or ""
+                thinking_txt += r["message"].get("thinking", "") or ""
+
+                new_tool_calls = [dict(t)
+                                  for t in r["message"].get("tool_calls") or []]
+                for tool_call in new_tool_calls:
+                    if (
+                        str(tool_call["function"]["name"]),
+                        str(tool_call["function"]["arguments"]),
+                    ) in seen_tool_calls:
+                        continue
+                    seen_tool_calls.add(
+                        (
+                            str(tool_call["function"]["name"]),
+                            str(tool_call["function"]["arguments"]),
+                        )
+                    )
+                    all_tool_calls.append(tool_call)
+                token_counts = self._get_response_token_counts(r)
+                if token_counts:
+                    r["usage"] = token_counts
+
+                yield ChatResponse(
+                    message=ChatMessage(
+                        content=response_txt,
+                        role=r["message"].get("role", MessageRole.ASSISTANT),
+                        additional_kwargs={
+                            "tool_calls": all_tool_calls,
+                            "thinking": thinking_txt,
+                        },
+                    ),
+                    delta=r["message"].get("content", ""),
+                    raw=r,
+                    additional_kwargs={
+                        "thinking_delta": r["message"].get("thinking", None),
+                    },
+                )
+
+        return gen()
+
+    @llm_chat_callback()
+    async def achat(
+        self, messages: Sequence[ChatMessage], **kwargs: Any
+    ) -> ChatResponse:
+        ollama_messages = self._convert_to_ollama_messages(messages)
+
+        tools = kwargs.pop("tools", None)
+        think = kwargs.pop("think", None) or self.thinking
+        format = kwargs.pop("format", "json" if self.json_mode else None)
+
+        response = await self.async_client.chat(
+            model=self.model,
+            messages=ollama_messages,
+            stream=False,
+            format=format,
+            tools=tools,
+            think=think,
+            options=self._model_kwargs,
+            keep_alive=self.keep_alive,
+        )
+
+        response = dict(response)
+
+        tool_calls = response["message"].get("tool_calls", [])
+        thinking = response["message"].get("thinking", None)
+        token_counts = self._get_response_token_counts(response)
+        if token_counts:
+            response["usage"] = token_counts
+
+        return ChatResponse(
+            message=ChatMessage(
+                content=response["message"].get("content", ""),
+                role=response["message"].get("role", MessageRole.ASSISTANT),
+                additional_kwargs={
+                    "tool_calls": tool_calls, "thinking": thinking},
+            ),
+            raw=response,
+        )
+
     @llm_completion_callback()
-    def complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
+    def complete(
+        self, prompt: str, formatted: bool = False, **kwargs: Any
+    ) -> CompletionResponse:
         return chat_to_completion_decorator(self.chat)(prompt, **kwargs)
 
     @llm_completion_callback()
-    @preserve_context_async
-    async def acomplete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
+    async def acomplete(
+        self, prompt: str, formatted: bool = False, **kwargs: Any
+    ) -> CompletionResponse:
         return await achat_to_completion_decorator(self.achat)(prompt, **kwargs)
 
     @llm_completion_callback()
-    def stream_complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponseGen:
+    def stream_complete(
+        self, prompt: str, formatted: bool = False, **kwargs: Any
+    ) -> CompletionResponseGen:
         return stream_chat_to_completion_decorator(self.stream_chat)(prompt, **kwargs)
 
     @llm_completion_callback()
-    @preserve_context_async
-    async def astream_complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponseAsyncGen:
-        return await astream_chat_to_completion_decorator(self.astream_chat)(prompt, **kwargs)
+    async def astream_complete(
+        self, prompt: str, formatted: bool = False, **kwargs: Any
+    ) -> CompletionResponseAsyncGen:
+        return await astream_chat_to_completion_decorator(self.astream_chat)(
+            prompt, **kwargs
+        )
 
     @dispatcher.span
     def structured_predict(
@@ -613,14 +596,17 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
             llm_kwargs = llm_kwargs or {}
             llm_kwargs["format"] = output_cls.model_json_schema()
+
             messages = prompt.format_messages(**prompt_args)
             response = self.chat(messages, **llm_kwargs)
+
             return output_cls.model_validate_json(response.message.content or "")
         else:
-            return super().structured_predict(output_cls, prompt, llm_kwargs, **prompt_args)
+            return super().structured_predict(
+                output_cls, prompt, llm_kwargs, **prompt_args
+            )
 
     @dispatcher.span
-    @preserve_context_async
     async def astructured_predict(
         self,
         output_cls: Type[Model],
@@ -631,11 +617,15 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
             llm_kwargs = llm_kwargs or {}
             llm_kwargs["format"] = output_cls.model_json_schema()
+
             messages = prompt.format_messages(**prompt_args)
             response = await self.achat(messages, **llm_kwargs)
+
             return output_cls.model_validate_json(response.message.content or "")
         else:
-            return await super().astructured_predict(output_cls, prompt, llm_kwargs, **prompt_args)
+            return await super().astructured_predict(
+                output_cls, prompt, llm_kwargs, **prompt_args
+            )
 
     @dispatcher.span
     def stream_structured_predict(
@@ -645,7 +635,21 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         llm_kwargs: Optional[Dict[str, Any]] = None,
         **prompt_args: Any,
     ) -> Generator[Union[Model, FlexibleModel], None, None]:
+        """
+        Stream structured predictions as they are generated.
+
+        Args:
+            output_cls: The Pydantic class to parse responses into
+            prompt: The prompt template to use
+            llm_kwargs: Optional kwargs for the LLM
+            **prompt_args: Args to format the prompt with
+
+        Returns:
+            Generator yielding partial objects as they are generated
+
+        """
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
+
             def gen(
                 output_cls: Type[Model],
                 prompt: PromptTemplate,
@@ -654,8 +658,10 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             ) -> Generator[Union[Model, FlexibleModel], None, None]:
                 llm_kwargs = llm_kwargs or {}
                 llm_kwargs["format"] = output_cls.model_json_schema()
+
                 messages = prompt.format_messages(**prompt_args)
                 response_gen = self.stream_chat(messages, **llm_kwargs)
+
                 cur_objects = None
                 for response in response_gen:
                     try:
@@ -666,17 +672,20 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                             allow_parallel_tool_calls=False,
                             flexible_mode=True,
                         )
-                        cur_objects = objects if isinstance(
-                            objects, list) else [objects]
+                        cur_objects = (
+                            objects if isinstance(objects, list) else [objects]
+                        )
                         yield objects
                     except Exception:
                         continue
+
             return gen(output_cls, prompt, llm_kwargs, prompt_args)
         else:
-            return super().stream_structured_predict(output_cls, prompt, llm_kwargs, **prompt_args)
+            return super().stream_structured_predict(
+                output_cls, prompt, llm_kwargs, **prompt_args
+            )
 
     @dispatcher.span
-    @preserve_context_async
     async def astream_structured_predict(
         self,
         output_cls: Type[Model],
@@ -684,7 +693,9 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         llm_kwargs: Optional[Dict[str, Any]] = None,
         **prompt_args: Any,
     ) -> AsyncGenerator[Union[Model, FlexibleModel], None]:
+        """Async version of stream_structured_predict."""
         if self.pydantic_program_mode == PydanticProgramMode.DEFAULT:
+
             async def gen(
                 output_cls: Type[Model],
                 prompt: PromptTemplate,
@@ -693,8 +704,10 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             ) -> AsyncGenerator[Union[Model, FlexibleModel], None]:
                 llm_kwargs = llm_kwargs or {}
                 llm_kwargs["format"] = output_cls.model_json_schema()
+
                 messages = prompt.format_messages(**prompt_args)
                 response_gen = await self.astream_chat(messages, **llm_kwargs)
+
                 cur_objects = None
                 async for response in response_gen:
                     try:
@@ -705,11 +718,16 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
                             allow_parallel_tool_calls=False,
                             flexible_mode=True,
                         )
-                        cur_objects = objects if isinstance(
-                            objects, list) else [objects]
+                        cur_objects = (
+                            objects if isinstance(objects, list) else [objects]
+                        )
                         yield objects
                     except Exception:
                         continue
+
             return gen(output_cls, prompt, llm_kwargs, prompt_args)
         else:
-            return await super().astream_structured_predict(output_cls, prompt, llm_kwargs, **prompt_args)
+            # Fall back to non-streaming structured predict
+            return await super().astream_structured_predict(
+                output_cls, prompt, llm_kwargs, **prompt_args
+            )
