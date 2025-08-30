@@ -34,7 +34,6 @@ from llama_index.core.base.llms.types import (
     TextBlock,
 )
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
-from llama_index.core.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_NUM_OUTPUTS
 from llama_index.core.instrumentation import get_dispatcher
 from llama_index.core.llms.callbacks import llm_chat_callback, llm_completion_callback
 from llama_index.core.llms.function_calling import FunctionCallingLLM
@@ -48,6 +47,8 @@ if TYPE_CHECKING:
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
 DEFAULT_TEMPERATURE = 0.1
+DEFAULT_CONTEXT_WINDOW = 2048
+DEFAULT_NUM_OUTPUTS = 256
 dispatcher = get_dispatcher(__name__)
 
 
@@ -100,6 +101,10 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         default=DEFAULT_CONTEXT_WINDOW,
         description="The maximum number of context tokens for the model.",
     )
+    num_output: int = Field(
+        default=DEFAULT_NUM_OUTPUTS,
+        description="The number of output tokens to generate.",
+    )
     request_timeout: float = Field(
         default=DEFAULT_REQUEST_TIMEOUT,
         description="The timeout for making http request to Ollama API server",
@@ -137,6 +142,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         base_url: str = "http://localhost:11434",
         temperature: Optional[float] = DEFAULT_TEMPERATURE,
         context_window: int = DEFAULT_CONTEXT_WINDOW,
+        num_output: int = DEFAULT_NUM_OUTPUTS,
         request_timeout: Optional[float] = DEFAULT_REQUEST_TIMEOUT,
         prompt_key: str = "prompt",
         json_mode: bool = False,
@@ -153,6 +159,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
             base_url=base_url,
             temperature=temperature,
             context_window=context_window,
+            num_output=num_output,
             request_timeout=request_timeout,
             prompt_key=prompt_key,
             json_mode=json_mode,
@@ -175,7 +182,7 @@ class OllamaFunctionCallingAdapter(FunctionCallingLLM):
         """LLM metadata."""
         return LLMMetadata(
             context_window=self.get_context_window(),
-            num_output=DEFAULT_NUM_OUTPUTS,
+            num_output=self.num_output,
             model_name=self.model,
             is_chat_model=True,  # Ollama supports chat API for all models
             # TODO: Detect if selected model is a function calling model?
