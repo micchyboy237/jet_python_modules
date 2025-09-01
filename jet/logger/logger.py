@@ -228,7 +228,7 @@ class CustomLogger:
 
     def custom_logger_method(self, level: str) -> Callable[[str, Optional[bool]], None]:
         def wrapper(
-            message: str,
+            message: Any,
             *args: Any,
             bright: bool = False,
             flush: bool = False,
@@ -247,9 +247,11 @@ class CustomLogger:
             if level_map.get(level.upper(), 10) < level_map.get(self.console_level, 10):
                 return
 
+            # Convert message to string to handle non-string types
+            message = str(message)
             if "%" in message and args:
                 try:
-                    message = message % args
+                    message = message % tuple(str(arg) for arg in args)
                     args = ()
                 except (TypeError, ValueError) as e:
                     self.warning(
@@ -263,17 +265,13 @@ class CustomLogger:
                 colors = colors * \
                     ((len(args) + 1 + len(colors) - 1) // len(colors))
 
-            messages = [message] + list(map(str, args))
+            messages = [message] + [str(arg) for arg in args]
             processed_messages = []
 
             for i, msg in enumerate(messages):
-                if is_class_instance(msg):
-                    msg = str(msg)
-                else:
-                    parsed_message = parse_json(msg)
-                    if isinstance(parsed_message, (dict, list)):
-                        msg = format_json(parsed_message)
-
+                parsed_message = parse_json(msg)
+                if isinstance(parsed_message, (dict, list)):
+                    msg = format_json(parsed_message)
                 msg = fix_and_unidecode(msg) if isinstance(
                     msg, str) else str(msg)
                 processed_messages.append(
@@ -347,10 +345,10 @@ class CustomLogger:
                 file.write("\n")
         self._last_message_flushed = False
 
-    def pretty(self, prompt, level=0, log_file: Optional[str] = None) -> None:
+    def pretty(self, prompt: Any, level: int = 0, log_file: Optional[str] = None) -> None:
         MAX_STRING_LENGTH = 100
 
-        def _inner(prompt, level):
+        def _inner(prompt: Any, level: int) -> str:
             prompt_log = ""
             indent = " " * level
             marker_list = ["-", "+"]
@@ -361,24 +359,28 @@ class CustomLogger:
             VALUE_COLOR = COLORS["SUCCESS"]
             LIST_ITEM_COLOR = COLORS["SUCCESS"]
 
-            def truncate_string(s):
+            def truncate_string(s: str) -> str:
+                s = str(s)
                 return s if len(s) <= MAX_STRING_LENGTH else s[:MAX_STRING_LENGTH] + "..."
 
             if isinstance(prompt, dict):
                 for key, value in prompt.items():
-                    prompt_log += f"{line_prefix}{KEY_COLOR}{key}{RESET}: "
+                    prompt_log += f"{line_prefix}{KEY_COLOR}{str(key)}{RESET}: "
                     if isinstance(value, (dict, list)):
                         prompt_log += f"\n{_inner(value, level + 1)}"
                     else:
-                        truncated_value = truncate_string(str(value))
+                        truncated_value = truncate_string(value)
                         prompt_log += f"{VALUE_COLOR}{truncated_value}{RESET}\n"
             elif isinstance(prompt, list):
                 for item in prompt:
                     if isinstance(item, (dict, list)):
                         prompt_log += f"\n{_inner(item, level + 1)}"
                     else:
-                        truncated_item = truncate_string(str(item))
+                        truncated_item = truncate_string(item)
                         prompt_log += f"{line_prefix}{LIST_ITEM_COLOR}{truncated_item}{RESET}\n"
+            else:
+                truncated_prompt = truncate_string(prompt)
+                prompt_log += f"{line_prefix}{LIST_ITEM_COLOR}{truncated_prompt}{RESET}\n"
 
             prompt_log = fix_and_unidecode(prompt_log)
             return prompt_log
@@ -498,6 +500,8 @@ def logger_examples(logger: CustomLogger):
     logger.info("Splitting document ID %d into chunks", 42)
     logger.info("Hello %s, your task is complete.", "Jet")
     logger.newline()
+    logger.log(123)
+    logger.success(123.12)
     logger.log("Logging to default log file (if set).")
     logger.log("Logging to custom log file.",
                log_file=f"{OUTPUT_DIR}/custom_log.txt")

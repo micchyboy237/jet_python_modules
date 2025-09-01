@@ -52,11 +52,19 @@ def get_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) 
         return encoding
 
 
-def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | list[str] | list[dict]) -> list[int] | list[list[int]]:
+def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | dict | list[str] | list[dict] | list[ChatMessage] | list[Message]) -> list[int] | list[list[int]]:
     tokenizer = get_tokenizer(model_name)
 
     if isinstance(text, list):
-        texts = [str(t) for t in text]
+        # Convert all items to strings, handling dict, ChatMessage, and Message types
+        texts = []
+        for t in text:
+            if isinstance(t, ChatMessage):
+                texts.append(str(t.content))
+            elif isinstance(t, dict):  # Handles Message (TypedDict) and other dicts
+                texts.append(str(t.get('content', t)))
+            else:
+                texts.append(str(t))
 
         if isinstance(tokenizer, tiktoken.Encoding):
             tokenized = tokenizer.encode_batch(texts)
@@ -65,12 +73,19 @@ def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | list[str] | list[
             tokenized = tokenized["input_ids"]
         return tokenized
     else:
-        tokens = tokenizer.encode(str(text))
+        # Convert single input to string, handling dict and ChatMessage cases
+        if isinstance(text, ChatMessage):
+            text_str = str(text.content)
+        elif isinstance(text, dict):  # Handles Message (TypedDict) and other dicts
+            text_str = str(text.get('content', text))
+        else:
+            text_str = str(text)
+        tokens = tokenizer.encode(text_str)
         return tokens
 
 
 def token_counter(
-    text: str | list[str] | list[ChatMessage] | list[Message],
+    text: str | dict | list[str] | list[dict] | list[ChatMessage] | list[Message],
     model: Optional[str | OLLAMA_MODEL_NAMES] = "mistral",
     prevent_total: bool = False
 ) -> int | list[int]:
@@ -78,7 +93,7 @@ def token_counter(
         return 0
 
     tokenized = tokenize(model, text)
-    if isinstance(text, str):
+    if isinstance(text, (str, dict, ChatMessage)):
         return len(tokenized)
     else:
         token_counts = [len(item) for item in tokenized]
