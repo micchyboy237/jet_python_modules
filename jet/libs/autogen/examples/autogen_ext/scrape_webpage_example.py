@@ -42,7 +42,7 @@ async def scrape_webpage_example() -> None:
             page = await context.new_page()
 
             # Visit the URL and wait for content to load
-            controller = PlaywrightController()
+            controller = PlaywrightController(default_zoom=0.5)
             reset_metadata, reset_download = await controller.visit_page(page, target_url)
             await page.wait_for_load_state("networkidle")
             logger.info(
@@ -69,7 +69,7 @@ async def scrape_webpage_example() -> None:
                 f"Scraped body text (first 100 chars): {body_text[:100] + '...' if len(body_text) > 100 else body_text}")
 
             # Scrape visible links
-            links: List[Dict[str, str]] = await controller.get_visible_links(page, base_url=target_url)
+            links: List[Dict[str, str]] = await controller.get_links(page, base_url=target_url)
             logger.info(
                 f"Scraped {len(links)} links (first 2): {json.dumps(links[:2], indent=2)}")
 

@@ -50,6 +50,8 @@ class PlaywrightController:
         viewport_height: int = 900,
         _download_handler: Optional[Callable[[Download], None]] = None,
         to_resize_viewport: bool = True,
+        # Custom args
+        default_zoom: float = 0.8,
     ) -> None:
         """
         Initialize the PlaywrightController.
@@ -59,18 +61,18 @@ class PlaywrightController:
         assert isinstance(viewport_height, int)
         assert viewport_height > 0
         assert viewport_width > 0
-
+        # Validate zoom range
+        assert isinstance(default_zoom, float) and 0.1 <= default_zoom <= 2.0
         self.animate_actions = animate_actions
         self.downloads_folder = downloads_folder
         self.viewport_width = viewport_width
         self.viewport_height = viewport_height
         self._download_handler = _download_handler
         self.to_resize_viewport = to_resize_viewport
+        self.default_zoom = default_zoom  # Store default zoom
         self._page_script: str = ""
         self.last_cursor_position: Tuple[float, float] = (0.0, 0.0)
         self._markdown_converter: Optional[Any] | None = None
-
-        # Read page_script
         with open(
             os.path.join(os.path.abspath(os.path.dirname(__file__)), "page_script.js"), "rt", encoding="utf-8"
         ) as fh:
@@ -171,14 +173,15 @@ class PlaywrightController:
     async def on_new_page(self, page: Page) -> None:
         """
         Handle actions to perform on a new page.
-
         Args:
             page (Page): The Playwright page object.
         """
         assert page is not None
-        page.on("download", self._download_handler)  # type: ignore
+        page.on("download", self._download_handler)
         if self.to_resize_viewport and self.viewport_width and self.viewport_height:
             await page.set_viewport_size({"width": self.viewport_width, "height": self.viewport_height})
+            # Set zoom level
+            await page.evaluate(f"document.body.style.zoom = '{self.default_zoom}';")
         await self.sleep(page, 0.2)
         await page.add_init_script(path=os.path.join(os.path.abspath(os.path.dirname(__file__)), "page_script.js"))
         await page.wait_for_load_state()
@@ -590,55 +593,40 @@ class PlaywrightController:
         else:
             return await self.get_webpage_text(page, n_lines=200)
 
-    async def get_visible_links(self, page: Page, base_url: Optional[str] = None) -> List[Dict[str, str]]:
+    async def get_links(self, page: Page, base_url: Optional[str] = None, visible_only: bool = False) -> List[Dict[str, str]]:
         """
-        Retrieve visible hyperlinks from the web page, with optional base URL for resolving relative links.
-
+        Retrieve hyperlinks from the web page, with optional filtering for visible links.
         Args:
             page (Page): The Playwright page object.
             base_url (Optional[str]): Base URL to resolve relative links. If None, uses the page's current URL.
-
+            visible_only (bool): If True, only return visible links. Defaults to False (all links).
         Returns:
-            List[Dict[str, str]]: A list of dictionaries containing the text and href of visible links.
+            List[Dict[str, str]]: A list of dictionaries containing the text and href of links.
         """
         assert page is not None
         try:
             resolved_base_url = base_url or page.url
-            # Ensure resolved_base_url ends with a slash for proper joining
             if not resolved_base_url.endswith('/'):
                 resolved_base_url += '/'
             result = await page.evaluate("""
-                (baseUrl) => {
-                    function cleanUrl(url) {
-                        // Remove trailing slashes and hashtags
-                        if (!url) return url;
-                        // Remove everything after and including the first '#' (fragment)
-                        url = url.replace(/#.*$/, '');
-                        // Remove trailing slashes (but not from protocol, e.g., 'http://')
-                        // Only remove if more than just protocol present
-                        if (url.match(/^https?:\\/\\//)) {
-                            // Remove trailing slashes after domain/path
-                            url = url.replace(/([^:])\\/$/, '$1');
-                        } else {
-                            // For relative URLs, remove trailing slash
-                            url = url.replace(/\\/$/, '');
-                        }
-                        return url;
-                    }
+                (baseUrl, visibleOnly) => {
                     const anchors = Array.from(document.querySelectorAll('a[href]'));
                     const seen = new Set();
                     return anchors
                         .filter(anchor => {
-                            const rect = anchor.getBoundingClientRect();
-                            const isVisible = rect.width > 0 && rect.height > 0 && 
-                                window.getComputedStyle(anchor).display !== 'none' && 
-                                window.getComputedStyle(anchor).visibility !== 'hidden';
                             const href = anchor.getAttribute('href');
                             // Validate URLs: http/https or relative paths starting with /
                             const isValidUrl = href && href.trim() !== '' && 
                                 !href.startsWith('javascript:') && !href.startsWith('#') && 
-                                (href.match(/^(?:https?:\\/\\/[\\w\\-\\./?:=&%#]+)|(?:\\/[\\w\\-\\./?:=&%#]*)$/) !== null);
-                            return isVisible && isValidUrl && !seen.has(href) && seen.add(href);
+                                (href.match(/^(?:https?:\/\/[\w\-\./?:=&%]+|\/[\w\-\./?:=&%]*)$/) || href.startsWith('/'));
+                            if (visibleOnly) {
+                                const rect = anchor.getBoundingClientRect();
+                                const isVisible = rect.width > 0 && rect.height > 0 && 
+                                    window.getComputedStyle(anchor).display !== 'none' && 
+                                    window.getComputedStyle(anchor).visibility !== 'hidden';
+                                return isVisible && isValidUrl && !seen.has(href) && seen.add(href);
+                            }
+                            return isValidUrl && !seen.has(href) && seen.add(href);
                         })
                         .map(anchor => {
                             const href = anchor.getAttribute('href');
@@ -649,8 +637,7 @@ class PlaywrightController:
                                 } catch (e) {
                                     return null;
                                 }
-                            } else if (href.match(/^https?:\\/\\//)) {
-                                // Only include http/https URLs with valid netloc
+                            } else if (href.match(/^https?:\/\//)) {
                                 try {
                                     const url = new URL(href);
                                     if (url.hostname && !/[<>"']/.test(href)) {
@@ -662,7 +649,6 @@ class PlaywrightController:
                                     return null;
                                 }
                             }
-                            finalUrl = cleanUrl(finalUrl);
                             return {
                                 text: anchor.textContent.trim(),
                                 href: finalUrl
@@ -670,7 +656,7 @@ class PlaywrightController:
                         })
                         .filter(item => item !== null);
                 }
-            """, resolved_base_url)
+            """, [resolved_base_url, visible_only])
             assert isinstance(result, list)
             return cast(List[Dict[str, str]], result)
         except Exception as e:

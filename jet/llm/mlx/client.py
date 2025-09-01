@@ -1151,21 +1151,18 @@ class MLXLMClient:
     def reset_model(self) -> None:
         """Reset the model and clear associated caches."""
         logger.debug("\nResetting model and clearing caches")
-
-        # Clear the prompt cache
-        self.prompt_cache.clear()
-
-        # Reset model provider
+        try:
+            if hasattr(self, 'prompt_cache') and self.prompt_cache:
+                # Clear the prompt cache
+                self.prompt_cache.clear()
+        except AttributeError:
+            logger.warning(
+                "prompt_cache attribute not found, skipping cache clear")
         self.model_provider = ModelProvider(self.cli_args)
         self.model = self.model_provider.model
         self.tokenizer = self.model_provider.tokenizer
-
-        # Reset peak memory tracking
         mx.reset_peak_memory()
-
-        # Clear MLX cache
         mx.clear_cache()
-
         logger.debug("Model reset completed")
 
     def print_cache(self) -> None:

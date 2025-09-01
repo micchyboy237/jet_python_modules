@@ -6,7 +6,7 @@ from typing import Optional
 from autogen_agentchat.ui import Console
 from autogen_agentchat.teams import RoundRobinGroupChat
 from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
-from autogen_ext.agents.web_surfer import MultimodalWebSurfer
+from jet.libs.autogen.multimodal_web_surfer import MultimodalWebSurfer
 from pydantic import BaseModel
 
 OUTPUT_DIR = os.path.join(
@@ -47,14 +47,16 @@ async def main() -> None:
     progress.update("Initializing web surfer agent")
 
     # Create debug and downloads directories
-    debug_dir = "debug_screenshots"
-    downloads_dir = "downloads"
+    debug_dir = f"{OUTPUT_DIR}/debug_screenshots"
+    downloads_dir = f"{OUTPUT_DIR}/downloads"
+    browser_data_dir = f"{OUTPUT_DIR}/browser_data"
     os.makedirs(debug_dir, exist_ok=True)
     os.makedirs(downloads_dir, exist_ok=True)
+    os.makedirs(browser_data_dir, exist_ok=True)
 
     # Configure the Ollama model client
     model_client = OllamaChatCompletionClient(
-        model="llama3.1:latest",
+        model="llama3.2",
         host="http://localhost:11434"
     )
 
@@ -71,8 +73,8 @@ async def main() -> None:
         to_save_screenshots=True,
         use_ocr=True,
         browser_channel="chrome",  # Use Chrome channel
-        browser_data_dir="browser_data",
-        to_resize_viewport=True
+        browser_data_dir=browser_data_dir,
+        to_resize_viewport=False
     )
 
     progress.update("Setting up team and task")
@@ -81,7 +83,7 @@ async def main() -> None:
     agent_team = RoundRobinGroupChat([web_surfer], max_turns=3)
 
     # Define a sample task
-    task = "Navigate to the AutoGen README on GitHub and summarize it."
+    task = "Search for autogen repo on GitHub search, then click its resource and summarize it."
 
     progress.update("Running the team")
     try:

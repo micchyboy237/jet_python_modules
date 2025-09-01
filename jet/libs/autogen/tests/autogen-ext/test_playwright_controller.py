@@ -21,6 +21,23 @@ FAKE_HTML = """
 </html>
 """
 
+TEST_LINKS_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Links Page</title>
+</head>
+<body>
+    <a href="https://example.com">Example Site</a>
+    <a href="/about">About Page</a>
+    <a href="/contact">Contact Page</a>
+    <a href="javascript:void(0)">Invalid Link</a>
+    <a href="https://hidden.com" style="display: none;">Hidden Link</a>
+</body>
+</html>
+"""
+
 TEST_FORM_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -47,26 +64,7 @@ TEST_FORM_HTML = """
 </html>
 """
 
-TEST_LINKS_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Test Links Page</title>
-</head>
-<body>
-    <a href="https://example.com">Example Site</a>
-    <a href="/about">About Page</a>
-    <a href="/contact">Contact Page</a>
-    <a href="javascript:void(0)">Invalid Link</a>
-    <a href="https://hidden.com" style="display: none;">Hidden Link</a>
-</body>
-</html>
-"""
-
 logger = logging.getLogger(__name__)
-
-# Existing tests (unchanged, included for completeness to avoid overwriting)
 
 
 @pytest.mark.asyncio
@@ -341,11 +339,10 @@ async def test_playwright_controller_get_form_targets() -> None:
 
         # Expected: List of form targets with their IDs and texts
         expected = [
-            {"id": any, "text": "Enter username"},       # Text input
-            # Textarea (no aria-label)
+            {"id": any, "text": "Enter username"},
             {"id": any, "text": ""},
-            {"id": any, "text": "Submit Form"},          # Button
-            {"id": any, "text": "Select favorite color"}  # Select
+            {"id": any, "text": "Submit Form"},
+            {"id": any, "text": "Select favorite color"}
         ]
 
         # Assert each expected item exists in the result (ignoring specific IDs)
@@ -360,12 +357,12 @@ async def test_playwright_controller_get_form_targets() -> None:
 
 
 @pytest.mark.asyncio
-async def test_playwright_controller_get_visible_links() -> None:
+async def test_playwright_controller_get_links() -> None:
     """
-    Test that get_visible_links returns a list of visible hyperlinks with their text and href.
+    Test that get_links returns a list of hyperlinks with their text and href, with optional visibility filtering.
     Given: A page with visible, hidden, and invalid links
-    When: The get_visible_links method is called with a base URL
-    Then: The result includes only the visible links with resolved URLs
+    When: The get_links method is called with visible_only=True and visible_only=False
+    Then: The result includes the expected links based on visibility
     """
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -374,24 +371,38 @@ async def test_playwright_controller_get_visible_links() -> None:
         await page.set_content(TEST_LINKS_HTML)
         controller = PlaywrightController()
 
-        # When: Retrieve visible links with a base URL
+        # When: Retrieve visible links only
         base_url = "http://test.com"
-        result = await controller.get_visible_links(page, base_url)
+        result_visible = await controller.get_links(page, base_url, visible_only=True)
 
-        # Then: Verify the result contains only visible, valid links
-        expected = [
-            {"text": "Example Site", "href": "https://example.com"},
+        # Then: Verify only visible, valid links are returned
+        expected_visible = [
+            {"text": "Example Site", "href": "https://example.com/"},
             {"text": "About Page", "href": "http://test.com/about"},
             {"text": "Contact Page", "href": "http://test.com/contact"}
         ]
-
-        # Sort results and expected for consistent comparison
-        result_sorted = sorted(result, key=lambda x: x["text"])
-        expected_sorted = sorted(expected, key=lambda x: x["text"])
-
-        assert result_sorted == expected_sorted, f"Expected links {expected_sorted}, got {result_sorted}"
+        result_visible_sorted = sorted(result_visible, key=lambda x: x["text"])
+        expected_visible_sorted = sorted(
+            expected_visible, key=lambda x: x["text"])
+        assert result_visible_sorted == expected_visible_sorted, f"Expected visible links {expected_visible_sorted}, got {result_visible_sorted}"
         assert len(
-            result) == 3, f"Expected 3 visible links, got {len(result)}: {result}"
+            result_visible) == 3, f"Expected 3 visible links, got {len(result_visible)}: {result_visible}"
+
+        # When: Retrieve all links (visible and hidden)
+        result_all = await controller.get_links(page, base_url, visible_only=False)
+
+        # Then: Verify all valid links are returned, including hidden
+        expected_all = [
+            {"text": "Example Site", "href": "https://example.com/"},
+            {"text": "About Page", "href": "http://test.com/about"},
+            {"text": "Contact Page", "href": "http://test.com/contact"},
+            {"text": "Hidden Link", "href": "https://hidden.com/"}
+        ]
+        result_all_sorted = sorted(result_all, key=lambda x: x["text"])
+        expected_all_sorted = sorted(expected_all, key=lambda x: x["text"])
+        assert result_all_sorted == expected_all_sorted, f"Expected all links {expected_all_sorted}, got {result_all_sorted}"
+        assert len(
+            result_all) == 4, f"Expected 4 links (including hidden), got {len(result_all)}: {result_all}"
 
 
 @pytest.fixture(autouse=True)

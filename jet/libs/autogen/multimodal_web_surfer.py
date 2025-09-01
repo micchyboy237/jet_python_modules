@@ -61,10 +61,13 @@ from jet.libs.autogen._tool_definitions import (
     TOOL_TYPE,
     TOOL_VISIT_URL,
     TOOL_WEB_SEARCH,
-    TOOL_GET_VISIBLE_LINKS,
+    TOOL_GET_LINKS,
 )
 from jet.libs.autogen.playwright_controller import PlaywrightController
+
 DEFAULT_CONTEXT_SIZE = 128000
+# Custom constants
+DEFAULT_ZOOM = 0.8
 
 
 class MultimodalWebSurferConfig(BaseModel):
@@ -81,6 +84,7 @@ class MultimodalWebSurferConfig(BaseModel):
     browser_channel: str | None = None
     browser_data_dir: str | None = None
     to_resize_viewport: bool = True
+    default_zoom: float = DEFAULT_ZOOM
 
 
 class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
@@ -96,8 +100,8 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
     DEFAULT_START_PAGE = "https://www.bing.com/"
     VIEWPORT_HEIGHT = 900
     VIEWPORT_WIDTH = 1440
-    MLM_HEIGHT = 765
-    MLM_WIDTH = 1224
+    MLM_HEIGHT = 900
+    MLM_WIDTH = 1440
     SCREENSHOT_TOKENS = 1105
 
     def __init__(
@@ -117,6 +121,8 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
         to_resize_viewport: bool = True,
         playwright: Playwright | None = None,
         context: BrowserContext | None = None,
+        # Custom args
+        default_zoom: float = DEFAULT_ZOOM,
     ):
         """
         Initialize the MultimodalWebSurfer.
@@ -141,6 +147,7 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
         self.use_ocr = use_ocr
         self.to_resize_viewport = to_resize_viewport
         self.animate_actions = animate_actions
+        self.default_zoom = default_zoom
         self._playwright: Playwright | None = playwright
         self._context: BrowserContext | None = context
         self._page: Page | None = None
@@ -160,6 +167,7 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
             viewport_height=self.VIEWPORT_HEIGHT,
             _download_handler=self._download_handler,
             to_resize_viewport=self.to_resize_viewport,
+            default_zoom=self.default_zoom,
         )
         self.default_tools = [
             TOOL_VISIT_URL,
@@ -171,7 +179,7 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
             TOOL_SUMMARIZE_PAGE,
             TOOL_SLEEP,
             TOOL_HOVER,
-            TOOL_GET_VISIBLE_LINKS,
+            TOOL_GET_LINKS,
         ]
         self.did_lazy_init = False
 
@@ -420,7 +428,7 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
                 url=self._page.url,
             ).strip()
             scaled_screenshot = som_screenshot.resize(
-                (self.MLM_WIDTH, MLM_HEIGHT))
+                (self.MLM_WIDTH, self.MLM_HEIGHT))
             som_screenshot.close()
             if self.to_save_screenshots:
                 scaled_screenshot.save(os.path.join(
@@ -580,14 +588,14 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
         elif name == "sleep":
             action_description = "I am waiting a short period of time before taking further action."
             await self._playwright_controller.sleep(self._page, 3)
-        elif name == "get_visible_links":
-            action_description = "I retrieved the list of visible hyperlinks from the current webpage."
-            links = await self._playwright_controller.get_visible_links(self._page)
+        elif name == "get_links":
+            action_description = "I retrieved the list of hyperlinks from the current webpage."
+            links = await self._playwright_controller.get_links(self._page, visible_only=True)
             if not links:
-                return "No visible links found on the current webpage."
+                return "No links found on the current webpage."
             formatted_links = "\n".join(
                 [f"- Text: '{link['text']}', URL: {link['href']}" for link in links])
-            return f"Visible links on the current webpage:\n{formatted_links}"
+            return f"Links on the current webpage:\n{formatted_links}"
         else:
             raise ValueError(
                 f"Unknown tool '{name}'. Please choose from:\n\n{tool_names}")
@@ -761,6 +769,7 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
             browser_channel=self.browser_channel,
             browser_data_dir=self.browser_data_dir,
             to_resize_viewport=self.to_resize_viewport,
+            default_zoom=self.default_zoom,
         )
 
     @classmethod
@@ -780,4 +789,5 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
             browser_channel=config.browser_channel,
             browser_data_dir=config.browser_data_dir,
             to_resize_viewport=config.to_resize_viewport,
+            default_zoom=config.default_zoom,
         )

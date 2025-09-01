@@ -2,8 +2,27 @@ import os
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+from typing import List, Sequence
 from datetime import datetime
+from autogen_core.models import LLMMessage, SystemMessage, UserMessage, AssistantMessage, FunctionExecutionResult, FunctionExecutionResultMessage
+from autogen_core.tools import Tool, ToolSchema
 from autogen_ext.models.ollama import OllamaChatCompletionClient as BaseOllamaChatCompletionClient
+from autogen_ext.models.ollama._ollama_client import convert_tools
+from llama_index.core.base.llms.types import (
+    ChatMessage,
+    ChatResponse,
+    ChatResponseAsyncGen,
+    ChatResponseGen,
+    CompletionResponse,
+    CompletionResponseAsyncGen,
+    CompletionResponseGen,
+    ImageBlock,
+    LLMMetadata,
+    MessageRole,
+    TextBlock,
+)
+from jet.token.token_utils import token_counter
+from jet.transformers.object import make_serializable
 
 
 class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
@@ -87,3 +106,69 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
                 if self._logger:
                     self._logger.error(f"Failed to log streaming chunk: {e}")
             yield chunk
+
+    def count_tokens(
+        self,
+        messages: Sequence[LLMMessage],
+        *,
+        tools: Sequence[Tool | ToolSchema] = [],
+    ) -> int:
+        """
+        Count tokens for a sequence of LLMMessage objects, handling all supported message types.
+        Also counts tokens for Ollama tools.
+        """
+        ollama_messages = self._convert_to_ollama_messages(messages)
+        ollama_tools = convert_tools(tools)
+        ollama_tools_dict = make_serializable(ollama_tools)
+        msg_token_count: int = token_counter(
+            ollama_messages, self._create_args["model"])
+        tools_token_count: int = token_counter(
+            ollama_tools_dict, self._create_args["model"]) if ollama_tools else 0
+        return msg_token_count + tools_token_count
+
+    def _convert_to_ollama_messages(self, messages: Sequence[LLMMessage]) -> List[ChatMessage]:
+        """
+        Convert LLMMessage objects to llama_index ChatMessage objects, handling all supported message types.
+        Applies correct role mapping for function/tool messages.
+        """
+        ollama_messages: List[ChatMessage] = []
+        for message in messages:
+            if isinstance(message, SystemMessage):
+                ollama_messages.append(
+                    ChatMessage(role="system", content=getattr(
+                        message, "content", ""))
+                )
+            elif isinstance(message, UserMessage):
+                content = getattr(message, "content", "")
+                if isinstance(content, list):
+                    text_content = " ".join(str(x) for x in content)
+                else:
+                    text_content = str(content)
+                ollama_messages.append(
+                    ChatMessage(role="user", content=text_content)
+                )
+            elif isinstance(message, AssistantMessage):
+                content = getattr(message, "content", "")
+                if isinstance(content, list):
+                    text_content = " ".join(str(x) for x in content)
+                else:
+                    text_content = str(content)
+                ollama_messages.append(
+                    ChatMessage(role="assistant", content=text_content)
+                )
+            elif isinstance(message, FunctionExecutionResultMessage):
+                # Each FunctionExecutionResult in content
+                content = getattr(message, "content", [])
+                for result in content:
+                    # Use "tool" role for function execution results, as per OpenAI/llama_index conventions
+                    ollama_messages.append(
+                        ChatMessage(role="tool", content=str(
+                            getattr(result, "content", "")))
+                    )
+            else:
+                # Fallback: treat as user message
+                ollama_messages.append(
+                    ChatMessage(role="user", content=str(
+                        getattr(message, "content", "")))
+                )
+        return ollama_messages

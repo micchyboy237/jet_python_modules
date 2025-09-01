@@ -2,7 +2,7 @@ import os
 import shutil
 import asyncio
 import re
-from typing import Any, List, Dict
+from typing import Any, List, Dict, TypedDict
 from jet.logger import CustomLogger
 from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 from jet.libs.autogen.multimodal_web_surfer import (
@@ -24,17 +24,104 @@ logger = CustomLogger(log_file, overwrite=True)
 logger.info(f"Logs: {log_file}")
 
 
-async def search_anime_streaming_links(
-    anime_title: str, season: str, start_page: str = "http://jethros-macbook-air.local:3000"
-) -> List[Dict[str, Any]]:
+class Task(TypedDict):
+    tool: str
+    args: Dict[str, Any]
+
+
+class StreamingLink(TypedDict):
+    name: str
+    url: str
+
+
+def create_search_tasks(anime_title: str, season: str) -> List[Task]:
     """
-    Search for streaming links for a given anime title and season using MultimodalWebSurfer.
+    Generate a list of tasks for searching anime streaming links.
+
     Args:
-        anime_title (str): The title of the anime (e.g., "Solo Leveling").
-        season (str): The season number (e.g., "Season 2").
-        start_page (str): The starting page for the web search (default: local searx instance).
+        anime_title: The title of the anime.
+        season: The season number.
+
     Returns:
-        List[Dict[str, Any]]: A list of dictionaries containing streaming link details.
+        List of tasks to execute.
+    """
+    search_query = f"{anime_title} {season} streaming online watch free"
+    tasks: List[Task] = [
+        {
+            "tool": "web_search",
+            "args": {
+                "reasoning": f"Searching for streaming links for {anime_title} {season}.",
+                "query": search_query
+            }
+        },
+        {
+            "tool": "get_links",
+            "args": {
+                "reasoning": f"Retrieving all hyperlinks from search results for {anime_title} {season} to find streaming links.",
+                "visible_only": False
+            }
+        }
+    ]
+    return tasks
+
+
+async def process_response(response: Any, anime_title: str, season: str) -> List[StreamingLink] | None:
+    """
+    Process agent response to extract streaming links if a video player is found or parse links from get_links.
+
+    Args:
+        response: The response from the agent.
+        anime_title: The title of the anime.
+        season: The season number.
+
+    Returns:
+        List of streaming link dictionaries or None if no valid links are found.
+    """
+    if isinstance(response.chat_message, (TextMessage, MultiModalMessage)):
+        content = response.chat_message.content
+        if isinstance(content, list):
+            content = content[0]
+        # Handle get_links response
+        if content.startswith("Links on the current webpage:"):
+            links = []
+            for line in content.splitlines()[1:]:
+                match = re.match(
+                    r"- Text: '([^']+)', URL: (https?://[^\s]+)", line)
+                if match:
+                    links.append(
+                        {"text": match.group(1), "href": match.group(2)})
+            # Filter links with streaming-related keywords
+            streaming_links = [
+                {"name": f"{anime_title} {season} Stream", "url": link["href"]}
+                for link in links
+                if any(keyword in link["text"].lower() or keyword in link["href"].lower()
+                       for keyword in ["watch", "stream", "video", "episode", "anime"])
+            ]
+            return streaming_links[:3]  # Limit to top 3 links
+        # Handle video player check
+        if "yes" in content.lower() and "video player" in content.lower():
+            url_response = content
+            match = re.search(r'https?://[^\s]+', url_response)
+            if match:
+                return [{"name": f"{anime_title} {season} Stream", "url": match.group(0)}]
+    return None
+
+
+async def search_anime_streaming_links(
+    anime_title: str,
+    season: str,
+    start_page: str = "http://jethros-macbook-air.local:3000"
+) -> List[StreamingLink]:
+    """
+    Search for streaming links for a given anime title and season.
+
+    Args:
+        anime_title: The title of the anime (e.g., "Solo Leveling").
+        season: The season number (e.g., "Season 2").
+        start_page: The starting page for the web search (default: local searx instance).
+
+    Returns:
+        List of streaming link dictionaries.
     """
     model_client = OllamaChatCompletionClient(model="llama3.2")
     agent = MultimodalWebSurfer(
@@ -51,71 +138,10 @@ async def search_anime_streaming_links(
         browser_data_dir=os.path.join(OUTPUT_DIR, "browser_data"),
         to_resize_viewport=True
     )
-    streaming_links: List[Dict[str, Any]] = []
+    streaming_links: List[StreamingLink] = []
     try:
-        tasks = [
-            {
-                "tool": "web_search",
-                "args": {
-                    "reasoning": f"Searching for streaming links for {anime_title} {season} to find websites offering the anime.",
-                    "query": f"{anime_title} {season} streaming online watch free"
-                }
-            },
-            {
-                "tool": "summarize_page",
-                "args": {
-                    "reasoning": f"Summarizing the search results page to identify websites that may offer streaming for {anime_title} {season}."
-                }
-            },
-            {
-                "tool": "click",
-                "args": {
-                    "reasoning": f"Clicking on a search result link that may lead to a streaming site for {anime_title} {season}.",
-                    "target_id": 1
-                }
-            },
-            {
-                "tool": "answer_question",
-                "args": {
-                    "reasoning": f"Verifying if the current page has a video player for streaming {anime_title} {season}.",
-                    "question": f"Does this page contain a video player for streaming {anime_title} {season}?"
-                }
-            },
-            {
-                "tool": "answer_question",
-                "args": {
-                    "reasoning": f"Extracting the URL of the page if it contains a video player for {anime_title} {season}.",
-                    "question": f"What is the URL of the current page?"
-                }
-            },
-            {
-                "tool": "history_back",
-                "args": {
-                    "reasoning": "Returning to search results to check for additional streaming links."
-                }
-            },
-            {
-                "tool": "click",
-                "args": {
-                    "reasoning": f"Clicking on another search result link to find additional streaming sites for {anime_title} {season}.",
-                    "target_id": 2
-                }
-            },
-            {
-                "tool": "answer_question",
-                "args": {
-                    "reasoning": f"Verifying if the second page has a video player for streaming {anime_title} {season}.",
-                    "question": f"Does this page contain a video player for streaming {anime_title} {season}?"
-                }
-            },
-            {
-                "tool": "answer_question",
-                "args": {
-                    "reasoning": f"Extracting the URL of the second page if it contains a video player for {anime_title} {season}.",
-                    "question": f"What is the URL of the current page?"
-                }
-            }
-        ]
+        tasks = create_search_tasks(anime_title, season)
+        potential_links: List[StreamingLink] = []
         for task in tasks:
             tool_name = task["tool"]
             args = task["args"]
@@ -124,42 +150,48 @@ async def search_anime_streaming_links(
                 source="user"
             )
             response = await agent.on_messages([message], CancellationToken())
-            if tool_name == "answer_question":
-                question = args.get("question", "")
-                if isinstance(response.chat_message, (TextMessage, MultiModalMessage)):
-                    content = response.chat_message.content
-                    if isinstance(content, list):
-                        content = content[0]
-                    if "Does this page contain a video player" in question and "yes" in content.lower():
-                        next_task_index = tasks.index(task) + 1
-                        if next_task_index < len(tasks) and tasks[next_task_index]["tool"] == "answer_question":
-                            url_response = await agent.on_messages(
-                                [TextMessage(
-                                    content=f"Execute answer_question with args: {tasks[next_task_index]['args']}",
-                                    source="user"
-                                )],
-                                CancellationToken()
-                            )
-                            if isinstance(url_response.chat_message, (TextMessage, MultiModalMessage)):
-                                url_content = url_response.chat_message.content
-                                if isinstance(url_content, list):
-                                    url_content = url_content[0]
-                                match = re.search(
-                                    r'https?://[^\s]+', url_content)
-                                if match:
-                                    streaming_links.append({
-                                        "name": f"{anime_title} {season} Stream",
-                                        "url": match.group(0)
-                                    })
-            elif tool_name == "summarize_page":
-                if isinstance(response.chat_message, (TextMessage, MultiModalMessage)):
-                    content = response.chat_message.content
-                    if isinstance(content, list):
-                        content = content[0]
-                    logger.info(f"Page summary: {content}")
+            if tool_name == "get_links":
+                links = await process_response(response, anime_title, season)
+                if links:
+                    potential_links.extend(links)
+            else:
+                logger.info(f"Executed {tool_name}: {args}")
+
+        # Dynamically create tasks to visit potential streaming links
+        for link in potential_links[:3]:  # Limit to 3 links
+            visit_task = {
+                "tool": "visit_url",
+                "args": {
+                    "reasoning": f"Visiting potential streaming link for {anime_title} {season}: {link['url']}.",
+                    "url": link["url"]
+                }
+            }
+            video_check_task = {
+                "tool": "answer_question",
+                "args": {
+                    "reasoning": f"Checking for video player on page for {anime_title} {season}.",
+                    "question": f"Does this page contain a video player for streaming {anime_title} {season}?"
+                }
+            }
+            url_task = {
+                "tool": "answer_question",
+                "args": {
+                    "reasoning": f"Extracting URL of page with video player for {anime_title} {season}.",
+                    "question": "What is the URL of the current page?"
+                }
+            }
+            for task in [visit_task, video_check_task, url_task]:
+                message = TextMessage(
+                    content=f"Execute {task['tool']} with args: {task['args']}",
+                    source="user"
+                )
+                response = await agent.on_messages([message], CancellationToken())
+                if task["tool"] == "answer_question" and "video player" in task["args"]["question"].lower():
+                    new_links = await process_response(response, anime_title, season)
+                    if new_links:
+                        streaming_links.extend(new_links)
     except Exception as e:
         logger.error(f"Error during search: {e}")
-        return streaming_links
     finally:
         try:
             await agent.close()
