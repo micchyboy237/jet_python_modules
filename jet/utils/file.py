@@ -15,8 +15,8 @@ def search_files(
     Args:
         base_dir (str | list[str]): Base directory or list of directories to search.
         extensions (list[str]): File extensions to include.
-        include_files (list[str], optional): Files or directories to include (supports wildcards). Defaults to [].
-        exclude_files (list[str], optional): Files or directories to exclude (supports wildcards). Defaults to [].
+        include_files (list[str], optional): Files or directories to include (supports wildcards, partial, relative, or full paths). Defaults to [].
+        exclude_files (list[str], optional): Files or directories to exclude (supports wildcards, partial, relative, or full paths). Defaults to [].
     Returns:
         list[str]: List of filtered file paths.
     """
@@ -37,16 +37,23 @@ def search_files(
         """Check if the path, filename, or directories match any of the given patterns."""
         file_name = os.path.basename(path)
         dir_path = os.path.dirname(path)
+        normalized_path = os.path.normpath(path)
 
         for pattern in patterns:
-            # Full path match (relative or absolute)
-            if fnmatch.fnmatch(path, f"*{pattern}*"):
+            # Normalize pattern for consistent matching
+            pattern = os.path.normpath(pattern)
+
+            # Full path match (relative or absolute) with wildcards
+            if fnmatch.fnmatch(normalized_path, f"*{pattern}*") or fnmatch.fnmatch(normalized_path, pattern):
                 return True
             # Exact filename match
             if fnmatch.fnmatch(file_name, pattern):
                 return True
-            # Directory segments match
-            if any(fnmatch.fnmatch(part, pattern) for part in dir_path.split(os.sep)):
+            # Directory segments match (partial paths like "tutorial/agents")
+            if any(fnmatch.fnmatch(part, pattern) or part == pattern for part in dir_path.split(os.sep)):
+                return True
+            # Handle relative path patterns
+            if fnmatch.fnmatch(normalized_path, f"*{os.sep}{pattern}"):
                 return True
 
         return False
@@ -58,7 +65,7 @@ def search_files(
         files = [file for file in files if not matches_pattern(
             file, exclude_files)]
 
-    return files
+    return sorted(files)  # Sort for consistent output in tests
 
 
 def find_files_recursively(pattern: str, base_dir: Union[str, Path] = ".") -> List[str]:

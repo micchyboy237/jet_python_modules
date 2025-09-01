@@ -1,10 +1,11 @@
 import os
 import shutil
 import asyncio
-from autogen_agentchat.ui import Console
-from autogen_agentchat.teams import RoundRobinGroupChat
-from autogen_ext.models.ollama import OllamaChatCompletionClient
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
+from autogen_agentchat.teams import RoundRobinGroupChat
+from autogen_agentchat.ui import Console
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+
 from jet.logger import CustomLogger
 
 OUTPUT_DIR = os.path.join(
@@ -15,33 +16,36 @@ logger = CustomLogger(log_file, overwrite=True)
 logger.info(f"Logs: {log_file}")
 
 
-async def main() -> None:
-    # Initialize the agent with Chrome and 80% zoom
+async def main():
+    # Initialize the model client (e.g., OpenAI GPT-4o)
+    model_client = OpenAIChatCompletionClient(model="gpt-4o-2024-08-06")
+
+    # Define the web surfer agent with screenshot saving enabled
     web_surfer_agent = MultimodalWebSurfer(
-        name="MultimodalWebSurfer",
-        model_client=OllamaChatCompletionClient(model="llama3.2"),
-        browser_channel="chrome",
-        headless=False,
-        animate_actions=False,
-        to_save_screenshots=True,
-        debug_dir=f"{OUTPUT_DIR}/debug_screens",
-        browser_data_dir=f"{OUTPUT_DIR}/browser_data_dir",
+        name="WebSurfer",
+        model_client=model_client,
+        to_save_screenshots=True,  # Enable screenshot saving
+        debug_dir="./screenshots",  # Directory to save screenshots
+        headless=True,  # Run browser in headless mode
+        start_page="http://jethros-macbook-air.local:3000",  # Starting URL
     )
 
-    # Define a team
+    # Define the task
+    task = """
+    Navigate to https://github.com.
+    Find the search bar and input the query 'AutoGen Microsoft'.
+    Submit the search.
+    Extract the text content and links from the search results page.
+    Save screenshots of the search results page.
+    """
+
+    # Define a team with the web surfer agent
     agent_team = RoundRobinGroupChat([web_surfer_agent], max_turns=5)
 
-    # Task to locate the search bar's target_id and use it
-    task = (
-        "1. Navigate to http://jethros-macbook-air.local:3000/search.\n"
-        "2. Wait for the page to load fully.\n"
-        "3. Identify the target_id of the search bar.\n"
-        "4. Type 'AutoGen GitHub' into the search bar."
-    )
-
-    # Run the team and stream messages to the console
+    # Run the task and stream messages to the console
     stream = agent_team.run_stream(task=task)
     await Console(stream)
+
     # Close the browser
     await web_surfer_agent.close()
 

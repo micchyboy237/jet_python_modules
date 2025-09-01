@@ -20,94 +20,22 @@ async def main():
     )
     logger.info(
         "🔍 Starting search for Solo Leveling episode 12 on aniwatchtv.to...")
-    task_steps: List[Dict[str, Any]] = [
-        {
-            "description": "Navigate to aniwatchtv.to homepage",
-            "task": "Visit https://aniwatchtv.to",
-            "tool": "visit_url",
-            "parameters": {
-                "reasoning": "Navigate to the homepage to begin the search for Solo Leveling.",
-                "url": "https://aniwatchtv.to"
-            }
-        },
-        {
-            "description": "Wait for the page to load fully",
-            "task": "Wait for the page to load fully",
-            "tool": "sleep",
-            "parameters": {
-                "reasoning": "Identify the search bar to input the query for Solo Leveling.",
-                "element_type": "textbox",
-                "name": "keyword"  # Assuming the search bar has a name attribute like 'keyword'
-            }
-        },
-        {
-            "description": "Input 'Solo Leveling' into the search bar",
-            "task": "Type 'Solo Leveling' into the search bar.",
-            "tool": "input_text",
-            "parameters": {
-                "reasoning": "Enter the search term to find Solo Leveling in the website’s search.",
-                "input_field_id": None,  # Will be dynamically set from find_form_elements result
-                "text_value": "Solo Leveling"
-            }
-        },
+    task_steps: List[str] = [
+        "Visit https://aniwatchtv.to",
+        "Wait for the page to load fully",
+        "Type 'Solo Leveling' into the search bar.",
+        "Submit search",
     ]
     result = ""
     try:
-        last_form_elements = None
         for step in task_steps:
-            logger.debug(f"Executing step: {step['description']}")
-            try:
-                step_result = await surfer.run(task=step["task"])
-                logger.debug(f"Step result: {step_result}")
+            logger.debug(f"Executing step: {step}")
+            step_result = await surfer.run(task=step)
+            logger.debug(f"Step result: {step_result}")
 
-                # Handle find_form_elements results
-                if step["tool"] == "find_form_elements":
-                    last_form_elements = step_result
-                    result += f"{step['description']}: Found elements {step_result}\n"
-
-                # Update input_text parameters dynamically
-                elif step["tool"] == "input_text" and last_form_elements:
-                    if isinstance(last_form_elements, list) and last_form_elements:
-                        step["parameters"]["input_field_id"] = last_form_elements[0].get(
-                            "id")
-                        step_result = await surfer.run(
-                            task=f"Type '{step['parameters']['text_value']}' into input field {step['parameters']['input_field_id']}."
-                        )
-                        result += f"{step['description']}: {step_result}\n"
-                    else:
-                        raise ValueError(
-                            "No valid form elements found for input_text")
-
-                # Update click parameters for search button dynamically
-                elif step["tool"] == "click" and "submit the query" in step["description"].lower() and last_form_elements:
-                    if isinstance(last_form_elements, list) and last_form_elements:
-                        step["parameters"]["target_id"] = last_form_elements[0].get(
-                            "id")
-                        step_result = await surfer.run(
-                            task=f"Click the element with id {step['parameters']['target_id']}."
-                        )
-                        result += f"{step['description']}: {step_result}\n"
-                    else:
-                        raise ValueError(
-                            "No valid form elements found for click")
-
-                else:
-                    result += f"{step['description']}: {step_result}\n"
-            except Exception as e:
-                logger.error(
-                    f"Error in step '{step['description']}': {str(e)}")
-                if "No such element" in str(e) and "search" in step["description"].lower():
-                    logger.debug(
-                        "Search bar not found, using direct search URL...")
-                    fallback_task = "Visit https://aniwatchtv.to/search?keyword=Solo+Leveling"
-                    step_result = await surfer.run(task=fallback_task)
-                    logger.debug(f"Fallback result: {step_result}")
-                    result += f"{step['description']} (fallback): {step_result}\n"
-                else:
-                    raise
     except Exception as e:
         logger.error(f"Unexpected error during task execution: {str(e)}")
-        result += f"Error: {str(e)}"
+        raise
     finally:
         logger.debug("Closing browser...")
         await surfer.close()
