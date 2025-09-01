@@ -1,9 +1,9 @@
 from typing import TypedDict, Optional
 from autogen_ext.models.ollama import OllamaChatCompletionClient
-from autogen_ext.agents.web_surfer import MultimodalWebSurfer
+from jet.libs.autogen.multimodal_web_surfer import MultimodalWebSurfer
 from playwright.async_api import Playwright, BrowserContext
 
-from jet.libs.autogen.chained_multimodal_web_surfer import ChainedMultimodalWebSurfer
+# from jet.libs.autogen.chained_multimodal_web_surfer import ChainedMultimodalWebSurfer
 
 
 class SurferConfigDict(TypedDict, total=False):
@@ -35,9 +35,9 @@ DEFAULT_CONFIG: SurferConfigDict = {
     "animate_actions": True,
     "to_save_screenshots": True,
     "use_ocr": False,
-    "browser_channel": None,
+    "browser_channel": "chrome",
     "browser_data_dir": "browser_data_dir",
-    "to_resize_viewport": True,
+    "to_resize_viewport": False,
     "playwright": None,
     "context": None,
 }
@@ -59,7 +59,7 @@ def make_surfer(
     to_resize_viewport: bool = DEFAULT_CONFIG["to_resize_viewport"],
     playwright: Optional[Playwright] = DEFAULT_CONFIG["playwright"],
     context: Optional[BrowserContext] = DEFAULT_CONFIG["context"],
-) -> ChainedMultimodalWebSurfer:
+) -> MultimodalWebSurfer:
     final_config = {
         "name": name,
         "downloads_folder": downloads_folder,
@@ -78,7 +78,7 @@ def make_surfer(
     }
     ollama_client = OllamaChatCompletionClient(
         model=model_name)
-    return ChainedMultimodalWebSurfer(
+    return MultimodalWebSurfer(
         model_client=ollama_client,
         **final_config
     )

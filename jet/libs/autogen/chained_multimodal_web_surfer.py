@@ -1,9 +1,11 @@
 import os
 import shutil
+import json
 import re
 import time
 import logging
-from typing import List, Self
+from typing import List, Optional, Self
+from urllib.parse import urlparse, urlunparse
 from autogen_core import EVENT_LOGGER_NAME, CancellationToken, Component, ComponentModel, FunctionCall
 from autogen_core import Image as AGImage
 from autogen_core.models import (
@@ -41,6 +43,7 @@ from autogen_ext.agents.web_surfer._tool_definitions import (
     TOOL_WEB_SEARCH,
 )
 from playwright.async_api import BrowserContext, Download, Page, Playwright, async_playwright
+import pytesseract
 
 
 class ChainedMultimodalWebSurferConfig(MultimodalWebSurferConfig):
@@ -88,6 +91,14 @@ class ChainedMultimodalWebSurfer(MultimodalWebSurfer):
         )
         self.max_chain_steps = max_chain_steps
 
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL by removing trailing slashes and ensuring consistent scheme."""
+        parsed = urlparse(url)
+        # Remove trailing slash from path
+        path = parsed.path.rstrip('/')
+        # Reconstruct URL without query or fragment
+        return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), path, '', '', ''))
+
     async def _generate_reply(self, cancellation_token: CancellationToken) -> UserContent:
         if not self.did_lazy_init:
             await self._lazy_init()
@@ -108,8 +119,22 @@ class ChainedMultimodalWebSurfer(MultimodalWebSurfer):
             history = []
         llm_history: List[LLMMessage] = history + [user_request]
         chain_step = 0
+        requested_url: Optional[str] = None
+        task_context: str = content_to_str(user_request.content)
+
+        # Extract requested URL from task if it involves visiting a specific page
+        visit_url_match = re.search(
+            r"Visit\s+(https?://[^\s]+)", task_context, re.IGNORECASE)
+        if visit_url_match:
+            requested_url = visit_url_match.group(1).rstrip(".")
+
+        # Track whether navigation to requested URL is complete
+        navigation_complete = False
+
         while True:
             if chain_step >= self.max_chain_steps:
+                self.logger.error(
+                    "Maximum chain steps reached without a final answer.")
                 return "Maximum chain steps reached without a final answer."
             rects = await self._playwright_controller.get_interactive_rects(page)
             viewport = await self._playwright_controller.get_visual_viewport(page)
@@ -166,6 +191,47 @@ class ChainedMultimodalWebSurfer(MultimodalWebSurfer):
             state_description = "Your " + await self._get_state_description()
             tool_names = "\n".join([t["name"] for t in tools])
             page_title = await page.title()
+
+            # Normalize URLs for comparison
+            current_url_normalized = self._normalize_url(page.url)
+            requested_url_normalized = self._normalize_url(
+                requested_url) if requested_url else None
+
+            # Debug logging for URL comparison
+            self.logger.debug(
+                f"Comparing URLs: current={current_url_normalized}, requested={requested_url_normalized}, "
+                f"navigation_complete={navigation_complete}"
+            )
+
+            # Validate current page against requested URL
+            if requested_url and not navigation_complete and current_url_normalized != requested_url_normalized:
+                self.logger.debug(f"Forcing navigation to {requested_url}")
+                message = [FunctionCall(
+                    id="0",
+                    name="visit_url",
+                    arguments=json.dumps(
+                        {"url": requested_url, "reasoning": "Navigating to the requested URL as it does not match the current page."})
+                )]
+                llm_history.append(AssistantMessage(
+                    content=message, source=self.name))
+                obs = await self._execute_tool(message, rects, tool_names, cancellation_token=cancellation_token)
+                if not self._model_client.model_info["vision"]:
+                    if isinstance(obs, list) and len(obs) == 2 and isinstance(obs[1], AGImage):
+                        ocr_text = pytesseract.image_to_string(obs[1].image)
+                        obs = f"{obs[0]}\n\nOCR-extracted text from screenshot:\n{ocr_text.strip()}"
+                llm_history.append(UserMessage(content=obs, source="tool"))
+                navigation_complete = True  # Mark navigation as complete to avoid re-checking
+                chain_step += 1
+                continue
+
+            # Enhance prompt with task context to guide tool selection
+            task_guidance = (
+                f"\n\nTask Context: {task_context}\n"
+                "Choose the most relevant tool to progress toward completing the task. "
+                "Avoid redundant actions like revisiting the current URL or unnecessary hovering. "
+                "If the task involves a specific URL, ensure you are on that page before proceeding. "
+                "If the task requires searching or interacting with elements, prioritize those actions."
+            )
             prompt_message = None
             if self._model_client.model_info["vision"]:
                 text_prompt = WEB_SURFER_TOOL_PROMPT_MM.format(
@@ -176,7 +242,7 @@ class ChainedMultimodalWebSurfer(MultimodalWebSurfer):
                     tool_names=tool_names,
                     title=page_title,
                     url=page.url,
-                ).strip()
+                ).strip() + task_guidance
                 scaled_screenshot = som_screenshot.resize(
                     (self.MLM_WIDTH, self.MLM_HEIGHT))
                 som_screenshot.close()
@@ -197,7 +263,7 @@ class ChainedMultimodalWebSurfer(MultimodalWebSurfer):
                     tool_names=tool_names,
                     title=page_title,
                     url=page.url,
-                ).strip()
+                ).strip() + task_guidance
                 prompt_message = UserMessage(content=re.sub(
                     r"(\n\s*){3,}", "\n\n", text_prompt), source=self.name)
             content_chunks = []
@@ -215,17 +281,46 @@ class ChainedMultimodalWebSurfer(MultimodalWebSurfer):
                     final_result = chunk
                     self.model_usage.append(chunk.usage)
             if final_result is None:
+                self.logger.error("No final result received from stream.")
                 return "No final result received from stream."
             message = final_result.content
             self._last_download = None
             if isinstance(message, str):
                 return message
             elif isinstance(message, list):
+                # Check for redundant tool calls
+                current_tool = message[0].name
+                current_args = json.loads(message[0].arguments)
+                if current_tool == "visit_url" and self._normalize_url(current_args.get("url")) == current_url_normalized:
+                    self.logger.info(
+                        WebSurferEvent(
+                            source=self.name,
+                            url=page.url,
+                            message="Skipping redundant visit_url call to the current page."
+                        )
+                    )
+                    chain_step += 1
+                    continue
+                if current_tool == "hover" and "search" in task_context.lower():
+                    self.logger.info(
+                        WebSurferEvent(
+                            source=self.name,
+                            url=page.url,
+                            message="Skipping unnecessary hover action for search task."
+                        )
+                    )
+                    chain_step += 1
+                    continue
                 llm_history.append(AssistantMessage(
                     content=message, source=self.name))
                 obs = await self._execute_tool(message, rects, tool_names, cancellation_token=cancellation_token)
+                if not self._model_client.model_info["vision"]:
+                    if isinstance(obs, list) and len(obs) == 2 and isinstance(obs[1], AGImage):
+                        ocr_text = pytesseract.image_to_string(obs[1].image)
+                        obs = f"{obs[0]}\n\nOCR-extracted text from screenshot:\n{ocr_text.strip()}"
                 llm_history.append(UserMessage(content=obs, source="tool"))
             else:
+                self.logger.error(f"Unknown response format '{message}'")
                 return f"Unknown response format '{message}'"
             chain_step += 1
 
