@@ -21,7 +21,52 @@ FAKE_HTML = """
 </html>
 """
 
+TEST_FORM_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Form Page</title>
+</head>
+<body>
+    <form id="form1">
+        <label for="username">Username:</label>
+        <input type="text" id="username" aria-label="Enter username">
+        <textarea id="bio"></textarea>
+        <button id="submit-btn">Submit Form</button>
+    </form>
+    <form id="form2">
+        <label for="color">Choose color:</label>
+        <select id="color" aria-label="Select favorite color">
+            <option value="red">Red</option>
+            <option value="blue">Blue</option>
+        </select>
+    </form>
+    <input type="text" id="hidden-input" style="display: none;">
+</body>
+</html>
+"""
+
+TEST_LINKS_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Links Page</title>
+</head>
+<body>
+    <a href="https://example.com">Example Site</a>
+    <a href="/about">About Page</a>
+    <a href="/contact">Contact Page</a>
+    <a href="javascript:void(0)">Invalid Link</a>
+    <a href="https://hidden.com" style="display: none;">Hidden Link</a>
+</body>
+</html>
+"""
+
 logger = logging.getLogger(__name__)
+
+# Existing tests (unchanged, included for completeness to avoid overwriting)
 
 
 @pytest.mark.asyncio
@@ -242,19 +287,15 @@ async def test_playwright_controller_hover_id() -> None:
 async def test_playwright_controller_search_bar_submit() -> None:
     """
     Test that fill_id can find a search bar by ID, input text, and submit with Enter.
-
     Given: A page with a text input acting as a search bar
     When: The fill_id method is called with the search bar's ID and a query
     Then: The input contains the query and the element remains focused after Enter
     """
     async with async_playwright() as p:
-        # Given: Set up a browser page with the FAKE_HTML content
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
         await page.set_content(FAKE_HTML)
-
-        # Given: Initialize the controller and find the search bar's ID
         controller = PlaywrightController()
         rects = await controller.get_interactive_rects(page)
         search_bar_id = next(
@@ -263,19 +304,94 @@ async def test_playwright_controller_search_bar_submit() -> None:
             None
         )
         assert search_bar_id is not None, "Search bar input not found in interactive rects"
-
-        # When: Fill the search bar with a query and press Enter
         search_query = "example search"
         await controller.fill_id(page, search_bar_id, search_query, press_enter=True)
-
-        # Then: Verify the input contains the query and is focused
         result_value = await page.evaluate("document.getElementById('input-box').value")
         expected_value = search_query
         assert result_value == expected_value, f"Expected input value '{expected_value}', got '{result_value}'"
-
         result_focused_id = await controller.get_focused_rect_id(page)
         expected_focused_id = search_bar_id
         assert result_focused_id == expected_focused_id, f"Expected focused ID '{expected_focused_id}', got '{result_focused_id}'"
+
+
+@pytest.mark.asyncio
+async def test_playwright_controller_get_form_targets() -> None:
+    """
+    Test that get_interactive_rects returns a list of form target IDs and texts.
+    Given: A page with diverse form elements including inputs, textarea, select, and button
+    When: The get_interactive_rects method is called
+    Then: The result includes the IDs and texts of visible form-related elements
+    """
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
+        page = await context.new_page()
+        await page.set_content(TEST_FORM_HTML)
+        controller = PlaywrightController()
+
+        # When: Retrieve interactive rects
+        rects = await controller.get_interactive_rects(page)
+
+        # Then: Process rects to get form targets (inputs, buttons, textareas, selects)
+        result = [
+            {"id": rect_id, "text": rects[rect_id]["aria_name"]}
+            for rect_id in rects
+            if rects[rect_id]["tag_name"].startswith(("input", "button", "textarea", "select"))
+        ]
+
+        # Expected: List of form targets with their IDs and texts
+        expected = [
+            {"id": any, "text": "Enter username"},       # Text input
+            # Textarea (no aria-label)
+            {"id": any, "text": ""},
+            {"id": any, "text": "Submit Form"},          # Button
+            {"id": any, "text": "Select favorite color"}  # Select
+        ]
+
+        # Assert each expected item exists in the result (ignoring specific IDs)
+        for expected_item in expected:
+            assert any(
+                r["text"] == expected_item["text"] for r in result
+            ), f"Expected form target with text '{expected_item['text']}' not found in {result}"
+
+        # Verify the total number of form targets
+        assert len(
+            result) == 4, f"Expected 4 form targets, got {len(result)}: {result}"
+
+
+@pytest.mark.asyncio
+async def test_playwright_controller_get_visible_links() -> None:
+    """
+    Test that get_visible_links returns a list of visible hyperlinks with their text and href.
+    Given: A page with visible, hidden, and invalid links
+    When: The get_visible_links method is called with a base URL
+    Then: The result includes only the visible links with resolved URLs
+    """
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
+        page = await context.new_page()
+        await page.set_content(TEST_LINKS_HTML)
+        controller = PlaywrightController()
+
+        # When: Retrieve visible links with a base URL
+        base_url = "http://test.com"
+        result = await controller.get_visible_links(page, base_url)
+
+        # Then: Verify the result contains only visible, valid links
+        expected = [
+            {"text": "Example Site", "href": "https://example.com"},
+            {"text": "About Page", "href": "http://test.com/about"},
+            {"text": "Contact Page", "href": "http://test.com/contact"}
+        ]
+
+        # Sort results and expected for consistent comparison
+        result_sorted = sorted(result, key=lambda x: x["text"])
+        expected_sorted = sorted(expected, key=lambda x: x["text"])
+
+        assert result_sorted == expected_sorted, f"Expected links {expected_sorted}, got {result_sorted}"
+        assert len(
+            result) == 3, f"Expected 3 visible links, got {len(result)}: {result}"
 
 
 @pytest.fixture(autouse=True)

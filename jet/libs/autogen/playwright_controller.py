@@ -5,7 +5,7 @@ import os
 import random
 import warnings
 from types import ModuleType
-from typing import Any, Callable, Dict, Optional, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
 from playwright._impl._errors import Error as PlaywrightError
 from playwright._impl._errors import TimeoutError
@@ -17,6 +17,8 @@ from autogen_ext.agents.web_surfer._types import (
     interactiveregion_from_dict,
     visualviewport_from_dict,
 )
+
+from jet.logger import logger
 
 markitdown: ModuleType | None = None
 try:
@@ -587,3 +589,90 @@ class PlaywrightController:
             return res.text_content
         else:
             return await self.get_webpage_text(page, n_lines=200)
+
+    async def get_visible_links(self, page: Page, base_url: Optional[str] = None) -> List[Dict[str, str]]:
+        """
+        Retrieve visible hyperlinks from the web page, with optional base URL for resolving relative links.
+
+        Args:
+            page (Page): The Playwright page object.
+            base_url (Optional[str]): Base URL to resolve relative links. If None, uses the page's current URL.
+
+        Returns:
+            List[Dict[str, str]]: A list of dictionaries containing the text and href of visible links.
+        """
+        assert page is not None
+        try:
+            resolved_base_url = base_url or page.url
+            # Ensure resolved_base_url ends with a slash for proper joining
+            if not resolved_base_url.endswith('/'):
+                resolved_base_url += '/'
+            result = await page.evaluate("""
+                (baseUrl) => {
+                    function cleanUrl(url) {
+                        // Remove trailing slashes and hashtags
+                        if (!url) return url;
+                        // Remove everything after and including the first '#' (fragment)
+                        url = url.replace(/#.*$/, '');
+                        // Remove trailing slashes (but not from protocol, e.g., 'http://')
+                        // Only remove if more than just protocol present
+                        if (url.match(/^https?:\\/\\//)) {
+                            // Remove trailing slashes after domain/path
+                            url = url.replace(/([^:])\\/$/, '$1');
+                        } else {
+                            // For relative URLs, remove trailing slash
+                            url = url.replace(/\\/$/, '');
+                        }
+                        return url;
+                    }
+                    const anchors = Array.from(document.querySelectorAll('a[href]'));
+                    const seen = new Set();
+                    return anchors
+                        .filter(anchor => {
+                            const rect = anchor.getBoundingClientRect();
+                            const isVisible = rect.width > 0 && rect.height > 0 && 
+                                window.getComputedStyle(anchor).display !== 'none' && 
+                                window.getComputedStyle(anchor).visibility !== 'hidden';
+                            const href = anchor.getAttribute('href');
+                            // Validate URLs: http/https or relative paths starting with /
+                            const isValidUrl = href && href.trim() !== '' && 
+                                !href.startsWith('javascript:') && !href.startsWith('#') && 
+                                (href.match(/^(?:https?:\\/\\/[\\w\\-\\./?:=&%#]+)|(?:\\/[\\w\\-\\./?:=&%#]*)$/) !== null);
+                            return isVisible && isValidUrl && !seen.has(href) && seen.add(href);
+                        })
+                        .map(anchor => {
+                            const href = anchor.getAttribute('href');
+                            let finalUrl = href;
+                            if (href.startsWith('/')) {
+                                try {
+                                    finalUrl = new URL(href, baseUrl).href;
+                                } catch (e) {
+                                    return null;
+                                }
+                            } else if (href.match(/^https?:\\/\\//)) {
+                                // Only include http/https URLs with valid netloc
+                                try {
+                                    const url = new URL(href);
+                                    if (url.hostname && !/[<>"']/.test(href)) {
+                                        finalUrl = url.href;
+                                    } else {
+                                        return null;
+                                    }
+                                } catch (e) {
+                                    return null;
+                                }
+                            }
+                            finalUrl = cleanUrl(finalUrl);
+                            return {
+                                text: anchor.textContent.trim(),
+                                href: finalUrl
+                            };
+                        })
+                        .filter(item => item !== null);
+                }
+            """, resolved_base_url)
+            assert isinstance(result, list)
+            return cast(List[Dict[str, str]], result)
+        except Exception as e:
+            logger.error(f"Error scraping links: {str(e)}")
+            return []

@@ -61,6 +61,7 @@ from jet.libs.autogen._tool_definitions import (
     TOOL_TYPE,
     TOOL_VISIT_URL,
     TOOL_WEB_SEARCH,
+    TOOL_GET_VISIBLE_LINKS,
 )
 from jet.libs.autogen.playwright_controller import PlaywrightController
 DEFAULT_CONTEXT_SIZE = 128000
@@ -170,6 +171,7 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
             TOOL_SUMMARIZE_PAGE,
             TOOL_SLEEP,
             TOOL_HOVER,
+            TOOL_GET_VISIBLE_LINKS,
         ]
         self.did_lazy_init = False
 
@@ -578,6 +580,14 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
         elif name == "sleep":
             action_description = "I am waiting a short period of time before taking further action."
             await self._playwright_controller.sleep(self._page, 3)
+        elif name == "get_visible_links":
+            action_description = "I retrieved the list of visible hyperlinks from the current webpage."
+            links = await self._playwright_controller.get_visible_links(self._page)
+            if not links:
+                return "No visible links found on the current webpage."
+            formatted_links = "\n".join(
+                [f"- Text: '{link['text']}', URL: {link['href']}" for link in links])
+            return f"Visible links on the current webpage:\n{formatted_links}"
         else:
             raise ValueError(
                 f"Unknown tool '{name}'. Please choose from:\n\n{tool_names}")

@@ -315,3 +315,23 @@ TOOL_SLEEP: ToolSchema = _load_tool(
         },
     }
 )
+
+TOOL_GET_VISIBLE_LINKS: ToolSchema = _load_tool(
+    {
+        "type": "function",
+        "function": {
+            "name": "get_visible_links",
+            "description": "Retrieves a list of visible hyperlinks from the current webpage, including their text and URLs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reasoning": {
+                        "type": "string",
+                        "description": REASONING_TOOL_PROMPT,
+                    },
+                },
+                "required": ["reasoning"],
+            },
+        },
+    }
+)
