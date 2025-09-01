@@ -12,7 +12,7 @@ from autogen_core.models import ModelFamily
 from autogen_ext.code_executors.local import LocalCommandLineCodeExecutor
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.base import TerminationCondition, TerminatedException
-from autogen_ext.models.ollama import OllamaChatCompletionClient
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 from autogen_ext.agents.file_surfer import FileSurfer
 from autogen_agentchat.agents import CodeExecutorAgent

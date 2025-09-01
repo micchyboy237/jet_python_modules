@@ -1,15 +1,17 @@
-# jet_python_modules/jet/libs/autogen/examples/MultimodalWebSurfer/surfer_anime_search.py
 import os
 import shutil
 import asyncio
 import re
 from typing import Any, List, Dict
 from jet.logger import CustomLogger
-from autogen_ext.models.ollama import OllamaChatCompletionClient
-from jet.libs.autogen.multimodal_web_surfer import MultimodalWebSurfer, MultimodalWebSurferConfig
-from autogen_agentchat.messages import TextMessage, MultiModalMessage
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
+from jet.libs.autogen.multimodal_web_surfer import (
+    MultimodalWebSurfer,
+    MultimodalWebSurferConfig,
+    MultiModalMessage,
+    TextMessage
+)
 from autogen_core import CancellationToken
-from autogen_agentchat.base._task import TaskResult
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(
@@ -49,13 +51,9 @@ async def search_anime_streaming_links(
         browser_data_dir=os.path.join(OUTPUT_DIR, "browser_data"),
         to_resize_viewport=True
     )
-
     streaming_links: List[Dict[str, Any]] = []
-
     try:
-        # Task list to find streaming links
         tasks = [
-            # Step 1: Perform a web search for the anime title and season with streaming keywords
             {
                 "tool": "web_search",
                 "args": {
@@ -63,43 +61,12 @@ async def search_anime_streaming_links(
                     "query": f"{anime_title} {season} streaming online watch free"
                 }
             },
-            # Step 2: Wait for search results to load
-            {
-                "tool": "sleep",
-                "args": {
-                    "reasoning": "Waiting for search results page to fully load to ensure all links are accessible."
-                }
-            },
-            # Step 3: Scroll down to explore more search results
-            {
-                "tool": "scroll_down",
-                "args": {
-                    "reasoning": "Scrolling down to view additional search results that may contain streaming links."
-                }
-            },
-            # Step 4: Wait after scrolling
-            {
-                "tool": "sleep",
-                "args": {
-                    "reasoning": "Waiting after scrolling to ensure new content is loaded."
-                }
-            },
-            # Step 5: Summarize the page to identify potential streaming sites
             {
                 "tool": "summarize_page",
                 "args": {
                     "reasoning": f"Summarizing the search results page to identify websites that may offer streaming for {anime_title} {season}."
                 }
             },
-            # Step 6: Ask if the page contains streaming links
-            {
-                "tool": "answer_question",
-                "args": {
-                    "reasoning": f"Checking if the current page contains links to streaming sites for {anime_title} {season}.",
-                    "question": f"Does this page contain links to websites where I can stream {anime_title} {season}?"
-                }
-            },
-            # Step 7: Click on a potential streaming link (assumes target_id 1 is a relevant link)
             {
                 "tool": "click",
                 "args": {
@@ -107,14 +74,6 @@ async def search_anime_streaming_links(
                     "target_id": 1
                 }
             },
-            # Step 8: Wait for the streaming site to load
-            {
-                "tool": "sleep",
-                "args": {
-                    "reasoning": "Waiting for the streaming site to fully load to check for playable content."
-                }
-            },
-            # Step 9: Verify if the page has a video player
             {
                 "tool": "answer_question",
                 "args": {
@@ -122,7 +81,6 @@ async def search_anime_streaming_links(
                     "question": f"Does this page contain a video player for streaming {anime_title} {season}?"
                 }
             },
-            # Step 10: Extract the current URL if it contains a video player
             {
                 "tool": "answer_question",
                 "args": {
@@ -130,21 +88,12 @@ async def search_anime_streaming_links(
                     "question": f"What is the URL of the current page?"
                 }
             },
-            # Step 11: Go back to search results
             {
                 "tool": "history_back",
                 "args": {
                     "reasoning": "Returning to search results to check for additional streaming links."
                 }
             },
-            # Step 12: Wait after navigating back
-            {
-                "tool": "sleep",
-                "args": {
-                    "reasoning": "Waiting for search results page to reload after navigating back."
-                }
-            },
-            # Step 13: Click on another potential streaming link (assumes target_id 2)
             {
                 "tool": "click",
                 "args": {
@@ -152,14 +101,6 @@ async def search_anime_streaming_links(
                     "target_id": 2
                 }
             },
-            # Step 14: Wait for the second streaming site to load
-            {
-                "tool": "sleep",
-                "args": {
-                    "reasoning": "Waiting for the second streaming site to fully load."
-                }
-            },
-            # Step 15: Verify if the second page has a video player
             {
                 "tool": "answer_question",
                 "args": {
@@ -167,7 +108,6 @@ async def search_anime_streaming_links(
                     "question": f"Does this page contain a video player for streaming {anime_title} {season}?"
                 }
             },
-            # Step 16: Extract the URL of the second page if it contains a video player
             {
                 "tool": "answer_question",
                 "args": {
@@ -176,8 +116,6 @@ async def search_anime_streaming_links(
                 }
             }
         ]
-
-        # Execute tasks
         for task in tasks:
             tool_name = task["tool"]
             args = task["args"]
@@ -186,17 +124,13 @@ async def search_anime_streaming_links(
                 source="user"
             )
             response = await agent.on_messages([message], CancellationToken())
-
-            # Process responses for answer_question and summarize_page
             if tool_name == "answer_question":
                 question = args.get("question", "")
                 if isinstance(response.chat_message, (TextMessage, MultiModalMessage)):
                     content = response.chat_message.content
                     if isinstance(content, list):
-                        # Extract text from multimodal content
                         content = content[0]
                     if "Does this page contain a video player" in question and "yes" in content.lower():
-                        # Get the URL from the next task or previous response
                         next_task_index = tasks.index(task) + 1
                         if next_task_index < len(tasks) and tasks[next_task_index]["tool"] == "answer_question":
                             url_response = await agent.on_messages(
@@ -223,7 +157,6 @@ async def search_anime_streaming_links(
                     if isinstance(content, list):
                         content = content[0]
                     logger.info(f"Page summary: {content}")
-
     except Exception as e:
         logger.error(f"Error during search: {e}")
         return streaming_links
@@ -233,7 +166,6 @@ async def search_anime_streaming_links(
         except Exception as e:
             logger.error(f"Error closing agent: {e}")
         logger.info("WebSurfer agent closed.")
-
     return streaming_links
 
 

@@ -1,12 +1,20 @@
+import os
+import shutil
 import asyncio
 import logging
-import os
 from typing import Optional
 from autogen_agentchat.ui import Console
 from autogen_agentchat.teams import RoundRobinGroupChat
-from autogen_ext.models.ollama import OllamaChatCompletionClient
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 from pydantic import BaseModel
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(
+        os.path.basename(__file__))[0]
+)
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Configure logging with progress tracking
 logging.basicConfig(
@@ -14,7 +22,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("web_surfer.log")
+        logging.FileHandler(f"{OUTPUT_DIR}/web_surfer.log")
     ]
 )
 logger = logging.getLogger("MultimodalWebSurferExample")

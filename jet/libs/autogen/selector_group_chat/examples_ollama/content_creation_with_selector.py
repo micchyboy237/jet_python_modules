@@ -7,7 +7,7 @@ from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
-from autogen_ext.models.ollama import OllamaChatCompletionClient
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 from autogen_agentchat.ui import Console
 
 from jet.file.utils import save_file

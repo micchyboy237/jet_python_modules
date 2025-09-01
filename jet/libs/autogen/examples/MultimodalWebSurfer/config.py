@@ -1,5 +1,5 @@
 from typing import TypedDict, Optional
-from autogen_ext.models.ollama import OllamaChatCompletionClient
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 from jet.libs.autogen.multimodal_web_surfer import MultimodalWebSurfer
 from playwright.async_api import Playwright, BrowserContext
 

@@ -17,7 +17,7 @@ from autogen_core.models import (
     SystemMessage,
     UserMessage,
 )
-from autogen_ext.models.ollama import OllamaChatCompletionClient
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 from autogen_agentchat.utils import content_to_str, remove_images
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 from autogen_ext.agents.web_surfer._multimodal_web_surfer import UserContent, MultimodalWebSurferConfig

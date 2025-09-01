@@ -15,7 +15,7 @@ from autogen_core import CancellationToken, Image as AGImage
 from autogen_core.models import AssistantMessage, UserMessage, RequestUsage
 from autogen_agentchat.base import Response
 from jet.libs.autogen.multimodal_web_surfer import MultimodalWebSurfer, MultimodalWebSurferConfig
-from autogen_ext.models.ollama import OllamaChatCompletionClient
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 from ollama import AsyncClient, ChatResponse, Message
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from jet.libs.autogen.playwright_controller import PlaywrightController

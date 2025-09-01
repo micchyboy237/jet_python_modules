@@ -8,7 +8,7 @@ from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
 from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.ui import Console
 from autogen_core.models import ChatCompletionClient
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 
 
 async def _test_selector_group_chat(model_client: ChatCompletionClient) -> None:
@@ -26,7 +26,8 @@ async def _test_selector_group_chat(model_client: ChatCompletionClient) -> None:
         system_message="Provide feedback.",
     )
 
-    team = SelectorGroupChat([assistant, critic], model_client=model_client, max_turns=2)
+    team = SelectorGroupChat(
+        [assistant, critic], model_client=model_client, max_turns=2)
     await Console(team.run_stream(task="Draft a short email about organizing a holiday party for new year."))
 
 
@@ -77,14 +78,8 @@ async def _test_selector_group_chat_with_candidate_func(model_client: ChatComple
 
 @pytest.mark.asyncio
 async def test_selector_group_chat_gemini() -> None:
-    try:
-        api_key = os.environ["GEMINI_API_KEY"]
-    except KeyError:
-        pytest.skip("GEMINI_API_KEY not set in environment variables.")
-
-    model_client = OpenAIChatCompletionClient(
-        model="gemini-1.5-flash",
-        api_key=api_key,
+    model_client = OllamaChatCompletionClient(
+        model="llama3.2",
     )
     await _test_selector_group_chat(model_client)
     await _test_selector_group_chat_with_candidate_func(model_client)
@@ -92,14 +87,8 @@ async def test_selector_group_chat_gemini() -> None:
 
 @pytest.mark.asyncio
 async def test_selector_group_chat_openai() -> None:
-    try:
-        api_key = os.environ["OPENAI_API_KEY"]
-    except KeyError:
-        pytest.skip("OPENAI_API_KEY not set in environment variables.")
-
-    model_client = OpenAIChatCompletionClient(
-        model="gpt-4.1-nano",
-        api_key=api_key,
+    model_client = OllamaChatCompletionClient(
+        model="llama3.2",
     )
     await _test_selector_group_chat(model_client)
     await _test_selector_group_chat_with_candidate_func(model_client)

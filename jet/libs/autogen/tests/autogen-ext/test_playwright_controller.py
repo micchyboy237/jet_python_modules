@@ -2,7 +2,6 @@ import pytest
 import logging
 from jet.libs.autogen.playwright_controller import PlaywrightController
 from playwright.async_api import async_playwright
-# Added VisualViewport import
 from autogen_ext.agents.web_surfer._types import VisualViewport, interactiveregion_from_dict
 
 FAKE_HTML = """
@@ -22,8 +21,6 @@ FAKE_HTML = """
 </html>
 """
 
-# Setup logging for debugging
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +39,6 @@ async def test_playwright_controller_visit_page() -> None:
         context = await browser.new_context()
         page = await context.new_page()
         await page.set_content(FAKE_HTML)
-
         controller = PlaywrightController()
         await controller.visit_page(page, "data:text/html," + FAKE_HTML)
         assert page.url.startswith("data:text/html")
@@ -55,7 +51,6 @@ async def test_playwright_controller_click_id() -> None:
         context = await browser.new_context()
         page = await context.new_page()
         await page.set_content(FAKE_HTML)
-
         controller = PlaywrightController()
         rects = await controller.get_interactive_rects(page)
         click_me_id = ""
@@ -63,7 +58,6 @@ async def test_playwright_controller_click_id() -> None:
             if rects[rect]["aria_name"] == "Click Me":
                 click_me_id = str(rect)
                 break
-
         await controller.click_id(page, click_me_id)
         assert await page.evaluate("document.activeElement.id") == "click-me"
 
@@ -88,7 +82,6 @@ async def test_playwright_controller_fill_id() -> None:
 
 @pytest.mark.asyncio
 async def test_playwright_controller_sleep() -> None:
-    # Given: A Playwright page and controller
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
@@ -96,20 +89,15 @@ async def test_playwright_controller_sleep() -> None:
         await page.set_content(FAKE_HTML)
         controller = PlaywrightController()
         start_time = await page.evaluate("() => performance.now()")
-
-        # When: Sleeping for 0.5 seconds
         await controller.sleep(page, 0.5)
-
-        # Then: The elapsed time should be at least 500ms
         end_time = await page.evaluate("() => performance.now()")
         elapsed_time = end_time - start_time
-        expected_min_time = 500  # 0.5 seconds in milliseconds
+        expected_min_time = 500
         assert elapsed_time >= expected_min_time, f"Expected sleep time >= {expected_min_time}ms, but got {elapsed_time}ms"
 
 
 @pytest.mark.asyncio
 async def test_playwright_controller_get_visual_viewport() -> None:
-    # Given: A Playwright page with a known viewport size
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={"width": 1440, "height": 900})
@@ -117,11 +105,7 @@ async def test_playwright_controller_get_visual_viewport() -> None:
         await page.set_content(FAKE_HTML)
         controller = PlaywrightController(
             viewport_width=1440, viewport_height=900)
-
-        # When: Retrieving the visual viewport
         result = await controller.get_visual_viewport(page)
-
-        # Then: The viewport should match the expected dimensions
         expected_viewport = {
             "offsetLeft": 0,
             "offsetTop": 0,
@@ -150,7 +134,6 @@ async def test_playwright_controller_get_visual_viewport() -> None:
 
 @pytest.mark.asyncio
 async def test_playwright_controller_get_focused_rect_id() -> None:
-    # Given: A Playwright page with an input element that can be focused
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
@@ -160,30 +143,21 @@ async def test_playwright_controller_get_focused_rect_id() -> None:
         rects = await controller.get_interactive_rects(page)
         input_box_id = next(
             (rect for rect in rects if rects[rect]["tag_name"] == "input, type=text"), None)
-
-        # When: Focusing the input element and retrieving the focused rect ID
-        await page.locator("#input-box").focus()
+        await page.locator(f"[__elementId='{input_box_id}']").focus()
         result = await controller.get_focused_rect_id(page)
-
-        # Then: The focused rect ID should match the input box ID
         expected_id = input_box_id
         assert result == expected_id, f"Expected focused rect ID {expected_id}, got {result}"
 
 
 @pytest.mark.asyncio
 async def test_playwright_controller_get_page_metadata() -> None:
-    # Given: A Playwright page with known content
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
         await page.set_content(FAKE_HTML)
         controller = PlaywrightController()
-
-        # When: Retrieving page metadata
         result = await controller.get_page_metadata(page)
-
-        # Then: The metadata should be a dictionary with expected meta_tags
         logger.debug(f"Page metadata result: {result}")
         expected_metadata = {
             "meta_tags": {
@@ -193,12 +167,10 @@ async def test_playwright_controller_get_page_metadata() -> None:
         assert isinstance(result, dict), "Metadata is not a dictionary"
         assert result.get(
             "meta_tags") == expected_metadata["meta_tags"], f"Expected meta_tags {expected_metadata['meta_tags']}, got {result.get('meta_tags')}"
-        # Note: URL and title are not included in metadata based on debug log
 
 
 @pytest.mark.asyncio
 async def test_playwright_controller_back() -> None:
-    # Given: A Playwright page with a navigation history
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
@@ -208,11 +180,7 @@ async def test_playwright_controller_back() -> None:
         await page.goto("data:text/html," + FAKE_HTML)
         await page.wait_for_load_state()
         controller = PlaywrightController()
-
-        # When: Navigating back
         await controller.back(page)
-
-        # Then: The page should return to the first page
         expected_title = "First Page"
         result_title = await page.evaluate("document.querySelector('h1').innerText")
         assert result_title == expected_title, f"Expected title {expected_title}, got {result_title}"
@@ -220,7 +188,6 @@ async def test_playwright_controller_back() -> None:
 
 @pytest.mark.asyncio
 async def test_playwright_controller_page_down() -> None:
-    # Given: A Playwright page with scrollable content
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={"width": 1440, "height": 900})
@@ -228,12 +195,8 @@ async def test_playwright_controller_page_down() -> None:
         await page.set_content(FAKE_HTML)
         controller = PlaywrightController(
             viewport_width=1440, viewport_height=900)
-
-        # When: Scrolling down by one viewport height minus 50 pixels
         initial_scroll = await page.evaluate("window.scrollY")
         await controller.page_down(page)
-
-        # Then: The scroll position should increase by viewport height minus 50
         result_scroll = await page.evaluate("window.scrollY")
         expected_scroll = initial_scroll + (900 - 50)
         assert result_scroll == expected_scroll, f"Expected scroll position {expected_scroll}, got {result_scroll}"
@@ -241,7 +204,6 @@ async def test_playwright_controller_page_down() -> None:
 
 @pytest.mark.asyncio
 async def test_playwright_controller_page_up() -> None:
-    # Given: A Playwright page scrolled down with scrollable content
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={"width": 1440, "height": 900})
@@ -249,13 +211,9 @@ async def test_playwright_controller_page_up() -> None:
         await page.set_content(FAKE_HTML)
         controller = PlaywrightController(
             viewport_width=1440, viewport_height=900)
-        await page.evaluate("window.scrollTo(0, 1000);")  # Scroll down first
-
-        # When: Scrolling up by one viewport height minus 50 pixels
+        await page.evaluate("window.scrollTo(0, 1000);")
         initial_scroll = await page.evaluate("window.scrollY")
         await controller.page_up(page)
-
-        # Then: The scroll position should decrease by viewport height minus 50
         result_scroll = await page.evaluate("window.scrollY")
         expected_scroll = initial_scroll - (900 - 50)
         assert result_scroll == expected_scroll, f"Expected scroll position {expected_scroll}, got {result_scroll}"
@@ -263,32 +221,65 @@ async def test_playwright_controller_page_up() -> None:
 
 @pytest.mark.asyncio
 async def test_playwright_controller_hover_id() -> None:
-    # Given: A Playwright page with a button to hover
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
         await page.set_content(FAKE_HTML)
-        # Disable animation for simplicity
         controller = PlaywrightController(animate_actions=False)
         rects = await controller.get_interactive_rects(page)
         expected_button_id = next(
             (rect for rect in rects if rects[rect]["aria_name"] == "Click Me"), None)
         expected_is_visible = True
-
-        # When: Hovering over the button
         await controller.hover_id(page, expected_button_id)
-
-        # Then: The button should be visible and in view after hover
         result_is_visible = await page.locator(f"[__elementId='{expected_button_id}']").is_visible()
         logger.debug(
             f"Hovered element visibility: {result_is_visible}, expected: {expected_is_visible}")
         assert result_is_visible == expected_is_visible, f"Expected button visibility {expected_is_visible}, got {result_is_visible}"
 
 
+@pytest.mark.asyncio
+async def test_playwright_controller_search_bar_submit() -> None:
+    """
+    Test that fill_id can find a search bar by ID, input text, and submit with Enter.
+
+    Given: A page with a text input acting as a search bar
+    When: The fill_id method is called with the search bar's ID and a query
+    Then: The input contains the query and the element remains focused after Enter
+    """
+    async with async_playwright() as p:
+        # Given: Set up a browser page with the FAKE_HTML content
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
+        page = await context.new_page()
+        await page.set_content(FAKE_HTML)
+
+        # Given: Initialize the controller and find the search bar's ID
+        controller = PlaywrightController()
+        rects = await controller.get_interactive_rects(page)
+        search_bar_id = next(
+            (rect for rect in rects if rects[rect]
+             ["tag_name"] == "input, type=text"),
+            None
+        )
+        assert search_bar_id is not None, "Search bar input not found in interactive rects"
+
+        # When: Fill the search bar with a query and press Enter
+        search_query = "example search"
+        await controller.fill_id(page, search_bar_id, search_query, press_enter=True)
+
+        # Then: Verify the input contains the query and is focused
+        result_value = await page.evaluate("document.getElementById('input-box').value")
+        expected_value = search_query
+        assert result_value == expected_value, f"Expected input value '{expected_value}', got '{result_value}'"
+
+        result_focused_id = await controller.get_focused_rect_id(page)
+        expected_focused_id = search_bar_id
+        assert result_focused_id == expected_focused_id, f"Expected focused ID '{expected_focused_id}', got '{result_focused_id}'"
+
+
 @pytest.fixture(autouse=True)
 async def cleanup_browser():
-    # Ensure browsers are closed after each test
     yield
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)

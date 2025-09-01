@@ -14,8 +14,8 @@ from autogen_core.models import (
     UserMessage,
 )
 from autogen_core.tools import FunctionTool, ToolSchema
-from autogen_ext.models.ollama import OllamaChatCompletionClient
 from autogen_ext.models.ollama._ollama_client import OLLAMA_VALID_CREATE_KWARGS_KEYS, convert_tools
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 from httpx import Response
 from ollama import AsyncClient, ChatResponse, Message, Tool
 from pydantic import BaseModel
@@ -29,9 +29,10 @@ def _mock_request(*args: Any, **kwargs: Any) -> Response:
 async def test_ollama_chat_completion_client_doesnt_error_with_host_kwarg(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(AsyncClient, "_request", _mock_request)
 
-    client = OllamaChatCompletionClient(model="llama3.1", host="http://testyhostname:11434")
+    client = OllamaChatCompletionClient(
+        model="llama3.1", host="http://testyhostname:11434")
 
-    ## Call to client.create will throw a ConnectionError,
+    # Call to client.create will throw a ConnectionError,
     # but that will only occur if the call to the AsyncChat's .chat() method does not receive unexpected kwargs
     # and does not throw a TypeError with unrecognized kwargs
     # (i.e. the extra unrecognized kwargs have been successfully removed)
@@ -108,7 +109,8 @@ async def test_create_stream(monkeypatch: pytest.MonkeyPatch, caplog: pytest.Log
         assert kwargs["stream"] is True
 
         async def _mock_stream() -> AsyncGenerator[ChatResponse, None]:
-            chunks = [content_raw[i : i + 5] for i in range(0, len(content_raw), 5)]
+            chunks = [content_raw[i: i + 5]
+                      for i in range(0, len(content_raw), 5)]
             # Simulate streaming by yielding chunks of the response
             for chunk in chunks[:-1]:
                 yield ChatResponse(
@@ -231,19 +233,22 @@ async def test_convert_tools() -> None:
     converted_tools = convert_tools([add_tool, tool_schema_noparam])
     assert len(converted_tools) == 2
     assert isinstance(converted_tools[0].function, Tool.Function)
-    assert isinstance(converted_tools[0].function.parameters, Tool.Function.Parameters)
+    assert isinstance(
+        converted_tools[0].function.parameters, Tool.Function.Parameters)
     assert converted_tools[0].function.parameters.properties is not None
     assert converted_tools[0].function.name == add_tool.name
     assert converted_tools[0].function.parameters.properties["y"].type == "integer"
 
     # test it defaults to string
     assert isinstance(converted_tools[1].function, Tool.Function)
-    assert isinstance(converted_tools[1].function.parameters, Tool.Function.Parameters)
+    assert isinstance(
+        converted_tools[1].function.parameters, Tool.Function.Parameters)
     assert converted_tools[1].function.parameters.properties is not None
     assert converted_tools[1].function.name == "manual_tool"
     assert converted_tools[1].function.parameters.properties["param_with_type"].type == "integer"
     assert converted_tools[1].function.parameters.properties["param_without_type"].type == "string"
-    assert converted_tools[1].function.parameters.required == ["param_with_type"]
+    assert converted_tools[1].function.parameters.required == [
+        "param_with_type"]
 
 
 @pytest.mark.asyncio
@@ -260,7 +265,8 @@ async def test_create_stream_tools(monkeypatch: pytest.MonkeyPatch) -> None:
         assert kwargs["stream"] is True
 
         async def _mock_stream() -> AsyncGenerator[ChatResponse, None]:
-            chunks = [content_raw[i : i + 5] for i in range(0, len(content_raw), 5)]
+            chunks = [content_raw[i: i + 5]
+                      for i in range(0, len(content_raw), 5)]
             # Simulate streaming by yielding chunks of the response
             for chunk in chunks[:-1]:
                 yield ChatResponse(
@@ -418,14 +424,16 @@ async def test_create_stream_structured_output(monkeypatch: pytest.MonkeyPatch) 
         response: str
 
     model = "llama3.2"
-    content_raw = json.dumps({"response": "Hello world! This is a test response. Test response."})
+    content_raw = json.dumps(
+        {"response": "Hello world! This is a test response. Test response."})
 
     async def _mock_chat(*args: Any, **kwargs: Any) -> AsyncGenerator[ChatResponse, None]:
         assert "stream" in kwargs
         assert kwargs["stream"] is True
 
         async def _mock_stream() -> AsyncGenerator[ChatResponse, None]:
-            chunks = [content_raw[i : i + 5] for i in range(0, len(content_raw), 5)]
+            chunks = [content_raw[i: i + 5]
+                      for i in range(0, len(content_raw), 5)]
             # Simulate streaming by yielding chunks of the response
             for chunk in chunks[:-1]:
                 yield ChatResponse(
@@ -755,7 +763,8 @@ async def test_create_stream_tools_with_thought(monkeypatch: pytest.MonkeyPatch)
         assert kwargs["stream"] is True
 
         async def _mock_stream() -> AsyncGenerator[ChatResponse, None]:
-            thought_chunks = [thought_content[i : i + 10] for i in range(0, len(thought_content), 10)]
+            thought_chunks = [thought_content[i: i + 10]
+                              for i in range(0, len(thought_content), 10)]
             for chunk in thought_chunks:
                 yield ChatResponse(
                     model=model,
@@ -803,7 +812,8 @@ async def test_create_stream_tools_with_thought(monkeypatch: pytest.MonkeyPatch)
 
     assert len(chunks) > 0
 
-    create_result = next((c for c in chunks if isinstance(c, CreateResult)), None)
+    create_result = next(
+        (c for c in chunks if isinstance(c, CreateResult)), None)
     assert create_result is not None
 
     assert isinstance(create_result.content, list)
@@ -842,7 +852,8 @@ async def test_llm_control_params(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(AsyncClient, "chat", _mock_chat)
 
-    client_params: Dict[str, Any] = {"model": model_name, "temperature": 0.7, "top_p": 0.9, "frequency_penalty": 1.2}
+    client_params: Dict[str, Any] = {
+        "model": model_name, "temperature": 0.7, "top_p": 0.9, "frequency_penalty": 1.2}
 
     client = OllamaChatCompletionClient(**client_params)
 
@@ -1126,7 +1137,8 @@ async def test_tool_choice_stream_auto(monkeypatch: pytest.MonkeyPatch) -> None:
         assert kwargs["stream"] is True
 
         async def _mock_stream() -> AsyncGenerator[ChatResponse, None]:
-            chunks = [content_raw[i : i + 5] for i in range(0, len(content_raw), 5)]
+            chunks = [content_raw[i: i + 5]
+                      for i in range(0, len(content_raw), 5)]
             # Simulate streaming by yielding chunks of the response
             for chunk in chunks[:-1]:
                 yield ChatResponse(
@@ -1208,7 +1220,8 @@ async def test_tool_choice_stream_none(monkeypatch: pytest.MonkeyPatch) -> None:
         assert kwargs["stream"] is True
 
         async def _mock_stream() -> AsyncGenerator[ChatResponse, None]:
-            chunks = [content_raw[i : i + 10] for i in range(0, len(content_raw), 10)]
+            chunks = [content_raw[i: i + 10]
+                      for i in range(0, len(content_raw), 10)]
             # Simulate streaming by yielding chunks of the response
             for chunk in chunks[:-1]:
                 yield ChatResponse(
