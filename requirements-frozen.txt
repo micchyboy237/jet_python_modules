@@ -32,7 +32,7 @@ faiss-cpu==1.11.0
 fastapi-cli==0.0.8
 fastapi-cloud-cli==0.1.5
 faster-whisper==1.1.1
-fastmcp==2.11.3
+-e git+ssh://git@github.com/jlowin/fastmcp.git@bc25802a287788e2bbc4c967fafb4a5c22d7e46b#egg=fastmcp
 fasttext-langdetect==1.0.5
 ffmpeg-python==0.2.0
 fiddle==0.3.0
@@ -66,6 +66,7 @@ llama_cpp_python==0.3.14
 -e git+ssh://git@github.com/run-llama/llama_index.git@5dc7374e08cedef2ba5c8e5f780f2a70bbde5883#egg=llama_index_utils_workflow&subdirectory=llama-index-utils/llama-index-utils-workflow
 llguidance==0.7.29
 lm-format-enforcer==0.10.11
+logfire==4.3.6
 lxml_html_clean==0.4.2
 m3u8==6.0.0
 mammoth==1.10.0
@@ -98,8 +99,8 @@ pre_commit==4.3.0
 prometheus-fastapi-instrumentator==7.1.0
 psycopg2-binary==2.9.10
 pyannote.metrics==3.2.1
--e git+ssh://git@github.com/pydantic/pydantic-ai.git@b2f29adee56c3dc3d697ea6c1c55aa02db15bb65#egg=pydantic_ai
--e git+ssh://git@github.com/pydantic/pydantic-ai.git@b2f29adee56c3dc3d697ea6c1c55aa02db15bb65#egg=pydantic_evals&subdirectory=pydantic_evals
+pydantic-ai==0.8.1
+pydantic-evals==0.8.1
 pydub==0.25.1
 pygame==2.6.1
 PyGetWindow==0.0.9
@@ -143,7 +144,7 @@ sqlite-utils==3.38
 streamlit==1.41.1
 -e git+ssh://git@github.com/kyegomez/swarms.git@ccd24f3a61982cce7727361e50c2aabb40be33ae#egg=swarms
 tavily-python==0.7.11
-temporalio==1.15.0
+temporalio==1.16.0
 textacy==0.13.0
 -e git+ssh://git@github.com/sloria/TextBlob.git@6dd8b0fdf4ed50989432544041df78274ceb91df#egg=textblob
 texterrors==0.5.1

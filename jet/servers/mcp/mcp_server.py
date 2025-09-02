@@ -2,7 +2,7 @@ import asyncio
 from urllib.parse import urlparse, urljoin
 from starlette.responses import JSONResponse
 from starlette.requests import Request
-from typing import AsyncIterator, List, Dict, Optional
+from typing import AsyncIterator, List, Dict, Optional, TypedDict
 from contextlib import asynccontextmanager
 from mcp.server.fastmcp.server import FastMCP, Context
 from mcp.types import ContentBlock
@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 from typing import Literal
 from fake_useragent import UserAgent
 from playwright.async_api import async_playwright
-
 
 PLAYWRIGHT_CHROMIUM_EXECUTABLE = "/Users/jethroestrada/Library/Caches/ms-playwright/chromium-1181/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
 
@@ -53,16 +52,58 @@ class SummarizeTextOutput(BaseModel):
     text: str = Field(..., description="Summarized text")
 
 
+class SearchTextsInput(BaseModel):
+    texts: List[str] = Field(...,
+                             description="List of text strings to search through")
+    query: str = Field(..., description="Search query string")
+    text_ids: Optional[List[str]] = Field(
+        None, description="Optional identifiers for each text")
+    top_k: Optional[int] = Field(
+        None, description="Maximum number of results to return", ge=1)
+    threshold: float = Field(
+        0.0, description="Minimum similarity score for results", ge=0.0, le=1.0)
+    chunk_size: int = Field(
+        500, description="Size of text chunks", ge=50, le=1000)
+    chunk_overlap: int = Field(
+        100, description="Overlap between chunks", ge=0, le=200)
+    split_chunks: bool = Field(
+        False, description="Return individual chunks if True, merge if False")
+
+
+class TextSearchMetadata(TypedDict):
+    """Typed dictionary for search result metadata."""
+    text_id: str
+    start_idx: int
+    end_idx: int
+    chunk_idx: int
+    content_similarity: float
+    num_tokens: int
+
+
+class TextSearchResult(TypedDict):
+    """Typed dictionary for search result structure."""
+    rank: int
+    score: float
+    metadata: TextSearchMetadata
+    text: str
+
+
+class SearchTextsOutput(BaseModel):
+    results: List[TextSearchResult] = Field(
+        ..., description="List of search results with metadata")
+    error: Optional[str] = Field(
+        None, description="Error message if search failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastMCP[None]) -> AsyncIterator[None]:
     print("Starting FastMCP server...")
     yield
     print("Shutting down FastMCP server...")
 
-
 server = FastMCP(
     name="FastMCPStandalone",
-    instructions="A standalone MCP server with file and browser tools.",
+    instructions="A standalone MCP server with file, browser, and text search tools.",
     debug=True,
     log_level="DEBUG",
     lifespan=lifespan
@@ -94,9 +135,7 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
             )
             ua = UserAgent()
             page = await browser.new_page(user_agent=ua.random)
-            # Navigate and wait only for DOM content to load
             await page.goto(arguments.url, wait_until="domcontentloaded", timeout=10000)
-            # Wait for JavaScript to render text (e.g., wait for body text to stabilize or a specific selector)
             await page.wait_for_function(
                 '''() => {
                     return document.body.innerText.trim().length > 0;
@@ -104,25 +143,20 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
                 timeout=10000
             )
             title = await page.title()
-            # Extract all links with href attributes
             link_elements = await page.query_selector_all('a[href]')
-            seen_links = set()  # Track unique links
-            links = []  # Preserve order
-            # Get the domain of the input URL
+            seen_links = set()
+            links = []
             parsed_url = urlparse(arguments.url)
             base_domain = parsed_url.netloc
             for element in link_elements:
                 href = await element.get_attribute('href')
                 if href:
-                    # Resolve relative URLs to absolute
                     absolute_url = urljoin(arguments.url, href)
                     parsed_link = urlparse(absolute_url)
-                    # Include only links from the same domain or non-http schemes
                     if not parsed_link.netloc or parsed_link.netloc == base_domain:
                         if absolute_url not in seen_links:
                             seen_links.add(absolute_url)
                             links.append(absolute_url)
-            # Extract all visible text content
             text_content = await page.evaluate('''() => {
                 return document.body.innerText.trim();
             }''')
@@ -131,7 +165,7 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
         return UrlOutput(
             url=arguments.url,
             title=title,
-            nav_links=links or None,  # Return None if no links
+            nav_links=links or None,
             text=text_content or None
         )
     except Exception as e:
@@ -148,7 +182,6 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
 async def summarize_text(arguments: SummarizeTextInput, ctx: Context) -> SummarizeTextOutput:
     await ctx.info(f"Summarizing text (max {arguments.max_words} words)")
     try:
-        # Simple word-based truncation for summary (can be enhanced with NLP)
         words = arguments.text.split()
         summary_words = words[:arguments.max_words]
         summary = " ".join(summary_words)
@@ -162,15 +195,29 @@ async def summarize_text(arguments: SummarizeTextInput, ctx: Context) -> Summari
         return SummarizeTextOutput(text=f"Error: {str(e)}", word_count=0)
 
 
-# @server.tool(description="Process data with progress.", annotations={"audience": ["user"]})
-# async def process_data(data: str, ctx: Context) -> str:
-#     for i in range(1, 101, 10):
-#         await ctx.report_progress(i, 100, f"Processing step {i}%")
-#         await asyncio.sleep(0.1)
-#     return f"Processed: {data}"
+@server.tool(description="Search through a list of texts using semantic similarity.", annotations={"audience": ["assistant"], "priority": 0.75})
+async def search_texts_tool(arguments: SearchTextsInput, ctx: Context) -> SearchTextsOutput:
+    from jet.vectors.semantic_search.text_vector_search import search_texts
 
+    await ctx.info(f"Searching texts with query: {arguments.query}")
+    try:
+        results_iter = search_texts(
+            texts=arguments.texts,
+            query=arguments.query,
+            text_ids=arguments.text_ids,
+            top_k=arguments.top_k,
+            threshold=arguments.threshold,
+            chunk_size=arguments.chunk_size,
+            chunk_overlap=arguments.chunk_overlap,
+            split_chunks=arguments.split_chunks
+        )
+        results = list(results_iter)
+        await ctx.report_progress(100, 100, f"Found {len(results)} matching text chunks")
+        return SearchTextsOutput(results=results)
+    except Exception as e:
+        await ctx.error(f"Error searching texts: {str(e)}")
+        return SearchTextsOutput(results=[], error=f"Error searching texts: {str(e)}")
 
-# Custom routes
 
 @server.custom_route("/health", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
