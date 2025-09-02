@@ -35,11 +35,13 @@ exclude_files = [
     "*.sh"
 ]
 include_files = [
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/_copy_for_prompt.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/_copy_file_structure.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/vectors/semantic_search/file_vector_search.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/vectors/semantic_search/text_vector_search.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/servers/mcp/mcp_server.py",
 ]
 structure_include = [
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/llm/mlx/tasks/*.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data",
 ]
 structure_exclude = []
 
@@ -51,105 +53,7 @@ SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_QUERY_MESSAGE = """
-Fix why this is not copying global variables to clipboard. The code below is not copying HTML_TEMPLATE to clipboard.
-
-What I meant was its not copying global variables. For ex.
-```sample_code.py
-from typing import TypedDict
-import os
-import subprocess
-import tempfile
-
-from jet.logger import logger
-
-
-HTML_TEMPLATE = \"\"\"<!DOCTYPE html>
-{html_str}
-\"\"\"
-
-
-class Component(TypedDict):
-    name: str
-    html: str
-    styles: str
-
-
-def format_with_prettier(content: str, parser: str, config_path: str, file_suffix: str) -> str:
-    \"\"\"Format content using Prettier CLI with fallback to original content.\"\"\"
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=file_suffix, delete=False, encoding="utf-8") as temp_file:
-            temp_file.write(content)
-            temp_file_path = temp_file.name
-        result = subprocess.run(
-            ["prettier", "--config",
-                str(config_path), "--parser", parser, temp_file_path],
-            capture_output=True, text=True, check=True
-        )
-        formatted_content = result.stdout
-        return formatted_content
-    except subprocess.CalledProcessError as e:
-        logger.warning(
-            f"Failed to format with Prettier (parser: {parser}): {e}, stderr: {e.stderr}")
-        return content
-    except FileNotFoundError:
-        logger.warning(f"Prettier CLI not found for {parser} formatting")
-        return content
-    finally:
-        if 'temp_file_path' in locals():
-            try:
-                os.unlink(temp_file_path)
-            except OSError as e:
-                logger.warning(
-                    f"Failed to delete temporary file {temp_file_path}: {e}")
-
-```
-
-```copied_clipboard
-SYSTEM
-Dont use prior artifact knowledge and memory.
-
-QUERY
-Temporary code for sample.
-
-Existing Files Contents
-# JetScripts/test/_temp.py
-from typing import TypedDict
-import os
-import subprocess
-import tempfile
-from jet.logger import logger
-class Component(TypedDict):
-    name: str
-    html: str
-    styles: str
-def format_with_prettier(content: str, parser: str, config_path: str, file_suffix: str) -> str:
-    \"\"\"Format content using Prettier CLI with fallback to original content.\"\"\"
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=file_suffix, delete=False, encoding="utf-8") as temp_file:
-            temp_file.write(content)
-            temp_file_path = temp_file.name
-        result = subprocess.run(
-            ["prettier", "--config",
-                str(config_path), "--parser", parser, temp_file_path],
-            capture_output=True, text=True, check=True
-        )
-        formatted_content = result.stdout
-        return formatted_content
-    except subprocess.CalledProcessError as e:
-        logger.warning(
-            f"Failed to format with Prettier (parser: {parser}): {e}, stderr: {e.stderr}")
-        return content
-    except FileNotFoundError:
-        logger.warning(f"Prettier CLI not found for {parser} formatting")
-        return content
-    finally:
-        if 'temp_file_path' in locals():
-            try:
-                os.unlink(temp_file_path)
-            except OSError as e:
-                logger.warning(
-                    f"Failed to delete temporary file {temp_file_path}: {e}")
-```
+Now update mcp_server to add a new tool search_texts using text_vector_search.
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
@@ -157,6 +61,7 @@ DEFAULT_INSTRUCTIONS_MESSAGE = """
 
 DEFAULT_SYSTEM_MESSAGE = """
 Dont use prior artifact knowledge and memory.
+Only provide updated parts.
 """.strip()
 
 # For existing projects
