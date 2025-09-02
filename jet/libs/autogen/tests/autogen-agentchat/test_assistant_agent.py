@@ -45,6 +45,7 @@ from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_ext.models.replay import ReplayChatCompletionClient
 from autogen_ext.tools.mcp import McpWorkbench, SseServerParams
 from pydantic import BaseModel, ValidationError
+from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
 
 
 def mock_tool_function(param: str) -> str:
@@ -135,7 +136,8 @@ class MockMemory(Memory):
         Returns:
             Query results containing all memory contents
         """
-        results = [MemoryContent(content=content, mime_type="text/plain") for content in self._contents]
+        results = [MemoryContent(content=content, mime_type="text/plain")
+                   for content in self._contents]
         return MemoryQueryResultSet(results=results)
 
     async def clear(self, cancellation_token: Optional[CancellationToken] = None) -> None:
@@ -160,7 +162,8 @@ class MockMemory(Memory):
             Update result containing memory contents
         """
         if self._contents:
-            results = [MemoryContent(content=content, mime_type="text/plain") for content in self._contents]
+            results = [MemoryContent(
+                content=content, mime_type="text/plain") for content in self._contents]
             return UpdateContextResult(memories=MemoryQueryResultSet(results=results))
         return UpdateContextResult(memories=MemoryQueryResultSet(results=[]))
 
@@ -213,8 +216,10 @@ async def test_model_client_stream_with_tool_calls() -> None:
         [
             CreateResult(
                 content=[
-                    FunctionCall(id="1", name="_pass_function", arguments=r'{"input": "task"}'),
-                    FunctionCall(id="3", name="_echo_function", arguments=r'{"input": "task"}'),
+                    FunctionCall(id="1", name="_pass_function",
+                                 arguments=r'{"input": "task"}'),
+                    FunctionCall(id="3", name="_echo_function",
+                                 arguments=r'{"input": "task"}'),
                 ],
                 finish_reason="function_calls",
                 usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
@@ -238,13 +243,17 @@ async def test_model_client_stream_with_tool_calls() -> None:
             assert isinstance(message.messages[1], ToolCallRequestEvent)
             assert message.messages[-1].content == "Example response 2 to task"
             assert message.messages[1].content == [
-                FunctionCall(id="1", name="_pass_function", arguments=r'{"input": "task"}'),
-                FunctionCall(id="3", name="_echo_function", arguments=r'{"input": "task"}'),
+                FunctionCall(id="1", name="_pass_function",
+                             arguments=r'{"input": "task"}'),
+                FunctionCall(id="3", name="_echo_function",
+                             arguments=r'{"input": "task"}'),
             ]
             assert isinstance(message.messages[2], ToolCallExecutionEvent)
             assert message.messages[2].content == [
-                FunctionExecutionResult(call_id="1", content="pass", is_error=False, name="_pass_function"),
-                FunctionExecutionResult(call_id="3", content="task", is_error=False, name="_echo_function"),
+                FunctionExecutionResult(
+                    call_id="1", content="pass", is_error=False, name="_pass_function"),
+                FunctionExecutionResult(
+                    call_id="3", content="task", is_error=False, name="_echo_function"),
             ]
         elif isinstance(message, ModelClientStreamingChunkEvent):
             chunks.append(message.content)
@@ -288,7 +297,8 @@ async def test_structured_message_factory_serialization() -> None:
         [
             CreateResult(
                 finish_reason="stop",
-                content=AgentResponse(result="All good", status="ok").model_dump_json(),
+                content=AgentResponse(
+                    result="All good", status="ok").model_dump_json(),
                 usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                 cached=False,
             )
@@ -344,7 +354,8 @@ async def test_structured_message_format_string() -> None:
 
     # Check that it's a StructuredMessage with the correct content model
     assert isinstance(message, StructuredMessage)
-    assert isinstance(message.content, AgentResponse)  # type: ignore[reportUnknownMemberType]
+    # type: ignore[reportUnknownMemberType]
+    assert isinstance(message.content, AgentResponse)
     assert message.content == expected
 
     # Check that the format_string was applied correctly
@@ -356,10 +367,7 @@ async def test_tools_serialize_and_deserialize() -> None:
     def test() -> str:
         return "hello world"
 
-    client = OpenAIChatCompletionClient(
-        model="gpt-4o",
-        api_key="API_KEY",
-    )
+    client = OllamaChatCompletionClient(model="llama3.2")
 
     agent = AssistantAgent(
         name="test",
@@ -371,19 +379,18 @@ async def test_tools_serialize_and_deserialize() -> None:
     deserialize = AssistantAgent.load_component(serialize)
 
     assert deserialize.name == agent.name
-    for original, restored in zip(agent._workbench, deserialize._workbench, strict=True):  # type: ignore
+    # type: ignore
+    for original, restored in zip(agent._workbench, deserialize._workbench, strict=True):
         assert await original.list_tools() == await restored.list_tools()  # type: ignore
     assert agent.component_version == deserialize.component_version
 
 
 @pytest.mark.asyncio
 async def test_workbench_serialize_and_deserialize() -> None:
-    workbench = McpWorkbench(server_params=SseServerParams(url="http://test-url"))
+    workbench = McpWorkbench(
+        server_params=SseServerParams(url="http://test-url"))
 
-    client = OpenAIChatCompletionClient(
-        model="gpt-4o",
-        api_key="API_KEY",
-    )
+    client = OllamaChatCompletionClient(model="llama3.2")
 
     agent = AssistantAgent(
         name="test",
@@ -395,7 +402,8 @@ async def test_workbench_serialize_and_deserialize() -> None:
     deserialize = AssistantAgent.load_component(serialize)
 
     assert deserialize.name == agent.name
-    for original, restored in zip(agent._workbench, deserialize._workbench, strict=True):  # type: ignore
+    # type: ignore
+    for original, restored in zip(agent._workbench, deserialize._workbench, strict=True):
         assert isinstance(original, McpWorkbench)
         assert isinstance(restored, McpWorkbench)
         assert original._to_config() == restored._to_config()  # type: ignore
@@ -408,10 +416,7 @@ async def test_multiple_workbenches_serialize_and_deserialize() -> None:
         McpWorkbench(server_params=SseServerParams(url="http://test-url-2")),
     ]
 
-    client = OpenAIChatCompletionClient(
-        model="gpt-4o",
-        api_key="API_KEY",
-    )
+    client = OllamaChatCompletionClient(model="llama3.2")
 
     agent = AssistantAgent(
         name="test_multi",
@@ -420,13 +425,16 @@ async def test_multiple_workbenches_serialize_and_deserialize() -> None:
     )
 
     serialize = agent.dump_component()
-    deserialized_agent: AssistantAgent = AssistantAgent.load_component(serialize)
+    deserialized_agent: AssistantAgent = AssistantAgent.load_component(
+        serialize)
 
     assert deserialized_agent.name == agent.name
     assert isinstance(deserialized_agent._workbench, list)  # type: ignore
-    assert len(deserialized_agent._workbench) == len(workbenches)  # type: ignore
+    assert len(deserialized_agent._workbench) == len(
+        workbenches)  # type: ignore
 
-    for original, restored in zip(agent._workbench, deserialized_agent._workbench, strict=True):  # type: ignore
+    # type: ignore
+    for original, restored in zip(agent._workbench, deserialized_agent._workbench, strict=True):
         assert isinstance(original, McpWorkbench)
         assert isinstance(restored, McpWorkbench)
         assert original._to_config() == restored._to_config()  # type: ignore
@@ -546,7 +554,8 @@ class TestAssistantAgentToolCallLoop:
                 # First tool call
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "first"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "first"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 ),
@@ -554,7 +563,8 @@ class TestAssistantAgentToolCallLoop:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="2", arguments=json.dumps({"param": "second"}), name="mock_tool_function")
+                        FunctionCall(id="2", arguments=json.dumps(
+                            {"param": "second"}), name="mock_tool_function")
                     ],
                     usage=RequestUsage(prompt_tokens=12, completion_tokens=5),
                     cached=False,
@@ -586,7 +596,8 @@ class TestAssistantAgentToolCallLoop:
         result = await agent.run(task="Execute multiple tool calls")
 
         # Verify multiple model calls were made
-        assert len(model_client.create_calls) == 3, f"Expected 3 calls, got {len(model_client.create_calls)}"
+        assert len(
+            model_client.create_calls) == 3, f"Expected 3 calls, got {len(model_client.create_calls)}"
 
         # Verify final response is text
         final_message = result.messages[-1]
@@ -605,7 +616,8 @@ class TestAssistantAgentToolCallLoop:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 )
@@ -629,7 +641,8 @@ class TestAssistantAgentToolCallLoop:
         result = await agent.run(task="Execute single tool call")
 
         # Should only make one model call
-        assert len(model_client.create_calls) == 1, f"Expected 1 call, got {len(model_client.create_calls)}"
+        assert len(
+            model_client.create_calls) == 1, f"Expected 1 call, got {len(model_client.create_calls)}"
         assert result is not None
 
     @pytest.mark.asyncio
@@ -642,7 +655,8 @@ class TestAssistantAgentToolCallLoop:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id=str(i), arguments=json.dumps({"param": f"call_{i}"}), name="mock_tool_function")
+                        FunctionCall(id=str(i), arguments=json.dumps(
+                            {"param": f"call_{i}"}), name="mock_tool_function")
                     ],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
@@ -670,7 +684,8 @@ class TestAssistantAgentToolCallLoop:
         result = await agent.run(task="Test max iterations")
 
         # Should stop at max_iterations
-        assert len(model_client.create_calls) == 5, f"Expected 5 calls, got {len(model_client.create_calls)}"
+        assert len(
+            model_client.create_calls) == 5, f"Expected 5 calls, got {len(model_client.create_calls)}"
         # Verify result is not None
         assert result is not None
 
@@ -683,7 +698,8 @@ class TestAssistantAgentToolCallLoop:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="mock_tool_function"),
+                        FunctionCall(id="1", arguments=json.dumps(
+                            {"param": "test"}), name="mock_tool_function"),
                         FunctionCall(
                             id="2", arguments=json.dumps({"target": "other_agent"}), name="transfer_to_other_agent"
                         ),
@@ -712,7 +728,8 @@ class TestAssistantAgentToolCallLoop:
         result = await agent.run(task="Test handoff in loop")
 
         # Should stop at handoff
-        assert len(model_client.create_calls) == 1, f"Expected 1 call, got {len(model_client.create_calls)}"
+        assert len(
+            model_client.create_calls) == 1, f"Expected 1 call, got {len(model_client.create_calls)}"
 
         # Should return HandoffMessage
         assert isinstance(result.messages[-1], HandoffMessage)
@@ -783,7 +800,8 @@ class TestAssistantAgentInitialization:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 )
@@ -849,7 +867,8 @@ class TestAssistantAgentInitialization:
     async def test_initialization_with_handoffs(self) -> None:
         """Test agent initialization with handoffs."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
 
         agent = AssistantAgent(
             name="test_agent",
@@ -858,14 +877,17 @@ class TestAssistantAgentInitialization:
         )
 
         assert len(agent._handoffs) == 2  # type: ignore[reportPrivateUsage]
-        assert "transfer_to_agent1" in agent._handoffs  # type: ignore[reportPrivateUsage]
-        assert "transfer_to_agent2" in agent._handoffs  # type: ignore[reportPrivateUsage]
+        # type: ignore[reportPrivateUsage]
+        assert "transfer_to_agent1" in agent._handoffs
+        # type: ignore[reportPrivateUsage]
+        assert "transfer_to_agent2" in agent._handoffs
 
     @pytest.mark.asyncio
     async def test_initialization_with_custom_model_context(self) -> None:
         """Test agent initialization with custom model context."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         model_context = BufferedChatCompletionContext(buffer_size=5)
         agent = AssistantAgent(
@@ -874,13 +896,15 @@ class TestAssistantAgentInitialization:
             model_context=model_context,
         )
 
-        assert agent._model_context == model_context  # type: ignore[reportPrivateUsage]
+        # type: ignore[reportPrivateUsage]
+        assert agent._model_context == model_context
 
     @pytest.mark.asyncio
     async def test_initialization_with_structured_output(self) -> None:
         """Test agent initialization with structured output."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         agent = AssistantAgent(
             name="test_agent",
@@ -888,14 +912,17 @@ class TestAssistantAgentInitialization:
             output_content_type=StructuredOutput,
         )
 
-        assert agent._output_content_type == StructuredOutput  # type: ignore[reportPrivateUsage]
-        assert agent._reflect_on_tool_use is True  # type: ignore[reportPrivateUsage] # Should be True by default with structured output
+        # type: ignore[reportPrivateUsage]
+        assert agent._output_content_type == StructuredOutput
+        # type: ignore[reportPrivateUsage] # Should be True by default with structured output
+        assert agent._reflect_on_tool_use is True
 
     @pytest.mark.asyncio
     async def test_initialization_with_metadata(self) -> None:
         """Test agent initialization with metadata."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         metadata = {"key1": "value1", "key2": "value2"}
         agent = AssistantAgent(
@@ -948,7 +975,8 @@ class TestAssistantAgentInitialization:
         assert len(result.messages) == 1
         assert isinstance(result.messages[0], TextMessage)
         assert result.messages[0].content == "Agent response without task message"
-        assert result.messages[0].source == "test_agent"  # Test run_stream() with output_task_messages=False
+        # Test run_stream() with output_task_messages=False
+        assert result.messages[0].source == "test_agent"
         # Create a new model client for streaming test to avoid response conflicts
         stream_model_client = ReplayChatCompletionClient(
             [
@@ -968,7 +996,8 @@ class TestAssistantAgentInitialization:
             },
         )
 
-        stream_agent = AssistantAgent(name="test_agent", model_client=stream_model_client)
+        stream_agent = AssistantAgent(
+            name="test_agent", model_client=stream_model_client)
         streamed_messages: List[BaseAgentEvent | BaseChatMessage] = []
         final_result: TaskResult | None = None
 
@@ -985,7 +1014,8 @@ class TestAssistantAgentInitialization:
         assert final_result.messages[0].content == "Stream agent response"
 
         # Verify that no task message was streamed
-        task_messages = [msg for msg in streamed_messages if isinstance(msg, TextMessage) and msg.source == "user"]
+        task_messages = [msg for msg in streamed_messages if isinstance(
+            msg, TextMessage) and msg.source == "user"]
         assert len(task_messages) == 0  # Test with multiple task messages
         multi_model_client = ReplayChatCompletionClient(
             [
@@ -1005,7 +1035,8 @@ class TestAssistantAgentInitialization:
             },
         )
 
-        multi_agent = AssistantAgent(name="test_agent", model_client=multi_model_client)
+        multi_agent = AssistantAgent(
+            name="test_agent", model_client=multi_model_client)
         task_messages_list = [
             TextMessage(content="First task", source="user"),
             TextMessage(content="Second task", source="user"),
@@ -1130,7 +1161,8 @@ class TestAssistantAgentValidation:
     async def test_function_calling_required_for_tools(self) -> None:
         """Test that function calling is required for tools."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         with pytest.raises(ValueError, match="The model does not support function calling"):
             AssistantAgent(
@@ -1143,7 +1175,8 @@ class TestAssistantAgentValidation:
     async def test_function_calling_required_for_handoffs(self) -> None:
         """Test that function calling is required for handoffs."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         with pytest.raises(
             ValueError, match="The model does not support function calling, which is needed for handoffs"
@@ -1158,7 +1191,8 @@ class TestAssistantAgentValidation:
     async def test_memory_type_validation(self) -> None:
         """Test memory type validation."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         with pytest.raises(TypeError, match="Expected Memory, List\\[Memory\\], or None"):
             AssistantAgent(
@@ -1171,7 +1205,8 @@ class TestAssistantAgentValidation:
     async def test_tools_and_workbench_mutually_exclusive(self) -> None:
         """Test that tools and workbench are mutually exclusive."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
 
         workbench = MagicMock()
 
@@ -1187,7 +1222,8 @@ class TestAssistantAgentValidation:
     async def test_unsupported_tool_type(self) -> None:
         """Test error handling for unsupported tool types."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
 
         with pytest.raises(ValueError, match="Unsupported tool type"):
             AssistantAgent(
@@ -1200,7 +1236,8 @@ class TestAssistantAgentValidation:
     async def test_unsupported_handoff_type(self) -> None:
         """Test error handling for unsupported handoff types."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
 
         with pytest.raises(ValueError, match="Unsupported handoff type"):
             AssistantAgent(
@@ -1217,7 +1254,8 @@ class TestAssistantAgentStateManagement:
     async def test_save_and_load_state(self) -> None:
         """Test saving and loading agent state."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         # Mock model context state
         mock_context = MagicMock()
@@ -1242,7 +1280,8 @@ class TestAssistantAgentStateManagement:
     async def test_on_reset(self) -> None:
         """Test agent reset functionality."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         mock_context = MagicMock()
         mock_context.clear = AsyncMock()
@@ -1266,7 +1305,8 @@ class TestAssistantAgentProperties:
     async def test_produced_message_types_text_only(self) -> None:
         """Test produced message types for text-only agent."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         agent = AssistantAgent(
             name="test_agent",
@@ -1280,7 +1320,8 @@ class TestAssistantAgentProperties:
     async def test_produced_message_types_with_tools(self) -> None:
         """Test produced message types for agent with tools."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
 
         agent = AssistantAgent(
             name="test_agent",
@@ -1295,7 +1336,8 @@ class TestAssistantAgentProperties:
     async def test_produced_message_types_with_handoffs(self) -> None:
         """Test produced message types for agent with handoffs."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
 
         agent = AssistantAgent(
             name="test_agent",
@@ -1310,7 +1352,8 @@ class TestAssistantAgentProperties:
     async def test_model_context_property(self) -> None:
         """Test model_context property access."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         custom_context = BufferedChatCompletionContext(buffer_size=3)
         agent = AssistantAgent(
@@ -1332,7 +1375,8 @@ class TestAssistantAgentErrorHandling:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments="invalid json", name="mock_tool_function")],
+                    content=[FunctionCall(
+                        id="1", arguments="invalid json", name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 ),
@@ -1420,7 +1464,8 @@ class TestAssistantAgentMemoryIntegration:
 
         # Create a handler function to capture memory events
         async def handle_memory_events(result: Any) -> None:
-            messages: List[BaseChatMessage] = result.messages if hasattr(result, "messages") else []
+            messages: List[BaseChatMessage] = result.messages if hasattr(
+                result, "messages") else []
             for msg in messages:
                 if isinstance(msg, MemoryQueryEvent):
                     await event_handler(msg)
@@ -1475,7 +1520,8 @@ class TestAssistantAgentMemoryIntegration:
         )
 
         # Create agent with memory
-        agent = AssistantAgent(name="memory_test_agent", model_client=model_client, memory=[memory])
+        agent = AssistantAgent(name="memory_test_agent",
+                               model_client=model_client, memory=[memory])
 
         # First session
         result1 = await agent.run(task="First task")
@@ -1485,7 +1531,8 @@ class TestAssistantAgentMemoryIntegration:
         await memory.add(MemoryContent(content="New memory", mime_type="text/plain"))
 
         # Create new agent and restore state
-        new_agent = AssistantAgent(name="memory_test_agent", model_client=model_client, memory=[memory])
+        new_agent = AssistantAgent(
+            name="memory_test_agent", model_client=model_client, memory=[memory])
         await new_agent.load_state(state)
 
         # Second session
@@ -1498,9 +1545,11 @@ class TestAssistantAgentMemoryIntegration:
         assert result2.messages[-1].content == "Response with updated memory"
 
         # Verify memory events
-        memory_events = [msg for msg in result2.messages if isinstance(msg, MemoryQueryEvent)]
+        memory_events = [
+            msg for msg in result2.messages if isinstance(msg, MemoryQueryEvent)]
         assert len(memory_events) > 0
-        assert any("New memory" in str(event.content) for event in memory_events)
+        assert any("New memory" in str(event.content)
+                   for event in memory_events)
 
 
 class TestAssistantAgentSystemMessage:
@@ -1510,7 +1559,8 @@ class TestAssistantAgentSystemMessage:
     async def test_system_message_none(self) -> None:
         """Test agent with system_message=None."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         agent = AssistantAgent(
             name="test_agent",
@@ -1524,7 +1574,8 @@ class TestAssistantAgentSystemMessage:
     async def test_custom_system_message(self) -> None:
         """Test agent with custom system message."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         custom_message = "You are a specialized assistant."
         agent = AssistantAgent(
@@ -1533,8 +1584,10 @@ class TestAssistantAgentSystemMessage:
             system_message=custom_message,
         )
 
-        assert len(agent._system_messages) == 1  # type: ignore[reportPrivateUsage]
-        assert agent._system_messages[0].content == custom_message  # type: ignore[reportPrivateUsage]
+        # type: ignore[reportPrivateUsage]
+        assert len(agent._system_messages) == 1
+        # type: ignore[reportPrivateUsage]
+        assert agent._system_messages[0].content == custom_message
 
 
 class TestAssistantAgentModelCompatibility:
@@ -1544,7 +1597,8 @@ class TestAssistantAgentModelCompatibility:
     async def test_vision_compatibility(self) -> None:
         """Test vision model compatibility."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": True, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": True, "family": ModelFamily.GPT_4O}
 
         agent = AssistantAgent(
             name="test_agent",
@@ -1555,7 +1609,8 @@ class TestAssistantAgentModelCompatibility:
         from autogen_core.models import LLMMessage
 
         messages: List[LLMMessage] = [SystemMessage(content="Test")]
-        compatible_messages = agent._get_compatible_context(model_client, messages)  # type: ignore[reportPrivateUsage]
+        compatible_messages = agent._get_compatible_context(
+            model_client, messages)  # type: ignore[reportPrivateUsage]
 
         # Should return original messages for vision models
         assert compatible_messages == messages
@@ -1568,14 +1623,17 @@ class TestAssistantAgentComponentSerialization:
     async def test_to_config_basic_agent(self) -> None:
         """Test _to_config method with basic agent configuration."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
         model_client.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_client"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_client"})
         )
 
         mock_context = MagicMock()
         mock_context.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_context"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_context"})
         )
 
         agent = AssistantAgent(
@@ -1603,14 +1661,17 @@ class TestAssistantAgentComponentSerialization:
     async def test_to_config_agent_with_handoffs(self) -> None:
         """Test _to_config method with agent having handoffs."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
         model_client.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_client"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_client"})
         )
 
         mock_context = MagicMock()
         mock_context.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_context"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_context"})
         )
 
         agent = AssistantAgent(
@@ -1624,7 +1685,9 @@ class TestAssistantAgentComponentSerialization:
 
         assert config.handoffs is not None
         assert len(config.handoffs) == 2
-        handoff_targets: List[str] = [h.target if hasattr(h, "target") else str(h) for h in config.handoffs]  # type: ignore[reportUnknownMemberType, reportAttributeAccessIssue]
+        # type: ignore[reportUnknownMemberType, reportAttributeAccessIssue]
+        handoff_targets: List[str] = [h.target if hasattr(
+            h, "target") else str(h) for h in config.handoffs]
         assert "agent1" in handoff_targets
         assert "agent2" in handoff_targets
 
@@ -1632,14 +1695,17 @@ class TestAssistantAgentComponentSerialization:
     async def test_to_config_agent_with_memory(self) -> None:
         """Test _to_config method with agent having memory modules."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
         model_client.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_client"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_client"})
         )
 
         mock_context = MagicMock()
         mock_context.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_context"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_context"})
         )
 
         mock_memory = MockMemory()
@@ -1662,19 +1728,23 @@ class TestAssistantAgentComponentSerialization:
     async def test_to_config_agent_with_workbench(self) -> None:
         """Test _to_config method with agent having workbench."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
         model_client.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_client"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_client"})
         )
 
         mock_context = MagicMock()
         mock_context.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_context"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_context"})
         )
 
         mock_workbench = MagicMock()
         mock_workbench.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_workbench"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_workbench"})
         )
 
         agent = AssistantAgent(
@@ -1697,14 +1767,17 @@ class TestAssistantAgentComponentSerialization:
     async def test_to_config_agent_with_structured_output(self) -> None:
         """Test _to_config method with agent having structured output."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
         model_client.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_client"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_client"})
         )
 
         mock_context = MagicMock()
         mock_context.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_context"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_context"})
         )
 
         agent = AssistantAgent(
@@ -1717,20 +1790,24 @@ class TestAssistantAgentComponentSerialization:
         config = agent._to_config()  # type: ignore[reportPrivateUsage]
 
         assert config.structured_message_factory is not None
-        assert config.reflect_on_tool_use is True  # Should be True with structured output
+        # Should be True with structured output
+        assert config.reflect_on_tool_use is True
 
     @pytest.mark.asyncio
     async def test_to_config_system_message_none(self) -> None:
         """Test _to_config method with system_message=None."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
         model_client.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_client"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_client"})
         )
 
         mock_context = MagicMock()
         mock_context.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_context"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_context"})
         )
 
         agent = AssistantAgent(
@@ -1748,12 +1825,14 @@ class TestAssistantAgentComponentSerialization:
     async def test_from_config_basic_agent(self) -> None:
         """Test _from_config method with basic agent configuration."""
         mock_model_client = MagicMock()
-        mock_model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        mock_model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         with patch("autogen_core.models.ChatCompletionClient.load_component", return_value=mock_model_client):
             config = AssistantAgentConfig(
                 name="test_agent",
-                model_client=ComponentModel(provider="test", config={"type": "mock_client"}),
+                model_client=ComponentModel(provider="test", config={
+                                            "type": "mock_client"}),
                 description="Test description",
                 system_message="Test system",
                 model_client_stream=True,
@@ -1762,27 +1841,34 @@ class TestAssistantAgentComponentSerialization:
                 metadata={"test": "value"},
             )
 
-            agent = AssistantAgent._from_config(config)  # type: ignore[reportPrivateUsage]
+            # type: ignore[reportPrivateUsage]
+            agent = AssistantAgent._from_config(config)
 
             assert agent.name == "test_agent"
             assert agent.description == "Test description"
-            assert agent._model_client_stream is True  # type: ignore[reportPrivateUsage]
-            assert agent._reflect_on_tool_use is False  # type: ignore[reportPrivateUsage]
-            assert agent._tool_call_summary_format == "{tool_name}: {result}"  # type: ignore[reportPrivateUsage]
-            assert agent._metadata == {"test": "value"}  # type: ignore[reportPrivateUsage]
+            # type: ignore[reportPrivateUsage]
+            assert agent._model_client_stream is True
+            # type: ignore[reportPrivateUsage]
+            assert agent._reflect_on_tool_use is False
+            # type: ignore[reportPrivateUsage]
+            assert agent._tool_call_summary_format == "{tool_name}: {result}"
+            # type: ignore[reportPrivateUsage]
+            assert agent._metadata == {"test": "value"}
 
     @pytest.mark.asyncio
     async def test_from_config_with_structured_output(self) -> None:
         """Test _from_config method with structured output configuration."""
         mock_model_client = MagicMock()
-        mock_model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        mock_model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         mock_structured_factory = MagicMock()
         mock_structured_factory.format_string = "Test format"
         mock_structured_factory.ContentModel = StructuredOutput
 
         with (
-            patch("autogen_core.models.ChatCompletionClient.load_component", return_value=mock_model_client),
+            patch("autogen_core.models.ChatCompletionClient.load_component",
+                  return_value=mock_model_client),
             patch(
                 "autogen_agentchat.messages.StructuredMessageFactory.load_component",
                 return_value=mock_structured_factory,
@@ -1790,65 +1876,87 @@ class TestAssistantAgentComponentSerialization:
         ):
             config = AssistantAgentConfig(
                 name="test_agent",
-                model_client=ComponentModel(provider="test", config={"type": "mock_client"}),
+                model_client=ComponentModel(provider="test", config={
+                                            "type": "mock_client"}),
                 description="Test description",
                 reflect_on_tool_use=True,
                 tool_call_summary_format="{result}",
-                structured_message_factory=ComponentModel(provider="test", config={"type": "mock_factory"}),
+                structured_message_factory=ComponentModel(
+                    provider="test", config={"type": "mock_factory"}),
             )
 
-            agent = AssistantAgent._from_config(config)  # type: ignore[reportPrivateUsage]
+            # type: ignore[reportPrivateUsage]
+            agent = AssistantAgent._from_config(config)
 
-            assert agent._reflect_on_tool_use is True  # type: ignore[reportPrivateUsage]
-            assert agent._output_content_type == StructuredOutput  # type: ignore[reportPrivateUsage]
-            assert agent._output_content_type_format == "Test format"  # type: ignore[reportPrivateUsage]
+            # type: ignore[reportPrivateUsage]
+            assert agent._reflect_on_tool_use is True
+            # type: ignore[reportPrivateUsage]
+            assert agent._output_content_type == StructuredOutput
+            # type: ignore[reportPrivateUsage]
+            assert agent._output_content_type_format == "Test format"
 
     @pytest.mark.asyncio
     async def test_from_config_with_workbench_and_memory(self) -> None:
         """Test _from_config method with workbench and memory."""
         mock_model_client = MagicMock()
-        mock_model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        mock_model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
 
         mock_workbench = MagicMock()
         mock_memory = MockMemory()
         mock_context = MagicMock()
 
         with (
-            patch("autogen_core.models.ChatCompletionClient.load_component", return_value=mock_model_client),
-            patch("autogen_core.tools.Workbench.load_component", return_value=mock_workbench),
-            patch("autogen_core.memory.Memory.load_component", return_value=mock_memory),
-            patch("autogen_core.model_context.ChatCompletionContext.load_component", return_value=mock_context),
+            patch("autogen_core.models.ChatCompletionClient.load_component",
+                  return_value=mock_model_client),
+            patch("autogen_core.tools.Workbench.load_component",
+                  return_value=mock_workbench),
+            patch("autogen_core.memory.Memory.load_component",
+                  return_value=mock_memory),
+            patch("autogen_core.model_context.ChatCompletionContext.load_component",
+                  return_value=mock_context),
         ):
             config = AssistantAgentConfig(
                 name="test_agent",
-                model_client=ComponentModel(provider="test", config={"type": "mock_client"}),
+                model_client=ComponentModel(provider="test", config={
+                                            "type": "mock_client"}),
                 description="Test description",
-                workbench=[ComponentModel(provider="test", config={"type": "mock_workbench"})],
-                memory=[ComponentModel(provider="test", config={"type": "mock_memory"})],
-                model_context=ComponentModel(provider="test", config={"type": "mock_context"}),
+                workbench=[ComponentModel(provider="test", config={
+                                          "type": "mock_workbench"})],
+                memory=[ComponentModel(provider="test", config={
+                                       "type": "mock_memory"})],
+                model_context=ComponentModel(provider="test", config={
+                                             "type": "mock_context"}),
                 reflect_on_tool_use=True,
                 tool_call_summary_format="{result}",
             )
 
-            agent = AssistantAgent._from_config(config)  # type: ignore[reportPrivateUsage]
+            # type: ignore[reportPrivateUsage]
+            agent = AssistantAgent._from_config(config)
 
-            assert len(agent._workbench) == 1  # type: ignore[reportPrivateUsage]
-            assert agent._memory is not None  # type: ignore[reportPrivateUsage]
+            # type: ignore[reportPrivateUsage]
+            assert len(agent._workbench) == 1
+            # type: ignore[reportPrivateUsage]
+            assert agent._memory is not None
             assert len(agent._memory) == 1  # type: ignore[reportPrivateUsage]
-            assert agent._model_context == mock_context  # type: ignore[reportPrivateUsage]
+            # type: ignore[reportPrivateUsage]
+            assert agent._model_context == mock_context
 
     @pytest.mark.asyncio
     async def test_config_roundtrip_consistency(self) -> None:
         """Test that converting to config and back preserves agent properties."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
         model_client.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_client"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_client"})
         )
 
         mock_context = MagicMock()
         mock_context.dump_component = MagicMock(
-            return_value=ComponentModel(provider="test", config={"type": "mock_context"})
+            return_value=ComponentModel(provider="test", config={
+                                        "type": "mock_context"})
         )
 
         original_agent = AssistantAgent(
@@ -1866,7 +1974,8 @@ class TestAssistantAgentComponentSerialization:
         )
 
         # Convert to config
-        config = original_agent._to_config()  # type: ignore[reportPrivateUsage]
+        # type: ignore[reportPrivateUsage]
+        config = original_agent._to_config()
 
         # Verify config properties
         assert config.name == "test_agent"
@@ -1916,7 +2025,8 @@ class TestAssistantAgentThoughtHandling:
             messages.append(message)
 
         # Should have ThoughtEvent in the stream
-        thought_events = [msg for msg in messages if isinstance(msg, ThoughtEvent)]
+        thought_events = [
+            msg for msg in messages if isinstance(msg, ThoughtEvent)]
         assert len(thought_events) == 1
         assert thought_events[0].content == "This is my internal thought process"
         assert thought_events[0].source == "test_agent"
@@ -1928,7 +2038,8 @@ class TestAssistantAgentThoughtHandling:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                     thought="I need to use this tool to help the user",
@@ -1963,7 +2074,8 @@ class TestAssistantAgentThoughtHandling:
             messages.append(message)
 
         # Should have ThoughtEvent in the stream
-        thought_events = [msg for msg in messages if isinstance(msg, ThoughtEvent)]
+        thought_events = [
+            msg for msg in messages if isinstance(msg, ThoughtEvent)]
         assert len(thought_events) == 1
         assert thought_events[0].content == "I need to use this tool to help the user"
         assert thought_events[0].source == "test_agent"
@@ -1976,7 +2088,8 @@ class TestAssistantAgentThoughtHandling:
                 # Initial tool call with thought
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                     thought="Initial thought before tool call",
@@ -2014,7 +2127,8 @@ class TestAssistantAgentThoughtHandling:
             messages.append(message)
 
         # Should have two ThoughtEvents - one for initial call, one for reflection
-        thought_events = [msg for msg in messages if isinstance(msg, ThoughtEvent)]
+        thought_events = [
+            msg for msg in messages if isinstance(msg, ThoughtEvent)]
         assert len(thought_events) == 2
 
         thought_contents = [event.content for event in thought_events]
@@ -2029,7 +2143,8 @@ class TestAssistantAgentThoughtHandling:
                 # First tool call with thought
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "first"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "first"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                     thought="First iteration thought",
@@ -2038,7 +2153,8 @@ class TestAssistantAgentThoughtHandling:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="2", arguments=json.dumps({"param": "second"}), name="mock_tool_function")
+                        FunctionCall(id="2", arguments=json.dumps(
+                            {"param": "second"}), name="mock_tool_function")
                     ],
                     usage=RequestUsage(prompt_tokens=12, completion_tokens=5),
                     cached=False,
@@ -2076,7 +2192,8 @@ class TestAssistantAgentThoughtHandling:
             messages.append(message)
 
         # Should have three ThoughtEvents - one for each iteration
-        thought_events = [msg for msg in messages if isinstance(msg, ThoughtEvent)]
+        thought_events = [
+            msg for msg in messages if isinstance(msg, ThoughtEvent)]
         assert len(thought_events) == 3
 
         thought_contents = [event.content for event in thought_events]
@@ -2120,7 +2237,8 @@ class TestAssistantAgentThoughtHandling:
         result = await agent.run(task="Test handoff with thought")
 
         # Should have ThoughtEvent in inner messages
-        thought_events = [msg for msg in result.messages if isinstance(msg, ThoughtEvent)]
+        thought_events = [
+            msg for msg in result.messages if isinstance(msg, ThoughtEvent)]
         assert len(thought_events) == 1
         assert thought_events[0].content == "I need to hand this off to another agent"
 
@@ -2165,7 +2283,8 @@ class TestAssistantAgentThoughtHandling:
             messages.append(message)
 
         # Should have no ThoughtEvents
-        thought_events = [msg for msg in messages if isinstance(msg, ThoughtEvent)]
+        thought_events = [
+            msg for msg in messages if isinstance(msg, ThoughtEvent)]
         assert len(thought_events) == 0
 
     @pytest.mark.asyncio
@@ -2199,7 +2318,8 @@ class TestAssistantAgentThoughtHandling:
 
         # Check that the model context contains the thought
         messages = await agent.model_context.get_messages()
-        assistant_messages = [msg for msg in messages if isinstance(msg, AssistantMessage)]
+        assistant_messages = [
+            msg for msg in messages if isinstance(msg, AssistantMessage)]
         assert len(assistant_messages) > 0
 
         # The last assistant message should have the thought
@@ -2221,7 +2341,8 @@ class TestAssistantAgentAdvancedScenarios:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="1", arguments=json.dumps({"target": "agent2"}), name="transfer_to_agent2")
+                        FunctionCall(id="1", arguments=json.dumps(
+                            {"target": "agent2"}), name="transfer_to_agent2")
                     ],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
@@ -2256,8 +2377,10 @@ class TestAssistantAgentAdvancedScenarios:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="1", arguments=json.dumps({"target": "agent2"}), name="transfer_to_agent2"),
-                        FunctionCall(id="2", arguments=json.dumps({"target": "agent3"}), name="transfer_to_agent3"),
+                        FunctionCall(id="1", arguments=json.dumps(
+                            {"target": "agent2"}), name="transfer_to_agent2"),
+                        FunctionCall(id="2", arguments=json.dumps(
+                            {"target": "agent3"}), name="transfer_to_agent3"),
                     ],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
@@ -2292,7 +2415,8 @@ class TestAssistantAgentAdvancedScenarios:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 ),
@@ -2346,8 +2470,10 @@ class TestAssistantAgentAdvancedToolFeatures:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="1", arguments=json.dumps({"param": "success"}), name="mock_tool_function"),
-                        FunctionCall(id="2", arguments=json.dumps({"param": "error"}), name="mock_tool_function"),
+                        FunctionCall(id="1", arguments=json.dumps(
+                            {"param": "success"}), name="mock_tool_function"),
+                        FunctionCall(id="2", arguments=json.dumps(
+                            {"param": "error"}), name="mock_tool_function"),
                     ],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
@@ -2382,10 +2508,12 @@ class TestAssistantAgentAdvancedToolFeatures:
         final_message = result.messages[-1]
         assert isinstance(final_message, ToolCallSummaryMessage)
         # Fix line 1875 - properly access content with type checking
-        assert hasattr(final_message, "content"), "ToolCallSummaryMessage should have content attribute"
+        assert hasattr(
+            final_message, "content"), "ToolCallSummaryMessage should have content attribute"
         content = final_message.content
         assert "SUCCESS: mock_tool_function completed" in content
-        assert "SUCCESS: mock_tool_function completed" in content  # Both calls should be successful
+        # Both calls should be successful
+        assert "SUCCESS: mock_tool_function completed" in content
 
     @pytest.mark.asyncio
     async def test_custom_tool_call_summary_format_string(self) -> None:
@@ -2394,7 +2522,8 @@ class TestAssistantAgentAdvancedToolFeatures:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 ),
@@ -2432,7 +2561,8 @@ class TestAssistantAgentAdvancedToolFeatures:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 ),
@@ -2522,7 +2652,8 @@ class TestAssistantAgentAdvancedToolFeatures:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="error_tool")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="error_tool")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 ),
@@ -2572,8 +2703,10 @@ class TestAssistantAgentAdvancedToolFeatures:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="1", arguments=json.dumps({"data": "json_data"}), name="json_tool"),
-                        FunctionCall(id="2", arguments=json.dumps({"text": "simple_text"}), name="simple_tool"),
+                        FunctionCall(id="1", arguments=json.dumps(
+                            {"data": "json_data"}), name="json_tool"),
+                        FunctionCall(id="2", arguments=json.dumps(
+                            {"text": "simple_text"}), name="simple_tool"),
                     ],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
@@ -2622,7 +2755,8 @@ class TestAssistantAgentCancellationToken:
     async def test_cancellation_during_model_inference(self) -> None:
         """Test cancellation token during model inference."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         # Mock create method to check cancellation token
         model_client.create = AsyncMock()
@@ -2652,7 +2786,8 @@ class TestAssistantAgentCancellationToken:
     async def test_cancellation_during_streaming_inference(self) -> None:
         """Test cancellation token during streaming model inference."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         # Mock create_stream method
         async def mock_create_stream(*args: Any, **kwargs: Any) -> Any:
@@ -2679,7 +2814,8 @@ class TestAssistantAgentCancellationToken:
             messages.append(message)
 
         # Should have received streaming chunks and final response
-        chunk_events = [msg for msg in messages if isinstance(msg, ModelClientStreamingChunkEvent)]
+        chunk_events = [msg for msg in messages if isinstance(
+            msg, ModelClientStreamingChunkEvent)]
         assert len(chunk_events) == 2
         assert chunk_events[0].content == "chunk1"
         assert chunk_events[1].content == "chunk2"
@@ -2696,7 +2832,8 @@ class TestAssistantAgentCancellationToken:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="slow_tool")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="slow_tool")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 ),
@@ -2727,7 +2864,8 @@ class TestAssistantAgentCancellationToken:
     async def test_cancellation_during_workbench_tool_execution(self) -> None:
         """Test cancellation token during workbench tool execution."""
         mock_workbench = MagicMock()
-        mock_workbench.list_tools = AsyncMock(return_value=[{"name": "test_tool", "description": "Test tool"}])
+        mock_workbench.list_tools = AsyncMock(
+            return_value=[{"name": "test_tool", "description": "Test tool"}])
 
         # Mock tool execution result
         mock_result = MagicMock()
@@ -2739,7 +2877,8 @@ class TestAssistantAgentCancellationToken:
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="test_tool")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="test_tool")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 ),
@@ -2776,7 +2915,8 @@ class TestAssistantAgentCancellationToken:
         mock_memory.update_context = AsyncMock(return_value=None)
 
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
         model_client.create = AsyncMock(
             return_value=CreateResult(
                 finish_reason="stop",
@@ -2824,7 +2964,8 @@ class TestAssistantAgentStreamingEdgeCases:
     async def test_streaming_with_empty_chunks(self) -> None:
         """Test streaming with empty chunks."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         async def mock_create_stream(*args: Any, **kwargs: Any) -> Any:
             yield ""  # Empty chunk
@@ -2852,7 +2993,8 @@ class TestAssistantAgentStreamingEdgeCases:
             messages.append(message)
 
         # Should handle empty chunks gracefully
-        chunk_events = [msg for msg in messages if isinstance(msg, ModelClientStreamingChunkEvent)]
+        chunk_events = [msg for msg in messages if isinstance(
+            msg, ModelClientStreamingChunkEvent)]
         assert len(chunk_events) == 3  # Including empty chunks
         assert chunk_events[0].content == ""
         assert chunk_events[1].content == "content"
@@ -2862,7 +3004,8 @@ class TestAssistantAgentStreamingEdgeCases:
     async def test_streaming_with_invalid_chunk_type(self) -> None:
         """Test streaming with invalid chunk type raises error."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         async def mock_create_stream(*args: Any, **kwargs: Any) -> Any:
             yield "valid_chunk"
@@ -2890,7 +3033,8 @@ class TestAssistantAgentStreamingEdgeCases:
     async def test_streaming_without_final_result(self) -> None:
         """Test streaming without final CreateResult raises error."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         async def mock_create_stream(*args: Any, **kwargs: Any) -> Any:
             yield "chunk1"
@@ -2913,7 +3057,8 @@ class TestAssistantAgentStreamingEdgeCases:
     async def test_streaming_with_tool_calls_and_reflection(self) -> None:
         """Test streaming with tool calls followed by reflection."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": True, "vision": False, "family": ModelFamily.GPT_4O}
 
         call_count = 0
 
@@ -2925,7 +3070,8 @@ class TestAssistantAgentStreamingEdgeCases:
                 # First call: tool call
                 yield CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="mock_tool_function")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="mock_tool_function")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 )
@@ -2958,9 +3104,12 @@ class TestAssistantAgentStreamingEdgeCases:
             messages.append(message)
 
         # Should have tool call events, execution events, and streaming chunks for reflection
-        tool_call_events = [msg for msg in messages if isinstance(msg, ToolCallRequestEvent)]
-        tool_exec_events = [msg for msg in messages if isinstance(msg, ToolCallExecutionEvent)]
-        chunk_events = [msg for msg in messages if isinstance(msg, ModelClientStreamingChunkEvent)]
+        tool_call_events = [msg for msg in messages if isinstance(
+            msg, ToolCallRequestEvent)]
+        tool_exec_events = [msg for msg in messages if isinstance(
+            msg, ToolCallExecutionEvent)]
+        chunk_events = [msg for msg in messages if isinstance(
+            msg, ModelClientStreamingChunkEvent)]
 
         assert len(tool_call_events) == 1
         assert len(tool_exec_events) == 1
@@ -2973,7 +3122,8 @@ class TestAssistantAgentStreamingEdgeCases:
     async def test_streaming_with_large_chunks(self) -> None:
         """Test streaming with large chunks."""
         model_client = MagicMock()
-        model_client.model_info = {"function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
+        model_client.model_info = {
+            "function_calling": False, "vision": False, "family": ModelFamily.GPT_4O}
 
         large_chunk = "x" * 10000  # 10KB chunk
 
@@ -3001,7 +3151,8 @@ class TestAssistantAgentStreamingEdgeCases:
             messages.append(message)
 
         # Should handle large chunks
-        chunk_events = [msg for msg in messages if isinstance(msg, ModelClientStreamingChunkEvent)]
+        chunk_events = [msg for msg in messages if isinstance(
+            msg, ModelClientStreamingChunkEvent)]
         assert len(chunk_events) == 1
         assert len(chunk_events[0].content) == 10000
 
@@ -3013,14 +3164,16 @@ class TestAssistantAgentWorkbenchIntegration:
     async def test_multiple_workbenches(self) -> None:
         """Test agent with multiple workbenches."""
         mock_workbench1 = MagicMock()
-        mock_workbench1.list_tools = AsyncMock(return_value=[{"name": "tool1", "description": "Tool from workbench 1"}])
+        mock_workbench1.list_tools = AsyncMock(
+            return_value=[{"name": "tool1", "description": "Tool from workbench 1"}])
         mock_result1 = MagicMock()
         mock_result1.to_text.return_value = "Result from workbench 1"
         mock_result1.is_error = False
         mock_workbench1.call_tool = AsyncMock(return_value=mock_result1)
 
         mock_workbench2 = MagicMock()
-        mock_workbench2.list_tools = AsyncMock(return_value=[{"name": "tool2", "description": "Tool from workbench 2"}])
+        mock_workbench2.list_tools = AsyncMock(
+            return_value=[{"name": "tool2", "description": "Tool from workbench 2"}])
         mock_result2 = MagicMock()
         mock_result2.to_text.return_value = "Result from workbench 2"
         mock_result2.is_error = False
@@ -3031,8 +3184,10 @@ class TestAssistantAgentWorkbenchIntegration:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="1", arguments=json.dumps({"param": "test1"}), name="tool1"),
-                        FunctionCall(id="2", arguments=json.dumps({"param": "test2"}), name="tool2"),
+                        FunctionCall(id="1", arguments=json.dumps(
+                            {"param": "test1"}), name="tool1"),
+                        FunctionCall(id="2", arguments=json.dumps(
+                            {"param": "test2"}), name="tool2"),
                     ],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
@@ -3070,14 +3225,16 @@ class TestAssistantAgentWorkbenchIntegration:
         """Test handling when tool is not found in any workbench."""
         mock_workbench = MagicMock()
         mock_workbench.list_tools = AsyncMock(
-            return_value=[{"name": "available_tool", "description": "Available tool"}]
+            return_value=[{"name": "available_tool",
+                           "description": "Available tool"}]
         )
 
         model_client = ReplayChatCompletionClient(
             [
                 CreateResult(
                     finish_reason="function_calls",
-                    content=[FunctionCall(id="1", arguments=json.dumps({"param": "test"}), name="missing_tool")],
+                    content=[FunctionCall(id="1", arguments=json.dumps(
+                        {"param": "test"}), name="missing_tool")],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
                 ),
@@ -3134,8 +3291,10 @@ class TestAssistantAgentWorkbenchIntegration:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="1", arguments=json.dumps({"param": "test1"}), name="concurrent_tool1"),
-                        FunctionCall(id="2", arguments=json.dumps({"param": "test2"}), name="concurrent_tool2"),
+                        FunctionCall(id="1", arguments=json.dumps(
+                            {"param": "test1"}), name="concurrent_tool1"),
+                        FunctionCall(id="2", arguments=json.dumps(
+                            {"param": "test2"}), name="concurrent_tool2"),
                     ],
                     usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
                     cached=False,
@@ -3185,7 +3344,8 @@ class TestAssistantAgentComplexIntegration:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="1", arguments=json.dumps({"param": "analysis"}), name="mock_tool_function")
+                        FunctionCall(id="1", arguments=json.dumps(
+                            {"param": "analysis"}), name="mock_tool_function")
                     ],
                     usage=RequestUsage(prompt_tokens=20, completion_tokens=10),
                     cached=False,
@@ -3223,22 +3383,29 @@ class TestAssistantAgentComplexIntegration:
 
         messages: List[Any] = []
         async for message in agent.on_messages_stream(
-            [TextMessage(content="Analyze this complex scenario", source="user")], CancellationToken()
+            [TextMessage(content="Analyze this complex scenario",
+                         source="user")], CancellationToken()
         ):
             messages.append(message)
 
         # Should have all types of events
-        memory_events = [msg for msg in messages if isinstance(msg, MemoryQueryEvent)]
-        thought_events = [msg for msg in messages if isinstance(msg, ThoughtEvent)]
-        tool_events = [msg for msg in messages if isinstance(msg, ToolCallRequestEvent)]
-        execution_events = [msg for msg in messages if isinstance(msg, ToolCallExecutionEvent)]
-        chunk_events = [msg for msg in messages if isinstance(msg, ModelClientStreamingChunkEvent)]
+        memory_events = [
+            msg for msg in messages if isinstance(msg, MemoryQueryEvent)]
+        thought_events = [
+            msg for msg in messages if isinstance(msg, ThoughtEvent)]
+        tool_events = [msg for msg in messages if isinstance(
+            msg, ToolCallRequestEvent)]
+        execution_events = [msg for msg in messages if isinstance(
+            msg, ToolCallExecutionEvent)]
+        chunk_events = [msg for msg in messages if isinstance(
+            msg, ModelClientStreamingChunkEvent)]
 
         assert len(memory_events) > 0
         assert len(thought_events) == 2  # Initial and reflection thoughts
         assert len(tool_events) == 1
         assert len(execution_events) == 1
-        assert len(chunk_events) == 0  # No streaming chunks since we removed the string responses
+        # No streaming chunks since we removed the string responses
+        assert len(chunk_events) == 0
 
         # Final response should be TextMessage from reflection
         final_response = None
@@ -3266,9 +3433,12 @@ class TestAssistantAgentComplexIntegration:
                 CreateResult(
                     finish_reason="function_calls",
                     content=[
-                        FunctionCall(id="1", arguments=json.dumps({"param": "success"}), name="failing_tool"),
-                        FunctionCall(id="2", arguments=json.dumps({"param": "fail"}), name="failing_tool"),
-                        FunctionCall(id="3", arguments=json.dumps({"param": "success2"}), name="failing_tool"),
+                        FunctionCall(id="1", arguments=json.dumps(
+                            {"param": "success"}), name="failing_tool"),
+                        FunctionCall(id="2", arguments=json.dumps(
+                            {"param": "fail"}), name="failing_tool"),
+                        FunctionCall(id="3", arguments=json.dumps(
+                            {"param": "success2"}), name="failing_tool"),
                     ],
                     usage=RequestUsage(prompt_tokens=20, completion_tokens=10),
                     cached=False,
@@ -3387,10 +3557,12 @@ class TestAssistantAgentMessageContext:
 
         # Create test messages
         regular_msg = TextMessage(content="Regular message", source="user")
-        handoff_msg = HandoffMessage(content="Handoff message", source="agent1", target="agent2")
+        handoff_msg = HandoffMessage(
+            content="Handoff message", source="agent1", target="agent2")
 
         # Add messages to context
-        await AssistantAgent._add_messages_to_context(model_context=model_context, messages=[regular_msg, handoff_msg])  # type: ignore[reportPrivateUsage]
+        # type: ignore[reportPrivateUsage]
+        await AssistantAgent._add_messages_to_context(model_context=model_context, messages=[regular_msg, handoff_msg])
 
         # Verify context contents
         context_messages = await model_context.get_messages()
@@ -3426,12 +3598,15 @@ class TestAssistantAgentMessageContext:
             StructuredMessage[StructuredOutput](
                 content=StructuredOutput(content="Structured data", confidence=0.9), source="agent"
             ),
-            ToolCallSummaryMessage(content="Tool result", source="agent", tool_calls=[], results=[]),
-            HandoffMessage(content="Handoff", source="agent1", target="agent2"),
+            ToolCallSummaryMessage(content="Tool result",
+                                   source="agent", tool_calls=[], results=[]),
+            HandoffMessage(content="Handoff",
+                           source="agent1", target="agent2"),
         ]
 
         # Add messages to context
-        await AssistantAgent._add_messages_to_context(model_context=model_context, messages=messages)  # type: ignore[reportPrivateUsage]
+        # type: ignore[reportPrivateUsage]
+        await AssistantAgent._add_messages_to_context(model_context=model_context, messages=messages)
 
         # Verify context management
         context_messages = await model_context.get_messages()
@@ -3441,7 +3616,8 @@ class TestAssistantAgentMessageContext:
 
         # Verify message conversion
         for msg in context_messages:
-            assert isinstance(msg, (SystemMessage, UserMessage, AssistantMessage))
+            assert isinstance(
+                msg, (SystemMessage, UserMessage, AssistantMessage))
 
 
 class TestAnthropicIntegration:
@@ -3487,7 +3663,8 @@ class TestAnthropicIntegration:
         # Check that the last message is a non-tool call.
         assert isinstance(result.messages[-1], TextMessage)
         # Check that a tool call was made
-        tool_calls = [msg for msg in result.messages if isinstance(msg, ToolCallRequestEvent)]
+        tool_calls = [msg for msg in result.messages if isinstance(
+            msg, ToolCallRequestEvent)]
         assert len(tool_calls) > 0
 
         # Check that usage was tracked
@@ -3524,7 +3701,8 @@ class TestAnthropicIntegration:
         # Check that the last message is a reflection
         assert isinstance(result.messages[-1], TextMessage)
         # Check that a tool call was made
-        tool_calls = [msg for msg in result.messages if isinstance(msg, ToolCallRequestEvent)]
+        tool_calls = [msg for msg in result.messages if isinstance(
+            msg, ToolCallRequestEvent)]
         assert len(tool_calls) > 0
 
         # Check that usage was tracked
