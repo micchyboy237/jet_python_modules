@@ -49,7 +49,7 @@ async def validate_and_execute_tool(
     Raises:
         RuntimeError: If the tool is not found or execution fails.
     """
-    tool_name = tool_request["tool"]
+    tool_name = tool_request["name"]
     tool_info = next((t for t in tools if t["name"] == tool_name), None)
     if not tool_info:
         raise RuntimeError(f"Tool '{tool_name}' not found")
