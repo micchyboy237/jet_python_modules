@@ -113,7 +113,8 @@ def mock_tool_response() -> MagicMock:
         TextContent(
             text="test_output",
             type="text",
-            annotations=Annotations(audience=["user", "assistant"], priority=0.7),
+            annotations=Annotations(
+                audience=["user", "assistant"], priority=0.7),
         ),
     ]
     return response
@@ -134,7 +135,8 @@ def mock_error_tool_response() -> MagicMock:
 
 def test_adapter_config_serialization(sample_tool: Tool, sample_server_params: StdioServerParams) -> None:
     """Test that adapter can be saved to and loaded from config."""
-    original_adapter = StdioMcpToolAdapter(server_params=sample_server_params, tool=sample_tool)
+    original_adapter = StdioMcpToolAdapter(
+        server_params=sample_server_params, tool=sample_tool)
     config = original_adapter.dump_component()
     loaded_adapter = StdioMcpToolAdapter.load_component(config)
 
@@ -180,9 +182,11 @@ async def test_mcp_tool_execution(
     mock_session.call_tool.return_value = mock_tool_response
 
     with caplog.at_level(logging.INFO):
-        adapter = StdioMcpToolAdapter(server_params=sample_server_params, tool=sample_tool)
+        adapter = StdioMcpToolAdapter(
+            server_params=sample_server_params, tool=sample_tool)
         result = await adapter.run_json(
-            args=schema_to_pydantic_model(sample_tool.inputSchema)(**{"test_param": "test"}).model_dump(),
+            args=schema_to_pydantic_model(sample_tool.inputSchema)(
+                **{"test_param": "test"}).model_dump(),
             cancellation_token=cancellation_token,
         )
 
@@ -258,7 +262,8 @@ async def test_adapter_from_server_params_with_return_value_as_string(
                 TextContent(
                     text="this is a sample text",
                     type="text",
-                    annotations=Annotations(audience=["user", "assistant"], priority=0.7),
+                    annotations=Annotations(
+                        audience=["user", "assistant"], priority=0.7),
                 ),
                 ImageContent(
                     data="this is a sample base64 encoded image",
@@ -326,7 +331,8 @@ async def test_adapter_from_factory_existing_session(
 async def test_sse_adapter_config_serialization(sample_sse_tool: Tool) -> None:
     """Test that SSE adapter can be saved to and loaded from config."""
     params = SseServerParams(url="http://test-url")
-    original_adapter = SseMcpToolAdapter(server_params=params, tool=sample_sse_tool)
+    original_adapter = SseMcpToolAdapter(
+        server_params=params, tool=sample_sse_tool)
     config = original_adapter.dump_component()
     loaded_adapter = SseMcpToolAdapter.load_component(config)
 
@@ -370,7 +376,8 @@ async def test_sse_tool_execution(
             TextContent(
                 text="test_output",
                 type="text",
-                annotations=Annotations(audience=["user", "assistant"], priority=0.7),
+                annotations=Annotations(
+                    audience=["user", "assistant"], priority=0.7),
             ),
         ],
     )
@@ -383,7 +390,8 @@ async def test_sse_tool_execution(
     with caplog.at_level(logging.INFO):
         adapter = SseMcpToolAdapter(server_params=params, tool=sample_sse_tool)
         result = await adapter.run_json(
-            args=schema_to_pydantic_model(sample_sse_tool.inputSchema)(**{"test_param": "test"}).model_dump(),
+            args=schema_to_pydantic_model(sample_sse_tool.inputSchema)(
+                **{"test_param": "test"}).model_dump(),
             cancellation_token=CancellationToken(),
         )
 
@@ -440,7 +448,8 @@ async def test_sse_adapter_from_server_params(
 async def test_streamable_http_adapter_config_serialization(sample_streamable_http_tool: Tool) -> None:
     """Test that StreamableHttp adapter can be saved to and loaded from config."""
     params = StreamableHttpServerParams(url="http://test-url")
-    original_adapter = StreamableHttpMcpToolAdapter(server_params=params, tool=sample_streamable_http_tool)
+    original_adapter = StreamableHttpMcpToolAdapter(
+        server_params=params, tool=sample_streamable_http_tool)
     config = original_adapter.dump_component()
     loaded_adapter = StreamableHttpMcpToolAdapter.load_component(config)
 
@@ -484,7 +493,8 @@ async def test_streamable_http_tool_execution(
             TextContent(
                 text="test_output",
                 type="text",
-                annotations=Annotations(audience=["user", "assistant"], priority=0.7),
+                annotations=Annotations(
+                    audience=["user", "assistant"], priority=0.7),
             ),
         ],
     )
@@ -495,7 +505,8 @@ async def test_streamable_http_tool_execution(
     )
 
     with caplog.at_level(logging.INFO):
-        adapter = StreamableHttpMcpToolAdapter(server_params=params, tool=sample_streamable_http_tool)
+        adapter = StreamableHttpMcpToolAdapter(
+            server_params=params, tool=sample_streamable_http_tool)
         result = await adapter.run_json(
             args=schema_to_pydantic_model(sample_streamable_http_tool.inputSchema)(
                 **{"test_param": "test"}
@@ -526,7 +537,8 @@ async def test_streamable_http_adapter_from_server_params(
         lambda *args, **kwargs: mock_context,  # type: ignore
     )
 
-    mock_streamable_http_session.list_tools.return_value.tools = [sample_streamable_http_tool]
+    mock_streamable_http_session.list_tools.return_value.tools = [
+        sample_streamable_http_tool]
 
     adapter = await StreamableHttpMcpToolAdapter.from_server_params(params, "test_streamable_http_tool")
 
@@ -568,6 +580,7 @@ async def test_mcp_server_fetch() -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_server_filesystem() -> None:
+    file_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/temp/docs.llamaindex.ai/en/latest/workflows/v2/index.html"
     params = StdioServerParams(
         command="npx",
         args=[
@@ -582,12 +595,13 @@ async def test_mcp_server_filesystem() -> None:
     tools = [tool for tool in tools if tool.name == "read_file"]
     assert len(tools) == 1
     tool = tools[0]
-    result = await tool.run_json({"path": "README.md"}, CancellationToken())
+    result = await tool.run_json({"path": file_path}, CancellationToken())
     assert result is not None
 
 
 @pytest.mark.asyncio
 async def test_mcp_server_git() -> None:
+    repo_path = "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/autogen"
     params = StdioServerParams(
         command="uvx",
         args=["mcp-server-git"],
@@ -598,13 +612,13 @@ async def test_mcp_server_git() -> None:
     tools = [tool for tool in tools if tool.name == "git_log"]
     assert len(tools) == 1
     tool = tools[0]
-    repo_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..")
     result = await tool.run_json({"repo_path": repo_path}, CancellationToken())
     assert result is not None
 
 
 @pytest.mark.asyncio
 async def test_mcp_server_git_existing_session() -> None:
+    repo_path = "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/autogen"
     params = StdioServerParams(
         command="uvx",
         args=["mcp-server-git"],
@@ -615,7 +629,6 @@ async def test_mcp_server_git_existing_session() -> None:
         tools = await mcp_server_tools(server_params=params, session=session)
         assert tools is not None
         git_log = [tool for tool in tools if tool.name == "git_log"][0]
-        repo_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..")
         result = await git_log.run_json({"repo_path": repo_path}, CancellationToken())
         assert result is not None
 
@@ -628,7 +641,8 @@ async def test_mcp_server_git_existing_session() -> None:
 async def test_mcp_server_github() -> None:
     # Check if GITHUB_TOKEN is set.
     if "GITHUB_TOKEN" not in os.environ:
-        pytest.skip("GITHUB_TOKEN environment variable is not set. Skipping test.")
+        pytest.skip(
+            "GITHUB_TOKEN environment variable is not set. Skipping test.")
     params = StdioServerParams(
         command="npx",
         args=[
@@ -644,7 +658,8 @@ async def test_mcp_server_github() -> None:
     assert len(tools) == 1
     tool = tools[0]
     result = await tool.run_json(
-        {"owner": "microsoft", "repo": "autogen", "path": "python", "branch": "main"},
+        {"owner": "microsoft", "repo": "autogen",
+            "path": "python", "branch": "main"},
         CancellationToken(),
     )
     assert result is not None
@@ -793,7 +808,8 @@ def test_del_raises_when_loop_closed() -> None:
     workbench = McpWorkbench(server_params=params)
 
     workbench._actor_loop = loop  # type: ignore[reportPrivateUsage]
-    workbench._actor = cast(McpSessionActor, object())  # type: ignore[reportPrivateUsage]
+    # type: ignore[reportPrivateUsage]
+    workbench._actor = cast(McpSessionActor, object())
 
     loop.close()
 
@@ -803,7 +819,8 @@ def test_del_raises_when_loop_closed() -> None:
 
 def test_mcp_tool_adapter_normalize_payload(sample_tool: Tool, sample_server_params: StdioServerParams) -> None:
     """Test the _normalize_payload_to_content_list method of McpToolAdapter."""
-    adapter = StdioMcpToolAdapter(server_params=sample_server_params, tool=sample_tool)
+    adapter = StdioMcpToolAdapter(
+        server_params=sample_server_params, tool=sample_tool)
 
     # Case 1: Payload is already a list of valid content items
     valid_content_list: list[TextContent | ImageContent | EmbeddedResource] = [
@@ -811,49 +828,68 @@ def test_mcp_tool_adapter_normalize_payload(sample_tool: Tool, sample_server_par
         ImageContent(data="base64data", mimeType="image/png", type="image"),
         EmbeddedResource(
             type="resource",
-            resource=TextResourceContents(text="embedded text", uri=AnyUrl(url="http://example.com/resource")),
+            resource=TextResourceContents(
+                text="embedded text", uri=AnyUrl(url="http://example.com/resource")),
         ),
     ]
-    assert adapter._normalize_payload_to_content_list(valid_content_list) == valid_content_list  # type: ignore[reportPrivateUsage]
+    assert adapter._normalize_payload_to_content_list(
+        # type: ignore[reportPrivateUsage]
+        valid_content_list) == valid_content_list
 
     # Case 2: Payload is a single TextContent
     single_text_content = TextContent(text="single text", type="text")
-    assert adapter._normalize_payload_to_content_list(single_text_content) == [single_text_content]  # type: ignore[reportPrivateUsage, arg-type]
+    assert adapter._normalize_payload_to_content_list(single_text_content) == [
+        single_text_content]  # type: ignore[reportPrivateUsage, arg-type]
 
     # Case 3: Payload is a single ImageContent
-    single_image_content = ImageContent(data="imagedata", mimeType="image/jpeg", type="image")
-    assert adapter._normalize_payload_to_content_list(single_image_content) == [single_image_content]  # type: ignore[reportPrivateUsage, arg-type]
+    single_image_content = ImageContent(
+        data="imagedata", mimeType="image/jpeg", type="image")
+    assert adapter._normalize_payload_to_content_list(single_image_content) == [
+        single_image_content]  # type: ignore[reportPrivateUsage, arg-type]
 
     # Case 4: Payload is a single EmbeddedResource
     single_embedded_resource = EmbeddedResource(
         type="resource",
-        resource=TextResourceContents(text="other embedded", uri=AnyUrl(url="http://example.com/other")),
+        resource=TextResourceContents(
+            text="other embedded", uri=AnyUrl(url="http://example.com/other")),
     )
-    assert adapter._normalize_payload_to_content_list(single_embedded_resource) == [single_embedded_resource]  # type: ignore[reportPrivateUsage, arg-type]
+    assert adapter._normalize_payload_to_content_list(single_embedded_resource) == [
+        single_embedded_resource]  # type: ignore[reportPrivateUsage, arg-type]
 
     # Case 5: Payload is a string
     string_payload = "This is a string payload."
     expected_from_string = [TextContent(text=string_payload, type="text")]
-    assert adapter._normalize_payload_to_content_list(string_payload) == expected_from_string  # type: ignore[reportPrivateUsage, arg-type]
+    assert adapter._normalize_payload_to_content_list(
+        # type: ignore[reportPrivateUsage, arg-type]
+        string_payload) == expected_from_string
 
     # Case 6: Payload is an integer
     int_payload = 12345
     expected_from_int = [TextContent(text=str(int_payload), type="text")]
-    assert adapter._normalize_payload_to_content_list(int_payload) == expected_from_int  # type: ignore[reportPrivateUsage, arg-type]
+    assert adapter._normalize_payload_to_content_list(
+        # type: ignore[reportPrivateUsage, arg-type]
+        int_payload) == expected_from_int
 
     # Case 7: Payload is a dictionary
     dict_payload = {"key": "value", "number": 42}
     expected_from_dict = [TextContent(text=str(dict_payload), type="text")]
-    assert adapter._normalize_payload_to_content_list(dict_payload) == expected_from_dict  # type: ignore[reportPrivateUsage, arg-type]
+    assert adapter._normalize_payload_to_content_list(
+        # type: ignore[reportPrivateUsage, arg-type]
+        dict_payload) == expected_from_dict
 
     # Case 8: Payload is an empty list (should still be a list of valid items, so returns as is)
-    empty_list_payload: list[TextContent | ImageContent | EmbeddedResource] = []
-    assert adapter._normalize_payload_to_content_list(empty_list_payload) == empty_list_payload  # type: ignore[reportPrivateUsage]
+    empty_list_payload: list[TextContent |
+                             ImageContent | EmbeddedResource] = []
+    assert adapter._normalize_payload_to_content_list(
+        # type: ignore[reportPrivateUsage]
+        empty_list_payload) == empty_list_payload
 
     # Case 9: Payload is None (should be stringified)
     none_payload = None
     expected_from_none = [TextContent(text=str(none_payload), type="text")]
-    assert adapter._normalize_payload_to_content_list(none_payload) == expected_from_none  # type: ignore[reportPrivateUsage, arg-type]
+    assert adapter._normalize_payload_to_content_list(
+        # type: ignore[reportPrivateUsage, arg-type]
+        none_payload) == expected_from_none
 
 
 @pytest.mark.asyncio
@@ -865,15 +901,19 @@ async def test_mcp_tool_adapter_run_error(
     cancellation_token: CancellationToken,
 ) -> None:
     """Test McpToolAdapter._run when tool returns an error."""
-    adapter = StdioMcpToolAdapter(server_params=sample_server_params, tool=sample_tool, session=mock_session)
+    adapter = StdioMcpToolAdapter(
+        server_params=sample_server_params, tool=sample_tool, session=mock_session)
     mock_session.call_tool.return_value = mock_error_tool_response
 
     args = {"test_param": "test_value"}
     with pytest.raises(Exception) as excinfo:
-        await adapter._run(args=args, cancellation_token=cancellation_token, session=mock_session)  # type: ignore[reportPrivateUsage]
+        # type: ignore[reportPrivateUsage]
+        await adapter._run(args=args, cancellation_token=cancellation_token, session=mock_session)
 
-    mock_session.call_tool.assert_called_once_with(name=sample_tool.name, arguments=args)
-    assert adapter.return_value_as_string([TextContent(text="error output", type="text")]) in str(excinfo.value)
+    mock_session.call_tool.assert_called_once_with(
+        name=sample_tool.name, arguments=args)
+    assert adapter.return_value_as_string(
+        [TextContent(text="error output", type="text")]) in str(excinfo.value)
 
 
 @pytest.mark.asyncio
@@ -884,12 +924,14 @@ async def test_mcp_tool_adapter_run_cancelled_before_call(
     cancellation_token: CancellationToken,
 ) -> None:
     """Test McpToolAdapter._run when operation is cancelled before tool call."""
-    adapter = StdioMcpToolAdapter(server_params=sample_server_params, tool=sample_tool, session=mock_session)
+    adapter = StdioMcpToolAdapter(
+        server_params=sample_server_params, tool=sample_tool, session=mock_session)
     cancellation_token.cancel()  # Cancel before the call
 
     args = {"test_param": "test_value"}
     with pytest.raises(asyncio.CancelledError):
-        await adapter._run(args=args, cancellation_token=cancellation_token, session=mock_session)  # type: ignore[reportPrivateUsage]
+        # type: ignore[reportPrivateUsage]
+        await adapter._run(args=args, cancellation_token=cancellation_token, session=mock_session)
 
     mock_session.call_tool.assert_not_called()
 
@@ -902,19 +944,24 @@ async def test_mcp_tool_adapter_run_cancelled_during_call(
     cancellation_token: CancellationToken,
 ) -> None:
     """Test McpToolAdapter._run when operation is cancelled during tool call."""
-    adapter = StdioMcpToolAdapter(server_params=sample_server_params, tool=sample_tool, session=mock_session)
-    mock_session.call_tool.side_effect = asyncio.CancelledError("Tool call cancelled")
+    adapter = StdioMcpToolAdapter(
+        server_params=sample_server_params, tool=sample_tool, session=mock_session)
+    mock_session.call_tool.side_effect = asyncio.CancelledError(
+        "Tool call cancelled")
 
     args = {"test_param": "test_value"}
     with pytest.raises(asyncio.CancelledError):
-        await adapter._run(args=args, cancellation_token=cancellation_token, session=mock_session)  # type: ignore[reportPrivateUsage]
+        # type: ignore[reportPrivateUsage]
+        await adapter._run(args=args, cancellation_token=cancellation_token, session=mock_session)
 
-    mock_session.call_tool.assert_called_once_with(name=sample_tool.name, arguments=args)
+    mock_session.call_tool.assert_called_once_with(
+        name=sample_tool.name, arguments=args)
 
 
 def test_return_value_as_string_with_resource_link(sample_tool: Tool, sample_server_params: StdioServerParams) -> None:
     """Test return_value_as_string handles ResourceLink objects correctly."""
-    adapter = StdioMcpToolAdapter(server_params=sample_server_params, tool=sample_tool)
+    adapter = StdioMcpToolAdapter(
+        server_params=sample_server_params, tool=sample_tool)
 
     # Test ResourceLink with meta field
     resource_link = ResourceLink(
@@ -927,4 +974,5 @@ def test_return_value_as_string_with_resource_link(sample_tool: Tool, sample_ser
     # Verify the JSON serialization contains expected fields
     assert '"type": "resource_link"' in result
     assert '"name": "test_link"' in result
-    assert '"uri": "http://example.com/"' in result  # AnyUrl normalizes with trailing slash
+    # AnyUrl normalizes with trailing slash
+    assert '"uri": "http://example.com/"' in result

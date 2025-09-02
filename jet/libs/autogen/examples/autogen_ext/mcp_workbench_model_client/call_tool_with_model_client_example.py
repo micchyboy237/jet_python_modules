@@ -19,13 +19,14 @@ async def call_test_tool(param: str) -> Optional[CallToolResult]:
     Returns:
         Optional[CallToolResult]: The tool execution result or None if failed.
     """
+    file_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/temp/docs.llamaindex.ai/en/latest/workflows/v2/index.html"
+
     server_params = StdioServerParams(
         command="python", args=[MCP_SERVER_PATH])
     model_client = OllamaChatCompletionClient(model="llama3.2")
     workbench = McpWorkbench(
         server_params=server_params, model_client=model_client)
 
-    file_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/temp/docs.llamaindex.ai/en/latest/workflows/v2/index.html"
     try:
         await workbench.start()
         result: CallToolResult = await workbench.call_tool("read_file", {"arguments": {"file_path": file_path, "encoding": "utf-8"}})
