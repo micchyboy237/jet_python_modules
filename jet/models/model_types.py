@@ -62,8 +62,8 @@ class Usage(TypedDict):
 class ModelInfo(TypedDict):
     id: str
     object: str
-    created: Optional[float]
-    last_modified: Optional[float]
+    created: Optional[Union[int, float]]
+    modified: Optional[Union[int, float]]
 
 
 class ModelsResponse(TypedDict):
@@ -106,6 +106,7 @@ LLMModelKey = Literal[
     "qwen3-8b-4bit",
     "dolphin3.0-llama3.2-3b-4bit",
     "pythia-70m",
+    "mistral-7b-instruct",
 ]
 
 LLMModelValue = Literal[
@@ -141,6 +142,7 @@ LLMModelValue = Literal[
     "mlx-community/Qwen3-8B-4bit-DWQ-053125",
     "mlx-community/dolphin3.0-llama3.2-3B-4Bit",
     "EleutherAI/pythia-70m",
+    "mlx-community/Mistral-7B-Instruct-v0.3-4bit",
 ]
 
 

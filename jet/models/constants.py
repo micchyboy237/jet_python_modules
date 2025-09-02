@@ -56,6 +56,7 @@ AVAILABLE_LLM_MODELS: Dict[LLMModelKey, LLMModelValue] = {
     "qwen3-8b-4bit": "mlx-community/Qwen3-8B-4bit-DWQ-053125",
     "dolphin3.0-llama3.2-3b-4bit": "mlx-community/dolphin3.0-llama3.2-3B-4Bit",
     "pythia-70m": "EleutherAI/pythia-70m",
+    "mistral-7b-instruct": "mlx-community/Mistral-7B-Instruct-v0.3-4bit",
 }
 
 AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
@@ -196,6 +197,7 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "ms-marco-MiniLM-L12-v2": 512,
     "jina-embeddings-v2-base": 8192,
     "jina-embeddings-v2-small": 8192,
+    "mistral-7b-instruct": 32768,
 }
 
 MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
@@ -269,4 +271,5 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "ms-marco-MiniLM-L12-v2": 384,
     "jina-embeddings-v2-base": 768,
     "jina-embeddings-v2-small": 512,
+    "mistral-7b-instruct": 4096,
 }
