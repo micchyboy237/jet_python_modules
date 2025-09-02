@@ -1,11 +1,16 @@
 from typing import Any, Union, List, Optional, Dict, Iterator
 from jet.llm.mlx.mlx_types import ChatTemplateArgs
 from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
-from jet.models.model_types import LLMModelType, RoleMapping, Tool
+from jet.models.model_types import LLMModelType, RoleMapping, Tool, ModelsResponse
 from jet.llm.mlx.client import CompletionResponse, Message
 from jet.llm.mlx.chat_history import ChatHistory
 from jet.llm.mlx.base import MLX
 from mlx_lm.server import PromptCache
+
+
+def get_models() -> ModelsResponse:
+    """Retrieve available models from the MLX model registry."""
+    return MLXModelRegistry.get_models()
 
 
 def prepare_messages(

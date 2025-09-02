@@ -75,8 +75,7 @@ mediapy==1.1.6
 mistral_common==1.5.6
 mistralai==1.9.8
 mitmproxy==12.1.1
-mlx-metal==0.28.0
--e git+ssh://git@github.com/Blaizzy/mlx-vlm.git@70518218334f87b1320ae0b7dc9435754f6c8117#egg=mlx_vlm
+-e git+ssh://git@github.com/Blaizzy/mlx-vlm.git@42be3c96087651dbcc057e1c0336b05e1b39e2e6#egg=mlx_vlm
 mrkdwn_analysis==0.1.6
 msgspec==0.19.0
 nemo-toolkit==2.4.0

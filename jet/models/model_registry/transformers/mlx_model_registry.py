@@ -1,3 +1,6 @@
+import time
+import mlx.core as mx
+import mlx.nn as nn
 from abc import ABC
 from typing import Any, Optional, Dict, Literal, List, Iterator, TypedDict, Union
 from threading import Lock
@@ -6,13 +9,10 @@ from jet.llm.mlx.mlx_types import ChatTemplateArgs
 from jet.logger import logger
 from pathlib import Path
 from jet.models.model_registry.base import BaseModelRegistry
-import mlx.core as mx
-import mlx.nn as nn
 from transformers import AutoTokenizer, PreTrainedTokenizerBase, AutoConfig, PretrainedConfig
 from tokenizers import Tokenizer
 from jet.llm.mlx.base import MLX
-from jet.llm.mlx.client import CompletionResponse, Message
-from jet.models.model_types import LLMModelType, RoleMapping, Tool
+from jet.models.model_types import LLMModelType, ModelsResponse, ModelInfo, RoleMapping, Tool
 from jet.models.utils import resolve_model_value, get_local_repo_dir
 from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
 from jet.data.utils import generate_hash
@@ -26,6 +26,11 @@ class MLXModelRegistry(BaseModelRegistry):
     _model_lock = Lock()  # Lock for thread-safe model caching
     _tokenizer_lock = Lock()  # Lock for thread-safe tokenizer caching
     _config_lock = Lock()  # Lock for thread-safe config caching
+
+    @staticmethod
+    def get_models() -> ModelsResponse:
+        """Retrieve available models from the MLX model registry."""
+        return MLX.get_models()
 
     @staticmethod
     def load_model(

@@ -6,7 +6,6 @@ import mcp.types
 
 from typing import Any, Dict, List, Optional, TypedDict
 
-
 from jet.data.utils import generate_hash
 from jet.file.utils import save_file
 from jet.llm.mlx.mlx_types import ChatTemplateArgs, Message
@@ -146,9 +145,6 @@ def generate_response(
     )
     llm_response_text = llm_response["content"]
 
-    if model.prompt_cache:
-        model.print_cache()
-
     return llm_response_text
 
 
@@ -270,8 +266,21 @@ async def query_llm(
 
 async def chat_session(model: LLMModelType, output_dir: str, mcp_server_path: str = MCP_SERVER_PATH):
     messages = []
+    first_iteration = True
+    default_prompt = "Hello! Who are you and what are your features?"
+
     while True:
-        user_input = input("You: ")
+        # Display placeholder on first iteration or if input is empty
+        prompt_text = default_prompt if first_iteration else "You: "
+        user_input = input(prompt_text).strip()
+
+        # Use default prompt if user input is empty on first iteration
+        if not user_input and first_iteration:
+            print(f"Using placeholder prompt: {default_prompt}")
+            user_input = default_prompt
+
+        first_iteration = False
+
         if user_input.lower() in ['exit', 'quit']:
             logger.debug("Ending chat session.")
             break
@@ -315,5 +324,4 @@ if __name__ == "__main__":
 
     model_path: LLMModelType = "qwen3-1.7b-4bit"
 
-    # sample_prompt = "Navigate to https://www.iana.org and summarize the text content in 100 words or less."
     asyncio.run(chat_session(model_path, output_dir))

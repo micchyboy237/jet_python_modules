@@ -19,6 +19,10 @@ DEFAULT_DB = "mlx_chat_history_db1"
 class MLX:
     """Wrapper class for MLXLMClient with chat history management."""
 
+    @staticmethod
+    def get_models() -> ModelsResponse:
+        return MLXLMClient.get_models()
+
     def __init__(
         self,
         model: LLMModelType = DEFAULT_MODEL,
@@ -143,9 +147,6 @@ class MLX:
         logger.debug(
             "Calling MLX model with args: %s, kwargs: %s", args, kwargs)
         return self.model(*args, **kwargs)
-
-    def get_models(self) -> ModelsResponse:
-        return self.client.get_models()
 
     def chat(
         self,

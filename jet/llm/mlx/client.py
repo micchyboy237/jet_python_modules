@@ -4,6 +4,7 @@ import uuid
 import json
 import time
 
+from pathlib import Path
 from pydantic.json_schema import JsonSchemaValue
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat, find_repeated_consecutive_ngrams
 from jet.llm.mlx.mlx_types import ChatTemplateArgs
@@ -78,6 +79,39 @@ class Config:
 
 class MLXLMClient:
     """A client for interacting with MLX-LM models directly in Python."""
+
+    @staticmethod
+    def get_models() -> ModelsResponse:
+        """List available local models."""
+        files: List[str] = ["config.json",
+                            "model.safetensors.index.json", "tokenizer_config.json"]
+
+        def probably_mlx_lm(repo: Any) -> bool:
+            if repo.repo_type != "model":
+                return False
+            if "main" not in repo.refs:
+                return False
+            file_names = {f.file_path.name for f in repo.refs["main"].files}
+            return all(f in file_names for f in files)
+
+        # Scan the cache directory for downloaded MLX models
+        hf_cache_info = scan_cache_dir()
+        downloaded_models: List[Any] = [
+            repo for repo in hf_cache_info.repos if probably_mlx_lm(repo)
+        ]
+
+        # Create a list of available models with creation time from repo_path
+        models: List[ModelInfo] = [
+            {
+                "id": repo.repo_id,
+                "object": "model",
+                "created": repo.repo_path.stat().st_ctime if isinstance(repo.repo_path, Path) else None,
+                "last_modified": repo.last_modified,
+            }
+            for repo in downloaded_models
+        ]
+
+        return {"object": "list", "data": models}
 
     def __init__(
         self,
@@ -710,37 +744,6 @@ class MLXLMClient:
                 xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
                 logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
-
-    def get_models(self) -> ModelsResponse:
-        """List available models."""
-        files: List[str] = ["config.json",
-                            "model.safetensors.index.json", "tokenizer_config.json"]
-
-        def probably_mlx_lm(repo: Any) -> bool:
-            if repo.repo_type != "model":
-                return False
-            if "main" not in repo.refs:
-                return False
-            file_names = {f.file_path.name for f in repo.refs["main"].files}
-            return all(f in file_names for f in files)
-
-        # Scan the cache directory for downloaded MLX models
-        hf_cache_info = scan_cache_dir()
-        downloaded_models: List[Any] = [
-            repo for repo in hf_cache_info.repos if probably_mlx_lm(repo)
-        ]
-
-        # Create a list of available models
-        models: List[ModelInfo] = [
-            {
-                "id": repo.repo_id,
-                "object": "model",
-                "created": self.created,
-            }
-            for repo in downloaded_models
-        ]
-
-        return {"object": "list", "data": models}
 
     def _validate_parameters(
         self,

@@ -62,7 +62,8 @@ class Usage(TypedDict):
 class ModelInfo(TypedDict):
     id: str
     object: str
-    created: int
+    created: Optional[float]
+    last_modified: Optional[float]
 
 
 class ModelsResponse(TypedDict):
