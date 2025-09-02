@@ -21,12 +21,12 @@ def parse_tool_call(llm_response: str) -> Dict[str, Any]:
     tool_close = "</tool_call>"
     start_tool = llm_response.find(tool_open)
     if start_tool == -1:
-        logger.error("No <tool_call> tag found in LLM response.")
+        logger.warning("No <tool_call> tag found in LLM response.")
         return None
     start_tool += len(tool_open)
     end_tool = llm_response.find(tool_close, start_tool)
     if end_tool == -1:
-        logger.error("No </tool_call> tag found in LLM response.")
+        logger.warning("No </tool_call> tag found in LLM response.")
         return None
     try:
         tool_call = json.loads(llm_response[start_tool:end_tool].strip())
