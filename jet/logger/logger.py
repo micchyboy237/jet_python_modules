@@ -33,15 +33,14 @@ class CustomLogger:
         overwrite: bool = False,
         console_level: Literal["DEBUG", "INFO",
                                "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
-        level: Literal["DEBUG", "INFO",
-                       "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
+        level: Literal["DEBUG", "INFO", "WARNING",
+                       "ERROR", "CRITICAL"] = "DEBUG",
         fmt: Union[str, logging.Formatter] = "%(message)s",
     ):
         self.log_file = log_file
         if self.log_file:
             log_dir = os.path.dirname(os.path.abspath(self.log_file))
             os.makedirs(log_dir, exist_ok=True)
-
         self.name = name
         self.overwrite = overwrite
         self.console_level = console_level.upper()
@@ -59,7 +58,8 @@ class CustomLogger:
         logger.setLevel(logging.DEBUG)
         logger.handlers.clear()
 
-        console_handler = logging.StreamHandler()
+        # Use sys.stdout for console output
+        console_handler = logging.StreamHandler(stream=sys.stdout)
         console_handler.setLevel(self.console_level)
         console_handler.setFormatter(self.formatter)
         logger.addHandler(console_handler)
@@ -67,11 +67,10 @@ class CustomLogger:
         if self.log_file:
             if self.overwrite and os.path.exists(self.log_file):
                 os.remove(self.log_file)
-            file_handler = logging.FileHandler(self.log_file)
+            file_handler = logging.FileHandler(self.log_file, mode='a')
             file_handler.setLevel(self.level)
             file_handler.setFormatter(self.formatter)
             logger.addHandler(file_handler)
-
         return logger
 
     def addHandler(self, handler: logging.Handler) -> None:
@@ -246,28 +245,24 @@ class CustomLogger:
             }
             if level_map.get(level.upper(), 10) < level_map.get(self.console_level, 10):
                 return
-
-            # Convert message to string to handle non-string types
             message = str(message)
-            if "%" in message and args:
+            formatted_args = tuple(str(arg) for arg in args)
+            if "%" in message and formatted_args:
                 try:
-                    message = message % tuple(str(arg) for arg in args)
-                    args = ()
+                    message = message % formatted_args
+                    formatted_args = ()  # Clear args after formatting to avoid duplication
                 except (TypeError, ValueError) as e:
                     self.warning(
                         f"Failed to format message '{message}' with args {args}: {str(e)}")
-
             if colors is None:
                 colors = [f"BRIGHT_{level}" if bright else level]
             else:
                 colors = [f"BRIGHT_{c}" if bright and c.upper(
                 ) in level_map else c for c in colors]
                 colors = colors * \
-                    ((len(args) + 1 + len(colors) - 1) // len(colors))
-
-            messages = [message] + [str(arg) for arg in args]
+                    ((len(formatted_args) + 1 + len(colors) - 1) // len(colors))
+            messages = [message] + [str(arg) for arg in formatted_args]
             processed_messages = []
-
             for i, msg in enumerate(messages):
                 parsed_message = parse_json(msg)
                 if isinstance(parsed_message, (dict, list)):
@@ -276,7 +271,6 @@ class CustomLogger:
                     msg, str) else str(msg)
                 processed_messages.append(
                     (msg, colors[i % len(colors)] if colors else level))
-
             colored_output = ""
             try:
                 if hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno()):
@@ -291,7 +285,6 @@ class CustomLogger:
                 colored_output = " ".join(msg for msg, _ in processed_messages)
                 print(
                     f"[WARNING] Fallback to non-colored output due to io.UnsupportedOperation")
-
             if level.lower() == "error" and exc_info:
                 error_msg = colorize_log("Trace exception:", "gray")
                 try:
@@ -301,7 +294,7 @@ class CustomLogger:
                     error_msg = clean_ansi(error_msg)
                     print(
                         f"[WARNING] Fallback to non-colored error message due to io.UnsupportedOperation")
-                print(error_msg)
+                print(error_msg, flush=True)
                 error_trace = colorize_log(traceback.format_exc(), level)
                 try:
                     if not (hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno())):
@@ -310,12 +303,10 @@ class CustomLogger:
                     error_trace = clean_ansi(error_trace)
                     print(
                         f"[WARNING] Fallback to non-colored error trace due to io.UnsupportedOperation")
-                print(error_trace)
-
+                print(error_trace, flush=True)
             if not end:
                 end = "" if flush else "\n"
-            print(colored_output, end=end)
-
+            print(colored_output, end=end, flush=True)
             target_log_file = log_file if log_file is not None else self.log_file
             if target_log_file:
                 log_dir = os.path.dirname(os.path.abspath(target_log_file))
@@ -325,7 +316,6 @@ class CustomLogger:
                 end = "" if flush else "\n\n"
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 metadata = f"[{level.upper()}] {timestamp}"
-
                 with open(target_log_file, "a") as file:
                     if not flush and self._last_message_flushed:
                         file.write("\n\n")
@@ -333,9 +323,7 @@ class CustomLogger:
                         file.write(metadata + "\n")
                     file.write(clean_ansi(
                         " ".join(msg for msg, _ in processed_messages)) + end)
-
                 self._last_message_flushed = flush
-
         return wrapper
 
     def newline(self) -> None:

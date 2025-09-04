@@ -56,13 +56,14 @@ class ColoredFormatter(logging.Formatter):
 
 # Configure logger
 def configure_logger():
+    import sys
     from shared.setup.logger_hooks import import_tracker, RefreshableLoggerHandler
 
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 
     # Console handler with colored formatter
-    console_handler = logging.StreamHandler()
+    console_handler = logging.StreamHandler(stream=sys.stdout)
     # formatter = ColoredFormatter("[%(levelname)s] %(message)s")
     # console_handler.setFormatter(formatter)
 
