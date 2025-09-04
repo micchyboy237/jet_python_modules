@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, TypedDict, Union, Literal
+from typing import Dict, List, Optional, Tuple, TypedDict, Union, Literal
 
 
 class Message(TypedDict):
@@ -23,6 +23,7 @@ class ChatCompletionRequest(TypedDict):
     logprobs: Optional[int]
     seed: Optional[int]
     stop: Optional[Union[str, List[str]]]
+    stream: Optional[bool]
     stream_options: Optional[Dict[str, bool]]
     role_mapping: Optional[Dict[str, str]]
     tools: Optional[List[Dict[str, str]]]
@@ -30,10 +31,10 @@ class ChatCompletionRequest(TypedDict):
 
 class ChatChoice(TypedDict):
     index: int
-    message: Dict[str, Union[str, List[Dict[str, str]]]]
+    message: Dict[str, Union[str, List[Dict[str, Union[str, Dict[str, str]]]]]]
     finish_reason: Optional[Literal["stop", "length"]]
     logprobs: Optional[Dict[str, Union[List[float],
-                                       List[Dict[int, float]], List[int]]]]
+                                       List[List[Tuple[int, float]]], List[int]]]]
 
 
 class ChatCompletionResponse(TypedDict):
@@ -63,6 +64,7 @@ class TextCompletionRequest(TypedDict):
     logprobs: Optional[int]
     seed: Optional[int]
     stop: Optional[Union[str, List[str]]]
+    stream: Optional[bool]
     stream_options: Optional[Dict[str, bool]]
 
 
@@ -71,7 +73,7 @@ class TextChoice(TypedDict):
     text: str
     finish_reason: Optional[Literal["stop", "length"]]
     logprobs: Optional[Dict[str, Union[List[float],
-                                       List[Dict[int, float]], List[int]]]]
+                                       List[List[Tuple[int, float]]], List[int]]]]
 
 
 class TextCompletionResponse(TypedDict):

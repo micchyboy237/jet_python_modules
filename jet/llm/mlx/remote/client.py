@@ -1,5 +1,6 @@
-from typing import Dict, List, Optional, Union, Literal
+import json
 import requests
+from typing import Dict, List, Optional, Union, Literal
 from jet.llm.mlx.remote.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
