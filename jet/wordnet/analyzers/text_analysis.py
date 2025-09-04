@@ -149,21 +149,23 @@ def get_readability_description(category: OverallDifficultyCategoryType) -> str:
     return category_map.get(category, "N/A")
 
 
-def calculate_mtld(text_stats: MTLDScores) -> float:
+def calculate_mtld(text: str, ttr_threshold: float = 0.72) -> float:
     """
-    Calculates the Measure of Textual Lexical Diversity (MTLD) for the given text stats.
+    Calculate the Measure of Textual Lexical Diversity (MTLD) for a given text.
+
+    MTLD is a measure of lexical diversity that is less sensitive to text length than traditional type-token ratio (TTR).
+    It segments the text into factors where the TTR falls below a threshold (typically 0.72), and the MTLD score is the average segment length.
 
     Args:
-        text_stats: Dictionary containing text analysis metrics from analyze_text,
-                   including 'text_without_punctuation' and 'lexicon_count'.
+        text (str): The input text to analyze.
 
     Returns:
         float: The MTLD score, representing lexical diversity.
                Returns 0.0 for texts with fewer than 10 words or invalid input.
     """
     # Extract required metrics from text_stats
-    text = text_stats.get('text_without_punctuation', '')
-    lexicon_count = text_stats.get('lexicon_count', 0)
+    text = ts.remove_punctuation(text)
+    lexicon_count = ts.lexicon_count(text, removepunct=True)
 
     # Return 0.0 for short or invalid texts
     if not text or lexicon_count < 10:
@@ -180,9 +182,6 @@ def calculate_mtld(text_stats: MTLDScores) -> float:
     if lexicon_count < 10:
         return 0.0
 
-    # Define TTR threshold for segmenting
-    TTR_THRESHOLD = 0.72
-
     def compute_factors(word_list: list[str]) -> float:
         """Computes the number of factors and their average length for a word list."""
         factor_count = 0.0  # Use float for partial factors
@@ -196,7 +195,7 @@ def calculate_mtld(text_stats: MTLDScores) -> float:
                 len(current_words) if current_words else 1.0
 
             # Complete factor only if TTR drops below threshold and segment is long enough
-            if ttr < TTR_THRESHOLD and len(current_words) >= 15:
+            if ttr < ttr_threshold and len(current_words) >= 15:
                 factor_count += 1
                 current_words = []
                 unique_words = set()
@@ -205,11 +204,11 @@ def calculate_mtld(text_stats: MTLDScores) -> float:
         if current_words:
             ttr = len(unique_words) / \
                 len(current_words) if current_words else 1.0
-            if ttr >= TTR_THRESHOLD or len(current_words) >= 15:
+            if ttr >= ttr_threshold or len(current_words) >= 15:
                 factor_count += 1  # Count as full factor if diverse or long
             else:
                 # Proportional contribution
-                factor_count += min(ttr / TTR_THRESHOLD, 1.0)
+                factor_count += min(ttr / ttr_threshold, 1.0)
 
         # Return average factor length
         total_words = len(word_list)
@@ -327,11 +326,7 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
     }
 
     # Compute mtld scores
-    mtld_scores: MTLDScores = {
-        "text_without_punctuation": ts.remove_punctuation(text),
-        "lexicon_count": ts.lexicon_count(text, removepunct=True),
-    }
-    mtld = calculate_mtld(mtld_scores)
+    mtld = calculate_mtld(text)
     mtld_category = calculate_mtld_category(mtld)
 
     overall_difficulty = calculate_overall_difficulty(scores, thresholds)
@@ -531,11 +526,7 @@ def analyze_readability(text: str) -> ReadabilityResult:
         weight = weights.get(metric, 0)
         weighted_scores[category_label] += weight
 
-    mtld_scores: MTLDScores = {
-        "text_without_punctuation": ts.remove_punctuation(text),
-        "lexicon_count": ts.lexicon_count(text, removepunct=True),
-    }
-    mtld = calculate_mtld(mtld_scores)
+    mtld = calculate_mtld(text)
     mtld_category = calculate_mtld_category(mtld)
 
     overall_difficulty = calculate_overall_difficulty(scores, thresholds)

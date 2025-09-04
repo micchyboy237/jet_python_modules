@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, UTC
-from typing import Any, Literal, Union, List
+import shutil
+from typing import Any, Literal, Optional, Union, List
 from uuid import uuid4
 
 from jet.file.utils import save_file
@@ -22,13 +23,15 @@ class ChatLogger:
         self,
         log_dir: str,
         method: Literal["chat", "stream_chat", "generate", "stream_generate"],
-        limit: int = 15
+        limit: Optional[int] = None
     ):
         self.log_dir = log_dir
         self.method = method
         self.limit = limit
-        os.makedirs(log_dir, exist_ok=True)
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        shutil.rmtree(log_dir, ignore_errors=True)
+        os.makedirs(log_dir, exist_ok=True)
 
     def log_interaction(
         self,
