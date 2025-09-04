@@ -1,6 +1,5 @@
 import os
 from datetime import datetime, UTC
-import shutil
 from typing import Any, Literal, Optional, Union, List
 from uuid import uuid4
 
@@ -30,7 +29,6 @@ class ChatLogger:
         self.limit = limit
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        shutil.rmtree(log_dir, ignore_errors=True)
         os.makedirs(log_dir, exist_ok=True)
 
     def log_interaction(
