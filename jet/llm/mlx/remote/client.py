@@ -12,8 +12,10 @@ from jet.llm.mlx.remote.types import (
 
 
 class MLXRemoteClient:
-    def __init__(self, base_url: str = "http://jethros-macbook-air.local:8080"):
+    def __init__(self, base_url: Optional[str] = None):
         """Initialize the MLX remote client with the server base URL."""
+        if base_url is None:
+            base_url = "http://jethros-macbook-air.local:8080"
         self.base_url = base_url.rstrip("/")
 
     def health_check(self) -> HealthResponse:

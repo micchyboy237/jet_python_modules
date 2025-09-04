@@ -21,7 +21,7 @@ def get_models(
 ) -> ModelsResponse:
     """Retrieve available models from the remote MLX server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url or "http://localhost:8080")
+        client = MLXRemoteClient(base_url=base_url)
     return client.list_models(repo_id=repo_id)
 
 
@@ -31,7 +31,7 @@ def health_check(
 ) -> HealthResponse:
     """Health check for the remote MLX server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url or "http://localhost:8080")
+        client = MLXRemoteClient(base_url=base_url)
     return client.health_check()
 
 
@@ -100,7 +100,7 @@ def chat(
 ) -> ChatCompletionResponse:
     """Create a chat completion via the remote server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url or "http://localhost:8080")
+        client = MLXRemoteClient(base_url=base_url)
 
     hist = history or ChatHistory()
     request_messages = prepare_messages(
@@ -162,7 +162,7 @@ def stream_chat(
 ) -> Iterator[ChatCompletionResponse]:
     """Stream chat completion chunks via the remote server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url or "http://localhost:8080")
+        client = MLXRemoteClient(base_url=base_url)
 
     hist = history or ChatHistory()
     request_messages = prepare_messages(
@@ -220,7 +220,7 @@ def generate(
 ) -> TextCompletionResponse:
     """Create a text completion via the remote server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url or "http://localhost:8080")
+        client = MLXRemoteClient(base_url=base_url)
 
     req: TextCompletionRequest = {
         "prompt": prompt,
@@ -270,7 +270,7 @@ def stream_generate(
 ) -> Iterator[TextCompletionResponse]:
     """Stream text completion chunks via the remote server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url or "http://localhost:8080")
+        client = MLXRemoteClient(base_url=base_url)
 
     req: TextCompletionRequest = {
         "prompt": prompt,
