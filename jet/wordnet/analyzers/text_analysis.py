@@ -308,9 +308,6 @@ def analyze_text(text: str, miniword_max_size: int = 3, syllable_threshold: int 
     Returns:
         TextStats: Dictionary containing various text analysis metrics
     """
-    # Preprocess text to remove hyphens between words
-    text = remove_hyphens(text)
-
     # Define thresholds for readability metrics
     thresholds = {
         'flesch_kincaid_grade': {'very_easy': 4, 'easy': 7, 'moderate': 10, 'difficult': 13},
@@ -491,9 +488,6 @@ def analyze_readability(text: str) -> ReadabilityResult:
     Returns:
         ReadabilityResult: Dictionary containing scores, category labels, and overall difficulty
     """
-    # Preprocess text to remove hyphens between words
-    text = remove_hyphens(text)
-
     # Define thresholds for readability metrics
     thresholds = {
         'flesch_kincaid_grade': {'very_easy': 4, 'easy': 7, 'moderate': 10, 'difficult': 13},
@@ -570,34 +564,3 @@ def analyze_readability(text: str) -> ReadabilityResult:
             "avg_sentence_per_word": ts.avg_sentence_per_word(text),
         }
     }
-
-
-def remove_hyphens(text: str) -> str:
-    """
-    Replaces hyphens between words that don't have spaces around them with a space.
-
-    Args:
-        text: Input string to process
-
-    Returns:
-        String with hyphens between words replaced with spaces
-    """
-    if not text:
-        return text
-
-    words = text.split()
-    processed_words = []
-
-    for word in words:
-        # Only process words containing hyphens
-        if '-' in word:
-            # Split on hyphen and join with space if no spaces around hyphen
-            parts = word.split('-')
-            if all(part.strip() for part in parts):
-                processed_words.append(' '.join(parts))
-            else:
-                processed_words.append(word)
-        else:
-            processed_words.append(word)
-
-    return ' '.join(processed_words)
