@@ -21,6 +21,7 @@ from mlx_lm.generate import stream_generate
 from mlx_lm.models.cache import KVCache, make_prompt_cache, trim_prompt_cache, can_trim_prompt_cache
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from mlx_lm.utils import load
+from jet.llm.mlx.cache import calculate_prompt_cache_memory_size, calculate_prompt_cache_disk_size
 from jet.llm.mlx.utils.logit_bias import convert_logit_bias
 from jet.llm.mlx.logger_utils import ChatLogger
 from jet.models.model_types import (
