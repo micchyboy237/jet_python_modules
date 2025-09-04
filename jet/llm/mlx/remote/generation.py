@@ -195,6 +195,23 @@ def stream_chat(
     chunks = client.create_chat_completion(
         req, stream=True)  # List[ChatCompletionResponse]
     for chunk in chunks:  # type: ignore[assignment]
+        new_choices = []
+        for choice in chunk["choices"]:
+            if isinstance(choice, dict) and "delta" in choice:
+                delta = choice.get("delta", {})
+                # Create a new choice dict without "delta"
+                new_choice = {k: v for k, v in choice.items() if k != "delta"}
+                if delta:
+                    # If "message" not present, add it
+                    if "message" not in new_choice:
+                        new_choice["message"] = {}
+                    # Merge delta into message
+                    for k, v in delta.items():
+                        new_choice["message"][k] = v
+                new_choices.append(new_choice)
+            else:
+                new_choices.append(choice)
+        chunk["choices"] = new_choices
         yield chunk
 
 
