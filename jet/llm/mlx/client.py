@@ -250,7 +250,8 @@ class MLXLMClient:
         """Clean up resources when the instance is destroyed."""
         logger.debug("Cleaning up MLXLMClient instance")
         try:
-            self.reset_model()
+            # self.reset_model()
+            pass
         except Exception as e:
             logger.error(f"Error during cleanup: {str(e)}")
         finally:
