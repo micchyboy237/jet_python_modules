@@ -34,6 +34,7 @@ def example_chat():
     response = gen.chat(
         "Write a haiku about the ocean.",
         model=DEFAULT_MODEL,
+        max_tokens=50,
     )
     print(response)
 
@@ -43,11 +44,11 @@ def example_stream_chat():
     for chunk in gen.stream_chat(
         "Explain the benefits of unit testing in Python.",
         model=DEFAULT_MODEL,
+        max_tokens=50,
     ):
         if "choices" in chunk and chunk["choices"]:
-            delta = chunk["choices"][0].get("delta", {}).get("content")
-            if delta:
-                print(delta, end="", flush=True)
+            content = chunk["choices"][0]["message"]["content"]
+            print(content, end="", flush=True)
     print("\n--- Stream End ---")
 
 
@@ -84,6 +85,7 @@ def example_chat_with_history():
         model=DEFAULT_MODEL,
         with_history=True,
         history=history,
+        max_tokens=50,
     )
     print("Assistant:", response1)
 
@@ -92,6 +94,7 @@ def example_chat_with_history():
         model=DEFAULT_MODEL,
         with_history=True,
         history=history,
+        max_tokens=50,
     )
     print("Assistant:", response2)
 
