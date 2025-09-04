@@ -95,7 +95,7 @@ class CustomLogger:
             handler.setLevel(level)
         print(f"DEBUG: Set logger level to {level}")
 
-    def setLevel(self, level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]) -> None:
+    def setLevel(self, level: Union[int, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]]) -> None:
         self.set_level(level)
 
     def set_format(self, fmt: Union[str, logging.Formatter]) -> None:

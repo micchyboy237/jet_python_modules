@@ -11,10 +11,11 @@ These examples demonstrate:
 6. Streaming a text generation
 """
 
+import io
 from jet.llm.mlx.remote import generation as gen
 from jet.llm.mlx.chat_history import ChatHistory
 
-DEFAULT_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+DEFAULT_MODEL = None
 
 
 def example_get_models():
@@ -99,6 +100,7 @@ def example_chat_with_history():
     print("Assistant:", response2)
 
 
+# Updated main block to include new examples
 if __name__ == "__main__":
     example_get_models()
     example_health_check()

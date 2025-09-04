@@ -2,13 +2,13 @@ import uuid
 from typing import List, Optional, Union
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from typing import Literal, TypedDict
-from jet.data.utils import generate_hash, generate_unique_hash
+from typing import Literal, TypedDict, Dict
+from jet.data.utils import generate_hash
 from jet.db.postgres.client import PostgresClient
 from jet.db.postgres.config import DEFAULT_HOST, DEFAULT_PASSWORD, DEFAULT_PORT, DEFAULT_USER
-from jet.llm.mlx.client import Message
 from jet.models.model_types import ChatRole
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ ChatRole = Literal["system", "user", "assistant", "tool"]
 class Message(TypedDict):
     role: ChatRole
     content: str
+    tool_calls: Optional[List[Dict]]
 
 
 class DBMessage(Message):
@@ -69,6 +70,7 @@ class PostgresChatMessageHistory:
             "conversation_id": self.conversation_id,
             "role": "system",
             "content": "example",
+            "tool_calls": None,
             "message_order": 1,
             "updated_at": None,
             "created_at": None,
@@ -119,12 +121,15 @@ class PostgresChatMessageHistory:
             f"{self.conversation_id}-{message.get('role', '')}-{message.get('content', '')}-{next_order}"
         )
         now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        tool_calls_json = json.dumps(message.get("tool_calls")) if message.get(
+            "tool_calls") is not None else None
         row_data: DBMessage = {
             "id": id_val,
             "session_id": self.session_id,
             "conversation_id": self.conversation_id,
             "role": message.get("role"),
             "content": message.get("content"),
+            "tool_calls": tool_calls_json,
             "message_order": next_order,
             "updated_at": now,
             "created_at": now,
@@ -156,12 +161,15 @@ class PostgresChatMessageHistory:
                 id_val = generate_hash(
                     f"{self.conversation_id}-{message.get('role', '')}-{message.get('content', '')}-{next_order}"
                 )
+                tool_calls_json = json.dumps(message.get("tool_calls")) if message.get(
+                    "tool_calls") is not None else None
                 row_data: DBMessage = {
                     "id": id_val,
                     "session_id": self.session_id,
                     "conversation_id": self.conversation_id,
                     "role": message.get("role"),
                     "content": message.get("content"),
+                    "tool_calls": tool_calls_json,
                     "message_order": next_order,
                     "updated_at": now,
                     "created_at": now,
@@ -192,6 +200,7 @@ class PostgresChatMessageHistory:
                     "message_order": row["message_order"],
                     "role": row["role"],
                     "content": row["content"],
+                    "tool_calls": json.loads(row["tool_calls"]) if row["tool_calls"] else None,
                     "updated_at": row["updated_at"],
                     "created_at": row["created_at"],
                     "name": row["name"],
@@ -275,10 +284,11 @@ class ChatHistory:
             self.db_history = None
             self.messages = []
 
-    def add_message(self, role: ChatRole, content: str, id: Optional[str] = None, name: Optional[str] = None):
+    def add_message(self, role: ChatRole, content: str, tool_calls: Optional[List[Dict]] = None, id: Optional[str] = None, name: Optional[str] = None):
         """Add a message to the history and persist it if using database."""
         if self.use_db and self.db_history:
-            message: Message = {"role": role, "content": content}
+            message: Message = {"role": role,
+                                "content": content, "tool_calls": tool_calls}
             result = self.db_history.add_message(message, name=name)
             self.messages.append(result)
         else:
@@ -286,6 +296,7 @@ class ChatHistory:
             message: DBMessage = {
                 "role": role,
                 "content": content,
+                "tool_calls": tool_calls,
                 "id": id or generate_hash(f"{self.conversation_id}-{role}-{content}-{len(self.messages) + 1}"),
                 "session_id": self.session_id,
                 "conversation_id": self.conversation_id,
@@ -305,14 +316,17 @@ class ChatHistory:
             return
         current_messages = self.get_messages()
         logger.debug("Current messages: %s", current_messages)
-        existing_keys = {(m["role"], m["content"]) for m in current_messages}
+        existing_keys = {(m["role"], m["content"], str(
+            m.get("tool_calls"))) for m in current_messages}
         new_messages = []
         for message in messages:
-            if (message["role"], message["content"]) not in existing_keys:
+            message_key = (message["role"], message["content"], str(
+                message.get("tool_calls")))
+            if message_key not in existing_keys:
                 new_messages.append(message)
             else:
-                logger.debug("Skipping duplicate message: role=%s, content=%s",
-                             message["role"], message["content"])
+                logger.debug("Skipping duplicate message: role=%s, content=%s, tool_calls=%s",
+                             message["role"], message["content"], message.get("tool_calls"))
         if not new_messages:
             logger.debug("No new messages after filtering duplicates")
             return
@@ -337,6 +351,7 @@ class ChatHistory:
                     "conversation_id": self.conversation_id,
                     "role": message["role"],
                     "content": message["content"],
+                    "tool_calls": message.get("tool_calls"),
                     "message_order": next_order,
                     "updated_at": now,
                     "created_at": now,
@@ -346,7 +361,8 @@ class ChatHistory:
                 self.messages = [
                     m for m in self.messages if m["message_order"] != next_order]
                 self.messages.append(db_message)
-            logger.debug("Added %d messages to history", len(new_messages))
+            logger.debug("Added %d messages to in-memory history",
+                         len(new_messages))
 
     def get_messages(self) -> List[DBMessage]:
         """Return the current list of messages."""

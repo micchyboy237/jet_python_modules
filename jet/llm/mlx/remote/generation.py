@@ -1,5 +1,6 @@
-# jet_python_modules/jet/llm/mlx/remote/generation.py
-from typing import Dict, List, Optional, Tuple, TypedDict, Union, Literal, Iterator
+import logging
+
+from typing import Dict, List, Optional, Union, Literal, Iterator
 
 from jet.llm.mlx.remote.client import MLXRemoteClient
 from jet.llm.mlx.remote.types import (
@@ -18,20 +19,22 @@ def get_models(
     client: Optional[MLXRemoteClient] = None,
     base_url: Optional[str] = None,
     repo_id: Optional[str] = None,
+    verbose: bool = False,
 ) -> ModelsResponse:
     """Retrieve available models from the remote MLX server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url)
+        client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     return client.list_models(repo_id=repo_id)
 
 
 def health_check(
     client: Optional[MLXRemoteClient] = None,
     base_url: Optional[str] = None,
+    verbose: bool = True,
 ) -> HealthResponse:
     """Health check for the remote MLX server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url)
+        client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     return client.health_check()
 
 
@@ -41,7 +44,7 @@ def prepare_messages(
     system_prompt: Optional[str] = None,
     with_history: bool = False,
 ) -> List[Message]:
-    """Prepare messages with optional history and system prompt."""
+    """Prepare messages with optional history and system prompt, ensuring tool_calls are included."""
     if system_prompt and not any(m["role"] == "system" for m in history.get_messages()):
         if with_history:
             history.add_message("system", system_prompt)
@@ -52,7 +55,7 @@ def prepare_messages(
         all_messages: List[Message] = (
             history.get_messages()
             if with_history
-            else [{"role": "user", "content": messages}]
+            else [{"role": "user", "content": messages, "tool_calls": []}]
         )
     elif isinstance(messages, list):
         for msg in messages:
@@ -60,17 +63,33 @@ def prepare_messages(
                 raise ValueError(
                     "Each message must include 'role' and 'content'.")
             if with_history:
-                # content may be str or list[dict[str,str]]; store as-is
-                # type: ignore[arg-type]
-                history.add_message(msg["role"], msg["content"])
+                # Include tool_calls if present, default to empty list if not
+                tool_calls = msg.get("tool_calls", [])
+                history.add_message(
+                    msg["role"],
+                    msg["content"],
+                    tool_calls=tool_calls if isinstance(
+                        tool_calls, list) else []
+                )
         all_messages = history.get_messages() if with_history else messages
     else:
         raise TypeError("messages must be a string or a list of Message dicts")
 
+    # Convert messages to match Message TypedDict, including only role, content, tool_calls
+    formatted_messages: List[Message] = [
+        {
+            "role": msg["role"],
+            "content": msg["content"],
+            "tool_calls": msg.get("tool_calls", [])
+        }
+        for msg in all_messages
+    ]
+
     if system_prompt and not with_history:
-        all_messages = [
-            {"role": "system", "content": system_prompt}] + all_messages
-    return all_messages
+        formatted_messages = [
+            {"role": "system", "content": system_prompt, "tool_calls": []}
+        ] + formatted_messages
+    return formatted_messages
 
 
 def chat(
@@ -97,15 +116,14 @@ def chat(
     system_prompt: Optional[str] = None,
     with_history: bool = False,
     history: Optional[ChatHistory] = None,
+    verbose: bool = False,
 ) -> ChatCompletionResponse:
     """Create a chat completion via the remote server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url)
-
+        client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
     request_messages = prepare_messages(
         messages, hist, system_prompt, with_history)
-
     req: ChatCompletionRequest = {
         "messages": request_messages,
         "model": model,
@@ -128,25 +146,30 @@ def chat(
         "role_mapping": role_mapping,
         "tools": tools,
     }
-    # Remove None fields to keep request clean
     req = {k: v for k, v in req.items() if v is not None}
-    response = client.create_chat_completion(req, stream=False)
-    # Process choices to remove delta and merge into message
+    response = list(client.create_chat_completion(req, stream=False))[0]
     new_choices = []
     for choice in response["choices"]:
         if isinstance(choice, dict) and "delta" in choice:
             delta = choice.get("delta", {})
-            # Create a new choice dict without "delta"
             new_choice = {k: v for k, v in choice.items() if k != "delta"}
             if delta:
-                # If "message" not present, add it
                 if "message" not in new_choice:
                     new_choice["message"] = {}
-                # Merge delta into message
                 for k, v in delta.items():
                     new_choice["message"][k] = v
+            if "message" in new_choice:
+                new_choice["message"] = {
+                    k: v for k, v in new_choice["message"].items()
+                    if k in ["role", "content", "tool_calls"]
+                }
             new_choices.append(new_choice)
         else:
+            if isinstance(choice, dict) and "message" in choice:
+                choice["message"] = {
+                    k: v for k, v in choice["message"].items()
+                    if k in ["role", "content", "tool_calls"]
+                }
             new_choices.append(choice)
     response["choices"] = new_choices
     return response
@@ -176,15 +199,14 @@ def stream_chat(
     system_prompt: Optional[str] = None,
     with_history: bool = False,
     history: Optional[ChatHistory] = None,
+    verbose: bool = False,
 ) -> Iterator[ChatCompletionResponse]:
     """Stream chat completion chunks via the remote server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url)
-
+        client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
     request_messages = prepare_messages(
         messages, hist, system_prompt, with_history)
-
     req: ChatCompletionRequest = {
         "messages": request_messages,
         "model": model,
@@ -207,26 +229,32 @@ def stream_chat(
         "role_mapping": role_mapping,
         "tools": tools,
     }
-    # type: ignore[assignment]
     req = {k: v for k, v in req.items() if v is not None}
     chunks = client.create_chat_completion(
-        req, stream=True)  # List[ChatCompletionResponse]
-    for chunk in chunks:  # type: ignore[assignment]
+        req, stream=True)
+    for chunk in chunks:
         new_choices = []
         for choice in chunk["choices"]:
             if isinstance(choice, dict) and "delta" in choice:
                 delta = choice.get("delta", {})
-                # Create a new choice dict without "delta"
                 new_choice = {k: v for k, v in choice.items() if k != "delta"}
                 if delta:
-                    # If "message" not present, add it
                     if "message" not in new_choice:
                         new_choice["message"] = {}
-                    # Merge delta into message
                     for k, v in delta.items():
                         new_choice["message"][k] = v
+                if "message" in new_choice:
+                    new_choice["message"] = {
+                        k: v for k, v in new_choice["message"].items()
+                        if k in ["role", "content", "tool_calls"]
+                    }
                 new_choices.append(new_choice)
             else:
+                if isinstance(choice, dict) and "message" in choice:
+                    choice["message"] = {
+                        k: v for k, v in choice["message"].items()
+                        if k in ["role", "content", "tool_calls"]
+                    }
                 new_choices.append(choice)
         chunk["choices"] = new_choices
         yield chunk
@@ -251,11 +279,11 @@ def generate(
     stop: Optional[Union[str, List[str]]] = None,
     client: Optional[MLXRemoteClient] = None,
     base_url: Optional[str] = None,
+    verbose: bool = False,
 ) -> TextCompletionResponse:
     """Create a text completion via the remote server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url)
-
+        client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     req: TextCompletionRequest = {
         "prompt": prompt,
         "model": model,
@@ -276,10 +304,8 @@ def generate(
         "stream": False,
         "stream_options": None,
     }
-    # type: ignore[assignment]
     req = {k: v for k, v in req.items() if v is not None}
-    # type: ignore[return-value]
-    return client.create_text_completion(req, stream=False)
+    return list(client.create_text_completion(req, stream=False))[0]
 
 
 def stream_generate(
@@ -301,11 +327,11 @@ def stream_generate(
     stop: Optional[Union[str, List[str]]] = None,
     client: Optional[MLXRemoteClient] = None,
     base_url: Optional[str] = None,
+    verbose: bool = False,
 ) -> Iterator[TextCompletionResponse]:
     """Stream text completion chunks via the remote server."""
     if client is None:
-        client = MLXRemoteClient(base_url=base_url)
-
+        client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     req: TextCompletionRequest = {
         "prompt": prompt,
         "model": model,
@@ -326,11 +352,10 @@ def stream_generate(
         "stream": True,
         "stream_options": None,
     }
-    # type: ignore[assignment]
     req = {k: v for k, v in req.items() if v is not None}
     chunks = client.create_text_completion(
-        req, stream=True)  # List[TextCompletionResponse]
-    for chunk in chunks:  # type: ignore[assignment]
+        req, stream=True)
+    for chunk in chunks:
         yield chunk
 
 

@@ -1,92 +1,190 @@
-import json
+import logging
+from typing import Dict, Optional, Union, List, Iterator
 import requests
-from typing import Dict, List, Optional, Union, Literal
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import json
+
 from jet.llm.mlx.remote.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     TextCompletionRequest,
     TextCompletionResponse,
     ModelsResponse,
-    HealthResponse
+    HealthResponse,
 )
+from jet.logger import logger
+from jet.transformers.formatters import format_json
+
+
+MLX_REMOTE_URL = "http://jethros-macbook-air.local:8080"
 
 
 class MLXRemoteClient:
-    def __init__(self, base_url: Optional[str] = None):
-        """Initialize the MLX remote client with the server base URL."""
-        if base_url is None:
-            base_url = "http://jethros-macbook-air.local:8080"
-        self.base_url = base_url.rstrip("/")
+    """Client for interacting with the MLX server API."""
 
-    def health_check(self) -> HealthResponse:
-        """Check the health status of the MLX server."""
-        response = requests.get(f"{self.base_url}/health")
-        response.raise_for_status()
-        return response.json()
+    def __init__(self, base_url: Optional[str] = None, verbose: bool = False):
+        """Initialize the MLX client with a base URL and verbose logging option."""
+        self.base_url = base_url or MLX_REMOTE_URL
+        self.verbose = verbose
+        self.session = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["POST", "GET"],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+        self.session.headers.update({
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        })
 
     def list_models(self, repo_id: Optional[str] = None) -> ModelsResponse:
-        """List available models, optionally filtered by repo_id."""
+        """List available models from the MLX server."""
         url = f"{self.base_url}/v1/models"
-        if repo_id:
-            url += f"/{repo_id}"
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
+        params = {"repo_id": repo_id} if repo_id else None
+        if self.verbose:
+            logger.info(f"Requesting models from {url} with params: {params}")
+        try:
+            response = self.session.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            if self.verbose:
+                logger.success(
+                    f"Models response:\n{format_json(response.json())}")
+            return response.json()
+        except requests.RequestException as e:
+            if self.verbose:
+                logger.error(f"Failed to list models: {e}")
+            raise
+
+    def health_check(self) -> HealthResponse:
+        """Perform a health check on the MLX server."""
+        url = f"{self.base_url}/health"
+        if self.verbose:
+            logger.info(f"Checking health at {url}")
+        try:
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            if self.verbose:
+                logger.success(f"Health check response: {response.json()}")
+            return response.json()
+        except requests.RequestException as e:
+            if self.verbose:
+                logger.error(f"Health check failed: {e}")
+            raise
 
     def create_chat_completion(
         self,
         request: ChatCompletionRequest,
         stream: bool = False
-    ) -> Union[ChatCompletionResponse, List[ChatCompletionResponse]]:
-        """Create a chat completion with the given request parameters."""
-        headers = {"Content-Type": "application/json"}
-        request_dict = request.copy()
-        request_dict["stream"] = stream
-        response = requests.post(
-            f"{self.base_url}/v1/chat/completions",
-            json=request_dict,
-            headers=headers,
-            stream=stream
-        )
-        response.raise_for_status()
-
-        if stream:
-            result = []
-            for line in response.iter_lines():
-                if line:
-                    decoded = line.decode("utf-8")
-                    if decoded.startswith("data: "):
-                        if decoded == "data: [DONE]":
-                            break
-                        result.append(json.loads(decoded[6:]))
-            return result
-        return response.json()
+    ) -> Union[ChatCompletionResponse, Iterator[ChatCompletionResponse]]:
+        """Create a chat completion via the MLX server."""
+        url = f"{self.base_url}/v1/chat/completions"
+        if self.verbose:
+            logger.info(
+                f"Creating chat completion at {url} with request: {request}")
+        try:
+            response = self.session.post(
+                url,
+                json=request,
+                stream=stream,
+                timeout=(10, 30)
+            )
+            response.raise_for_status()
+            if stream:
+                for line in response.iter_lines(decode_unicode=True, chunk_size=1):
+                    if line:
+                        line = line.strip()
+                        if line.startswith("data: "):
+                            line = line[6:]
+                        if line:
+                            try:
+                                chunk = json.loads(line)
+                                if self.verbose:
+                                    logger.teal(
+                                        chunk["choices"][0]["delta"]["content"], flush=True)
+                                yield chunk
+                                # Check for finish_reason in choices to stop streaming
+                                for choice in chunk.get("choices", []):
+                                    if choice.get("finish_reason") is not None:
+                                        if self.verbose:
+                                            logger.success(
+                                                f"Chat stream completion response:\n{format_json(chunk)}")
+                                        return
+                            except json.JSONDecodeError as e:
+                                if self.verbose:
+                                    logger.warning(
+                                        f"Skipping invalid JSON chunk: {line}, error: {e}")
+                                continue
+            else:
+                result = response.json()
+                if self.verbose:
+                    logger.success(
+                        f"Chat completion response:\n{format_json(result)}")
+                yield result
+        except requests.RequestException as e:
+            if self.verbose:
+                logger.error(f"Chat completion failed: {e}")
+            raise
+        finally:
+            response.close() if 'response' in locals() else None
 
     def create_text_completion(
         self,
         request: TextCompletionRequest,
         stream: bool = False
-    ) -> Union[TextCompletionResponse, List[TextCompletionResponse]]:
-        """Create a text completion with the given request parameters."""
-        headers = {"Content-Type": "application/json"}
-        request_dict = request.copy()
-        request_dict["stream"] = stream
-        response = requests.post(
-            f"{self.base_url}/v1/completions",
-            json=request_dict,
-            headers=headers,
-            stream=stream
-        )
-        response.raise_for_status()
-
-        if stream:
-            result = []
-            for line in response.iter_lines():
-                if line:
-                    decoded = line.decode("utf-8")
-                    if decoded.startswith("data: "):
-                        if decoded == "data: [DONE]":
-                            break
-                        result.append(json.loads(decoded[6:]))
-            return result
-        return response.json()
+    ) -> Union[TextCompletionResponse, Iterator[TextCompletionResponse]]:
+        """Create a text completion via the MLX server."""
+        url = f"{self.base_url}/v1/completions"
+        if self.verbose:
+            logger.info(
+                f"Creating text completion at {url} with request: {request}")
+        try:
+            response = self.session.post(
+                url,
+                json=request,
+                stream=stream,
+                timeout=(10, 30)
+            )
+            response.raise_for_status()
+            if stream:
+                for line in response.iter_lines(decode_unicode=True, chunk_size=1):
+                    if line:
+                        line = line.strip()
+                        if line.startswith("data: "):
+                            line = line[6:]
+                        if line:
+                            try:
+                                chunk = json.loads(line)
+                                if self.verbose:
+                                    logger.teal(
+                                        chunk["choices"][0]["text"], flush=True)
+                                yield chunk
+                                # Check for finish_reason in choices to stop streaming
+                                for choice in chunk.get("choices", []):
+                                    if choice.get("finish_reason") is not None:
+                                        if self.verbose:
+                                            logger.success(
+                                                f"Text stream completion response:\n{format_json(chunk)}")
+                                        return
+                            except json.JSONDecodeError as e:
+                                if self.verbose:
+                                    logger.warning(
+                                        f"Skipping invalid JSON chunk: {line}, error: {e}")
+                                continue
+            else:
+                result = response.json()
+                if self.verbose:
+                    logger.success(
+                        f"Text completion response:\n{format_json(result)}")
+                yield result
+        except requests.RequestException as e:
+            if self.verbose:
+                logger.error(f"Text completion failed: {e}")
+            raise
+        finally:
+            response.close() if 'response' in locals() else None

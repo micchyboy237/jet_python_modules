@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple, TypedDict, Union, Literal
 class Message(TypedDict):
     role: Literal["system", "user", "assistant"]
     content: Union[str, List[Dict[str, str]]]
-    tool_calls: List[Dict]
+    tool_calls: Optional[List[Dict]]
 
 
 class ChatCompletionRequest(TypedDict):
