@@ -27,4 +27,4 @@ XET_CACHE_DIR = os.path.join(HUGGINGFACE_BASE_DIR, "xet")
 HF_TOKEN: Optional[str] = get_hf_token()
 
 # LLM Config
-DEFAULT_MODEL: LLMModelType = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
+DEFAULT_MODEL: LLMModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit"

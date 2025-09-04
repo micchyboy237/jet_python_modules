@@ -62,8 +62,8 @@ class Usage(TypedDict):
 class ModelInfo(TypedDict):
     id: str
     object: str
-    created: Optional[Union[int, float]]
-    modified: Optional[Union[int, float]]
+    created: Optional[int]
+    modified: Optional[int]
 
 
 class ModelsResponse(TypedDict):

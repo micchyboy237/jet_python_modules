@@ -105,8 +105,8 @@ class MLXLMClient:
             {
                 "id": repo.repo_id,
                 "object": "model",
-                "created": repo.repo_path.stat().st_ctime if isinstance(repo.repo_path, Path) else None,
-                "modified": repo.last_modified,
+                "created": int(repo.repo_path.stat().st_ctime) if isinstance(repo.repo_path, Path) else None,
+                "modified": int(repo.last_modified),
             }
             for repo in downloaded_models
         ]
