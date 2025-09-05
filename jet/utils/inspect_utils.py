@@ -1,8 +1,10 @@
-from pathlib import Path
 import sys
 import traceback
 import inspect
 import os
+import re
+
+from pathlib import Path
 from collections import defaultdict
 from typing import Any, Dict, Optional, TypedDict, get_type_hints
 
@@ -306,14 +308,22 @@ def get_method_info(method: Any) -> MethodInfo:
     if docstring:
         # Parse docstring for parameter descriptions
         doc_lines = docstring.splitlines()
+        in_args_section = False
         for line in doc_lines:
             line = line.strip()
-            if line.startswith(":param"):
-                parts = line.split(":", 2)
-                if len(parts) > 2:
-                    param_name = parts[1].strip().split()[-1]
-                    param_desc = parts[2].strip()
-                    param_descriptions[param_name] = param_desc
+            if line.startswith("Args:"):
+                in_args_section = True
+                continue
+            if in_args_section:
+                # Check if we've moved to another section (e.g., Returns)
+                if line.startswith(("Returns:", "Raises:", "Examples:")) or line == "":
+                    in_args_section = False
+                    continue
+                # Match parameter lines, e.g., "a (int): The first number"
+                match = re.match(r"^\s*(\w+)\s*\([^)]+\):\s*(.+)$", line)
+                if match:
+                    param_name, param_desc = match.groups()
+                    param_descriptions[param_name] = param_desc.strip()
 
     # Build properties for each parameter
     for name in required_params:
@@ -324,7 +334,8 @@ def get_method_info(method: Any) -> MethodInfo:
 
     return {
         "name": method.__name__,
-        "description": docstring,
+        # Use only the first paragraph as description
+        "description": docstring.split("\n\n")[0],
         "parameters": {
             "type": "object",
             "required": required_params,
