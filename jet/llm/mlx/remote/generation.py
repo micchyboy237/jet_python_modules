@@ -33,14 +33,14 @@ def prepare_messages(
         all_messages: List[Message] = (
             history.get_messages()
             if with_history
-            else [{"role": "user", "content": messages, "tool_calls": []}]
+            else [{"role": "user", "content": messages, "tool_calls": None}]
         )
     elif isinstance(messages, list):
         for msg in messages:
             if "role" not in msg or "content" not in msg:
                 raise ValueError(
                     "Each message must include 'role' and 'content'.")
-            tool_calls = msg.get("tool_calls", [])
+            tool_calls = msg.get("tool_calls", None)
             if tool_calls:
                 for call in tool_calls:
                     if not isinstance(call, dict) or "function" not in call or call.get("type") != "function":
@@ -51,7 +51,7 @@ def prepare_messages(
                     msg["role"],
                     msg["content"],
                     tool_calls=tool_calls if isinstance(
-                        tool_calls, list) else []
+                        tool_calls, list) else None
                 )
         all_messages = history.get_messages() if with_history else messages
     else:
@@ -60,13 +60,13 @@ def prepare_messages(
         {
             "role": msg["role"],
             "content": msg["content"],
-            "tool_calls": msg.get("tool_calls", [])
+            "tool_calls": msg.get("tool_calls", None)
         }
         for msg in all_messages
     ]
     if system_prompt and not with_history:
         formatted_messages = [
-            {"role": "system", "content": system_prompt, "tool_calls": []}
+            {"role": "system", "content": system_prompt, "tool_calls": None}
         ] + formatted_messages
     non_system_messages = [
         m for m in formatted_messages if m["role"] != "system"]
@@ -156,7 +156,7 @@ def chat(
         for choice in response["choices"]:
             if choice.get("message", {}).get("role") == "assistant":
                 content = choice["message"].get("content", "")
-                tool_calls = choice["message"].get("tool_calls", [])
+                tool_calls = choice["message"].get("tool_calls", None)
                 if content:
                     assistant_content.append(content)
                 if tool_calls:
@@ -189,7 +189,6 @@ def chat(
                 message = choice["message"]
                 formatted_tool_calls = []
                 try:
-                    # Use tool_calls if not empty, else use content
                     parse_input = message.get("tool_calls") if message.get(
                         "tool_calls") else message.get("content", "")
                     parsed_tool_calls = parse_and_evaluate(str(parse_input))
@@ -197,7 +196,6 @@ def chat(
                         parsed_tool_calls = [parsed_tool_calls]
                     for call in parsed_tool_calls:
                         if isinstance(call, dict):
-                            # Handle both wrapped and unwrapped tool calls
                             tool_call = call.get("function", call)
                             if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
                                 formatted_tool_calls.append({
@@ -213,10 +211,10 @@ def chat(
                 new_message = {
                     "role": message.get("role", "assistant"),
                     "content": message.get("content", ""),
-                    "tool_calls": formatted_tool_calls
+                    "tool_calls": formatted_tool_calls if formatted_tool_calls else None
                 }
                 choice["message"] = new_message
-                assistant_tool_calls.extend(formatted_tool_calls)
+                assistant_tool_calls.extend(formatted_tool_calls or [])
             new_choices.append(choice)
     response["choices"] = new_choices
     response["content"] = "".join(
@@ -312,7 +310,7 @@ def stream_chat(
                         new_choice["message"][k] = v
                 if "message" in new_choice:
                     content = new_choice["message"].get("content", "")
-                    tool_calls = new_choice["message"].get("tool_calls", [])
+                    tool_calls = new_choice["message"].get("tool_calls", None)
                     if content:
                         assistant_content.append(content)
                     new_message = {
@@ -327,7 +325,6 @@ def stream_chat(
                 content = "".join(assistant_content)
                 message = new_choice["message"]
                 try:
-                    # Use tool_calls if not empty, else use content
                     parse_input = message.get("tool_calls") if message.get(
                         "tool_calls") else content
                     parsed_tool_calls = parse_and_evaluate(
@@ -336,7 +333,6 @@ def stream_chat(
                         parsed_tool_calls = [parsed_tool_calls]
                     for call in parsed_tool_calls:
                         if isinstance(call, dict):
-                            # Handle both wrapped and unwrapped tool calls
                             tool_call = call.get("function", call)
                             if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
                                 formatted_tool_calls.append({
@@ -352,12 +348,11 @@ def stream_chat(
                 new_message = {
                     "role": message.get("role", "assistant"),
                     "content": message.get("content", ""),
-                    "tool_calls": formatted_tool_calls
+                    "tool_calls": formatted_tool_calls if formatted_tool_calls else None
                 }
                 new_choice["message"] = new_message
-                assistant_tool_calls.extend(formatted_tool_calls)
+                assistant_tool_calls.extend(formatted_tool_calls or [])
                 new_choices.append(new_choice)
-
                 if with_history:
                     hist.add_message(
                         role="assistant",

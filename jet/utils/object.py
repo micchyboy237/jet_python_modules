@@ -91,6 +91,28 @@ def extract_null_keys(data: Union[dict, list], parent_key: str = "") -> list[str
     return null_keys
 
 
+def remove_null_keys(data: Union[dict, list]) -> Union[dict, list]:
+    """
+    Recursively remove all key-value pairs where the value is None from a dictionary,
+    including nested dictionaries and dictionaries within lists.
+
+    Args:
+        data: Input dictionary or list that may contain None values.
+
+    Returns:
+        A new dictionary or list with all None values removed.
+    """
+    if isinstance(data, dict):
+        return {
+            key: remove_null_keys(value)
+            for key, value in data.items()
+            if value is not None
+        }
+    elif isinstance(data, list):
+        return [remove_null_keys(item) for item in data]
+    return data
+
+
 def max_getattr(obj, attr_name, default=None):
     """
     Find the maximum value of `attr_name` across shallow and nested attributes.
@@ -121,6 +143,7 @@ __all__ = [
     "get_values_by_paths",
     "extract_values_by_paths",
     "extract_null_keys",
+    "remove_null_keys",
     "max_getattr",
 ]
 

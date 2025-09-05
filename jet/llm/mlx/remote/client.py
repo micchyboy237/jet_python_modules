@@ -15,6 +15,7 @@ from jet.llm.mlx.remote.types import (
 )
 from jet.logger import logger
 from jet.transformers.formatters import format_json
+from jet.utils.object import remove_null_keys
 
 
 MLX_REMOTE_URL = "http://jethros-macbook-air.local:8080"
@@ -84,13 +85,15 @@ class MLXRemoteClient:
     ) -> Union[ChatCompletionResponse, Iterator[ChatCompletionResponse]]:
         """Create a chat completion via the MLX server."""
         url = f"{self.base_url}/v1/chat/completions"
+        # Remove None values from the request
+        cleaned_request = remove_null_keys(request)
         if self.verbose:
             logger.info(f"Creating chat completion at {url} with request:")
-            logger.debug(format_json(request))
+            logger.debug(format_json(cleaned_request))
         try:
             response = self.session.post(
                 url,
-                json=request,
+                json=cleaned_request,
                 stream=stream,
                 timeout=(10, 30)
             )
@@ -140,13 +143,15 @@ class MLXRemoteClient:
     ) -> Union[TextCompletionResponse, Iterator[TextCompletionResponse]]:
         """Create a text completion via the MLX server."""
         url = f"{self.base_url}/v1/completions"
+        # Remove None values from the request
+        cleaned_request = remove_null_keys(request)
         if self.verbose:
             logger.info(f"Creating text completion at {url} with request:")
-            logger.debug(format_json(request))
+            logger.debug(format_json(cleaned_request))
         try:
             response = self.session.post(
                 url,
-                json=request,
+                json=cleaned_request,
                 stream=stream,
                 timeout=(10, 30)
             )
