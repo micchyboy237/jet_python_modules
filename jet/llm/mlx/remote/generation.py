@@ -188,26 +188,28 @@ def chat(
             if isinstance(choice, dict) and "message" in choice:
                 message = choice["message"]
                 formatted_tool_calls = []
-                try:
-                    parse_input = message.get("tool_calls") if message.get(
-                        "tool_calls") else message.get("content", "")
-                    parsed_tool_calls = parse_and_evaluate(str(parse_input))
-                    if parsed_tool_calls and not isinstance(parsed_tool_calls, list):
-                        parsed_tool_calls = [parsed_tool_calls]
-                    for call in parsed_tool_calls:
-                        if isinstance(call, dict):
-                            tool_call = call.get("function", call)
-                            if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
-                                formatted_tool_calls.append({
-                                    "type": "function",
-                                    "function": {
-                                        "name": tool_call["name"],
-                                        "arguments": tool_call.get("arguments", tool_call.get("parameters", {}))
-                                    }
-                                })
-                except ValueError as e:
-                    logger.warning(f"Failed to parse tool_calls: {e}")
-                    formatted_tool_calls = []
+                if message.get("tool_calls", None):
+                    try:
+                        parse_input = message.get("tool_calls") if message.get(
+                            "tool_calls") else message.get("content", "")
+                        parsed_tool_calls = parse_and_evaluate(
+                            str(parse_input))
+                        if parsed_tool_calls and not isinstance(parsed_tool_calls, list):
+                            parsed_tool_calls = [parsed_tool_calls]
+                        for call in parsed_tool_calls:
+                            if isinstance(call, dict):
+                                tool_call = call.get("function", call)
+                                if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
+                                    formatted_tool_calls.append({
+                                        "type": "function",
+                                        "function": {
+                                            "name": tool_call["name"],
+                                            "arguments": tool_call.get("arguments", tool_call.get("parameters", {}))
+                                        }
+                                    })
+                    except ValueError as e:
+                        logger.warning(f"Failed to parse tool_calls: {e}")
+                        formatted_tool_calls = []
                 new_message = {
                     "role": message.get("role", "assistant"),
                     "content": message.get("content", ""),
@@ -324,27 +326,28 @@ def stream_chat(
                 formatted_tool_calls = []
                 content = "".join(assistant_content)
                 message = new_choice["message"]
-                try:
-                    parse_input = message.get("tool_calls") if message.get(
-                        "tool_calls") else content
-                    parsed_tool_calls = parse_and_evaluate(
-                        str(parse_input))
-                    if parsed_tool_calls and not isinstance(parsed_tool_calls, list):
-                        parsed_tool_calls = [parsed_tool_calls]
-                    for call in parsed_tool_calls:
-                        if isinstance(call, dict):
-                            tool_call = call.get("function", call)
-                            if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
-                                formatted_tool_calls.append({
-                                    "type": "function",
-                                    "function": {
-                                        "name": tool_call["name"],
-                                        "arguments": tool_call.get("arguments", tool_call.get("parameters", {}))
-                                    }
-                                })
-                except ValueError as e:
-                    logger.warning(f"Failed to parse tool_calls: {e}")
-                    formatted_tool_calls = []
+                if message.get("tool_calls", None):
+                    try:
+                        parse_input = message.get("tool_calls") if message.get(
+                            "tool_calls") else content
+                        parsed_tool_calls = parse_and_evaluate(
+                            str(parse_input))
+                        if parsed_tool_calls and not isinstance(parsed_tool_calls, list):
+                            parsed_tool_calls = [parsed_tool_calls]
+                        for call in parsed_tool_calls:
+                            if isinstance(call, dict):
+                                tool_call = call.get("function", call)
+                                if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
+                                    formatted_tool_calls.append({
+                                        "type": "function",
+                                        "function": {
+                                            "name": tool_call["name"],
+                                            "arguments": tool_call.get("arguments", tool_call.get("parameters", {}))
+                                        }
+                                    })
+                    except ValueError as e:
+                        logger.warning(f"Failed to parse tool_calls: {e}")
+                        formatted_tool_calls = []
                 new_message = {
                     "role": message.get("role", "assistant"),
                     "content": message.get("content", ""),

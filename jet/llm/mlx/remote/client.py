@@ -119,9 +119,6 @@ class MLXRemoteClient:
                                                 f"Chat stream completion response:\n{format_json(chunk)}")
                                         return
                             except json.JSONDecodeError as e:
-                                if self.verbose:
-                                    logger.warning(
-                                        f"Skipping invalid JSON chunk: {line}, error: {e}")
                                 continue
             else:
                 result = response.json()
@@ -177,9 +174,6 @@ class MLXRemoteClient:
                                                 f"Text stream completion response:\n{format_json(chunk)}")
                                         return
                             except json.JSONDecodeError as e:
-                                if self.verbose:
-                                    logger.warning(
-                                        f"Skipping invalid JSON chunk: {line}, error: {e}")
                                 continue
             else:
                 result = response.json()
