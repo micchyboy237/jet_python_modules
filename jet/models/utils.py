@@ -62,7 +62,7 @@ def resolve_model_value(model: ModelType) -> ModelValue:
     """
     if model in ALL_MODELS:
         return ALL_MODELS[model]
-    if model in ALL_MODELS.values():
+    if model in ALL_MODELS.values() or "/" in model:
         return model
     raise ValueError(
         f"Invalid model: {model}. Must be one of: "
