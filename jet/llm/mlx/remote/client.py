@@ -95,7 +95,7 @@ class MLXRemoteClient:
                 url,
                 json=cleaned_request,
                 stream=stream,
-                timeout=(10, 30)
+                timeout=(10, 300)
             )
             response.raise_for_status()
             if stream:
@@ -150,7 +150,7 @@ class MLXRemoteClient:
                 url,
                 json=cleaned_request,
                 stream=stream,
-                timeout=(10, 30)
+                timeout=(10, 300)
             )
             response.raise_for_status()
             if stream:
