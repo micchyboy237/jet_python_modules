@@ -12,7 +12,7 @@ from jet.models.config import MODELS_CACHE_DIR, XET_CACHE_DIR
 from jet.models.model_types import ModelType
 from jet.models.download_onnx_model import download_onnx_model
 from jet.models.utils import resolve_model_value
-from models.onnx_model_checker import has_onnx_model_in_repo
+from jet.models.onnx_model_checker import has_onnx_model_in_repo
 
 
 def remove_cache_locks(cache_dir: str = MODELS_CACHE_DIR, max_attempts: int = 5, wait_interval: float = 0.1) -> None:
