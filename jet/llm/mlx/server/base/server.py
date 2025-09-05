@@ -987,11 +987,7 @@ class APIHandler(BaseHTTPRequestHandler):
         try:
             if requested_model != self.model_provider.model_key[0] or not hasattr(self, 'tokenizer'):
                 logging.debug(f"Loading model: {requested_model}")
-                model, tokenizer = self.model_provider.load(
-                    requested_model,
-                    adapter_path=None,
-                    draft_model_path=None
-                )
+                model, tokenizer = load(requested_model)
             else:
                 logging.debug(f"Using existing tokenizer for model: {requested_model}")
                 tokenizer = self.tokenizer
