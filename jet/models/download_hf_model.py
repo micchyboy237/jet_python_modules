@@ -12,6 +12,7 @@ from jet.models.config import MODELS_CACHE_DIR, XET_CACHE_DIR
 from jet.models.model_types import ModelType
 from jet.models.download_onnx_model import download_onnx_model
 from jet.models.utils import resolve_model_value
+from models.onnx_model_checker import has_onnx_model_in_repo
 
 
 def remove_cache_locks(cache_dir: str = MODELS_CACHE_DIR, max_attempts: int = 5, wait_interval: float = 0.1) -> None:
@@ -96,10 +97,6 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
             f"Download timed out after {timeout} seconds for {model_path}")
         raise
 
-    download_onnx_model(repo_id)
-
-    remove_download_cache()
-
 
 if __name__ == "__main__":
     repo_id = "mlx-community/Mistral-7B-Instruct-v0.3-4bit"
@@ -110,6 +107,11 @@ if __name__ == "__main__":
     try:
         logger.info(f"Removing lock files from cache directory: {cache_dir}")
         download_hf_model(repo_id)
+
+        if has_onnx_model_in_repo(repo_id):
+            download_onnx_model(repo_id)
+
+        remove_download_cache()
 
         logger.info("Download completed")
     except Exception as e:
