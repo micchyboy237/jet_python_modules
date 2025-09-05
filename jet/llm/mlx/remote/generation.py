@@ -318,53 +318,55 @@ def stream_chat(
                         "tool_calls": tool_calls
                     }
                     new_choice["message"] = new_message
-                new_choices.append(new_choice)
-            if new_choice.get("finish_reason") is not None:
-                formatted_tool_calls = []
-                content = "".join(assistant_content)
-                message = new_choice["message"]
-                try:
-                    parse_input = message.get("tool_calls") if message.get(
-                        "tool_calls") else content
-                    parsed_tool_calls = parse_and_evaluate(
-                        str(parse_input))
-                    if parsed_tool_calls and not isinstance(parsed_tool_calls, list):
-                        parsed_tool_calls = [parsed_tool_calls]
-                    for call in parsed_tool_calls:
-                        if isinstance(call, dict):
-                            tool_call = call.get("function", call)
-                            if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
-                                formatted_tool_calls.append({
-                                    "type": "function",
-                                    "function": {
-                                        "name": tool_call["name"],
-                                        "arguments": tool_call.get("arguments", tool_call.get("parameters", {}))
-                                    }
-                                })
-                except ValueError as e:
+
+                # process finish_reason before appending
+                if new_choice.get("finish_reason") is not None:
                     formatted_tool_calls = []
-                new_message = {
-                    "role": message.get("role", "assistant"),
-                    "content": message.get("content", ""),
-                    "tool_calls": formatted_tool_calls if formatted_tool_calls else None
-                }
-                new_choice["message"] = new_message
-                assistant_tool_calls.extend(formatted_tool_calls or [])
-                new_choices.append(new_choice)
-                if with_history:
-                    hist.add_message(
-                        role="assistant",
-                        content="".join(
-                            assistant_content) if assistant_content else "",
-                        tool_calls=assistant_tool_calls if assistant_tool_calls else None
+                    content = "".join(assistant_content)
+                    message = new_choice["message"]
+                    try:
+                        parse_input = message.get("tool_calls") if message.get(
+                            "tool_calls") else content
+                        parsed_tool_calls = parse_and_evaluate(
+                            str(parse_input))
+                        if parsed_tool_calls and not isinstance(parsed_tool_calls, list):
+                            parsed_tool_calls = [parsed_tool_calls]
+                        for call in parsed_tool_calls:
+                            if isinstance(call, dict):
+                                tool_call = call.get("function", call)
+                                if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
+                                    formatted_tool_calls.append({
+                                        "type": "function",
+                                        "function": {
+                                            "name": tool_call["name"],
+                                            "arguments": tool_call.get("arguments", tool_call.get("parameters", {}))
+                                        }
+                                    })
+                    except ValueError:
+                        formatted_tool_calls = []
+
+                    new_choice["message"]["tool_calls"] = (
+                        formatted_tool_calls if formatted_tool_calls else None
                     )
-                chunk["content"] = content
-                chunk["tool_calls"] = assistant_tool_calls if assistant_tool_calls else None
-                if tools and assistant_tool_calls:
-                    chunk["tool_execution"] = execute_tool_calls(
-                        assistant_tool_calls, tools)
-                if with_history:
-                    chunk["history"] = hist.get_messages()
+                    assistant_tool_calls.extend(formatted_tool_calls or [])
+
+                    if with_history:
+                        hist.add_message(
+                            role="assistant",
+                            content=content,
+                            tool_calls=assistant_tool_calls if assistant_tool_calls else None
+                        )
+                    chunk["content"] = content
+                    chunk["tool_calls"] = assistant_tool_calls if assistant_tool_calls else None
+                    if tools and assistant_tool_calls:
+                        chunk["tool_execution"] = execute_tool_calls(
+                            assistant_tool_calls, tools)
+                    if with_history:
+                        chunk["history"] = hist.get_messages()
+
+                # ✅ append only once
+                new_choices.append(new_choice)
+
         chunk["choices"] = new_choices
         yield chunk
 
