@@ -44,7 +44,7 @@ def prepare_messages(
     system_prompt: Optional[str] = None,
     with_history: bool = False,
 ) -> List[Message]:
-    """Prepare messages with optional history and system prompt, ensuring tool_calls are included."""
+    """Prepare messages with optional history and system prompt, ensuring tool_calls and alternating roles."""
     if system_prompt and not any(m["role"] == "system" for m in history.get_messages()):
         if with_history:
             history.add_message("system", system_prompt)
@@ -63,7 +63,6 @@ def prepare_messages(
                 raise ValueError(
                     "Each message must include 'role' and 'content'.")
             if with_history:
-                # Include tool_calls if present, default to empty list if not
                 tool_calls = msg.get("tool_calls", [])
                 history.add_message(
                     msg["role"],
@@ -75,7 +74,7 @@ def prepare_messages(
     else:
         raise TypeError("messages must be a string or a list of Message dicts")
 
-    # Convert messages to match Message TypedDict, including only role, content, tool_calls
+    # Validate alternating roles
     formatted_messages: List[Message] = [
         {
             "role": msg["role"],
@@ -84,11 +83,25 @@ def prepare_messages(
         }
         for msg in all_messages
     ]
-
     if system_prompt and not with_history:
         formatted_messages = [
             {"role": "system", "content": system_prompt, "tool_calls": []}
         ] + formatted_messages
+
+    # Check for alternating user/assistant roles after optional system message
+    non_system_messages = [
+        m for m in formatted_messages if m["role"] != "system"]
+    if non_system_messages:
+        for i, msg in enumerate(non_system_messages):
+            expected_role = "user" if i % 2 == 0 else "assistant"
+            if msg["role"] != expected_role:
+                logger.error(
+                    f"Invalid role sequence at index {i}: expected '{expected_role}', got '{msg['role']}'"
+                )
+                raise ValueError(
+                    "Conversation roles must alternate user/assistant/user/assistant after an optional system message."
+                )
+
     return formatted_messages
 
 
@@ -122,8 +135,11 @@ def chat(
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
+
+    # Prepare messages
     request_messages = prepare_messages(
         messages, hist, system_prompt, with_history)
+
     req: ChatCompletionRequest = {
         "messages": request_messages,
         "model": model,
@@ -147,7 +163,23 @@ def chat(
         "tools": tools,
     }
     req = {k: v for k, v in req.items() if v is not None}
-    response = list(client.create_chat_completion(req, stream=False))[0]
+
+    try:
+        response = list(client.create_chat_completion(req, stream=False))[0]
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to create chat completion: {e}")
+        raise
+
+    # Add assistant response to history if with_history is True
+    if with_history and response.get("choices"):
+        for choice in response["choices"]:
+            if choice.get("message", {}).get("role") == "assistant":
+                hist.add_message(
+                    role="assistant",
+                    content=choice["message"]["content"],
+                    tool_calls=choice["message"].get("tool_calls", [])
+                )
+
     new_choices = []
     for choice in response["choices"]:
         if isinstance(choice, dict) and "delta" in choice:

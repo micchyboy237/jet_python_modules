@@ -285,30 +285,47 @@ class ChatHistory:
             self.messages = []
 
     def add_message(self, role: ChatRole, content: str, tool_calls: Optional[List[Dict]] = None, id: Optional[str] = None, name: Optional[str] = None):
-        """Add a message to the history and persist it if using database."""
+        """Add a message to the history and persist it if using database, replacing system message if role is system."""
+        if role == "system":
+            # Remove existing system message if present
+            self.messages = [m for m in self.messages if m["role"] != "system"]
+            if self.use_db and self.db_history:
+                with self.db_history.client.conn.cursor() as cur:
+                    cur.execute("""
+                        DELETE FROM messages
+                        WHERE conversation_id = %s AND role = %s;
+                    """, (self.conversation_id, "system"))
+                    self.db_history.client.commit()
         if self.use_db and self.db_history:
             message: Message = {"role": role,
                                 "content": content, "tool_calls": tool_calls}
             result = self.db_history.add_message(message, name=name)
+            self.messages = [m for m in self.messages if m["role"]
+                             != "system" or role != "system"]
             self.messages.append(result)
         else:
             now = datetime.now(ZoneInfo("America/Los_Angeles"))
+            max_order = max((m["message_order"]
+                            for m in self.messages), default=0)
+            next_order = max_order + 1
             message: DBMessage = {
+                "id": id or generate_hash(f"{self.conversation_id}-{role}-{content}-{next_order}"),
+                "session_id": self.session_id,
+                "conversation_id": self.conversation_id,
                 "role": role,
                 "content": content,
                 "tool_calls": tool_calls,
-                "id": id or generate_hash(f"{self.conversation_id}-{role}-{content}-{len(self.messages) + 1}"),
-                "session_id": self.session_id,
-                "conversation_id": self.conversation_id,
-                "message_order": len(self.messages) + 1,
+                "message_order": next_order,
                 "updated_at": now,
                 "created_at": now,
                 "name": name,
             }
+            self.messages = [m for m in self.messages if m["role"]
+                             != "system" or role != "system"]
             self.messages.append(message)
 
     def add_messages(self, messages: List[Message], name: Optional[str] = None) -> None:
-        """Add multiple messages to the history, updating rows with same conversation_id and message_order or creating new ones."""
+        """Add multiple messages to the history, replacing system message if present, updating rows with same conversation_id and message_order or creating new ones."""
         logger.debug("Adding %d messages for conversation_id: %s",
                      len(messages), self.conversation_id)
         if not messages:
@@ -319,6 +336,17 @@ class ChatHistory:
         existing_keys = {(m["role"], m["content"], str(
             m.get("tool_calls"))) for m in current_messages}
         new_messages = []
+        has_system_message = any(m["role"] == "system" for m in messages)
+        if has_system_message:
+            # Remove existing system message from in-memory and database
+            self.messages = [m for m in self.messages if m["role"] != "system"]
+            if self.use_db and self.db_history:
+                with self.db_history.client.conn.cursor() as cur:
+                    cur.execute("""
+                        DELETE FROM messages
+                        WHERE conversation_id = %s AND role = %s;
+                    """, (self.conversation_id, "system"))
+                    self.db_history.client.commit()
         for message in messages:
             message_key = (message["role"], message["content"], str(
                 message.get("tool_calls")))
@@ -333,16 +361,16 @@ class ChatHistory:
         if self.use_db and self.db_history:
             db_messages = self.db_history.add_messages(new_messages, name=name)
             logger.debug("Persisted %d messages to database", len(db_messages))
-            max_order = max((m["message_order"]
-                            for m in current_messages), default=0)
+            max_order = max(
+                (m["message_order"] for m in current_messages if m["role"] != "system"), default=0)
             for db_message in db_messages:
-                self.messages = [
-                    m for m in self.messages if m["message_order"] != db_message["message_order"]]
+                self.messages = [m for m in self.messages if m["message_order"]
+                                 != db_message["message_order"] and m["role"] != "system"]
                 self.messages.append(db_message)
         else:
             now = datetime.now(ZoneInfo("America/Los_Angeles"))
-            max_order = max((m["message_order"]
-                            for m in current_messages), default=0)
+            max_order = max(
+                (m["message_order"] for m in current_messages if m["role"] != "system"), default=0)
             for idx, message in enumerate(new_messages, start=1):
                 next_order = max_order + idx
                 db_message: DBMessage = {
@@ -359,16 +387,20 @@ class ChatHistory:
                 }
                 logger.debug("Adding in-memory message: %s", db_message)
                 self.messages = [
-                    m for m in self.messages if m["message_order"] != next_order]
+                    m for m in self.messages if m["message_order"] != next_order and m["role"] != "system"]
                 self.messages.append(db_message)
             logger.debug("Added %d messages to in-memory history",
                          len(new_messages))
 
     def get_messages(self) -> List[DBMessage]:
-        """Return the current list of messages."""
-        if self.use_db and self.db_history:
-            return self.db_history.get_messages()
-        return self.messages
+        """Return the current list of messages, with system message at the top if present."""
+        messages = self.db_history.get_messages(
+        ) if self.use_db and self.db_history else self.messages
+        # Sort messages to ensure system message is at the top
+        system_messages = [m for m in messages if m["role"] == "system"]
+        other_messages = sorted(
+            [m for m in messages if m["role"] != "system"], key=lambda x: x["message_order"])
+        return system_messages + other_messages
 
     def clear(self):
         """Clear the in-memory and persistent history if using database."""

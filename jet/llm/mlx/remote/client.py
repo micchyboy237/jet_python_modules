@@ -85,8 +85,8 @@ class MLXRemoteClient:
         """Create a chat completion via the MLX server."""
         url = f"{self.base_url}/v1/chat/completions"
         if self.verbose:
-            logger.info(
-                f"Creating chat completion at {url} with request: {request}")
+            logger.info(f"Creating chat completion at {url} with request:")
+            logger.debug(format_json(request))
         try:
             response = self.session.post(
                 url,
@@ -141,8 +141,8 @@ class MLXRemoteClient:
         """Create a text completion via the MLX server."""
         url = f"{self.base_url}/v1/completions"
         if self.verbose:
-            logger.info(
-                f"Creating text completion at {url} with request: {request}")
+            logger.info(f"Creating text completion at {url} with request:")
+            logger.debug(format_json(request))
         try:
             response = self.session.post(
                 url,
