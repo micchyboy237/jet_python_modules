@@ -47,6 +47,7 @@ class ChatCompletionResponse(TypedDict):
     choices: List[ChatChoice]
     usage: Optional[Dict[str, int]]
     history: Optional[List[Dict]]
+    content: Optional[str]
 
 
 class TextCompletionRequest(TypedDict):
@@ -86,6 +87,7 @@ class TextCompletionResponse(TypedDict):
     system_fingerprint: str
     choices: List[TextChoice]
     usage: Optional[Dict[str, int]]
+    content: Optional[str]
 
 
 class Model(TypedDict):

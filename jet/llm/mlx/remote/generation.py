@@ -163,19 +163,19 @@ def chat(
     }
     req = {k: v for k, v in req.items() if v is not None}
 
-    try:
-        response = list(client.create_chat_completion(req, stream=False))[0]
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to create chat completion: {e}")
-        raise
+    response = list(client.create_chat_completion(req, stream=False))[0]
 
     # Add assistant response to history if with_history is True
+    assistant_content = []
     if with_history and response.get("choices"):
         for choice in response["choices"]:
             if choice.get("message", {}).get("role") == "assistant":
+                content = choice["message"].get("content", "")
+                if content:
+                    assistant_content.append(content)
                 hist.add_message(
                     role="assistant",
-                    content=choice["message"]["content"],
+                    content=content,
                     tool_calls=choice["message"].get("tool_calls", [])
                 )
 
@@ -203,9 +203,11 @@ def chat(
                 }
             new_choices.append(choice)
     response["choices"] = new_choices
-    # Include history in the response if with_history is True
+    # Include history and content in the response if with_history is True
     if with_history:
         response["history"] = hist.get_messages()
+    response["content"] = "".join(
+        assistant_content) if assistant_content else None
     return response
 
 
@@ -265,66 +267,63 @@ def stream_chat(
     }
     req = {k: v for k, v in req.items() if v is not None}
 
-    try:
-        chunks = client.create_chat_completion(req, stream=True)
-        assistant_content = []
-        assistant_tool_calls = []
-        for chunk in chunks:
-            new_choices = []
-            for choice in chunk["choices"]:
-                if isinstance(choice, dict) and "delta" in choice:
-                    delta = choice.get("delta", {})
-                    new_choice = {k: v for k,
-                                  v in choice.items() if k != "delta"}
-                    if delta:
-                        if "message" not in new_choice:
-                            new_choice["message"] = {}
-                        for k, v in delta.items():
-                            new_choice["message"][k] = v
-                    if "message" in new_choice:
-                        new_choice["message"] = {
-                            k: v for k, v in new_choice["message"].items()
-                            if k in ["role", "content", "tool_calls"]
-                        }
-                        # Collect assistant content and tool_calls for history
-                        if new_choice["message"].get("role") == "assistant":
-                            if "content" in new_choice["message"] and new_choice["message"]["content"]:
-                                assistant_content.append(
-                                    new_choice["message"]["content"])
-                            if "tool_calls" in new_choice["message"] and new_choice["message"]["tool_calls"]:
-                                assistant_tool_calls.extend(
-                                    new_choice["message"]["tool_calls"])
-                    new_choices.append(new_choice)
-                else:
-                    if isinstance(choice, dict) and "message" in choice:
-                        choice["message"] = {
-                            k: v for k, v in choice["message"].items()
-                            if k in ["role", "content", "tool_calls"]
-                        }
-                        # Collect assistant content and tool_calls for history
-                        if choice["message"].get("role") == "assistant":
-                            if "content" in choice["message"] and choice["message"]["content"]:
-                                assistant_content.append(
-                                    choice["message"]["content"])
-                            if "tool_calls" in choice["message"] and choice["message"]["tool_calls"]:
-                                assistant_tool_calls.extend(
-                                    choice["message"]["tool_calls"])
-                    new_choices.append(choice)
-                # Check for finish_reason to add to history and include in response
-                if choice.get("finish_reason") is not None and with_history:
-                    if assistant_content or assistant_tool_calls:
-                        hist.add_message(
-                            role="assistant",
-                            content="".join(
-                                assistant_content) if assistant_content else "",
-                            tool_calls=assistant_tool_calls if assistant_tool_calls else None
-                        )
-                    chunk["history"] = hist.get_messages()
-            chunk["choices"] = new_choices
-            yield chunk
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Stream chat completion failed: {e}")
-        raise
+    chunks = client.create_chat_completion(req, stream=True)
+    assistant_content = []
+    assistant_tool_calls = []
+    for chunk in chunks:
+        new_choices = []
+        for choice in chunk["choices"]:
+            if isinstance(choice, dict) and "delta" in choice:
+                delta = choice.get("delta", {})
+                new_choice = {k: v for k, v in choice.items() if k != "delta"}
+                if delta:
+                    if "message" not in new_choice:
+                        new_choice["message"] = {}
+                    for k, v in delta.items():
+                        new_choice["message"][k] = v
+                if "message" in new_choice:
+                    new_choice["message"] = {
+                        k: v for k, v in new_choice["message"].items()
+                        if k in ["role", "content", "tool_calls"]
+                    }
+                    # Collect assistant content and tool_calls for history
+                    if new_choice["message"].get("role") == "assistant":
+                        if "content" in new_choice["message"] and new_choice["message"]["content"]:
+                            assistant_content.append(
+                                new_choice["message"]["content"])
+                        if "tool_calls" in new_choice["message"] and new_choice["message"]["tool_calls"]:
+                            assistant_tool_calls.extend(
+                                new_choice["message"]["tool_calls"])
+                new_choices.append(new_choice)
+            else:
+                if isinstance(choice, dict) and "message" in choice:
+                    choice["message"] = {
+                        k: v for k, v in choice["message"].items()
+                        if k in ["role", "content", "tool_calls"]
+                    }
+                    # Collect assistant content and tool_calls for history
+                    if choice["message"].get("role") == "assistant":
+                        if "content" in choice["message"] and choice["message"]["content"]:
+                            assistant_content.append(
+                                choice["message"]["content"])
+                        if "tool_calls" in choice["message"] and choice["message"]["tool_calls"]:
+                            assistant_tool_calls.extend(
+                                choice["message"]["tool_calls"])
+                new_choices.append(choice)
+            # Check for finish_reason to add to history and include in response
+            if choice.get("finish_reason") is not None and with_history:
+                if assistant_content or assistant_tool_calls:
+                    hist.add_message(
+                        role="assistant",
+                        content="".join(
+                            assistant_content) if assistant_content else "",
+                        tool_calls=assistant_tool_calls if assistant_tool_calls else None
+                    )
+                chunk["history"] = hist.get_messages()
+                chunk["content"] = "".join(
+                    assistant_content) if assistant_content else None
+        chunk["choices"] = new_choices
+        yield chunk
 
 
 def generate(
@@ -372,7 +371,14 @@ def generate(
         "stream_options": None,
     }
     req = {k: v for k, v in req.items() if v is not None}
-    return list(client.create_text_completion(req, stream=False))[0]
+    response = list(client.create_text_completion(req, stream=False))[0]
+    # Collect content from choices
+    text_content = []
+    for choice in response["choices"]:
+        if choice.get("text"):
+            text_content.append(choice["text"])
+    response["content"] = "".join(text_content) if text_content else None
+    return response
 
 
 def stream_generate(
@@ -420,9 +426,15 @@ def stream_generate(
         "stream_options": None,
     }
     req = {k: v for k, v in req.items() if v is not None}
-    chunks = client.create_text_completion(
-        req, stream=True)
+    chunks = client.create_text_completion(req, stream=True)
+    text_content = []
     for chunk in chunks:
+        for choice in chunk["choices"]:
+            if choice.get("text"):
+                text_content.append(choice["text"])
+            if choice.get("finish_reason") is not None:
+                chunk["content"] = "".join(
+                    text_content) if text_content else None
         yield chunk
 
 
