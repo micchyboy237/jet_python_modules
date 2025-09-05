@@ -1,10 +1,15 @@
-from typing import Dict, List, Optional, Tuple, TypedDict, Union, Literal
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, Literal
+
+
+class ToolCall(TypedDict):
+    function: Dict[str, Union[str, Dict[str, Any]]]
+    type: Literal["function"]
 
 
 class Message(TypedDict):
-    role: Literal["system", "user", "assistant"]
+    role: Literal["system", "user", "assistant", "tool"]
     content: Union[str, List[Dict[str, str]]]
-    tool_calls: Optional[List[Dict]]
+    tool_calls: Optional[List[ToolCall]]
 
 
 class ChatCompletionRequest(TypedDict):
@@ -27,7 +32,7 @@ class ChatCompletionRequest(TypedDict):
     stream: Optional[bool]
     stream_options: Optional[Dict[str, bool]]
     role_mapping: Optional[Dict[str, str]]
-    tools: Optional[List[Dict[str, str]]]
+    tools: Optional[List[Dict[str, Any]]]
 
 
 class ChatChoice(TypedDict):

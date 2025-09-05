@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union, Literal, Iterator
+from typing import Callable, Dict, List, Optional, Union, Literal, Iterator, Any
 
 from jet.llm.mlx.remote.client import MLXRemoteClient
 from jet.llm.mlx.remote.types import (
@@ -11,30 +11,9 @@ from jet.llm.mlx.remote.types import (
     HealthResponse,
 )
 from jet.llm.mlx.chat_history import ChatHistory
+from jet.llm.mlx.mlx_utils import has_tools
+from jet.utils.inspect_utils import get_method_info
 from jet.logger import logger
-
-
-def get_models(
-    client: Optional[MLXRemoteClient] = None,
-    base_url: Optional[str] = None,
-    repo_id: Optional[str] = None,
-    verbose: bool = False,
-) -> ModelsResponse:
-    """Retrieve available models from the remote MLX server."""
-    if client is None:
-        client = MLXRemoteClient(base_url=base_url, verbose=verbose)
-    return client.list_models(repo_id=repo_id)
-
-
-def health_check(
-    client: Optional[MLXRemoteClient] = None,
-    base_url: Optional[str] = None,
-    verbose: bool = True,
-) -> HealthResponse:
-    """Health check for the remote MLX server."""
-    if client is None:
-        client = MLXRemoteClient(base_url=base_url, verbose=verbose)
-    return client.health_check()
 
 
 def prepare_messages(
@@ -47,7 +26,6 @@ def prepare_messages(
     if system_prompt and not any(m["role"] == "system" for m in history.get_messages()):
         if with_history:
             history.add_message("system", system_prompt)
-
     if isinstance(messages, str):
         if with_history:
             history.add_message("user", messages)
@@ -61,8 +39,13 @@ def prepare_messages(
             if "role" not in msg or "content" not in msg:
                 raise ValueError(
                     "Each message must include 'role' and 'content'.")
+            tool_calls = msg.get("tool_calls", [])
+            if tool_calls:
+                for call in tool_calls:
+                    if not isinstance(call, dict) or "function" not in call or call.get("type") != "function":
+                        raise ValueError(
+                            "Invalid tool_call format: must include 'function' and 'type'='function'.")
             if with_history:
-                tool_calls = msg.get("tool_calls", [])
                 history.add_message(
                     msg["role"],
                     msg["content"],
@@ -72,8 +55,6 @@ def prepare_messages(
         all_messages = history.get_messages() if with_history else messages
     else:
         raise TypeError("messages must be a string or a list of Message dicts")
-
-    # Validate alternating roles
     formatted_messages: List[Message] = [
         {
             "role": msg["role"],
@@ -86,8 +67,6 @@ def prepare_messages(
         formatted_messages = [
             {"role": "system", "content": system_prompt, "tool_calls": []}
         ] + formatted_messages
-
-    # Check for alternating user/assistant roles after optional system message
     non_system_messages = [
         m for m in formatted_messages if m["role"] != "system"]
     if non_system_messages:
@@ -100,7 +79,6 @@ def prepare_messages(
                 raise ValueError(
                     "Conversation roles must alternate user/assistant/user/assistant after an optional system message."
                 )
-
     return formatted_messages
 
 
@@ -122,7 +100,7 @@ def chat(
     seed: Optional[int] = None,
     stop: Optional[Union[str, List[str]]] = None,
     role_mapping: Optional[Dict[str, str]] = None,
-    tools: Optional[List[Dict[str, str]]] = None,
+    tools: Optional[List[Callable]] = None,
     client: Optional[MLXRemoteClient] = None,
     base_url: Optional[str] = None,
     system_prompt: Optional[str] = None,
@@ -130,10 +108,24 @@ def chat(
     history: Optional[ChatHistory] = None,
     verbose: bool = False,
 ) -> ChatCompletionResponse:
-    """Create a chat completion via the remote server."""
+    """Create a chat completion via the remote server with tool usage support."""
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
+
+    # Format tools for the request if model supports tools
+    formatted_tools = []
+    if tools and model and has_tools(model):
+        if not all(callable(tool) for tool in tools):
+            raise ValueError("All tools must be callable functions")
+        formatted_tools = [
+            {
+                "type": "function",
+                "function": get_method_info(tool)
+            }
+            for tool in tools
+        ]
+
     request_messages = prepare_messages(
         messages, hist, system_prompt, with_history)
     req: ChatCompletionRequest = {
@@ -156,7 +148,7 @@ def chat(
         "stream": False,
         "stream_options": None,
         "role_mapping": role_mapping,
-        "tools": tools,
+        "tools": formatted_tools if formatted_tools else None,
     }
     req = {k: v for k, v in req.items() if v is not None}
     response = list(client.create_chat_completion(req, stream=False))[0]
@@ -170,7 +162,9 @@ def chat(
                 if content:
                     assistant_content.append(content)
                 if tool_calls:
-                    assistant_tool_calls.extend(tool_calls)
+                    for call in tool_calls:
+                        if isinstance(call, dict) and call.get("type") == "function":
+                            assistant_tool_calls.append(call)
                 hist.add_message(
                     role="assistant",
                     content=content,
@@ -195,10 +189,15 @@ def chat(
         else:
             if isinstance(choice, dict) and "message" in choice:
                 message = choice["message"]
+                formatted_tool_calls = []
+                if message.get("tool_calls"):
+                    for call in message["tool_calls"]:
+                        if isinstance(call, dict) and call.get("type") == "function":
+                            formatted_tool_calls.append(call)
                 new_message = {
                     "role": message.get("role", "assistant"),
                     "content": message.get("content", ""),
-                    "tool_calls": message.get("tool_calls", [])
+                    "tool_calls": formatted_tool_calls
                 }
                 choice["message"] = new_message
             new_choices.append(choice)
@@ -229,7 +228,7 @@ def stream_chat(
     seed: Optional[int] = None,
     stop: Optional[Union[str, List[str]]] = None,
     role_mapping: Optional[Dict[str, str]] = None,
-    tools: Optional[List[Dict[str, str]]] = None,
+    tools: Optional[List[Callable]] = None,
     client: Optional[MLXRemoteClient] = None,
     base_url: Optional[str] = None,
     system_prompt: Optional[str] = None,
@@ -237,10 +236,24 @@ def stream_chat(
     history: Optional[ChatHistory] = None,
     verbose: bool = False,
 ) -> Iterator[ChatCompletionResponse]:
-    """Stream chat completion chunks via the remote server."""
+    """Stream chat completion chunks via the remote server with tool usage support."""
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
+
+    # Format tools for the request if model supports tools
+    formatted_tools = []
+    if tools and model and has_tools(model):
+        if not all(callable(tool) for tool in tools):
+            raise ValueError("All tools must be callable functions")
+        formatted_tools = [
+            {
+                "type": "function",
+                "function": get_method_info(tool)
+            }
+            for tool in tools
+        ]
+
     request_messages = prepare_messages(
         messages, hist, system_prompt, with_history)
     req: ChatCompletionRequest = {
@@ -263,7 +276,7 @@ def stream_chat(
         "stream": True,
         "stream_options": None,
         "role_mapping": role_mapping,
-        "tools": tools,
+        "tools": formatted_tools if formatted_tools else None,
     }
     req = {k: v for k, v in req.items() if v is not None}
     chunks = client.create_chat_completion(req, stream=True)
@@ -281,10 +294,15 @@ def stream_chat(
                     for k, v in delta.items():
                         new_choice["message"][k] = v
                 if "message" in new_choice:
+                    formatted_tool_calls = []
+                    if new_choice["message"].get("tool_calls"):
+                        for call in new_choice["message"]["tool_calls"]:
+                            if isinstance(call, dict) and call.get("type") == "function":
+                                formatted_tool_calls.append(call)
                     new_message = {
                         "role": new_choice["message"].get("role", "assistant"),
                         "content": new_choice["message"].get("content", ""),
-                        "tool_calls": new_choice["message"].get("tool_calls", [])
+                        "tool_calls": formatted_tool_calls
                     }
                     new_choice["message"] = new_message
                     if new_choice["message"].get("role") == "assistant":
@@ -292,16 +310,20 @@ def stream_chat(
                             assistant_content.append(
                                 new_choice["message"]["content"])
                         if new_choice["message"]["tool_calls"]:
-                            assistant_tool_calls.extend(
-                                new_choice["message"]["tool_calls"])
+                            assistant_tool_calls.extend(formatted_tool_calls)
                 new_choices.append(new_choice)
             else:
                 if isinstance(choice, dict) and "message" in choice:
                     message = choice["message"]
+                    formatted_tool_calls = []
+                    if message.get("tool_calls"):
+                        for call in message["tool_calls"]:
+                            if isinstance(call, dict) and call.get("type") == "function":
+                                formatted_tool_calls.append(call)
                     new_message = {
                         "role": message.get("role", "assistant"),
                         "content": message.get("content", ""),
-                        "tool_calls": message.get("tool_calls", [])
+                        "tool_calls": formatted_tool_calls
                     }
                     choice["message"] = new_message
                     if choice["message"].get("role") == "assistant":
@@ -309,8 +331,7 @@ def stream_chat(
                             assistant_content.append(
                                 choice["message"]["content"])
                         if choice["message"]["tool_calls"]:
-                            assistant_tool_calls.extend(
-                                choice["message"]["tool_calls"])
+                            assistant_tool_calls.extend(formatted_tool_calls)
                 new_choices.append(choice)
             if choice.get("finish_reason") is not None and with_history:
                 if assistant_content or assistant_tool_calls:
