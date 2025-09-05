@@ -52,3 +52,18 @@ class ChatTemplateArgs(TypedDict, total=False):
     max_length: int
     include_system_prompt: bool
     tool_choice: Literal["auto", "none"]
+
+
+class ToolArguments(TypedDict):
+    name: str
+    arguments: Dict[str, Any]
+
+
+class ToolCall(TypedDict):
+    function: ToolArguments
+    type: Literal["function"]
+
+
+class ToolCallResult(TypedDict):
+    tool_call: ToolCall
+    tool_result: Any

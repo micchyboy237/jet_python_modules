@@ -1,8 +1,10 @@
 import inspect
 import json
 import re
-from typing import Any, Callable, Dict, List, Optional, Union, get_args, get_origin
+from typing import Any, Callable, Dict, List, Optional, TypedDict, Union, get_args, get_origin
 from collections.abc import Sequence
+from jet.llm.mlx.mlx_types import ToolArguments, ToolCall, ToolCallResult
+from jet.logger import logger
 from mlx_lm.utils import get_model_path, load_tokenizer, TokenizerWrapper
 from jet.models.model_types import LLMModelType
 from jet.models.utils import resolve_model_value
@@ -196,3 +198,37 @@ def has_tools(model: LLMModelType) -> bool:
     chat_template = get_chat_template(model)
     chat_template_str = str(chat_template)
     return "tools" in chat_template_str or "tool_use" in chat_template_str
+
+
+def execute_tool_calls(
+    tool_calls: Optional[List[Union[ToolArguments, ToolCall]]], tools: Optional[List[Callable]]
+) -> Optional[List[ToolCallResult]]:
+    """Execute tool calls from the response using provided tools."""
+    if not tool_calls or not tools:
+        return None
+
+    results: List[ToolCallResult] = []
+
+    for call in tool_calls:
+        if "function" in call:
+            tool_call = call["function"]
+        else:
+            tool_call = call
+        tool_name = tool_call.get("name")
+        tool_args = tool_call.get("arguments", {})
+        tool_result = None
+        for tool in tools:
+            if tool.__name__ == tool_name:
+                try:
+                    tool_result = tool(**tool_args)
+                    logger.success(
+                        f"Tool {tool_name} executed with result: {tool_result}"
+                    )
+                except Exception as e:
+                    logger.error(f"Error executing tool {tool_name}: {e}")
+                    tool_result = None
+                break  # Only execute the first matching tool
+        results.append({"tool_call": ToolCall(
+            function=tool_call, type="function"), "tool_result": tool_result})
+
+    return results

@@ -11,7 +11,8 @@ from jet.llm.mlx.remote.types import (
     HealthResponse,
 )
 from jet.llm.mlx.chat_history import ChatHistory
-from jet.llm.mlx.mlx_utils import has_tools
+from jet.llm.mlx.mlx_utils import execute_tool_calls, has_tools
+from jet.utils.eval_utils import parse_and_evaluate
 from jet.utils.inspect_utils import get_method_info
 from jet.logger import logger
 
@@ -112,8 +113,6 @@ def chat(
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
-
-    # Format tools for the request if model supports tools
     formatted_tools = []
     if tools and model and has_tools(model):
         if not all(callable(tool) for tool in tools):
@@ -125,7 +124,6 @@ def chat(
             }
             for tool in tools
         ]
-
     request_messages = prepare_messages(
         messages, hist, system_prompt, with_history)
     req: ChatCompletionRequest = {
@@ -190,21 +188,43 @@ def chat(
             if isinstance(choice, dict) and "message" in choice:
                 message = choice["message"]
                 formatted_tool_calls = []
-                if message.get("tool_calls"):
-                    for call in message["tool_calls"]:
-                        if isinstance(call, dict) and call.get("type") == "function":
-                            formatted_tool_calls.append(call)
+                try:
+                    # Use tool_calls if not empty, else use content
+                    parse_input = message.get("tool_calls") if message.get(
+                        "tool_calls") else message.get("content", "")
+                    parsed_tool_calls = parse_and_evaluate(str(parse_input))
+                    if parsed_tool_calls and not isinstance(parsed_tool_calls, list):
+                        parsed_tool_calls = [parsed_tool_calls]
+                    for call in parsed_tool_calls:
+                        if isinstance(call, dict):
+                            # Handle both wrapped and unwrapped tool calls
+                            tool_call = call.get("function", call)
+                            if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
+                                formatted_tool_calls.append({
+                                    "type": "function",
+                                    "function": {
+                                        "name": tool_call["name"],
+                                        "arguments": tool_call.get("arguments", tool_call.get("parameters", {}))
+                                    }
+                                })
+                except ValueError as e:
+                    logger.warning(f"Failed to parse tool_calls: {e}")
+                    formatted_tool_calls = []
                 new_message = {
                     "role": message.get("role", "assistant"),
                     "content": message.get("content", ""),
                     "tool_calls": formatted_tool_calls
                 }
                 choice["message"] = new_message
+                assistant_tool_calls.extend(formatted_tool_calls)
             new_choices.append(choice)
     response["choices"] = new_choices
     response["content"] = "".join(
         assistant_content) if assistant_content else None
     response["tool_calls"] = assistant_tool_calls if assistant_tool_calls else None
+    if tools and assistant_tool_calls:
+        response["tool_execution"] = execute_tool_calls(
+            assistant_tool_calls, tools)
     if with_history:
         response["history"] = hist.get_messages()
     return response
@@ -240,8 +260,6 @@ def stream_chat(
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
-
-    # Format tools for the request if model supports tools
     formatted_tools = []
     if tools and model and has_tools(model):
         if not all(callable(tool) for tool in tools):
@@ -253,7 +271,6 @@ def stream_chat(
             }
             for tool in tools
         ]
-
     request_messages = prepare_messages(
         messages, hist, system_prompt, with_history)
     req: ChatCompletionRequest = {
@@ -294,59 +311,68 @@ def stream_chat(
                     for k, v in delta.items():
                         new_choice["message"][k] = v
                 if "message" in new_choice:
-                    formatted_tool_calls = []
-                    if new_choice["message"].get("tool_calls"):
-                        for call in new_choice["message"]["tool_calls"]:
-                            if isinstance(call, dict) and call.get("type") == "function":
-                                formatted_tool_calls.append(call)
+                    content = new_choice["message"].get("content", "")
+                    tool_calls = new_choice["message"].get("tool_calls", [])
+                    if content:
+                        assistant_content.append(content)
                     new_message = {
                         "role": new_choice["message"].get("role", "assistant"),
-                        "content": new_choice["message"].get("content", ""),
-                        "tool_calls": formatted_tool_calls
+                        "content": content,
+                        "tool_calls": tool_calls
                     }
                     new_choice["message"] = new_message
-                    if new_choice["message"].get("role") == "assistant":
-                        if new_choice["message"]["content"]:
-                            assistant_content.append(
-                                new_choice["message"]["content"])
-                        if new_choice["message"]["tool_calls"]:
-                            assistant_tool_calls.extend(formatted_tool_calls)
                 new_choices.append(new_choice)
-            else:
-                if isinstance(choice, dict) and "message" in choice:
-                    message = choice["message"]
+            if new_choice.get("finish_reason") is not None:
+                formatted_tool_calls = []
+                content = "".join(assistant_content)
+                message = new_choice["message"]
+                try:
+                    # Use tool_calls if not empty, else use content
+                    parse_input = message.get("tool_calls") if message.get(
+                        "tool_calls") else content
+                    parsed_tool_calls = parse_and_evaluate(
+                        str(parse_input))
+                    if parsed_tool_calls and not isinstance(parsed_tool_calls, list):
+                        parsed_tool_calls = [parsed_tool_calls]
+                    for call in parsed_tool_calls:
+                        if isinstance(call, dict):
+                            # Handle both wrapped and unwrapped tool calls
+                            tool_call = call.get("function", call)
+                            if isinstance(tool_call, dict) and tool_call.get("name") and (tool_call.get("arguments") or tool_call.get("parameters")):
+                                formatted_tool_calls.append({
+                                    "type": "function",
+                                    "function": {
+                                        "name": tool_call["name"],
+                                        "arguments": tool_call.get("arguments", tool_call.get("parameters", {}))
+                                    }
+                                })
+                except ValueError as e:
+                    logger.warning(f"Failed to parse tool_calls: {e}")
                     formatted_tool_calls = []
-                    if message.get("tool_calls"):
-                        for call in message["tool_calls"]:
-                            if isinstance(call, dict) and call.get("type") == "function":
-                                formatted_tool_calls.append(call)
-                    new_message = {
-                        "role": message.get("role", "assistant"),
-                        "content": message.get("content", ""),
-                        "tool_calls": formatted_tool_calls
-                    }
-                    choice["message"] = new_message
-                    if choice["message"].get("role") == "assistant":
-                        if choice["message"]["content"]:
-                            assistant_content.append(
-                                choice["message"]["content"])
-                        if choice["message"]["tool_calls"]:
-                            assistant_tool_calls.extend(formatted_tool_calls)
-                new_choices.append(choice)
-            if choice.get("finish_reason") is not None and with_history:
-                if assistant_content or assistant_tool_calls:
+                new_message = {
+                    "role": message.get("role", "assistant"),
+                    "content": message.get("content", ""),
+                    "tool_calls": formatted_tool_calls
+                }
+                new_choice["message"] = new_message
+                assistant_tool_calls.extend(formatted_tool_calls)
+                new_choices.append(new_choice)
+
+                if with_history:
                     hist.add_message(
                         role="assistant",
                         content="".join(
                             assistant_content) if assistant_content else "",
                         tool_calls=assistant_tool_calls if assistant_tool_calls else None
                     )
+                chunk["content"] = content
+                chunk["tool_calls"] = assistant_tool_calls if assistant_tool_calls else None
+                if tools and assistant_tool_calls:
+                    chunk["tool_execution"] = execute_tool_calls(
+                        assistant_tool_calls, tools)
+                if with_history:
+                    chunk["history"] = hist.get_messages()
         chunk["choices"] = new_choices
-        chunk["content"] = "".join(
-            assistant_content) if assistant_content else None
-        chunk["tool_calls"] = assistant_tool_calls if assistant_tool_calls else None
-        if with_history:
-            chunk["history"] = hist.get_messages()
         yield chunk
 
 

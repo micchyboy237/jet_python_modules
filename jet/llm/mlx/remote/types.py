@@ -1,9 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, Literal
 
-
-class ToolCall(TypedDict):
-    function: Dict[str, Union[str, Dict[str, Any]]]
-    type: Literal["function"]
+from jet.llm.mlx.mlx_types import ToolCall
 
 
 class Message(TypedDict):
@@ -53,6 +50,7 @@ class ChatCompletionResponse(TypedDict):
     usage: Optional[Dict[str, int]]
     history: Optional[List[Dict]]
     content: Optional[str]
+    tool_calls: Optional[List[ToolCall]]
 
 
 class TextCompletionRequest(TypedDict):
