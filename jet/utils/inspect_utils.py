@@ -4,7 +4,7 @@ import traceback
 import inspect
 import os
 from collections import defaultdict
-from typing import Any, Optional, TypedDict, get_type_hints
+from typing import Any, Dict, Optional, TypedDict, get_type_hints
 
 from jet.transformers.object import make_serializable
 from shared.setup.types import BaseEventData
@@ -257,61 +257,80 @@ def get_entry_file_path() -> Optional[str]:
         return None
 
 
-def get_method_info(method: Any) -> dict[str, str]:
-    """Extract string information from a typed class method.
+class ParameterInfo(TypedDict):
+    type: str
+    description: str
+
+
+class Parameters(TypedDict):
+    type: str
+    required: list[str]
+    properties: Dict[str, ParameterInfo]
+
+
+class MethodInfo(TypedDict):
+    name: str
+    description: str
+    parameters: Parameters
+
+
+def get_method_info(method: Any) -> MethodInfo:
+    """Extract information from a typed class method in a structured format.
 
     Args:
         method: The class method to inspect.
 
     Returns:
-        A dictionary with method name, parameters, return type, docstring, and body.
+        A dictionary with method name, description, and parameters with their types and descriptions.
     """
-    method_info = {
-        "name": method.__name__,
-        "parameters": "",
-        "return_type": "",
-        "docstring": inspect.getdoc(method) or "No docstring available",
-        "body": "",
+    # Map Python types to JSON-compatible type strings
+    type_mapping = {
+        int: "integer",
+        str: "string",
+        float: "number",
+        bool: "boolean",
+        list: "array",
+        dict: "object",
+        Any: "any"
     }
 
-    # Get type hints for parameters and return type
+    # Get type hints and parameters
     type_hints = get_type_hints(method)
-
-    # Format parameters with their types
     params = inspect.signature(method).parameters
-    param_strings = [
-        f"{name}: {type_hints.get(name, Any).__name__}"
-        for name in params if name != "self"
-    ]
-    method_info["parameters"] = ", ".join(
-        param_strings) if param_strings else "None"
+    required_params = [name for name in params if name != "self"]
+    properties: Dict[str, ParameterInfo] = {}
 
-    # Get return type
-    return_type = type_hints.get("return", Any)
-    method_info["return_type"] = return_type.__name__ if hasattr(
-        return_type, "__name__") else str(return_type)
+    # Extract parameter info and docstring
+    docstring = inspect.getdoc(method) or "No description available"
+    param_descriptions = {}
+    if docstring:
+        # Parse docstring for parameter descriptions
+        doc_lines = docstring.splitlines()
+        for line in doc_lines:
+            line = line.strip()
+            if line.startswith(":param"):
+                parts = line.split(":", 2)
+                if len(parts) > 2:
+                    param_name = parts[1].strip().split()[-1]
+                    param_desc = parts[2].strip()
+                    param_descriptions[param_name] = param_desc
 
-    # Get method body
-    try:
-        source = inspect.getsource(method)
-        # Remove the method signature and docstring to isolate the body
-        lines = source.splitlines()
-        body_start = 0
-        for i, line in enumerate(lines):
-            if line.strip().startswith('"""') or line.strip().startswith("'''"):
-                body_start = i + 1
-                if i + 2 < len(lines) and (lines[i + 1].strip().endswith('"""') or lines[i + 1].strip().endswith("'''")):
-                    body_start += 1
-                break
-            elif not line.strip() or line.strip().startswith("@") or line.strip().startswith("def"):
-                body_start = i + 1
-        # Join lines, dedent, and strip empty lines
-        body = "\n".join(lines[body_start:]).strip()
-        method_info["body"] = body if body else "Source code unavailable"
-    except (OSError, TypeError):
-        method_info["body"] = "Source code unavailable"
+    # Build properties for each parameter
+    for name in required_params:
+        param_type = type_hints.get(name, Any)
+        type_name = type_mapping.get(param_type, "any")
+        description = param_descriptions.get(name, f"The {name} parameter")
+        properties[name] = {"type": type_name, "description": description}
 
-    return method_info
+    return {
+        "name": method.__name__,
+        "description": docstring,
+        "parameters": {
+            "type": "object",
+            "required": required_params,
+            "properties": properties
+        }
+    }
 
 
 __all__ = [

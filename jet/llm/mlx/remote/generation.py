@@ -134,11 +134,8 @@ def chat(
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
-
-    # Prepare messages
     request_messages = prepare_messages(
         messages, hist, system_prompt, with_history)
-
     req: ChatCompletionRequest = {
         "messages": request_messages,
         "model": model,
@@ -162,23 +159,23 @@ def chat(
         "tools": tools,
     }
     req = {k: v for k, v in req.items() if v is not None}
-
     response = list(client.create_chat_completion(req, stream=False))[0]
-
-    # Add assistant response to history if with_history is True
     assistant_content = []
+    assistant_tool_calls = []
     if with_history and response.get("choices"):
         for choice in response["choices"]:
             if choice.get("message", {}).get("role") == "assistant":
                 content = choice["message"].get("content", "")
+                tool_calls = choice["message"].get("tool_calls", [])
                 if content:
                     assistant_content.append(content)
+                if tool_calls:
+                    assistant_tool_calls.extend(tool_calls)
                 hist.add_message(
                     role="assistant",
                     content=content,
-                    tool_calls=choice["message"].get("tool_calls", [])
+                    tool_calls=tool_calls
                 )
-
     new_choices = []
     for choice in response["choices"]:
         if isinstance(choice, dict) and "delta" in choice:
@@ -197,17 +194,20 @@ def chat(
             new_choices.append(new_choice)
         else:
             if isinstance(choice, dict) and "message" in choice:
-                choice["message"] = {
-                    k: v for k, v in choice["message"].items()
-                    if k in ["role", "content", "tool_calls"]
+                message = choice["message"]
+                new_message = {
+                    "role": message.get("role", "assistant"),
+                    "content": message.get("content", ""),
+                    "tool_calls": message.get("tool_calls", [])
                 }
+                choice["message"] = new_message
             new_choices.append(choice)
     response["choices"] = new_choices
-    # Include history and content in the response if with_history is True
-    if with_history:
-        response["history"] = hist.get_messages()
     response["content"] = "".join(
         assistant_content) if assistant_content else None
+    response["tool_calls"] = assistant_tool_calls if assistant_tool_calls else None
+    if with_history:
+        response["history"] = hist.get_messages()
     return response
 
 
@@ -266,7 +266,6 @@ def stream_chat(
         "tools": tools,
     }
     req = {k: v for k, v in req.items() if v is not None}
-
     chunks = client.create_chat_completion(req, stream=True)
     assistant_content = []
     assistant_tool_calls = []
@@ -282,35 +281,37 @@ def stream_chat(
                     for k, v in delta.items():
                         new_choice["message"][k] = v
                 if "message" in new_choice:
-                    new_choice["message"] = {
-                        k: v for k, v in new_choice["message"].items()
-                        if k in ["role", "content", "tool_calls"]
+                    new_message = {
+                        "role": new_choice["message"].get("role", "assistant"),
+                        "content": new_choice["message"].get("content", ""),
+                        "tool_calls": new_choice["message"].get("tool_calls", [])
                     }
-                    # Collect assistant content and tool_calls for history
+                    new_choice["message"] = new_message
                     if new_choice["message"].get("role") == "assistant":
-                        if "content" in new_choice["message"] and new_choice["message"]["content"]:
+                        if new_choice["message"]["content"]:
                             assistant_content.append(
                                 new_choice["message"]["content"])
-                        if "tool_calls" in new_choice["message"] and new_choice["message"]["tool_calls"]:
+                        if new_choice["message"]["tool_calls"]:
                             assistant_tool_calls.extend(
                                 new_choice["message"]["tool_calls"])
                 new_choices.append(new_choice)
             else:
                 if isinstance(choice, dict) and "message" in choice:
-                    choice["message"] = {
-                        k: v for k, v in choice["message"].items()
-                        if k in ["role", "content", "tool_calls"]
+                    message = choice["message"]
+                    new_message = {
+                        "role": message.get("role", "assistant"),
+                        "content": message.get("content", ""),
+                        "tool_calls": message.get("tool_calls", [])
                     }
-                    # Collect assistant content and tool_calls for history
+                    choice["message"] = new_message
                     if choice["message"].get("role") == "assistant":
-                        if "content" in choice["message"] and choice["message"]["content"]:
+                        if choice["message"]["content"]:
                             assistant_content.append(
                                 choice["message"]["content"])
-                        if "tool_calls" in choice["message"] and choice["message"]["tool_calls"]:
+                        if choice["message"]["tool_calls"]:
                             assistant_tool_calls.extend(
                                 choice["message"]["tool_calls"])
                 new_choices.append(choice)
-            # Check for finish_reason to add to history and include in response
             if choice.get("finish_reason") is not None and with_history:
                 if assistant_content or assistant_tool_calls:
                     hist.add_message(
@@ -319,10 +320,12 @@ def stream_chat(
                             assistant_content) if assistant_content else "",
                         tool_calls=assistant_tool_calls if assistant_tool_calls else None
                     )
-                chunk["history"] = hist.get_messages()
-                chunk["content"] = "".join(
-                    assistant_content) if assistant_content else None
         chunk["choices"] = new_choices
+        chunk["content"] = "".join(
+            assistant_content) if assistant_content else None
+        chunk["tool_calls"] = assistant_tool_calls if assistant_tool_calls else None
+        if with_history:
+            chunk["history"] = hist.get_messages()
         yield chunk
 
 

@@ -13,10 +13,15 @@ class TestGetMethodInfoExtended:
 
         expected = {
             "name": "add_numbers",
-            "parameters": "a: int, b: float",
-            "return_type": "float",
-            "docstring": "Add two numbers and return the result.",
-            "body": "return a + b"
+            "description": "Add two numbers and return the result.",
+            "parameters": {
+                "type": "object",
+                "required": ["a", "b"],
+                "properties": {
+                    "a": {"type": "integer", "description": "The a parameter"},
+                    "b": {"type": "number", "description": "The b parameter"}
+                }
+            }
         }
 
         # When: We call get_method_info with a regular function
@@ -35,10 +40,15 @@ class TestGetMethodInfoExtended:
 
         expected = {
             "name": "multiply",
-            "parameters": "x: int, y: int",
-            "return_type": "int",
-            "docstring": "Multiply two integers.",
-            "body": "return x * y"
+            "description": "Multiply two integers.",
+            "parameters": {
+                "type": "object",
+                "required": ["x", "y"],
+                "properties": {
+                    "x": {"type": "integer", "description": "The x parameter"},
+                    "y": {"type": "integer", "description": "The y parameter"}
+                }
+            }
         }
 
         # When: We call get_method_info with a static method
@@ -52,10 +62,15 @@ class TestGetMethodInfoExtended:
         def lambda_func(x, y): return x + y  # Use actual lambda expression
         expected = {
             "name": "lambda_func",
-            "parameters": "x: Any, y: Any",
-            "return_type": "Any",
-            "docstring": "No docstring available",
-            "body": "Source code unavailable"
+            "description": "No description available",
+            "parameters": {
+                "type": "object",
+                "required": ["x", "y"],
+                "properties": {
+                    "x": {"type": "any", "description": "The x parameter"},
+                    "y": {"type": "any", "description": "The y parameter"}
+                }
+            }
         }
 
         # When: We call get_method_info with a lambda
@@ -65,7 +80,7 @@ class TestGetMethodInfoExtended:
         assert result == expected
 
     def test_get_method_info_with_body(self):
-        # Given: A sample method with parameters, return type, docstring, and body
+        # Given: A sample method with parameters, return type, and docstring
         def sample_method(x: int, y: str) -> bool:
             """Sample method that returns a boolean."""
             return x > 0 and len(y) > 0
@@ -73,12 +88,17 @@ class TestGetMethodInfoExtended:
         # When: We call get_method_info on the sample method
         result = get_method_info(sample_method)
 
-        # Then: The result should contain the correct method info including the body
+        # Then: The result should contain the correct method info
         expected = {
             "name": "sample_method",
-            "parameters": "x: int, y: str",
-            "return_type": "bool",
-            "docstring": "Sample method that returns a boolean.",
-            "body": "return x > 0 and len(y) > 0"
+            "description": "Sample method that returns a boolean.",
+            "parameters": {
+                "type": "object",
+                "required": ["x", "y"],
+                "properties": {
+                    "x": {"type": "integer", "description": "The x parameter"},
+                    "y": {"type": "string", "description": "The y parameter"}
+                }
+            }
         }
         assert result == expected

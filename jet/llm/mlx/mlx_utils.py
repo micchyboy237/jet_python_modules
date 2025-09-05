@@ -1,8 +1,11 @@
-from typing import Any, Callable, Dict, List, Optional, Union, get_args, get_origin
-from collections.abc import Sequence
 import inspect
 import json
 import re
+from typing import Any, Callable, Dict, List, Optional, Union, get_args, get_origin
+from collections.abc import Sequence
+from mlx_lm.utils import get_model_path, load_tokenizer, TokenizerWrapper
+from jet.models.model_types import LLMModelType
+from jet.models.utils import resolve_model_value
 from jet.servers.mcp.mcp_classes import ToolInfo
 from jet.servers.mcp.mcp_utils import validate_tool_arguments, execute_tool
 import asyncio
@@ -161,3 +164,35 @@ async def create_tool_function(tool_info: ToolInfo) -> Callable:
     tool_function.__signature__ = inspect.Signature(parameters=sig_params)
 
     return tool_function
+
+
+def get_tokenizer(model: LLMModelType) -> TokenizerWrapper:
+    model_id = resolve_model_value(model)
+    model_path = get_model_path(model_id)[0]
+    tokenizer = load_tokenizer(model_path)
+    return tokenizer
+
+
+def get_tokenizer_info(model: LLMModelType) -> Dict:
+    tokenizer = get_tokenizer(model)
+    return {
+        "has_thinking": tokenizer.has_thinking,
+        "think_start": tokenizer.think_start,
+        "think_end": tokenizer.think_end,
+        "has_tool_calling": tokenizer.has_tool_calling,
+        "tool_call_start": tokenizer.tool_call_start,
+        "tool_call_end": tokenizer.tool_call_end,
+        "eos_token_ids": list(tokenizer.eos_token_ids),
+    }
+
+
+def get_chat_template(model: LLMModelType) -> str:
+    tokenizer = get_tokenizer(model)
+    chat_template = tokenizer.chat_template or ""
+    return chat_template
+
+
+def has_tools(model: LLMModelType) -> bool:
+    chat_template = get_chat_template(model)
+    chat_template_str = str(chat_template)
+    return "tools" in chat_template_str or "tool_use" in chat_template_str

@@ -30,7 +30,7 @@ from mlx_lm._version import __version__
 from mlx_lm.generate import stream_generate
 from mlx_lm.models.cache import can_trim_prompt_cache, make_prompt_cache, trim_prompt_cache
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
-from mlx_lm.utils import common_prefix_len, load
+from mlx_lm.utils import common_prefix_len, load, get_model_path, load_tokenizer
 
 
 def get_system_fingerprint():
@@ -987,7 +987,8 @@ class APIHandler(BaseHTTPRequestHandler):
         try:
             if requested_model != self.model_provider.model_key[0] or not hasattr(self, 'tokenizer'):
                 logging.debug(f"Loading model: {requested_model}")
-                model, tokenizer = load(requested_model)
+                model_path = get_model_path(requested_model)
+                tokenizer = load_tokenizer(model_path)
             else:
                 logging.debug(f"Using existing tokenizer for model: {requested_model}")
                 tokenizer = self.tokenizer
