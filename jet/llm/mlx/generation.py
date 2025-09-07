@@ -14,42 +14,6 @@ def get_models() -> ModelsResponse:
     return MLXModelRegistry.get_models()
 
 
-def prepare_messages(
-    messages: Union[str, List[Message]],
-    history: ChatHistory,
-    system_prompt: Optional[str] = None,
-    with_history: bool = False
-) -> List[Message]:
-    """Prepare messages with history and system prompt."""
-    if system_prompt and not any(msg["role"] == "system" for msg in history.get_messages()):
-        if with_history:
-            history.add_message("system", system_prompt)
-
-    # Handle messages input: str or List[Message]
-    if isinstance(messages, str):
-        if with_history:
-            history.add_message("user", messages)
-        all_messages = history.get_messages() if with_history else [
-            {"role": "user", "content": messages}]
-    elif isinstance(messages, list):
-        for msg in messages:
-            if "role" not in msg or "content" not in msg:
-                raise ValueError(
-                    "Each message in the list must have 'role' and 'content' keys")
-            if with_history:
-                history.add_message(msg["role"], msg["content"])
-        all_messages = history.get_messages() if with_history else messages
-    else:
-        raise TypeError(
-            "messages must be a string or a list of Message dictionaries")
-
-    if system_prompt and not with_history:
-        all_messages = [
-            {"role": "system", "content": system_prompt}] + all_messages
-
-    return all_messages
-
-
 def chat(
     messages: Union[str, List[Message]],
     model: LLMModelType,
@@ -299,7 +263,6 @@ def stream_generate(
 
 
 __all__ = [
-    "prepare_messages",
     "chat",
     "stream_chat",
     "generate",

@@ -8,7 +8,6 @@ from typing import Literal, Union, Optional, List, Dict, Tuple
 from tqdm import tqdm
 from fnmatch import fnmatch
 from datetime import datetime
-
 from jet.file.utils import save_file
 from jet.logger import CustomLogger
 from jet.transformers.formatters import format_json
@@ -55,8 +54,6 @@ def run_python_files_in_directory(
     logger.debug(f"Input target_dir: {target_dir}, type: {type(target_dir)}")
     logger.debug(f"Input output_dir: {output_dir}, type: {type(output_dir)}")
     logger.debug(f"Input rerun_mode: {rerun_mode}")
-
-    # Validate rerun_mode
     valid_modes = {"all", "failed", "unrun", "failed_and_unrun"}
     logger.debug(f"Checking rerun_mode: {rerun_mode}")
     if rerun_mode not in valid_modes:
@@ -64,10 +61,8 @@ def run_python_files_in_directory(
             f"Invalid rerun_mode: {rerun_mode}. Must be one of {valid_modes}")
         raise ValueError(
             f"Invalid rerun_mode: {rerun_mode}. Must be one of {valid_modes}")
-
     if isinstance(target_dir, str):
         target_dir = Path(target_dir)
-
     if output_dir is not None:
         if isinstance(output_dir, str):
             output_dir = Path(output_dir)
@@ -84,14 +79,14 @@ def run_python_files_in_directory(
                 logger.debug(f"Loading existing status file: {status_file}")
                 status_data = json.load(f)
             logger.debug(f"Loaded status_data: {status_data}")
-            if not status_data:  # Check if status_data is empty
+            if not status_data:
                 logger.debug(
                     f"Status file {status_file} is empty, defaulting to run all files")
                 rerun_mode = "all"
         else:
             logger.debug(
                 f"No status file found at {status_file}, defaulting to run all files")
-            rerun_mode = "all"  # Default to "all" if no status file exists
+            rerun_mode = "all"
         main_log_file = output_dir / "main.log"
         logger = CustomLogger(str(main_log_file), name="", overwrite=True)
         logger.debug(f"Initialized logger with main_log_file: {main_log_file}")
@@ -101,11 +96,9 @@ def run_python_files_in_directory(
         status_file = None
         status_data = []
         logger.debug("No output_dir provided, using default logger")
-
     exclude_dirs = set(exclude_dirs or [])
     includes = includes or []
     excludes = excludes or []
-
     if recursive:
         files = [
             f for f in target_dir.rglob("*.py")
@@ -116,7 +109,6 @@ def run_python_files_in_directory(
             f for f in target_dir.glob("*.py")
             if not any(part in exclude_dirs for part in f.parts)
         ]
-
     logger.debug(
         f"Found {len(files)} Python files before filtering: {[f.name for f in files]}")
     if includes:
@@ -127,8 +119,6 @@ def run_python_files_in_directory(
     files.sort(key=lambda f: sort_key(str(f.name)))
     logger.debug(
         f"After include/exclude filtering: {len(files)} files: {[f.name for f in files]}")
-
-    # Filter files based on rerun_mode
     existing_files = {entry["file"] for entry in status_data}
     logger.debug(f"Existing files from status: {existing_files}")
     if rerun_mode == "failed":
@@ -148,11 +138,8 @@ def run_python_files_in_directory(
                  str(f.relative_to(target_dir)) in failed_files]
     logger.debug(
         f"After rerun_mode filtering ({rerun_mode}): {len(files)} files: {[str(f.relative_to(target_dir)) for f in files]}")
-
     logger.info(
         f"\nRunning {len(files)} Python files in: {target_dir} (recursive={recursive}, rerun_mode={rerun_mode})\n")
-
-    # Update status_data with new runs, preserving existing entries
     new_status_data = [entry for entry in status_data if str(entry["file"]) not in
                        {str(f.relative_to(target_dir)) for f in files}]
     for file_path in files:

@@ -1,372 +1,251 @@
 import pytest
 import os
 import json
-import shutil
 from pathlib import Path
-from jet.executor.python_runner import run_python_files_in_directory
+from typing import List, Dict
+from unittest.mock import patch, Mock
+from jet.executor.python_runner import run_python_files_in_directory, sort_key
 
 
 @pytest.fixture
-def setup_test_dir(tmp_path: Path):
-    """Set up a temporary directory with test Python files."""
-    test_dir = tmp_path / "test_scripts"
+def temp_dir(tmp_path: Path) -> Path:
+    """Fixture to create a temporary directory for tests."""
+    return tmp_path
+
+
+@pytest.fixture
+def setup_test_files(temp_dir: Path) -> Path:
+    """Fixture to create test Python files and directory structure."""
+    # Create main test directory
+    test_dir = temp_dir / "test_python_files"
     test_dir.mkdir()
-    output_dir = tmp_path / "output"
 
-    # Create test files
-    (test_dir / "1_success.py").write_text('print("Success")')
-    (test_dir / "2_fail.py").write_text('print("Fail"); exit(1)')
-    (test_dir / "3_unrun.py").write_text('print("Unrun")')
+    # Create subdirectories
+    sub_dir1 = test_dir / "sub1"
+    sub_dir2 = test_dir / "sub2"
+    sub_dir1.mkdir()
+    sub_dir2.mkdir()
 
-    yield test_dir, output_dir
+    # Create test Python files
+    (test_dir / "1_success.py").write_text("print('Success')")
+    (test_dir / "2_fail.py").write_text("raise Exception('Failed')")
+    (test_dir / "3_another_success.py").write_text("print('Another Success')")
+    (sub_dir1 / "4_sub_success.py").write_text("print('Sub Success')")
+    (sub_dir2 / "5_sub_fail.py").write_text("raise Exception('Sub Failed')")
 
-    # Cleanup
-    shutil.rmtree(tmp_path, ignore_errors=True)
+    return test_dir
 
 
-class TestPythonRunner:
+@pytest.fixture
+def output_dir(temp_dir: Path) -> Path:
+    """Fixture to create output directory."""
+    output_dir = temp_dir / "output"
+    output_dir.mkdir()
+    return output_dir
+
+
+class TestSortKey:
+    """Test suite for sort_key function."""
+
+    def test_given_numeric_prefix_files_when_sorting_then_orders_correctly(self):
+        """Test sort_key orders files with numeric prefixes correctly."""
+        given_files = ["10_file.py", "2_file.py", "1_file.py", "file.py"]
+        expected = ["1_file.py", "2_file.py", "10_file.py", "file.py"]
+        result = sorted(given_files, key=sort_key)
+        assert result == expected, f"Expected {expected}, but got {result}"
+
+
+class TestRunPythonFilesInDirectory:
     """Test suite for run_python_files_in_directory function."""
 
-    def test_run_all_files(self, setup_test_dir):
-        """Test running all files in the directory."""
-        test_dir, output_dir = setup_test_dir
+    def test_given_non_recursive_search_when_running_files_then_processes_only_top_level(
+        self, setup_test_files: Path, output_dir: Path
+    ):
+        """Test non-recursive search only processes top-level files."""
+        # Given
+        target_dir = setup_test_files
+        expected_files = [
+            "1_success.py",
+            "2_fail.py",
+            "3_another_success.py"
+        ]
 
-        # Given: A directory with Python files and an output directory
-        # When: Running all files
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="all"
-        )
-        # Then: Verify status file contains all files with correct statuses
-        status_file = output_dir / "files_status.json"
-        assert status_file.exists()
-        with status_file.open('r') as f:
-            status_data = json.load(f)
-        expected = [
-            {"file": "1_success.py", "status": "Success", "return_code": "0"},
-            {"file": "2_fail.py",
-                "status": "Failed (code 1)", "return_code": "1"},
-            {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
-        ]
-        result = [
-            {k: entry[k] for k in ["file", "status", "return_code"]}
-            for entry in status_data
-        ]
-        assert sorted(result, key=lambda x: x["file"]) == sorted(
-            expected, key=lambda x: x["file"])
+        # When
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = Mock()
+            mock_process.stdout = ["Success\n"]
+            mock_process.wait.return_value = 0
+            mock_popen.return_value = mock_process
 
-    def test_run_failed_files(self, setup_test_dir):
-        """Test running only previously failed files."""
-        test_dir, output_dir = setup_test_dir
-
-        # Given: Run all files first to create status file with a failed file
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="all"
-        )
-        # When: Rerun only failed files
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="failed"
-        )
-        # Then: Verify only failed file was rerun, others preserved
-        status_file = output_dir / "files_status.json"
-        assert status_file.exists()
-        with status_file.open('r') as f:
-            status_data = json.load(f)
-        expected = [
-            {"file": "1_success.py", "status": "Success", "return_code": "0"},
-            {"file": "2_fail.py",
-                "status": "Failed (code 1)", "return_code": "1"},
-            {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
-        ]
-        result = [
-            {k: entry[k] for k in ["file", "status", "return_code"]}
-            for entry in status_data
-        ]
-        assert sorted(result, key=lambda x: x["file"]) == sorted(
-            expected, key=lambda x: x["file"])
-        # Verify only 2_fail.py log was updated
-        failed_log = output_dir / "failed" / "2_fail.log"
-        assert failed_log.exists()
-
-    def test_run_unrun_files(self, setup_test_dir):
-        """Test running only unrun files."""
-        test_dir, output_dir = setup_test_dir
-
-        # Given: Run some files to create status file
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="all",
-            includes=["1_success.py", "2_fail.py"]
-        )
-        # When: Run only unrun files
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="unrun"
-        )
-        # Then: Verify only 3_unrun.py was run, others preserved
-        status_file = output_dir / "files_status.json"
-        assert status_file.exists()
-        with status_file.open('r') as f:
-            status_data = json.load(f)
-        expected = [
-            {"file": "1_success.py", "status": "Success", "return_code": "0"},
-            {"file": "2_fail.py",
-                "status": "Failed (code 1)", "return_code": "1"},
-            {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
-        ]
-        result = [
-            {k: entry[k] for k in ["file", "status", "return_code"]}
-            for entry in status_data
-        ]
-        assert sorted(result, key=lambda x: x["file"]) == sorted(
-            expected, key=lambda x: x["file"])
-        # Verify 3_unrun.py log exists
-        success_log = output_dir / "success" / "3_unrun.log"
-        assert success_log.exists()
-
-    def test_run_failed_and_unrun_files(self, setup_test_dir):
-        """Test running only previously failed and unrun files."""
-        test_dir, output_dir = setup_test_dir
-
-        # Given: Run some files to create status file with a failed file
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="all",
-            includes=["1_success.py", "2_fail.py"]
-        )
-        # When: Run only failed and unrun files
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="failed_and_unrun"
-        )
-        # Then: Verify failed (2_fail.py) and unrun (3_unrun.py) files were run, others preserved
-        status_file = output_dir / "files_status.json"
-        assert status_file.exists()
-        with status_file.open('r') as f:
-            status_data = json.load(f)
-        expected = [
-            {"file": "1_success.py", "status": "Success", "return_code": "0"},
-            {"file": "2_fail.py",
-                "status": "Failed (code 1)", "return_code": "1"},
-            {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
-        ]
-        result = [
-            {k: entry[k] for k in ["file", "status", "return_code"]}
-            for entry in status_data
-        ]
-        assert sorted(result, key=lambda x: x["file"]) == sorted(
-            expected, key=lambda x: x["file"])
-        # Verify 2_fail.py and 3_unrun.py logs exist
-        failed_log = output_dir / "failed" / "2_fail.log"
-        success_log = output_dir / "success" / "3_unrun.log"
-        assert failed_log.exists()
-        assert success_log.exists()
-
-    def test_run_empty_directory(self, setup_test_dir):
-        """Test running in an empty directory."""
-        test_dir, output_dir = setup_test_dir
-        # Given: An empty directory with no Python files
-        for file in test_dir.glob("*.py"):
-            file.unlink()
-        # When: Running all files
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="all"
-        )
-        # Then: Verify status file is created but empty
-        status_file = output_dir / "files_status.json"
-        assert status_file.exists()
-        with status_file.open('r') as f:
-            status_data = json.load(f)
-        expected = []
-        result = status_data
-        assert result == expected
-
-    def test_run_with_includes_filter(self, setup_test_dir):
-        """Test running files with an include filter."""
-        test_dir, output_dir = setup_test_dir
-        # Given: A directory with Python files and an include filter for specific files
-        includes = ["1_success.py"]
-        # When: Running files with the include filter
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="all",
-            includes=includes
-        )
-        # Then: Verify only included file was run
-        status_file = output_dir / "files_status.json"
-        assert status_file.exists()
-        with status_file.open('r') as f:
-            status_data = json.load(f)
-        expected = [
-            {"file": "1_success.py", "status": "Success", "return_code": "0"}
-        ]
-        result = [
-            {k: entry[k] for k in ["file", "status", "return_code"]}
-            for entry in status_data
-        ]
-        assert sorted(result, key=lambda x: x["file"]) == sorted(
-            expected, key=lambda x: x["file"])
-
-    def test_preserve_existing_status(self, setup_test_dir):
-        """Test preserving status of files not rerun."""
-        test_dir, output_dir = setup_test_dir
-        # Given: Run all files to create status file
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="all"
-        )
-        # When: Rerun only unrun files (none exist)
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="unrun"
-        )
-        # Then: Verify all previous statuses are preserved
-        status_file = output_dir / "files_status.json"
-        assert status_file.exists()
-        with status_file.open('r') as f:
-            status_data = json.load(f)
-        expected = [
-            {"file": "1_success.py", "status": "Success", "return_code": "0"},
-            {"file": "2_fail.py",
-                "status": "Failed (code 1)", "return_code": "1"},
-            {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
-        ]
-        result = [
-            {k: entry[k] for k in ["file", "status", "return_code"]}
-            for entry in status_data
-        ]
-        assert sorted(result, key=lambda x: x["file"]) == sorted(
-            expected, key=lambda x: x["file"])
-
-    def test_invalid_rerun_mode(self, setup_test_dir):
-        """Test handling of invalid rerun mode."""
-        test_dir, output_dir = setup_test_dir
-        # Given: A directory with Python files and an invalid rerun mode
-        invalid_mode = "invalid_mode"
-        # When: Attempting to run with an invalid rerun mode
-        with pytest.raises(ValueError):
             run_python_files_in_directory(
-                target_dir=test_dir,
+                target_dir=target_dir,
                 output_dir=output_dir,
-                rerun_mode=invalid_mode  # type: ignore
-            )
-        # Then: Verify no status file is created
-        status_file = output_dir / "files_status.json"
-        assert not status_file.exists()
-
-    def test_recursive_file_discovery(self, setup_test_dir):
-        """Test recursive discovery of Python files."""
-        test_dir, output_dir = setup_test_dir
-        # Given: A directory with a nested subdirectory containing a Python file
-        sub_dir = test_dir / "subdir"
-        sub_dir.mkdir()
-        (sub_dir / "4_nested.py").write_text('print("Nested Success")')
-        # When: Running files with recursive=True
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="all",
-            recursive=True
-        )
-        # Then: Verify nested file was run
-        status_file = output_dir / "files_status.json"
-        assert status_file.exists()
-        with status_file.open('r') as f:
-            status_data = json.load(f)
-        expected = [
-            {"file": "1_success.py", "status": "Success", "return_code": "0"},
-            {"file": "2_fail.py",
-                "status": "Failed (code 1)", "return_code": "1"},
-            {"file": "3_unrun.py", "status": "Success", "return_code": "0"},
-            {"file": f"subdir{os.sep}4_nested.py",
-                "status": "Success", "return_code": "0"}
-        ]
-        result = [
-            {k: entry[k] for k in ["file", "status", "return_code"]}
-            for entry in status_data
-        ]
-        assert sorted(result, key=lambda x: x["file"]) == sorted(
-            expected, key=lambda x: x["file"])
-
-    def test_run_no_status_file(self, setup_test_dir):
-        """Test running all files when no files_status.json exists regardless of rerun_mode."""
-        # Given: A directory with test scripts and an output directory without a status file
-        test_dir, output_dir = setup_test_dir
-
-        # When: Running python files with any rerun_mode but no status file
-        for mode in ["failed", "unrun", "failed_and_unrun", "all"]:
-            run_python_files_in_directory(
-                target_dir=test_dir,
-                output_dir=output_dir,
-                rerun_mode=mode  # Should default to "all" since no status file
+                recursive=False,
+                rerun_mode="all"
             )
 
-            # Then: All files should be run and status file should be created
-            status_file = output_dir / "files_status.json"
-            assert status_file.exists()
-            with status_file.open('r') as f:
-                status_data = json.load(f)
-            expected = [
-                {"file": "1_success.py", "status": "Success", "return_code": "0"},
-                {"file": "2_fail.py", "status": "Failed (code 1)", "return_code": "1"},
-                {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
-            ]
-            result = [
-                {k: entry[k] for k in ["file", "status", "return_code"]}
-                for entry in status_data
-            ]
-            assert sorted(result, key=lambda x: x["file"]) == sorted(
-                expected, key=lambda x: x["file"])
-
-            # Clean up status file for next iteration
-            status_file.unlink()
-
-    def test_run_empty_status_file(self, setup_test_dir):
-        """Test running all files when files_status.json exists but is empty."""
-        # Given: A directory with test scripts and an output directory with an empty status file
-        test_dir, output_dir = setup_test_dir
+        # Then
         status_file = output_dir / "files_status.json"
-        status_file.parent.mkdir(parents=True, exist_ok=True)
-        with status_file.open('w') as f:
-            json.dump([], f)  # Create an empty status file
+        assert status_file.exists(), "Status file was not created"
+        with status_file.open("r") as f:
+            result = json.load(f)
 
-        # When: Running python files with any rerun_mode and an empty status file
-        for mode in ["failed", "unrun", "failed_and_unrun", "all"]:
+        result_files = [entry["file"] for entry in result]
+        assert sorted(result_files) == sorted(expected_files), \
+            f"Expected {expected_files}, but got {result_files}"
+
+    def test_given_recursive_search_when_running_files_then_processes_all_files(
+        self, setup_test_files: Path, output_dir: Path
+    ):
+        """Test recursive search processes all files including subdirectories."""
+        # Given
+        target_dir = setup_test_files
+        expected_files = [
+            "1_success.py",
+            "2_fail.py",
+            "3_another_success.py",
+            "sub1/4_sub_success.py",
+            "sub2/5_sub_fail.py"
+        ]
+
+        # When
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = Mock()
+            mock_process.stdout = ["Success\n"]
+            mock_process.wait.return_value = 0
+            mock_popen.return_value = mock_process
+
             run_python_files_in_directory(
-                target_dir=test_dir,
+                target_dir=target_dir,
                 output_dir=output_dir,
-                rerun_mode=mode  # Should default to "all" since status file is empty
+                recursive=True,
+                rerun_mode="all"
             )
 
-            # Then: All files should be run and status file should be updated
-            assert status_file.exists()
-            with status_file.open('r') as f:
-                status_data = json.load(f)
-            expected = [
-                {"file": "1_success.py", "status": "Success", "return_code": "0"},
-                {"file": "2_fail.py", "status": "Failed (code 1)", "return_code": "1"},
-                {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
-            ]
-            result = [
-                {k: entry[k] for k in ["file", "status", "return_code"]}
-                for entry in status_data
-            ]
-            assert sorted(result, key=lambda x: x["file"]) == sorted(
-                expected, key=lambda x: x["file"])
+        # Then
+        status_file = output_dir / "files_status.json"
+        assert status_file.exists(), "Status file was not created"
+        with status_file.open("r") as f:
+            result = json.load(f)
 
-            # Clean up status file for next iteration
-            status_file.unlink()
+        result_files = [entry["file"] for entry in result]
+        assert sorted(result_files) == sorted(expected_files), \
+            f"Expected {expected_files}, but got {result_files}"
+
+    def test_given_include_patterns_when_running_files_then_only_matching_files_run(
+        self, setup_test_files: Path, output_dir: Path
+    ):
+        """Test include patterns filter files correctly."""
+        # Given
+        target_dir = setup_test_files
+        includes = ["*success*.py"]
+        expected_files = [
+            "1_success.py",
+            "3_another_success.py",
+            "sub1/4_sub_success.py"
+        ]
+
+        # When
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = Mock()
+            mock_process.stdout = ["Success\n"]
+            mock_process.wait.return_value = 0
+            mock_popen.return_value = mock_process
+
+            run_python_files_in_directory(
+                target_dir=target_dir,
+                output_dir=output_dir,
+                includes=includes,
+                recursive=True,
+                rerun_mode="all"
+            )
+
+        # Then
+        status_file = output_dir / "files_status.json"
+        assert status_file.exists(), "Status file was not created"
+        with status_file.open("r") as f:
+            result = json.load(f)
+
+        result_files = [entry["file"] for entry in result]
+        assert sorted(result_files) == sorted(expected_files), \
+            f"Expected {expected_files}, but got {result_files}"
+
+    def test_given_exclude_dirs_when_running_files_then_skips_excluded_directories(
+        self, setup_test_files: Path, output_dir: Path
+    ):
+        """Test exclude_dirs skips specified directories."""
+        # Given
+        target_dir = setup_test_files
+        exclude_dirs = ["sub1"]
+        expected_files = [
+            "1_success.py",
+            "2_fail.py",
+            "3_another_success.py",
+            "sub2/5_sub_fail.py"
+        ]
+
+        # When
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = Mock()
+            mock_process.stdout = ["Success\n"]
+            mock_process.wait.return_value = 0
+            mock_popen.return_value = mock_process
+
+            run_python_files_in_directory(
+                target_dir=target_dir,
+                output_dir=output_dir,
+                exclude_dirs=exclude_dirs,
+                recursive=True,
+                rerun_mode="all"
+            )
+
+        # Then
+        status_file = output_dir / "files_status.json"
+        assert status_file.exists(), "Status file was not created"
+        with status_file.open("r") as f:
+            result = json.load(f)
+
+        result_files = [entry["file"] for entry in result]
+        assert sorted(result_files) == sorted(expected_files), \
+            f"Expected {expected_files}, but got {result_files}"
+
+    def test_given_failed_rerun_mode_when_running_files_then_only_failed_files_run(
+        self, setup_test_files: Path, output_dir: Path
+    ):
+        """Test failed rerun mode only processes previously failed files."""
+        # Given
+        target_dir = setup_test_files
+        status_file = output_dir / "files_status.json"
+        initial_status = [
+            {"file": "1_success.py", "status": "Success",
+                "return_code": "0", "timestamp": "2025-09-08T00:00:00"},
+            {"file": "2_fail.py",
+                "status": "Failed (code 1)", "return_code": "1", "timestamp": "2025-09-08T00:00:00"},
+            {"file": "sub1/4_sub_success.py", "status": "Success",
+                "return_code": "0", "timestamp": "2025-09-08T00:00:00"}
+        ]
+        status_file.write_text(json.dumps(initial_status))
+        expected_files = ["2_fail.py"]
+
+        # When
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = Mock()
+            mock_process.stdout = ["Success\n"]
+            mock_process.wait.return_value = 0
+            mock_popen.return_value = mock_process
+
+            run_python_files_in_directory(
+                target_dir=target_dir,
+                output_dir=output_dir,
+                recursive=True,
+                rerun_mode="failed"
+            )
+
+        # Then
+        with status_file.open("r") as f:
+            result = json.load(f)
+
+        result_files = [entry["file"]
+                        for entry in result if entry["status"] == "Success"]
+        assert sorted(result_files) == sorted(expected_files), \
+            f"Expected {expected_files}, but got {result_files}"

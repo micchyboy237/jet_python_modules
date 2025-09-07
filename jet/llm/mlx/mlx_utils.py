@@ -238,15 +238,15 @@ def execute_tool_calls(
 
 def process_response_format(
     input_data: Union[List[Message], str],
-    response_format: Union[Literal["text", "json"], JsonSchemaValue],
+    response_format: Optional[Union[Literal["text", "json"], JsonSchemaValue]] = None,
 ) -> Union[List[Message], str]:
     """Process response format for messages or prompts, adding JSON instruction if needed."""
     # Validate input type first
     if not isinstance(input_data, (list, str)):
         raise ValueError("input_data must be a string or list of messages")
 
-    if response_format == "text":
-        return input_data  # No modification needed for text format
+    if not response_format or response_format == "text":
+        return input_data  # No modification needed
 
     # Base JSON instruction
     json_instruction = (

@@ -13,7 +13,7 @@ import jet.llm.mlx.model_cache  # Activates cleanup listener
 from typing import Dict, List, Optional, Tuple, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass, field
 from huggingface_hub import scan_cache_dir
-from jet.llm.mlx.config import DEFAULT_MODEL
+from jet.llm.mlx.config import DEFAULT_LOG_DIR, DEFAULT_MODEL
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 import mlx.core as mx
@@ -38,10 +38,6 @@ from jet.models.model_types import (
     LLMModelValue,
 )
 from jet.models.utils import resolve_model_value
-from jet.utils.inspect_utils import get_entry_file_name
-
-DEFAULT_LOG_DIR = os.path.expanduser(
-    f"~/.cache/mlx-logs/{get_entry_file_name()}")
 
 DEFAULT_CHAT_TEMPLATE_ARGS: ChatTemplateArgs = {
     "add_generation_prompt": True,
