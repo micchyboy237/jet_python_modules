@@ -1,8 +1,9 @@
+# Update PgVectorParentDocumentRetriever class
 from jet.db.postgres.pgvector import PgVectorClient
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
 from typing import List, Optional, Dict, Any, Tuple
-from jet.logger import CustomLogger
+from jet.logger import logger
 
 
 class PgVectorParentDocumentRetriever(VectorStore):
@@ -29,7 +30,10 @@ class PgVectorParentDocumentRetriever(VectorStore):
         self.child_table_name = child_table_name
         self.text_key = text_key
         self.search_kwargs = search_kwargs or {"top_k": 10}
-        self.dimension = 1536  # Default dimension for mxbai-embed-large
+        # Dynamically determine embedding dimension
+        test_embedding = self.embedding_model.embed_query("test")
+        self.dimension = len(test_embedding)
+        logger.debug(f"Determined embedding dimension: {self.dimension}")
         self.client._ensure_table_exists(
             self.parent_table_name, self.dimension)
         self.client._ensure_table_exists(self.child_table_name, self.dimension)
