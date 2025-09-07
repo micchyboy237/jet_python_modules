@@ -67,6 +67,7 @@ def run_python_files_in_directory(
 
     if isinstance(target_dir, str):
         target_dir = Path(target_dir)
+
     if output_dir is not None:
         if isinstance(output_dir, str):
             output_dir = Path(output_dir)
@@ -83,6 +84,10 @@ def run_python_files_in_directory(
                 logger.debug(f"Loading existing status file: {status_file}")
                 status_data = json.load(f)
             logger.debug(f"Loaded status_data: {status_data}")
+            if not status_data:  # Check if status_data is empty
+                logger.debug(
+                    f"Status file {status_file} is empty, defaulting to run all files")
+                rerun_mode = "all"
         else:
             logger.debug(
                 f"No status file found at {status_file}, defaulting to run all files")

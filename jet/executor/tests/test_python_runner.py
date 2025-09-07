@@ -303,30 +303,70 @@ class TestPythonRunner:
             expected, key=lambda x: x["file"])
 
     def test_run_no_status_file(self, setup_test_dir):
-        """Test running all files when no files_status.json exists."""
-        # Given: A directory with test scripts and an output directory
+        """Test running all files when no files_status.json exists regardless of rerun_mode."""
+        # Given: A directory with test scripts and an output directory without a status file
         test_dir, output_dir = setup_test_dir
 
         # When: Running python files with any rerun_mode but no status file
-        run_python_files_in_directory(
-            target_dir=test_dir,
-            output_dir=output_dir,
-            rerun_mode="failed"  # Should default to "all" since no status file
-        )
+        for mode in ["failed", "unrun", "failed_and_unrun", "all"]:
+            run_python_files_in_directory(
+                target_dir=test_dir,
+                output_dir=output_dir,
+                rerun_mode=mode  # Should default to "all" since no status file
+            )
 
-        # Then: All files should be run and status file should be created
+            # Then: All files should be run and status file should be created
+            status_file = output_dir / "files_status.json"
+            assert status_file.exists()
+            with status_file.open('r') as f:
+                status_data = json.load(f)
+            expected = [
+                {"file": "1_success.py", "status": "Success", "return_code": "0"},
+                {"file": "2_fail.py", "status": "Failed (code 1)", "return_code": "1"},
+                {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
+            ]
+            result = [
+                {k: entry[k] for k in ["file", "status", "return_code"]}
+                for entry in status_data
+            ]
+            assert sorted(result, key=lambda x: x["file"]) == sorted(
+                expected, key=lambda x: x["file"])
+
+            # Clean up status file for next iteration
+            status_file.unlink()
+
+    def test_run_empty_status_file(self, setup_test_dir):
+        """Test running all files when files_status.json exists but is empty."""
+        # Given: A directory with test scripts and an output directory with an empty status file
+        test_dir, output_dir = setup_test_dir
         status_file = output_dir / "files_status.json"
-        assert status_file.exists()
-        with status_file.open('r') as f:
-            status_data = json.load(f)
-        expected = [
-            {"file": "1_success.py", "status": "Success", "return_code": "0"},
-            {"file": "2_fail.py", "status": "Failed (code 1)", "return_code": "1"},
-            {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
-        ]
-        result = [
-            {k: entry[k] for k in ["file", "status", "return_code"]}
-            for entry in status_data
-        ]
-        assert sorted(result, key=lambda x: x["file"]) == sorted(
-            expected, key=lambda x: x["file"])
+        status_file.parent.mkdir(parents=True, exist_ok=True)
+        with status_file.open('w') as f:
+            json.dump([], f)  # Create an empty status file
+
+        # When: Running python files with any rerun_mode and an empty status file
+        for mode in ["failed", "unrun", "failed_and_unrun", "all"]:
+            run_python_files_in_directory(
+                target_dir=test_dir,
+                output_dir=output_dir,
+                rerun_mode=mode  # Should default to "all" since status file is empty
+            )
+
+            # Then: All files should be run and status file should be updated
+            assert status_file.exists()
+            with status_file.open('r') as f:
+                status_data = json.load(f)
+            expected = [
+                {"file": "1_success.py", "status": "Success", "return_code": "0"},
+                {"file": "2_fail.py", "status": "Failed (code 1)", "return_code": "1"},
+                {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
+            ]
+            result = [
+                {k: entry[k] for k in ["file", "status", "return_code"]}
+                for entry in status_data
+            ]
+            assert sorted(result, key=lambda x: x["file"]) == sorted(
+                expected, key=lambda x: x["file"])
+
+            # Clean up status file for next iteration
+            status_file.unlink()
