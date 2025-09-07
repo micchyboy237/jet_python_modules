@@ -257,35 +257,22 @@ def extract_text_from_py(
 
 
 def process_file(
-    input_path,
-    output_dir=None,
+    input_path: Path,
+    base_input_dir: Path,
+    output_dir: Path,
     include_outputs=True,
     include_code=False,
     include_comments=False,
     merge_consecutive_code=False,
     save_as: Literal['md', 'py', 'blocks'] = 'md'
 ):
-    """Process a single file (notebook, markdown, or python) and preserve relative directory structure."""
-    input_path = Path(input_path)
-    input_base = Path(input_path).parent if os.path.isfile(
-        input_path) else Path(input_path)
-
-    if output_dir is None:
-        output_dir = input_path.parent
-    else:
-        output_dir = Path(output_dir)
-
-    # Calculate relative path and ensure it exists in output_dir
-    if os.path.isfile(input_path):
-        relative_path = input_path.relative_to(input_base)
-        output_path = output_dir / relative_path.with_suffix(
-            '.json' if save_as == 'blocks' else f'.{save_as}'
-        )
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-    else:
-        output_path = output_dir / f"{input_path.stem}.{save_as}"
-
+    """Process a single file (notebook, markdown, or python) with preserved relative dirs."""
     extension = "json" if save_as == "blocks" else save_as
+
+    # preserve relative dir structure
+    rel_path = input_path.relative_to(base_input_dir)
+    output_path = output_dir / rel_path.with_suffix(f".{extension}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if input_path.suffix == '.ipynb':
         content = extract_text_from_ipynb(
@@ -337,18 +324,19 @@ def run_text_extraction(
     include_comments: bool = True,
     merge_consecutive_code: bool = False,
 ):
-    """Main function to process notebook, markdown, and python files."""
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
 
     extensions = [extensions] if isinstance(extensions, str) else extensions
+    base_input_dir = Path(input_path)
 
     if os.path.isdir(input_path):
         for ext in extensions:
-            for file in Path(input_path).rglob(f"*.{ext.lstrip('*.')}"):
+            for file in base_input_dir.rglob(f"*.{ext.lstrip('*.')}"):
                 process_file(
                     file,
-                    output_dir,
+                    base_input_dir,
+                    Path(output_dir),
                     include_outputs=include_outputs,
                     include_code=include_code,
                     include_comments=include_comments,
@@ -357,8 +345,9 @@ def run_text_extraction(
                 )
     else:
         process_file(
-            input_path,
-            output_dir,
+            Path(input_path),
+            Path(input_path).parent,
+            Path(output_dir),
             include_outputs=include_outputs,
             include_code=include_code,
             include_comments=include_comments,
@@ -391,8 +380,8 @@ def run_notebook_extraction(
 
 
 if __name__ == "__main__":
-    input_path = "/Users/jethroestrada/Desktop/External_Projects/AI/examples/all-rag-techniques"
-    output_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/converted_doc_scripts/all-rag-techniques/notebook_texts"
+    input_path = "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/swarms"
+    output_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/swarms/notebook_texts"
 
     logger.info("Extracting texts from notebooks...")
     run_notebook_extraction(input_path, output_dir)

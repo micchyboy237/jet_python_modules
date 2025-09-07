@@ -3,6 +3,7 @@ from enum import Enum
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat
 from transformers import PreTrainedTokenizer
 from mlx_lm.tokenizer_utils import TokenizerWrapper
+from jet.llm.mlx.mlx_types import ToolCall
 
 # Type definitions
 
@@ -12,9 +13,10 @@ MLXTokenizer = Union[TokenizerWrapper, PreTrainedTokenizer]
 ChatRole = Literal["system", "user", "assistant", "tool"]
 
 
-class Message(TypedDict):
+class Message(TypedDict, total=False):
     role: ChatRole
     content: str
+    tool_calls: Optional[List[ToolCall]]
 
 
 class Delta(TypedDict):

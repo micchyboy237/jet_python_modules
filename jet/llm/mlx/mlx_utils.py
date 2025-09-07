@@ -1,12 +1,14 @@
 import inspect
 import json
 import re
-from typing import Any, Callable, Dict, List, Optional, TypedDict, Union, get_args, get_origin
+from typing import Any, Callable, Dict, List, Literal, Optional, TypedDict, Union, get_args, get_origin
 from collections.abc import Sequence
+
+from pydantic.json_schema import JsonSchemaValue
 from jet.llm.mlx.mlx_types import ToolArguments, ToolCall, ToolCallResult
 from jet.logger import logger
 from mlx_lm.utils import get_model_path, load_tokenizer, TokenizerWrapper
-from jet.models.model_types import LLMModelType
+from jet.models.model_types import LLMModelType, Message
 from jet.models.utils import resolve_model_value
 from jet.servers.mcp.mcp_classes import ToolInfo
 from jet.servers.mcp.mcp_utils import validate_tool_arguments, execute_tool
@@ -232,3 +234,38 @@ def execute_tool_calls(
             function=tool_call, type="function"), "tool_result": tool_result})
 
     return results
+
+
+def process_response_format(
+    input_data: Union[List[Message], str],
+    response_format: Union[Literal["text", "json"], JsonSchemaValue],
+) -> Union[List[Message], str]:
+    """Process response format for messages or prompts, adding JSON instruction if needed."""
+    json_instruction = "Generate the response in valid JSON format. If a specific schema is provided, adhere to it."
+    if isinstance(response_format, dict):
+        json_instruction += f" Follow this JSON schema: {json.dumps(response_format, ensure_ascii=False)}"
+
+    if isinstance(input_data, list):
+        # Handle List[Message] for chat methods
+        modified_messages = input_data.copy()  # Avoid modifying the input list
+        if isinstance(response_format, (str, dict)) and (response_format == "json" or isinstance(response_format, dict)):
+            # Check for existing system message
+            system_msg_index = next((i for i, msg in enumerate(
+                modified_messages) if msg["role"] == "system"), None)
+            if system_msg_index is not None:
+                # System message exists; check if it mentions JSON
+                if "JSON" not in modified_messages[system_msg_index]["content"]:
+                    # Concatenate with two newlines
+                    modified_messages[system_msg_index]["content"] += f"\n\n{json_instruction}"
+            else:
+                # No system message; add new one
+                modified_messages.insert(
+                    0, {"role": "system", "content": json_instruction})
+        return modified_messages
+    elif isinstance(input_data, str):
+        # Handle string prompt for generate methods
+        if isinstance(response_format, (str, dict)) and (response_format == "json" or isinstance(response_format, dict)):
+            return f"{json_instruction}\n\n{input_data}"
+        return input_data
+    else:
+        raise ValueError("input_data must be a string or list of messages")

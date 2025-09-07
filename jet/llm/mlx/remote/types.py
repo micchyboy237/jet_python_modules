@@ -1,15 +1,9 @@
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, Literal
 
-from jet.llm.mlx.mlx_types import ToolCall
+from jet.llm.mlx.mlx_types import ToolCall, Message
 
 
-class Message(TypedDict):
-    role: Literal["system", "user", "assistant", "tool"]
-    content: Union[str, List[Dict[str, str]]]
-    tool_calls: Optional[List[ToolCall]]
-
-
-class ChatCompletionRequest(TypedDict):
+class ChatCompletionRequest(TypedDict, total=False):
     messages: List[Message]
     model: Optional[str]
     draft_model: Optional[str]
@@ -30,6 +24,7 @@ class ChatCompletionRequest(TypedDict):
     stream_options: Optional[Dict[str, bool]]
     role_mapping: Optional[Dict[str, str]]
     tools: Optional[List[Dict[str, Any]]]
+    response_format: Optional[Union[Literal["text", "json"], Dict[str, Any]]]
 
 
 class ChatChoice(TypedDict):

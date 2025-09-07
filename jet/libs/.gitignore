@@ -1,0 +1,12 @@
+# Ignore images and large binary assets
+*.png
+*.jpg
+*.jpeg
+
+# Ignore temporary / generated files
+*.log
+*.txt
+*.out
+*.tmp
+__pycache__/
+*.pyc

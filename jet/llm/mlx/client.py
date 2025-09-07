@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic.json_schema import JsonSchemaValue
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat, find_repeated_consecutive_ngrams
 from jet.llm.mlx.mlx_types import ChatTemplateArgs
+from jet.llm.mlx.mlx_utils import process_response_format
 import jet.llm.mlx.model_cache  # Activates cleanup listener
 from typing import Dict, List, Optional, Tuple, Union, Literal, TypedDict, Any, Iterator
 from dataclasses import dataclass, field
@@ -320,19 +321,7 @@ class MLXLMClient:
         ]
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
         object_type: str = "chat.completion"
-        # Add system instruction for JSON response format
-        modified_messages = messages
-        if isinstance(active_response_format, (str, dict)) and (active_response_format == "json" or isinstance(active_response_format, dict)):
-            system_instruction = {
-                "role": "system",
-                "content": "Generate the response in valid JSON format. If a specific schema is provided, adhere to it."
-            }
-            if isinstance(active_response_format, dict):
-                system_instruction[
-                    "content"] += f" Follow this JSON schema: {json.dumps(active_response_format, ensure_ascii=False)}"
-            # Avoid duplicating system instruction if already present
-            if not any(msg["role"] == "system" and "JSON" in msg["content"] for msg in messages):
-                modified_messages = [system_instruction] + messages
+        modified_messages = process_response_format(messages, active_response_format)
         if role_mapping:
             prompt_str: str = convert_chat(modified_messages, role_mapping)
             prompt = tokenizer.encode(prompt_str)
@@ -384,114 +373,6 @@ class MLXLMClient:
                 response,
                 model=model,
                 tools=tools,
-                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-                temperature=temperature if temperature is not None else self.cli_args.temperature,
-                top_p=top_p if top_p is not None else self.cli_args.top_p,
-                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
-                logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
-            )
-        return response
-
-    def generate(
-        self,
-        prompt: str,
-        model: LLMModelType = DEFAULT_MODEL,
-        draft_model: Optional[LLMModelType] = None,
-        adapter: Optional[str] = None,
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        min_p: Optional[float] = None,
-        min_tokens_to_keep: Optional[int] = None,
-        top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
-        repetition_context_size: Optional[int] = None,
-        xtc_probability: Optional[float] = None,
-        xtc_threshold: Optional[float] = None,
-        logit_bias: Optional[Union[Dict[int, float],
-                                   Dict[str, float], str, List[str]]] = None,
-        logprobs: Optional[int] = None,
-        stop: Optional[Union[str, List[str]]] = None,
-        log_dir: Optional[str] = None,
-        verbose: Optional[bool] = None,
-        prompt_cache: Optional[List[Any]] = None,
-        response_format: Optional[Union[Literal["text",
-                                                "json"], JsonSchemaValue]] = None
-    ) -> Union[CompletionResponse, List[CompletionResponse]]:
-        """Generate a text completion."""
-        model_value = resolve_model_value(model)
-        draft_model_value = resolve_model_value(
-            draft_model) if draft_model else None
-        active_response_format = response_format if response_format is not None else self.cli_args.response_format
-        active_verbose = verbose if verbose is not None else self.cli_args.verbose
-        self._validate_parameters(
-            max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-            temperature if temperature is not None else self.cli_args.temperature,
-            top_p if top_p is not None else self.cli_args.top_p,
-            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-            xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
-            logit_bias if logit_bias is not None else self.cli_args.logit_bias,
-            logprobs if logprobs is not None else self.cli_args.logprobs,
-            model_value, adapter, active_response_format
-        )
-        model_obj, tokenizer = self.model_provider.load(
-            model_value, adapter, draft_model_value)
-        if tokenizer is None:
-            raise ValueError("Failed to load tokenizer")
-        stop_words: List[str] = (
-            [stop] if isinstance(
-                stop, str) else stop or self.cli_args.stop or []
-        )
-        stop_id_sequences: List[List[int]] = [
-            tokenizer.encode(stop_word, add_special_tokens=False)
-            for stop_word in stop_words
-        ]
-        request_id: str = f"cmpl-{uuid.uuid4()}"
-        object_type: str = "text.completion"
-        # Add instruction for JSON response format
-        modified_prompt = prompt
-        if isinstance(active_response_format, (str, dict)) and (active_response_format == "json" or isinstance(active_response_format, dict)):
-            instruction = "Generate the response in valid JSON format."
-            if isinstance(active_response_format, dict):
-                instruction += f" Follow this JSON schema: {json.dumps(active_response_format, ensure_ascii=False)}"
-            modified_prompt = f"{instruction}\n\n{prompt}"
-        prompt_tokens: List[int] = tokenizer.encode(modified_prompt)
-        response = self._generate_completion(
-            prompt=prompt_tokens,
-            model_obj=model_obj,
-            tokenizer=tokenizer,
-            stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-            temperature=temperature if temperature is not None else self.cli_args.temperature,
-            top_p=top_p if top_p is not None else self.cli_args.top_p,
-            min_p=min_p if min_p is not None else self.cli_args.min_p,
-            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
-            top_k=top_k if top_k is not None else self.cli_args.top_k,
-            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
-            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
-            logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
-            request_id=request_id,
-            object_type=object_type,
-            draft_model=self.model_provider.draft_model,
-            num_draft_tokens=3,
-            verbose=active_verbose,
-            prompt_cache=prompt_cache,
-            response_format=active_response_format
-        )
-        log_dir = log_dir or self.log_dir
-        if log_dir:
-            ChatLogger(log_dir, method="generate").log_interaction(
-                modified_prompt,
-                response,
-                model=model,
                 max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
                 temperature=temperature if temperature is not None else self.cli_args.temperature,
                 top_p=top_p if top_p is not None else self.cli_args.top_p,
@@ -564,19 +445,7 @@ class MLXLMClient:
         ]
         request_id: str = f"chatcmpl-{uuid.uuid4()}"
         object_type: str = "chat.completion"
-        # Add system instruction for JSON response format
-        modified_messages = messages
-        if isinstance(active_response_format, (str, dict)) and (active_response_format == "json" or isinstance(active_response_format, dict)):
-            system_instruction = {
-                "role": "system",
-                "content": "Generate the response in valid JSON format. If a specific schema is provided, adhere to it."
-            }
-            if isinstance(active_response_format, dict):
-                system_instruction[
-                    "content"] += f" Follow this JSON schema: {json.dumps(active_response_format, ensure_ascii=False)}"
-            # Avoid duplicating system instruction if already present
-            if not any(msg["role"] == "system" and "JSON" in msg["content"] for msg in messages):
-                modified_messages = [system_instruction] + messages
+        modified_messages = process_response_format(messages, active_response_format)
         if role_mapping:
             prompt_str: str = convert_chat(modified_messages, role_mapping)
             prompt = tokenizer.encode(prompt_str)
@@ -639,6 +508,108 @@ class MLXLMClient:
                 logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
 
+    def generate(
+        self,
+        prompt: str,
+        model: LLMModelType = DEFAULT_MODEL,
+        draft_model: Optional[LLMModelType] = None,
+        adapter: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        min_p: Optional[float] = None,
+        min_tokens_to_keep: Optional[int] = None,
+        top_k: Optional[int] = None,
+        repetition_penalty: Optional[float] = None,
+        repetition_context_size: Optional[int] = None,
+        xtc_probability: Optional[float] = None,
+        xtc_threshold: Optional[float] = None,
+        logit_bias: Optional[Union[Dict[int, float],
+                                   Dict[str, float], str, List[str]]] = None,
+        logprobs: Optional[int] = None,
+        stop: Optional[Union[str, List[str]]] = None,
+        log_dir: Optional[str] = None,
+        verbose: Optional[bool] = None,
+        prompt_cache: Optional[List[Any]] = None,
+        response_format: Optional[Union[Literal["text",
+                                                "json"], JsonSchemaValue]] = None
+    ) -> Union[CompletionResponse, List[CompletionResponse]]:
+        """Generate a text completion."""
+        model_value = resolve_model_value(model)
+        draft_model_value = resolve_model_value(
+            draft_model) if draft_model else None
+        active_response_format = response_format if response_format is not None else self.cli_args.response_format
+        active_verbose = verbose if verbose is not None else self.cli_args.verbose
+        self._validate_parameters(
+            max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature if temperature is not None else self.cli_args.temperature,
+            top_p if top_p is not None else self.cli_args.top_p,
+            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs if logprobs is not None else self.cli_args.logprobs,
+            model_value, adapter, active_response_format
+        )
+        model_obj, tokenizer = self.model_provider.load(
+            model_value, adapter, draft_model_value)
+        if tokenizer is None:
+            raise ValueError("Failed to load tokenizer")
+        stop_words: List[str] = (
+            [stop] if isinstance(
+                stop, str) else stop or self.cli_args.stop or []
+        )
+        stop_id_sequences: List[List[int]] = [
+            tokenizer.encode(stop_word, add_special_tokens=False)
+            for stop_word in stop_words
+        ]
+        request_id: str = f"cmpl-{uuid.uuid4()}"
+        object_type: str = "text.completion"
+        modified_prompt = process_response_format(prompt, active_response_format)
+        prompt_tokens: List[int] = tokenizer.encode(modified_prompt)
+        response = self._generate_completion(
+            prompt=prompt_tokens,
+            model_obj=model_obj,
+            tokenizer=tokenizer,
+            stop_id_sequences=stop_id_sequences,
+            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+            temperature=temperature if temperature is not None else self.cli_args.temperature,
+            top_p=top_p if top_p is not None else self.cli_args.top_p,
+            min_p=min_p if min_p is not None else self.cli_args.min_p,
+            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
+            top_k=top_k if top_k is not None else self.cli_args.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
+            request_id=request_id,
+            object_type=object_type,
+            draft_model=self.model_provider.draft_model,
+            num_draft_tokens=3,
+            verbose=active_verbose,
+            prompt_cache=prompt_cache,
+            response_format=active_response_format
+        )
+        log_dir = log_dir or self.log_dir
+        if log_dir:
+            ChatLogger(log_dir, method="generate").log_interaction(
+                modified_prompt,
+                response,
+                model=model,
+                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
+                temperature=temperature if temperature is not None else self.cli_args.temperature,
+                top_p=top_p if top_p is not None else self.cli_args.top_p,
+                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
+                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
+                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+                logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
+            )
+        return response
+
     def stream_generate(
         self,
         prompt: str,
@@ -697,13 +668,7 @@ class MLXLMClient:
         ]
         request_id: str = f"cmpl-{uuid.uuid4()}"
         object_type: str = "text.completion"
-        # Add instruction for JSON response format
-        modified_prompt = prompt
-        if isinstance(active_response_format, (str, dict)) and (active_response_format == "json" or isinstance(active_response_format, dict)):
-            instruction = "Generate the response in valid JSON format."
-            if isinstance(active_response_format, dict):
-                instruction += f" Follow this JSON schema: {json.dumps(active_response_format, ensure_ascii=False)}"
-            modified_prompt = f"{instruction}\n\n{prompt}"
+        modified_prompt = process_response_format(prompt, active_response_format)
         prompt_tokens: List[int] = tokenizer.encode(modified_prompt)
         for response in self._stream_generate_completion(
             prompt=prompt_tokens,
