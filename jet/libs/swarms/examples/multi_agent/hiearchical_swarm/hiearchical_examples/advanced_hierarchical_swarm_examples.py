@@ -28,7 +28,7 @@ def create_medical_diagnosis_swarm():
         5. Communicating findings clearly to referring physicians
         
         You provide detailed, accurate radiological interpretations with confidence levels.""",
-        model_name="ollama/llama3.2",
+        model_name="claude-3-sonnet-20240229",
         max_loops=1,
         temperature=0.3,
     )
@@ -51,7 +51,7 @@ def create_medical_diagnosis_swarm():
         5. Advising on test selection and interpretation
         
         You provide precise, evidence-based pathological assessments.""",
-        model_name="ollama/llama3.2",
+        model_name="claude-3-sonnet-20240229",
         max_loops=1,
         temperature=0.3,
     )
@@ -74,7 +74,7 @@ def create_medical_diagnosis_swarm():
         5. Monitoring patient progress and outcomes
         
         You provide holistic, patient-centered medical care with evidence-based recommendations.""",
-        model_name="ollama/llama3.2",
+        model_name="claude-3-sonnet-20240229",
         max_loops=1,
         temperature=0.3,
     )
@@ -98,7 +98,7 @@ def create_medical_diagnosis_swarm():
         6. Ensure adherence to medical standards and protocols
         
         You create specific, medically appropriate task assignments for each specialist.""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         temperature=0.3,
     )
@@ -146,7 +146,7 @@ def create_legal_research_swarm():
         5. Ensuring regulatory compliance
         
         You provide precise legal analysis with citations to relevant statutes and case law.""",
-        model_name="ollama/llama3.2",
+        model_name="claude-3-sonnet-20240229",
         max_loops=1,
         temperature=0.2,
     )
@@ -169,7 +169,7 @@ def create_legal_research_swarm():
         5. Recommending dispute resolution approaches
         
         You provide strategic legal analysis with case law support and risk assessment.""",
-        model_name="ollama/llama3.2",
+        model_name="claude-3-sonnet-20240229",
         max_loops=1,
         temperature=0.2,
     )
@@ -192,7 +192,7 @@ def create_legal_research_swarm():
         5. Developing compliance programs and policies
         
         You provide comprehensive regulatory analysis with specific compliance recommendations.""",
-        model_name="ollama/llama3.2",
+        model_name="claude-3-sonnet-20240229",
         max_loops=1,
         temperature=0.2,
     )
@@ -216,7 +216,7 @@ def create_legal_research_swarm():
         6. Ensure adherence to professional standards and ethics
         
         You create specific, legally appropriate task assignments for each specialist.""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         temperature=0.2,
     )
@@ -264,7 +264,7 @@ def create_software_development_swarm():
         5. Implementing scalable architecture patterns
         
         You provide technical solutions with code examples and architectural recommendations.""",
-        model_name="ollama/llama3.2",
+        model_name="claude-3-sonnet-20240229",
         max_loops=1,
         temperature=0.4,
     )
@@ -287,7 +287,7 @@ def create_software_development_swarm():
         5. Following accessibility best practices
         
         You provide frontend solutions with code examples and UX considerations.""",
-        model_name="ollama/llama3.2",
+        model_name="claude-3-sonnet-20240229",
         max_loops=1,
         temperature=0.4,
     )
@@ -310,7 +310,7 @@ def create_software_development_swarm():
         5. Optimizing deployment and operational processes
         
         You provide DevOps solutions with infrastructure code and deployment strategies.""",
-        model_name="ollama/llama3.2",
+        model_name="claude-3-sonnet-20240229",
         max_loops=1,
         temperature=0.4,
     )
@@ -334,7 +334,7 @@ def create_software_development_swarm():
         6. Ensure adherence to coding standards and best practices
         
         You create specific, technically appropriate task assignments for each specialist.""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         temperature=0.4,
     )

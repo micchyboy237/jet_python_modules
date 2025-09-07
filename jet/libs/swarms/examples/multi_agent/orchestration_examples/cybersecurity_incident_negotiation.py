@@ -13,7 +13,7 @@ incident_mediator = Agent(
     - Crisis communication
     
     Facilitate productive negotiation while ensuring security and compliance priorities.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 security_team = Agent(
@@ -27,7 +27,7 @@ security_team = Agent(
     - Security monitoring
     
     Advocate for robust security measures and risk mitigation.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 business_ops = Agent(
@@ -41,7 +41,7 @@ business_ops = Agent(
     - Revenue protection
     
     Balance security needs with business operations requirements.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 legal_counsel = Agent(
@@ -55,7 +55,7 @@ legal_counsel = Agent(
     - Contract obligations
     
     Ensure legal compliance and risk management in incident response.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 it_infrastructure = Agent(
@@ -69,7 +69,7 @@ it_infrastructure = Agent(
     - Technical implementation
     
     Address technical feasibility and implementation considerations.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 # Initialize the negotiation session

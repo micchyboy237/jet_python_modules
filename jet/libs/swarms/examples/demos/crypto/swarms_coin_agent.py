@@ -108,7 +108,7 @@ def fetch_swarms_data():
 swarms_agent = Agent(
     agent_name="Swarms-Token-Agent",
     system_prompt=SWARMS_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
     autosave=True,
     dashboard=False,

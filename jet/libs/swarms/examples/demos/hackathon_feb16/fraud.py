@@ -7,7 +7,7 @@ from swarms import Agent
 # FraudClassifier Class Definition
 ###############################################################################
 class FraudClassifier:
-    def __init__(self, model_name="ollama/llama3.2"):
+    def __init__(self, model_name="gpt-4o-mini"):
         """
         Initialize the system prompts and all agent instances.
         """
@@ -184,9 +184,9 @@ class FraudClassifier:
         except Exception:
             # If parsing fails, we fall back to manually constructing the sub-agent inputs.
             boss_instructions = {
-                "geolocation_data": f"declared_country: {row.get('declared_country', '')}, ip_country: {row.get('ip_country', '')}, phone_carrier_country: {row.get('phone_carrier_country', '')}",
-                "ip_data": f"ip_address: {row.get('ip_address', '')}, known_blacklisted_regions: {row.get('known_blacklisted_regions', '')}",
-                "email_data": f"user_name: {row.get('user_name', '')}, email: {row.get('email', '')}, account_name: {row.get('account_name', '')}, payment_info_name: {row.get('payment_info_name', '')}, account_history_notes: {row.get('account_history_notes', '')}",
+                "geolocation_data": f"declared_country: {row.get('declared_country','')}, ip_country: {row.get('ip_country','')}, phone_carrier_country: {row.get('phone_carrier_country','')}",
+                "ip_data": f"ip_address: {row.get('ip_address','')}, known_blacklisted_regions: {row.get('known_blacklisted_regions','')}",
+                "email_data": f"user_name: {row.get('user_name','')}, email: {row.get('email','')}, account_name: {row.get('account_name','')}, payment_info_name: {row.get('payment_info_name','')}, account_history_notes: {row.get('account_history_notes','')}",
             }
 
         # (c) Call specialized agents using either the Boss Agent's instructions or defaults.

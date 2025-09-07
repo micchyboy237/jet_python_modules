@@ -356,17 +356,15 @@ Output only the protein sequence, nothing else.
 # Supervisor Agent
 supervisor_agent = Agent(
     agent_name="Supervisor-Agent",
-    streaming_on=True,
     system_prompt=SUPERVISOR_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",  # Example placeholder
+    model_name="gpt-4o-mini",  # Example placeholder
     max_loops=1,
 )
 
 research_agent = Agent(
     agent_name="Research-Agent",
-    streaming_on=True,
     system_prompt=RESEARCH_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
     tools=[exa_search],
 )
@@ -375,63 +373,56 @@ research_agent = Agent(
 # Generation Agent
 generation_agent = Agent(
     agent_name="Generation-Agent",
-    streaming_on=True,
     system_prompt=GENERATION_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
 )
 
 # Review Agent
 review_agent = Agent(
     agent_name="Review-Agent",
-    streaming_on=True,
     system_prompt=REVIEW_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
 )
 
 # Ranking Agent
 ranking_agent = Agent(
     agent_name="Ranking-Agent",
-    streaming_on=True,
     system_prompt=RANKING_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
 )
 
 # Evolution Agent
 evolution_agent = Agent(
     agent_name="Evolution-Agent",
-    streaming_on=True,
     system_prompt=EVOLUTION_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
 )
 
 # Proximity Agent
 proximity_agent = Agent(
     agent_name="Proximity-Agent",
-    streaming_on=True,
     system_prompt=PROXIMITY_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
 )
 
 # Meta-Review Agent
 meta_review_agent = Agent(
     agent_name="Meta-Review-Agent",
-    streaming_on=True,
     system_prompt=META_REVIEW_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
 )
 
 
 protein_generation_agent = Agent(
     agent_name="Protein-Generation-Agent",
-    streaming_on=True,
     system_prompt=PROTEIN_GENERATION_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
 )
 

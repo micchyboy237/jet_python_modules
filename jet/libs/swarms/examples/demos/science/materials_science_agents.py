@@ -49,7 +49,7 @@ chief_metallurgist = Agent(
     
     Your output should include detailed scientific rationale for all decisions and recommendations.
     """,
-    model_name="ollama/llama3.2",
+    model_name="openai/gpt-4o",
     max_loops=1,
     dynamic_temperature_enabled=True,
 )
@@ -111,7 +111,7 @@ materials_scientist = Agent(
     
     Provide quantitative predictions where possible and identify key uncertainties.
     """,
-    model_name="ollama/llama3.2",
+    model_name="openai/gpt-4o",
     max_loops=1,
     dynamic_temperature_enabled=True,
 )
@@ -175,7 +175,7 @@ process_engineer = Agent(
     
     Provide comprehensive process documentation and control specifications.
     """,
-    model_name="ollama/llama3.2",
+    model_name="openai/gpt-4o",
     max_loops=1,
     dynamic_temperature_enabled=True,
 )
@@ -239,7 +239,7 @@ qa_specialist = Agent(
     
     Provide comprehensive quality assurance plans and specifications.
     """,
-    model_name="ollama/llama3.2",
+    model_name="openai/gpt-4o",
     max_loops=1,
     dynamic_temperature_enabled=True,
 )
@@ -303,7 +303,7 @@ applications_engineer = Agent(
     
     Provide detailed application assessments and implementation recommendations.
     """,
-    model_name="ollama/llama3.2",
+    model_name="openai/gpt-4o",
     max_loops=1,
     dynamic_temperature_enabled=True,
 )
@@ -367,7 +367,7 @@ cost_analyst = Agent(
     
     Provide comprehensive cost analysis and economic feasibility assessments.
     """,
-    model_name="ollama/llama3.2",
+    model_name="openai/gpt-4o",
     max_loops=1,
     dynamic_temperature_enabled=True,
 )

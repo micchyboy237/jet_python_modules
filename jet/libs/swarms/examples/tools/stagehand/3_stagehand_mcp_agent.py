@@ -123,7 +123,7 @@ class MultiSessionBrowserSwarm:
             name, specialization = agent_roles[i]
             agent = Agent(
                 agent_name=f"{name}_{i}",
-                model_name="ollama/llama3.2",
+                model_name="gpt-4o-mini",
                 max_loops=1,
                 mcp_url=mcp_server_url,
                 system_prompt=f"""You are a web browser automation specialist. {specialization}

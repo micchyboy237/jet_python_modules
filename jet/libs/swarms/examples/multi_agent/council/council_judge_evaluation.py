@@ -58,7 +58,7 @@ Problem-Solving Framework:
    - Provide actionable recommendations
 
 Remember to maintain a systematic, analytical approach while being adaptable to different problem domains.""",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
     max_tokens=16000,
 )

@@ -24,12 +24,6 @@ from datetime import datetime
 
 from swarms import Agent, AgentRearrange, create_file_in_folder
 
-import os
-import shutil
-
-OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 chief_medical_officer = Agent(
     agent_name="Chief Medical Officer",
@@ -248,8 +242,8 @@ if __name__ == "__main__":
 
     # Create reports
     create_file_in_folder(
-        f"{OUTPUT_DIR}/reports", "medical_diagnosis_report.md", diagnosis
+        "reports", "medical_diagnosis_report.md", diagnosis
     )
     create_file_in_folder(
-        f"{OUTPUT_DIR}/reports", "medical_coding_report.md", coding_report
+        "reports", "medical_coding_report.md", coding_report
     )

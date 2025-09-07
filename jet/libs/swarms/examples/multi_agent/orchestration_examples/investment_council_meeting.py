@@ -13,7 +13,7 @@ investment_chair = Agent(
     - Performance oversight
     
     Lead the council meeting effectively while ensuring thorough analysis and proper decision-making.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 equity_strategist = Agent(
@@ -27,7 +27,7 @@ equity_strategist = Agent(
     - Market analysis
     
     Provide insights on equity investment opportunities and risks.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 fixed_income_specialist = Agent(
@@ -41,7 +41,7 @@ fixed_income_specialist = Agent(
     - Fixed income derivatives
     
     Contribute expertise on fixed income markets and strategies.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 risk_manager = Agent(
@@ -55,7 +55,7 @@ risk_manager = Agent(
     - Compliance oversight
     
     Provide risk assessment and mitigation strategies.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 alternatives_expert = Agent(
@@ -69,7 +69,7 @@ alternatives_expert = Agent(
     - Private credit
     
     Contribute insights on alternative investment opportunities.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 # Initialize the council meeting

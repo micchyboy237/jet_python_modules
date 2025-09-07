@@ -8,19 +8,19 @@ if __name__ == "__main__":
             agent_name="ResearchAgent",
             description="Specializes in researching topics and providing detailed, factual information",
             system_prompt="You are a research specialist. Provide detailed, well-researched information about any topic, citing sources when possible.",
-            model_name="ollama/llama3.2",
+            model_name="openai/gpt-4o",
         ),
         Agent(
             agent_name="CodeExpertAgent",
             description="Expert in writing, reviewing, and explaining code across multiple programming languages",
             system_prompt="You are a coding expert. Write, review, and explain code with a focus on best practices and clean code principles.",
-            model_name="ollama/llama3.2",
+            model_name="openai/gpt-4o",
         ),
         Agent(
             agent_name="WritingAgent",
             description="Skilled in creative and technical writing, content creation, and editing",
             system_prompt="You are a writing specialist. Create, edit, and improve written content while maintaining appropriate tone and style.",
-            model_name="ollama/llama3.2",
+            model_name="openai/gpt-4o",
         ),
     ]
 

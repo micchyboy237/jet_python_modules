@@ -66,7 +66,7 @@ def create_research_agents() -> List[Agent]:
         
         Provide data-driven insights with specific metrics, trends, and statistical evidence.
         Always cite data sources and provide confidence levels for your analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=True,
         output_type="string",
@@ -84,7 +84,7 @@ def create_research_agents() -> List[Agent]:
         
         Provide well-researched, evidence-based insights with proper citations.
         Focus on credible sources and peer-reviewed information when possible.""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=True,
         output_type="string",
@@ -102,7 +102,7 @@ def create_research_agents() -> List[Agent]:
         
         Provide strategic recommendations with clear rationale.
         Focus on actionable insights and long-term implications.""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=True,
         output_type="string",
@@ -130,7 +130,7 @@ def create_aggregator_agent() -> Agent:
         - Detailed Analysis
         - Key Recommendations
         - Implementation Steps""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o",
         max_loops=1,
         verbose=True,
         output_type="string",
@@ -402,7 +402,7 @@ if __name__ == "__main__":
                 agent_name="DemoAnalyst",
                 agent_description="Demonstration agent for testing",
                 system_prompt="You are a helpful AI assistant specializing in analysis and insights.",
-                model_name="ollama/llama3.2",
+                model_name="gpt-4o-mini",
                 max_loops=1,
                 verbose=False,
             )

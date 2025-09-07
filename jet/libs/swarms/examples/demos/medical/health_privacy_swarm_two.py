@@ -8,7 +8,7 @@ api_key = os.getenv(
 )  # ANTHROPIC_API_KEY, COHERE_API_KEY
 model = OpenAIChat(
     api_key=api_key,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     temperature=0.7,  # Higher temperature for more creative responses
 )
 

@@ -12,9 +12,9 @@ def main():
     swarm = HeavySwarm(
         name="Diabetes Treatment Research Team",
         description="A team of agents that research the best and most promising treatments for diabetes, including theoretical approaches.",
-        worker_model_name="ollama/llama3.2",
+        worker_model_name="claude-sonnet-4-20250514",
         show_dashboard=True,
-        question_agent_model_name="ollama/llama3.2",
+        question_agent_model_name="gpt-4.1",
         loops_per_agent=1,
     )
 

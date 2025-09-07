@@ -23,7 +23,7 @@ from examples.stagehand.stagehand_wrapper_agent import StagehandAgent
 # Create a browser automation agent
 browser_agent = StagehandAgent(
     agent_name="WebScraperAgent",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     env="LOCAL",  # or "BROWSERBASE" for cloud execution
 )
 
@@ -34,7 +34,6 @@ result = browser_agent.run(
 ```
 
 **Features:**
-
 - Inherits from Swarms `Agent` base class
 - Automatic browser lifecycle management
 - Natural language task interpretation
@@ -53,7 +52,7 @@ from examples.stagehand.stagehand_tools_agent import (
 # Create agent with browser tools
 browser_agent = Agent(
     agent_name="BrowserAutomationAgent",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     tools=[
         NavigateTool(),
         ActTool(),
@@ -70,7 +69,6 @@ result = browser_agent.run(
 ```
 
 **Available Tools:**
-
 - `NavigateTool`: Navigate to URLs
 - `ActTool`: Perform actions (click, type, scroll)
 - `ExtractTool`: Extract data from pages
@@ -95,14 +93,13 @@ mcp_agent = StagehandMCPAgent(
 result = mcp_agent.run("""
     Create 3 browser sessions and:
     1. Session 1: Check Python.org for latest version
-    2. Session 2: Check PyPI for trending packages
+    2. Session 2: Check PyPI for trending packages  
     3. Session 3: Check GitHub Python trending repos
     Compile a Python ecosystem status report.
 """)
 ```
 
 **MCP Features:**
-
 - Automatic tool discovery
 - Multi-session browser management
 - Built-in screenshot resources
@@ -134,7 +131,6 @@ result = competitive_workflow.run(
 ```
 
 **Workflow Examples:**
-
 - **E-commerce Monitoring**: Track prices across multiple sites
 - **Competitive Analysis**: Research competitors' websites and social media
 - **Automated Testing**: UI, form validation, and accessibility testing
@@ -145,13 +141,11 @@ result = competitive_workflow.run(
 ### Prerequisites
 
 1. **Install Swarms and Stagehand:**
-
 ```bash
 pip install swarms stagehand
 ```
 
 2. **Set up environment variables:**
-
 ```bash
 # For local browser automation (using Playwright)
 export OPENAI_API_KEY="your-openai-key"
@@ -162,7 +156,6 @@ export BROWSERBASE_PROJECT_ID="your-project-id"
 ```
 
 3. **For MCP Server examples:**
-
 ```bash
 # Install and run the Stagehand MCP server
 cd stagehand-mcp-server
@@ -174,28 +167,24 @@ npm start
 ## Use Cases
 
 ### E-commerce Automation
-
 - Price monitoring and comparison
 - Inventory tracking
 - Automated purchasing workflows
 - Review aggregation
 
 ### Research and Analysis
-
 - Competitive intelligence gathering
 - Market research automation
 - Social media monitoring
 - News and trend analysis
 
 ### Quality Assurance
-
 - Automated UI testing
 - Cross-browser compatibility testing
 - Form validation testing
 - Accessibility compliance checking
 
 ### Data Collection
-
 - Web scraping at scale
 - Real-time data monitoring
 - Structured data extraction
@@ -204,7 +193,6 @@ npm start
 ## Best Practices
 
 1. **Resource Management**: Always clean up browser instances when done
-
 ```python
 browser_agent.cleanup()  # For wrapper agents
 ```
@@ -230,7 +218,6 @@ pytest tests/stagehand/test_stagehand_integration.py -v
 ### Common Issues
 
 1. **Browser not starting**: Ensure Playwright is properly installed
-
 ```bash
 playwright install
 ```
@@ -242,7 +229,6 @@ playwright install
 ### Debug Mode
 
 Enable verbose logging:
-
 ```python
 agent = StagehandAgent(
     agent_name="DebugAgent",
@@ -253,7 +239,6 @@ agent = StagehandAgent(
 ## Contributing
 
 We welcome contributions! Please:
-
 1. Follow the existing code style
 2. Add tests for new features
 3. Update documentation

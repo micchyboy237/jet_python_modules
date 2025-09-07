@@ -5,7 +5,7 @@ from swarms import Agent, ConcurrentWorkflow
 litigation_agent = Agent(
     agent_name="Alex Johnson",  # Human name for the Litigator Agent
     system_prompt="As a Litigator, you specialize in navigating the complexities of lawsuits. Your role involves analyzing intricate facts, constructing compelling arguments, and devising effective case strategies to achieve favorable outcomes for your clients.",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     auto_generate_prompt=False,
     max_loops=1,
 )
@@ -13,7 +13,7 @@ litigation_agent = Agent(
 corporate_agent = Agent(
     agent_name="Emily Carter",  # Human name for the Corporate Attorney Agent
     system_prompt="As a Corporate Attorney, you provide expert legal advice on business law matters. You guide clients on corporate structure, governance, compliance, and transactions, ensuring their business operations align with legal requirements.",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     auto_generate_prompt=False,
     max_loops=1,
 )
@@ -21,7 +21,7 @@ corporate_agent = Agent(
 ip_agent = Agent(
     agent_name="Michael Smith",  # Human name for the IP Attorney Agent
     system_prompt="As an IP Attorney, your expertise lies in protecting intellectual property rights. You handle various aspects of IP law, including patents, trademarks, copyrights, and trade secrets, helping clients safeguard their innovations.",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     auto_generate_prompt=False,
     max_loops=1,
 )

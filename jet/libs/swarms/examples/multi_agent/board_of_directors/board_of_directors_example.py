@@ -25,7 +25,7 @@ def create_board_members() -> List[BoardMember]:
     chairman = Agent(
         agent_name="Chairman",
         agent_description="Executive Chairman with strategic vision",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are the Executive Chairman. Provide strategic leadership and facilitate decision-making.",
     )
@@ -33,7 +33,7 @@ def create_board_members() -> List[BoardMember]:
     cto = Agent(
         agent_name="CTO",
         agent_description="Chief Technology Officer with technical expertise",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are the CTO. Provide technical leadership and evaluate technology solutions.",
     )
@@ -41,7 +41,7 @@ def create_board_members() -> List[BoardMember]:
     cfo = Agent(
         agent_name="CFO",
         agent_description="Chief Financial Officer with financial expertise",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are the CFO. Provide financial analysis and ensure fiscal responsibility.",
     )
@@ -73,7 +73,7 @@ def create_worker_agents() -> List[Agent]:
     researcher = Agent(
         agent_name="Researcher",
         agent_description="Research analyst for data analysis",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a Research Analyst. Conduct thorough research and provide data-driven insights.",
     )
@@ -81,7 +81,7 @@ def create_worker_agents() -> List[Agent]:
     developer = Agent(
         agent_name="Developer",
         agent_description="Software developer for implementation",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a Software Developer. Design and implement software solutions.",
     )
@@ -89,7 +89,7 @@ def create_worker_agents() -> List[Agent]:
     marketer = Agent(
         agent_name="Marketer",
         agent_description="Marketing specialist for strategy",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a Marketing Specialist. Develop marketing strategies and campaigns.",
     )

@@ -7,14 +7,14 @@ from swarms.structs.agent import Agent
 analyst = Agent(
     agent_name="Analyst",
     agent_description="Data analyst",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
 )
 
 writer = Agent(
     agent_name="Writer",
     agent_description="Content writer",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
 )
 

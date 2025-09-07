@@ -228,7 +228,7 @@ You communicate clearly and provide practical analysis that helps users understa
 Current Solana Data: {get_solana_price()}
 """,
     max_loops=1,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     dynamic_temperature_enabled=True,
     output_type="str-all-except-first",
     streaming_on=False,  # need to fix this bug where streaming is working but makes copies of the border when you scroll on the terminal

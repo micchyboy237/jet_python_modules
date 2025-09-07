@@ -14,7 +14,7 @@ router = ReasoningDuo(
     max_loops=2,
     swarm_type="reasoning-duo",
     output_type="dict-all-except-first",
-    reasoning_model_name="ollama/llama3.2",
+    reasoning_model_name="groq/moonshotai/kimi-k2-instruct",
 )
 
 out = router.run(

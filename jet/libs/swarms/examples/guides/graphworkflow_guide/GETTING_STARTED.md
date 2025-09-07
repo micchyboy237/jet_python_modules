@@ -10,7 +10,7 @@ This guide will get you up and running with Swarms' GraphWorkflow system in minu
 # Install Swarms with all dependencies
 uv pip install swarms
 
-# Optional: Install visualization dependencies
+# Optional: Install visualization dependencies  
 uv pip install graphviz
 
 # Verify installation
@@ -28,7 +28,6 @@ python quick_start_guide.py
 ```
 
 Learn GraphWorkflow in 5 easy steps:
-
 - ✅ Create your first workflow
 - ✅ Connect agents in sequence
 - ✅ Set up parallel processing
@@ -70,8 +69,8 @@ from swarms import Agent
 from swarms.structs.graph_workflow import GraphWorkflow
 
 # 1. Create agents
-agent1 = Agent(agent_name="Researcher", model_name="ollama/llama3.2", max_loops=1)
-agent2 = Agent(agent_name="Writer", model_name="ollama/llama3.2", max_loops=1)
+agent1 = Agent(agent_name="Researcher", model_name="gpt-4o-mini", max_loops=1)
+agent2 = Agent(agent_name="Writer", model_name="gpt-4o-mini", max_loops=1)
 
 # 2. Create workflow
 workflow = GraphWorkflow(name="MyWorkflow", auto_compile=True)
@@ -99,7 +98,7 @@ results = workflow.run(task="Write about AI trends")
 # Fan-out: One agent to multiple agents
 workflow.add_edges_from_source("DataCollector", ["AnalystA", "AnalystB"])
 
-# Fan-in: Multiple agents to one agent
+# Fan-in: Multiple agents to one agent  
 workflow.add_edges_to_target(["SpecialistX", "SpecialistY"], "Synthesizer")
 
 # Parallel chain: Many-to-many mesh
@@ -166,7 +165,7 @@ results = workflow.run(task="Analyze patient with chest pain...")
 ```python
 # Parallel financial analysis
 workflow.add_parallel_chain(
-    ["MarketData", "FundamentalData"],
+    ["MarketData", "FundamentalData"], 
     ["TechnicalAnalyst", "FundamentalAnalyst", "RiskManager"]
 )
 workflow.add_edges_to_target([
@@ -181,31 +180,30 @@ results = workflow.run(task="Analyze tech sector allocation...")
 GraphWorkflow delivers **40-60% better performance** than sequential execution:
 
 | Agents | Sequential | GraphWorkflow | Speedup |
-| ------ | ---------- | ------------- | ------- |
-| 5      | 15.2s      | 8.7s          | 1.75x   |
-| 10     | 28.5s      | 16.1s         | 1.77x   |
-| 15     | 42.8s      | 24.3s         | 1.76x   |
+|--------|------------|---------------|---------|
+| 5      | 15.2s      | 8.7s         | 1.75x   |
+| 10     | 28.5s      | 16.1s        | 1.77x   |
+| 15     | 42.8s      | 24.3s        | 1.76x   |
 
-_Benchmarks run on 8-core CPU with gpt-4o-mini_
+*Benchmarks run on 8-core CPU with gpt-4o-mini*
 
 ## 🆚 Why GraphWorkflow > LangGraph?
 
-| Feature                 | GraphWorkflow               | LangGraph                 |
-| ----------------------- | --------------------------- | ------------------------- |
-| **Parallel Processing** | ✅ Native fan-out/fan-in    | ❌ Limited                |
-| **Performance**         | ✅ 40-60% faster            | ❌ Sequential bottlenecks |
-| **Compilation**         | ✅ Intelligent caching      | ❌ No optimization        |
-| **Visualization**       | ✅ Professional Graphviz    | ❌ Basic diagrams         |
-| **Enterprise Features** | ✅ Full serialization       | ❌ Limited persistence    |
-| **Error Handling**      | ✅ Comprehensive validation | ❌ Basic checks           |
-| **Monitoring**          | ✅ Rich metrics             | ❌ Limited insights       |
+| Feature | GraphWorkflow | LangGraph |
+|---------|---------------|-----------|
+| **Parallel Processing** | ✅ Native fan-out/fan-in | ❌ Limited |
+| **Performance** | ✅ 40-60% faster | ❌ Sequential bottlenecks |
+| **Compilation** | ✅ Intelligent caching | ❌ No optimization |
+| **Visualization** | ✅ Professional Graphviz | ❌ Basic diagrams |
+| **Enterprise Features** | ✅ Full serialization | ❌ Limited persistence |
+| **Error Handling** | ✅ Comprehensive validation | ❌ Basic checks |
+| **Monitoring** | ✅ Rich metrics | ❌ Limited insights |
 
 ## 🛠️ Troubleshooting
 
 ### Common Issues
 
 **Problem**: Import error
-
 ```bash
 # Solution: Install dependencies
 uv pip install swarms
@@ -213,7 +211,6 @@ python setup_and_test.py --install-deps
 ```
 
 **Problem**: Slow execution
-
 ```python
 # Solution: Enable compilation
 workflow = GraphWorkflow(auto_compile=True)
@@ -221,14 +218,12 @@ workflow.compile()  # Manual compilation
 ```
 
 **Problem**: Memory issues
-
 ```python
 # Solution: Clear conversation history
 workflow.conversation = Conversation()
 ```
 
 **Problem**: Graph validation errors
-
 ```python
 # Solution: Use auto-fix
 validation = workflow.validate(auto_fix=True)

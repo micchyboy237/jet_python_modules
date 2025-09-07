@@ -57,7 +57,7 @@ def main():
     # --------------------------------------------------------------------------
     analysis_agent = Agent(
         agent_name="Stock-Analysis-Agent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o",
         max_loops=1,
         interactive=False,
         streaming_on=False,

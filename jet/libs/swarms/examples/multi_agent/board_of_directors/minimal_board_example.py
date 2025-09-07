@@ -21,7 +21,7 @@ def run_minimal_example() -> str:
     agent = Agent(
         agent_name="General_Agent",
         agent_description="General purpose agent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
     )
 

@@ -11,11 +11,9 @@ import json
 import requests
 from loguru import logger
 from swarms import Agent
-# from swarm_models import OpenAIChat
+from swarm_models import OpenAIChat
 from dotenv import load_dotenv
 from enum import Enum
-
-from jet.llm.ollama.adapters.ollama_swarm_llm_adapter import OllamaModel
 
 # Configure loguru logger
 logger.add(
@@ -174,15 +172,16 @@ class CommercialRealEstateAgent:
 
     def __init__(
         self,
-        # openai_api_key: str,
+        openai_api_key: str,
         propertyradar_api_key: str,
-        model_name: str = "llama3.2",
+        model_name: str = "gpt-4",
         temperature: float = 0.1,
         saved_state_path: Optional[str] = None,
     ):
         """Initialize the real estate agent
 
         Args:
+            openai_api_key (str): OpenAI API key
             propertyradar_api_key (str): PropertyRadar API key
             model_name (str): Name of the LLM model to use
             temperature (float): Temperature setting for the LLM
@@ -190,10 +189,11 @@ class CommercialRealEstateAgent:
         """
         self.property_api = PropertyRadarAPI(propertyradar_api_key)
 
-        # Initialize Ollama model
-        self.model = OllamaModel(
+        # Initialize OpenAI model
+        self.model = OpenAIChat(
+            openai_api_key=openai_api_key,
             model_name=model_name,
-            stream=True,
+            temperature=temperature,
         )
 
         # Initialize the agent

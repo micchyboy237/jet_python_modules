@@ -9,13 +9,12 @@ agent = Agent(
     agent_name="Financial-Analysis-Agent",
     agent_description="Personal finance advisor agent",
     max_loops=1,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o",
     dynamic_temperature_enabled=True,
     user_name="swarms_corp",
     return_step_meta=False,
     output_type="str",  # "json", "dict", "csv" OR "string" "yaml" and
-    # Auto generate prompt for the agent based on name, description, and system prompt, task
-    auto_generate_prompt=False,
+    auto_generate_prompt=False,  # Auto generate prompt for the agent based on name, description, and system prompt, task
     interactive=False,
 )
 

@@ -23,7 +23,7 @@ market_research_agent = Agent(
     
     You provide thorough, data-driven analysis with clear recommendations.
     Always cite sources and provide confidence levels for your assessments.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -49,7 +49,7 @@ financial_analyst_agent = Agent(
     
     You deliver precise, quantitative analysis with supporting calculations and assumptions.
     Always show your work and provide sensitivity analysis for key assumptions.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -75,7 +75,7 @@ technical_analysis_agent = Agent(
     
     You provide clear, actionable technical analysis with specific price targets and risk levels.
     Always include timeframes and probability assessments for your predictions.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -101,7 +101,7 @@ risk_management_agent = Agent(
     
     You deliver comprehensive risk assessments with quantitative metrics and mitigation strategies.
     Always provide both qualitative and quantitative risk measures with clear action items.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -127,7 +127,7 @@ director_agent = Agent(
     
     You create detailed, specific task assignments that leverage each specialist's unique expertise
     while ensuring the overall analysis is comprehensive and actionable.""",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
     temperature=0.7,
 )

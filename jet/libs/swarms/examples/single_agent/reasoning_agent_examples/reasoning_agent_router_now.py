@@ -3,7 +3,7 @@ from swarms.agents.reasoning_agents import ReasoningAgentRouter
 router = ReasoningAgentRouter(
     agent_name="qft_reasoning_agent",
     description="A specialized reasoning agent for answering questions and solving problems in quantum field theory.",
-    model_name="ollama/llama3.2",
+    model_name="groq/moonshotai/kimi-k2-instruct",
     system_prompt=(
         "You are a highly knowledgeable assistant specializing in quantum field theory (QFT). "
         "You can answer advanced questions, explain concepts, and help with tasks related to QFT, "

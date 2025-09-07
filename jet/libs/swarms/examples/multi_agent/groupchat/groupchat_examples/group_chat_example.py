@@ -15,7 +15,7 @@ if __name__ == "__main__":
     model = OpenAIChat(
         openai_api_base="https://api.groq.com/openai/v1",
         openai_api_key=api_key,
-        model_name="ollama/llama3.2",
+        model_name="llama-3.1-70b-versatile",
         temperature=0.1,
     )
 

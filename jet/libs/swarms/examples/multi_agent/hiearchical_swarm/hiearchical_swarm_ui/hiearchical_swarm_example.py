@@ -20,7 +20,7 @@ def main():
     research_agent = Agent(
         agent_name="Research-Analyst",
         agent_description="Specialized in comprehensive research and data gathering",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=False,
     )
@@ -28,7 +28,7 @@ def main():
     analysis_agent = Agent(
         agent_name="Data-Analyst",
         agent_description="Expert in data analysis and pattern recognition",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=False,
     )
@@ -36,7 +36,7 @@ def main():
     strategy_agent = Agent(
         agent_name="Strategy-Consultant",
         agent_description="Specialized in strategic planning and recommendations",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=False,
     )

@@ -12,7 +12,7 @@ def create_simple_workflow():
     """Create a simple sequential workflow."""
     agent1 = Agent(
         agent_name="DataCollector",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You collect and prepare data for analysis.",
         verbose=False,
@@ -20,7 +20,7 @@ def create_simple_workflow():
 
     agent2 = Agent(
         agent_name="DataAnalyzer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You analyze the collected data and extract insights.",
         verbose=False,
@@ -28,7 +28,7 @@ def create_simple_workflow():
 
     agent3 = Agent(
         agent_name="ReportGenerator",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You generate comprehensive reports from the analysis.",
         verbose=False,
@@ -55,21 +55,21 @@ def create_complex_parallel_workflow():
     # Data sources
     web_scraper = Agent(
         agent_name="WebScraper",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Web data scraping",
         verbose=False,
     )
     api_collector = Agent(
         agent_name="APICollector",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="API data collection",
         verbose=False,
     )
     db_extractor = Agent(
         agent_name="DatabaseExtractor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Database extraction",
         verbose=False,
@@ -78,21 +78,21 @@ def create_complex_parallel_workflow():
     # Processors
     text_processor = Agent(
         agent_name="TextProcessor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Text processing",
         verbose=False,
     )
     numeric_processor = Agent(
         agent_name="NumericProcessor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Numeric processing",
         verbose=False,
     )
     image_processor = Agent(
         agent_name="ImageProcessor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Image processing",
         verbose=False,
@@ -101,21 +101,21 @@ def create_complex_parallel_workflow():
     # Analyzers
     sentiment_analyzer = Agent(
         agent_name="SentimentAnalyzer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Sentiment analysis",
         verbose=False,
     )
     trend_analyzer = Agent(
         agent_name="TrendAnalyzer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Trend analysis",
         verbose=False,
     )
     anomaly_detector = Agent(
         agent_name="AnomalyDetector",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Anomaly detection",
         verbose=False,
@@ -124,7 +124,7 @@ def create_complex_parallel_workflow():
     # Synthesis
     data_synthesizer = Agent(
         agent_name="DataSynthesizer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Data synthesis",
         verbose=False,
@@ -133,14 +133,14 @@ def create_complex_parallel_workflow():
     # Final output
     dashboard_generator = Agent(
         agent_name="DashboardGenerator",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Dashboard generation",
         verbose=False,
     )
     alert_system = Agent(
         agent_name="AlertSystem",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="Alert generation",
         verbose=False,
@@ -332,7 +332,7 @@ def test_large_workflow_visualization():
         for i in range(count):
             agent = Agent(
                 agent_name=f"{category}Agent{i+1}",
-                model_name="ollama/llama3.2",
+                model_name="gpt-4o-mini",
                 max_loops=1,
                 system_prompt=f"You are {category} specialist #{i+1}",
                 verbose=False,

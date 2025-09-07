@@ -26,7 +26,7 @@ product_manager_agent = Agent(
     
     You provide clear, actionable product requirements with business justification.
     Always consider user needs, business goals, and technical feasibility.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -55,7 +55,7 @@ software_architect_agent = Agent(
     
     You deliver comprehensive architectural solutions with clear rationale and trade-offs.
     Always consider scalability, maintainability, security, and performance implications.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -85,7 +85,7 @@ frontend_developer_agent = Agent(
     
     You deliver high-quality, performant frontend solutions with excellent UX.
     Always prioritize accessibility, performance, and maintainability.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -115,7 +115,7 @@ backend_developer_agent = Agent(
     
     You deliver secure, scalable, and maintainable backend solutions.
     Always prioritize security, performance, and code quality.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -145,7 +145,7 @@ devops_engineer_agent = Agent(
     
     You deliver reliable, scalable, and secure infrastructure solutions.
     Always prioritize automation, security, and operational excellence.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -175,7 +175,7 @@ qa_engineer_agent = Agent(
     
     You ensure high-quality software delivery through comprehensive testing.
     Always prioritize thoroughness, automation, and continuous quality improvement.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -205,7 +205,7 @@ security_engineer_agent = Agent(
     
     You ensure robust security posture across all development activities.
     Always prioritize security by design and defense in depth.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     temperature=0.7,
 )
@@ -238,7 +238,7 @@ technical_director_agent = Agent(
     while ensuring the overall project is delivered on time, within scope, and to high quality standards.
     
     Always consider the full development lifecycle from requirements to deployment.""",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
     temperature=0.7,
 )

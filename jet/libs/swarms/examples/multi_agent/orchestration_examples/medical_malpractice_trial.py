@@ -13,7 +13,7 @@ prosecution_attorney = Agent(
     - Damages assessment
     
     Present the case effectively while establishing breach of standard of care and resulting damages.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 defense_attorney = Agent(
@@ -27,7 +27,7 @@ defense_attorney = Agent(
     - Expert witness coordination
     
     Defend the healthcare provider while demonstrating adherence to standard of care.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 judge = Agent(
@@ -41,7 +41,7 @@ judge = Agent(
     - Procedural compliance
     
     Ensure fair trial conduct and proper legal procedure.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 expert_witness = Agent(
@@ -54,7 +54,7 @@ expert_witness = Agent(
     - Surgical complication management
     
     Provide expert testimony on neurosurgical standards and practices.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 treating_physician = Agent(
@@ -67,7 +67,7 @@ treating_physician = Agent(
     - Assessed permanent damage
     
     Testify about patient's condition and treatment course.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 # Initialize the trial simulation

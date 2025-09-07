@@ -62,7 +62,7 @@ agent = Agent(
     system_prompt=PAPER_IDEA_AGENT_SYSTEM_PROMPT,
     tools_list_dictionary=tools,
     max_loops=1,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     output_type="final",
 )
 

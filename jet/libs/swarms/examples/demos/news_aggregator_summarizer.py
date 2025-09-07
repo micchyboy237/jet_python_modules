@@ -82,7 +82,7 @@ summarizer = Agent(
     agent_name="News-Summarizer",
     system_prompt="You summarize news articles succinctly.",
     max_loops=1,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     output_type="final",
 )
 

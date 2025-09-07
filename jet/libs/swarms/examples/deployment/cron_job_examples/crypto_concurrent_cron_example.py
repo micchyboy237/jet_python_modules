@@ -65,7 +65,7 @@ DELIVERABLES:
 - Risk factors specific to Bitcoin
 
 Extract Bitcoin data from the provided dataset and provide comprehensive Bitcoin-focused analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="groq/moonshotai/kimi-k2-instruct",
         max_loops=1,
         dynamic_temperature_enabled=True,
         streaming_on=False,
@@ -105,7 +105,7 @@ DELIVERABLES:
 - Technical and fundamental outlook for ETH
 
 Extract Ethereum data from the provided dataset and provide comprehensive Ethereum-focused analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="groq/moonshotai/kimi-k2-instruct",
         max_loops=1,
         dynamic_temperature_enabled=True,
         streaming_on=False,
@@ -145,7 +145,7 @@ DELIVERABLES:
 - Technical and fundamental outlook for SOL
 
 Extract Solana data from the provided dataset and provide comprehensive Solana-focused analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="groq/moonshotai/kimi-k2-instruct",
         max_loops=1,
         dynamic_temperature_enabled=True,
         streaming_on=False,
@@ -185,7 +185,7 @@ DELIVERABLES:
 - Technical and fundamental outlook for ADA
 
 Extract Cardano data from the provided dataset and provide comprehensive Cardano-focused analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="groq/moonshotai/kimi-k2-instruct",
         max_loops=1,
         dynamic_temperature_enabled=True,
         streaming_on=False,
@@ -225,7 +225,7 @@ DELIVERABLES:
 - Technical and fundamental outlook for BNB
 
 Extract BNB data from the provided dataset and provide comprehensive BNB-focused analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="groq/moonshotai/kimi-k2-instruct",
         max_loops=1,
         dynamic_temperature_enabled=True,
         streaming_on=False,
@@ -265,7 +265,7 @@ DELIVERABLES:
 - Technical and fundamental outlook for XRP
 
 Extract XRP data from the provided dataset and provide comprehensive XRP-focused analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="groq/moonshotai/kimi-k2-instruct",
         max_loops=1,
         dynamic_temperature_enabled=True,
         streaming_on=False,

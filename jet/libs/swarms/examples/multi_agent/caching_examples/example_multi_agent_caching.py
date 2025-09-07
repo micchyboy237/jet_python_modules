@@ -31,7 +31,7 @@ def create_trading_team():
             - High-frequency trading systems
             - Market microstructure analysis""",
             max_loops=1,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             temperature=0.1,
         ),
         Agent(
@@ -44,7 +44,7 @@ def create_trading_team():
             - Risk mitigation strategies
             - Capital allocation optimization""",
             max_loops=1,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             temperature=0.2,
         ),
         Agent(
@@ -57,7 +57,7 @@ def create_trading_team():
             - Trend identification and momentum analysis
             - Support and resistance level identification""",
             max_loops=1,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             temperature=0.3,
         ),
         Agent(
@@ -70,7 +70,7 @@ def create_trading_team():
             - Risk-neutral portfolio construction
             - Derivatives market making""",
             max_loops=1,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             temperature=0.15,
         ),
         Agent(
@@ -83,7 +83,7 @@ def create_trading_team():
             - ESG risk assessment
             - Green finance and climate risk analysis""",
             max_loops=1,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             temperature=0.25,
         ),
     ]
@@ -248,7 +248,7 @@ def performance_comparison():
     for i in range(10):
         agent = Agent(
             agent_name=f"Test-Agent-{i:02d}",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             system_prompt=f"You are test agent number {i}.",
             max_loops=1,
         )

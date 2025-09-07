@@ -14,7 +14,7 @@ startup_mentor = Agent(
     - Go-to-market execution
     
     Guide mentees through startup challenges while sharing practical insights.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 startup_founder = Agent(
@@ -28,7 +28,7 @@ startup_founder = Agent(
     - Team expansion
     
     Seek guidance while being open to feedback and willing to learn.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 # Initialize the mentorship session

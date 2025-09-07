@@ -22,7 +22,7 @@ def test_single_agent_without_cache():
         start_time = time.time()
         Agent(
             agent_name="Test-Agent-1",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             system_prompt="You are a test agent.",
             max_loops=1,
         )
@@ -45,7 +45,7 @@ def test_single_agent_with_cache():
     # Create agent
     agent = Agent(
         agent_name="Test-Agent-1",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         system_prompt="You are a test agent.",
         max_loops=1,
     )
@@ -79,7 +79,7 @@ def test_multiple_agents_without_cache():
         [
             Agent(
                 agent_name=f"Test-Agent-{i}",
-                model_name="ollama/llama3.2",
+                model_name="gpt-4o-mini",
                 system_prompt=f"You are test agent {i}.",
                 max_loops=1,
             )
@@ -105,7 +105,7 @@ def test_multiple_agents_with_cache():
     agents = [
         Agent(
             agent_name=f"Test-Agent-{i}",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             system_prompt=f"You are test agent {i}.",
             max_loops=1,
         )

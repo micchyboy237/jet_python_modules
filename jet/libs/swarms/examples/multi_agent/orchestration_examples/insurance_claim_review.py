@@ -13,7 +13,7 @@ claims_adjuster = Agent(
     - Regulatory compliance
     
     Review claims thoroughly and provide detailed assessments based on policy terms and medical necessity.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 medical_director = Agent(
@@ -26,7 +26,7 @@ medical_director = Agent(
     - Quality of care review
     
     Evaluate medical aspects of claims and ensure appropriate healthcare delivery.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 legal_specialist = Agent(
@@ -39,7 +39,7 @@ legal_specialist = Agent(
     - Documentation requirements
     
     Review claims for legal compliance and policy adherence.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 claims_processor = Agent(
@@ -52,7 +52,7 @@ claims_processor = Agent(
     - Benefit calculation
     
     Present claims clearly and respond to reviewer feedback.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 # Initialize the peer review process

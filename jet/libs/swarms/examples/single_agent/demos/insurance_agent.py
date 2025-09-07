@@ -148,14 +148,13 @@ agent = Agent(
     agent_name="Claims-Processing-Agent",
     system_prompt=CLAIMS_PROCESSING_AGENT_SYS_PROMPT,
     agent_description="Agent automates claims processing and fraud detection.",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops="auto",  # Auto-adjusts loops based on task complexity
     autosave=True,  # Automatically saves agent state
     dashboard=False,  # Disables dashboard for this example
     verbose=True,  # Enables verbose mode for detailed output
     streaming_on=True,  # Enables streaming for real-time processing
-    # Dynamically adjusts temperature for optimal performance
-    dynamic_temperature_enabled=True,
+    dynamic_temperature_enabled=True,  # Dynamically adjusts temperature for optimal performance
     saved_state_path="claims_processing_agent.json",  # Path to save agent state
     user_name="swarms_corp",  # User name for the agent
     retry_attempts=3,  # Number of retry attempts for failed tasks

@@ -31,7 +31,7 @@ def create_basic_workflow_demo():
     # Create simple agents
     data_collector = Agent(
         agent_name="DataCollector",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a data collection specialist. Gather and organize relevant information for analysis.",
         verbose=False,
@@ -39,7 +39,7 @@ def create_basic_workflow_demo():
 
     data_analyzer = Agent(
         agent_name="DataAnalyzer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a data analysis expert. Analyze the collected data and extract key insights.",
         verbose=False,
@@ -47,7 +47,7 @@ def create_basic_workflow_demo():
 
     report_generator = Agent(
         agent_name="ReportGenerator",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a report generation specialist. Create comprehensive reports from analysis results.",
         verbose=False,
@@ -119,7 +119,7 @@ def create_parallel_processing_demo():
     # Create data sources
     web_scraper = Agent(
         agent_name="WebScraper",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You specialize in web data scraping and online research.",
         verbose=False,
@@ -127,7 +127,7 @@ def create_parallel_processing_demo():
 
     api_collector = Agent(
         agent_name="APICollector",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You specialize in API data collection and integration.",
         verbose=False,
@@ -135,7 +135,7 @@ def create_parallel_processing_demo():
 
     database_extractor = Agent(
         agent_name="DatabaseExtractor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You specialize in database queries and data extraction.",
         verbose=False,
@@ -144,7 +144,7 @@ def create_parallel_processing_demo():
     # Create parallel processors
     text_processor = Agent(
         agent_name="TextProcessor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You specialize in natural language processing and text analysis.",
         verbose=False,
@@ -152,7 +152,7 @@ def create_parallel_processing_demo():
 
     numeric_processor = Agent(
         agent_name="NumericProcessor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You specialize in numerical analysis and statistical processing.",
         verbose=False,
@@ -161,7 +161,7 @@ def create_parallel_processing_demo():
     # Create analyzers
     sentiment_analyzer = Agent(
         agent_name="SentimentAnalyzer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You specialize in sentiment analysis and emotional intelligence.",
         verbose=False,
@@ -169,7 +169,7 @@ def create_parallel_processing_demo():
 
     trend_analyzer = Agent(
         agent_name="TrendAnalyzer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You specialize in trend analysis and pattern recognition.",
         verbose=False,
@@ -178,7 +178,7 @@ def create_parallel_processing_demo():
     # Create synthesizer
     data_synthesizer = Agent(
         agent_name="DataSynthesizer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You specialize in data synthesis and comprehensive analysis integration.",
         verbose=False,
@@ -292,7 +292,7 @@ def create_healthcare_workflow_demo():
     # Create clinical specialists
     primary_care_physician = Agent(
         agent_name="PrimaryCarePhysician",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a board-certified primary care physician. Provide:
         1. Initial patient assessment and history taking
@@ -306,7 +306,7 @@ def create_healthcare_workflow_demo():
 
     cardiologist = Agent(
         agent_name="Cardiologist",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a board-certified cardiologist. Provide:
         1. Cardiovascular risk assessment
@@ -320,7 +320,7 @@ def create_healthcare_workflow_demo():
 
     pharmacist = Agent(
         agent_name="ClinicalPharmacist",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a clinical pharmacist specialist. Provide:
         1. Medication review and optimization
@@ -334,7 +334,7 @@ def create_healthcare_workflow_demo():
 
     case_manager = Agent(
         agent_name="CaseManager",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a clinical case manager. Coordinate:
         1. Care plan integration and implementation
@@ -421,7 +421,7 @@ def create_finance_workflow_demo():
     # Create financial analysts
     market_analyst = Agent(
         agent_name="MarketAnalyst",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a senior market analyst. Provide:
         1. Market condition assessment and trends
@@ -435,7 +435,7 @@ def create_finance_workflow_demo():
 
     equity_researcher = Agent(
         agent_name="EquityResearcher",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are an equity research analyst. Provide:
         1. Company fundamental analysis
@@ -449,7 +449,7 @@ def create_finance_workflow_demo():
 
     risk_manager = Agent(
         agent_name="RiskManager",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a risk management specialist. Provide:
         1. Portfolio risk assessment and metrics
@@ -463,7 +463,7 @@ def create_finance_workflow_demo():
 
     portfolio_manager = Agent(
         agent_name="PortfolioManager",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a senior portfolio manager. Provide:
         1. Investment decision synthesis
@@ -558,7 +558,7 @@ def demonstrate_serialization_features():
     # Create a simple workflow for serialization demo
     agent1 = Agent(
         agent_name="SerializationTestAgent1",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are agent 1 for serialization testing.",
         verbose=False,
@@ -566,7 +566,7 @@ def demonstrate_serialization_features():
 
     agent2 = Agent(
         agent_name="SerializationTestAgent2",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are agent 2 for serialization testing.",
         verbose=False,
@@ -678,7 +678,7 @@ def demonstrate_visualization_features():
         for j in range(2):
             agent = Agent(
                 agent_name=f"{role}{j+1}",
-                model_name="ollama/llama3.2",
+                model_name="gpt-4o-mini",
                 max_loops=1,
                 system_prompt=f"You are {role} #{j+1}",
                 verbose=False,
@@ -770,7 +770,7 @@ def run_performance_benchmarks():
         for i in range(size):
             agent = Agent(
                 agent_name=f"BenchmarkAgent{i+1}",
-                model_name="ollama/llama3.2",
+                model_name="gpt-4o-mini",
                 max_loops=1,
                 system_prompt=f"You are benchmark agent {i+1}. Provide a brief analysis.",
                 verbose=False,

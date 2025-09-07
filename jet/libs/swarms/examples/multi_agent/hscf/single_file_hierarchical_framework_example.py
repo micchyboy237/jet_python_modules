@@ -7,6 +7,9 @@ of the Talk Structurally, Act Hierarchically framework.
 All components are now in one file: hierarchical_structured_communication_framework.py
 """
 
+from dotenv import load_dotenv
+
+# Import everything from the single file
 from swarms.structs.hierarchical_structured_communication_framework import (
     HierarchicalStructuredCommunicationFramework,
     TalkHierarchicalGenerator,
@@ -14,18 +17,6 @@ from swarms.structs.hierarchical_structured_communication_framework import (
     TalkHierarchicalRefiner,
     TalkHierarchicalSupervisor,
 )
-from dotenv import load_dotenv
-import os
-import sys
-
-# Add the project root to the Python path
-project_root = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..")
-)
-sys.path.insert(0, project_root)
-
-
-# Import everything from the single file
 
 # Load environment variables
 load_dotenv()
@@ -75,33 +66,33 @@ def example_custom_agents():
     # Create custom agents using the convenience aliases
     generator = TalkHierarchicalGenerator(
         agent_name="ContentCreator",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         verbose=True,
     )
 
     evaluator1 = TalkHierarchicalEvaluator(
         agent_name="AccuracyChecker",
         evaluation_criteria=["accuracy", "technical_correctness"],
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         verbose=True,
     )
 
     evaluator2 = TalkHierarchicalEvaluator(
         agent_name="ClarityChecker",
         evaluation_criteria=["clarity", "readability", "coherence"],
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         verbose=True,
     )
 
     refiner = TalkHierarchicalRefiner(
         agent_name="ContentImprover",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         verbose=True,
     )
 
     supervisor = TalkHierarchicalSupervisor(
         agent_name="WorkflowManager",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         verbose=True,
     )
 
@@ -149,7 +140,7 @@ def example_ollama_integration():
         name="OllamaFramework",
         max_loops=2,
         verbose=True,
-        model_name="ollama/llama3.2",
+        model_name="llama3:latest",
         use_ollama=True,
         ollama_base_url="http://localhost:11434/v1",
         ollama_api_key="ollama",

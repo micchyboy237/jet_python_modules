@@ -229,7 +229,7 @@ def get_figma_stock_data(stock: str) -> str:
 
 #     """,
 #     max_loops=1,
-#     model_name="ollama/llama3.2",
+#     model_name="gpt-4o-mini",
 #     dynamic_temperature_enabled=True,
 #     output_type="str-all-except-first",
 #     streaming_on=True,

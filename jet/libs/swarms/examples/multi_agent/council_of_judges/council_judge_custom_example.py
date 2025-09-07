@@ -14,7 +14,7 @@ def evaluate_with_final_output():
     """
     council = CouncilAsAJudge(
         name="Final Output Council",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         output_type="final",
         max_workers=2,
     )
@@ -34,7 +34,7 @@ def evaluate_with_conversation_output():
     """
     council = CouncilAsAJudge(
         name="Conversation Council",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         output_type="conversation",
         max_workers=3,
     )
@@ -54,7 +54,7 @@ def evaluate_with_minimal_workers():
     """
     council = CouncilAsAJudge(
         name="Minimal Workers Council",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         output_type="all",
         max_workers=1,
         random_model_name=False,

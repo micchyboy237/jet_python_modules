@@ -18,7 +18,7 @@ conversation_store = SQLiteConversation(
 agent = Agent(
     agent_name="SupportAgent",
     system_prompt="You are a helpful assistant.",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     long_term_memory=conversation_store,
     max_loops=1,
     # Autosave attempts to call `save()` on the memory object which is not

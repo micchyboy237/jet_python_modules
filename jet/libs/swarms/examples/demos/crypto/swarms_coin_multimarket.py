@@ -97,7 +97,7 @@ Leverage your knowledge of $Swarms' vision, roadmap, and economics to provide us
 swarms_agent = Agent(
     agent_name="Swarms-Token-Agent",
     system_prompt=SWARMS_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
     autosave=True,
     dashboard=False,
@@ -118,8 +118,7 @@ class MultiExchangeDataFetcher:
         self.base_urls = {
             "coingecko": "https://api.coingecko.com/api/v3",
             "dexscreener": "https://api.dexscreener.com/latest/dex",
-            # Using Birdeye instead of Jupiter
-            "birdeye": "https://public-api.birdeye.so/public",
+            "birdeye": "https://public-api.birdeye.so/public",  # Using Birdeye instead of Jupiter
         }
 
     async def fetch_data(self, url: str) -> Optional[Dict]:

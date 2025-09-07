@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Optional, Type, Union
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationError, create_model
-from swarm_models.openai_function_caller import OpenAIFunctionCaller
+from jet.adapters.swarms.mlx_function_caller import MLXFunctionCaller
 
 
 class DynamicParser:
@@ -216,14 +216,12 @@ Your role is to make decisions and complete tasks independently without seeking 
 Always respond in a strict JSON format as described below. Ensure your responses can be parsed with Python's `json.loads`:
 """
 
-# Initialize the OpenAIFunctionCaller
-model = OpenAIFunctionCaller(
+# Initialize the MLXFunctionCaller
+model = MLXFunctionCaller(
     system_prompt=SYSTEM_PROMPT,
     max_tokens=4000,
     temperature=0.9,
     base_model=AgentResponse,  # Pass the Pydantic schema as the base model
-    parallel_tool_calls=False,
-    openai_api_key=os.getenv("OPENAI_API_KEY"),
 )
 
 # Example usage

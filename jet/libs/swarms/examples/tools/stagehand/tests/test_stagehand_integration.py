@@ -64,7 +64,7 @@ class TestStagehandAgent:
 
         agent = StagehandAgent(
             agent_name="TestAgent",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             env="LOCAL",
         )
 
@@ -85,7 +85,7 @@ class TestStagehandAgent:
 
         agent = StagehandAgent(
             agent_name="TestAgent",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             env="LOCAL",
         )
 
@@ -115,7 +115,7 @@ class TestStagehandAgent:
 
         agent = StagehandAgent(
             agent_name="TestAgent",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             env="LOCAL",
         )
 
@@ -140,7 +140,7 @@ class TestStagehandAgent:
 
         agent = StagehandAgent(
             agent_name="TestAgent",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             env="LOCAL",
         )
 
@@ -272,7 +272,7 @@ class TestStagehandMCP:
         mcp_agent = StagehandMCPAgent(
             agent_name="TestMCPAgent",
             mcp_server_url="http://localhost:3000/sse",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
         )
 
         assert mcp_agent.agent.agent_name == "TestMCPAgent"
@@ -412,7 +412,7 @@ class TestIntegration:
 
         agent = StagehandAgent(
             agent_name="IntegrationTestAgent",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             env="LOCAL",
         )
 

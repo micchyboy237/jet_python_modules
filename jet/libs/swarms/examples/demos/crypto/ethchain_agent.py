@@ -77,7 +77,7 @@ class EthereumAnalyzer:
 
         model = OpenAIChat(
             openai_api_key=api_key,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4",
             temperature=0.1,
         )
 

@@ -21,7 +21,7 @@ def create_mock_agents(num_agents: int = 3) -> List[Agent]:
         agent = Agent(
             agent_name=f"TestAgent_{i}",
             system_prompt=f"You are test agent {i}",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             max_loops=1,
         )
         agents.append(agent)

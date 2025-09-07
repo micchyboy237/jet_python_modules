@@ -12,7 +12,7 @@ from swarms.utils.visualizer import (
 agent1 = Agent(
     agent_name="Financial-Analysis-Agent",
     system_prompt=FINANCIAL_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
     autosave=True,
     dashboard=False,
@@ -31,7 +31,7 @@ agent1 = Agent(
 agent2 = Agent(
     agent_name="Stock-Advisor-Agent",
     system_prompt="Provide stock market insights and investment advice.",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     max_loops=1,
     autosave=True,
     dashboard=False,

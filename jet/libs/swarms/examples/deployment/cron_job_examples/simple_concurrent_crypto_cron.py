@@ -58,7 +58,7 @@ def create_crypto_specific_agents():
         - Bitcoin-specific market dynamics
         - Store of value characteristics
         Ignore all other cryptocurrencies in your analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         print_on=False,  # Important for concurrent execution
     )
@@ -73,7 +73,7 @@ def create_crypto_specific_agents():
         - Gas fees and network usage
         - Layer 2 scaling solutions impact
         Ignore all other cryptocurrencies in your analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         print_on=False,
     )
@@ -88,7 +88,7 @@ def create_crypto_specific_agents():
         - DeFi and NFT activity on Solana
         - Network reliability and uptime
         Ignore all other cryptocurrencies in your analysis.""",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         print_on=False,
     )

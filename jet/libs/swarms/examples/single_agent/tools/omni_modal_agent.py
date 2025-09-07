@@ -269,7 +269,7 @@ print(test)
 #             tools=[generate_modalities],
 #             system_prompt=self.system_prompt,
 #             max_loops=1,
-#             model_name="ollama/llama3.2",
+#             model_name="gpt-4o",
 #         )
 
 #     def run(self, task: str):

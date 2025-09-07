@@ -1,5 +1,5 @@
 from swarms.structs.agent import Agent
-from swarms.structs.dynamic_conversational_swarm import (
+from new_experimental.dynamic_conversational_swarm import (
     DynamicConversationalSwarm,
 )
 
@@ -73,7 +73,7 @@ joy = Agent(
     - Balance optimism with practical advice
     - End messages with an inspirational micro-challenge
     """,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     tools_list_dictionary=tools,
 )
 
@@ -91,7 +91,7 @@ zhen = Agent(
     - Ask thought-provoking questions
     - Sometimes answer questions with questions
     """,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     tools_list_dictionary=tools,
 )
 
@@ -108,7 +108,7 @@ nova = Agent(
     - Connect personal meaning to cosmic phenomena
     - End with "Looking up at the stars..."
     """,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     tools_list_dictionary=tools,
 )
 
@@ -126,7 +126,7 @@ sam = Agent(
     - Ground philosophical concepts in everyday experiences
     - End with practical "food for thought"
     """,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     tools_list_dictionary=tools,
 )
 

@@ -28,7 +28,7 @@ def step_1_basic_setup():
 
     researcher = Agent(
         agent_name="Researcher",
-        model_name="ollama/llama3.2",  # Use cost-effective model for demo
+        model_name="gpt-4o-mini",  # Use cost-effective model for demo
         max_loops=1,
         system_prompt="You are a research specialist. Gather and analyze information on the given topic.",
         verbose=False,
@@ -36,7 +36,7 @@ def step_1_basic_setup():
 
     writer = Agent(
         agent_name="Writer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a content writer. Create engaging content based on research findings.",
         verbose=False,
@@ -131,7 +131,7 @@ def step_3_parallel_processing():
 
     tech_analyst = Agent(
         agent_name="TechAnalyst",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a technology analyst. Focus on technical specifications, performance, and innovation.",
         verbose=False,
@@ -139,7 +139,7 @@ def step_3_parallel_processing():
 
     market_analyst = Agent(
         agent_name="MarketAnalyst",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a market analyst. Focus on market trends, pricing, and consumer adoption.",
         verbose=False,
@@ -147,7 +147,7 @@ def step_3_parallel_processing():
 
     environmental_analyst = Agent(
         agent_name="EnvironmentalAnalyst",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are an environmental analyst. Focus on sustainability, emissions, and environmental impact.",
         verbose=False,
@@ -155,7 +155,7 @@ def step_3_parallel_processing():
 
     synthesizer = Agent(
         agent_name="Synthesizer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a synthesis expert. Combine insights from multiple analysts into a comprehensive conclusion.",
         verbose=False,
@@ -238,7 +238,7 @@ def step_4_advanced_patterns():
     # Create agents for different patterns
     data_collector = Agent(
         agent_name="DataCollector",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You collect and organize data from various sources.",
         verbose=False,
@@ -246,7 +246,7 @@ def step_4_advanced_patterns():
 
     processor_a = Agent(
         agent_name="ProcessorA",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are processor A specializing in quantitative analysis.",
         verbose=False,
@@ -254,7 +254,7 @@ def step_4_advanced_patterns():
 
     processor_b = Agent(
         agent_name="ProcessorB",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are processor B specializing in qualitative analysis.",
         verbose=False,
@@ -262,7 +262,7 @@ def step_4_advanced_patterns():
 
     validator_x = Agent(
         agent_name="ValidatorX",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are validator X focusing on accuracy and consistency.",
         verbose=False,
@@ -270,7 +270,7 @@ def step_4_advanced_patterns():
 
     validator_y = Agent(
         agent_name="ValidatorY",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are validator Y focusing on completeness and quality.",
         verbose=False,
@@ -278,7 +278,7 @@ def step_4_advanced_patterns():
 
     final_reporter = Agent(
         agent_name="FinalReporter",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You create final comprehensive reports from all validated analyses.",
         verbose=False,
@@ -363,7 +363,7 @@ def step_5_workflow_features():
     # Create a simple workflow for feature demonstration
     agent1 = Agent(
         agent_name="FeatureTestAgent1",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a feature testing agent.",
         verbose=False,
@@ -371,7 +371,7 @@ def step_5_workflow_features():
 
     agent2 = Agent(
         agent_name="FeatureTestAgent2",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are another feature testing agent.",
         verbose=False,

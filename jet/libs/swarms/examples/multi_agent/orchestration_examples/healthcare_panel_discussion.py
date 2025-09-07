@@ -12,7 +12,7 @@ cardiologist = Agent(
     - Clinical research in cardiovascular medicine
     
     Provide expert insights on cardiac care, treatment protocols, and research developments.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 oncologist = Agent(
@@ -25,7 +25,7 @@ oncologist = Agent(
     - Integration of cancer and cardiac care
     
     Provide expert perspectives on managing cancer treatment while protecting cardiac health.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 pharmacologist = Agent(
@@ -38,7 +38,7 @@ pharmacologist = Agent(
     - Personalized medicine approaches
     
     Provide insights on medication management and drug safety.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 moderator = Agent(
@@ -51,7 +51,7 @@ moderator = Agent(
     - Synthesizes expert insights
     
     Guide the panel discussion professionally while drawing out key insights.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 # Initialize the panel discussion

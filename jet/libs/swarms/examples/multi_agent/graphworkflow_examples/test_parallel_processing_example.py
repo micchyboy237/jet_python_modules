@@ -23,7 +23,7 @@ def create_advanced_financial_analysis_workflow():
     # === Data Collection Layer ===
     data_collector = Agent(
         agent_name="DataCollector",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a financial data collection specialist. Your role is to:
         1. Gather comprehensive market data for the target investment
@@ -38,7 +38,7 @@ def create_advanced_financial_analysis_workflow():
     # === Parallel Data Processing Layer ===
     market_data_processor = Agent(
         agent_name="MarketDataProcessor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a market data processing specialist. Focus on:
         1. Market price movements and trading volumes
@@ -52,7 +52,7 @@ def create_advanced_financial_analysis_workflow():
 
     fundamental_data_processor = Agent(
         agent_name="FundamentalDataProcessor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a fundamental data processing specialist. Focus on:
         1. Financial statements and accounting metrics
@@ -66,7 +66,7 @@ def create_advanced_financial_analysis_workflow():
 
     news_data_processor = Agent(
         agent_name="NewsDataProcessor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a news and sentiment data processor. Focus on:
         1. Recent news events and their market impact
@@ -81,7 +81,7 @@ def create_advanced_financial_analysis_workflow():
     # === Parallel Analysis Specialists Layer ===
     technical_analyst = Agent(
         agent_name="TechnicalAnalyst",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a technical analysis expert specializing in:
         1. Chart pattern analysis and trend identification
@@ -95,7 +95,7 @@ def create_advanced_financial_analysis_workflow():
 
     fundamental_analyst = Agent(
         agent_name="FundamentalAnalyst",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a fundamental analysis expert specializing in:
         1. Intrinsic value calculation using multiple methods
@@ -109,7 +109,7 @@ def create_advanced_financial_analysis_workflow():
 
     risk_analyst = Agent(
         agent_name="RiskAnalyst",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are a risk management specialist focusing on:
         1. Quantitative risk metrics (VaR, volatility, correlations)
@@ -123,7 +123,7 @@ def create_advanced_financial_analysis_workflow():
 
     esg_analyst = Agent(
         agent_name="ESGAnalyst",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are an ESG (Environmental, Social, Governance) specialist focusing on:
         1. Environmental impact and sustainability practices
@@ -138,7 +138,7 @@ def create_advanced_financial_analysis_workflow():
     # === Synthesis and Final Decision Layer ===
     synthesis_agent = Agent(
         agent_name="SynthesisAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are an investment synthesis specialist. Your role is to:
         1. Integrate all analysis from technical, fundamental, risk, and ESG specialists
@@ -152,7 +152,7 @@ def create_advanced_financial_analysis_workflow():
 
     portfolio_manager = Agent(
         agent_name="PortfolioManager",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="""You are the final investment decision maker. Your role is to:
         1. Review all synthesis and specialist analysis
@@ -247,7 +247,7 @@ def create_advanced_financial_analysis_workflow():
 #     # Create research agents
 #     web_researcher = Agent(
 #         agent_name="WebResearcher",
-#         model_name="ollama/llama3.2",
+#         model_name="gpt-4o-mini",
 #         max_loops=1,
 #         system_prompt="You are a web research specialist. Focus on online sources, news, and current information.",
 #         verbose=False,
@@ -255,7 +255,7 @@ def create_advanced_financial_analysis_workflow():
 
 #     academic_researcher = Agent(
 #         agent_name="AcademicResearcher",
-#         model_name="ollama/llama3.2",
+#         model_name="gpt-4o-mini",
 #         max_loops=1,
 #         system_prompt="You are an academic research specialist. Focus on peer-reviewed papers and scholarly sources.",
 #         verbose=False,
@@ -263,7 +263,7 @@ def create_advanced_financial_analysis_workflow():
 
 #     market_researcher = Agent(
 #         agent_name="MarketResearcher",
-#         model_name="ollama/llama3.2",
+#         model_name="gpt-4o-mini",
 #         max_loops=1,
 #         system_prompt="You are a market research specialist. Focus on industry reports and market analysis.",
 #         verbose=False,
@@ -271,7 +271,7 @@ def create_advanced_financial_analysis_workflow():
 
 #     analyst1 = Agent(
 #         agent_name="Analyst1",
-#         model_name="ollama/llama3.2",
+#         model_name="gpt-4o-mini",
 #         max_loops=1,
 #         system_prompt="You are Analysis Specialist 1. Provide quantitative analysis.",
 #         verbose=False,
@@ -279,7 +279,7 @@ def create_advanced_financial_analysis_workflow():
 
 #     analyst2 = Agent(
 #         agent_name="Analyst2",
-#         model_name="ollama/llama3.2",
+#         model_name="gpt-4o-mini",
 #         max_loops=1,
 #         system_prompt="You are Analysis Specialist 2. Provide qualitative analysis.",
 #         verbose=False,
@@ -287,7 +287,7 @@ def create_advanced_financial_analysis_workflow():
 
 #     synthesizer = Agent(
 #         agent_name="ResearchSynthesizer",
-#         model_name="ollama/llama3.2",
+#         model_name="gpt-4o-mini",
 #         max_loops=1,
 #         system_prompt="You are a research synthesizer. Combine all research into comprehensive conclusions.",
 #         verbose=False,

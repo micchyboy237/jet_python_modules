@@ -21,7 +21,7 @@ def create_simple_agent(name: str, expertise: str) -> Agent:
         agent_name=name,
         agent_description=f"Expert in {expertise}",
         system_prompt=system_prompt,
-        model_name="ollama/llama3.2",
+        model_name="gpt-4.1",
         max_loops=1,
         streaming_on=False,
     )

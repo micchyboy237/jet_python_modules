@@ -39,7 +39,7 @@ def analyze_figma_with_agent():
             agent_description="Specialized agent for analyzing Figma stock data",
             system_prompt=FINANCIAL_AGENT_SYS_PROMPT,
             max_loops=1,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             tools=[yahoo_finance_api],
             dynamic_temperature_enabled=True,
         )

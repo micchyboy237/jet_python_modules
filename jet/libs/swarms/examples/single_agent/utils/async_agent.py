@@ -12,7 +12,7 @@ agent = Agent(
         + " Output the <DONE> token when you're done creating a portfolio"
     ),
     max_loops=1,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o",
     dynamic_temperature_enabled=True,
     user_name="Kye",
     retry_attempts=3,
@@ -20,8 +20,7 @@ agent = Agent(
     context_length=8192,
     return_step_meta=False,
     output_type="str",  # "json", "dict", "csv" OR "string" "yaml" and
-    # Auto generate prompt for the agent based on name, description, and system prompt, task
-    auto_generate_prompt=False,
+    auto_generate_prompt=False,  # Auto generate prompt for the agent based on name, description, and system prompt, task
     max_tokens=4000,  # max output tokens
     # interactive=True,
     stopping_token="<DONE>",

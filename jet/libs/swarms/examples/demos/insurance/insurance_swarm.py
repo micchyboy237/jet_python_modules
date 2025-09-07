@@ -161,7 +161,7 @@ Use the following simulated product database for accurate information:
 {INSURANCE_PRODUCTS}
 
 When discussing products, always reference accurate prices, coverage amounts, and waiting periods.""",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4",
             max_loops=1,
             verbose=True,
         )

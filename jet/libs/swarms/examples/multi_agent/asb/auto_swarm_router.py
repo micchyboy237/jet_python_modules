@@ -13,7 +13,7 @@ api_key = os.getenv("GROQ_API_KEY")
 model = OpenAIChat(
     openai_api_base="https://api.groq.com/openai/v1",
     openai_api_key=api_key,
-    model_name="ollama/llama3.2",
+    model_name="llama-3.1-70b-versatile",
     temperature=0.1,
 )
 
@@ -106,8 +106,7 @@ router = SwarmRouter(
         market_analyst_agent,
         operational_analyst_agent,
     ],
-    # or "SequentialWorkflow" or "ConcurrentWorkflow" or
-    swarm_type="SequentialWorkflow",
+    swarm_type="SequentialWorkflow",  # or "SequentialWorkflow" or "ConcurrentWorkflow" or
     auto_generate_prompts=True,
     output_type="all",
 )

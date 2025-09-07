@@ -4,7 +4,7 @@ from swarms import SelfConsistencyAgent
 reasoning_agent_router = SelfConsistencyAgent(
     name="reasoning-agent",
     description="A reasoning agent that can answer questions and help with tasks.",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     system_prompt="You are a helpful assistant that can answer questions and help with tasks.",
     max_loops=1,
     num_samples=3,  # Generate 3 independent responses

@@ -84,7 +84,7 @@ agent = Agent(
     agent_name="API-Finance-Expert",
     agent_description="An API expert agent specialized in financial analysis and investment planning.",
     system_prompt=API_AGENT_SYS_PROMPT,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o-mini",
     tools=[omni_api],
 )
 

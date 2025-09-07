@@ -23,7 +23,7 @@ def create_test_workflow(max_loops=3, verbose=True):
     # Create test agents
     analyzer = Agent(
         agent_name="Analyzer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a data analyzer. Analyze the given topic and provide insights.",
         verbose=False,  # Keep agent verbose low to focus on workflow caching logs
@@ -31,7 +31,7 @@ def create_test_workflow(max_loops=3, verbose=True):
 
     reviewer = Agent(
         agent_name="Reviewer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a reviewer. Review and validate the analysis provided.",
         verbose=False,
@@ -39,7 +39,7 @@ def create_test_workflow(max_loops=3, verbose=True):
 
     summarizer = Agent(
         agent_name="Summarizer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a summarizer. Create a concise summary of all previous work.",
         verbose=False,
@@ -161,7 +161,7 @@ def test_cache_invalidation():
     print("\n🔧 Adding new agent (should invalidate cache)...")
     new_agent = Agent(
         agent_name="Validator",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a validator. Validate all previous work.",
         verbose=False,

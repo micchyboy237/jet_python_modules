@@ -7,7 +7,7 @@ import inspect
 import typing
 from typing import Union
 from swarms import Agent
-from jet.llm.ollama.adapters.ollama_swarm_llm_adapter import OllamaModel
+from swarm_models import OpenAIChat
 
 
 @dataclass
@@ -123,15 +123,16 @@ class ToolAgent:
         self,
         functions: List[Callable],
         openai_api_key: str,
-        model_name: str = "llama3.2",
+        model_name: str = "gpt-4",
         temperature: float = 0.1,
     ):
         self.functions = {func.__name__: func for func in functions}
         self.function_specs = self._analyze_functions(functions)
 
-        self.model = OllamaModel(
+        self.model = OpenAIChat(
+            openai_api_key=openai_api_key,
             model_name=model_name,
-            stream=True,
+            temperature=temperature,
         )
 
         self.system_prompt = self._create_system_prompt()

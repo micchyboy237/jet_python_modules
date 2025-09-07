@@ -32,7 +32,7 @@ jensen_huang = Agent(
     - Phase out AMD brands
     - Minimal premium on acquisition
     - Complete executive control""",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4.1",
 )
 
 lisa_su = Agent(
@@ -65,7 +65,7 @@ lisa_su = Agent(
     - RDNA architecture continuation
     - Employee retention guarantees
     - Leadership role in combined entity""",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4.1",
 )
 
 nvidia_counsel = Agent(
@@ -98,7 +98,7 @@ nvidia_counsel = Agent(
     - Weak AMD protections
     - Full NVIDIA control
     - Limited liability exposure""",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4.1",
 )
 
 amd_counsel = Agent(
@@ -131,7 +131,7 @@ amd_counsel = Agent(
     - Strong AMD board representation
     - Significant breakup fee
     - Robust regulatory provisions""",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4.1",
 )
 
 antitrust_expert = Agent(
@@ -164,7 +164,7 @@ antitrust_expert = Agent(
     - Price control mechanisms
     - Innovation guarantees
     - Market access provisions""",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4.1",
 )
 
 # Initialize the high-conflict negotiation session

@@ -679,7 +679,7 @@ database_creator_agent = Agent(
     - Handle database creation errors and provide solutions
 
     You work with precise technical specifications and always ensure databases are created correctly and efficiently.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-sonnet-4-20250514",
     max_loops=1,
     temperature=0.3,
     dynamic_temperature_enabled=True,
@@ -723,7 +723,7 @@ table_manager_agent = Agent(
     - Provide detailed table information and metadata
 
     You work with precision and always ensure tables are created with optimal structure and performance characteristics.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-sonnet-4-20250514",
     max_loops=1,
     temperature=0.3,
     dynamic_temperature_enabled=True,
@@ -774,7 +774,7 @@ data_operations_agent = Agent(
     - Provide detailed operation results and statistics
 
     You work with extreme precision and always prioritize data integrity and safety in all operations.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-sonnet-4-20250514",
     max_loops=1,
     temperature=0.3,
     dynamic_temperature_enabled=True,
@@ -825,7 +825,7 @@ query_specialist_agent = Agent(
     - Ensure query security and data protection
 
     You work with expertise in SQL optimization and always ensure queries are secure, efficient, and provide accurate results.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-sonnet-4-20250514",
     max_loops=1,
     temperature=0.3,
     dynamic_temperature_enabled=True,
@@ -881,7 +881,7 @@ database_director_agent = Agent(
     - Database security and best practices implementation
 
     You deliver comprehensive database solutions that leverage the full expertise of your specialized team, ensuring all database operations work together to provide reliable, efficient, and secure data management.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-sonnet-4-20250514",
     max_loops=1,
     temperature=0.5,
     dynamic_temperature_enabled=True,
@@ -902,7 +902,7 @@ database_specialists = [
 smart_database_swarm = HierarchicalSwarm(
     name="Smart-Database-Swarm",
     description="A comprehensive database management system with specialized agents for creation, schema management, data operations, and querying, coordinated by a database director",
-    director_model_name="ollama/llama3.2",
+    director_model_name="gpt-4.1",
     agents=database_specialists,
     director_reasoning_enabled=False,
     max_loops=1,

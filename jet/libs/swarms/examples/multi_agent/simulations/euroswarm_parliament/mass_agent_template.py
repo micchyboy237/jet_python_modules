@@ -546,7 +546,7 @@ class MassAgentTemplate:
         return Agent(
             agent_name=profile.name,
             system_prompt=system_prompt,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             max_loops=3,
             verbose=self.verbose,
         )
@@ -856,7 +856,7 @@ Remember: You are part of a large multi-agent system. Your unique combination of
 
         for i in range(0, len(selected_agent_names), self.batch_size):
             batch_names = selected_agent_names[
-                i: i + self.batch_size
+                i : i + self.batch_size
             ]
 
             # Check budget for this batch

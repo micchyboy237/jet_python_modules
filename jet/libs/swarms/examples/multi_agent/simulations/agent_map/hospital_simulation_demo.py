@@ -26,7 +26,7 @@ def create_medical_agent(name, description, system_prompt):
         agent_name=name,
         agent_description=description,
         system_prompt=system_prompt,
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         output_type="str",
         max_loops=1,
     )

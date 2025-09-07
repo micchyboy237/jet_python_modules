@@ -121,7 +121,7 @@ def main():
     agent = QuantitativeTradingRAGAgent(
         agent_name="Simple-Financial-Agent",
         collection_name="sample_financial_docs",
-        model_name="ollama/llama3.2",
+        model_name="claude-sonnet-4-20250514",
         chunk_size=800,  # Smaller chunks for sample documents
         chunk_overlap=100,
     )

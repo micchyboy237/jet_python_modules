@@ -348,7 +348,7 @@ if __name__ == "__main__":
     # Create a Swarms agent with browser tools
     browser_agent = Agent(
         agent_name="BrowserAutomationAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         tools=[
             navigate_browser,

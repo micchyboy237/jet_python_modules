@@ -193,7 +193,7 @@ agent = Agent(
     max_loops=1,
     tools_list_dictionary=tools,
     output_type="final",
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o",
 )
 
 

@@ -35,20 +35,19 @@ python comprehensive_demo.py --demo finance
 
 ### 🎓 Learning Examples
 
-| File                        | Description                                                 | Complexity      |
-| --------------------------- | ----------------------------------------------------------- | --------------- |
-| `quick_start_guide.py`      | **START HERE** - Step-by-step introduction to GraphWorkflow | ⭐ Beginner     |
-| `graph_workflow_example.py` | Basic two-agent workflow example                            | ⭐ Beginner     |
-| `comprehensive_demo.py`     | Complete feature demonstration with multiple use cases      | ⭐⭐⭐ Advanced |
+| File | Description | Complexity |
+|------|-------------|------------|
+| `quick_start_guide.py` | **START HERE** - Step-by-step introduction to GraphWorkflow | ⭐ Beginner |
+| `graph_workflow_example.py` | Basic two-agent workflow example | ⭐ Beginner |
+| `comprehensive_demo.py` | Complete feature demonstration with multiple use cases | ⭐⭐⭐ Advanced |
 
 ### 🏥 Healthcare Examples
 
-| File                                      | Description                        | Complexity      |
-| ----------------------------------------- | ---------------------------------- | --------------- |
+| File | Description | Complexity |
+|------|-------------|------------|
 | `comprehensive_demo.py --demo healthcare` | Clinical decision support workflow | ⭐⭐⭐ Advanced |
 
 **Healthcare Workflow Features:**
-
 - Multi-disciplinary clinical team simulation
 - Parallel specialist consultations
 - Drug interaction checking
@@ -57,13 +56,12 @@ python comprehensive_demo.py --demo finance
 
 ### 💰 Finance Examples
 
-| File                                   | Description                                | Complexity      |
-| -------------------------------------- | ------------------------------------------ | --------------- |
-| `advanced_graph_workflow.py`           | Sophisticated investment analysis workflow | ⭐⭐⭐ Advanced |
-| `comprehensive_demo.py --demo finance` | Quantitative trading strategy development  | ⭐⭐⭐ Advanced |
+| File | Description | Complexity |
+|------|-------------|------------|
+| `advanced_graph_workflow.py` | Sophisticated investment analysis workflow | ⭐⭐⭐ Advanced |
+| `comprehensive_demo.py --demo finance` | Quantitative trading strategy development | ⭐⭐⭐ Advanced |
 
 **Finance Workflow Features:**
-
 - Multi-source market data analysis
 - Parallel quantitative analysis (Technical, Fundamental, Sentiment)
 - Risk management and portfolio optimization
@@ -72,20 +70,20 @@ python comprehensive_demo.py --demo finance
 
 ### 🔧 Technical Examples
 
-| File                                  | Description                                | Complexity        |
-| ------------------------------------- | ------------------------------------------ | ----------------- |
+| File | Description | Complexity |
+|------|-------------|------------|
 | `test_parallel_processing_example.py` | Comprehensive parallel processing patterns | ⭐⭐ Intermediate |
-| `test_graphviz_visualization.py`      | Visualization capabilities and layouts     | ⭐⭐ Intermediate |
-| `test_graph_workflow_caching.py`      | Performance optimization and caching       | ⭐⭐ Intermediate |
-| `test_enhanced_json_export.py`        | Serialization and persistence features     | ⭐⭐ Intermediate |
-| `test_graphworlfolw_validation.py`    | Workflow validation and error handling     | ⭐⭐ Intermediate |
+| `test_graphviz_visualization.py` | Visualization capabilities and layouts | ⭐⭐ Intermediate |
+| `test_graph_workflow_caching.py` | Performance optimization and caching | ⭐⭐ Intermediate |
+| `test_enhanced_json_export.py` | Serialization and persistence features | ⭐⭐ Intermediate |
+| `test_graphworlfolw_validation.py` | Workflow validation and error handling | ⭐⭐ Intermediate |
 
 ## 🎯 Key Features Demonstrated
 
 ### ⚡ Parallel Processing Patterns
 
 - **Fan-out**: One agent distributes to multiple agents
-- **Fan-in**: Multiple agents converge to one agent
+- **Fan-in**: Multiple agents converge to one agent  
 - **Parallel chains**: Many-to-many mesh processing
 - **Complex hybrid**: Sophisticated multi-stage patterns
 
@@ -119,8 +117,8 @@ from swarms import Agent
 from swarms.structs.graph_workflow import GraphWorkflow
 
 # Create agents
-agent1 = Agent(agent_name="Researcher", model_name="ollama/llama3.2", max_loops=1)
-agent2 = Agent(agent_name="Writer", model_name="ollama/llama3.2", max_loops=1)
+agent1 = Agent(agent_name="Researcher", model_name="gpt-4o-mini", max_loops=1)
+agent2 = Agent(agent_name="Writer", model_name="gpt-4o-mini", max_loops=1)
 
 # Create workflow
 workflow = GraphWorkflow(name="SimpleWorkflow", auto_compile=True)
@@ -244,7 +242,6 @@ workflow.visualize_simple()
 ### Common Issues
 
 1. **Compilation Errors**
-
    ```python
    # Check for cycles in workflow
    validation = workflow.validate(auto_fix=True)
@@ -253,22 +250,20 @@ workflow.visualize_simple()
    ```
 
 2. **Performance Issues**
-
    ```python
    # Ensure compilation before execution
    workflow.compile()
-
+   
    # Check worker count
    status = workflow.get_compilation_status()
    print(f"Workers: {status['max_workers']}")
    ```
 
 3. **Memory Issues**
-
    ```python
    # Clear conversation history if not needed
    workflow.conversation = Conversation()
-
+   
    # Monitor memory usage
    import psutil
    process = psutil.Process()
@@ -319,7 +314,7 @@ Found a bug or want to add an example?
 GraphWorkflow is the **LangGraph killer** because it provides:
 
 - **40-60% Better Performance**: Intelligent compilation and parallel execution
-- **Enterprise Reliability**: Comprehensive error handling and monitoring
+- **Enterprise Reliability**: Comprehensive error handling and monitoring  
 - **Superior Scalability**: Handles hundreds of agents efficiently
 - **Rich Visualization**: Professional workflow diagrams
 - **Production Ready**: Serialization, caching, and validation

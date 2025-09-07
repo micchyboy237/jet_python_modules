@@ -1068,7 +1068,7 @@ class EuroSwarmParliament:
         return Agent(
             agent_name=f"MEP_{mep.full_name.replace(' ', '_')}",
             system_prompt=system_prompt,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             max_loops=3,
             verbose=self.verbose,
         )
@@ -2059,7 +2059,7 @@ Remember: You are a real MEP with specific political views, expertise, and respo
         total_processed = 0
 
         for i in range(0, len(participants), self.batch_size):
-            batch_participants = participants[i: i + self.batch_size]
+            batch_participants = participants[i : i + self.batch_size]
 
             # Check budget for this batch
             if not self.cost_tracker.check_budget():
@@ -2271,7 +2271,7 @@ Remember: You are a real MEP with specific political views, expertise, and respo
         total_processed = 0
 
         for i in range(0, len(participants), self.batch_size):
-            batch_participants = participants[i: i + self.batch_size]
+            batch_participants = participants[i : i + self.batch_size]
 
             # Check budget for this batch
             if not self.cost_tracker.check_budget():
@@ -2449,7 +2449,7 @@ Remember: You are a real MEP with specific political views, expertise, and respo
 
         # Process participants in batches
         for i in range(0, len(participants), self.batch_size):
-            batch_participants = participants[i: i + self.batch_size]
+            batch_participants = participants[i : i + self.batch_size]
 
             # Check budget for this batch
             if not self.cost_tracker.check_budget():

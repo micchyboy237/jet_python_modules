@@ -45,7 +45,7 @@ def main():
             
             You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
             max_loops=1,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             dynamic_temperature_enabled=True,
             output_type="str-all-except-first",
             streaming_on=True,
@@ -56,13 +56,13 @@ def main():
             agent_name="Risk-Manager",
             system_prompt="You are a risk management specialist.",
             max_loops=1,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
         ),
         Agent(
             agent_name="Market-Analyst",
             system_prompt="You are a market analysis expert.",
             max_loops=1,
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
         ),
     ]
 

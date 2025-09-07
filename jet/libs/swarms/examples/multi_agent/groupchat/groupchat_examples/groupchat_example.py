@@ -15,7 +15,7 @@ if __name__ == "__main__":
     agent1 = Agent(
         agent_name="Financial-Analysis-Agent",
         description="You are a financial analyst specializing in investment strategies.",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         autosave=False,
         dashboard=False,
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     agent2 = Agent(
         agent_name="Tax-Adviser-Agent",
         description="You are a tax adviser who provides clear and concise guidance on tax-related queries.",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         autosave=False,
         dashboard=False,

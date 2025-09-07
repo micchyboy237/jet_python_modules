@@ -7,7 +7,7 @@ swarm = AutoSwarmBuilder(
     verbose=True,
     max_loops=1,
     return_agents=True,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4.1",
 )
 
 print(

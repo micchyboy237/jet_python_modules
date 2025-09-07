@@ -83,19 +83,19 @@ def create_price_comparison_workflow():
     # Create specialized agents for different sites
     amazon_agent = StagehandAgent(
         agent_name="AmazonScraperAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         env="LOCAL",
     )
 
     ebay_agent = StagehandAgent(
         agent_name="EbayScraperAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         env="LOCAL",
     )
 
     analysis_agent = Agent(
         agent_name="PriceAnalysisAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         system_prompt="""You are a price analysis expert. Analyze product prices from multiple sources
         and provide insights on the best deals, price trends, and recommendations.
         Focus on value for money and highlight any significant price differences.""",
@@ -127,21 +127,21 @@ def create_competitive_analysis_workflow():
     # Agent for extracting company information
     company_researcher = StagehandAgent(
         agent_name="CompanyResearchAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         env="LOCAL",
     )
 
     # Agent for analyzing social media presence
     social_media_agent = StagehandAgent(
         agent_name="SocialMediaAnalysisAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         env="LOCAL",
     )
 
     # Agent for compiling competitive analysis report
     report_compiler = Agent(
         agent_name="CompetitiveAnalysisReporter",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         system_prompt="""You are a competitive analysis expert. Compile comprehensive reports
         based on company information and social media presence data. Identify strengths,
         weaknesses, and market positioning for each company.""",
@@ -174,28 +174,28 @@ def create_automated_testing_workflow():
     # Agent for UI testing
     ui_tester = StagehandAgent(
         agent_name="UITestingAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         env="LOCAL",
     )
 
     # Agent for form validation testing
     form_tester = StagehandAgent(
         agent_name="FormValidationAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         env="LOCAL",
     )
 
     # Agent for accessibility testing
     accessibility_tester = StagehandAgent(
         agent_name="AccessibilityTestingAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         env="LOCAL",
     )
 
     # Agent for compiling test results
     test_reporter = Agent(
         agent_name="TestReportCompiler",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         system_prompt="""You are a QA test report specialist. Compile test results from
         UI, form validation, and accessibility testing into a comprehensive report.
         Highlight any failures, warnings, and provide recommendations for fixes.""",
@@ -234,7 +234,7 @@ def create_news_aggregation_workflow():
     for site_name, url in news_sites:
         scraper = StagehandAgent(
             agent_name=f"{site_name}Scraper",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             env="LOCAL",
         )
         news_scrapers.append(scraper)
@@ -242,7 +242,7 @@ def create_news_aggregation_workflow():
     # Sentiment analysis agent
     sentiment_analyzer = Agent(
         agent_name="SentimentAnalyzer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         system_prompt="""You are a sentiment analysis expert. Analyze news articles and posts
         to determine overall sentiment (positive, negative, neutral) and identify key themes
         and trends in the technology sector.""",
@@ -251,7 +251,7 @@ def create_news_aggregation_workflow():
     # Trend identification agent
     trend_identifier = Agent(
         agent_name="TrendIdentifier",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         system_prompt="""You are a trend analysis expert. Based on aggregated news and sentiment
         data, identify emerging trends, hot topics, and potential market movements in the
         technology sector.""",

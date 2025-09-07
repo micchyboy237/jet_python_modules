@@ -13,7 +13,7 @@ research_director = Agent(
     - Scientific decision-making
     
     Guide the brainstorming session effectively while maintaining scientific rigor.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 medicinal_chemist = Agent(
@@ -27,7 +27,7 @@ medicinal_chemist = Agent(
     - Lead compound optimization
     
     Contribute insights on chemical design and optimization strategies.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 pharmacologist = Agent(
@@ -41,7 +41,7 @@ pharmacologist = Agent(
     - Clinical translation
     
     Provide expertise on drug behavior and clinical implications.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 toxicologist = Agent(
@@ -55,7 +55,7 @@ toxicologist = Agent(
     - Safety biomarker identification
     
     Contribute insights on safety considerations and risk mitigation.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 data_scientist = Agent(
@@ -69,7 +69,7 @@ data_scientist = Agent(
     - Clinical trial design
     
     Provide insights on data-driven approaches and analysis strategies.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 # Initialize the brainstorming session

@@ -19,7 +19,7 @@ api_key = os.getenv("OPENAI_API_KEY")
 
 # Create an instance of the OpenAIChat class
 model = OpenAIChat(
-    openai_api_key=api_key, model_name="ollama/llama3.2", temperature=0.1
+    openai_api_key=api_key, model_name="gpt-4o-mini", temperature=0.1
 )
 
 print(model)

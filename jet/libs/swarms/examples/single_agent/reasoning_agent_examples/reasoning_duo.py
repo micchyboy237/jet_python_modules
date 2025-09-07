@@ -136,7 +136,7 @@ action_agent = Agent(
     agent_description="Practical implementation and execution agent",
     system_prompt=ACTION_AGENT_PROMPT,
     max_loops=1,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o",
     dynamic_temperature_enabled=True,
 )
 

@@ -22,7 +22,6 @@ This example demonstrates how to use the agent structure from `example.py` with 
 ## 🛠️ Installation
 
 1. **Install dependencies**:
-
    ```bash
    pip install -r requirements.txt
    ```
@@ -38,21 +37,18 @@ This example demonstrates how to use the agent structure from `example.py` with 
 The example consists of three main components:
 
 ### 1. DocumentProcessor
-
 - Handles file discovery and text extraction
 - Supports PDF, TXT, and Markdown formats
 - Concurrent processing for large document collections
 - Error handling and validation
 
 ### 2. QdrantRAGMemory
-
 - Vector database management with Qdrant
 - Intelligent text chunking with overlap
 - Semantic search capabilities
 - Metadata storage and retrieval
 
 ### 3. QuantitativeTradingRAGAgent
-
 - Combines Swarms Agent with RAG capabilities
 - Financial analysis specialization
 - Document context enhancement
@@ -69,7 +65,7 @@ from qdrant_rag_example import QuantitativeTradingRAGAgent
 agent = QuantitativeTradingRAGAgent(
     agent_name="Financial-Analysis-Agent",
     collection_name="financial_documents",
-    model_name="ollama/llama3.2"
+    model_name="claude-sonnet-4-20250514"
 )
 ```
 
@@ -121,7 +117,6 @@ financial_documents/
 ## ⚙️ Configuration Options
 
 ### Agent Configuration
-
 - `agent_name`: Name of the agent
 - `collection_name`: Qdrant collection name
 - `model_name`: LLM model to use
@@ -130,7 +125,6 @@ financial_documents/
 - `chunk_overlap`: Overlap between chunks (default: 200)
 
 ### Document Processing
-
 - `supported_extensions`: File types to process
 - `max_workers`: Concurrent processing threads
 - `score_threshold`: Similarity search threshold
@@ -138,7 +132,6 @@ financial_documents/
 ## 🔍 Advanced Features
 
 ### Custom Embedding Models
-
 ```python
 # Use different sentence transformer models
 from sentence_transformers import SentenceTransformer
@@ -148,7 +141,6 @@ custom_model = SentenceTransformer("all-mpnet-base-v2")
 ```
 
 ### Cloud Deployment
-
 ```python
 # Connect to Qdrant cloud
 agent = QuantitativeTradingRAGAgent(
@@ -158,7 +150,6 @@ agent = QuantitativeTradingRAGAgent(
 ```
 
 ### Batch Processing
-
 ```python
 # Process multiple directories
 directories = ["./docs1", "./docs2", "./docs3"]
@@ -176,7 +167,6 @@ for directory in directories:
 ## 🚨 Error Handling
 
 The system includes comprehensive error handling for:
-
 - File not found errors
 - Unsupported file types
 - Processing failures
@@ -188,13 +178,11 @@ The system includes comprehensive error handling for:
 ### Common Issues
 
 1. **Import Errors**: Ensure all dependencies are installed
-
    ```bash
    pip install -r requirements.txt
    ```
 
 2. **Memory Issues**: Reduce chunk size or use cloud Qdrant
-
    ```python
    agent = QuantitativeTradingRAGAgent(chunk_size=500)
    ```
@@ -223,7 +211,6 @@ The system includes comprehensive error handling for:
 ## 🤝 Contributing
 
 To extend this example:
-
 1. Add support for additional file formats
 2. Implement custom embedding strategies
 3. Add document versioning and change tracking
@@ -237,7 +224,6 @@ This example is part of the Swarms framework and follows the same licensing term
 ## 🆘 Support
 
 For issues and questions:
-
 - Check the Swarms documentation
 - Review the example code and error messages
 - Ensure all dependencies are properly installed

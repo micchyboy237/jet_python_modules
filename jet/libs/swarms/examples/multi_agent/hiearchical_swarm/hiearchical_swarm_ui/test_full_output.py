@@ -15,7 +15,7 @@ def test_full_output():
     agent1 = Agent(
         agent_name="Research-Agent",
         agent_description="A research agent that produces detailed output",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=False,
     )
@@ -23,7 +23,7 @@ def test_full_output():
     agent2 = Agent(
         agent_name="Analysis-Agent",
         agent_description="An analysis agent that provides comprehensive analysis",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=False,
     )

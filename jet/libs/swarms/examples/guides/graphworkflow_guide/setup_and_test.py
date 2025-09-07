@@ -143,7 +143,7 @@ def test_basic_workflow_creation() -> bool:
         # Create a simple agent
         agent = Agent(
             agent_name="TestAgent",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             max_loops=1,
             system_prompt="You are a test agent.",
             verbose=False,
@@ -180,7 +180,7 @@ def test_workflow_compilation() -> bool:
         # Create agents
         agent1 = Agent(
             agent_name="Agent1",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             max_loops=1,
             system_prompt="You are agent 1.",
             verbose=False,
@@ -188,7 +188,7 @@ def test_workflow_compilation() -> bool:
 
         agent2 = Agent(
             agent_name="Agent2",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             max_loops=1,
             system_prompt="You are agent 2.",
             verbose=False,
@@ -240,7 +240,7 @@ def test_workflow_validation() -> bool:
         # Create a simple workflow
         agent = Agent(
             agent_name="ValidationTestAgent",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             max_loops=1,
             system_prompt="You are a validation test agent.",
             verbose=False,
@@ -281,7 +281,7 @@ def test_serialization() -> bool:
         # Create a simple workflow
         agent = Agent(
             agent_name="SerializationTestAgent",
-            model_name="ollama/llama3.2",
+            model_name="gpt-4o-mini",
             max_loops=1,
             system_prompt="You are a serialization test agent.",
             verbose=False,

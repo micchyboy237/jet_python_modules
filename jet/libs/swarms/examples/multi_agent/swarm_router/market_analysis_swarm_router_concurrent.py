@@ -9,7 +9,7 @@ market_researcher = Agent(
     3. Evaluating competitor strategies
     4. Assessing customer needs and preferences
     5. Providing actionable market insights""",
-    model_name="ollama/llama3.2",
+    model_name="claude-sonnet-4-20250514",
     max_loops=1,
     streaming_on=True,
 )
@@ -23,7 +23,7 @@ financial_analyst = Agent(
     3. Assessing risk factors
     4. Providing financial forecasts
     5. Recommending financial strategies""",
-    model_name="ollama/llama3.2",
+    model_name="claude-sonnet-4-20250514",
     max_loops=1,
     streaming_on=True,
 )
@@ -37,7 +37,7 @@ technical_analyst = Agent(
     3. Identifying support and resistance levels
     4. Assessing market momentum
     5. Providing trading recommendations""",
-    model_name="ollama/llama3.2",
+    model_name="claude-sonnet-4-20250514",
     max_loops=1,
     streaming_on=True,
 )

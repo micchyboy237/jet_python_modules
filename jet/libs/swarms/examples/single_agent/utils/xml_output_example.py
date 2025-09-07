@@ -14,7 +14,7 @@ if __name__ == "__main__":
         agent_name="XML-Output-Agent",
         agent_description="Agent that demonstrates XML output support",
         max_loops=2,
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         dynamic_temperature_enabled=True,
         interactive=False,
         output_type="xml",  # Request XML output

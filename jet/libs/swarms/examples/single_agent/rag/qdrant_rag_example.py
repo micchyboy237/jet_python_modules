@@ -747,7 +747,7 @@ def main():
         qdrant_api_key=os.getenv(
             "QDRANT_API_KEY"
         ),  # Optional: For cloud deployment
-        model_name="ollama/llama3.2",
+        model_name="claude-sonnet-4-20250514",
         max_loops=1,
         chunk_size=1000,
         chunk_overlap=200,

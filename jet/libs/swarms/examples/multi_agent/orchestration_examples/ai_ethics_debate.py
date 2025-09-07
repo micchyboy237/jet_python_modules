@@ -14,7 +14,7 @@ ai_ethicist = Agent(
     - Responsible AI development
     
     Present thoughtful arguments about AI ethics while considering multiple perspectives.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 tech_advocate = Agent(
@@ -29,7 +29,7 @@ tech_advocate = Agent(
     - Development acceleration
     
     Present balanced arguments for AI advancement while acknowledging ethical considerations.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
 )
 
 # Initialize the debate

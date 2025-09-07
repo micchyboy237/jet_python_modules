@@ -15,7 +15,7 @@ def create_sample_workflow():
     # Create sample agents
     analyzer = Agent(
         agent_name="DataAnalyzer",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a data analysis expert. Analyze the given data and provide insights.",
         verbose=False,
@@ -23,7 +23,7 @@ def create_sample_workflow():
 
     processor = Agent(
         agent_name="DataProcessor",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a data processor. Process and transform the analyzed data.",
         verbose=False,
@@ -31,7 +31,7 @@ def create_sample_workflow():
 
     reporter = Agent(
         agent_name="ReportGenerator",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         system_prompt="You are a report generator. Create comprehensive reports from processed data.",
         verbose=False,

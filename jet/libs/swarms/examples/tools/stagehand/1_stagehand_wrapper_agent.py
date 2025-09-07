@@ -234,7 +234,7 @@ if __name__ == "__main__":
     # Create a Stagehand browser agent
     browser_agent = StagehandAgent(
         agent_name="WebScraperAgent",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         env="LOCAL",  # Use LOCAL for Playwright, BROWSERBASE for cloud
     )
 

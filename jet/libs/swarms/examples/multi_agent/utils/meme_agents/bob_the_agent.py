@@ -20,15 +20,14 @@ agent = Agent(
     agent_description="The funniest, most optimistic agent around who sees every problem as a building project.",
     system_prompt=BOB_THE_BUILDER_SYS_PROMPT,
     max_loops=1,
-    model_name="ollama/llama3.2",
+    model_name="gpt-4o",
     dynamic_temperature_enabled=True,
     user_name="swarms_corp",
     retry_attempts=3,
     context_length=8192,
     return_step_meta=False,
     output_type="str",  # "json", "dict", "csv", OR "string", "yaml"
-    # Auto-generate prompt for the agent based on name, description, system prompt, task
-    auto_generate_prompt=False,
+    auto_generate_prompt=False,  # Auto-generate prompt for the agent based on name, description, system prompt, task
     max_tokens=4000,  # Max output tokens
     saved_state_path="bob_the_builder_agent.json",
     interactive=False,

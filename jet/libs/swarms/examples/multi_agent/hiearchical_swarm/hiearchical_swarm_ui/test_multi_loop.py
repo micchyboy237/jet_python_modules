@@ -15,7 +15,7 @@ def test_multi_loop():
     agent1 = Agent(
         agent_name="Research-Agent",
         agent_description="A research agent for multi-loop testing",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=False,
     )
@@ -23,7 +23,7 @@ def test_multi_loop():
     agent2 = Agent(
         agent_name="Analysis-Agent",
         agent_description="An analysis agent for multi-loop testing",
-        model_name="ollama/llama3.2",
+        model_name="gpt-4o-mini",
         max_loops=1,
         verbose=False,
     )

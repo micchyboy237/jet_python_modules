@@ -143,7 +143,7 @@ When you receive property data:
 5. Sort properties by price (lowest to highest)
 
 Provide clear, objective analysis while maintaining professional standards and ethical considerations.""",
-    model_name="ollama/llama3.2",
+    model_name="claude-3-sonnet-20240229",
     max_loops=1,
     print_on=True,
     streaming_on=True,
