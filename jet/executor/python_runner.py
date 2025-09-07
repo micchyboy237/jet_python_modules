@@ -1,3 +1,4 @@
+from typing import Literal
 import subprocess
 import os
 import re
@@ -30,13 +31,12 @@ def run_python_files_in_directory(
     excludes: Optional[List[str]] = None,
     python_interpreter: str = "python",
     recursive: bool = False,
-    output_dir: Optional[Union[str, Path]] = None
+    output_dir: Optional[Union[str, Path]] = None,
+    rerun_mode: Literal["all", "failed", "unrun", "failed_and_unrun"] = "all"
 ) -> None:
     """
-    Runs all Python files in the target directory and prints live logs.
-    Optionally writes execution results to a JSON file and individual log files
-    in separate success/failed directories.
-
+    Runs Python files in the target directory based on the specified rerun mode.
+    Preserves previous file statuses if not rerun.
     Args:
         target_dir (Union[str, Path]): The root directory to search for Python files.
         exclude_dirs (Optional[List[str]]): List of directory names to exclude.
@@ -45,11 +45,28 @@ def run_python_files_in_directory(
         python_interpreter (str): Python executable to use. Default is 'python'.
         recursive (bool): Whether to search subdirectories recursively.
         output_dir (Optional[Union[str, Path]]): Directory to save the JSON file and success/failed directories.
+        rerun_mode (Literal["all", "failed", "unrun", "failed_and_unrun"]): Mode to determine which files to run.
+            "all": Run all files.
+            "failed": Run only files that previously failed.
+            "unrun": Run only files that have not been run before.
+            "failed_and_unrun": Run files that previously failed or have not been run.
     """
+    logger = CustomLogger(name="")
+    if output_dir:
+        main_log_file = output_dir / "main.log"
+        logger = CustomLogger(str(main_log_file), name="", overwrite=True)
+
+    # Validate rerun_mode
+    valid_modes = {"all", "failed", "unrun", "failed_and_unrun"}
+    logger.debug(f"Checking rerun_mode: {rerun_mode}")
+    if rerun_mode not in valid_modes:
+        logger.error(
+            f"Invalid rerun_mode: {rerun_mode}. Must be one of {valid_modes}")
+        raise ValueError(
+            f"Invalid rerun_mode: {rerun_mode}. Must be one of {valid_modes}")
+
     if isinstance(target_dir, str):
         target_dir = Path(target_dir)
-
-    # Initialize output directory and log paths
     if output_dir is not None:
         if isinstance(output_dir, str):
             output_dir = Path(output_dir)
@@ -60,6 +77,10 @@ def run_python_files_in_directory(
         failed_dir.mkdir(parents=True, exist_ok=True)
         status_file = output_dir / "files_status.json"
         status_data: List[Dict[str, str]] = []
+        if status_file.exists():
+            with status_file.open('r') as f:
+                logger.debug(f"Loading existing status file: {status_file}")
+                status_data = json.load(f)
     else:
         success_dir = None
         failed_dir = None
@@ -81,30 +102,40 @@ def run_python_files_in_directory(
             if not any(part in exclude_dirs for part in f.parts)
         ]
 
-    # Apply includes filter if specified
+    logger.debug(f"Found {len(files)} Python files before filtering")
     if includes:
         files = [f for f in files if any(
             fnmatch(f.name, pattern) for pattern in includes)]
-
-    # Apply excludes filter
     files = [f for f in files if not any(
         fnmatch(f.name, pattern) for pattern in excludes)]
-
     files.sort(key=lambda f: sort_key(str(f.name)))
+    logger.debug(f"After include/exclude filtering: {len(files)} files")
 
-    logger = CustomLogger(name="")
-
-    if output_dir:
-        main_log_file = output_dir / "main.log"
-        logger = CustomLogger(str(main_log_file), name="", overwrite=True)
+    # Filter files based on rerun_mode
+    existing_files = {entry["file"] for entry in status_data}
+    if rerun_mode == "failed":
+        files = [f for f in files if str(f.relative_to(target_dir)) in existing_files and
+                 any(entry["file"] == str(f.relative_to(target_dir)) and
+                     entry["status"].startswith("Failed") for entry in status_data)]
+    elif rerun_mode == "unrun":
+        files = [f for f in files if str(
+            f.relative_to(target_dir)) not in existing_files]
+    elif rerun_mode == "failed_and_unrun":
+        files = [f for f in files if str(f.relative_to(target_dir)) not in existing_files or
+                 any(entry["file"] == str(f.relative_to(target_dir)) and
+                     entry["status"].startswith("Failed") for entry in status_data)]
+    logger.debug(
+        f"After rerun_mode filtering ({rerun_mode}): {len(files)} files")
 
     logger.info(
-        f"\nRunning {len(files)} Python files in: {target_dir} (recursive={recursive})\n")
+        f"\nRunning {len(files)} Python files in: {target_dir} (recursive={recursive}, rerun_mode={rerun_mode})\n")
 
+    # Update status_data with new runs, preserving existing entries
+    new_status_data = [entry for entry in status_data if str(entry["file"]) not in
+                       {str(f.relative_to(target_dir)) for f in files}]
     for file_path in files:
         rel_path = file_path.relative_to(target_dir)
         logger.debug(f"\n▶️ Running: {rel_path}\n{'=' * 60}")
-
         process = subprocess.Popen(
             [python_interpreter, str(file_path)],
             stdout=subprocess.PIPE,
@@ -112,32 +143,24 @@ def run_python_files_in_directory(
             text=True,
             bufsize=1,
         )
-
         output_lines = []
         if process.stdout:
             for line in process.stdout:
                 logger.teal(line, end="")
                 output_lines.append(line)
-
         process.wait()
-
         status = "Success" if process.returncode == 0 else f"Failed (code {process.returncode})"
         logger.gray(
             f"\n{'-' * 60}\n{'✅' if process.returncode == 0 else '❌'} {status}: {rel_path}\n")
-
-        # Prepare status data
         status_entry = {
             "file": str(rel_path),
             "status": status,
             "return_code": str(process.returncode),
             "timestamp": datetime.now().isoformat()
         }
-        status_data.append(status_entry)
-
-        # Write individual log file to success or failed directory
+        new_status_data.append(status_entry)
         if success_dir and failed_dir:
             log_dir = success_dir if process.returncode == 0 else failed_dir
-            # Create relative path directories in success/failed
             relative_dir = file_path.parent.relative_to(target_dir)
             target_log_dir = log_dir / relative_dir
             target_log_dir.mkdir(parents=True, exist_ok=True)
@@ -151,7 +174,6 @@ def run_python_files_in_directory(
                 f.write(f"Status: {status}\n")
                 f.write(f"Output:\n{''.join(output_lines)}\n")
                 f.write("-" * 60 + "\n")
-
-        # Write status JSON file
-        if status_file:
-            save_file(status_data, status_file)
+    if status_file:
+        logger.debug(f"Saving status file: {status_file}")
+        save_file(new_status_data, status_file)
