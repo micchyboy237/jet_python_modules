@@ -1,6 +1,27 @@
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, Literal
 
-from jet.llm.mlx.mlx_types import ToolCall, Message
+ChatRole = Literal["system", "user", "assistant", "tool"]
+
+
+class ToolArguments(TypedDict):
+    name: str
+    arguments: Dict[str, Any]
+
+
+class ToolCall(TypedDict):
+    function: ToolArguments
+    type: Literal["function"]
+
+
+class ToolCallResult(TypedDict):
+    tool_call: ToolCall
+    tool_result: Any
+
+
+class Message(TypedDict, total=False):
+    role: ChatRole
+    content: str
+    tool_calls: Optional[List[ToolCall]]
 
 
 class ChatCompletionRequest(TypedDict, total=False):

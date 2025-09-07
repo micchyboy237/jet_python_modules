@@ -1,5 +1,4 @@
 from typing import Callable, Dict, List, Optional, Union, Literal, Iterator, Any
-
 from jet.llm.mlx.remote.client import MLXRemoteClient
 from jet.llm.mlx.remote.types import (
     Message,
@@ -11,10 +10,11 @@ from jet.llm.mlx.remote.types import (
     HealthResponse,
 )
 from jet.llm.mlx.chat_history import ChatHistory
-from jet.llm.mlx.mlx_utils import execute_tool_calls, has_tools
+from jet.llm.mlx.mlx_utils import execute_tool_calls, has_tools, process_response_format
 from jet.utils.eval_utils import parse_and_evaluate
 from jet.utils.inspect_utils import get_method_info
 from jet.logger import logger
+from pydantic.json_schema import JsonSchemaValue
 
 
 def prepare_messages(
@@ -22,8 +22,9 @@ def prepare_messages(
     history: ChatHistory,
     system_prompt: Optional[str] = None,
     with_history: bool = False,
+    response_format: Optional[Union[Literal["text", "json"], JsonSchemaValue]] = None,
 ) -> List[Message]:
-    """Prepare messages with optional history and system prompt, ensuring tool_calls and alternating roles."""
+    """Prepare messages with optional history, system prompt, and response format, ensuring tool_calls and alternating roles."""
     if system_prompt and not any(m["role"] == "system" for m in history.get_messages()):
         if with_history:
             history.add_message("system", system_prompt)
@@ -68,6 +69,9 @@ def prepare_messages(
         formatted_messages = [
             {"role": "system", "content": system_prompt, "tool_calls": None}
         ] + formatted_messages
+    # Apply response format processing
+    formatted_messages = process_response_format(
+        formatted_messages, response_format or "text")
     non_system_messages = [
         m for m in formatted_messages if m["role"] != "system"]
     if non_system_messages:
@@ -108,8 +112,9 @@ def chat(
     with_history: bool = False,
     history: Optional[ChatHistory] = None,
     verbose: bool = False,
+    response_format: Optional[Union[Literal["text", "json"], JsonSchemaValue]] = None,
 ) -> ChatCompletionResponse:
-    """Create a chat completion via the remote server with tool usage support."""
+    """Create a chat completion via the remote server with tool usage and response format support."""
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
@@ -125,7 +130,7 @@ def chat(
             for tool in tools
         ]
     request_messages = prepare_messages(
-        messages, hist, system_prompt, with_history)
+        messages, hist, system_prompt, with_history, response_format)
     req: ChatCompletionRequest = {
         "messages": request_messages,
         "model": model,
@@ -252,8 +257,9 @@ def stream_chat(
     with_history: bool = False,
     history: Optional[ChatHistory] = None,
     verbose: bool = False,
+    response_format: Optional[Union[Literal["text", "json"], JsonSchemaValue]] = None,
 ) -> Iterator[ChatCompletionResponse]:
-    """Stream chat completion chunks via the remote server with tool usage support."""
+    """Stream chat completion chunks via the remote server with tool usage and response format support."""
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
     hist = history or ChatHistory()
@@ -269,7 +275,7 @@ def stream_chat(
             for tool in tools
         ]
     request_messages = prepare_messages(
-        messages, hist, system_prompt, with_history)
+        messages, hist, system_prompt, with_history, response_format)
     req: ChatCompletionRequest = {
         "messages": request_messages,
         "model": model,
@@ -318,8 +324,6 @@ def stream_chat(
                         "tool_calls": tool_calls
                     }
                     new_choice["message"] = new_message
-
-                # process finish_reason before appending
                 if new_choice.get("finish_reason") is not None:
                     formatted_tool_calls = []
                     content = "".join(assistant_content)
@@ -344,12 +348,10 @@ def stream_chat(
                                     })
                     except ValueError:
                         formatted_tool_calls = []
-
                     new_choice["message"]["tool_calls"] = (
                         formatted_tool_calls if formatted_tool_calls else None
                     )
                     assistant_tool_calls.extend(formatted_tool_calls or [])
-
                     if with_history:
                         hist.add_message(
                             role="assistant",
@@ -363,10 +365,7 @@ def stream_chat(
                             assistant_tool_calls, tools)
                     if with_history:
                         chunk["history"] = hist.get_messages()
-
-                # ✅ append only once
                 new_choices.append(new_choice)
-
         chunk["choices"] = new_choices
         yield chunk
 
@@ -391,12 +390,14 @@ def generate(
     client: Optional[MLXRemoteClient] = None,
     base_url: Optional[str] = None,
     verbose: bool = False,
+    response_format: Optional[Union[Literal["text", "json"], JsonSchemaValue]] = None,
 ) -> TextCompletionResponse:
-    """Create a text completion via the remote server."""
+    """Create a text completion via the remote server with response format support."""
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
+    modified_prompt = process_response_format(prompt, response_format or "text")
     req: TextCompletionRequest = {
-        "prompt": prompt,
+        "prompt": modified_prompt,
         "model": model,
         "draft_model": draft_model,
         "max_tokens": max_tokens,
@@ -417,7 +418,6 @@ def generate(
     }
     req = {k: v for k, v in req.items() if v is not None}
     response = list(client.create_text_completion(req, stream=False))[0]
-    # Collect content from choices
     text_content = []
     for choice in response["choices"]:
         if choice.get("text"):
@@ -446,12 +446,14 @@ def stream_generate(
     client: Optional[MLXRemoteClient] = None,
     base_url: Optional[str] = None,
     verbose: bool = False,
+    response_format: Optional[Union[Literal["text", "json"], JsonSchemaValue]] = None,
 ) -> Iterator[TextCompletionResponse]:
-    """Stream text completion chunks via the remote server."""
+    """Stream text completion chunks via the remote server with response format support."""
     if client is None:
         client = MLXRemoteClient(base_url=base_url, verbose=verbose)
+    modified_prompt = process_response_format(prompt, response_format or "text")
     req: TextCompletionRequest = {
-        "prompt": prompt,
+        "prompt": modified_prompt,
         "model": model,
         "draft_model": draft_model,
         "max_tokens": max_tokens,
