@@ -156,3 +156,14 @@ class TestProcessResponseFormat:
 
         # Then
         assert result == expected_result, f"Expected {expected_result}, got {result}"
+
+    def test_invalid_input_type(self):
+        """Test invalid input type raises ValueError."""
+        # Given
+        input_data: int = 42  # Invalid type
+        response_format: Literal["text"] = "text"
+        expected_error: str = "input_data must be a string or list of messages"
+
+        # When/Then
+        with pytest.raises(ValueError, match=expected_error):
+            process_response_format(input_data, response_format)

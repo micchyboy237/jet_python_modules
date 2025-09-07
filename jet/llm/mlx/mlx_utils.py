@@ -241,13 +241,17 @@ def process_response_format(
     response_format: Union[Literal["text", "json"], JsonSchemaValue],
 ) -> Union[List[Message], str]:
     """Process response format for messages or prompts, adding JSON instruction if needed."""
+    # Validate input type first
+    if not isinstance(input_data, (list, str)):
+        raise ValueError("input_data must be a string or list of messages")
+
     if response_format == "text":
         return input_data  # No modification needed for text format
 
     # Base JSON instruction
     json_instruction = (
-        "Return the response as a JSON object containing only the data fields defined in the schema, "
-        "without including the schema itself or any additional metadata"
+        "Return a single JSON object containing the data fields, following the provided schema if specified, "
+        "without additional text, multiple JSON blocks, or metadata"
     )
 
     # Handle schema if provided
@@ -263,7 +267,7 @@ def process_response_format(
                 if prop.get("type") in ["string", "number", "integer"]
             }
             if example_fields:
-                example_output = f"\nFor example, return only {json.dumps(example_fields, ensure_ascii=False)}."
+                example_output = f"\n```json\n{json.dumps(example_fields, ensure_ascii=False)}\n```"
         json_instruction += example_output
 
     if isinstance(input_data, list):
@@ -274,19 +278,15 @@ def process_response_format(
             system_msg_index = next((i for i, msg in enumerate(
                 modified_messages) if msg["role"] == "system"), None)
             if system_msg_index is not None:
-                # System message exists; check if it mentions JSON
-                if "JSON" not in modified_messages[system_msg_index]["content"]:
-                    # Concatenate with two newlines
-                    modified_messages[system_msg_index]["content"] += f"\n\n{json_instruction}"
+                # System message exists; append instruction
+                modified_messages[system_msg_index]["content"] += f"\n\n{json_instruction}"
             else:
                 # No system message; add new one
                 modified_messages.insert(
-                    0, {"role": "system", "content": json_instruction, "tool_calls": None})
+                    0, {"role": "system", "content": json_instruction})
         return modified_messages
     elif isinstance(input_data, str):
         # Handle string prompt for generate methods
         if isinstance(response_format, (str, dict)) and (response_format == "json" or isinstance(response_format, dict)):
             return f"{json_instruction}\n\n{input_data}"
         return input_data
-    else:
-        raise ValueError("input_data must be a string or list of messages")
