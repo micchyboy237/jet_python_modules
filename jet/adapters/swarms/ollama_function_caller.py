@@ -28,7 +28,7 @@ class OllamaFunctionCaller:
 
     def __init__(
         self,
-        system_prompt: str,
+        system_prompt: Optional[str] = None,
         base_model: Optional[Type[BaseModel]] = None,
         temperature: float = 0.1,
         max_tokens: int = 5000,
@@ -44,7 +44,7 @@ class OllamaFunctionCaller:
     def run(self, task: str):
         try:
             # merge schema hint into single system message if schema is provided
-            system_message = self.system_prompt
+            system_message = self.system_prompt or ""
             if self.base_model:
                 system_message += (
                     f"\nReturn the response as a JSON object containing only the data fields defined in the following schema, "
@@ -53,10 +53,10 @@ class OllamaFunctionCaller:
                     f"For example, if the schema defines fields 'name' and 'age', return only {{'name': 'value', 'age': number}}."
                 )
 
-            messages = [
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": task},
-            ]
+            messages = []
+            if system_message:
+                messages.append({"role": "system", "content": system_message})
+            messages.append({"role": "user", "content": task})
 
             response = ollama.chat(
                 model=self.model_name,

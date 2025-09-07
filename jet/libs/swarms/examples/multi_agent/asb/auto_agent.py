@@ -217,7 +217,7 @@ Always respond in a strict JSON format as described below. Ensure your responses
 """
 
 # Initialize the MLXFunctionCaller
-model = MLXFunctionCaller(
+llm = MLXFunctionCaller(
     system_prompt=SYSTEM_PROMPT,
     max_tokens=4000,
     temperature=0.9,
@@ -257,7 +257,7 @@ if __name__ == "__main__":
     if code_content:
         # Combine user_input with code content for the model
         full_input = f"{user_input}\n\nPython code to analyze:\n```python\n{code_content}\n```"
-        response = model.run(full_input)
+        response = llm.run(full_input)
         response = parse_and_execute_command(response)
         print(response)
     else:

@@ -25,7 +25,7 @@ class MLXFunctionCaller:
 
     def __init__(
         self,
-        system_prompt: str,
+        system_prompt: Optional[str] = None,
         base_model: Optional[Type[BaseModel]] = None,
         temperature: float = 0.1,
         max_tokens: int = 5000,
@@ -40,7 +40,7 @@ class MLXFunctionCaller:
 
     def run(self, task: str):
         try:
-            system_message = self.system_prompt
+            system_message = self.system_prompt or ""
             if self.base_model:
                 system_message += (
                     f"\nReturn the response as a JSON object containing only the data fields defined in the following schema, "
@@ -48,22 +48,11 @@ class MLXFunctionCaller:
                     f"{self.base_model.model_json_schema()}\n"
                     f"For example, if the schema defines fields 'name' and 'age', return only {{\"name\": \"value\", \"age\": number}}."
                 )
-            # prompt = f"<|system|>\n{system_message}\n<|user|>\n{task}\n<|assistant|>\n"
-            # sampler = make_sampler(
-            #     temp=self.temperature,
-            # )
-            # response_text = generate(
-            #     self.model,
-            #     self.tokenizer,
-            #     prompt=prompt,
-            #     max_tokens=self.max_tokens,
-            #     sampler=sampler,
-            #     verbose=True,
-            # )
-            messages: List[Message] = [
-                {"role": "system", "content": system_message, "tool_calls": None},
-                {"role": "user", "content": task, "tool_calls": None}
-            ]
+
+            messages: List[Message] = []
+            if system_message:
+                messages.append({"role": "system", "content": system_message})
+            messages.append({"role": "user", "content": task})
             chunks = gen.stream_chat(
                 messages=messages,
                 model=self.model_name,
