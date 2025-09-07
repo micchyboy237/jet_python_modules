@@ -381,8 +381,8 @@ def run_notebook_extraction(
 
 
 if __name__ == "__main__":
-    input_path = "/Users/jethroestrada/Desktop/External_Projects/AI/rag_05_2025/RAG_Techniques/all_rag_techniques"
-    output_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/converted_doc_scripts/RAG_Techniques/all_rag_techniques"
+    input_path = "/Users/jethroestrada/Desktop/External_Projects/AI/examples/all-rag-techniques"
+    output_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/converted_doc_scripts/all-rag-techniques/notebook_texts"
 
     logger.info("Extracting texts from notebooks...")
     run_notebook_extraction(input_path, output_dir)
