@@ -1,8 +1,6 @@
 import builtins
-
 import time
 import threading
-
 from dataclasses import dataclass, field
 from typing import Dict, Literal, Optional
 from jet.logger.config import configure_logger
@@ -46,6 +44,7 @@ class _EventSettings:
 
     @event_data.setter
     def event_data(self, event_data: EventData) -> None:
+        logger.debug(f"Setting event_data for current_event: {self.current_event}")
         self._event_data = event_data
 
         if not self.current_event:
@@ -54,6 +53,22 @@ class _EventSettings:
             )
 
         self.events[self.current_event] = event_data
+        logger.debug(f"Updated events dictionary: {self.events}")
+
+    def get_entry_event(self, event_name: Optional[str] = None) -> EventData:
+        """Returns the event data for the specified event or the current event."""
+        logger.debug(
+            f"Getting entry event for event_name: {event_name}, current_event: {self.current_event}")
+        if event_name:
+            event_data = self.events.get(event_name, {})
+            logger.debug(f"Event data for {event_name}: {event_data}")
+            return event_data
+        if self.current_event:
+            event_data = self.events.get(self.current_event, {})
+            logger.debug(
+                f"Event data for current_event {self.current_event}: {event_data}")
+            return event_data
+        raise ValueError("No current event set and no event_name provided")
 
     def __getattr__(self, name):
         """Dynamically handle unknown event calls."""
@@ -64,7 +79,9 @@ class _EventSettings:
     def _catch_event_call(self, event_name: str, *args, **kwargs) -> EventData:
         """Handles all event calls dynamically."""
         logger.log("Event:", event_name, colors=["GRAY", "INFO"])
-        EventSettings.current_event = event_name
+        logger.debug(
+            f"Processing event call: {event_name}, args: {args}, kwargs: {kwargs}")
+        self.current_event = event_name
 
         def format_callable(arg):
             return f"lambda_result=({arg()})" if callable(arg) else arg
@@ -75,13 +92,14 @@ class _EventSettings:
         result = inspect_original_script_path()
         event_data: EventData = {
             "event_name": event_name,
-            # **(result["first"] if result.get("first") else {}),
             "filename": get_entry_file_name(),
             "orig_function": result["last"],
             "arguments": {"args": args, "kwargs": kwargs},
             "start_time": time.strftime('%Y-%m-%d|%H:%M:%S', time.gmtime())
         }
-        EventSettings.event_data[event_name] = event_data
+        self.event_data[event_name] = event_data
+        self.events[event_name] = event_data
+        logger.debug(f"Set event_data for {event_name}: {event_data}")
 
         logger.log(f"File:", event_data.get(
             'filename', 'N/A'), colors=["GRAY", "ORANGE"])
@@ -103,24 +121,14 @@ def setup_events():
         from shared.setup.events import EventSettings
 
         def pre_start_hook():
-            # EventSettings.pre_start_hook(configure_logger)
-            EventSettings.pre_start_hook()
+            logger.debug("Triggering pre_start_hook")
+            event_data = EventSettings.pre_start_hook()
+            logger.debug(f"pre_start_hook event data: {event_data}")
             logger.newline()
             logger.success("pre_start_hook triggered at: " +
-                           EventSettings.event_data['pre_start_hook']['start_time'])
+                           EventSettings.get_entry_event()["start_time"])
 
-        pre_start_hook()  # Trigger here
-
-        # import_tracker = initialize_import_tracker()
-        # def post_start_hook():
-        #     EventSettings.post_start_hook()
-        #     logger.newline()
-        #     logger.success("post_start_hook triggered at: " +
-        #                    EventSettings.event_data['post_start_hook']['start_time'])
-        # import_tracker.wait_for_all_modules({
-        #     "pre_start_hook": pre_start_hook,
-        #     "post_start_hook": post_start_hook,
-        # })
+        pre_start_hook()
 
         _initialized = True
 
@@ -134,16 +142,15 @@ EventSettings = builtins.EventSettings
 
 __all__ = [
     "EventSettings",
-    "initialize"
 ]
 
 if __name__ == "__main__":
     logger.newline()
     logger.info("Run 1")
-    setup_events()  # Runs the initialization process
+    setup_events()
     logger.newline()
     logger.info("Run 2")
-    setup_events()  # Does nothing
+    setup_events()
     logger.newline()
     logger.info("Run 3")
-    setup_events()  # Still does nothing
+    setup_events()

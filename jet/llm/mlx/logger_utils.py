@@ -8,11 +8,7 @@ from jet.models.model_types import CompletionResponse, Message
 from jet.transformers.formatters import format_json
 from jet.utils.inspect_utils import get_method_info
 
-
-def short_sortable_filename() -> str:
-    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")  # e.g., '20250515T142311'
-    suffix = uuid4().hex[:4]                          # e.g., 'a3f9'
-    return f"{ts}_{suffix}"                           # '20250515T142311_a3f9'
+from shared.setup.events import EventSettings
 
 
 class ChatLogger:
@@ -24,12 +20,15 @@ class ChatLogger:
         method: Literal["chat", "stream_chat", "generate", "stream_generate"],
         limit: Optional[int] = None
     ):
-        self.log_dir = log_dir
+        start_time = EventSettings.get_entry_event()["start_time"]
+
+        self.log_dir = os.path.join(log_dir, start_time)
         self.method = method
         self.limit = limit
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._file_counter = 1  # Initialize counter for incremental filenames
 
-        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
 
     def log_interaction(
         self,
@@ -38,8 +37,9 @@ class ChatLogger:
         **kwargs: Any
     ) -> None:
         """Log prompt or messages and response to a timestamped file with additional metadata."""
-        filename = f"{short_sortable_filename()}_{self.method}.json"
+        filename = f"{self._file_counter:02d}_{self.method}.json"  # Use two-digit zero-padded counter
         log_file = os.path.join(self.log_dir, filename)
+        self._file_counter += 1  # Increment counter for next file
 
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
 
@@ -108,7 +108,7 @@ class ChatLogger:
         """Remove oldest files if log count exceeds the specified limit."""
         files = sorted(
             (f for f in os.listdir(self.log_dir) if f.endswith(".json")),
-            key=lambda f: f
+            key=lambda f: int(f.split('_')[0])  # Sort by numeric prefix
         )
 
         excess = len(files) - self.limit

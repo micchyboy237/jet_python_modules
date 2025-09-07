@@ -1,5 +1,7 @@
 import builtins
 
+from shared.time_tracker import TimeTracker
+
 from jet.logger import logger
 from jet.utils.print_utils import print_dict_types
 from jet.utils.debug_utils import get_non_function_locals
@@ -19,6 +21,8 @@ from jet.utils.inspect_utils import (
 
 # Injects global methods/variables only once
 def inject_globals():
+    if not hasattr(builtins, "TimeTracker"):
+        builtins.TimeTracker = TimeTracker
     if not hasattr(builtins, "logger"):
         builtins.logger = logger
     if not hasattr(builtins, "get_non_function_locals"):
