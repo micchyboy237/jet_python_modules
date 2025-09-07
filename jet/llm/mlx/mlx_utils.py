@@ -8,8 +8,8 @@ from pydantic.json_schema import JsonSchemaValue
 from jet.llm.mlx.mlx_types import ToolArguments, ToolCall, ToolCallResult
 from jet.logger import logger
 from mlx_lm.utils import get_model_path, load_tokenizer, TokenizerWrapper
-from jet.models.model_types import LLMModelType, Message
 from jet.models.utils import resolve_model_value
+from jet.llm.mlx.mlx_types import LLMModelType, Message
 from jet.servers.mcp.mcp_classes import ToolInfo
 from jet.servers.mcp.mcp_utils import validate_tool_arguments, execute_tool
 import asyncio
@@ -241,19 +241,30 @@ def process_response_format(
     response_format: Union[Literal["text", "json"], JsonSchemaValue],
 ) -> Union[List[Message], str]:
     """Process response format for messages or prompts, adding JSON instruction if needed."""
-    # Improved JSON instruction, matching the style from MLXFunctionCaller
+    if response_format == "text":
+        return input_data  # No modification needed for text format
+
+    # Base JSON instruction
+    json_instruction = (
+        "Return the response as a JSON object containing only the data fields defined in the schema, "
+        "without including the schema itself or any additional metadata"
+    )
+
+    # Handle schema if provided
+    example_output = ""
     if isinstance(response_format, dict):
-        json_instruction = (
-            "Return the response as a JSON object containing only the data fields defined in the following schema, "
-            "without including the schema itself or any additional metadata:\n"
-            f"{json.dumps(response_format, ensure_ascii=False)}\n"
-            "For example, if the schema defines fields 'name' and 'age', return only {\"name\": \"value\", \"age\": number}."
-        )
-    else:
-        json_instruction = (
-            "Return the response as a JSON object. Do not include any extra metadata or schema definitions—"
-            "just the data fields relevant to the user's request."
-        )
+        schema_str = json.dumps(response_format, ensure_ascii=False)
+        json_instruction += f"\n{schema_str}"
+        # Generate a simple example based on the schema
+        if response_format.get("type") == "object" and "properties" in response_format:
+            example_fields = {
+                key: "value" if prop.get("type") == "string" else 0
+                for key, prop in response_format["properties"].items()
+                if prop.get("type") in ["string", "number", "integer"]
+            }
+            if example_fields:
+                example_output = f"\nFor example, return only {json.dumps(example_fields, ensure_ascii=False)}."
+        json_instruction += example_output
 
     if isinstance(input_data, list):
         # Handle List[Message] for chat methods
@@ -261,17 +272,16 @@ def process_response_format(
         if isinstance(response_format, (str, dict)) and (response_format == "json" or isinstance(response_format, dict)):
             # Check for existing system message
             system_msg_index = next((i for i, msg in enumerate(
-                modified_messages) if msg.get("role") == "system"), None)
+                modified_messages) if msg["role"] == "system"), None)
             if system_msg_index is not None:
                 # System message exists; check if it mentions JSON
-                content = modified_messages[system_msg_index].get("content", "")
-                # Concatenate with two newlines
-                modified_messages[system_msg_index]["content"] = content + \
-                    f"\n\n{json_instruction}"
+                if "JSON" not in modified_messages[system_msg_index]["content"]:
+                    # Concatenate with two newlines
+                    modified_messages[system_msg_index]["content"] += f"\n\n{json_instruction}"
             else:
                 # No system message; add new one
                 modified_messages.insert(
-                    0, {"role": "system", "content": json_instruction})
+                    0, {"role": "system", "content": json_instruction, "tool_calls": None})
         return modified_messages
     elif isinstance(input_data, str):
         # Handle string prompt for generate methods
