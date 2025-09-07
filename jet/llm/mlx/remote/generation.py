@@ -157,7 +157,7 @@ def chat(
     response = list(client.create_chat_completion(req, stream=False))[0]
     assistant_content = []
     assistant_tool_calls = []
-    if with_history and response.get("choices"):
+    if response.get("choices"):
         for choice in response["choices"]:
             if choice.get("message", {}).get("role") == "assistant":
                 content = choice["message"].get("content", "")
@@ -168,11 +168,12 @@ def chat(
                     for call in tool_calls:
                         if isinstance(call, dict) and call.get("type") == "function":
                             assistant_tool_calls.append(call)
-                hist.add_message(
-                    role="assistant",
-                    content=content,
-                    tool_calls=tool_calls
-                )
+                if with_history:
+                    hist.add_message(
+                        role="assistant",
+                        content=content,
+                        tool_calls=tool_calls
+                    )
     new_choices = []
     for choice in response["choices"]:
         if isinstance(choice, dict) and "delta" in choice:
