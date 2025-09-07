@@ -1,174 +1,49 @@
+import pytest
+import json
 import abc
 from dataclasses import dataclass
-import json
-from typing import TypeVar
-import unittest
 from enum import Enum
-from jet.transformers.object import make_serializable
+from typing import TypeVar, Callable
 import numpy as np
 from pydantic import BaseModel
+from jet.transformers.object import make_serializable
 
 # Enum example for testing
-
-
 class SampleEnum(Enum):
     VALUE_ONE = "one"
     VALUE_TWO = "two"
 
 # Example Pydantic BaseModel
-
-
 class SampleModel(BaseModel):
     name: str
     value: int
 
+@pytest.fixture
+def sample_bytes():
+    return b'{"key": "value"}'
 
-class TestMakeSerializable(unittest.TestCase):
+@pytest.fixture
+def invalid_bytes():
+    return b'\x80\x81\x82'
 
-    def test_serializable_int(self):
-        obj = 42
-        result = make_serializable(obj)
-        self.assertEqual(result, 42)
-
-    def test_serializable_float(self):
-        obj = 3.14
-        result = make_serializable(obj)
-        self.assertEqual(result, 3.14)
-
-    def test_serializable_boolean(self):
-        obj = True
-        result = make_serializable(obj)
-        self.assertEqual(result, True)
-
-    def test_serializable_none(self):
-        obj = None
-        result = make_serializable(obj)
-        self.assertEqual(result, None)
-
-    def test_serializable_string(self):
-        obj = "hello world"
-        result = make_serializable(obj)
-        self.assertEqual(result, "hello world")
-
-    def test_serializable_enum(self):
-        obj = SampleEnum.VALUE_ONE
-        result = make_serializable(obj)
-        self.assertEqual(result, "one")
-
-    def test_serializable_np_integer(self):
-        obj = np.int64(100)
-        result = make_serializable(obj)
-        self.assertEqual(result, 100)
-
-    def test_serializable_np_float(self):
-        obj = np.float64(3.14)
-        result = make_serializable(obj)
-        self.assertEqual(result, 3.14)
-
-    def test_serializable_np_array(self):
-        obj = np.array([1, 2, 3, 4])
-        result = make_serializable(obj)
-        self.assertEqual(result, [1, 2, 3, 4])
-
-    def test_serializable_bytes(self):
-        obj = b'{"key": "value"}'
-        result = make_serializable(obj)
-        self.assertEqual(json.dumps(result), json.dumps({"key": "value"}))
-
-    def test_serializable_bytes_invalid(self):
-        obj = b'\x80\x81\x82'
-        result = make_serializable(obj)
-        self.assertEqual(result, "gIGC")  # Base64 encoded form
-
-    def test_serializable_class(self):
-        T = TypeVar("T", bound="Serializable")
-
-        class Serializable(metaclass=abc.ABCMeta):
-            @classmethod
-            @abc.abstractmethod
-            def from_state(cls: type[T], state) -> T:
-                raise NotImplementedError()
-
-        @dataclass
-        class MessageData(Serializable):
-            http_version: str
-
-            def from_state(self, state):
-                pass
-
-        @dataclass
-        class RequestData(MessageData):
-            host: str
-            port: int
-        obj = RequestData(
-            host='localhost',
-            port=8080,
-            http_version="1.0"
-        )
-        result = make_serializable(obj)
-        self.assertEqual(
-            json.dumps(result),
-            json.dumps({
-                "host": 'localhost',
-                "http_version": "1.0",
-                "port": 8080,
-            }))
-
-    def test_serializable_dict(self):
-        obj = {"key1": 1, "key2": 2}
-        result = make_serializable(obj)
-        self.assertEqual(json.dumps(result),
-                         json.dumps({"key1": 1, "key2": 2}))
-
-    def test_serializable_dict_with_bytes(self):
-        obj = {"key": b'{"model": "llama3.2:latest"}'}
-        result = make_serializable(obj)
-        self.assertEqual(json.dumps(result), json.dumps(
-            {"key": {"model": "llama3.2:latest"}}))
-
-    def test_serializable_dict_with_nested_bytes(self):
-        obj = {"nested_key": b'{"nested": "data"}'}
-        result = make_serializable(obj)
-        self.assertEqual(json.dumps(result), json.dumps(
-            {"nested_key": {"nested": "data"}}))
-
-    def test_serializable_list(self):
-        obj = [1, 2, 3, 4]
-        result = make_serializable(obj)
-        self.assertEqual(result, [1, 2, 3, 4])
-
-    def test_serializable_set(self):
-        obj = {1, 2, 3, 4}
-        result = make_serializable(obj)
-        self.assertEqual(result, [1, 2, 3, 4])  # Sets are converted to lists
-
-    def test_serializable_tuple(self):
-        obj = (1, 2, 3, 4)
-        result = make_serializable(obj)
-        self.assertEqual(result, [1, 2, 3, 4])  # Tuples are converted to lists
-
-    def test_serializable_model(self):
-        obj = SampleModel(name="Test", value=42)
-        result = make_serializable(obj)
-        self.assertEqual(result, {"name": "Test", "value": 42})
-
-    def test_serializable_complex_structure(self):
-        byte_val_dict = {"model": "llama3.2:latest"}
-        byte_val = b'{"model": "llama3.2:latest"}'
-        nested_bytes_val = {
-            "key":  byte_val,
-            "nested_bytes": {
-                "nested_key":  byte_val
-            }
+@pytest.fixture
+def complex_structure():
+    byte_val_dict = {"model": "llama3.2:latest"}
+    byte_val = b'{"model": "llama3.2:latest"}'
+    nested_bytes_val = {
+        "key": byte_val,
+        "nested_bytes": {
+            "nested_key": byte_val
         }
-        nested_bytes_val_dict = {
-            "key":  byte_val_dict,
-            "nested_bytes": {
-                "nested_key":  byte_val_dict
-            }
+    }
+    nested_bytes_val_dict = {
+        "key": byte_val_dict,
+        "nested_bytes": {
+            "nested_key": byte_val_dict
         }
-
-        obj = {
+    }
+    return {
+        "input": {
             "list": [4, 2, 3, 2, 5],
             "list_bytes": [byte_val, nested_bytes_val],
             "tuple": (4, 2, 3, 2, 5),
@@ -176,9 +51,8 @@ class TestMakeSerializable(unittest.TestCase):
             "set": {4, 2, 3, 2, 5},
             "set_bytes": {byte_val, byte_val},
             "dict_bytes": nested_bytes_val
-        }
-        result = make_serializable(obj)
-        expected = {
+        },
+        "expected": {
             "list": [4, 2, 3, 2, 5],
             "list_bytes": [byte_val_dict, nested_bytes_val_dict],
             "tuple": [4, 2, 3, 2, 5],
@@ -187,22 +61,304 @@ class TestMakeSerializable(unittest.TestCase):
             "set_bytes": [byte_val_dict],
             "dict_bytes": nested_bytes_val_dict
         }
+    }
 
-        for key in result.keys():
-            self.assertEqual(result[key], expected[key], f"Error with {key}")
+def test_serializable_int():
+    # Given: An integer value
+    input_data = 42
+    expected = 42
+    
+    # When: We call make_serializable on the integer
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected integer
+    assert result == expected, f"Expected {expected}, but got {result}"
 
-    def test_serializable_dict_with_string_keys(self):
-        obj = {
-            0: ["Sample 1", "Sample 2"],
-            1: ["Sample 3"]
+def test_serializable_float():
+    # Given: A float value
+    input_data = 3.14
+    expected = 3.14
+    
+    # When: We call make_serializable on the float
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected float
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_boolean():
+    # Given: A boolean value
+    input_data = True
+    expected = True
+    
+    # When: We call make_serializable on the boolean
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected boolean
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_none():
+    # Given: A None value
+    input_data = None
+    expected = None
+    
+    # When: We call make_serializable on None
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected None
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_string():
+    # Given: A string value
+    input_data = "hello world"
+    expected = "hello world"
+    
+    # When: We call make_serializable on the string
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected string
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_enum():
+    # Given: An Enum value
+    input_data = SampleEnum.VALUE_ONE
+    expected = "one"
+    
+    # When: We call make_serializable on the Enum
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the Enum's value
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_np_integer():
+    # Given: A NumPy integer
+    input_data = np.int64(100)
+    expected = 100
+    
+    # When: We call make_serializable on the NumPy integer
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected Python integer
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_np_float():
+    # Given: A NumPy float
+    input_data = np.float64(3.14)
+    expected = 3.14
+    
+    # When: We call make_serializable on the NumPy float
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected Python float
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_np_array():
+    # Given: A NumPy array
+    input_data = np.array([1, 2, 3, 4])
+    expected = [1, 2, 3, 4]
+    
+    # When: We call make_serializable on the NumPy array
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected list
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_bytes(sample_bytes):
+    # Given: A JSON-encoded bytes object
+    input_data = sample_bytes
+    expected = {"key": "value"}
+    
+    # When: We call make_serializable on the bytes
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected JSON-decoded dictionary
+    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+
+def test_serializable_bytes_invalid(invalid_bytes):
+    # Given: An invalid bytes object that cannot be decoded to UTF-8
+    input_data = invalid_bytes
+    expected = "gIGC"  # Base64 encoded form
+    
+    # When: We call make_serializable on the invalid bytes
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected Base64 string
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_class():
+    # Given: A custom class instance with attributes
+    T = TypeVar("T", bound="Serializable")
+
+    class Serializable(metaclass=abc.ABCMeta):
+        @classmethod
+        @abc.abstractmethod
+        def from_state(cls: type[T], state) -> T:
+            raise NotImplementedError()
+
+    @dataclass
+    class MessageData(Serializable):
+        http_version: str
+
+        def from_state(self, state):
+            pass
+
+    @dataclass
+    class RequestData(MessageData):
+        host: str
+        port: int
+
+    input_data = RequestData(
+        host='localhost',
+        port=8080,
+        http_version="1.0"
+    )
+    expected = {
+        "host": 'localhost',
+        "http_version": "1.0",
+        "port": 8080,
+    }
+    
+    # When: We call make_serializable on the class instance
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected dictionary
+    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+
+def test_serializable_dict():
+    # Given: A dictionary with simple key-value pairs
+    input_data = {"key1": 1, "key2": 2}
+    expected = {"key1": 1, "key2": 2}
+    
+    # When: We call make_serializable on the dictionary
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected dictionary
+    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+
+def test_serializable_dict_with_bytes(sample_bytes):
+    # Given: A dictionary with a JSON-encoded bytes value
+    input_data = {"key": sample_bytes}
+    expected = {"key": {"key": "value"}}
+    
+    # When: We call make_serializable on the dictionary
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected dictionary
+    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+
+def test_serializable_dict_with_nested_bytes(sample_bytes):
+    # Given: A dictionary with a nested JSON-encoded bytes value
+    input_data = {"nested_key": sample_bytes}
+    expected = {"nested_key": {"key": "value"}}
+    
+    # When: We call make_serializable on the dictionary
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected dictionary
+    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+
+def test_serializable_list():
+    # Given: A list of integers
+    input_data = [1, 2, 3, 4]
+    expected = [1, 2, 3, 4]
+    
+    # When: We call make_serializable on the list
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected list
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_set():
+    # Given: A set of integers
+    input_data = {1, 2, 3, 4}
+    expected = [1, 2, 3, 4]  # Sets are converted to lists
+    
+    # When: We call make_serializable on the set
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected list
+    assert sorted(result) == sorted(expected), f"Expected {expected}, but got {result}"
+
+def test_serializable_tuple():
+    # Given: A tuple of integers
+    input_data = (1, 2, 3, 4)
+    expected = [1, 2, 3, 4]  # Tuples are converted to lists
+    
+    # When: We call make_serializable on the tuple
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected list
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_model():
+    # Given: A Pydantic model instance
+    input_data = SampleModel(name="Test", value=42)
+    expected = {"name": "Test", "value": 42}
+    
+    # When: We call make_serializable on the Pydantic model
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected dictionary
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_complex_structure(complex_structure):
+    # Given: A complex nested structure with lists, tuples, sets, and bytes
+    input_data = complex_structure["input"]
+    expected = complex_structure["expected"]
+    
+    # When: We call make_serializable on the complex structure
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected structure
+    for key in result.keys():
+        if key == "set":  # Handle set ordering
+            assert sorted(result[key]) == sorted(expected[key]), f"Error with {key}: Expected {expected[key]}, but got {result[key]}"
+        else:
+            assert result[key] == expected[key], f"Error with {key}: Expected {expected[key]}, but got {result[key]}"
+
+def test_serializable_dict_with_string_keys():
+    # Given: A dictionary with non-string keys
+    input_data = {
+        0: ["Sample 1", "Sample 2"],
+        1: ["Sample 3"]
+    }
+    expected = {
+        "0": ["Sample 1", "Sample 2"],
+        "1": ["Sample 3"]
+    }
+    
+    # When: We call make_serializable on the dictionary
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected dictionary with string keys
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_callable():
+    # Given: A dictionary containing callable objects (function and lambda)
+    def sample_function():
+        return "I am a function"
+    
+    input_data = {
+        "function": sample_function,
+        "lambda": lambda x: x * 2,
+        "nested": {
+            "method": sample_function
         }
-        result = make_serializable(obj)
-        expected = {
-            "0": ["Sample 1", "Sample 2"],
-            "1": ["Sample 3"]
+    }
+    expected = {
+        "function": "<class 'function'>",
+        "lambda": "<class 'function'>",
+        "nested": {
+            "method": "<class 'function'>"
         }
-        self.assertEqual(result, expected)
+    }
+    
+    # When: We call make_serializable on the dictionary with callables
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected dictionary with callable type strings
+    assert result == expected, f"Expected {expected}, but got {result}"
 
-
-if __name__ == "__main__":
-    unittest.main()
+@pytest.fixture(autouse=True)
+def cleanup():
+    yield
+    # No specific cleanup required for these tests

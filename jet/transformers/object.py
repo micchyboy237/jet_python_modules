@@ -1,7 +1,7 @@
 from enum import Enum
 import json
 import base64
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 from jet.transformers.text import to_snake_case
 from jet.utils.class_utils import get_non_empty_attributes, is_class_instance
 import numpy as np
@@ -65,6 +65,8 @@ def make_serializable(obj):
             serialized_dict[serialized_key] = make_serializable(
                 value)  # Properly process values
         return serialized_dict
+    elif isinstance(obj, Callable):
+        return str(type(obj))
     elif isinstance(obj, BaseModel):
         try:
             return make_serializable(obj.model_dump())
