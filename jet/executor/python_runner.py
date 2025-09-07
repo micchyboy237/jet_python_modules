@@ -4,7 +4,7 @@ import os
 import re
 import json
 from pathlib import Path
-from typing import Optional, List, Tuple, Union, Dict
+from typing import Literal, Union, Optional, List, Dict, Tuple
 from tqdm import tqdm
 from fnmatch import fnmatch
 from datetime import datetime
@@ -52,9 +52,9 @@ def run_python_files_in_directory(
             "failed_and_unrun": Run files that previously failed or have not been run.
     """
     logger = CustomLogger(name="")
-    if output_dir:
-        main_log_file = output_dir / "main.log"
-        logger = CustomLogger(str(main_log_file), name="", overwrite=True)
+    logger.debug(f"Input target_dir: {target_dir}, type: {type(target_dir)}")
+    logger.debug(f"Input output_dir: {output_dir}, type: {type(output_dir)}")
+    logger.debug(f"Input rerun_mode: {rerun_mode}")
 
     # Validate rerun_mode
     valid_modes = {"all", "failed", "unrun", "failed_and_unrun"}
@@ -70,6 +70,7 @@ def run_python_files_in_directory(
     if output_dir is not None:
         if isinstance(output_dir, str):
             output_dir = Path(output_dir)
+        logger.debug(f"Converted output_dir to Path: {output_dir}")
         output_dir.mkdir(parents=True, exist_ok=True)
         success_dir = output_dir / "success"
         failed_dir = output_dir / "failed"
@@ -81,11 +82,16 @@ def run_python_files_in_directory(
             with status_file.open('r') as f:
                 logger.debug(f"Loading existing status file: {status_file}")
                 status_data = json.load(f)
+            logger.debug(f"Loaded status_data: {status_data}")
+        main_log_file = output_dir / "main.log"
+        logger = CustomLogger(str(main_log_file), name="", overwrite=True)
+        logger.debug(f"Initialized logger with main_log_file: {main_log_file}")
     else:
         success_dir = None
         failed_dir = None
         status_file = None
         status_data = []
+        logger.debug("No output_dir provided, using default logger")
 
     exclude_dirs = set(exclude_dirs or [])
     includes = includes or []
@@ -102,30 +108,37 @@ def run_python_files_in_directory(
             if not any(part in exclude_dirs for part in f.parts)
         ]
 
-    logger.debug(f"Found {len(files)} Python files before filtering")
+    logger.debug(
+        f"Found {len(files)} Python files before filtering: {[f.name for f in files]}")
     if includes:
         files = [f for f in files if any(
             fnmatch(f.name, pattern) for pattern in includes)]
     files = [f for f in files if not any(
         fnmatch(f.name, pattern) for pattern in excludes)]
     files.sort(key=lambda f: sort_key(str(f.name)))
-    logger.debug(f"After include/exclude filtering: {len(files)} files")
+    logger.debug(
+        f"After include/exclude filtering: {len(files)} files: {[f.name for f in files]}")
 
     # Filter files based on rerun_mode
     existing_files = {entry["file"] for entry in status_data}
+    logger.debug(f"Existing files from status: {existing_files}")
     if rerun_mode == "failed":
-        files = [f for f in files if str(f.relative_to(target_dir)) in existing_files and
-                 any(entry["file"] == str(f.relative_to(target_dir)) and
-                     entry["status"].startswith("Failed") for entry in status_data)]
+        failed_files = {
+            entry["file"] for entry in status_data if entry["status"].startswith("Failed")}
+        logger.debug(f"Failed files from status: {failed_files}")
+        files = [f for f in files if str(
+            f.relative_to(target_dir)) in failed_files]
     elif rerun_mode == "unrun":
         files = [f for f in files if str(
             f.relative_to(target_dir)) not in existing_files]
     elif rerun_mode == "failed_and_unrun":
+        failed_files = {
+            entry["file"] for entry in status_data if entry["status"].startswith("Failed")}
+        logger.debug(f"Failed files for failed_and_unrun: {failed_files}")
         files = [f for f in files if str(f.relative_to(target_dir)) not in existing_files or
-                 any(entry["file"] == str(f.relative_to(target_dir)) and
-                     entry["status"].startswith("Failed") for entry in status_data)]
+                 str(f.relative_to(target_dir)) in failed_files]
     logger.debug(
-        f"After rerun_mode filtering ({rerun_mode}): {len(files)} files")
+        f"After rerun_mode filtering ({rerun_mode}): {len(files)} files: {[str(f.relative_to(target_dir)) for f in files]}")
 
     logger.info(
         f"\nRunning {len(files)} Python files in: {target_dir} (recursive={recursive}, rerun_mode={rerun_mode})\n")
