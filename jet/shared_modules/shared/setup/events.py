@@ -57,16 +57,11 @@ class _EventSettings:
 
     def get_entry_event(self, event_name: Optional[str] = None) -> EventData:
         """Returns the event data for the specified event or the current event."""
-        logger.debug(
-            f"Getting entry event for event_name: {event_name}, current_event: {self.current_event}")
         if event_name:
             event_data = self.events.get(event_name, {})
-            logger.debug(f"Event data for {event_name}: {event_data}")
             return event_data
         if self.current_event:
             event_data = self.events.get(self.current_event, {})
-            logger.debug(
-                f"Event data for current_event {self.current_event}: {event_data}")
             return event_data
         raise ValueError("No current event set and no event_name provided")
 

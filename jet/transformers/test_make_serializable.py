@@ -333,29 +333,69 @@ def test_serializable_dict_with_string_keys():
     assert result == expected, f"Expected {expected}, but got {result}"
 
 def test_serializable_callable():
-    # Given: A dictionary containing callable objects (function and lambda)
+    # Given: A dictionary containing function objects (function, built-in function, and method)
     def sample_function():
         return "I am a function"
     
+    class SampleClass:
+        def sample_method(self):
+            return "I am a method"
+    
+    instance = SampleClass()
+    
     input_data = {
         "function": sample_function,
-        "lambda": lambda x: x * 2,
+        "builtin": len,  # Built-in function
+        "method": instance.sample_method,
         "nested": {
-            "method": sample_function
+            "function": sample_function
         }
     }
     expected = {
         "function": "<class 'function'>",
-        "lambda": "<class 'function'>",
+        "builtin": "<class 'builtin_function_or_method'>",
+        "method": "<class 'method'>",
         "nested": {
-            "method": "<class 'function'>"
+            "function": "<class 'function'>"
         }
     }
     
-    # When: We call make_serializable on the dictionary with callables
+    # When: We call make_serializable on the dictionary with functions
     result = make_serializable(input_data)
     
-    # Then: The result should match the expected dictionary with callable type strings
+    # Then: The result should match the expected dictionary with function type strings
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+def test_serializable_callable_class_instance():
+    # Given: A class instance that implements __call__ to simulate objects like swarms.structs.agent.Agent
+    class CallableClass:
+        def __init__(self):
+            self.name = "TestAgent"
+            self.value = 42
+        
+        def __call__(self, *args, **kwargs):
+            return "Called"
+        
+        def __dict__(self):
+            return {"name": self.name, "value": self.value}
+    
+    input_data = {
+        "self": CallableClass(),
+        "nested": {
+            "self": CallableClass()
+        }
+    }
+    expected = {
+        "self": {"name": "TestAgent", "value": 42},
+        "nested": {
+            "self": {"name": "TestAgent", "value": 42}
+        }
+    }
+    
+    # When: We call make_serializable on the dictionary with callable class instances
+    result = make_serializable(input_data)
+    
+    # Then: The result should match the expected dictionary with attributes, not callable types
     assert result == expected, f"Expected {expected}, but got {result}"
 
 @pytest.fixture(autouse=True)

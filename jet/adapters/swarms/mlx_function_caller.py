@@ -2,7 +2,7 @@ import json
 import re
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional, Type
+from typing import Callable, List, Optional, Type
 
 from pydantic import BaseModel
 # from mlx_lm import load, generate
@@ -30,12 +30,14 @@ class MLXFunctionCaller:
         temperature: float = 0.1,
         max_tokens: int = 5000,
         model_name: str = "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        tools: Optional[List[Callable]] = None
     ):
         self.system_prompt = system_prompt
         self.temperature = temperature
         self.base_model = base_model
         self.max_tokens = max_tokens
         self.model_name = model_name
+        self.tools = tools
         # self.model, self.tokenizer = load(self.model_name)
 
     def run(self, task: str):
@@ -57,6 +59,7 @@ class MLXFunctionCaller:
                 messages=messages,
                 model=self.model_name,
                 temperature=self.temperature,
+                tools=self.tools,
                 verbose=True,
             )
             response_text = ""

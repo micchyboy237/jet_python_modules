@@ -1,16 +1,16 @@
-from enum import Enum
 import json
 import base64
+import numpy as np
+import json
+import base64
+import numpy as np
+import types
 from typing import Any, Callable, Dict
+from enum import Enum
 from jet.transformers.text import to_snake_case
 from jet.utils.class_utils import get_non_empty_attributes, is_class_instance
-import numpy as np
-import json
-import base64
-import numpy as np
 from pydantic.main import BaseModel
 # from jet.validation.object import is_iterable_but_not_primitive
-from jet.logger import logger
 
 
 def convert_dict_keys_to_snake_case(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -65,20 +65,26 @@ def make_serializable(obj):
             serialized_dict[serialized_key] = make_serializable(
                 value)  # Properly process values
         return serialized_dict
-    elif isinstance(obj, Callable):
+    elif isinstance(obj, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
         return str(type(obj))
     elif isinstance(obj, BaseModel):
         try:
             return make_serializable(obj.model_dump())
-        except (AttributeError, TypeError) as e:
-            logger.warning(e)
-            return make_serializable(vars(obj))
+        except (AttributeError, TypeError) as e:            return make_serializable(vars(obj))
     elif isinstance(obj, (np.integer, np.floating)):
         return obj.item()  # Convert numpy types to native Python types
     elif isinstance(obj, np.ndarray):
         return obj.tolist()  # Convert numpy arrays to lists
     elif hasattr(obj, "__dict__"):  # Check this only after primitive and known types
-        return make_serializable(get_non_empty_attributes(obj))
+        try:
+            # Try custom __dict__ method if defined
+            if callable(getattr(obj, "__dict__", None)):
+                dict_data = obj.__dict__()
+            else:
+                dict_data = get_non_empty_attributes(obj)
+            return make_serializable(dict_data)
+        except Exception as e:
+            return str(obj)
     else:
         return str(obj)  # Fallback for unsupported types
 

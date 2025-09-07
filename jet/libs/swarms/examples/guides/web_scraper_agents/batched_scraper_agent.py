@@ -8,6 +8,7 @@ from swarms import Agent
 llm = MLXFunctionCaller(
     max_tokens=4000,
     temperature=0.9,
+    # tools=[scrape_and_format_sync],
 )
 
 agent = Agent(

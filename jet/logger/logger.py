@@ -51,7 +51,7 @@ class CustomLogger:
         self.logger = self._initialize_logger(name)
         self._last_message_flushed = False
         print(
-            f"DEBUG: Initialized logger with console_level={self.console_level}, log_file={self.log_file}")
+            f"DEBUG: Initialized logger with console_level: {self.console_level}\nlog_file: {self.log_file}")
 
     def _initialize_logger(self, name: str) -> logging.Logger:
         logger = logging.getLogger(name)
@@ -246,14 +246,17 @@ class CustomLogger:
             if level_map.get(level.upper(), 10) < level_map.get(self.console_level, 10):
                 return
             message = str(message)
-            formatted_args = tuple(str(arg) for arg in args)
-            if "%" in message and formatted_args:
+            if args:
                 try:
-                    message = message % formatted_args
-                    formatted_args = ()  # Clear args after formatting to avoid duplication
+                    message = message % args
+                    formatted_args = ()  # clear after formatting
                 except (TypeError, ValueError) as e:
                     self.warning(
                         f"Failed to format message '{message}' with args {args}: {str(e)}")
+                    formatted_args = tuple(map(str, args))
+            else:
+                formatted_args = ()
+
             if colors is None:
                 colors = [f"BRIGHT_{level}" if bright else level]
             else:
@@ -487,6 +490,27 @@ def logger_examples(logger: CustomLogger):
     }, log_file=f"{OUTPUT_DIR}/custom_pretty_log.txt")
     logger.info("Splitting document ID %d into chunks", 42)
     logger.info("Hello %s, your task is complete.", "Jet")
+    logger.info(
+        "Analysis for %s:\n"
+        "  Title: %s (Length: %d chars)\n"
+        "  Word Count: %d\n"
+        "  Link Count: %d\n"
+        "  Image Count: %d\n"
+        "  Avg Word Length: %.2f chars\n"
+        "  Has Title: %s\n"
+        "  Content Richness: %.2f\n"
+        "  Media Ratio: %.2f%%",
+        "https://blog.openai.com",
+        "Error",
+        5,
+        0,
+        0,
+        0,
+        72.0,
+        True,
+        0.0,
+        0.0
+    )
     logger.newline()
     logger.log(123)
     logger.success(123.12)

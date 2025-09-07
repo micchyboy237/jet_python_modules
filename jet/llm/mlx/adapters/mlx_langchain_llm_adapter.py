@@ -5,13 +5,16 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.callbacks import CallbackManagerForLLMRun, AsyncCallbackManagerForLLMRun
-from typing import List, Literal, Optional, Union, Iterator, AsyncIterator, Any
+from typing import List, Literal, Optional, Union, Iterator, AsyncIterator, Any, Type, TypeVar
 from jet.llm.mlx.base import MLX
 from jet.llm.mlx.mlx_types import ChatTemplateArgs, RoleMapping, Tool
 from jet.models.model_types import LLMModelType
 from uuid import uuid4
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from langchain_core.messages.tool import ToolCall
+from browser_use.llm.views import ChatInvokeCompletion
+
+T = TypeVar('T', bound=BaseModel)
 
 
 class ChatMLX(BaseChatModel):
@@ -32,8 +35,20 @@ class ChatMLX(BaseChatModel):
         default=40, description="Top-k sampling value")
 
     class Config:
-        """Pydantic configuration to allow arbitrary types."""
+        """Pydantic configuration to allow arbitrary types and dynamic attributes."""
         arbitrary_types_allowed = True
+        allow_population_by_field_name = True
+        extra = "allow"  # Allow extra attributes to be set dynamically
+
+    @property
+    def provider(self) -> str:
+        """Return the provider of the chat model."""
+        return "mlx"
+
+    @property
+    def name(self) -> str:
+        """Return the name of the chat model."""
+        return self.model
 
     def __init__(
         self,
@@ -259,6 +274,22 @@ class ChatMLX(BaseChatModel):
             if run_manager:
                 await run_manager.on_llm_new_token(chunk.text)
             yield chunk
+
+    async def ainvoke(
+        self,
+        messages: List[BaseMessage],
+        output_format: Optional[Type[T]] = None
+    ) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
+        """Asynchronously invoke the chat model with messages."""
+        result = await self._agenerate(messages, stop=None, run_manager=None)
+        completion = result.generations[0].message.content if result.generations else ""
+        if output_format and issubclass(output_format, BaseModel):
+            try:
+                parsed = output_format.parse_raw(completion)
+                return ChatInvokeCompletion(completion=parsed)
+            except ValidationError as e:
+                raise ValueError(f"Failed to parse completion as {output_format.__name__}: {str(e)}")
+        return ChatInvokeCompletion(completion=completion)
 
     @property
     def _llm_type(self) -> str:
