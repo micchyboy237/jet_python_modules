@@ -48,7 +48,7 @@ class MLXFunctionCaller:
                     f"{self.base_model.model_json_schema()}\n"
                     f"For example, if the schema defines fields 'name' and 'age', return only {{\"name\": \"value\", \"age\": number}}."
                 )
-            prompt = f"<|system|>\n{system_message}\n<|user|>\n{task}\n<|assistant|>\n"
+            # prompt = f"<|system|>\n{system_message}\n<|user|>\n{task}\n<|assistant|>\n"
             # sampler = make_sampler(
             #     temp=self.temperature,
             # )
@@ -67,6 +67,7 @@ class MLXFunctionCaller:
             chunks = gen.stream_chat(
                 messages=messages,
                 model=self.model_name,
+                temperature=self.temperature,
                 verbose=True,
             )
             response_text = ""

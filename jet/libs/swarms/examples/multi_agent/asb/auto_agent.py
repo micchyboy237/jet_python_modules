@@ -224,12 +224,41 @@ model = MLXFunctionCaller(
     base_model=AgentResponse,  # Pass the Pydantic schema as the base model
 )
 
-# Example usage
-user_input = (
-    "Analyze the provided Python code for inefficiencies, generate suggestions for improvements, "
-    "and provide optimized code."
-)
 
-response = model.run(user_input)
-response = parse_and_execute_command(response)
-print(response)
+def get_python_file_content() -> Optional[str]:
+    """Retrieve content from a Python file specified via command-line argument."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Process Python file input for analysis.")
+    parser.add_argument(
+        "--file",
+        type=str,
+        help="Path to a Python file to analyze",
+        required=True,  # Make file input required for this use case
+    )
+    args = parser.parse_args()
+
+    try:
+        with open(args.file, "r") as file:
+            return file.read().strip()
+    except FileNotFoundError:
+        print(f"Error: File {args.file} not found.")
+        return None
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return None
+        
+# Example usage
+if __name__ == "__main__":
+    user_input = (
+        "Analyze the provided Python code for inefficiencies, generate suggestions for improvements, "
+        "and provide optimized code."
+    )
+    code_content = get_python_file_content()
+    if code_content:
+        # Combine user_input with code content for the model
+        full_input = f"{user_input}\n\nPython code to analyze:\n```python\n{code_content}\n```"
+        response = model.run(full_input)
+        response = parse_and_execute_command(response)
+        print(response)
+    else:
+        print("No valid Python file provided. Exiting.")

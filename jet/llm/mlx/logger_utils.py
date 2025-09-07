@@ -26,8 +26,11 @@ class ChatLogger:
         limit: Optional[int] = None
     ):
         start_time = EventSettings.get_entry_event()["start_time"]
+        # Format start_time as "YYYY-MM-DD|HH:MM:SS"
+        dt = datetime.fromisoformat(start_time)
+        formatted_start_time = dt.strftime("%Y-%m-%d|%H:%M:%S")
 
-        self.log_dir = os.path.join(log_dir, start_time)
+        self.log_dir = os.path.join(log_dir, formatted_start_time)
         self.method = method
         self.limit = limit
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
