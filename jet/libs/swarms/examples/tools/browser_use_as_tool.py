@@ -2,7 +2,7 @@ import asyncio
 
 from browser_use import Agent as BrowserAgent
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from jet.llm.mlx.adapters.mlx_langchain_llm_adapter import ChatMLX
 
 from swarms import Agent
 
@@ -36,7 +36,7 @@ class BrowserUseAgent:
         """
         agent = BrowserAgent(
             task=task,
-            llm=ChatOpenAI(model="gpt-4.1"),
+            llm=ChatMLX(model="llama-3.2-3b-instruct-4bit"),
         )
         result = await agent.run()
         return result.model_dump_json(indent=4)

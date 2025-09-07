@@ -50,28 +50,25 @@ class MLXFunctionCaller:
                     f"{self.base_model.model_json_schema()}\n"
                     f"For example, if the schema defines fields 'name' and 'age', return only {{\"name\": \"value\", \"age\": number}}."
                 )
-
             messages: List[Message] = []
             if system_message:
                 messages.append({"role": "system", "content": system_message})
             messages.append({"role": "user", "content": task})
             chunks = gen.stream_chat(
                 messages=messages,
-                model=self.model_name,
+                model=self.model_name,  # Explicitly pass model_name
                 temperature=self.temperature,
                 tools=self.tools,
                 verbose=True,
+                max_tokens=self.max_tokens,
             )
             response_text = ""
             for chunk in chunks:
                 response_text += chunk["choices"][0]["message"]["content"]
-
             if self.base_model:
-                # Clean response to extract valid JSON
-                cleaned_response = re.sub(r'^```json\n|```$', '', response_text.strip())
+                cleaned_response = re.sub(r'^```json\n|```$', '', response_text, flags=re.MULTILINE)
                 try:
                     json_data = json.loads(cleaned_response)
-                    # Extract nested 'properties' if present (for backward compatibility)
                     if isinstance(json_data, dict) and 'properties' in json_data:
                         json_data = json_data['properties']
                     return self.base_model.model_validate(json_data)
@@ -82,7 +79,6 @@ class MLXFunctionCaller:
         except Exception as e:
             print(f"There was an error: {e}")
             return None
-
     def check_model_support(self):
         for model in SUPPORTED_MLX_MODELS:
             print(model)

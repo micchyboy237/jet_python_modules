@@ -19,6 +19,8 @@ import httpx
 from lxml import html
 from lxml.html import HtmlElement
 
+from jet.logger import logger
+
 
 @dataclass
 class ScrapedContent:
@@ -64,6 +66,7 @@ class SuperFastScraper:
     def scrape_single_url(self, url: str) -> ScrapedContent:
         """Scrape a single URL synchronously."""
         start_time = time.time()
+        logger.debug(f"Starting scrape for URL: {url}")
 
         try:
             # Use httpx in sync mode for better performance
@@ -73,19 +76,26 @@ class SuperFastScraper:
                 follow_redirects=True,
                 http2=True,
             ) as client:
+                logger.debug(f"Sending HTTP request to {url}")
                 response = client.get(url)
                 response.raise_for_status()
+                logger.info(f"Successfully fetched {url} with status code {response.status_code}")
 
                 # Parse HTML with lxml.html for maximum speed
                 soup = html.fromstring(response.content)
+                logger.debug(f"Parsed HTML content for {url}")
 
                 # Extract content
                 title = self._extract_title(soup)
+                logger.debug(f"Extracted title: {title[:50]}..." if len(title) > 50 else f"Extracted title: {title}")
                 text = self._extract_text(soup)
+                logger.debug(f"Extracted text (first 50 chars): {text[:50]}..." if len(text) > 50 else f"Extracted text: {text}")
                 links = self._extract_links(soup, url)
+                logger.debug(f"Extracted {len(links)} links from {url}")
                 images = self._extract_images(soup, url)
+                logger.debug(f"Extracted {len(images)} images from {url}")
 
-                return ScrapedContent(
+                result = ScrapedContent(
                     url=url,
                     title=title,
                     text=text,
@@ -93,13 +103,14 @@ class SuperFastScraper:
                     images=images,
                     timestamp=start_time,
                     status_code=response.status_code,
-                    content_type=response.headers.get(
-                        "content-type", ""
-                    ),
+                    content_type=response.headers.get("content-type", ""),
                     word_count=len(text.split()),
                 )
+                logger.info(f"Completed scraping {url} in {time.time() - start_time:.2f} seconds")
+                return result
 
         except Exception as e:
+            logger.error(f"Failed to scrape {url}: {str(e)}")
             # Return error content
             return ScrapedContent(
                 url=url,
@@ -123,14 +134,11 @@ class SuperFastScraper:
         Returns:
             List of ScrapedContent objects
         """
-        with ThreadPoolExecutor(
-            max_workers=self.max_workers
-        ) as executor:
+        logger.info(f"Starting concurrent scrape for {len(urls)} URLs")
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all scraping tasks
-            future_to_url = {
-                executor.submit(self.scrape_single_url, url): url
-                for url in urls
-            }
+            future_to_url = {executor.submit(self.scrape_single_url, url): url for url in urls}
+            logger.debug(f"Submitted {len(future_to_url)} scraping tasks")
 
             results = []
             # Collect results as they complete
@@ -139,7 +147,9 @@ class SuperFastScraper:
                 try:
                     result = future.result()
                     results.append(result)
+                    logger.debug(f"Completed scraping task for {url}")
                 except Exception as e:
+                    logger.error(f"Scraping task failed for {url}: {str(e)}")
                     # Create error content for failed scrapes
                     results.append(
                         ScrapedContent(
@@ -157,11 +167,9 @@ class SuperFastScraper:
 
         # Sort results to maintain original URL order
         url_to_result = {result.url: result for result in results}
-        return [
-            url_to_result.get(url, url_to_result.get("Error"))
-            for url in urls
-            if url in url_to_result
-        ]
+        ordered_results = [url_to_result.get(url, url_to_result.get("Error")) for url in urls if url in url_to_result]
+        logger.info(f"Completed scraping {len(ordered_results)} URLs")
+        return ordered_results
 
     def scrape_urls_formatted(
         self,
@@ -203,34 +211,49 @@ class SuperFastScraper:
 
     def _extract_title(self, soup: HtmlElement) -> str:
         """Extract page title."""
+        logger.debug("Extracting page title")
         title_tag = soup.find(".//title")
         if title_tag is not None:
-            return self._clean_text(title_tag.text_content())
+            title = self._clean_text(title_tag.text_content())
+            logger.debug(f"Found title tag: {title[:50]}..." if len(title) > 50 else f"Found title tag: {title}")
+            return title
 
         # Fallback to h1 or meta title
         h1 = soup.find(".//h1")
         if h1 is not None:
-            return self._clean_text(h1.text_content())
+            title = self._clean_text(h1.text_content())
+            logger.debug(f"Found h1 title: {title[:50]}..." if len(title) > 50 else f"Found h1 title: {title}")
+            return title
 
         meta_title = soup.find(".//meta[@name='title']")
         if meta_title is not None:
-            return self._clean_text(meta_title.get("content", ""))
+            title = self._clean_text(meta_title.get("content", ""))
+            logger.debug(f"Found meta title: {title[:50]}..." if len(title) > 50 else f"Found meta title: {title}")
+            return title
 
+        logger.warning("No title found in document")
         return "No title found"
 
     def _extract_text(self, soup: HtmlElement) -> str:
         """Extract clean, readable text content."""
+        logger.debug("Extracting text content")
         # Remove unwanted elements
         if self.remove_scripts:
-            for script in soup.xpath(".//script | .//noscript"):
+            scripts = soup.xpath(".//script | .//noscript")
+            logger.debug(f"Removing {len(scripts)} script/noscript elements")
+            for script in scripts:
                 script.getparent().remove(script)
 
         if self.remove_styles:
-            for style in soup.xpath(".//style"):
+            styles = soup.xpath(".//style")
+            logger.debug(f"Removing {len(styles)} style elements")
+            for style in styles:
                 style.getparent().remove(style)
 
         if self.remove_comments:
-            for comment in soup.xpath(".//comment()"):
+            comments = soup.xpath(".//comment()")
+            logger.debug(f"Removing {len(comments)} comment elements")
+            for comment in comments:
                 comment.getparent().remove(comment)
 
         # Get text from body or main content areas
@@ -249,9 +272,8 @@ class SuperFastScraper:
         for selector in content_selectors:
             elements = soup.xpath(selector)
             if elements:
-                content = " ".join(
-                    [elem.text_content() for elem in elements]
-                )
+                content = " ".join([elem.text_content() for elem in elements])
+                logger.debug(f"Extracted content from selector: {selector}")
                 break
 
         # Fallback to body if no specific content area found
@@ -259,34 +281,40 @@ class SuperFastScraper:
             body = soup.xpath(".//body")
             if body:
                 content = body[0].text_content()
+                logger.debug("Extracted content from body")
             else:
                 content = soup.text_content()
+                logger.debug("Extracted content from entire document")
 
-        return self._clean_text(content)
+        cleaned_content = self._clean_text(content)
+        logger.debug(f"Cleaned text content (first 50 chars): {cleaned_content[:50]}..." if len(cleaned_content) > 50 else f"Cleaned text content: {cleaned_content}")
+        return cleaned_content
 
-    def _extract_links(
-        self, soup: HtmlElement, base_url: str
-    ) -> List[str]:
+    def _extract_links(self, soup: HtmlElement, base_url: str) -> List[str]:
         """Extract all links from the page."""
+        logger.debug(f"Extracting links from {base_url}")
         links = []
         for link in soup.xpath(".//a[@href]"):
             href = link.get("href")
             absolute_url = urljoin(base_url, href)
             if absolute_url.startswith(("http://", "https://")):
                 links.append(absolute_url)
-        return list(set(links))  # Remove duplicates
+        unique_links = list(set(links))  # Remove duplicates
+        logger.debug(f"Extracted {len(unique_links)} unique links")
+        return unique_links
 
-    def _extract_images(
-        self, soup: HtmlElement, base_url: str
-    ) -> List[str]:
+    def _extract_images(self, soup: HtmlElement, base_url: str) -> List[str]:
         """Extract all image URLs from the page."""
+        logger.debug(f"Extracting images from {base_url}")
         images = []
         for img in soup.xpath(".//img[@src]"):
             src = img.get("src")
             absolute_url = urljoin(base_url, src)
             if absolute_url.startswith(("http://", "https://")):
                 images.append(absolute_url)
-        return list(set(images))  # Remove duplicates
+        unique_images = list(set(images))  # Remove duplicates
+        logger.debug(f"Extracted {len(unique_images)} unique images")
+        return unique_images
 
     def _clean_text(self, text: str) -> str:
         """Clean and format text content."""
