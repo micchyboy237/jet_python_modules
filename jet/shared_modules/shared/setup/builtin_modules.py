@@ -1,5 +1,6 @@
 import builtins
 
+from shared.setup.events import EventSettings
 from shared.time_tracker import TimeTracker
 
 from jet.logger import logger
@@ -21,6 +22,8 @@ from jet.utils.inspect_utils import (
 
 # Injects global methods/variables only once
 def inject_globals():
+    if not hasattr(builtins, "EventSettings"):
+        builtins.EventSettings = EventSettings
     if not hasattr(builtins, "TimeTracker"):
         builtins.TimeTracker = TimeTracker
     if not hasattr(builtins, "logger"):

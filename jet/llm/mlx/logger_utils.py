@@ -11,6 +11,11 @@ from jet.utils.inspect_utils import get_method_info
 from shared.setup.events import EventSettings
 
 
+def get_next_file_counter(log_dir: str, method: str) -> str:
+    """Generate a timestamp-based prefix for the log file."""
+    return datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+
+
 class ChatLogger:
     """Handles logging of chat interactions to a specified directory."""
 
@@ -26,8 +31,8 @@ class ChatLogger:
         self.method = method
         self.limit = limit
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self._file_counter = 1  # Initialize counter for incremental filenames
 
+        # Create log directory
         os.makedirs(self.log_dir, exist_ok=True)
 
     def log_interaction(
@@ -37,9 +42,9 @@ class ChatLogger:
         **kwargs: Any
     ) -> None:
         """Log prompt or messages and response to a timestamped file with additional metadata."""
-        filename = f"{self._file_counter:02d}_{self.method}.json"  # Use two-digit zero-padded counter
+        timestamp_prefix = get_next_file_counter(self.log_dir, self.method)
+        filename = f"{timestamp_prefix}_{self.method}.json"
         log_file = os.path.join(self.log_dir, filename)
-        self._file_counter += 1  # Increment counter for next file
 
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
 
@@ -108,7 +113,7 @@ class ChatLogger:
         """Remove oldest files if log count exceeds the specified limit."""
         files = sorted(
             (f for f in os.listdir(self.log_dir) if f.endswith(".json")),
-            key=lambda f: int(f.split('_')[0])  # Sort by numeric prefix
+            key=lambda f: f.split('_')[0]  # Sort by timestamp prefix
         )
 
         excess = len(files) - self.limit
