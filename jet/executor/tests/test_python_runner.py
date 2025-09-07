@@ -301,3 +301,32 @@ class TestPythonRunner:
         ]
         assert sorted(result, key=lambda x: x["file"]) == sorted(
             expected, key=lambda x: x["file"])
+
+    def test_run_no_status_file(self, setup_test_dir):
+        """Test running all files when no files_status.json exists."""
+        # Given: A directory with test scripts and an output directory
+        test_dir, output_dir = setup_test_dir
+
+        # When: Running python files with any rerun_mode but no status file
+        run_python_files_in_directory(
+            target_dir=test_dir,
+            output_dir=output_dir,
+            rerun_mode="failed"  # Should default to "all" since no status file
+        )
+
+        # Then: All files should be run and status file should be created
+        status_file = output_dir / "files_status.json"
+        assert status_file.exists()
+        with status_file.open('r') as f:
+            status_data = json.load(f)
+        expected = [
+            {"file": "1_success.py", "status": "Success", "return_code": "0"},
+            {"file": "2_fail.py", "status": "Failed (code 1)", "return_code": "1"},
+            {"file": "3_unrun.py", "status": "Success", "return_code": "0"}
+        ]
+        result = [
+            {k: entry[k] for k in ["file", "status", "return_code"]}
+            for entry in status_data
+        ]
+        assert sorted(result, key=lambda x: x["file"]) == sorted(
+            expected, key=lambda x: x["file"])

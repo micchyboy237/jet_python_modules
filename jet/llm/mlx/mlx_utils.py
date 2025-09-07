@@ -241,9 +241,19 @@ def process_response_format(
     response_format: Union[Literal["text", "json"], JsonSchemaValue],
 ) -> Union[List[Message], str]:
     """Process response format for messages or prompts, adding JSON instruction if needed."""
-    json_instruction = "Generate the response in valid JSON format. If a specific schema is provided, adhere to it."
+    # Improved JSON instruction, matching the style from MLXFunctionCaller
     if isinstance(response_format, dict):
-        json_instruction += f" Follow this JSON schema: {json.dumps(response_format, ensure_ascii=False)}"
+        json_instruction = (
+            "Return the response as a JSON object containing only the data fields defined in the following schema, "
+            "without including the schema itself or any additional metadata:\n"
+            f"{json.dumps(response_format, ensure_ascii=False)}\n"
+            "For example, if the schema defines fields 'name' and 'age', return only {\"name\": \"value\", \"age\": number}."
+        )
+    else:
+        json_instruction = (
+            "Return the response as a JSON object. Do not include any extra metadata or schema definitions—"
+            "just the data fields relevant to the user's request."
+        )
 
     if isinstance(input_data, list):
         # Handle List[Message] for chat methods
@@ -251,12 +261,13 @@ def process_response_format(
         if isinstance(response_format, (str, dict)) and (response_format == "json" or isinstance(response_format, dict)):
             # Check for existing system message
             system_msg_index = next((i for i, msg in enumerate(
-                modified_messages) if msg["role"] == "system"), None)
+                modified_messages) if msg.get("role") == "system"), None)
             if system_msg_index is not None:
                 # System message exists; check if it mentions JSON
-                if "JSON" not in modified_messages[system_msg_index]["content"]:
-                    # Concatenate with two newlines
-                    modified_messages[system_msg_index]["content"] += f"\n\n{json_instruction}"
+                content = modified_messages[system_msg_index].get("content", "")
+                # Concatenate with two newlines
+                modified_messages[system_msg_index]["content"] = content + \
+                    f"\n\n{json_instruction}"
             else:
                 # No system message; add new one
                 modified_messages.insert(

@@ -46,7 +46,7 @@ class MLXFunctionCaller:
                     f"\nReturn the response as a JSON object containing only the data fields defined in the following schema, "
                     f"without including the schema itself or any additional metadata:\n"
                     f"{self.base_model.model_json_schema()}\n"
-                    f"For example, if the schema defines fields 'name' and 'age', return only {{'name': 'value', 'age': number}}."
+                    f"For example, if the schema defines fields 'name' and 'age', return only {{\"name\": \"value\", \"age\": number}}."
                 )
             prompt = f"<|system|>\n{system_message}\n<|user|>\n{task}\n<|assistant|>\n"
             # sampler = make_sampler(

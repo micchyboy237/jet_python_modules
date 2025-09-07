@@ -83,6 +83,10 @@ def run_python_files_in_directory(
                 logger.debug(f"Loading existing status file: {status_file}")
                 status_data = json.load(f)
             logger.debug(f"Loaded status_data: {status_data}")
+        else:
+            logger.debug(
+                f"No status file found at {status_file}, defaulting to run all files")
+            rerun_mode = "all"  # Default to "all" if no status file exists
         main_log_file = output_dir / "main.log"
         logger = CustomLogger(str(main_log_file), name="", overwrite=True)
         logger.debug(f"Initialized logger with main_log_file: {main_log_file}")
