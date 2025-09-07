@@ -50,6 +50,11 @@ class ChatMLX(BaseChatModel):
         """Return the name of the chat model."""
         return self.model
 
+    @property
+    def model_name(self) -> str:
+        """Return the name of the chat model."""
+        return self.model
+
     def __init__(
         self,
         model: LLMModelType = "qwen3-1.7b-4bit",

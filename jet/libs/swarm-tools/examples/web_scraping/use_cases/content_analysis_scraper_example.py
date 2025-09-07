@@ -6,16 +6,23 @@ SEO research, and text mining applications.
 """
 
 import os
+import shutil
 from datetime import datetime
 from swarms_tools.search.web_scraper import SuperFastScraper
 from jet.logger import CustomLogger
 
-# Configure logging
-log_dir = os.path.join(os.path.dirname(__file__), "logs")
-os.makedirs(log_dir, exist_ok=True)
-log_file = os.path.join(log_dir, f"content_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+OUTPUT_DIR = os.path.join(os.path.dirname(
+    __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+# Configure logging
+log_dir = os.path.join(OUTPUT_DIR, "logs")
+os.makedirs(log_dir, exist_ok=True)
+filename_no_ext = os.path.splitext(os.path.basename(__file__))[0]
+log_file = os.path.join(log_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
 logger = CustomLogger(log_file, overwrite=True)
+logger.orange(f"Logs: {log_file}")
 
 # Create analyzer-optimized scraper
 logger.info("Initializing SuperFastScraper with optimized settings")

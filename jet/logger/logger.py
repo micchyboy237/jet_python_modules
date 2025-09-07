@@ -251,8 +251,8 @@ class CustomLogger:
                     message = message % args
                     formatted_args = ()  # clear after formatting
                 except (TypeError, ValueError) as e:
-                    self.warning(
-                        f"Failed to format message '{message}' with args {args}: {str(e)}")
+                    # self.warning(
+                    #     f"Failed to format message '{message}' with args {args}: {str(e)}")
                     formatted_args = tuple(map(str, args))
             else:
                 formatted_args = ()
