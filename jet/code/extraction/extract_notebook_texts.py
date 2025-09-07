@@ -265,17 +265,27 @@ def process_file(
     merge_consecutive_code=False,
     save_as: Literal['md', 'py', 'blocks'] = 'md'
 ):
-    """Process a single file (notebook, markdown, or python)."""
+    """Process a single file (notebook, markdown, or python) and preserve relative directory structure."""
     input_path = Path(input_path)
+    input_base = Path(input_path).parent if os.path.isfile(
+        input_path) else Path(input_path)
 
     if output_dir is None:
         output_dir = input_path.parent
     else:
         output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Calculate relative path and ensure it exists in output_dir
+    if os.path.isfile(input_path):
+        relative_path = input_path.relative_to(input_base)
+        output_path = output_dir / relative_path.with_suffix(
+            '.json' if save_as == 'blocks' else f'.{save_as}'
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        output_path = output_dir / f"{input_path.stem}.{save_as}"
 
     extension = "json" if save_as == "blocks" else save_as
-    output_path = output_dir / f"{input_path.stem}.{extension}"
 
     if input_path.suffix == '.ipynb':
         content = extract_text_from_ipynb(
