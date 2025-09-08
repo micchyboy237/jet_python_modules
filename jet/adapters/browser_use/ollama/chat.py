@@ -27,6 +27,7 @@ class ChatOllama(BaseChatModel):
     """
 
     model: str
+    log_dir: str = DEFAULT_OLLAMA_LOG_DIR
 
     # # Model params
     # TODO (matic): Why is this commented out?
@@ -62,10 +63,12 @@ class ChatOllama(BaseChatModel):
         return self.model
 
     @overload
-    async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
+    async def ainvoke(self, messages: list[BaseMessage],
+                      output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
     @overload
-    async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
+    async def ainvoke(self, messages: list[BaseMessage],
+                      output_format: type[T]) -> ChatInvokeCompletion[T]: ...
 
     async def ainvoke(
         self, messages: list[BaseMessage], output_format: type[T] | None = None
@@ -86,7 +89,7 @@ class ChatOllama(BaseChatModel):
                     logger.teal(content, flush=True)
                     response_text += content
 
-                ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="chat").log_interaction(
+                ChatLogger(self.log_dir, method="chat").log_interaction(
                     ollama_messages,
                     response_text,
                     model=self.model,
@@ -110,7 +113,7 @@ class ChatOllama(BaseChatModel):
                     logger.teal(content, flush=True)
                     response_text += content
 
-                ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="chat").log_interaction(
+                ChatLogger(self.log_dir, method="chat").log_interaction(
                     ollama_messages,
                     response_text,
                     model=self.model,

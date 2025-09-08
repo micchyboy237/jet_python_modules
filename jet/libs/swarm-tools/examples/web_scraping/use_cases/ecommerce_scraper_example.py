@@ -5,15 +5,16 @@ This example demonstrates scraping product pages and
 extracting structured information for market research.
 """
 
-import os
-import shutil
-from datetime import datetime
+
 from swarms_tools.search.web_scraper import (
     scrape_single_url_sync,
     format_scraped_content,
 )
 from jet.file.utils import save_file
 from jet.logger import CustomLogger
+from datetime import datetime
+import os
+import shutil
 
 OUTPUT_DIR = os.path.join(os.path.dirname(
     __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])

@@ -195,7 +195,7 @@ class CustomLogger:
         print(
             f"DEBUG: Configured logger with filename={filename}, level={level}, format={format}")
 
-    def setConfig(
+    def basicConfig(
         self,
         *,
         filename: Optional[str] = None,

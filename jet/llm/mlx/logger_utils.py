@@ -26,9 +26,9 @@ class ChatLogger:
         limit: Optional[int] = None
     ):
         start_time = EventSettings.get_entry_event()["start_time"]
-        # Format start_time as "YYYY-MM-DD|HH:MM:SS"
+        # Format start_time as "YYYYMMDD_HHMMSS" (no colons)
         dt = datetime.fromisoformat(start_time)
-        formatted_start_time = dt.strftime("%Y-%m-%d|%H:%M:%S")
+        formatted_start_time = dt.strftime("%Y%m%d_%H%M%S")
 
         self.log_dir = os.path.join(log_dir, formatted_start_time)
         self.method = method
@@ -97,15 +97,18 @@ class ChatLogger:
                 formatted_usage["prompt_tokens"] = usage["prompt_tokens"]
             if "prompt_tps" in usage:
                 val = usage["prompt_tps"]
-                formatted_usage["prompt_tps"] = f"{val:.2f} tokens/sec" if isinstance(val, float) else val
+                formatted_usage["prompt_tps"] = f"{val:.2f} tokens/sec" if isinstance(
+                    val, float) else val
             if "completion_tokens" in usage:
                 formatted_usage["completion_tokens"] = usage["completion_tokens"]
             if "completion_tps" in usage:
                 val = usage["completion_tps"]
-                formatted_usage["completion_tps"] = f"{val:.2f} tokens/sec" if isinstance(val, float) else val
+                formatted_usage["completion_tps"] = f"{val:.2f} tokens/sec" if isinstance(
+                    val, float) else val
             if "peak_memory" in usage:
                 val = usage["peak_memory"]
-                formatted_usage["peak_memory"] = f"{val:.2f} GB" if isinstance(val, float) else val
+                formatted_usage["peak_memory"] = f"{val:.2f} GB" if isinstance(
+                    val, float) else val
             if "total_tokens" in usage:
                 formatted_usage["total_tokens"] = usage["total_tokens"]
             response["usage"] = formatted_usage
