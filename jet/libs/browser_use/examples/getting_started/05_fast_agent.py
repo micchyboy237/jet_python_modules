@@ -46,7 +46,9 @@ async def main():
     )
     task = """\
     1. Go to https://anilist.co to find trending isekai anime
-    2. Click on 5 items to extract info
+    2. Click on 5 items to open each in new tabs
+    3. Find out details related to anime info, and switch directly to the next tab
+	4. Return the summary for each page
     """
     agent = CustomAgent(
         custom_screenshot_dir=OUTPUT_DIR,

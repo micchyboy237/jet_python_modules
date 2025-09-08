@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 from browser_use import Agent
+from browser_use.agent.service import CreateAgentStepEvent
 from browser_use.agent.views import BrowserStateHistory, StepMetadata
 from browser_use.browser.views import BrowserStateSummary
 
@@ -25,13 +26,7 @@ class CustomAgent(Agent):
         self._set_screenshot_service()
 
     async def _finalize(self, browser_state_summary: BrowserStateSummary | None) -> None:
-        """
-        Finalize the step by saving history, logging, emitting events, and capturing an end-of-step screenshot.
-
-        Args:
-            browser_state_summary (BrowserStateSummary | None): The browser state summary from the step start.
-        """
-        import time
+        """Finalize the step with history, logging, and events"""
         step_end_time = time.time()
         if not self.state.last_result:
             return
@@ -43,13 +38,8 @@ class CustomAgent(Agent):
                 step_end_time=step_end_time,
             )
 
-            # Save start-of-step screenshot and history
-            await self._make_history_item(
-                self.state.last_model_output,
-                browser_state_summary,
-                self.state.last_result,
-                metadata
-            )
+            # Use _make_history_item like main branch
+            await self._make_history_item(self.state.last_model_output, browser_state_summary, self.state.last_result, metadata)
 
             # Capture and store end-of-step screenshot
             end_browser_state = await self.browser_session.get_browser_state_summary(
@@ -62,16 +52,10 @@ class CustomAgent(Agent):
                 self.logger.debug(
                     f'📸 Storing end-of-step screenshot for step {self.state.n_steps}')
                 end_screenshot_path = await self.screenshot_service.store_screenshot(
-                    end_browser_state.screenshot, f"step_{self.state.n_steps}_end"
+                    end_browser_state.screenshot, f"{self.state.n_steps}_end"
                 )
                 self.logger.debug(
                     f'📸 End-of-step screenshot stored at: {end_screenshot_path}')
-
-            # Update history with end-of-step screenshot path (optional, requires BrowserStateHistory extension)
-            if end_screenshot_path and self.history.history:
-                last_history_item = self.history.history[-1]
-                if hasattr(last_history_item.state, 'end_screenshot_path'):
-                    last_history_item.state.end_screenshot_path = end_screenshot_path
 
         # Log step completion summary
         self._log_step_completion_summary(
@@ -88,7 +72,7 @@ class CustomAgent(Agent):
                     action_dict = action.model_dump() if hasattr(action, 'model_dump') else {}
                     actions_data.append(action_dict)
 
-            step_event = self.CreateAgentStepEvent.from_agent_step(
+            step_event = CreateAgentStepEvent.from_agent_step(
                 self,
                 self.state.last_model_output,
                 self.state.last_result,
