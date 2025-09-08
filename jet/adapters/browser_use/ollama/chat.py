@@ -35,7 +35,7 @@ class ChatOllama(BaseChatModel):
 
     # Client initialization parameters
     host: str | None = None
-    timeout: float | httpx.Timeout | None = None
+    timeout: float | httpx.Timeout | None = 300.0
     client_params: dict[str, Any] | None = None
     ollama_options: Mapping[str, Any] | Options | None = None
 

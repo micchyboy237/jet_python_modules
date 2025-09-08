@@ -14,22 +14,25 @@ import asyncio
 import os
 import sys
 
-# Add the parent directory to the path so we can import browser_use
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 from dotenv import load_dotenv
+
+from browser_use import Agent
+
+from jet.adapters.browser_use.ollama.chat import ChatOllama
+
+# # Add the parent directory to the path so we can import browser_use
+# sys.path.append(os.path.dirname(os.path.dirname(
+#     os.path.dirname(os.path.abspath(__file__)))))
 
 load_dotenv()
 
-from browser_use import Agent, ChatOllama
-
 
 async def main():
-	# Initialize the model
-	llm = ChatOllama(model='llama3.2')
+    # Initialize the model
+    llm = ChatOllama(model='llama3.2')
 
-	# Define a data extraction task
-	task = """
+    # Define a data extraction task
+    task = """
     Go to https://quotes.toscrape.com/ and extract the following information:
     - The first 5 quotes on the page
     - The author of each quote
@@ -41,10 +44,10 @@ async def main():
     etc.
     """
 
-	# Create and run the agent
-	agent = Agent(task=task, llm=llm)
-	await agent.run()
+    # Create and run the agent
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    asyncio.run(main())

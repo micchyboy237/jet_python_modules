@@ -16,7 +16,7 @@ import asyncio
 import os
 import sys
 
-from jet.adapters.browser_use.ollama.chat import ChatOllama
+from jet.adapters.browser_use.mlx.chat import ChatMLX
 
 # Add the parent directory to the path so we can import browser_use
 sys.path.append(os.path.dirname(os.path.dirname(
@@ -28,7 +28,7 @@ load_dotenv()
 
 async def main():
     # Initialize the model
-    llm = ChatOllama(model='llama3.2')
+    llm = ChatMLX()
 
     # Define a form filling task
     task = """
@@ -49,7 +49,6 @@ async def main():
         # Set browser window size to 1440x900 pixels
         window_size={"width": 1440, "height": 900}
     )
-
     # Create and run the agent
     agent = Agent(task=task, llm=llm, browser_profile=browser_profile)
     await agent.run()

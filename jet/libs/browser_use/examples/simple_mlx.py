@@ -1,7 +1,7 @@
 import asyncio
 
 from browser_use import Agent
-from jet.adapters.browser_use.ollama.chat import ChatOllama
+from jet.adapters.browser_use.mlx.chat import ChatMLX
 from jet.logger import logger
 from datetime import datetime
 import os
@@ -21,7 +21,8 @@ logger.orange(f"Logs: {log_file}")
 
 async def main():
     task = 'Find the founders of browser-use'
-    agent = Agent(task=task, llm=ChatOllama(model='llama3.2'))
+    agent = Agent(task=task, llm=ChatMLX(
+        model='mlx-community/Llama-3.2-3B-Instruct-4bit'))
     await agent.run()
 
 

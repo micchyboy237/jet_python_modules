@@ -14,22 +14,25 @@ import asyncio
 import os
 import sys
 
-# Add the parent directory to the path so we can import browser_use
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 from dotenv import load_dotenv
+
+from browser_use import Agent
+
+from jet.adapters.browser_use.ollama.chat import ChatOllama
+
+# # Add the parent directory to the path so we can import browser_use
+# sys.path.append(os.path.dirname(os.path.dirname(
+#     os.path.dirname(os.path.abspath(__file__)))))
 
 load_dotenv()
 
-from browser_use import Agent, ChatOllama
-
 
 async def main():
-	# Initialize the model
-	llm = ChatOllama(model='llama3.2')
+    # Initialize the model
+    llm = ChatOllama(model='llama3.2')
 
-	# Define a multi-step task
-	task = """
+    # Define a multi-step task
+    task = """
     I want you to research Python web scraping libraries. Here's what I need:
     
     1. First, search Google for "best Python web scraping libraries 2024"
@@ -45,10 +48,10 @@ async def main():
     Present your findings in a summary format comparing the three libraries.
     """
 
-	# Create and run the agent
-	agent = Agent(task=task, llm=llm)
-	await agent.run()
+    # Create and run the agent
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    asyncio.run(main())

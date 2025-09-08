@@ -1,7 +1,7 @@
 # jet_python_modules/jet/libs/browser_use/examples/getting_started/05_fast_agent.py
 import shutil
 from datetime import datetime
-from jet.adapters.browser_use.ollama.chat import ChatOllama
+from jet.adapters.browser_use.mlx.chat import ChatMLX
 from browser_use import Agent, BrowserProfile
 from dotenv import load_dotenv
 from jet.logger import logger
@@ -32,12 +32,7 @@ Speed optimization instructions:
 
 
 async def main():
-    llm = ChatOllama(
-        model='llama3.2',
-        ollama_options={
-            "temperature": 0.0
-        }
-    )
+    llm = ChatMLX()
     browser_profile = BrowserProfile(
         minimum_wait_page_load_time=0.1,
         wait_between_actions=0.1,

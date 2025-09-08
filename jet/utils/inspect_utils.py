@@ -259,6 +259,24 @@ def get_entry_file_path() -> Optional[str]:
         return None
 
 
+def get_entry_file_dir() -> Optional[str]:
+    """
+    Returns the absolute directory path of the entry point script.
+    Returns None if the entry point cannot be determined or is not a valid path.
+
+    Returns:
+        Optional[str]: The absolute directory path of the entry point script, or None if invalid.
+    """
+    try:
+        file_path = Path(sys.modules["__main__"].__file__).resolve()
+        dir_path = file_path.parent
+        if validate_filepath(str(file_path)):
+            return str(dir_path)
+        return None
+    except (KeyError, AttributeError):
+        return None
+
+
 class ParameterInfo(TypedDict):
     type: str
     description: str
@@ -353,6 +371,7 @@ __all__ = [
     "get_current_running_function",
     "get_entry_file_name",
     "get_entry_file_path",
+    "get_entry_file_dir",
     "get_method_info",
 ]
 
