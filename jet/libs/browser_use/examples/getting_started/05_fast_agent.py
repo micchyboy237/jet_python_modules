@@ -44,13 +44,9 @@ async def main():
         wait_between_actions=0.1,
         headless=True,
     )
-    task = """
-    1. Go to https://anilist.co
-    2. Search for upcoming isekai anime.
-    3. Find the first 5 results from the search.
-    4. For each anime, open its detail page in a new tab.
-    5. For each, extract the title, release date, and a short synopsis.
-    6. Return a summary table of these 5 upcoming isekai anime.
+    task = """\
+    1. Go to https://anilist.co to find trending isekai anime
+    2. Click on 5 items to extract info
     """
     agent = CustomAgent(
         custom_screenshot_dir=OUTPUT_DIR,
@@ -59,6 +55,8 @@ async def main():
         flash_mode=True,
         browser_profile=browser_profile,
         extend_system_message=SPEED_OPTIMIZATION_PROMPT,
+        llm_timeout=300.0,
+        step_timeout=300.0,
     )
     await agent.run()
 
