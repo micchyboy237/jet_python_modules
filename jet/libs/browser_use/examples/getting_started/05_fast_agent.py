@@ -1,6 +1,7 @@
 # jet_python_modules/jet/libs/browser_use/examples/getting_started/05_fast_agent.py
 import shutil
 from datetime import datetime
+from jet.adapters.browser_use.custom_agent import CustomAgent
 from jet.adapters.browser_use.ollama.chat import ChatOllama
 from browser_use import Agent, BrowserProfile
 from dotenv import load_dotenv
@@ -49,7 +50,8 @@ async def main():
     3. Find out what the latest post is about, and switch directly to the next tab
 	4. Return the latest post summary for each page
 	"""
-    agent = Agent(
+    agent = CustomAgent(
+        custom_screenshot_dir=OUTPUT_DIR,
         task=task,
         llm=llm,
         flash_mode=True,

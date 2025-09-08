@@ -51,7 +51,13 @@ async def main():
     )
 
     # Create and run the agent
-    agent = Agent(task=task, llm=llm, browser_profile=browser_profile)
+    agent = Agent(
+        task=task,
+        llm=llm,
+        llm_timeout=300.0,
+        step_timeout=300.0,
+        browser_profile=browser_profile,
+    )
     await agent.run()
 
 
