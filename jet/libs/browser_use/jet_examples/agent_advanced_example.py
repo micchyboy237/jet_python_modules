@@ -26,7 +26,6 @@ async def step_end_callback(agent: Agent) -> None:
 async def error_check_callback() -> bool:
     return False  # Simulate no external errors
 
-```python
 async def advanced_agent_example():
     """Demonstrates Agent usage with all possible arguments and window size."""
     # Given: A complex task with multiple configurations
@@ -39,7 +38,6 @@ async def advanced_agent_example():
         keep_alive=True,
         window_size={"width": 1440, "height": 900}  # Set browser window size to 1440x900 pixels
     )
-```
     
     browser_session = BrowserSession(
         browser_profile=browser_profile,
@@ -65,7 +63,7 @@ async def advanced_agent_example():
     
     agent = Agent(
         task=task,
-        llm=ChatOllama(model="llama3.1", host="http://localhost:11434"),
+        llm=ChatOllama(model="llama3.2"),
         browser_profile=browser_profile,
         browser_session=browser_session,
         tools=tools,
@@ -89,7 +87,7 @@ async def advanced_agent_example():
         use_thinking=True,
         flash_mode=False,
         max_history_items=100,
-        page_extraction_llm=ChatOllama(model="llama3.1"),
+        page_extraction_llm=ChatOllama(model="llama3.2"),
         injected_agent_state=AgentState(),
         source="custom_source",
         file_system_path="/tmp/agent_files",

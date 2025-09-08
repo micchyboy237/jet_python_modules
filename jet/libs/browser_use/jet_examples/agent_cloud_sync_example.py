@@ -21,7 +21,7 @@ async def cloud_sync_agent_example():
     cloud_sync = CloudSync()
     agent = Agent(
         task=task,
-        llm=ChatOllama(model="llama3.1"),
+        llm=ChatOllama(model="llama3.2"),
         browser_profile=browser_profile,
         cloud_sync=cloud_sync,
         generate_gif=True

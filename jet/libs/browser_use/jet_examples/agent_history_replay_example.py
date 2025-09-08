@@ -17,11 +17,11 @@ async def history_replay_agent_example():
     
     # When: Creating an agent with history-related configurations
     browser_profile = BrowserProfile(
-        window_size={"width": 1366, "height": 768}  # Set browser window size
+        window_size={"width": 1440, "height": 900}  # Set browser window size
     )
     agent = Agent(
         task=task,
-        llm=ChatOllama(model="llama3.1"),
+        llm=ChatOllama(model="llama3.2"),
         browser_profile=browser_profile,
         file_system_path="/tmp/agent_files",
         save_conversation_path="/tmp/conversations"

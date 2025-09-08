@@ -7,3 +7,6 @@ DEFAULT_MODEL: LLMModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit"
 DEFAULT_LOG_DIR = os.path.expanduser(
     f"~/.cache/mlx-logs/{os.path.splitext(get_entry_file_name())[0]}"
 )
+DEFAULT_OLLAMA_LOG_DIR = os.path.expanduser(
+    f"~/.cache/ollama-logs/{os.path.splitext(get_entry_file_name())[0]}"
+)

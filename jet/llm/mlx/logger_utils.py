@@ -76,7 +76,9 @@ class ChatLogger:
             log_data["messages"] = prompt_or_messages.copy()
 
             # Add assistant role message with response text
-            if isinstance(response, list):
+            if isinstance(response, str):
+                response_text = response
+            elif isinstance(response, list):
                 response_text = "\n".join([r["content"] for r in response])
             else:
                 response_text = response["content"]
@@ -108,8 +110,9 @@ class ChatLogger:
                 formatted_usage["total_tokens"] = usage["total_tokens"]
             response["usage"] = formatted_usage
 
-        choices = response.pop("choices")
-        response["choices"] = choices
+        if "choices" in response:
+            choices = response.pop("choices")
+            response["choices"] = choices
 
         # Add response last
         log_data["response"] = format_json(response, indent=2)

@@ -28,11 +28,11 @@ async def callbacks_agent_example():
     
     # When: Creating an agent with callback configurations
     browser_profile = BrowserProfile(
-        window_size=(1024, 768)  # Set browser window size
+        window_size=(1440, 900)  # Set browser window size
     )
     agent = Agent(
         task=task,
-        llm=ChatOllama(model="llama3.1"),
+        llm=ChatOllama(model="llama3.2"),
         browser_profile=browser_profile,
         register_new_step_callback=new_step_callback,
         register_done_callback=done_callback,
