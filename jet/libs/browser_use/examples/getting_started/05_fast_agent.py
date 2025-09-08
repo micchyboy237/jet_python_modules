@@ -45,11 +45,13 @@ async def main():
         headless=True,
     )
     task = """
-	1. Go to reddit https://www.reddit.com/search/?q=browser+agent&type=communities 
-	2. Click directly on the first 5 communities to open each in new tabs
-    3. Find out what the latest post is about, and switch directly to the next tab
-	4. Return the latest post summary for each page
-	"""
+    1. Go to https://anilist.co
+    2. Search for upcoming isekai anime.
+    3. Find the first 5 results from the search.
+    4. For each anime, open its detail page in a new tab.
+    5. For each, extract the title, release date, and a short synopsis.
+    6. Return a summary table of these 5 upcoming isekai anime.
+    """
     agent = CustomAgent(
         custom_screenshot_dir=OUTPUT_DIR,
         task=task,
