@@ -1,9 +1,6 @@
 from browser_use.agent.service import Agent
 from browser_use.llm.ollama.chat import ChatOllama
-from browser_use.browser.session import BrowserSession, BrowserProfile
-from browser_use.tools.service import Tools
-from browser_use.llm.messages import ContentPartImageParam
-from browser_use.agent.views import AgentState
+from browser_use.browser.session import BrowserProfile
 import asyncio
 import logging
 
@@ -12,14 +9,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def basic_agent_example():
-    """Demonstrates basic Agent usage with minimal arguments."""
+    """Demonstrates basic Agent usage with minimal arguments and window size."""
     # Given: A simple task to navigate to a website
     task = "Navigate to https://example.com"
     
-    # When: Creating an agent with minimal configuration
+    # When: Creating an agent with minimal configuration and custom browser size
+    browser_profile = BrowserProfile(
+        window_size={"width": 1440, "height": 900}  # Set browser window size to 1440x900 pixels
+    )
     agent = Agent(
         task=task,
-        llm=ChatOllama(model="llama3.1"),  # Using Ollama LLM
+        llm=ChatOllama(model="llama3.2"),
+        browser_profile=browser_profile
     )
     
     # Then: Run the agent

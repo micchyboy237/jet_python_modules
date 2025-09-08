@@ -26,8 +26,9 @@ async def step_end_callback(agent: Agent) -> None:
 async def error_check_callback() -> bool:
     return False  # Simulate no external errors
 
+```python
 async def advanced_agent_example():
-    """Demonstrates Agent usage with all possible arguments."""
+    """Demonstrates Agent usage with all possible arguments and window size."""
     # Given: A complex task with multiple configurations
     task = "Search for 'AI news' on https://news.google.com and summarize findings"
     
@@ -35,8 +36,10 @@ async def advanced_agent_example():
     browser_profile = BrowserProfile(
         allowed_domains=["*.google.com"],
         downloads_path="/tmp/downloads",
-        keep_alive=True
+        keep_alive=True,
+        window_size={"width": 1440, "height": 900}  # Set browser window size to 1440x900 pixels
     )
+```
     
     browser_session = BrowserSession(
         browser_profile=browser_profile,
@@ -66,7 +69,7 @@ async def advanced_agent_example():
         browser_profile=browser_profile,
         browser_session=browser_session,
         tools=tools,
-        controller=tools,  # Can use same tools instance
+        controller=tools,
         sensitive_data=sensitive_data,
         initial_actions=initial_actions,
         register_new_step_callback=step_start_callback,
@@ -91,7 +94,7 @@ async def advanced_agent_example():
         source="custom_source",
         file_system_path="/tmp/agent_files",
         task_id="custom_task_001",
-        cloud_sync=None,  # Requires CloudSync instance
+        cloud_sync=None,
         calculate_cost=True,
         display_files_in_done_text=True,
         include_tool_call_examples=True,

@@ -30,7 +30,7 @@ async def test_advanced_agent_example():
     # Given: A complex task with full configuration
     expected_steps = 5
     expected_task = "Search for 'AI news' on https://news.google.com and summarize findings"
-    expected_model = "llama3.1"
+    expected_model = "llama3.2"
     
     # When: Running the advanced agent example
     history = await advanced_agent_example()
