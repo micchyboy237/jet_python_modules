@@ -82,9 +82,10 @@ def chat(
     )
 
     response = list(client.create_chat_completion(req, stream=False))[0]
+    processed_response = process_chat_response(response, history, with_history, tools)
     save_logs(
         messages,
-        response,
+        processed_response,
         model,
         tools,
         "chat",
@@ -109,7 +110,7 @@ def chat(
         role_mapping=role_mapping,
         stream=False
     )
-    return process_chat_response(response, history, with_history, tools)
+    return processed_response
 
 
 def stream_chat(
@@ -252,9 +253,10 @@ def generate(
     )
 
     response = list(client.create_text_completion(req, stream=False))[0]
+    processed_response = process_text_response(response)
     save_logs(
         prompt,
-        response,
+        processed_response,
         model,
         None,  # tools
         "generate",
@@ -275,7 +277,7 @@ def generate(
         response_format=response_format,
         stream=False
     )
-    return process_text_response(response)
+    return processed_response
 
 
 def stream_generate(

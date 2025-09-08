@@ -74,8 +74,6 @@ class _EventSettings:
     def _catch_event_call(self, event_name: str, *args, **kwargs) -> EventData:
         """Handles all event calls dynamically."""
         logger.log("Event:", event_name, colors=["GRAY", "INFO"])
-        logger.debug(
-            f"Processing event call: {event_name}, args: {args}, kwargs: {kwargs}")
         self.current_event = event_name
 
         def format_callable(arg):
@@ -116,9 +114,7 @@ def setup_events():
         from shared.setup.events import EventSettings
 
         def pre_start_hook():
-            logger.debug("Triggering pre_start_hook")
             event_data = EventSettings.pre_start_hook()
-            logger.debug(f"pre_start_hook event data: {event_data}")
             logger.newline()
             logger.success("pre_start_hook triggered at: " +
                            EventSettings.get_entry_event()["start_time"])

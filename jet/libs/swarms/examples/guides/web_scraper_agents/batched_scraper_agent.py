@@ -19,20 +19,21 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Configure logging
 log_dir = os.path.join(OUTPUT_DIR, "logs")
 os.makedirs(log_dir, exist_ok=True)
-filename_no_ext = os.path.splitext(os.path.basename(__file__))[0]
-log_file = os.path.join(log_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-logger = CustomLogger(log_file, overwrite=True)
-logger.orange(f"Logs: {log_file}")
+# filename_no_ext = os.path.splitext(os.path.basename(__file__))[0]
+# log_file = os.path.join(log_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+# logger = CustomLogger(log_file, overwrite=True)
+# logger.orange(f"Logs: {log_file}")
 
-llm = MLXFunctionCaller(
-    max_tokens=4000,
-    temperature=0.7,
-    # tools=[scrape_and_format_sync],
-)
+# llm = MLXFunctionCaller(
+#     max_tokens=4000,
+#     temperature=0.7,
+#     # tools=[scrape_and_format_sync],
+# )
 
 agent = Agent(
     agent_name="Web Scraper Agent",
     model_name="ollama/llama3.2",
+    max_tokens=10000,
     # llm=llm,
     tools=[scrape_and_format_sync],
     streaming_on=True,

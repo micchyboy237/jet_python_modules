@@ -90,14 +90,22 @@ class ChatLogger:
         formatted_usage = None
         if "usage" in response:
             usage = response.pop("usage")
-            formatted_usage = {
-                "prompt_tokens": usage["prompt_tokens"],
-                "prompt_tps": f"{usage['prompt_tps']:.2f} tokens/sec",
-                "completion_tokens": usage["completion_tokens"],
-                "completion_tps": f"{usage['completion_tps']:.2f} tokens/sec",
-                "peak_memory": f"{usage['peak_memory']:.2f} GB",
-                "total_tokens": usage["total_tokens"]
-            }
+            formatted_usage = {}
+            if "prompt_tokens" in usage:
+                formatted_usage["prompt_tokens"] = usage["prompt_tokens"]
+            if "prompt_tps" in usage:
+                val = usage["prompt_tps"]
+                formatted_usage["prompt_tps"] = f"{val:.2f} tokens/sec" if isinstance(val, float) else val
+            if "completion_tokens" in usage:
+                formatted_usage["completion_tokens"] = usage["completion_tokens"]
+            if "completion_tps" in usage:
+                val = usage["completion_tps"]
+                formatted_usage["completion_tps"] = f"{val:.2f} tokens/sec" if isinstance(val, float) else val
+            if "peak_memory" in usage:
+                val = usage["peak_memory"]
+                formatted_usage["peak_memory"] = f"{val:.2f} GB" if isinstance(val, float) else val
+            if "total_tokens" in usage:
+                formatted_usage["total_tokens"] = usage["total_tokens"]
             response["usage"] = formatted_usage
 
         choices = response.pop("choices")

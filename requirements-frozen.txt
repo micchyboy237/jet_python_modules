@@ -10,7 +10,7 @@ azure-search-documents==11.5.3
 bertopic==0.17.3
 blake3==1.0.5
 boto3==1.40.17
--e git+ssh://git@github.com/browser-use/browser-use.git@673705bf14c69ef4aad955211083a40ed92437ec#egg=browser_use
+-e git+ssh://git@github.com/browser-use/browser-use.git@6fe3ec9afd8b661ea70868ea7d461f4041b64ecb#egg=browser_use
 bs4==0.0.2
 chainlit==2.7.1.1
 chromadb==1.0.12
@@ -70,6 +70,7 @@ logfire==4.3.6
 lxml_html_clean==0.4.2
 m3u8==6.0.0
 mammoth==1.10.0
+markdown-pdf==1.5
 markitdown==0.1.3
 mediapy==1.1.6
 -e git+ssh://git@github.com/mem0ai/mem0.git@77b4b6a2b94b950aeb203a0e3ddea662dec6b3c8#egg=mem0ai
