@@ -16,6 +16,9 @@ from ollama import AsyncClient, Client, Message as OllamaMessage, Options
 from ollama._types import ChatResponse
 from shared.setup.events import EventSettings
 
+from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
+
 DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,
     "temperature": 0,
@@ -30,11 +33,10 @@ class ChatOllama(BaseChatOllama):
         model: str = "llama3.2",
         base_url: str = "http://localhost:11434",
         client_kwargs: Optional[Dict[str, Any]] = None,
+        log_dir: str = DEFAULT_OLLAMA_LOG_DIR,
         **kwargs,
     ):
         from jet.token.token_utils import token_counter
-
-        # Generate headers dynamically
         event = EventSettings.call_ollama_chat_langchain()
         pre_start_hook_start_time = EventSettings.event_data["pre_start_hook"]["start_time"]
         log_filename = event["filename"].split(".")[0]
@@ -46,16 +48,12 @@ class ChatOllama(BaseChatOllama):
             "Log-Filename": log_filename,
             "Event-Start-Time": pre_start_hook_start_time,
         }
-
-        # Combine provided `client_kwargs` with default headers
         client_kwargs = client_kwargs or {}
         client_kwargs.setdefault("headers", headers)
-
         options = {**DETERMINISTIC_LLM_SETTINGS, **kwargs}
-
-        # Call the parent class initializer with updated parameters
         super().__init__(model=model, base_url=base_url,
                          client_kwargs=client_kwargs, **options)
+        self.logger = ChatLogger(log_dir=log_dir, method="chat")
 
     def _chat_params(
         self,
@@ -99,72 +97,62 @@ class ChatOllama(BaseChatOllama):
         chat_params = make_serializable(chat_params)
         chat_params["options"] = get_non_empty_attributes(
             chat_params["options"])
-
         stream = not chat_params.get("tools") and chat_params["stream"]
-
         settings = {
             **chat_params,
             "full_stream_response": True,
         }
-
         response = call_ollama_chat(**settings)
-
         final_response = {}
+        content = ""
+        role = ""
+        tool_calls = []
+
+        # Convert LangChain messages to Ollama-compatible format for logging
+        ollama_messages = [
+            {"role": msg.type, "content": msg.content}
+            for msg in messages
+        ]
 
         if not stream:
             content = response["message"]["content"]
             role = response["message"]["role"]
             tool_calls = response["message"].get("tool_calls", [])
-
             final_response_content = content
             final_response_tool_calls = tool_calls
             if final_response_tool_calls:
                 final_response_content += f"\n{final_response_tool_calls}".strip()
-
-            # prompt_token_count = token_counter(messages, model)
-            # response_token_count = token_counter(
-            #     final_response_content, model)
-
             final_response = {
                 **response.copy(),
-                # "usage": {
-                #     "prompt_tokens": prompt_token_count,
-                #     "completion_tokens": response_token_count,
-                #     "total_tokens": prompt_token_count + response_token_count,
-                # }
             }
-
+            # Log the interaction
+            self.logger.log_interaction(
+                prompt_or_messages=ollama_messages,
+                response=final_response_content,
+                model=self.model,
+                options=chat_params["options"],
+            )
         else:
-            content = ""
-            role = ""
-            tool_calls = []
-
             if isinstance(response, dict) and "error" in response:
                 raise ValueError(
                     f"Ollama API error:\n{response['error']}")
-
             for chunk in response:
-
                 content += chunk["message"]["content"]
                 if not role:
                     role = chunk["message"]["role"]
                 if chunk["done"]:
-                    # prompt_token_count: int = token_counter(
-                    #     messages, model)
-                    # response_token_count: int = token_counter(
-                    #     content, model)
-
                     updated_chunk = chunk.copy()
                     updated_chunk["message"]["content"] = content
-
                     final_response = {
                         **updated_chunk,
-                        # "usage": {
-                        #     "prompt_tokens": prompt_token_count,
-                        #     "completion_tokens": response_token_count,
-                        #     "total_tokens": prompt_token_count + response_token_count,
-                        # }
                     }
+                    # Log the interaction when streaming is complete
+                    self.logger.log_interaction(
+                        prompt_or_messages=ollama_messages,
+                        response=content,
+                        model=self.model,
+                        options=chat_params["options"],
+                    )
 
         final_response.pop("message")
         chat_response = ChatResponse(
@@ -222,13 +210,3 @@ class ChatOllama(BaseChatOllama):
             **kwargs,
         )
         return cast("ChatGeneration", llm_result.generations[0][0]).message
-
-
-Ollama = ChatOllama
-
-
-class OllamaEmbeddings(BaseOllamaEmbeddings):
-    def __init__(self, **kwargs):
-        # Set default model to "all-minilm:33m" if not provided
-        kwargs.setdefault("model", "all-minilm:33m")
-        super().__init__(**kwargs)
