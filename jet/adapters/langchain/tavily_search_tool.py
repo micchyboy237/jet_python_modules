@@ -1,5 +1,6 @@
 """Tool for the Tavily search API."""
 
+import json
 from typing import Any, Dict, List, Literal, Optional, Tuple, Type, Union
 
 from langchain_core._api import deprecated
@@ -14,6 +15,7 @@ from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
 
 from jet.cache.redis import RedisConfigParams, RedisCache
 from jet.logger import logger
+import redis
 
 DEFAULT_REDIS_PORT = 3103
 
@@ -190,14 +192,17 @@ class TavilySearchResults(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> Tuple[Union[List[Dict[str, str]], str], Dict]:
         """Use the tool with Redis caching."""
-        cache_key = f"tavily_search:{query}:{self.max_results}:{self.search_depth}"
+        cache_key = (
+            f"tavily_search:{query}:{self.max_results}:{self.search_depth}:"
+            f"{json.dumps(self.include_domains)}:{json.dumps(self.exclude_domains)}:"
+            f"{self.include_answer}:{self.include_raw_content}:{self.include_images}"
+        )
         cached_result = self.cache.get(cache_key)
-        if cached_result:
+        if cached_result and "results" in cached_result:
             logger.log(f"TavilySearchResults: Cache hit for {cache_key}", colors=[
                        "SUCCESS", "BRIGHT_SUCCESS"])
             return self.api_wrapper.clean_results(cached_result["results"]), cached_result
 
-        # TODO: remove try/except, should be handled by BaseTool
         try:
             raw_results = self.api_wrapper.raw_results(
                 query,
@@ -211,8 +216,13 @@ class TavilySearchResults(BaseTool):
             )
             self.cache.set(cache_key, raw_results)
             return self.api_wrapper.clean_results(raw_results["results"]), raw_results
+        except redis.RedisError as e:
+            logger.error(
+                f"TavilySearchResults: Redis error during search: {e}")
+            return repr(e), {}
         except Exception as e:
-            logger.error(f"TavilySearchResults: Error during search: {e}")
+            logger.error(
+                f"TavilySearchResults: Unexpected error during search: {e}")
             return repr(e), {}
 
     async def _arun(
@@ -221,9 +231,13 @@ class TavilySearchResults(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Tuple[Union[List[Dict[str, str]], str], Dict]:
         """Use the tool asynchronously with Redis caching."""
-        cache_key = f"tavily_search:{query}:{self.max_results}:{self.search_depth}"
+        cache_key = (
+            f"tavily_search:{query}:{self.max_results}:{self.search_depth}:"
+            f"{json.dumps(self.include_domains)}:{json.dumps(self.exclude_domains)}:"
+            f"{self.include_answer}:{self.include_raw_content}:{self.include_images}"
+        )
         cached_result = self.cache.get(cache_key)
-        if cached_result:
+        if cached_result and "results" in cached_result:
             logger.log(f"TavilySearchResults: Cache hit for {cache_key}", colors=[
                        "SUCCESS", "BRIGHT_SUCCESS"])
             return self.api_wrapper.clean_results(cached_result["results"]), cached_result
@@ -241,9 +255,13 @@ class TavilySearchResults(BaseTool):
             )
             self.cache.set(cache_key, raw_results)
             return self.api_wrapper.clean_results(raw_results["results"]), raw_results
+        except redis.RedisError as e:
+            logger.error(
+                f"TavilySearchResults: Redis error during async search: {e}")
+            return repr(e), {}
         except Exception as e:
             logger.error(
-                f"TavilySearchResults: Error during async search: {e}")
+                f"TavilySearchResults: Unexpected error during async search: {e}")
             return repr(e), {}
 
 

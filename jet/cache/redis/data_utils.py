@@ -1,6 +1,6 @@
 import redis
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from jet.logger import logger
 
 
@@ -16,134 +16,141 @@ def connect_redis(redis_url: str = "redis://localhost:6379") -> redis.Redis:
         raise
 
 
-def get_redis_keys(client: redis.Redis, prefix: str = "*") -> List[str]:
+def get_redis_keys(host: str = "localhost", port: int = 6379, prefix: str = "*") -> List[str]:
     """Retrieve all keys matching the prefix."""
+    redis_url = f"redis://{host}:{port}"
+    client = None
     try:
+        client = connect_redis(redis_url)
         keys = client.keys(prefix)
         logger.info(f"Found {len(keys)} keys with prefix '{prefix}'")
         return keys
     except Exception as e:
         logger.error(f"Error retrieving keys: {str(e)}")
         return []
+    finally:
+        if client is not None:
+            client.close()
 
 
 def get_redis_data_by_key(
-    key: str,
+    key: Union[str, List[str]],
     *,
     host: str = "localhost",
     port: int = 6379,
 ) -> Dict[str, Any]:
-    """Retrieve data for a specific key with optional host, port, and key."""
+    """Retrieve data for specific key(s) with optional host and port."""
     redis_url = f"redis://{host}:{port}"
     client = None
+    result = {}
     try:
         client = connect_redis(redis_url)
-        # Try hgetall for hash keys (e.g., memory* keys)
-        if client.type(key) == "hash":
-            data = client.hgetall(key)
-            logger.success(
-                f"Retrieved hash data for key {key}: {json.dumps(data, indent=2)}")
-        else:
-            # Try get for string keys (e.g., tavily_search:* keys)
-            data_str = client.get(key)
-            if data_str is None:
-                logger.warning(f"No data found for key {key}")
-                return {}
-            try:
-                data = json.loads(data_str)
+        # Normalize key to a list
+        keys = [key] if isinstance(key, str) else key
+        for k in keys:
+            if client.type(k) == "hash":
+                data = client.hgetall(k)
                 logger.success(
-                    f"Retrieved string data for key {key}: {json.dumps(data, indent=2)}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Invalid JSON data for key {key}: {str(e)}")
-                return {}
-        return data
+                    f"Retrieved hash data for key {k}: {json.dumps(data, indent=2)}")
+            else:
+                data_str = client.get(k)
+                if data_str is None:
+                    logger.warning(f"No data found for key {k}")
+                    data = {}
+                else:
+                    try:
+                        data = json.loads(data_str)
+                        logger.success(
+                            f"Retrieved string data for key {k}: {json.dumps(data, indent=2)}")
+                    except json.JSONDecodeError as e:
+                        logger.error(
+                            f"Invalid JSON data for key {k}: {str(e)}")
+                        data = {}
+            result[k] = data
+        return result
     except redis.ConnectionError:
-        logger.error(f"Failed to connect to Redis for key {key}")
-        return {}
+        logger.error(f"Failed to connect to Redis for key(s) {key}")
+        return {k: {} for k in keys} if isinstance(key, list) else {key: {}}
     except Exception as e:
-        logger.error(f"Error retrieving data for key {key}: {str(e)}")
-        return {}
+        logger.error(f"Error retrieving data for key(s) {key}: {str(e)}")
+        return {k: {} for k in keys} if isinstance(key, list) else {key: {}}
     finally:
-        if client is not None:  # Close the connection only if we created it
+        if client is not None:
             client.close()
 
 
 def get_redis_data(
     *,
-    key: Optional[str] = None,
+    key: Optional[Union[str, List[str]]] = None,
     host: str = "localhost",
     port: int = 6379,
 ) -> Dict[str, Any]:
-    """Verify and retrieve data stored in RedisMemory with optional host, port, and specific key."""
+    """Retrieve data stored in Redis with optional host, port, and specific key(s)."""
     redis_url = f"redis://{host}:{port}"
     client = connect_redis(redis_url)
-
-    expected_contents = [
-        "The weather should be in metric units",
-        "Meal recipe must be vegan"
-    ]
-    expected_metadata = [
-        {"category": "preferences", "type": "units"},
-        {"category": "preferences", "type": "dietary"}
-    ]
-
     result = {"keys": {}, "errors": []}
 
     try:
-        keys = [key] if key else get_redis_keys(client, prefix="*")
+        keys = key if isinstance(key, list) else [key] if isinstance(
+            key, str) else get_redis_keys(host=host, port=port, prefix="*")
 
-        for key in keys:
-            data = get_redis_data_by_key(key, host=host, port=port)
-            if not data:
-                result["errors"].append(f"No data found for key {key}")
+        for k in keys:
+            data = get_redis_data_by_key(k, host=host, port=port)
+            if not data[k]:
+                result["errors"].append(f"No data found for key {k}")
                 continue
 
-            # Initialize default values
-            content = data.get("content", "")
-            metadata = data.get("metadata", {})
-
-            # Handle Tavily search results (stored as JSON strings)
-            if key.startswith("tavily_search:"):
-                content = data.get("answer", "") or json.dumps(
-                    data.get("results", []))
-                metadata = {
-                    "query": data.get("query", ""),
-                    "max_results": data.get("max_results", 5),
-                    "search_depth": data.get("search_depth", "advanced")
-                }
-            else:
-                # Try parsing metadata as JSON for non-Tavily keys
-                try:
-                    if isinstance(metadata, str):
-                        metadata = json.loads(metadata)
-                except json.JSONDecodeError as e:
-                    logger.error(
-                        f"Invalid metadata JSON for key {key}: {str(e)}")
-                    result["errors"].append(f"Invalid metadata for key {key}")
-                    continue
-
-            result["keys"][key] = {"content": content, "metadata": metadata}
-
-            # Only validate expected content/metadata for non-Tavily keys
-            if not key.startswith("tavily_search:") and content in expected_contents:
-                logger.success(f"Found expected content: {content}")
-                expected_index = expected_contents.index(content)
-                expected_meta = expected_metadata[expected_index]
-                if metadata == expected_meta:
-                    logger.success(
-                        f"Metadata matches expected: {json.dumps(expected_meta)}")
-                else:
-                    logger.warning(
-                        f"Metadata mismatch for {content}: got {json.dumps(metadata)}, expected {json.dumps(expected_meta)}")
-                    result["errors"].append(f"Metadata mismatch for key {key}")
-            elif not key.startswith("tavily_search:"):
-                logger.warning(f"Unexpected content found: {content}")
-                result["errors"].append(f"Unexpected content for key {key}")
+            result["keys"][k] = data[k]
+            logger.success(
+                f"Processed data for key {k}: {json.dumps(data[k], indent=2)}")
 
     except Exception as e:
         logger.error(f"Error processing Redis data: {str(e)}")
         result["errors"].append(f"General error: {str(e)}")
     finally:
         client.close()
+
+    return result
+
+
+def clear_redis(
+    *,
+    key: Optional[Union[str, List[str]]] = None,
+    host: str = "localhost",
+    port: int = 6379,
+) -> Dict[str, Any]:
+    """Clear specific key(s) or all keys in Redis with optional host, port, and key(s)."""
+    redis_url = f"redis://{host}:{port}"
+    client = None
+    result = {"deleted_keys": [], "errors": []}
+
+    try:
+        client = connect_redis(redis_url)
+        if key is None:
+            result["deleted_keys"] = get_redis_keys(
+                host=host, port=port, prefix="*")
+            client.flushdb()
+            logger.success(
+                f"Cleared all keys in Redis database: {result['deleted_keys']}")
+        else:
+            keys = [key] if isinstance(key, str) else key
+            deleted = client.delete(*keys)
+            if deleted > 0:
+                logger.success(f"Deleted {deleted} key(s): {keys}")
+                result["deleted_keys"] = keys
+            else:
+                logger.warning(f"No keys deleted for: {keys}")
+                result["errors"].append(f"No keys found to delete: {keys}")
+    except redis.ConnectionError:
+        logger.error(
+            f"Failed to connect to Redis for clearing key(s) {key or 'all'}")
+        result["errors"].append(
+            f"Connection error while clearing key(s) {key or 'all'}")
+    except Exception as e:
+        logger.error(f"Error clearing Redis key(s) {key or 'all'}: {str(e)}")
+        result["errors"].append(f"General error: {str(e)}")
+    finally:
+        if client is not None:
+            client.close()
 
     return result
