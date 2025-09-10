@@ -16,6 +16,8 @@ from browser_use.llm.views import ChatInvokeCompletion
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.llm.mlx.logger_utils import ChatLogger
 from jet.logger import logger
+from jet.token.token_utils import token_counter
+from jet.transformers.formatters import format_json
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -74,6 +76,12 @@ class ChatOllama(BaseChatModel):
         self, messages: list[BaseMessage], output_format: type[T] | None = None
     ) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
         ollama_messages = OllamaMessageSerializer.serialize_messages(messages)
+
+        logger.gray("LLM Settings:")
+        logger.info(format_json(self.ollama_options))
+
+        logger.debug(
+            f"Prompt Tokens: {token_counter(ollama_messages, self.model)}")
 
         try:
             if output_format is None:
