@@ -1,15 +1,20 @@
-from typing import Iterator, Mapping, Optional, Dict, Any, Union, cast, override
+from typing import AsyncIterator, Iterator, Mapping, Optional, Dict, Any, Union, cast, override
 from jet.actions.generation import call_ollama_chat
 from jet.token.token_utils import token_counter
 from jet.transformers.object import make_serializable
 from jet.utils.class_utils import get_non_empty_attributes
-from langchain_ollama import ChatOllama as BaseChatOllama, OllamaEmbeddings as BaseOllamaEmbeddings
 from jet.logger import logger
+from langchain_ollama import ChatOllama as BaseChatOllama, OllamaEmbeddings as BaseOllamaEmbeddings
+from langchain_community.chat_models.ollama import _chat_stream_response_to_chat_generation_chunk
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForLLMRun,
+    CallbackManagerForLLMRun,
+)
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables.config import ensure_config
-from langchain_core.outputs import ChatGeneration
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk
 from jet.decorators.error import wrap_retry
 from ollama import AsyncClient, Client, Message as OllamaMessage, Options
 
@@ -107,13 +112,10 @@ class ChatOllama(BaseChatOllama):
         content = ""
         role = ""
         tool_calls = []
-
-        # Convert LangChain messages to Ollama-compatible format for logging
         ollama_messages = [
             {"role": msg.type, "content": msg.content}
             for msg in messages
         ]
-
         if not stream:
             content = response["message"]["content"]
             role = response["message"]["role"]
@@ -125,7 +127,7 @@ class ChatOllama(BaseChatOllama):
             final_response = {
                 **response.copy(),
             }
-            # Log the interaction
+            # logger.teal(final_response_content)
             self._logger.log_interaction(
                 prompt_or_messages=ollama_messages,
                 response=final_response_content,
@@ -140,20 +142,19 @@ class ChatOllama(BaseChatOllama):
                 content += chunk["message"]["content"]
                 if not role:
                     role = chunk["message"]["role"]
+                # logger.teal(chunk['message']['content'], flush=True)
                 if chunk["done"]:
                     updated_chunk = chunk.copy()
                     updated_chunk["message"]["content"] = content
                     final_response = {
                         **updated_chunk,
                     }
-                    # Log the interaction when streaming is complete
                     self._logger.log_interaction(
                         prompt_or_messages=ollama_messages,
                         response=content,
                         model=self.model,
                         options=chat_params["options"],
                     )
-
         final_response.pop("message")
         chat_response = ChatResponse(
             message=OllamaMessage(
@@ -210,3 +211,98 @@ class ChatOllama(BaseChatOllama):
             **kwargs,
         )
         return cast("ChatGeneration", llm_result.generations[0][0]).message
+
+    def _stream(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        ollama_messages = [
+            {"role": msg.type, "content": msg.content}
+            for msg in messages
+        ]
+        content = ""
+        role = ""
+        final_response = {}
+        try:
+            for stream_resp in super()._create_chat_stream(messages, stop, **kwargs):
+                if stream_resp:
+                    chunk = _chat_stream_response_to_chat_generation_chunk(
+                        stream_resp)
+                    content += chunk.text
+                    if not role and chunk.generation_info:
+                        role = chunk.generation_info.get(
+                            "message", {}).get("role", "")
+                    if run_manager:
+                        run_manager.on_llm_new_token(
+                            chunk.text,
+                            chunk=chunk,
+                            verbose=self.verbose,
+                        )
+                    if chunk.generation_info and chunk.generation_info.get("done"):
+                        final_response = chunk.generation_info
+                        self._logger.log_interaction(
+                            prompt_or_messages=ollama_messages,
+                            response=content,
+                            model=self.model,
+                            options=get_non_empty_attributes(
+                                self._chat_params(messages, stop, **kwargs)["options"]),
+                        )
+                    yield chunk
+        except OllamaEndpointNotFoundError:
+            for chunk in self._legacy_stream(messages, stop, run_manager, **kwargs):
+                content += chunk.text
+                if not role and chunk.generation_info:
+                    role = chunk.generation_info.get(
+                        "message", {}).get("role", "")
+                if chunk.generation_info and chunk.generation_info.get("done"):
+                    final_response = chunk.generation_info
+                    self._logger.log_interaction(
+                        prompt_or_messages=ollama_messages,
+                        response=content,
+                        model=self.model,
+                        options=get_non_empty_attributes(
+                            self._chat_params(messages, stop, **kwargs)["options"]),
+                    )
+                yield chunk
+
+    async def _astream(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        ollama_messages = [
+            {"role": msg.type, "content": msg.content}
+            for msg in messages
+        ]
+        content = ""
+        role = ""
+        final_response = {}
+        async for stream_resp in self._acreate_chat_stream(messages, stop, **kwargs):
+            if stream_resp:
+                chunk = _chat_stream_response_to_chat_generation_chunk(
+                    stream_resp)
+                content += chunk.text
+                if not role and chunk.generation_info:
+                    role = chunk.generation_info.get(
+                        "message", {}).get("role", "")
+                if run_manager:
+                    await run_manager.on_llm_new_token(
+                        chunk.text,
+                        chunk=chunk,
+                        verbose=self.verbose,
+                    )
+                if chunk.generation_info and chunk.generation_info.get("done"):
+                    final_response = chunk.generation_info
+                    self._logger.log_interaction(
+                        prompt_or_messages=ollama_messages,
+                        response=content,
+                        model=self.model,
+                        options=get_non_empty_attributes(
+                            self._chat_params(messages, stop, **kwargs)["options"]),
+                    )
+                yield chunk
