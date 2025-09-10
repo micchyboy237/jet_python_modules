@@ -3,6 +3,7 @@ from jet.actions.generation import call_ollama_chat
 from jet.token.token_utils import token_counter
 from jet.transformers.object import make_serializable
 from jet.utils.class_utils import get_non_empty_attributes
+from jet.adapters.langchain.ollama_embeddings import OllamaEmbeddings
 from jet.logger import logger
 from langchain_ollama import ChatOllama as BaseChatOllama, OllamaEmbeddings as BaseOllamaEmbeddings
 from langchain_community.chat_models.ollama import _chat_stream_response_to_chat_generation_chunk
