@@ -25,7 +25,7 @@ class ChatLogger:
         method: Literal["chat", "stream_chat", "generate", "stream_generate"],
         limit: Optional[int] = None
     ):
-        start_time = EventSettings.get_entry_event()["start_time"]
+        start_time = EventSettings.get_entry_time()
         # Format start_time as "YYYYMMDD_HHMMSS" (no colons)
         dt = datetime.fromisoformat(start_time)
         formatted_start_time = dt.strftime("%Y%m%d_%H%M%S")

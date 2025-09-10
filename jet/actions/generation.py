@@ -60,7 +60,7 @@ def call_ollama_chat(
     *,
     system: Optional[str] = None,
     context: Optional[str] = None,
-    tools: list[Tool] = None,
+    tools: Optional[list[Tool]] = None,
     format: Optional[Union[str, dict]] = None,
     options: OllamaChatOptions = {},
     stream: bool = True,
@@ -241,7 +241,7 @@ def call_ollama_chat(
         "model": model,
         "messages": messages,
         "stream": stream,
-        "tools": tools,
+        "tools": tools if tools else None,  # Only include tools if non-empty
         "format": format,
         "options": options,
     }

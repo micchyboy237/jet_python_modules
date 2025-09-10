@@ -17,7 +17,7 @@ class _EventSettings:
     _events: Dict[Literal["pre_start_hook", "post_start_hook"]
                   | str, EventData] = field(default_factory=dict)
     _event_data: EventData = field(default_factory=lambda: {
-        "pre_start_hook": {"start_time": ""}
+        "pre_start_hook": {"start_time": time.strftime('%Y-%m-%d|%H:%M:%S', time.gmtime())}
     })
     _current_event: Optional[Literal["pre_start_hook",
                                      "post_start_hook"] | str] = None
@@ -58,12 +58,16 @@ class _EventSettings:
 
     def get_entry_event(self, event_name: Optional[str] = None) -> EventData:
         """Returns the event data for the specified event or the current event."""
-        if event_name:
-            event_data = self.events.get(event_name, {})
-            return event_data
-        if self.current_event:
-            event_data = self.events.get(self.current_event, {})
-            return event_data
+        event_name = event_name or "pre_start_hook"
+        if self.events.get(event_name):
+            return self.events[event_name]
+        raise ValueError("No current event set and no event_name provided")
+
+    def get_entry_time(self, event_name: Optional[str] = None) -> str:
+        """Returns the event data for the specified event or the current event."""
+        event_name = event_name or "pre_start_hook"
+        if self.events.get(event_name):
+            return self.events[event_name]["start_time"]
         raise ValueError("No current event set and no event_name provided")
 
     def __getattr__(self, name):
@@ -117,7 +121,7 @@ def setup_events():
             event_data = EventSettings.pre_start_hook()
             logger.newline()
             logger.success("pre_start_hook triggered at: " +
-                           EventSettings.get_entry_event()["start_time"])
+                           EventSettings.get_entry_time())
 
         pre_start_hook()
 

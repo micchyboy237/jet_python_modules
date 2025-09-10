@@ -79,7 +79,6 @@ class ChatOllama(BaseChatOllama):
             stop,
             **kwargs
         )
-        options: Options = params["options"]
         model: OLLAMA_MODEL_NAMES = params["model"]
         messages = params["messages"]
 
@@ -92,7 +91,6 @@ class ChatOllama(BaseChatOllama):
             logger.warning(error)
             # raise ValueError(error)
 
-        options.num_ctx = model_max_length
         return params
 
     def _create_chat_stream(
@@ -120,9 +118,12 @@ class ChatOllama(BaseChatOllama):
             for msg in messages
         ]
         if not stream:
+            if isinstance(response, dict) and "error" in response:
+                raise ValueError(f"Ollama API error:\n{response['error']}")
             content = response["message"]["content"]
             role = response["message"]["role"]
-            tool_calls = response["message"].get("tool_calls", [])
+            if chat_params.get("tools"):  # Only process tool_calls if tools are provided
+                tool_calls = response["message"].get("tool_calls", [])
             final_response_content = content
             final_response_tool_calls = tool_calls
             if final_response_tool_calls:
@@ -130,33 +131,35 @@ class ChatOllama(BaseChatOllama):
             final_response = {
                 **response.copy(),
             }
-            # logger.teal(final_response_content)
             self._logger.log_interaction(
-                prompt_or_messages=ollama_messages,
+                **{
+                    **chat_params,
+                    "prompt_or_messages": ollama_messages
+                },
                 response=final_response_content,
-                model=self.model,
-                options=chat_params["options"],
             )
         else:
             if isinstance(response, dict) and "error" in response:
-                raise ValueError(
-                    f"Ollama API error:\n{response['error']}")
+                raise ValueError(f"Ollama API error:\n{response['error']}")
             for chunk in response:
                 content += chunk["message"]["content"]
                 if not role:
                     role = chunk["message"]["role"]
-                # logger.teal(chunk['message']['content'], flush=True)
                 if chunk["done"]:
                     updated_chunk = chunk.copy()
                     updated_chunk["message"]["content"] = content
+                    # Only process tool_calls if tools are provided
+                    if chat_params.get("tools"):
+                        tool_calls = chunk["message"].get("tool_calls", [])
                     final_response = {
                         **updated_chunk,
                     }
                     self._logger.log_interaction(
-                        prompt_or_messages=ollama_messages,
+                        **{
+                            **chat_params,
+                            "prompt_or_messages": ollama_messages
+                        },
                         response=content,
-                        model=self.model,
-                        options=chat_params["options"],
                     )
         final_response.pop("message")
         chat_response = ChatResponse(

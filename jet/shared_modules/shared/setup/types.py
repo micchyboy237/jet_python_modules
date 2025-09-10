@@ -13,7 +13,8 @@ class OrigEventDataFunction(BaseEventData, total=False):
     pass
 
 
-class EventData(BaseEventData, total=False):
+class EventData(BaseEventData):
     event_name: str
     orig_function: OrigEventDataFunction
     arguments: dict[str, Any]
+    start_time: str
