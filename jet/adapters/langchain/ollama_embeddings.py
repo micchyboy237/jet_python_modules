@@ -16,7 +16,7 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
 
         batch_size = 50  # Adjust based on experimentation
         embeddings = []
-        for i in tqdm(range(0, len(texts), batch_size), desc=f"Embedding {batch_size} documents", unit="batch"):
+        for i in tqdm(range(0, len(texts), batch_size), desc=f"Embedding {len(texts)} documents", unit="batch"):
             batch = texts[i:i + batch_size]
             try:
                 response = self._client.embed(
