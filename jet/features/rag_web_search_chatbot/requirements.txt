@@ -1,0 +1,10 @@
+langchain
+langchain-ollama
+langchain-community
+langchain-text-splitters
+langgraph
+chromadb
+tavily-python
+streamlit
+python-dotenv
+pytest

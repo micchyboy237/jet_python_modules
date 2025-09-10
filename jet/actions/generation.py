@@ -638,7 +638,7 @@ def convert_tool_outputs_to_string(ollama_messages: list[Message]):
 
 # Main function to demonstrate sample usage
 if __name__ == "__main__":
-    model = "gemma2:9b"
+    model = "llama3.2"
     prompt = "Write a 20 word creative story about an explorer finding a hidden treasure."
 
     # No stream

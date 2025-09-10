@@ -108,6 +108,7 @@ class ChatOllama(BaseChatOllama):
         settings = {
             **chat_params,
             "full_stream_response": True,
+            **kwargs,  # Pass all kwargs to call_ollama_chat
         }
         response = call_ollama_chat(**settings)
         final_response = {}
@@ -123,7 +124,7 @@ class ChatOllama(BaseChatOllama):
                 raise ValueError(f"Ollama API error:\n{response['error']}")
             content = response["message"]["content"]
             role = response["message"]["role"]
-            if chat_params.get("tools"):  # Only process tool_calls if tools are provided
+            if chat_params.get("tools"):
                 tool_calls = response["message"].get("tool_calls", [])
             final_response_content = content
             final_response_tool_calls = tool_calls
@@ -149,7 +150,6 @@ class ChatOllama(BaseChatOllama):
                 if chunk["done"]:
                     updated_chunk = chunk.copy()
                     updated_chunk["message"]["content"] = content
-                    # Only process tool_calls if tools are provided
                     if chat_params.get("tools"):
                         tool_calls = chunk["message"].get("tool_calls", [])
                     final_response = {
