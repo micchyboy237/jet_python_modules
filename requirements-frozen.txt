@@ -10,7 +10,7 @@ azure-search-documents==11.5.3
 bertopic==0.17.3
 blake3==1.0.5
 boto3==1.40.17
--e git+ssh://git@github.com/browser-use/browser-use.git@6fe3ec9afd8b661ea70868ea7d461f4041b64ecb#egg=browser_use
+-e git+ssh://git@github.com/browser-use/browser-use.git@b2eb803e585b6a51ef5b1ab5dcd29a9c16be9e91#egg=browser_use
 bs4==0.0.2
 chainlit==2.7.1.1
 chromadb==1.0.12
@@ -32,7 +32,7 @@ faiss-cpu==1.11.0
 fastapi-cli==0.0.8
 fastapi-cloud-cli==0.1.5
 faster-whisper==1.1.1
--e git+ssh://git@github.com/jlowin/fastmcp.git@bc25802a287788e2bbc4c967fafb4a5c22d7e46b#egg=fastmcp
+-e git+ssh://git@github.com/jlowin/fastmcp.git@9e5e75d73e713e2940a4f540a29738fd8f42783d#egg=fastmcp
 fasttext-langdetect==1.0.5
 ffmpeg-python==0.2.0
 fiddle==0.3.0
@@ -50,7 +50,7 @@ kaldi-python-io==1.2.2
 keybert==0.9.0
 -e git+ssh://git@github.com/langchain-ai/langchain-experimental.git@5cdbf02e3771da35d1438bb7597be4575610684e#egg=langchain_experimental&subdirectory=libs/experimental
 langchain-monorepo @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain
--e git+ssh://git@github.com/langchain-ai/langchain.git@4e39c164bb55ba5f877beb555a1797fc55c31baa#egg=langchain_ollama&subdirectory=libs/partners/ollama
+-e git+ssh://git@github.com/langchain-ai/langchain.git@6e2f46d04cb9a551c8821c3a9f7050f76d61bc9a#egg=langchain_ollama&subdirectory=libs/partners/ollama
 langchain-postgres @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres
 langchain-tavily==0.2.11
 -e git+ssh://git@github.com/langchain-ai/langmem.git@992b9363064812a9d93c08a769cf83f5f3fa4378#egg=langmem
@@ -143,9 +143,9 @@ span_marker==1.7.0
 SpeechRecognition==3.14.3
 sqlite-utils==3.38
 streamlit==1.41.1
--e git+ssh://git@github.com/kyegomez/swarms.git@5ceef024ea5241488f17548280a353d8aa51255c#egg=swarms
+-e git+ssh://git@github.com/kyegomez/swarms.git@28995b6900127a4510dd3c3e926dddf41646ac58#egg=swarms
 -e git+ssh://git@github.com/The-Swarm-Corporation/swarms-tools.git@8f8a1cdb6ff7a7f67d2c0e301a83f38ed64efbba#egg=swarms_tools
-tavily-python==0.7.11
+-e git+ssh://git@github.com/tavily-ai/tavily-python.git@32a933b845480e750ba057443bf4503b6d03cde3#egg=tavily_python
 temporalio==1.16.0
 textacy==0.13.0
 -e git+ssh://git@github.com/sloria/TextBlob.git@364ee8bbb4efb8bbfced19410c3c0bddcfe3cd73#egg=textblob
