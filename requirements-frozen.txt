@@ -135,6 +135,7 @@ rumps==0.4.0
 sacremoses==0.1.1
 scrapy-selenium4==1.0.0
 -e git+ssh://git@github.com/microsoft/semantic-kernel.git@0ec81c8a14cee73e543a4a93f76526fd5ca7ab4a#egg=semantic_kernel&subdirectory=python
+-e git+ssh://git@github.com/huggingface/smolagents.git@83ff2f7ed09788e130965349929f8bd5152e507e#egg=smolagents
 sounddevice==0.5.2
 sox==1.5.0
 spacy-curated-transformers==0.3.0
