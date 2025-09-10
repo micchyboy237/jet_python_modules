@@ -2,7 +2,6 @@ import time
 from urllib.parse import urlparse
 from datetime import datetime
 import json
-from .cache import RedisCache
 import requests
 from typing import Optional, TypedDict
 from urllib.parse import urlencode
@@ -10,7 +9,7 @@ from pydantic import BaseModel
 from jet.logger import logger
 from .filters import filter_relevant, filter_by_date, deduplicate_results, sort_by_score
 from .formatters import decode_encoded_characters
-from jet.cache.redis import RedisConfigParams
+from jet.cache.redis import RedisConfigParams, RedisCache
 from jet.data.utils import generate_key
 
 DEFAULT_REDIS_PORT = 3101

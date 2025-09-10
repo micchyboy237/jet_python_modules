@@ -210,7 +210,15 @@ class CustomLogger:
         force: bool = False,
         encoding: Optional[str] = None,
         errors: Optional[str] = None,
+        overwrite: bool = False,
     ) -> None:
+        # If overwrite is True, set filemode to "w" (write/truncate)
+        if overwrite:
+            filemode = "w"
+        # Ensure the directory for the log file exists
+        if filename is not None:
+            log_dir = os.path.dirname(os.path.abspath(filename))
+            os.makedirs(log_dir, exist_ok=True)
         self.set_config(
             filename=filename,
             filemode=filemode,

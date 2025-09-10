@@ -41,7 +41,7 @@ class ChatLogger:
     def log_interaction(
         self,
         prompt_or_messages: Union[str, List[Message]],
-        response: Union[CompletionResponse, List[CompletionResponse]],
+        response: Union[str, CompletionResponse, List[CompletionResponse]],
         **kwargs: Any
     ) -> None:
         """Log prompt or messages and response to a timestamped file with additional metadata."""
@@ -75,50 +75,61 @@ class ChatLogger:
         else:
             log_data["messages"] = prompt_or_messages.copy()
 
-            # Add assistant role message with response text
+            # Normalize response to text
             if isinstance(response, str):
                 response_text = response
             elif isinstance(response, list):
-                response_text = "\n".join([r["content"] for r in response])
+                response_text = "\n".join(
+                    [r.get("content", "") for r in response])
+            elif isinstance(response, dict):
+                response_text = response.get("content", "")
             else:
-                response_text = response["content"]
+                response_text = str(response)
 
             log_data["messages"].append({
                 "role": "assistant",
                 "content": response_text
             })
 
-        # Handle usage formatting if present
-        formatted_usage = None
-        if "usage" in response:
-            usage = response.pop("usage")
-            formatted_usage = {}
-            if "prompt_tokens" in usage:
-                formatted_usage["prompt_tokens"] = usage["prompt_tokens"]
-            if "prompt_tps" in usage:
-                val = usage["prompt_tps"]
-                formatted_usage["prompt_tps"] = f"{val:.2f} tokens/sec" if isinstance(
-                    val, float) else val
-            if "completion_tokens" in usage:
-                formatted_usage["completion_tokens"] = usage["completion_tokens"]
-            if "completion_tps" in usage:
-                val = usage["completion_tps"]
-                formatted_usage["completion_tps"] = f"{val:.2f} tokens/sec" if isinstance(
-                    val, float) else val
-            if "peak_memory" in usage:
-                val = usage["peak_memory"]
-                formatted_usage["peak_memory"] = f"{val:.2f} GB" if isinstance(
-                    val, float) else val
-            if "total_tokens" in usage:
-                formatted_usage["total_tokens"] = usage["total_tokens"]
-            response["usage"] = formatted_usage
+        # Normalize response for logging
+        if isinstance(response, str):
+            # Just store the string
+            log_data["response"] = response
+        elif isinstance(response, (list, dict)):
+            resp_copy = response.copy() if isinstance(response, dict) else response
 
-        if "choices" in response:
-            choices = response.pop("choices")
-            response["choices"] = choices
+            # Handle usage formatting if present
+            if isinstance(resp_copy, dict) and "usage" in resp_copy:
+                usage = resp_copy.pop("usage")
+                formatted_usage = {}
+                if "prompt_tokens" in usage:
+                    formatted_usage["prompt_tokens"] = usage["prompt_tokens"]
+                if "prompt_tps" in usage:
+                    val = usage["prompt_tps"]
+                    formatted_usage["prompt_tps"] = f"{val:.2f} tokens/sec" if isinstance(
+                        val, float) else val
+                if "completion_tokens" in usage:
+                    formatted_usage["completion_tokens"] = usage["completion_tokens"]
+                if "completion_tps" in usage:
+                    val = usage["completion_tps"]
+                    formatted_usage["completion_tps"] = f"{val:.2f} tokens/sec" if isinstance(
+                        val, float) else val
+                if "peak_memory" in usage:
+                    val = usage["peak_memory"]
+                    formatted_usage["peak_memory"] = f"{val:.2f} GB" if isinstance(
+                        val, float) else val
+                if "total_tokens" in usage:
+                    formatted_usage["total_tokens"] = usage["total_tokens"]
+                resp_copy["usage"] = formatted_usage
 
-        # Add response last
-        log_data["response"] = format_json(response, indent=2)
+            if isinstance(resp_copy, dict) and "choices" in resp_copy:
+                choices = resp_copy.pop("choices")
+                resp_copy["choices"] = choices
+
+            log_data["response"] = format_json(resp_copy, indent=2)
+        else:
+            # fallback for unknown types
+            log_data["response"] = str(response)
 
         save_file(log_data, log_file)
 
