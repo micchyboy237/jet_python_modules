@@ -14,8 +14,11 @@ from pydantic import BaseModel, Field
 from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
 
 from jet.cache.redis import RedisConfigParams, RedisCache
+from jet.cache.redis.data_utils import get_redis_keys
 from jet.logger import logger
 import redis
+
+from jet.transformers.formatters import format_json
 
 DEFAULT_REDIS_PORT = 3103
 
@@ -197,6 +200,9 @@ class TavilySearchResults(BaseTool):
             f"{json.dumps(self.include_domains)}:{json.dumps(self.exclude_domains)}:"
             f"{self.include_answer}:{self.include_raw_content}:{self.include_images}"
         )
+        logger.debug("Current cache key: ", cache_key)
+        logger.debug("Cache keys:\n", format_json(
+            get_redis_keys(port=DEFAULT_REDIS_PORT)))
         cached_result = self.cache.get(cache_key)
         if cached_result and "results" in cached_result:
             logger.log(f"TavilySearchResults: Cache hit for {cache_key}", colors=[
@@ -236,6 +242,9 @@ class TavilySearchResults(BaseTool):
             f"{json.dumps(self.include_domains)}:{json.dumps(self.exclude_domains)}:"
             f"{self.include_answer}:{self.include_raw_content}:{self.include_images}"
         )
+        logger.debug("Current cache key: ", cache_key)
+        logger.debug("Cache keys:\n", format_json(
+            get_redis_keys(port=DEFAULT_REDIS_PORT)))
         cached_result = self.cache.get(cache_key)
         if cached_result and "results" in cached_result:
             logger.log(f"TavilySearchResults: Cache hit for {cache_key}", colors=[
