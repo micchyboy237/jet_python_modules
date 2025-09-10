@@ -275,9 +275,7 @@ class CustomLogger:
             try:
                 if hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno()):
                     colored_output = "".join(
-                        f"{COLORS.get(color, COLORS['LOG'])}{msg}{RESET}"
-                        for msg, color in processed_messages
-                    )
+                        f"{COLORS.get(color, COLORS['LOG'])}{msg}{RESET}" for msg, color in processed_messages)
                 else:
                     colored_output = " ".join(
                         msg for msg, _ in processed_messages)
@@ -315,16 +313,24 @@ class CustomLogger:
                     os.remove(target_log_file)
                 end = "" if flush else "\n\n"
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                # Extract caller information safely
                 try:
                     stack = traceback.extract_stack()
-                    caller = stack[-3]  # Get the caller of wrapper
-                    file_name = os.path.basename(caller.filename)
-                    func_name = caller.name
-                    line_number = caller.lineno
-                    metadata = f"[{level.upper()}] {timestamp} {file_name}:{func_name}:{line_number}"
+                    caller = None
+                    logger_methods = {'wrapper',
+                                      '__getattr__', 'custom_logger_method'}
+                    for frame in reversed(stack):
+                        if frame.name in logger_methods and frame.filename == __file__:
+                            continue
+                        caller = frame
+                        break
+                    if caller:
+                        file_name = os.path.basename(caller.filename)
+                        func_name = caller.name if caller.name != '<module>' else 'main'
+                        line_number = caller.lineno
+                        metadata = f"[{level.upper()}] {timestamp} {file_name}:{func_name}:{line_number}"
+                    else:
+                        metadata = f"[{level.upper()}] {timestamp} unknown:unknown:0"
                 except IndexError:
-                    # Fallback if stack is too shallow
                     metadata = f"[{level.upper()}] {timestamp} unknown:unknown:0"
                 with open(target_log_file, "a") as file:
                     if not flush and self._last_message_flushed:
@@ -396,16 +402,22 @@ class CustomLogger:
             if log_file is not None and self.overwrite and os.path.exists(target_log_file):
                 os.remove(target_log_file)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # Extract caller information safely
             try:
                 stack = traceback.extract_stack()
-                caller = stack[-2]  # Get the caller of pretty
-                file_name = os.path.basename(caller.filename)
-                func_name = caller.name
-                line_number = caller.lineno
-                metadata = f"[PRETTY] {timestamp} {file_name}:{func_name}:{line_number}"
+                caller = None
+                for frame in reversed(stack):
+                    if frame.name == "pretty" and frame.filename == __file__:
+                        continue
+                    caller = frame
+                    break
+                if caller:
+                    file_name = os.path.basename(caller.filename)
+                    func_name = caller.name
+                    line_number = caller.lineno
+                    metadata = f"[PRETTY] {timestamp} {file_name}:{func_name}:{line_number}"
+                else:
+                    metadata = f"[PRETTY] {timestamp} unknown:unknown:0"
             except IndexError:
-                # Fallback if stack is too shallow
                 metadata = f"[PRETTY] {timestamp} unknown:unknown:0"
             with open(target_log_file, "a") as file:
                 file.write(metadata + "\n")
