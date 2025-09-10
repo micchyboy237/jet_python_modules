@@ -53,7 +53,7 @@ class ChatOllama(BaseChatOllama):
         options = {**DETERMINISTIC_LLM_SETTINGS, **kwargs}
         super().__init__(model=model, base_url=base_url,
                          client_kwargs=client_kwargs, **options)
-        self.logger = ChatLogger(log_dir=log_dir, method="chat")
+        self._logger = ChatLogger(log_dir=log_dir, method="chat")
 
     def _chat_params(
         self,
@@ -126,7 +126,7 @@ class ChatOllama(BaseChatOllama):
                 **response.copy(),
             }
             # Log the interaction
-            self.logger.log_interaction(
+            self._logger.log_interaction(
                 prompt_or_messages=ollama_messages,
                 response=final_response_content,
                 model=self.model,
@@ -147,7 +147,7 @@ class ChatOllama(BaseChatOllama):
                         **updated_chunk,
                     }
                     # Log the interaction when streaming is complete
-                    self.logger.log_interaction(
+                    self._logger.log_interaction(
                         prompt_or_messages=ollama_messages,
                         response=content,
                         model=self.model,
