@@ -180,7 +180,7 @@ class OllamaFunctionCalling(FunctionCallingLLM):
         self._client = client
         self._async_client = async_client
         self.log_dir = log_dir
-        self.logger = ChatLogger(log_dir=self.log_dir, method="chat")
+        self._logger = ChatLogger(log_dir=self.log_dir, method="chat")
 
     @classmethod
     def class_name(cls) -> str:
@@ -375,7 +375,7 @@ class OllamaFunctionCalling(FunctionCallingLLM):
         token_counts = self._get_response_token_counts(response)
         if token_counts:
             response["usage"] = token_counts
-        self.logger.log_interaction(
+        self._logger.log_interaction(
             ollama_messages,
             response["message"].get("content", ""),
             model=self.model,
@@ -456,7 +456,7 @@ class OllamaFunctionCalling(FunctionCallingLLM):
                         "thinking_delta": r["message"].get("thinking", None),
                     },
                 )
-            self.logger.log_interaction(
+            self._logger.log_interaction(
                 ollama_messages,
                 response_txt,
                 model=self.model,
@@ -490,7 +490,7 @@ class OllamaFunctionCalling(FunctionCallingLLM):
         token_counts = self._get_response_token_counts(response)
         if token_counts:
             response["usage"] = token_counts
-        self.logger.log_interaction(
+        self._logger.log_interaction(
             ollama_messages,
             response["message"].get("content", ""),
             model=self.model,
@@ -571,7 +571,7 @@ class OllamaFunctionCalling(FunctionCallingLLM):
                         "thinking_delta": r["message"].get("thinking", None),
                     },
                 )
-            self.logger.log_interaction(
+            self._logger.log_interaction(
                 ollama_messages,
                 response_txt,
                 model=self.model,
@@ -620,7 +620,7 @@ class OllamaFunctionCalling(FunctionCallingLLM):
             llm_kwargs["format"] = output_cls.model_json_schema()
             messages = prompt.format_messages(**prompt_args)
             response = self.chat(messages, **llm_kwargs)
-            self.logger.log_interaction(
+            self._logger.log_interaction(
                 self._convert_to_ollama_messages(messages),
                 response.message.content or "",
                 model=self.model,
@@ -646,7 +646,7 @@ class OllamaFunctionCalling(FunctionCallingLLM):
             llm_kwargs["format"] = output_cls.model_json_schema()
             messages = prompt.format_messages(**prompt_args)
             response = await self.achat(messages, **llm_kwargs)
-            self.logger.log_interaction(
+            self._logger.log_interaction(
                 self._convert_to_ollama_messages(messages),
                 response.message.content or "",
                 model=self.model,
@@ -696,7 +696,7 @@ class OllamaFunctionCalling(FunctionCallingLLM):
                         yield objects
                     except Exception:
                         continue
-                self.logger.log_interaction(
+                self._logger.log_interaction(
                     self._convert_to_ollama_messages(messages),
                     response_txt,
                     model=self.model,
@@ -746,7 +746,7 @@ class OllamaFunctionCalling(FunctionCallingLLM):
                         yield objects
                     except Exception:
                         continue
-                self.logger.log_interaction(
+                self._logger.log_interaction(
                     self._convert_to_ollama_messages(messages),
                     response_txt,
                     model=self.model,
