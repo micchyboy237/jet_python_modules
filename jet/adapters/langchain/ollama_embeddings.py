@@ -14,7 +14,7 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
             )
             raise ValueError(msg)
 
-        batch_size = 50  # Adjust based on experimentation
+        batch_size = 32  # Adjust based on experimentation
         embeddings = []
         for i in tqdm(range(0, len(texts), batch_size), desc=f"Embedding {len(texts)} documents", unit="batch"):
             batch = texts[i:i + batch_size]

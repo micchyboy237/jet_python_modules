@@ -9,7 +9,7 @@ class RagasContextRelevancy:
     using the LLM to score each context.
     """
 
-    def __init__(self, model: str = "llama3.1", request_timeout: float = 300.0, context_window: int = 4096):
+    def __init__(self, model: str = "llama3.2", request_timeout: float = 300.0, context_window: int = 4096):
         self.model = ChatOllama(model=model, request_timeout=request_timeout)
         self.context_window = context_window
 
