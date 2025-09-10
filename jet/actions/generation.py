@@ -20,6 +20,7 @@ from jet.llm.llm_types import (
     MessageRole,
     Track,
 )
+from jet.transformers.formatters import format_json
 from jet.utils.class_utils import get_class_name
 from jet.logger import logger
 from jet.transformers.object import make_serializable
@@ -274,6 +275,12 @@ def call_ollama_chat(
         "Context": sanitize_header_value(context) if context else "",
         "Template": sanitize_header_value(template.template) if template else ""
     }
+
+    if verbose:
+        logger.log("Request Headers:\n", format_json(
+            headers), colors=["WHITE", "DEBUG"])
+        logger.log("Request Body:\n", format_json(
+            body), colors=["WHITE", "DEBUG"])
 
     try:
         # Make the POST request with headers

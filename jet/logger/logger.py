@@ -249,14 +249,11 @@ class CustomLogger:
             if args:
                 try:
                     message = message % args
-                    formatted_args = ()  # clear after formatting
+                    formatted_args = ""
                 except (TypeError, ValueError) as e:
-                    # self.warning(
-                    #     f"Failed to format message '{message}' with args {args}: {str(e)}")
                     formatted_args = tuple(map(str, args))
             else:
-                formatted_args = ()
-
+                formatted_args = ""
             if colors is None:
                 colors = [f"BRIGHT_{level}" if bright else level]
             else:
@@ -318,7 +315,14 @@ class CustomLogger:
                     os.remove(target_log_file)
                 end = "" if flush else "\n\n"
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                metadata = f"[{level.upper()}] {timestamp}"
+                # Extract caller information
+                stack = traceback.extract_stack()
+                # Get the caller of wrapper (skip wrapper and custom_logger_method)
+                caller = stack[-3]
+                file_name = os.path.basename(caller.filename)
+                func_name = caller.name
+                line_number = caller.lineno
+                metadata = f"[{level.upper()}] {timestamp} {file_name}:{func_name}:{line_number}"
                 with open(target_log_file, "a") as file:
                     if not flush and self._last_message_flushed:
                         file.write("\n\n")
@@ -345,7 +349,6 @@ class CustomLogger:
             marker_list = ["-", "+"]
             marker = marker_list[level % 2]
             line_prefix = indent if level == 0 else f"{indent}{marker} "
-
             KEY_COLOR = COLORS["DEBUG"]
             VALUE_COLOR = COLORS["SUCCESS"]
             LIST_ITEM_COLOR = COLORS["SUCCESS"]
@@ -353,7 +356,6 @@ class CustomLogger:
             def truncate_string(s: str) -> str:
                 s = str(s)
                 return s if len(s) <= MAX_STRING_LENGTH else s[:MAX_STRING_LENGTH] + "..."
-
             if isinstance(prompt, dict):
                 for key, value in prompt.items():
                     prompt_log += f"{line_prefix}{KEY_COLOR}{str(key)}{RESET}: "
@@ -372,10 +374,8 @@ class CustomLogger:
             else:
                 truncated_prompt = truncate_string(prompt)
                 prompt_log += f"{line_prefix}{LIST_ITEM_COLOR}{truncated_prompt}{RESET}\n"
-
             prompt_log = fix_and_unidecode(prompt_log)
             return prompt_log
-
         prompt_log = _inner(prompt, level)
         try:
             if hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno()):
@@ -386,7 +386,6 @@ class CustomLogger:
             print(clean_ansi(prompt_log))
             print(
                 f"[WARNING] Fallback to non-colored output in pretty method due to io.UnsupportedOperation")
-
         target_log_file = log_file if log_file is not None else self.log_file
         if target_log_file:
             log_dir = os.path.dirname(os.path.abspath(target_log_file))
@@ -394,7 +393,13 @@ class CustomLogger:
             if log_file is not None and self.overwrite and os.path.exists(target_log_file):
                 os.remove(target_log_file)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            metadata = f"[PRETTY] {timestamp}"
+            # Extract caller information
+            stack = traceback.extract_stack()
+            caller = stack[-2]  # Get the caller of pretty
+            file_name = os.path.basename(caller.filename)
+            func_name = caller.name
+            line_number = caller.lineno
+            metadata = f"[PRETTY] {timestamp} {file_name}:{func_name}:{line_number}"
             with open(target_log_file, "a") as file:
                 file.write(metadata + "\n")
                 file.write(format_json(prompt) + "\n\n")
