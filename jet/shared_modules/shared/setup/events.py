@@ -44,7 +44,8 @@ class _EventSettings:
 
     @event_data.setter
     def event_data(self, event_data: EventData) -> None:
-        logger.debug(f"Setting event_data for current_event: {self.current_event}")
+        logger.debug(
+            f"Setting event_data for current_event: {self.current_event}")
         self._event_data = event_data
 
         if not self.current_event:
@@ -92,7 +93,6 @@ class _EventSettings:
         }
         self.event_data[event_name] = event_data
         self.events[event_name] = event_data
-        logger.debug(f"Set event_data for {event_name}: {event_data}")
 
         logger.log(f"File:", event_data.get(
             'filename', 'N/A'), colors=["GRAY", "ORANGE"])

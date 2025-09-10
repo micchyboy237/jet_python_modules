@@ -96,7 +96,7 @@ def call_ollama_chat(
          Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
          Either the JSON response or a generator for streamed responses.
     """
-    from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS
+    from jet.llm.models import OLLAMA_MODEL_CONTEXTS
     from jet.token.token_utils import get_ollama_tokenizer, filter_texts, token_counter, calculate_num_predict_ctx
     tokenizer = get_ollama_tokenizer(model)
     set_global_tokenizer(tokenizer)
@@ -161,7 +161,7 @@ def call_ollama_chat(
             prompt = template.format(context=context, query=query)
         latest_user_message["content"] = prompt
 
-    model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+    model_max_length = OLLAMA_MODEL_CONTEXTS[model]
     prompt_tokens: int = token_counter(messages, model)
 
     # Get the system message for token counting (from the first message if it's a system message)
@@ -189,7 +189,7 @@ def call_ollama_chat(
             messages, model, max_tokens=max_tokens)
 
     num_predict = options.get("num_predict", -1)
-    num_ctx = model_max_length
+    num_ctx = 4096
     predict_tokens = num_ctx - (system_tokens + prompt_tokens)
     max_prompt_tokens = model_max_length - buffer
     derived_options = {
@@ -536,7 +536,7 @@ def call_ollama_generate(
         track (Track): For optional tracking via Aim.
         verbose (bool): Enable or disable logging (defaults to True).
     """
-    from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS
+    from jet.llm.models import OLLAMA_MODEL_CONTEXTS
     from jet.token.token_utils import get_ollama_tokenizer, token_counter
     tokenizer = get_ollama_tokenizer(model)
     set_global_tokenizer(tokenizer)
@@ -546,7 +546,7 @@ def call_ollama_generate(
     if context:
         prompt = PROMPT_CONTEXT_TEMPLATE.format(context=context, query=prompt)
 
-    model_max_length = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+    model_max_length = OLLAMA_MODEL_CONTEXTS[model]
     prompt_tokens = token_counter(prompt, model)
 
     options = {

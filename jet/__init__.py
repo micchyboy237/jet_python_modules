@@ -31,10 +31,11 @@ def suppress_logging():
 
     transformers_logging.set_verbosity_warning()
 
-    logging.getLogger("http.client").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("requests").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("http.client").setLevel(logging.WARNING)
     logging.getLogger("filelock").setLevel(logging.WARNING)
 
 
