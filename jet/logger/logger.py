@@ -315,14 +315,17 @@ class CustomLogger:
                     os.remove(target_log_file)
                 end = "" if flush else "\n\n"
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                # Extract caller information
-                stack = traceback.extract_stack()
-                # Get the caller of wrapper (skip wrapper and custom_logger_method)
-                caller = stack[-3]
-                file_name = os.path.basename(caller.filename)
-                func_name = caller.name
-                line_number = caller.lineno
-                metadata = f"[{level.upper()}] {timestamp} {file_name}:{func_name}:{line_number}"
+                # Extract caller information safely
+                try:
+                    stack = traceback.extract_stack()
+                    caller = stack[-3]  # Get the caller of wrapper
+                    file_name = os.path.basename(caller.filename)
+                    func_name = caller.name
+                    line_number = caller.lineno
+                    metadata = f"[{level.upper()}] {timestamp} {file_name}:{func_name}:{line_number}"
+                except IndexError:
+                    # Fallback if stack is too shallow
+                    metadata = f"[{level.upper()}] {timestamp} unknown:unknown:0"
                 with open(target_log_file, "a") as file:
                     if not flush and self._last_message_flushed:
                         file.write("\n\n")
@@ -393,13 +396,17 @@ class CustomLogger:
             if log_file is not None and self.overwrite and os.path.exists(target_log_file):
                 os.remove(target_log_file)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # Extract caller information
-            stack = traceback.extract_stack()
-            caller = stack[-2]  # Get the caller of pretty
-            file_name = os.path.basename(caller.filename)
-            func_name = caller.name
-            line_number = caller.lineno
-            metadata = f"[PRETTY] {timestamp} {file_name}:{func_name}:{line_number}"
+            # Extract caller information safely
+            try:
+                stack = traceback.extract_stack()
+                caller = stack[-2]  # Get the caller of pretty
+                file_name = os.path.basename(caller.filename)
+                func_name = caller.name
+                line_number = caller.lineno
+                metadata = f"[PRETTY] {timestamp} {file_name}:{func_name}:{line_number}"
+            except IndexError:
+                # Fallback if stack is too shallow
+                metadata = f"[PRETTY] {timestamp} unknown:unknown:0"
             with open(target_log_file, "a") as file:
                 file.write(metadata + "\n")
                 file.write(format_json(prompt) + "\n\n")
