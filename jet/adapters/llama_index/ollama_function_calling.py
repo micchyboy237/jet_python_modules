@@ -568,7 +568,8 @@ class OllamaFunctionCalling(FunctionCallingLLM):
                     delta=r["message"].get("content", ""),
                     raw=r,
                     additional_kwargs={
-                        "thinking_delta": r["message"].get("thinking", None),
+                        # Ensure string
+                        "thinking_delta": str(r["message"].get("thinking", "")),
                     },
                 )
             self._logger.log_interaction(

@@ -1,6 +1,7 @@
 from typing import AsyncIterator, Iterator, Mapping, Optional, Dict, Any, Union, cast, override
 from jet.actions.generation import call_ollama_chat
 from jet.token.token_utils import token_counter
+from jet.transformers.formatters import format_json
 from jet.transformers.object import make_serializable
 from jet.utils.class_utils import get_non_empty_attributes
 from jet.logger import logger
@@ -109,6 +110,13 @@ class ChatOllama(BaseChatOllama):
             "full_stream_response": True,
             **kwargs,  # Pass all kwargs to call_ollama_chat
         }
+
+        logger.gray("LLM Settings:")
+        logger.info(format_json(
+            {k: v for k, v in chat_params.items() if k != "messages"}))
+        logger.debug(
+            f"Prompt Tokens: {token_counter(chat_params["messages"], self.model)}")
+
         response = call_ollama_chat(**settings)
         final_response = {}
         content = ""
