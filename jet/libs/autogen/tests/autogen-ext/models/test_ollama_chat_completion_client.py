@@ -15,7 +15,7 @@ from autogen_core.models import (
 )
 from autogen_core.tools import FunctionTool, ToolSchema
 from autogen_ext.models.ollama._ollama_client import OLLAMA_VALID_CREATE_KWARGS_KEYS, convert_tools
-from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from httpx import Response
 from ollama import AsyncClient, ChatResponse, Message, Tool
 from pydantic import BaseModel

@@ -7,11 +7,19 @@ for specific use cases and website requirements.
 
 from swarms_tools.search.web_scraper import SuperFastScraper
 
+from jet.file.utils import save_file
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(os.path.dirname(
+    __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
 # Create scraper with custom configuration for research sites
 research_scraper = SuperFastScraper(
     timeout=20,  # Longer timeout for academic sites
     max_retries=5,  # More retries for reliability
-    user_agent="Mozilla/5.0 (compatible; ResearchBot/1.0; +http://example.com/bot)",
+    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.6998.205 Safari/537.36",
     max_workers=2,  # Conservative threading for respectful scraping
     strip_html=True,
     remove_scripts=True,
@@ -35,6 +43,8 @@ academic_summary = research_scraper.format_content(
     format_type="full",  # Complete content for research
     truncate=False,  # Never truncate academic content
 )
+
+save_file(academic_summary, f"{OUTPUT_DIR}/academic_summary.md")
 
 # Configuration optimized for:
 # - Academic papers and journals

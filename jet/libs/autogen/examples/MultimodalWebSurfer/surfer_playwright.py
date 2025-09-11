@@ -4,7 +4,7 @@ import os
 from typing import Optional
 from autogen_agentchat.ui import Console
 from autogen_agentchat.teams import RoundRobinGroupChat
-from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 from pydantic import BaseModel
 

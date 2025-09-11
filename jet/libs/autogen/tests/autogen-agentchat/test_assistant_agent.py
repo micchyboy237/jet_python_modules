@@ -45,7 +45,7 @@ from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_ext.models.replay import ReplayChatCompletionClient
 from autogen_ext.tools.mcp import McpWorkbench, SseServerParams
 from pydantic import BaseModel, ValidationError
-from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 
 
 def mock_tool_function(param: str) -> str:

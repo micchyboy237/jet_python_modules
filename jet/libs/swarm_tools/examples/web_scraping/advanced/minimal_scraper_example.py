@@ -7,11 +7,19 @@ the minimal format for fast processing and overview.
 
 from swarms_tools.search.web_scraper import SuperFastScraper
 
+from jet.file.utils import save_file
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(os.path.dirname(
+    __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
 # Create scraper instance with optimized settings for speed
 scraper = SuperFastScraper(
     timeout=8,
     max_workers=3,
-    user_agent="FastBot/1.0",
+    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.6998.205 Safari/537.36",
     strip_html=True,
     remove_scripts=True,
     remove_styles=True,
@@ -36,6 +44,8 @@ minimal_results = scraper.scrape_urls_formatted(
 # Perfect for quick scanning and overview
 
 compact_summaries = minimal_results
+
+save_file(compact_summaries, f"{OUTPUT_DIR}/compact_summaries.md")
 
 # Ideal for:
 # - Content previews

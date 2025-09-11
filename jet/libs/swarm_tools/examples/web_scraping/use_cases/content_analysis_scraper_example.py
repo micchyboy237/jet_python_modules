@@ -20,7 +20,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 log_dir = os.path.join(OUTPUT_DIR, "logs")
 os.makedirs(log_dir, exist_ok=True)
 filename_no_ext = os.path.splitext(os.path.basename(__file__))[0]
-log_file = os.path.join(log_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+log_file = os.path.join(
+    log_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
 logger = CustomLogger(log_file, overwrite=True)
 logger.orange(f"Logs: {log_file}")
 
@@ -29,7 +30,7 @@ logger.info("Initializing SuperFastScraper with optimized settings")
 content_analyzer = SuperFastScraper(
     timeout=12,
     max_workers=4,
-    user_agent="ContentAnalyzer/1.0 (compatible)",
+    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.6998.205 Safari/537.36",
     strip_html=True,
     remove_scripts=True,
     remove_styles=True,
@@ -94,7 +95,8 @@ for content in analysis_results:
             media_ratio
         )
     except Exception as e:
-        logger.error("Error processing content for %s: %s", content.url, str(e))
+        logger.error("Error processing content for %s: %s",
+                     content.url, str(e))
 
 # Applications:
 # - SEO content audits

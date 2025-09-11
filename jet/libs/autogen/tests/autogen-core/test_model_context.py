@@ -14,7 +14,7 @@ from autogen_core.models import (
     LLMMessage,
     UserMessage,
 )
-from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 
 

@@ -5,7 +5,7 @@ from typing import Optional
 from autogen_ext.tools.mcp import McpWorkbench, StdioServerParams
 from mcp.types import CallToolResult
 from autogen_core.models import ChatCompletionClient, CreateResult, ModelInfo, RequestUsage
-from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from jet.servers.mcp.config import MCP_SERVER_PATH
 
 

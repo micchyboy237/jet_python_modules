@@ -2,10 +2,25 @@ from autogen_ext.models.ollama import OllamaChatCompletionClient as BaseOllamaCh
 from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.logger import logger
+from jet.transformers.formatters import format_json
 
 
 class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
+    def __init__(self, model: str, host: str, timeout: float = 300.0, options: dict = None, **kwargs):
+        # Set default options with temperature if not provided
+        options = options or {}
+        options.setdefault("temperature", 0.0)
+        super().__init__(model=model, host=host, timeout=timeout, options=options, **kwargs)
+
     async def create(self, *args, **kwargs):
+        logger.gray("Chat LLM Settings:")
+        logger.info(format_json({
+            "args": args,
+            "kwargs": kwargs,
+        }))
+
+        # logger.debug(
+        #     f"Prompt Tokens: {token_counter(ollama_messages, self.model)}")
         result = await super().create(*args, **kwargs)
 
         # Log to console
@@ -23,6 +38,12 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
         return result
 
     async def create_stream(self, *args, **kwargs):
+        logger.gray("Stream Chat LLM Settings:")
+        logger.info(format_json({
+            "args": args,
+            "kwargs": kwargs,
+        }))
+
         async for chunk in super().create_stream(*args, **kwargs):
             if isinstance(chunk, str):
                 # Log partial chunks to console

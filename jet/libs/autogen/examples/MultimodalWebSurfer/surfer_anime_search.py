@@ -4,7 +4,7 @@ import asyncio
 import re
 from typing import Any, List, Dict, TypedDict
 from jet.logger import CustomLogger
-from jet.libs.autogen.ollama_client import OllamaChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from jet.libs.autogen.multimodal_web_surfer import (
     MultimodalWebSurfer,
     MultimodalWebSurferConfig,

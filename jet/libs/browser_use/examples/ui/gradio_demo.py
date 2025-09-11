@@ -87,8 +87,8 @@ def create_ui():
 
         with gr.Row():
             with gr.Column():
-                api_key = gr.Textbox(label='OpenAI API Key',
-                                     placeholder='sk-...', type='password')
+                # api_key = gr.Textbox(label='OpenAI API Key',
+                #                      placeholder='sk-...', type='password')
                 task = gr.Textbox(
                     label='Task Description',
                     placeholder='E.g., Find flights from New York to London for next week',
@@ -117,7 +117,7 @@ def create_ui():
 
         submit_btn.click(
             fn=lambda *args: asyncio.run(run_browser_task(*args)),
-            inputs=[task, model, headless, api_key],
+            inputs=[task, model, headless],
             outputs=output,
         )
 
