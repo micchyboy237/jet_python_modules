@@ -80,26 +80,25 @@ def strip_comments(content: str, remove_triple_quoted_definitions: bool = False)
     return cleaned
 
 
-def remove_comments(source):
+def remove_comments(source, remove_triple_quoted_definitions: bool = False):
     """
-    Remove comments from either a Python file or Python code string, retaining lines starting with '#'.
+    Remove comments from a Python file or code string.
 
     Args:
-        source (str): Path to the Python file or Python code string.
+        source (str): Path to a Python file or a string of Python code.
+        remove_triple_quoted_definitions (bool): If True, remove triple-quoted docstrings.
 
     Returns:
-        str: For files: Success or error message.
-             For code string: Modified code with comments removed.
+        str: If source is a file path, returns None after modifying the file in-place.
+             If source is a code string, returns the code with comments removed.
     """
-    # Check if source is a file path
+    # If source is a file path, process file in-place
     if Path(source).is_file():
         try:
-            # Read the file content
             with open(source, 'r', encoding='utf-8') as file:
                 content = file.read()
-
-            # Process the content
-            modified_content = strip_comments(content)
+            modified_content = strip_comments(
+                content, remove_triple_quoted_definitions)
 
             # Write the modified content back to the file
             with open(source, 'w', encoding='utf-8') as file:
