@@ -1,111 +1,129 @@
 # pyright: reportMissingImports=false
+from typing import Optional
+from jet.adapters.browser_use.ollama.chat import ChatOllama
+from browser_use import Agent, BrowserProfile
+from rich.text import Text
+from rich.panel import Panel
+from rich.console import Console
+import gradio as gr  # type: ignore
+from dotenv import load_dotenv
 import asyncio
 import os
 import sys
 from dataclasses import dataclass
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.append(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))))
 
-from dotenv import load_dotenv
 
 load_dotenv()
 
 # Third-party imports
-import gradio as gr  # type: ignore
-from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
 # Local module imports
-from browser_use import Agent, ChatOllama
 
 
 @dataclass
 class ActionResult:
-	is_done: bool
-	extracted_content: str | None
-	error: str | None
-	include_in_memory: bool
+    is_done: bool
+    extracted_content: str | None
+    error: str | None
+    include_in_memory: bool
 
 
 @dataclass
 class AgentHistoryList:
-	all_results: list[ActionResult]
-	all_model_outputs: list[dict]
+    all_results: list[ActionResult]
+    all_model_outputs: list[dict]
 
 
 def parse_agent_history(history_str: str) -> None:
-	console = Console()
+    console = Console()
 
-	# Split the content into sections based on ActionResult entries
-	sections = history_str.split('ActionResult(')
+    # Split the content into sections based on ActionResult entries
+    sections = history_str.split('ActionResult(')
 
-	for i, section in enumerate(sections[1:], 1):  # Skip first empty section
-		# Extract relevant information
-		content = ''
-		if 'extracted_content=' in section:
-			content = section.split('extracted_content=')[1].split(',')[0].strip("'")
+    for i, section in enumerate(sections[1:], 1):  # Skip first empty section
+        # Extract relevant information
+        content = ''
+        if 'extracted_content=' in section:
+            content = section.split('extracted_content=')[
+                1].split(',')[0].strip("'")
 
-		if content:
-			header = Text(f'Step {i}', style='bold blue')
-			panel = Panel(content, title=header, border_style='blue')
-			console.print(panel)
-			console.print()
+        if content:
+            header = Text(f'Step {i}', style='bold blue')
+            panel = Panel(content, title=header, border_style='blue')
+            console.print(panel)
+            console.print()
 
-	return None
+    return None
 
 
 async def run_browser_task(
-	task: str,
-	api_key: str,
-	model: str = 'gpt-4.1',
-	headless: bool = True,
+        task: str,
+        model: str = 'llama3.2',
+        headless: bool = True,
+        api_key: Optional[str] = None,
 ) -> str:
-	if not api_key.strip():
-		return 'Please provide an API key'
+    # if not api_key.strip():
+    #     return 'Please provide an API key'
 
-	os.environ['OPENAI_API_KEY'] = api_key
+    # os.environ['OPENAI_API_KEY'] = api_key
 
-	try:
-		agent = Agent(
-			task=task,
-			llm=ChatOllama(model='llama3.2'),
-		)
-		result = await agent.run()
-		#  TODO: The result could be parsed better
-		return str(result)
-	except Exception as e:
-		return f'Error: {str(e)}'
+    browser_profile = BrowserProfile(headless=headless)
+    agent = Agent(
+        task=task,
+        llm=ChatOllama(model=model),
+        browser_profile=browser_profile,
+    )
+    result = await agent.run()
+    #  TODO: The result could be parsed better
+    return str(result)
 
 
 def create_ui():
-	with gr.Blocks(title='Browser Use GUI') as interface:
-		gr.Markdown('# Browser Use Task Automation')
+    with gr.Blocks(title='Browser Use GUI') as interface:
+        gr.Markdown('# Browser Use Task Automation')
 
-		with gr.Row():
-			with gr.Column():
-				api_key = gr.Textbox(label='OpenAI API Key', placeholder='sk-...', type='password')
-				task = gr.Textbox(
-					label='Task Description',
-					placeholder='E.g., Find flights from New York to London for next week',
-					lines=3,
-				)
-				model = gr.Dropdown(choices=['gpt-4', 'gpt-3.5-turbo'], label='Model', value='gpt-4')
-				headless = gr.Checkbox(label='Run Headless', value=True)
-				submit_btn = gr.Button('Run Task')
+        with gr.Row():
+            with gr.Column():
+                api_key = gr.Textbox(label='OpenAI API Key',
+                                     placeholder='sk-...', type='password')
+                task = gr.Textbox(
+                    label='Task Description',
+                    placeholder='E.g., Find flights from New York to London for next week',
+                    lines=3,
+                )
+                model = gr.Dropdown(
+                    choices=[
+                        'nomic-embed-text',
+                        'mxbai-embed-large',
+                        'all-minilm:22m',
+                        'all-minilm:33m',
+                        'paraphrase-multilingual',
+                        'bge-large',
+                        'granite-embedding',
+                        'granite-embedding:278m',
+                    ],
+                    label='Model',
+                    value='nomic-embed-text'
+                )
+                headless = gr.Checkbox(label='Run Headless', value=True)
+                submit_btn = gr.Button('Run Task')
 
-			with gr.Column():
-				output = gr.Textbox(label='Output', lines=10, interactive=False)
+            with gr.Column():
+                output = gr.Textbox(
+                    label='Output', lines=10, interactive=False)
 
-		submit_btn.click(
-			fn=lambda *args: asyncio.run(run_browser_task(*args)),
-			inputs=[task, api_key, model, headless],
-			outputs=output,
-		)
+        submit_btn.click(
+            fn=lambda *args: asyncio.run(run_browser_task(*args)),
+            inputs=[task, model, headless, api_key],
+            outputs=output,
+        )
 
-	return interface
+    return interface
 
 
 if __name__ == '__main__':
-	demo = create_ui()
-	demo.launch()
+    demo = create_ui()
+    demo.launch()

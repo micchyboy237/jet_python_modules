@@ -5,7 +5,8 @@ import shutil
 
 from dotenv import load_dotenv
 
-from browser_use import Agent, ChatOllama
+from browser_use import Agent
+from jet.adapters.browser_use.ollama.chat import ChatOllama
 
 load_dotenv()
 
@@ -30,21 +31,21 @@ NOTE: DO NOT USE extract_structured_data action - everything is visible in brows
 llm = ChatOllama(model='llama3.2')
 
 agent = Agent(
-	task=task,
-	llm=llm,
-	save_conversation_path=str(conversation_dir),
-	file_system_path=str(agent_dir / 'fs'),
+    task=task,
+    llm=llm,
+    save_conversation_path=str(conversation_dir),
+    file_system_path=str(agent_dir / 'fs'),
 )
 
 
 async def main():
-	agent_history = await agent.run()
-	print(f'Final result: {agent_history.final_result()}', flush=True)
+    agent_history = await agent.run()
+    print(f'Final result: {agent_history.final_result()}', flush=True)
 
-	input('Press Enter to clean the file system...')
-	# clean the file system
-	shutil.rmtree(str(agent_dir / 'fs'))
+    input('Press Enter to clean the file system...')
+    # clean the file system
+    shutil.rmtree(str(agent_dir / 'fs'))
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    asyncio.run(main())

@@ -42,7 +42,9 @@ async def main():
     browser_profile = BrowserProfile(
         minimum_wait_page_load_time=0.1,
         wait_between_actions=0.1,
-        headless=True,
+        headless=False,
+        # Move window to x=100, y=100
+        window_position={"width": 100, "height": 100},
     )
     task = """\
     1. Go to https://anilist.co to find trending isekai anime

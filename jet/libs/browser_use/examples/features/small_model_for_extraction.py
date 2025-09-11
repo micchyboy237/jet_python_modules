@@ -1,14 +1,16 @@
+from jet.adapters.browser_use.ollama.chat import ChatOllama
+from browser_use import Agent
+from dotenv import load_dotenv
 import asyncio
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.append(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))))
 
-from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, ChatOllama
 
 # This uses a bigger model for the planning
 # And a smaller model for the page content extraction
@@ -20,8 +22,8 @@ agent = Agent(task=task, llm=llm, page_extraction_llm=small_llm)
 
 
 async def main():
-	await agent.run()
+    await agent.run()
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    asyncio.run(main())

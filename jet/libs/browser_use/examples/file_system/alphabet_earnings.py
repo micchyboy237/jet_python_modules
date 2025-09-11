@@ -5,7 +5,8 @@ import shutil
 
 from dotenv import load_dotenv
 
-from browser_use import Agent, ChatOllama
+from browser_use import Agent
+from jet.adapters.browser_use.ollama.chat import ChatOllama
 from browser_use.browser import BrowserProfile, BrowserSession
 
 load_dotenv()
@@ -17,11 +18,12 @@ agent_dir.mkdir(exist_ok=True)
 
 
 llm = ChatOllama(
-	model='o4-mini',
+    model='o4-mini',
 )
 
 browser_session = BrowserSession(
-	browser_profile=BrowserProfile(downloads_path=str(agent_dir / 'downloads')),
+    browser_profile=BrowserProfile(
+        downloads_path=str(agent_dir / 'downloads')),
 )
 
 task = """
@@ -30,20 +32,20 @@ Read the PDF and save 3 interesting data points in "alphabet_earnings.pdf" and s
 """.strip('\n')
 
 agent = Agent(
-	task=task,
-	llm=llm,
-	browser_session=browser_session,
-	file_system_path=str(agent_dir / 'fs'),
-	flash_mode=True,
+    task=task,
+    llm=llm,
+    browser_session=browser_session,
+    file_system_path=str(agent_dir / 'fs'),
+    flash_mode=True,
 )
 
 
 async def main():
-	agent_history = await agent.run()
-	input('Press Enter to clean the file system...')
-	# clean the file system
-	shutil.rmtree(str(agent_dir / 'fs'))
+    agent_history = await agent.run()
+    input('Press Enter to clean the file system...')
+    # clean the file system
+    shutil.rmtree(str(agent_dir / 'fs'))
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    asyncio.run(main())

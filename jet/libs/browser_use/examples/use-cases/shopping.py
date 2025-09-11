@@ -1,14 +1,16 @@
+from jet.adapters.browser_use.ollama.chat import ChatOllama
+from browser_use import Agent
+from dotenv import load_dotenv
 import asyncio
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.append(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))))
 
-from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, ChatOllama
 
 task = """
    ### Prompt for Shopping Agent – Migros Online Grocery Order
@@ -112,9 +114,9 @@ agent = Agent(task=task, llm=ChatOllama(model='llama3.2'))
 
 
 async def main():
-	await agent.run()
-	input('Press Enter to close the browser...')
+    await agent.run()
+    input('Press Enter to close the browser...')
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    asyncio.run(main())

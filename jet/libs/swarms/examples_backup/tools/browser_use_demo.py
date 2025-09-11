@@ -1,6 +1,7 @@
 import asyncio
 
-from browser_use import Agent, ChatOllama
+from browser_use import Agent
+from jet.adapters.browser_use.ollama.chat import ChatOllama
 from dotenv import load_dotenv
 
 from swarms import ConcurrentWorkflow

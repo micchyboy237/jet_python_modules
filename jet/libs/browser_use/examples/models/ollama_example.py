@@ -3,8 +3,9 @@
 # 3. In a new terminal, install the model you want to use: `ollama pull llama3.1:8b` (this has 4.9GB)
 
 
-from browser_use import Agent, ChatOllama
+from browser_use import Agent
+from jet.adapters.browser_use.ollama.chat import ChatOllama
 
-llm = ChatOllama(model='llama3.1:8b')
+llm = ChatOllama(model='llama3.2')
 
 Agent('find the founders of browser-use', llm=llm).run_sync()
