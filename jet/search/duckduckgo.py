@@ -204,5 +204,5 @@ def search_web(query: str) -> str:
         source="text"
     )
     search_tool = DuckDuckGoSearchRun(api_wrapper=api_wrapper)
-    result = search_tool._run(query)
+    result = search_tool.run(query)
     return result

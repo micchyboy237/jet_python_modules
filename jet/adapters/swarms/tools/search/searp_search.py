@@ -55,10 +55,10 @@ def serpapi_search(query: str) -> str:
     Returns:
         Formatted search results string
     """
-    api_key = os.getenv("SERPAPI_API_KEY")
+    api_key = os.getenv("SERPER_API_KEY")
     if not api_key:
         raise ValueError(
-            "SERPAPI_API_KEY not found in environment variables."
+            "SERPER_API_KEY not found in environment variables."
         )
 
     params = {

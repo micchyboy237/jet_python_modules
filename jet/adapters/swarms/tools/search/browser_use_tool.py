@@ -1,31 +1,30 @@
 import os
+import shutil
 import asyncio
 
 from dotenv import load_dotenv
-from datetime import datetime
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, BrowserProfile
 
-from jet.llm.mlx.adapters.mlx_langchain_llm_adapter import ChatMLX
-from jet.models.model_types import LLMModelType
-from jet.logger import CustomLogger
-
-# Configure logging
-log_dir = os.path.join(os.path.dirname(__file__), "logs")
-os.makedirs(log_dir, exist_ok=True)
-filename_no_ext = os.path.splitext(os.path.basename(__file__))[0]
-log_file = os.path.join(log_dir, f"{filename_no_ext}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-
-logger = CustomLogger(log_file, overwrite=True)
+from jet.adapters.browser_use.ollama.chat import ChatOllama
+from jet.logger import logger
 
 load_dotenv()
 
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
 
-def browser_agent(task: str, model_name: LLMModelType = "mlx-community/Llama-3.2-3B-Instruct-4bit"):
+
+def browser_agent(task: str, model_name: str = "llama3.2"):
     """
     Executes a browser-based agent to perform a specified task using a language model.
 
     This function sets up and runs an asynchronous agent that utilizes a language model
-    (default: "mlx-community/Llama-3.2-3B-Instruct-4bit") to complete the provided task. The agent is executed in an
+    (default: "llama3.2") to complete the provided task. The agent is executed in an
     asyncio event loop, and its output is printed to the console.
 
     Args:
@@ -33,7 +32,7 @@ def browser_agent(task: str, model_name: LLMModelType = "mlx-community/Llama-3.2
             A description of the task for the agent to perform. This should be a clear,
             concise instruction or query that the agent can act upon using browser-based tools.
         model_name (str, optional):
-            The name of the language model to use for the agent. Defaults to "mlx-community/Llama-3.2-3B-Instruct-4bit".
+            The name of the language model to use for the agent. Defaults to "llama3.2".
             This parameter allows you to specify different models as needed.
 
     Returns:
@@ -57,9 +56,11 @@ def browser_agent(task: str, model_name: LLMModelType = "mlx-community/Llama-3.2
         Returns:
             The result of the agent's run method, which contains the output of the task.
         """
+        browser_profile = BrowserProfile(headless=True)
         agent = Agent(
             task=task,
-            llm=ChatMLX(model=model_name),
+            llm=ChatOllama(model=model_name),
+            browser_profile=browser_profile,
         )
         return await agent.run()
 
