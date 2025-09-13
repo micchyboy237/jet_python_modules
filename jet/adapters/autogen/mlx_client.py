@@ -113,7 +113,6 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
             if isinstance(chunk, dict) and "choices" in chunk:
                 create_result = self._convert_mlx_to_create_result(chunk)
                 content = create_result.content or ""
-                logger.teal(content, flush=True)
                 ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
                     messages,
                     create_result.model_dump(),
@@ -122,7 +121,6 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
                 )
                 yield create_result
             else:
-                logger.teal(str(chunk), flush=True)
                 yield CreateResult(
                     content=str(chunk),
                     finish_reason="stop",
