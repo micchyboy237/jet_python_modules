@@ -38,5 +38,9 @@ def suppress_logging():
     logging.getLogger("http.client").setLevel(logging.WARNING)
     logging.getLogger("filelock").setLevel(logging.WARNING)
 
+    # Suppress Pyppeteer debug logs
+    logging.getLogger('pyppeteer').setLevel(logging.WARNING)
+    logging.getLogger('websockets').setLevel(logging.WARNING)
+
 
 suppress_logging()
