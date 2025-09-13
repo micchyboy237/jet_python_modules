@@ -10,7 +10,7 @@ import threading
 from typing import Callable, Union, List
 from jet.data.utils import hash_text
 from functools import lru_cache
-from jet.token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
+from jet._token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
 from jet.transformers.formatters import format_json
 import numpy as np
 

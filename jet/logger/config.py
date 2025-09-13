@@ -47,8 +47,8 @@ def colorize_log(text: str, color: str):
 class ColoredFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         color = COLORS.get(record.levelname, COLORS['RESET'])
-        record.levelname = f"{color}{record.levelname}{
-            COLORS['RESET']}"  # Colorize level name
+        # Colorize level name
+        record.levelname = f"{color}{record.levelname}{COLORS['RESET']}"
         # Optionally colorize the message
         record.msg = f"{color}{record.msg}{COLORS['RESET']}"
         return super().format(record)

@@ -4,7 +4,7 @@ import asyncio
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.ui import Console
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 
 from jet.logger import CustomLogger
 
@@ -18,7 +18,7 @@ logger.info(f"Logs: {log_file}")
 
 async def main():
     # Initialize the model client (e.g., OpenAI GPT-4o)
-    model_client = OpenAIChatCompletionClient(model="gpt-4o-2024-08-06")
+    model_client = OllamaChatCompletionClient(model="llama3.2")
 
     # Define the web surfer agent with screenshot saving enabled
     web_surfer_agent = MultimodalWebSurfer(

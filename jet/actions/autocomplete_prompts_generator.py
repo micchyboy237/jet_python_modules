@@ -1,7 +1,7 @@
 from typing import Generator, List, Optional
 from jet.llm.ollama.base import Ollama
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
-from jet.token.token_utils import get_ollama_tokenizer
+from jet._token.token_utils import get_ollama_tokenizer
 from jet.transformers.object import make_serializable
 from llama_index.core.llms.llm import LLM
 from llama_index.core.node_parser.text.sentence import SentenceSplitter

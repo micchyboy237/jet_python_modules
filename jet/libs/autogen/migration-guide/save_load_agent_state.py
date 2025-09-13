@@ -8,10 +8,12 @@ import json
 from autogen_agentchat.messages import TextMessage
 from autogen_agentchat.agents import AssistantAgent
 from autogen_core import CancellationToken
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
+
 
 async def main() -> None:
-    model_client = OpenAIChatCompletionClient(model="gpt-4o", seed=42, temperature=0)
+    model_client = OpenAIChatCompletionClient(
+        model="gpt-4o", seed=42, temperature=0)
     assistant = AssistantAgent(
         name="assistant",
         system_message="You are a helpful assistant.",

@@ -1,6 +1,6 @@
 from typing import Iterator, Mapping, Optional, Dict, Any, Union, cast, override
 from jet.actions.generation import call_ollama_chat
-from jet.token.token_utils import token_counter
+from jet._token.token_utils import token_counter
 from jet.transformers.object import make_serializable
 from jet.utils.class_utils import get_non_empty_attributes
 from langchain_ollama import ChatOllama as BaseChatOllama, OllamaEmbeddings as BaseOllamaEmbeddings
@@ -32,7 +32,7 @@ class ChatOllama(BaseChatOllama):
         client_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
-        from jet.token.token_utils import token_counter
+        from jet._token.token_utils import token_counter
 
         # Generate headers dynamically
         event = EventSettings.call_ollama_chat_langchain()
@@ -64,7 +64,7 @@ class ChatOllama(BaseChatOllama):
         **kwargs: Any,
     ) -> Dict[str, Any]:
         from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
-        from jet.token.token_utils import token_counter
+        from jet._token.token_utils import token_counter
 
         max_token = 0.4
 

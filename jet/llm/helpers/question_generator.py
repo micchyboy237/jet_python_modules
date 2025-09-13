@@ -5,7 +5,7 @@ from jet.llm.query.retrievers import get_fusion_retriever, setup_retrievers
 from jet.logger import logger
 from jet.multiprocess.work_manager import WorkManager
 from jet.transformers.object import make_serializable
-from jet.token.token_utils import get_tokenizer
+from jet._token.token_utils import get_tokenizer
 from llama_index.core.evaluation.retrieval.evaluator import RetrieverEvaluator
 from llama_index.core.llama_dataset.legacy.embedding import EmbeddingQAFinetuneDataset
 from llama_index.core.node_parser.text.sentence import SentenceSplitter

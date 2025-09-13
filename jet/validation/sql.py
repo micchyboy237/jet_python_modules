@@ -1,5 +1,5 @@
 from jet.logger import logger
-from jet.types import ValidationResult
+from jet._types import ValidationResult
 
 
 def validate_sql(command: str, read="postgres") -> ValidationResult:

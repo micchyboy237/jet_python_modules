@@ -21,7 +21,7 @@ from llama_index.core.base.llms.types import (
     MessageRole,
     TextBlock,
 )
-from jet.token.token_utils import token_counter
+from jet._token.token_utils import token_counter
 from jet.transformers.object import make_serializable
 
 

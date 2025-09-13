@@ -8,10 +8,12 @@ from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.ui import Console
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
+
 
 async def main() -> None:
-    model_client = OpenAIChatCompletionClient(model="gpt-4o", seed=42, temperature=0)
+    model_client = OpenAIChatCompletionClient(
+        model="gpt-4o", seed=42, temperature=0)
     writer = AssistantAgent(
         name="writer",
         description="A writer.",
@@ -25,8 +27,10 @@ async def main() -> None:
         model_client=model_client,
     )
     termination = TextMentionTermination("APPROVE")
-    group_chat = RoundRobinGroupChat([writer, critic], termination_condition=termination, max_turns=12)
-    stream = group_chat.run_stream(task="Write a short story about a robot that discovers it has feelings.")
+    group_chat = RoundRobinGroupChat(
+        [writer, critic], termination_condition=termination, max_turns=12)
+    stream = group_chat.run_stream(
+        task="Write a short story about a robot that discovers it has feelings.")
     await Console(stream)
     await model_client.close()
 

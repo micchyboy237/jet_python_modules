@@ -87,7 +87,7 @@ class SummaryTokens(TypedDict):
 
 
 def group_summaries(summaries: list[str], model: str, system: str = "", separator: str = "\n\n\n") -> list[SummaryTokens]:
-    from jet.token.token_utils import token_counter
+    from jet._token.token_utils import token_counter
 
     max_prediction_ratio_full = 0.5
 
@@ -141,7 +141,7 @@ def group_summaries(summaries: list[str], model: str, system: str = "", separato
 
 
 def generate_summary(prompt: str, model: str = "llama3.1", system: str = "", options: OllamaChatOptions = {}) -> SummaryResult:
-    from jet.token.token_utils import calculate_num_predict_ctx
+    from jet._token.token_utils import calculate_num_predict_ctx
 
     prompt = prompt.strip()
     system = system.strip()
@@ -227,7 +227,7 @@ def summarize_tree(chunks: list[str], model: str = ROOT_MODEL, *, system: str = 
 
 
 def summarize_data(content: str, *, model: str = ROOT_MODEL, system: str = ROOT_SYSTEM_MESSAGE, combine_model: str = COMBINE_MODEL, combine_system: str = COMBINE_SYSTEM_MESSAGE, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) -> Generator[SummaryResultInfo, None, None] | Generator[SummaryData, None, None]:
-    from jet.token.token_utils import get_tokenizer
+    from jet._token.token_utils import get_tokenizer
 
     tokenizer = get_tokenizer(model)
 

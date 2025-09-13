@@ -15,7 +15,7 @@ from autogen_core.models import (
     UserMessage,
 )
 from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 
 
 @pytest.mark.asyncio

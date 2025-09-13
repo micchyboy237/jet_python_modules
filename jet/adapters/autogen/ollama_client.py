@@ -6,7 +6,7 @@ from jet.transformers.formatters import format_json
 
 
 class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
-    def __init__(self, model: str, host: str, timeout: float = 300.0, options: dict = None, **kwargs):
+    def __init__(self, model: str, host: str = "http://localhost:11434", timeout: float = 300.0, options: dict = None, **kwargs):
         # Set default options with temperature if not provided
         options = options or {}
         options.setdefault("temperature", 0.0)

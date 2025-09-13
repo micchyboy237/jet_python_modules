@@ -31,10 +31,10 @@ class CustomLogger:
         log_file: Optional[str] = None,
         name: str = DEFAULT_LOGGER,
         overwrite: bool = False,
-        console_level: Literal["DEBUG", "INFO",
-                               "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
-        level: Literal["DEBUG", "INFO", "WARNING",
-                       "ERROR", "CRITICAL"] = "DEBUG",
+        console_level: Union[int, Literal["DEBUG", "INFO",
+                                          "WARNING", "ERROR", "CRITICAL"]] = "DEBUG",
+        level: Union[int, Literal["DEBUG", "INFO",
+                                  "WARNING", "ERROR", "CRITICAL"]] = "DEBUG",
         fmt: Union[str, logging.Formatter] = "%(message)s",
     ):
         self.log_file = log_file
@@ -43,12 +43,13 @@ class CustomLogger:
             os.makedirs(log_dir, exist_ok=True)
         self.name = name
         self.overwrite = overwrite
-        self.console_level = console_level.upper()
-        self.level = level.upper()
+        self.console_level = self.get_level(console_level)
+        self.level = self.get_level(level)
         formatter = fmt if isinstance(
             fmt, logging.Formatter) else logging.Formatter(fmt)
         self.formatter = formatter
         self.logger = self._initialize_logger(name)
+        self._console_handler = None  # Initialize console handler attribute
         self._last_message_flushed = False
         print(
             f"DEBUG: Initialized logger with console_level: {self.console_level}\nlog_file: {self.log_file}")
@@ -59,10 +60,10 @@ class CustomLogger:
         logger.handlers.clear()
 
         # Use sys.stdout for console output
-        console_handler = logging.StreamHandler(stream=sys.stdout)
-        console_handler.setLevel(self.console_level)
-        console_handler.setFormatter(self.formatter)
-        logger.addHandler(console_handler)
+        self._console_handler = logging.StreamHandler(stream=sys.stdout)
+        self._console_handler.setLevel(self.console_level)
+        self._console_handler.setFormatter(self.formatter)
+        logger.addHandler(self._console_handler)
 
         if self.log_file:
             if self.overwrite and os.path.exists(self.log_file):
@@ -73,13 +74,23 @@ class CustomLogger:
             logger.addHandler(file_handler)
         return logger
 
+    @property
+    def streamHandler(self) -> logging.StreamHandler:
+        """Get the console StreamHandler for this logger."""
+        return self._console_handler
+
+    @property
+    def handlers(self) -> List[logging.Handler]:
+        """Get the list of handlers attached to the logger."""
+        return self.logger.handlers
+
     def addHandler(self, handler: logging.Handler) -> None:
         self.logger.addHandler(handler)
 
     def removeHandler(self, handler: logging.Handler) -> None:
         self.logger.removeHandler(handler)
 
-    def set_level(self, level: Union[int, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]]) -> None:
+    def get_level(self, level: Union[int, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]]) -> str:
         if isinstance(level, int):
             level_name = logging.getLevelName(level)
             if isinstance(level_name, str):
@@ -90,6 +101,10 @@ class CustomLogger:
             level = level.upper()
         else:
             raise TypeError("Level must be an int or a string")
+        return level
+
+    def set_level(self, level: Union[int, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]]) -> None:
+        level = self.get_level(level)
 
         for handler in self.logger.handlers:
             handler.setLevel(level)

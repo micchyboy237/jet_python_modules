@@ -5,7 +5,7 @@ import psycopg2
 from typing import Optional, List, Tuple
 from jet.logger import logger
 from jet.validation import validate_sql
-from jet.types import DB_Options, DB_Result, SQLResult
+from jet._types import DB_Options, DB_Result, SQLResult
 
 CONNECT_DB_CMD = """
 \c {db_name};

@@ -17,7 +17,7 @@ from autogen_core.model_context import (
     TokenLimitedChatCompletionContext,
     UnboundedChatCompletionContext,
 )
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 
 
 @pytest.mark.asyncio
@@ -27,7 +27,8 @@ async def test_termination_declarative() -> None:
     max_term = MaxMessageTermination(5)
     stop_term = StopMessageTermination()
     text_term = TextMentionTermination("stop")
-    token_term = TokenUsageTermination(max_total_token=100, max_prompt_token=50, max_completion_token=100)
+    token_term = TokenUsageTermination(
+        max_total_token=100, max_prompt_token=50, max_completion_token=100)
     handoff_term = HandoffTermination(target="human")
     timeout_term = TimeoutTermination(timeout_seconds=30)
     external_term = ExternalTermination()
@@ -64,26 +65,33 @@ async def test_termination_declarative() -> None:
     assert source_config.config.get("sources") == ["human"]
 
     # Test basic deserialization
-    loaded_max = ComponentLoader.load_component(max_config, MaxMessageTermination)
+    loaded_max = ComponentLoader.load_component(
+        max_config, MaxMessageTermination)
     assert isinstance(loaded_max, MaxMessageTermination)
 
     # Test deserialization of new conditions
-    loaded_text = ComponentLoader.load_component(text_config, TextMentionTermination)
+    loaded_text = ComponentLoader.load_component(
+        text_config, TextMentionTermination)
     assert isinstance(loaded_text, TextMentionTermination)
 
-    loaded_token = ComponentLoader.load_component(token_config, TokenUsageTermination)
+    loaded_token = ComponentLoader.load_component(
+        token_config, TokenUsageTermination)
     assert isinstance(loaded_token, TokenUsageTermination)
 
-    loaded_handoff = ComponentLoader.load_component(handoff_config, HandoffTermination)
+    loaded_handoff = ComponentLoader.load_component(
+        handoff_config, HandoffTermination)
     assert isinstance(loaded_handoff, HandoffTermination)
 
-    loaded_timeout = ComponentLoader.load_component(timeout_config, TimeoutTermination)
+    loaded_timeout = ComponentLoader.load_component(
+        timeout_config, TimeoutTermination)
     assert isinstance(loaded_timeout, TimeoutTermination)
 
-    loaded_external = ComponentLoader.load_component(external_config, ExternalTermination)
+    loaded_external = ComponentLoader.load_component(
+        external_config, ExternalTermination)
     assert isinstance(loaded_external, ExternalTermination)
 
-    loaded_source = ComponentLoader.load_component(source_config, SourceMatchTermination)
+    loaded_source = ComponentLoader.load_component(
+        source_config, SourceMatchTermination)
     assert isinstance(loaded_source, SourceMatchTermination)
 
     # Test composition with new conditions
@@ -105,9 +113,12 @@ async def test_termination_declarative() -> None:
 async def test_chat_completion_context_declarative() -> None:
     unbounded_context = UnboundedChatCompletionContext()
     buffered_context = BufferedChatCompletionContext(buffer_size=5)
-    head_tail_context = HeadAndTailChatCompletionContext(head_size=3, tail_size=2)
-    model_client = OpenAIChatCompletionClient(model="gpt-4o", api_key="test_key")
-    token_limited_context = TokenLimitedChatCompletionContext(model_client=model_client, token_limit=5)
+    head_tail_context = HeadAndTailChatCompletionContext(
+        head_size=3, tail_size=2)
+    model_client = OpenAIChatCompletionClient(
+        model="gpt-4o", api_key="test_key")
+    token_limited_context = TokenLimitedChatCompletionContext(
+        model_client=model_client, token_limit=5)
 
     # Test serialization
     unbounded_config = unbounded_context.dump_component()
@@ -131,16 +142,20 @@ async def test_chat_completion_context_declarative() -> None:
     )
 
     # Test deserialization
-    loaded_unbounded = ComponentLoader.load_component(unbounded_config, UnboundedChatCompletionContext)
+    loaded_unbounded = ComponentLoader.load_component(
+        unbounded_config, UnboundedChatCompletionContext)
     assert isinstance(loaded_unbounded, UnboundedChatCompletionContext)
 
-    loaded_buffered = ComponentLoader.load_component(buffered_config, BufferedChatCompletionContext)
+    loaded_buffered = ComponentLoader.load_component(
+        buffered_config, BufferedChatCompletionContext)
 
     assert isinstance(loaded_buffered, BufferedChatCompletionContext)
 
-    loaded_head_tail = ComponentLoader.load_component(head_tail_config, HeadAndTailChatCompletionContext)
+    loaded_head_tail = ComponentLoader.load_component(
+        head_tail_config, HeadAndTailChatCompletionContext)
 
     assert isinstance(loaded_head_tail, HeadAndTailChatCompletionContext)
 
-    loaded_token_limited = ComponentLoader.load_component(token_limited_config, TokenLimitedChatCompletionContext)
+    loaded_token_limited = ComponentLoader.load_component(
+        token_limited_config, TokenLimitedChatCompletionContext)
     assert isinstance(loaded_token_limited, TokenLimitedChatCompletionContext)

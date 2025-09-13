@@ -1,5 +1,5 @@
 import re
-from jet.types import DB_Result
+from jet._types import DB_Result
 from jet.logger import logger
 
 

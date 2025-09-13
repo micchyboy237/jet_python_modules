@@ -6,10 +6,11 @@ This module shows how to wrap an `OpenAIChatCompletionClient` with a `ChatComple
 import asyncio
 import tempfile
 from autogen_core.models import UserMessage
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from autogen_ext.models.cache import ChatCompletionCache, CHAT_CACHE_VALUE_TYPE
 from autogen_ext.cache_store.diskcache import DiskCacheStore
 from diskcache import Cache
+
 
 async def main():
     with tempfile.TemporaryDirectory() as tmpdirname:

@@ -7,7 +7,7 @@ import psycopg
 import uuid
 from jet.data.utils import generate_unique_hash
 from jet.llm.utils.embeddings import get_embedding_function
-from jet.token.token_utils import get_model_max_tokens, tokenize
+from jet._token.token_utils import get_model_max_tokens, tokenize
 from jet.transformers.object import make_serializable
 from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from collections import defaultdict
@@ -175,7 +175,7 @@ def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings
             chunk_overlap = OLLAMA_SMALL_CHUNK_OVERLAP
 
     def count_tokens(text: str) -> int:
-        from jet.token import token_counter
+        from jet._token import token_counter
         return token_counter(text, llm_model)
 
     EnhancedSettings.llm = llm
@@ -186,7 +186,7 @@ def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings
     EnhancedSettings.embedding_model = embedding_model
     EnhancedSettings.count_tokens = count_tokens
 
-    from jet.token.token_utils import get_ollama_tokenizer
+    from jet._token.token_utils import get_ollama_tokenizer
     tokenizer = get_ollama_tokenizer(llm_model)
     set_global_tokenizer(tokenizer)
     # EnhancedSettings.tokenizer = get_ollama_tokenizer(llm_model).encode
@@ -375,7 +375,7 @@ class Ollama(BaseOllama, BaseModel):
 
     async def stream_chat(self, query: str, context: Optional[str] = None, model: Optional[str] = None, **kwargs: Any) -> AsyncGenerator[str, None]:
         from jet.actions.generation import call_ollama_chat
-        from jet.token.token_utils import token_counter, get_ollama_tokenizer
+        from jet._token.token_utils import token_counter, get_ollama_tokenizer
 
         # Initialize tokenizer
         tokenizer = get_ollama_tokenizer(self.model)
@@ -445,7 +445,7 @@ class Ollama(BaseOllama, BaseModel):
 
     def chat(self, messages: str | Sequence[ChatMessage] | PromptTemplate, **kwargs: Any) -> ChatResponse:
         from jet.actions.generation import call_ollama_chat
-        from jet.token.token_utils import token_counter, get_ollama_tokenizer
+        from jet._token.token_utils import token_counter, get_ollama_tokenizer
 
         # Initialize and set tokenizer
         tokenizer = get_ollama_tokenizer(self.model)
@@ -776,7 +776,7 @@ def chat(
     **kwargs: Any,
 ) -> ChatResponse:
     from jet.actions.generation import call_ollama_chat
-    # from jet.token.token_utils import token_counter
+    # from jet._token.token_utils import token_counter
 
     stream = stream if not tools else False
     template_vars = kwargs.pop("template_vars", {})

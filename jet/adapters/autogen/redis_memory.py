@@ -15,7 +15,8 @@ try:
     from redisvl.utils.utils import deserialize, serialize
     from redisvl.utils.vectorize import HFTextVectorizer
 except ImportError as e:
-    raise ImportError("To use Redis Memory RedisVL must be installed. Run `pip install autogen-ext[redisvl]`") from e
+    raise ImportError(
+        "To use Redis Memory RedisVL must be installed. Run `pip install autogen-ext[redisvl]`") from e
 
 
 class RedisMemoryConfig(BaseModel):
@@ -27,18 +28,25 @@ class RedisMemoryConfig(BaseModel):
     similarity search parameters, and embedding model.
     """
 
-    redis_url: str = Field(default="redis://localhost:6379", description="url of the Redis instance")
-    index_name: str = Field(default="chat_history", description="Name of the Redis collection")
-    prefix: str = Field(default="memory", description="prefix of the Redis collection")
+    redis_url: str = Field(default="redis://localhost:6379",
+                           description="url of the Redis instance")
+    index_name: str = Field(default="chat_history",
+                            description="Name of the Redis collection")
+    prefix: str = Field(
+        default="memory", description="prefix of the Redis collection")
     sequential: bool = Field(
         default=False, description="ignore semantic similarity and simply return memories in sequential order"
     )
     distance_metric: Literal["cosine", "ip", "l2"] = "cosine"
     algorithm: Literal["flat", "hnsw"] = "flat"
-    top_k: int = Field(default=10, description="Number of results to return in queries")
-    datatype: Literal["uint8", "int8", "float16", "float32", "float64", "bfloat16"] = "float32"
-    distance_threshold: float = Field(default=0.7, description="Minimum similarity score threshold")
-    model_name: str = Field(default="sentence-transformers/all-mpnet-base-v2", description="Embedding model name")
+    top_k: int = Field(
+        default=10, description="Number of results to return in queries")
+    datatype: Literal["uint8", "int8", "float16",
+                      "float32", "float64", "bfloat16"] = "float32"
+    distance_threshold: float = Field(
+        default=0.7, description="Minimum similarity score threshold")
+    model_name: str = Field(
+        default="sentence-transformers/all-mpnet-base-v2", description="Embedding model name")
 
 
 class RedisMemory(Memory, Component[RedisMemoryConfig]):
@@ -88,7 +96,7 @@ class RedisMemory(Memory, Component[RedisMemoryConfig]):
             from autogen_agentchat.ui import Console
             from autogen_core.memory import MemoryContent, MemoryMimeType
             from autogen_ext.memory.redis import RedisMemory, RedisMemoryConfig
-            from autogen_ext.models.openai import OpenAIChatCompletionClient
+            from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 
             logger = getLogger()
             logger.setLevel(WARNING)
@@ -175,14 +183,16 @@ class RedisMemory(Memory, Component[RedisMemoryConfig]):
     def __init__(self, config: RedisMemoryConfig | None = None) -> None:
         """Initialize RedisMemory."""
         self.config = config or RedisMemoryConfig()
-        client = Redis.from_url(url=self.config.redis_url)  # type: ignore[reportUknownMemberType]
+        # type: ignore[reportUknownMemberType]
+        client = Redis.from_url(url=self.config.redis_url)
 
         if self.config.sequential:
             self.message_history = MessageHistory(
                 name=self.config.index_name, prefix=self.config.prefix, redis_client=client
             )
         else:
-            vectorizer = HFTextVectorizer(model=self.config.model_name, dtype=self.config.datatype)
+            vectorizer = HFTextVectorizer(
+                model=self.config.model_name, dtype=self.config.datatype)
             self.message_history = SemanticMessageHistory(
                 name=self.config.index_name,
                 prefix=self.config.prefix,
@@ -219,7 +229,8 @@ class RedisMemory(Memory, Component[RedisMemoryConfig]):
 
         query_results = await self.query(last_message, sequential=self.config.sequential)
 
-        stringified_messages = "\n\n".join([str(m.content) for m in query_results.results])
+        stringified_messages = "\n\n".join(
+            [str(m.content) for m in query_results.results])
 
         await model_context.add_message(SystemMessage(content=stringified_messages))
 
@@ -255,7 +266,8 @@ class RedisMemory(Memory, Component[RedisMemoryConfig]):
         metadata = {"mime_type": mime_type}
         metadata.update(content.metadata if content.metadata else {})
         self.message_history.add_message(
-            {"role": "user", "content": memory_content, "metadata": serialize(metadata)}  # type: ignore[reportArgumentType]
+            {"role": "user", "content": memory_content, "metadata": serialize(
+                metadata)}  # type: ignore[reportArgumentType]
         )
 
     async def query(
@@ -286,7 +298,8 @@ class RedisMemory(Memory, Component[RedisMemoryConfig]):
             memoryQueryResult: Object containing memories relevant to the provided query.
         """
         top_k = kwargs.pop("top_k", self.config.top_k)
-        distance_threshold = kwargs.pop("distance_threshold", self.config.distance_threshold)
+        distance_threshold = kwargs.pop(
+            "distance_threshold", self.config.distance_threshold)
 
         # if sequential memory is requested skip prompt creation
         sequential = bool(kwargs.pop("sequential", self.config.sequential))
@@ -313,7 +326,8 @@ class RedisMemory(Memory, Component[RedisMemoryConfig]):
                         f"Error: {query.mime_type} is not supported. Only MemoryMimeType.TEXT, MemoryMimeType.JSON, MemoryMimeType.MARKDOWN are currently supported."
                     )
             else:
-                raise TypeError("'query' must be either a string or MemoryContent")
+                raise TypeError(
+                    "'query' must be either a string or MemoryContent")
 
             results = self.message_history.get_relevant(  # type: ignore
                 prompt=prompt,  # type: ignore[reportArgumentType]
@@ -324,12 +338,15 @@ class RedisMemory(Memory, Component[RedisMemoryConfig]):
 
         memories: List[MemoryContent] = []
         for result in results:  # type: ignore[reportUnkownVariableType]
-            metadata = deserialize(result["metadata"])  # type: ignore[reportArgumentType]
+            # type: ignore[reportArgumentType]
+            metadata = deserialize(result["metadata"])
             mime_type = MemoryMimeType(metadata.pop("mime_type"))
             if mime_type in (MemoryMimeType.TEXT, MemoryMimeType.MARKDOWN):
-                memory_content = result["content"]  # type: ignore[reportArgumentType]
+                # type: ignore[reportArgumentType]
+                memory_content = result["content"]
             elif mime_type == MemoryMimeType.JSON:
-                memory_content = deserialize(result["content"])  # type: ignore[reportArgumentType]
+                # type: ignore[reportArgumentType]
+                memory_content = deserialize(result["content"])
             else:
                 raise NotImplementedError(
                     f"Error: {mime_type} is not supported. Only MemoryMimeType.TEXT, MemoryMimeType.JSON, and MemoryMimeType.MARKDOWN are currently supported."
@@ -341,7 +358,8 @@ class RedisMemory(Memory, Component[RedisMemoryConfig]):
             )
             memories.append(memory)  # type: ignore[reportUknownMemberType]
 
-        return MemoryQueryResult(results=memories)  # type: ignore[reportUknownMemberType]
+        # type: ignore[reportUknownMemberType]
+        return MemoryQueryResult(results=memories)
 
     async def clear(self) -> None:
         """Clear all entries from memory, preserving the RedisMemory resources."""

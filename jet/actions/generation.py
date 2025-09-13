@@ -98,7 +98,7 @@ def call_ollama_chat(
          Either the JSON response or a generator for streamed responses.
     """
     from jet.llm.models import OLLAMA_MODEL_CONTEXTS
-    from jet.token.token_utils import get_ollama_tokenizer, filter_texts, token_counter, calculate_num_predict_ctx
+    from jet._token.token_utils import get_ollama_tokenizer, filter_texts, token_counter, calculate_num_predict_ctx
     tokenizer = get_ollama_tokenizer(model)
     set_global_tokenizer(tokenizer)
 
@@ -544,7 +544,7 @@ def call_ollama_generate(
         verbose (bool): Enable or disable logging (defaults to True).
     """
     from jet.llm.models import OLLAMA_MODEL_CONTEXTS
-    from jet.token.token_utils import get_ollama_tokenizer, token_counter
+    from jet._token.token_utils import get_ollama_tokenizer, token_counter
     tokenizer = get_ollama_tokenizer(model)
     set_global_tokenizer(tokenizer)
 

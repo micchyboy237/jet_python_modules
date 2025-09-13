@@ -51,7 +51,7 @@ class OllamaPromptHelper(PromptHelper, OllamaPromptHelperModel):
         tokenizer: Optional[Callable[[str], List]] = None,
         separator: str = " "
     ):
-        from jet.token.token_utils import get_model_max_tokens, get_ollama_tokenizer
+        from jet._token.token_utils import get_model_max_tokens, get_ollama_tokenizer
 
         # Ensure Pydantic fields and base classes are initialized
 

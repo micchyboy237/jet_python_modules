@@ -78,7 +78,7 @@ class SettingsManager:
             base_url=settings["base_url"],
         )
 
-        from jet.token.token_utils import get_ollama_tokenizer
+        from jet._token.token_utils import get_ollama_tokenizer
         tokenizer = get_ollama_tokenizer(settings["llm_model"])
         set_global_tokenizer(tokenizer)
         return Settings

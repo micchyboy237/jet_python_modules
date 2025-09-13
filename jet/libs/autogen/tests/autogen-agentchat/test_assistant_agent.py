@@ -41,7 +41,7 @@ from autogen_core.models import (
     UserMessage,
 )
 from autogen_ext.models.anthropic import AnthropicChatCompletionClient
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from autogen_ext.models.replay import ReplayChatCompletionClient
 from autogen_ext.tools.mcp import McpWorkbench, SseServerParams
 from pydantic import BaseModel, ValidationError

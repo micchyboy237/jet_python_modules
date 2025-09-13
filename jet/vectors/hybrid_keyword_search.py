@@ -7,7 +7,7 @@ from jet.file.utils import load_file, save_file
 from jet.logger import logger
 from jet.logger.timer import time_it
 from jet.search.formatters import clean_string
-from jet.token.token_utils import get_token_counts_info, split_texts, token_counter
+from jet._token.token_utils import get_token_counts_info, split_texts, token_counter
 from jet.transformers.formatters import format_json
 from jet.utils.commands import copy_to_clipboard
 from jet.wordnet.n_grams import extract_ngrams, get_most_common_ngrams

@@ -1,6 +1,6 @@
 from typing import AsyncIterator, Iterator, Mapping, Optional, Dict, Any, Union, cast, override
 from jet.actions.generation import call_ollama_chat
-from jet.token.token_utils import token_counter
+from jet._token.token_utils import token_counter
 from jet.transformers.formatters import format_json
 from jet.transformers.object import make_serializable
 from jet.utils.class_utils import get_non_empty_attributes
@@ -43,7 +43,7 @@ class ChatOllama(BaseChatOllama):
         verbose: bool = True,  # ✅ Default verbose to True
         **kwargs,
     ):
-        from jet.token.token_utils import token_counter
+        from jet._token.token_utils import token_counter
         event = EventSettings.call_ollama_chat_langchain()
         pre_start_hook_start_time = EventSettings.event_data["pre_start_hook"]["start_time"]
         log_filename = event["filename"].split(".")[0]
@@ -71,7 +71,7 @@ class ChatOllama(BaseChatOllama):
         **kwargs: Any,
     ) -> Dict[str, Any]:
         from jet.llm.models import OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
-        from jet.token.token_utils import token_counter
+        from jet._token.token_utils import token_counter
 
         max_token = 0.4
 

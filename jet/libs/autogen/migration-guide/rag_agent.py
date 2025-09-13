@@ -6,11 +6,13 @@ This module demonstrates how to create a Retrieval-Augmented Generation (RAG) ag
 import os
 from pathlib import Path
 from autogen_agentchat.agents import AssistantAgent
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from autogen_core.memory import ChromaDBVectorMemory, PersistentChromaDBVectorMemoryConfig
+
 
 def get_weather(city: str) -> str:
     return f"The weather in {city} is 72 degree and sunny."
+
 
 chroma_user_memory = ChromaDBVectorMemory(
     config=PersistentChromaDBVectorMemoryConfig(

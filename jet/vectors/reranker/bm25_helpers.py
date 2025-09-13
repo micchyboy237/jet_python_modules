@@ -2,7 +2,7 @@ import faiss
 from jet.llm.models import OLLAMA_EMBED_MODELS
 from jet.llm.query.retrievers import setup_index, SearchResult as SemanticSearchResult
 from jet.search.similarity import preprocess_reranker_texts
-from jet.token.token_utils import get_model_max_tokens
+from jet._token.token_utils import get_model_max_tokens
 from jet.wordnet.n_grams import count_ngrams, get_most_common_ngrams, get_ngrams
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.core.schema import NodeWithScore
@@ -415,7 +415,7 @@ class HybridSearch:
 
 
 if __name__ == "__main__":
-    from jet.token.token_utils import get_token_counts_info
+    from jet._token.token_utils import get_token_counts_info
 
     embed_model = "mxbai-embed-large"
     # data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/my-jobs/saved/jobs.json"

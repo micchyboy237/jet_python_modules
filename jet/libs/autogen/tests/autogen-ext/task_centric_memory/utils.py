@@ -4,7 +4,7 @@ import yaml
 from autogen_core.models import (
     ChatCompletionClient,
 )
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 
 
 def create_oai_client(config: Dict[str, Any]) -> ChatCompletionClient:

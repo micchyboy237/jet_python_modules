@@ -10,7 +10,7 @@ import pytest
 from autogen_agentchat import EVENT_LOGGER_NAME
 from autogen_agentchat.messages import TextMessage
 from autogen_ext.agents.file_surfer import FileSurfer
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from openai.resources.chat.completions import AsyncCompletions
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
@@ -101,7 +101,8 @@ async def test_run_filesurfer(monkeypatch: pytest.MonkeyPatch) -> None:
             created=0,
             model=model,
             object="chat.completion",
-            usage=CompletionUsage(prompt_tokens=10, completion_tokens=5, total_tokens=0),
+            usage=CompletionUsage(
+                prompt_tokens=10, completion_tokens=5, total_tokens=0),
         ),
         ChatCompletion(
             id="id2",
@@ -117,7 +118,8 @@ async def test_run_filesurfer(monkeypatch: pytest.MonkeyPatch) -> None:
                                 type="function",
                                 function=Function(
                                     name="open_path",
-                                    arguments=json.dumps({"path": os.path.dirname(test_file)}),
+                                    arguments=json.dumps(
+                                        {"path": os.path.dirname(test_file)}),
                                 ),
                             )
                         ],
@@ -128,7 +130,8 @@ async def test_run_filesurfer(monkeypatch: pytest.MonkeyPatch) -> None:
             created=0,
             model=model,
             object="chat.completion",
-            usage=CompletionUsage(prompt_tokens=10, completion_tokens=5, total_tokens=0),
+            usage=CompletionUsage(
+                prompt_tokens=10, completion_tokens=5, total_tokens=0),
         ),
     ]
     mock = _MockChatCompletion(chat_completions)

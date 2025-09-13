@@ -3,7 +3,7 @@
 This module illustrates how to use `OpenAIChatCompletionClient` to connect to an OpenAI-compatible API in AutoGen v0.4. It specifies a custom model, base URL, API key, and model capabilities (e.g., vision, function calling) to enable compatibility with non-OpenAI APIs for agent interactions.
 """
 
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 
 custom_model_client = OpenAIChatCompletionClient(
     model="custom-model-name",
