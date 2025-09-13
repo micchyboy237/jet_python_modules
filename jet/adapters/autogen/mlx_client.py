@@ -110,24 +110,28 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
             verbose=True,
             base_url=self._host,
         ):
+            content = ""
             if isinstance(chunk, dict) and "choices" in chunk:
                 create_result = self._convert_mlx_to_create_result(chunk)
-                yield create_result
+                content += create_result.content
 
                 if chunk["choices"][0]["finish_reason"]:
+                    final_chunk = create_result.model_dump()
+                    final_chunk["content"] = content
                     ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
                         messages,
-                        create_result.model_dump(),
+                        final_chunk,
                         model=self._model_name,
                         tools=tools,
                     )
             else:
-                yield CreateResult(
+                create_result = CreateResult(
                     content=str(chunk),
                     finish_reason="stop",
                     usage=RequestUsage(),
                     model=self._model_name,
                 )
+            yield create_result
 
     def _convert_mlx_to_create_result(self, response: ChatCompletionResponse) -> CreateResult:
         """Convert MLX ChatCompletionResponse to autogen CreateResult."""
@@ -187,7 +191,8 @@ def convert_ollama_to_mlx(messages: Sequence[LLMMessage]) -> List[Dict[str, Any]
                 part.text for part in message.content if hasattr(part, 'type') and part.type == 'text'
             )
             tool_calls = convert_ollama_to_mlx_tool_calls(
-                message.function_calls) if message.function_calls else None
+                [message.function_call] if message.function_call else None
+            )
             serialized.append({
                 "role": "assistant",
                 "content": content or None,
