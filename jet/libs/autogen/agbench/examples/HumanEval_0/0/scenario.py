@@ -70,7 +70,7 @@ async def main() -> None:
         text="TERMINATE", sources=["executor"])
     agent_team = RoundRobinGroupChat(
         [coder_agent, executor],
-        max_turns=12,
+        max_turns=4,
         termination_condition=termination,
     )
 
