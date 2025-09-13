@@ -35,7 +35,7 @@ DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,
     "temperature": 0,
     "num_keep": 0,
-    "num_predict": 512,
+    "num_predict": 1024,
 }
 
 # Model mapping for MLX models
