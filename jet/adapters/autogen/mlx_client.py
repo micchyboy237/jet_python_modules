@@ -192,7 +192,7 @@ def convert_ollama_to_mlx(messages: Sequence[LLMMessage]) -> List[Dict[str, Any]
             )
             tool_calls = convert_ollama_to_mlx_tool_calls(
                 [message.function_call] if message.function_call else None
-            )
+            ) if hasattr(message, "function_call") else []
             serialized.append({
                 "role": "assistant",
                 "content": content or None,
