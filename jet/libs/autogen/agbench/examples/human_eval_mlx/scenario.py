@@ -13,6 +13,7 @@ from custom_code_executor import CustomCodeExecutorAgent
 from reasoning_model_context import ReasoningModelContext
 from autogen_core.models import ChatCompletionClient
 
+from jet.adapters.autogen.mlx_client import MLXChatCompletionClient
 from jet.logger import logger, CustomLogger
 
 OUTPUT_DIR = os.path.join(
@@ -44,21 +45,23 @@ async def log_stream_chunks(stream):
 async def main() -> None:
     with open(f"{os.path.dirname(__file__)}/config.yaml", "r") as f:
         config = yaml.safe_load(f)
-
-    model_client = ChatCompletionClient.load_component(config["model_config"])
+    model_config = config["model_config"]["config"]
+    model_client = MLXChatCompletionClient(
+        model=model_config["model"],
+        base_url=model_config["base_url"],
+        use_remote=True
+    )
     model_context: ChatCompletionContext
-    if model_client.model_info["family"] == ModelFamily.R1:
-        model_context = ReasoningModelContext()
-    else:
+    if model_client.model_info.family == ModelFamily.LLAMA:  # Use family attribute
         model_context = UnboundedChatCompletionContext()
-
+    else:
+        model_context = ReasoningModelContext()
     coder_agent = MagenticOneCoderAgent(
         name="coder",
         model_client=model_client,
         model_client_stream=True,
     )
     coder_agent._model_context = model_context
-
     os.makedirs(WORK_DIR, exist_ok=True)
     executor = CustomCodeExecutorAgent(
         name="executor",
@@ -68,7 +71,6 @@ async def main() -> None:
         ),
         sources=["coder"],
     )
-
     termination = TextMentionTermination(
         text="TERMINATE", sources=["executor"])
     agent_team = RoundRobinGroupChat(
