@@ -35,7 +35,7 @@ DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,
     "temperature": 0,
     "num_keep": 0,
-    "num_predict": -1,
+    "num_predict": 512,
 }
 
 # Model mapping for MLX models
@@ -98,8 +98,8 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
         mlx_messages = convert_ollama_to_mlx(messages)
         tools = kwargs.get("tools", [])
         model = MODEL_MAPPING.get(self._model_name, self._model_name)
-        max_tokens = self._options["num_predict"] if "num_predict" in self._options else None
-        max_tokens = max_tokens if max_tokens > 0 else None
+        max_tokens = self._options["num_predict"] if "num_predict" in self._options else 512
+        max_tokens = max_tokens if max_tokens > 0 else 512
         async for chunk in gen.astream_chat(
             messages=mlx_messages,
             model=model,
