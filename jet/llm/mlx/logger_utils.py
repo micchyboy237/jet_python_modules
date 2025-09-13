@@ -48,57 +48,28 @@ class ChatLogger:
         timestamp_prefix = get_next_file_counter(self.log_dir, self.method)
         filename = f"{timestamp_prefix}_{self.method}.json"
         log_file = os.path.join(self.log_dir, filename)
-
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-
         tools = None
         if "tools" in kwargs:
             tools = (kwargs.pop("tools") or []).copy()
             for tool_idx, tool_fn in enumerate(tools):
                 if callable(tool_fn):
                     tools[tool_idx] = get_method_info(tool_fn)
-
-        # Initialize log_data with core attributes
         log_data = {
             "timestamp": timestamp,
             "session_id": self.session_id,
             "method": self.method,
             "tools": tools,
         }
-
-        # Add remaining kwargs (excluding usage for now)
         log_data.update(kwargs)
-
-        # Handle prompt or messages before response
         if isinstance(prompt_or_messages, str):
             log_data["prompt"] = prompt_or_messages
         else:
             log_data["messages"] = prompt_or_messages.copy()
-
-            # Normalize response to text
-            if isinstance(response, str):
-                response_text = response
-            elif isinstance(response, list):
-                response_text = "\n".join(
-                    [r.get("content", "") for r in response])
-            elif isinstance(response, dict):
-                response_text = response.get("content", "")
-            else:
-                response_text = str(response)
-
-            log_data["messages"].append({
-                "role": "assistant",
-                "content": response_text
-            })
-
-        # Normalize response for logging
         if isinstance(response, str):
-            # Just store the string
             log_data["response"] = response
         elif isinstance(response, (list, dict)):
             resp_copy = response.copy() if isinstance(response, dict) else response
-
-            # Handle usage formatting if present
             if isinstance(resp_copy, dict) and "usage" in resp_copy:
                 usage = resp_copy.pop("usage")
                 formatted_usage = {}
@@ -121,19 +92,13 @@ class ChatLogger:
                 if "total_tokens" in usage:
                     formatted_usage["total_tokens"] = usage["total_tokens"]
                 resp_copy["usage"] = formatted_usage
-
             if isinstance(resp_copy, dict) and "choices" in resp_copy:
                 choices = resp_copy.pop("choices")
                 resp_copy["choices"] = choices
-
             log_data["response"] = format_json(resp_copy, indent=2)
         else:
-            # fallback for unknown types
             log_data["response"] = str(response)
-
         save_file(log_data, log_file)
-
-        # Enforce file limit
         if self.limit is not None:
             self._enforce_limit()
 

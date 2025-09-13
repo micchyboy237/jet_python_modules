@@ -30,7 +30,7 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
 
         # Log to file
         ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="chat").log_interaction(
-            kwargs.get("messages", []),
+            args[0],
             result.model_dump(),
             model=self._model_name,
             tools=kwargs.get("tools"),
@@ -57,7 +57,7 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
 
                 # Log to file
                 ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="stream_chat").log_interaction(
-                    kwargs.get("messages", []),
+                    args[0],
                     chunk.model_dump(),
                     model=self._model_name,
                     tools=kwargs.get("tools"),
