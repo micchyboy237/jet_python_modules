@@ -123,6 +123,7 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
                         final_chunk,
                         model=self._model_name,
                         tools=tools,
+                        last_chunk=chunk,
                     )
             else:
                 create_result = CreateResult(
