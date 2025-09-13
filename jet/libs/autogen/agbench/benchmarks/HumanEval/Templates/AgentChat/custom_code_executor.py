@@ -50,6 +50,7 @@ def run_tests(candidate):
         print("TERMINATE")
     except AssertionError as e:
         print(f"SOME TESTS FAILED - TRY AGAIN! Error: {{str(e)}}")
+
 {code_content}
 run_tests({func_name})
 """

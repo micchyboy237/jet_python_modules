@@ -4,12 +4,18 @@ from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 
+DETERMINISTIC_LLM_SETTINGS = {
+    "seed": 42,
+    "temperature": 0,
+    "num_keep": 0,
+    "num_predict": -1,
+}
+
 
 class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
     def __init__(self, model: str, host: str = "http://localhost:11434", timeout: float = 300.0, options: dict = None, **kwargs):
-        # Set default options with temperature if not provided
-        options = options or {}
-        options.setdefault("temperature", 0.0)
+        # Use DETERMINISTIC_LLM_SETTINGS as default options
+        options = {**DETERMINISTIC_LLM_SETTINGS, **(options or {})}
         super().__init__(model=model, host=host, timeout=timeout, options=options, **kwargs)
 
     async def create(self, *args, **kwargs):
