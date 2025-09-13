@@ -1,33 +1,41 @@
-from jet.llm.mlx.mlx_utils import has_tools
-from jet.llm.mlx.chat_history import ChatHistory
-from jet.llm.mlx.remote.utils import prepare_chat_request, process_chat_response, process_stream_chat_response
-from jet.llm.mlx.remote.types import ChatCompletionRequest, ChatCompletionResponse
-from jet.llm.mlx.remote.client import MLXRemoteClient
-from typing import Any, Dict, Sequence, Optional, AsyncGenerator, Union
+from jet.llm.mlx.remote.types import ChatCompletionResponse
+from typing import AsyncIterator, List, Optional, Sequence, Callable, Dict, TypedDict, Any
 from autogen_ext.models.ollama import OllamaChatCompletionClient as BaseOllamaChatCompletionClient
-from autogen_ext.models.ollama._model_info import _MODEL_INFO
-from autogen_core import FunctionCall
-from autogen_core.tools import Tool, ToolSchema
+from autogen_core import (
+    EVENT_LOGGER_NAME,
+    TRACE_LOGGER_NAME,
+    CancellationToken,
+    Component,
+    FunctionCall,
+    Image,
+)
 from autogen_core.models import (
+    AssistantMessage,
     ChatCompletionClient,
     CreateResult,
+    FinishReasons,
+    FunctionExecutionResult,
+    FunctionExecutionResultMessage,
     LLMMessage,
-    RequestUsage,
+    ModelCapabilities,  # type: ignore
+    ModelFamily,
     ModelInfo,
+    RequestUsage,
+    SystemMessage,
+    UserMessage,
 )
 from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
+from jet.llm.mlx.remote import generation as gen
+from jet.llm.mlx.remote.types import Message as MLXMessage, ToolCall as MLXToolCall
 from jet.logger import logger
 from jet.transformers.formatters import format_json
-import mlx.core as mx
-import mlx.nn as nn
-from mlx_lm import load, generate
-from pathlib import Path
 
 DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,
     "temperature": 0,
-    "max_tokens": -1,
+    "num_keep": 0,
+    "num_predict": -1,
 }
 
 # Model mapping for MLX models
@@ -54,331 +62,156 @@ MODEL_MAPPING = {
 
 
 class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
-    def __init__(self, model: str, options: Optional[Dict[str, Any]] = None, base_url: Optional[str] = None, use_remote: bool = True, **kwargs):
-        self.use_remote = use_remote
-        self.base_url = base_url
-        if self.use_remote:
-            self._remote_client = MLXRemoteClient(
-                base_url=base_url, verbose=kwargs.get("verbose", False))
-        else:
-            mlx_model = MODEL_MAPPING.get(model.lower(), model)
-            options = {**DETERMINISTIC_LLM_SETTINGS, **(options or {})}
-            try:
-                self._mlx_model, self._tokenizer = load(mlx_model)
-            except Exception as e:
-                raise ValueError(
-                    f"Failed to load MLX model {mlx_model}: {str(e)}")
-        model_key = model.lower().split(":")[0]
-        if model_key not in _MODEL_INFO:
-            model_info = ModelInfo(
-                name=mlx_model if not self.use_remote else model,
-                family="mlx",
-                vision=False,
-                function_calling=True,
-                json_output=True,
-                token_limit=32768,
-                structured_output=True,
-            )
-        else:
-            model_info = ModelInfo(
-                name=mlx_model if not self.use_remote else model,
-                **_MODEL_INFO[model_key]
-            )
-        create_args = {
-            "model": model if self.use_remote else mlx_model,
-            **(options or {}),  # Ensure options are included
-            **kwargs  # Include any additional kwargs
-        }
-        super().__init__(
-            client=None,
-            create_args=create_args,
-            model_info=model_info,
-            **kwargs
+    def __init__(self, model: str, host: str = "http://localhost:11434", timeout: float = 300.0, options: dict = None, **kwargs):
+        mapped_model = MODEL_MAPPING.get(model, model)
+        model_info = ModelInfo(
+            family=ModelFamily.R1 if "r1" in model.lower() else ModelFamily.UNKNOWN,
+            function_calling=True,
+            json_output=True,
+            vision=False,
+            structured_output=True
         )
-        self._model_name = model if self.use_remote else mlx_model
-        self._chat_history = ChatHistory()
+        options = {**DETERMINISTIC_LLM_SETTINGS, **(options or {})}
+        super().__init__(model=model, host=host, timeout=timeout,
+                         options=options, model_info=model_info, **kwargs)
+        self._model_name = model
+        self._host = host
+        self._options = options
 
-    async def create(
-        self,
-        messages: Sequence[LLMMessage],
-        *,
-        tools: Sequence[Tool | ToolSchema] = [],
-        tool_choice: Union[Tool, str] = "auto",
-        json_output: Optional[Union[bool, type]] = None,
-        extra_create_args: Dict[str, Any] = {},
-    ) -> CreateResult:
-        logger.gray("MLX Chat LLM Settings:")
+    async def create(self, messages: Sequence[LLMMessage], **kwargs) -> CreateResult:
+        logger.gray("Chat LLM Settings:")
         logger.info(format_json({
-            "messages": [m.model_dump() for m in messages],
-            "tools": [t.model_dump() if isinstance(t, Tool) else t for t in tools],
-            "tool_choice": str(tool_choice),
-            "extra_create_args": extra_create_args,
+            "messages": [msg.model_dump() for msg in messages],
+            "kwargs": kwargs,
         }))
-        create_params = self._process_create_args(
-            messages, tools, tool_choice, json_output, extra_create_args
-        )
-        if self.use_remote:
-            req = prepare_chat_request(
-                messages=create_params.messages,
-                history=self._chat_history,
-                system_prompt=None,
-                with_history=False,
-                response_format="json" if json_output else "text",
-                model=self._model_name,
-                max_tokens=create_params.create_args.get("max_tokens"),
-                temperature=create_params.create_args.get("temperature"),
-                seed=create_params.create_args.get("seed"),
-                tools=[t for t in tools if isinstance(t, Tool)] if tools and has_tools(
-                    self._model_name) else None,
-                stream=False
-            )
-            response = list(
-                self._remote_client.create_chat_completion(req, stream=False))[0]
-            processed_response = process_chat_response(
-                response, self._chat_history, False, tools)
-            content = processed_response.get("content", "")
-            tool_calls = processed_response.get("tool_calls", None)
-            finish_reason = processed_response.get(
-                "choices", [{}])[0].get("finish_reason", "stop")
-            usage = RequestUsage(
-                prompt_tokens=processed_response.get(
-                    "usage", {}).get("prompt_tokens", 0),
-                completion_tokens=processed_response.get(
-                    "usage", {}).get("completion_tokens", 0),
-            )
-        else:
-            prompt = self._messages_to_prompt(create_params.messages)
-            response = generate(
-                model=self._mlx_model,
-                tokenizer=self._tokenizer,
-                prompt=prompt,
-                max_tokens=create_params.create_args.get("max_tokens", -1),
-                temp=create_params.create_args.get("temperature", 0.0),
-                seed=create_params.create_args.get("seed", 42),
-            )
-            prompt_tokens = self.count_tokens(messages, tools=tools)
-            completion_tokens = len(self._tokenizer.encode(response))
-            usage = RequestUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-            )
-            content = response
-            finish_reason = "stop"
-            tool_calls = None
-            if tools and tool_choice != "none":
-                try:
-                    parsed = json.loads(response) if json_output else response
-                    if isinstance(parsed, dict) and "tool_calls" in parsed:
-                        content = [
-                            FunctionCall(
-                                id=str(self._tool_id),
-                                arguments=json.dumps(call["arguments"]),
-                                name=normalize_name(call["name"]),
-                            )
-                            for call in parsed["tool_calls"]
-                        ]
-                        finish_reason = "tool_calls"
-                        thought = parsed.get("thought")
-                        self._tool_id += 1
-                except json.JSONDecodeError:
-                    pass
-        logger.info(
-            LLMCallEvent(
-                messages=[m.model_dump() for m in create_params.messages],
-                response={"content": content},
-                prompt_tokens=usage.prompt_tokens,
-                completion_tokens=usage.completion_tokens,
-            )
-        )
-        result = CreateResult(
-            finish_reason=normalize_stop_reason(finish_reason),
-            content=content,
-            usage=usage,
-            cached=False,
-            logprobs=None,
-            thought=thought if self.use_remote else None,
-        )
-        self._total_usage = _add_usage(self._total_usage, usage)
-        self._actual_usage = _add_usage(self._actual_usage, usage)
+        result = None
+        async for chunk in self.create_stream(messages, method="chat", **kwargs):
+            result = chunk
         return result
 
-    async def create_stream(
-        self,
-        messages: Sequence[LLMMessage],
-        *,
-        tools: Sequence[Tool | ToolSchema] = [],
-        tool_choice: Union[Tool, str] = "auto",
-        json_output: Optional[Union[bool, type]] = None,
-        extra_create_args: Dict[str, Any] = {},
-        method: str = "stream_chat",
-    ) -> AsyncGenerator[Union[str, CreateResult], None]:
-        logger.gray("MLX Stream Chat LLM Settings:")
+    async def create_stream(self, messages: Sequence[LLMMessage], method: str = "stream_chat", **kwargs) -> AsyncIterator[CreateResult]:
+        logger.gray("Stream Chat LLM Settings:")
         logger.info(format_json({
-            "messages": [m.model_dump() for m in messages],
-            "tools": [t.model_dump() if isinstance(t, Tool) else t for t in tools],
-            "tool_choice": str(tool_choice),
-            "extra_create_args": extra_create_args,
+            "messages": [msg.model_dump() for msg in messages],
+            "kwargs": kwargs,
         }))
-        create_params = self._process_create_args(
-            messages, tools, tool_choice, json_output, extra_create_args
-        )
-        if self.use_remote:
-            req = prepare_chat_request(
-                messages=create_params.messages,
-                history=self._chat_history,
-                system_prompt=None,
-                with_history=False,
-                response_format="json" if json_output else "text",
-                model=self._model_name,
-                max_tokens=create_params.create_args.get("max_tokens"),
-                temperature=create_params.create_args.get("temperature"),
-                seed=create_params.create_args.get("seed"),
-                tools=[t for t in tools if isinstance(t, Tool)] if tools and has_tools(
-                    self._model_name) else None,
-                stream=True
-            )
-            chunks = self._remote_client.create_chat_completion(
-                req, stream=True)
-            content_chunks = []
-            first_chunk = True
-            for chunk in process_stream_chat_response(chunks, self._chat_history, False, tools):
-                content = chunk.get("content", "")
-                if content:
-                    content_chunks.append(content)
-                    logger.teal(content, flush=True)
-                    yield content
-                if first_chunk:
-                    first_chunk = False
-                    logger.info(
-                        LLMStreamStartEvent(
-                            messages=[m.model_dump()
-                                      for m in create_params.messages],
-                        )
-                    )
-                if chunk.get("choices", [{}])[0].get("finish_reason"):
-                    usage = RequestUsage(
-                        prompt_tokens=chunk.get(
-                            "usage", {}).get("prompt_tokens", 0),
-                        completion_tokens=chunk.get(
-                            "usage", {}).get("completion_tokens", 0),
-                    )
-                    finish_reason = chunk.get("choices", [{}])[
-                        0].get("finish_reason", "stop")
-                    content = "".join(
-                        content_chunks) if content_chunks else None
-                    tool_calls = chunk.get("tool_calls", None)
-                    result = CreateResult(
-                        finish_reason=normalize_stop_reason(finish_reason),
-                        content=content,
-                        usage=usage,
-                        cached=False,
-                        logprobs=None,
-                        thought=chunk.get("thought", None),
-                    )
-                    logger.info(
-                        LLMStreamEndEvent(
-                            response=result.model_dump(),
-                            prompt_tokens=usage.prompt_tokens,
-                            completion_tokens=usage.completion_tokens,
-                        )
-                    )
-                    ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
-                        messages,
-                        result.model_dump(),
-                        model=self._model_name,
-                        tools=tools,
-                    )
-                    self._total_usage = _add_usage(self._total_usage, usage)
-                    self._actual_usage = _add_usage(self._actual_usage, usage)
-                    yield result
-        else:
-            prompt = self._messages_to_prompt(create_params.messages)
-            content_chunks = []
-            first_chunk = True
-            async for chunk in self._stream_local(
-                prompt,
-                create_params.create_args.get("max_tokens", -1),
-                create_params.create_args.get("temperature", 0.0),
-                create_params.create_args.get("seed", 42),
-            ):
-                content_chunks.append(chunk)
-                logger.teal(chunk, flush=True)
-                if first_chunk:
-                    first_chunk = False
-                    logger.info(
-                        LLMStreamStartEvent(
-                            messages=[m.model_dump()
-                                      for m in create_params.messages],
-                        )
-                    )
-                yield chunk
-            full_content = "".join(content_chunks)
-            prompt_tokens = self.count_tokens(messages, tools=tools)
-            completion_tokens = len(self._tokenizer.encode(full_content))
-            usage = RequestUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-            )
-            content = full_content
-            finish_reason = "stop"
-            thought = None
-            if tools and tool_choice != "none":
-                try:
-                    parsed = json.loads(
-                        full_content) if json_output else full_content
-                    if isinstance(parsed, dict) and "tool_calls" in parsed:
-                        content = [
-                            FunctionCall(
-                                id=str(self._tool_id),
-                                arguments=json.dumps(call["arguments"]),
-                                name=normalize_name(call["name"]),
-                            )
-                            for call in parsed["tool_calls"]
-                        ]
-                        finish_reason = "tool_calls"
-                        thought = parsed.get("thought")
-                        self._tool_id += 1
-                except json.JSONDecodeError:
-                    pass
-            result = CreateResult(
-                finish_reason=normalize_stop_reason(finish_reason),
-                content=content,
-                usage=usage,
-                cached=False,
-                logprobs=None,
-                thought=thought,
-            )
-            logger.info(
-                LLMStreamEndEvent(
-                    response=result.model_dump(),
-                    prompt_tokens=usage.prompt_tokens,
-                    completion_tokens=usage.completion_tokens,
-                )
-            )
-            ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
-                messages,
-                result.model_dump(),
-                model=self._model_name,
-                tools=tools,
-            )
-            self._total_usage = _add_usage(self._total_usage, usage)
-            self._actual_usage = _add_usage(self._actual_usage, usage)
-            yield result
-
-    async def _stream_local(
-        self,
-        prompt: str,
-        max_tokens: int,
-        temp: float,
-        seed: int,
-    ) -> AsyncGenerator[str, None]:
-        for chunk in generate(
-            model=self._mlx_model,
-            tokenizer=self._tokenizer,
-            prompt=prompt,
+        mlx_messages = convert_ollama_to_mlx(messages)
+        tools = kwargs.get("tools", [])
+        model = MODEL_MAPPING.get(self._model_name, self._model_name)
+        max_tokens = self._options["num_predict"] if "num_predict" in self._options else None
+        max_tokens = max_tokens if max_tokens > 0 else None
+        async for chunk in gen.astream_chat(
+            messages=mlx_messages,
+            model=model,
+            tools=tools,
             max_tokens=max_tokens,
-            temp=temp,
-            seed=seed,
-            stream=True,
+            temperature=self._options.get("temperature", 0),
+            seed=self._options.get("seed", 42),
+            verbose=True,
+            base_url=self._host,
         ):
-            yield chunk
+            if isinstance(chunk, ChatCompletionResponse):
+                create_result = self._convert_mlx_to_create_result(chunk)
+                content = create_result.content or ""
+                logger.teal(content, flush=True)
+                ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
+                    messages,
+                    create_result.model_dump(),
+                    model=self._model_name,
+                    tools=tools,
+                )
+                yield create_result
+            else:
+                logger.teal(str(chunk), flush=True)
+                yield CreateResult(
+                    content=str(chunk),
+                    finish_reason="stop",
+                    usage=RequestUsage(),
+                    model=self._model_name,
+                )
+
+    def _convert_mlx_to_create_result(self, response: ChatCompletionResponse) -> CreateResult:
+        """Convert MLX ChatCompletionResponse to autogen CreateResult."""
+        choice = response["choices"][0] if response["choices"] else {}
+        message = choice.get("message", {})
+        content = message.get("content", "") or ""
+        finish_reason = choice.get("finish_reason", "stop")
+        tool_calls = message.get("tool_calls", None)
+        function_calls = [FunctionCall(
+            id=f"call_{i}",
+            name=call["function"]["name"],
+            arguments=call["function"]["arguments"]
+        ) for i, call in enumerate(tool_calls or [])]
+
+        return CreateResult(
+            content=content,
+            finish_reason=finish_reason,
+            usage=RequestUsage(
+                prompt_tokens=response.get(
+                    "usage", {}).get("prompt_tokens", 0),
+                completion_tokens=response.get(
+                    "usage", {}).get("completion_tokens", 0),
+                total_tokens=response.get("usage", {}).get("total_tokens", 0),
+            ),
+            model=response["model"],
+            function_calls=function_calls if function_calls else None,
+        )
+
+
+def convert_ollama_to_mlx(messages: Sequence[LLMMessage]) -> List[Dict[str, Any]]:
+    """Serialize a sequence of autogen LLMMessages to a list of MLX Messages."""
+    serialized = []
+    for message in messages:
+        if isinstance(message, UserMessage):
+            content = message.content if isinstance(message.content, str) else "".join(
+                part.text for part in message.content if hasattr(part, 'type') and part.type == 'text'
+            )
+            serialized.append({
+                "role": "user",
+                "content": content or None,
+                "tool_calls": None
+            })
+        elif isinstance(message, SystemMessage):
+            content = message.content if isinstance(message.content, str) else "".join(
+                part.text for part in message.content if hasattr(part, 'type') and part.type == 'text'
+            )
+            serialized.append({
+                "role": "system",
+                "content": content or None,
+                "tool_calls": None
+            })
+        elif isinstance(message, AssistantMessage):
+            content = message.content if isinstance(message.content, str) else "".join(
+                part.text for part in message.content if hasattr(part, 'type') and part.type == 'text'
+            )
+            tool_calls = convert_ollama_to_mlx_tool_calls(
+                message.function_calls) if message.function_calls else None
+            serialized.append({
+                "role": "assistant",
+                "content": content or None,
+                "tool_calls": tool_calls
+            })
+        elif isinstance(message, FunctionExecutionResultMessage):
+            serialized.append({
+                "role": "tool",
+                "content": str(message.content),
+                "tool_calls": None
+            })
+        else:
+            raise ValueError(f"Unknown message type: {type(message)}")
+    return serialized
+
+
+def convert_ollama_to_mlx_tool_calls(function_calls: Optional[List[FunctionCall]]) -> List[MLXToolCall]:
+    """Convert autogen FunctionCalls to MLX ToolCalls."""
+    if not function_calls:
+        return []
+    return [
+        {
+            "function": {
+                "name": call.name,
+                "arguments": call.arguments
+            },
+            "type": "function"
+        } for call in function_calls
+    ]

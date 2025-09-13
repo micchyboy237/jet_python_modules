@@ -48,14 +48,13 @@ async def main() -> None:
     model_config = config["model_config"]["config"]
     model_client = MLXChatCompletionClient(
         model=model_config["model"],
-        base_url=model_config["base_url"],
-        use_remote=True
+        host=model_config["base_url"],
     )
     model_context: ChatCompletionContext
-    if model_client.model_info.family == ModelFamily.LLAMA:  # Use family attribute
-        model_context = UnboundedChatCompletionContext()
-    else:
+    if model_client.model_info["family"] == ModelFamily.R1:
         model_context = ReasoningModelContext()
+    else:
+        model_context = UnboundedChatCompletionContext()
     coder_agent = MagenticOneCoderAgent(
         name="coder",
         model_client=model_client,
