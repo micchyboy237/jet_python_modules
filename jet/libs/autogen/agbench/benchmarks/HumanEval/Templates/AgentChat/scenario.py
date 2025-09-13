@@ -23,6 +23,8 @@ log_file = os.path.join(OUTPUT_DIR, "main.log")
 logger.basicConfig(filename=log_file)
 logger.info(f"Logs: {log_file}")
 
+WORK_DIR = f"{OUTPUT_DIR}/coding"
+
 
 async def log_stream_chunks(stream):
     """
@@ -53,19 +55,24 @@ async def main() -> None:
     coder_agent = MagenticOneCoderAgent(
         name="coder",
         model_client=model_client,
+        model_client_stream=True,
     )
     coder_agent._model_context = model_context
 
+    os.makedirs(WORK_DIR, exist_ok=True)
     executor = CustomCodeExecutorAgent(
         name="executor",
-        code_executor=LocalCommandLineCodeExecutor(),
+        code_executor=LocalCommandLineCodeExecutor(work_dir=WORK_DIR),
         sources=["coder"],
     )
 
     termination = TextMentionTermination(
         text="TERMINATE", sources=["executor"])
     agent_team = RoundRobinGroupChat(
-        [coder_agent, executor], max_turns=12, termination_condition=termination)
+        [coder_agent, executor],
+        max_turns=12,
+        termination_condition=termination,
+    )
 
     prompt = ""
     with open(f"{os.path.dirname(__file__)}/prompt.txt", "rt") as fh:

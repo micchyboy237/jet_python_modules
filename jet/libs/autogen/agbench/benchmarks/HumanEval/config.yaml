@@ -20,9 +20,15 @@ model_config:
     model: llama3.2
     base_url: http://localhost:11434/
     api_key: ollama
+    timeout: 300.0
+    options:
+      seed: 42
+      temperature: 0
+      num_keep: 0
+      num_predict: -1
     model_info:
       function_calling: true
       json_output: true
       vision: false
       family: llama
-      structured_output: true # Added to fix pydantic validation error
+      structured_output: true

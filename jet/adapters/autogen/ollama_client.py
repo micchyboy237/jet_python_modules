@@ -25,25 +25,14 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
             "kwargs": kwargs,
         }))
 
-        # logger.debug(
-        #     f"Prompt Tokens: {token_counter(ollama_messages, self.model)}")
-        result = await super().create(*args, **kwargs)
+        # Use create_stream to handle the request
+        result = None
+        async for chunk in self.create_stream(*args, **kwargs, method="chat"):
+            result = chunk  # Store the last chunk as the final result
 
-        # Log to console
-        content = result.content if isinstance(
-            result.content, str) else str(result.content)
-        logger.teal(content)
-
-        # Log to file
-        ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="chat").log_interaction(
-            args[0],
-            result.model_dump(),
-            model=self._model_name,
-            tools=kwargs.get("tools"),
-        )
         return result
 
-    async def create_stream(self, *args, **kwargs):
+    async def create_stream(self, *args, method: str = "stream_chat", **kwargs):
         logger.gray("Stream Chat LLM Settings:")
         logger.info(format_json({
             "args": args,
@@ -62,7 +51,7 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
                 logger.teal(content, flush=True)
 
                 # Log to file
-                ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="stream_chat").log_interaction(
+                ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
                     args[0],
                     chunk.model_dump(),
                     model=self._model_name,
