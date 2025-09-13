@@ -112,14 +112,15 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
         ):
             if isinstance(chunk, dict) and "choices" in chunk:
                 create_result = self._convert_mlx_to_create_result(chunk)
-                content = create_result.content or ""
-                ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
-                    messages,
-                    create_result.model_dump(),
-                    model=self._model_name,
-                    tools=tools,
-                )
                 yield create_result
+
+                if chunk["choices"][0]["finish_reason"]:
+                    ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
+                        messages,
+                        create_result.model_dump(),
+                        model=self._model_name,
+                        tools=tools,
+                    )
             else:
                 yield CreateResult(
                     content=str(chunk),
@@ -133,7 +134,7 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
         choice = response["choices"][0] if response["choices"] else {}
         message = choice.get("message", {})
         content = message.get("content", "") or ""
-        finish_reason = choice.get("finish_reason", "stop")
+        finish_reason = choice.get("finish_reason", None)
         # Map invalid or None finish_reason to 'unknown'
         valid_finish_reasons = {'stop', 'length',
                                 'function_calls', 'content_filter', 'unknown'}
