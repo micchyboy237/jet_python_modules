@@ -62,7 +62,10 @@ async def main() -> None:
     os.makedirs(WORK_DIR, exist_ok=True)
     executor = CustomCodeExecutorAgent(
         name="executor",
-        code_executor=LocalCommandLineCodeExecutor(work_dir=WORK_DIR),
+        code_executor=LocalCommandLineCodeExecutor(
+            work_dir=WORK_DIR,
+            cleanup_temp_files=False,
+        ),
         sources=["coder"],
     )
 
