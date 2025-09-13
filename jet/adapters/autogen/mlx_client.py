@@ -136,13 +136,16 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
         message = choice.get("message", {})
         content = message.get("content", "") or ""
         finish_reason = choice.get("finish_reason", "stop")
+        # Map invalid or None finish_reason to 'unknown'
+        valid_finish_reasons = {'stop', 'length',
+                                'function_calls', 'content_filter', 'unknown'}
+        finish_reason = finish_reason if finish_reason in valid_finish_reasons else 'unknown'
         tool_calls = message.get("tool_calls", None)
         function_calls = [FunctionCall(
             id=f"call_{i}",
             name=call["function"]["name"],
             arguments=call["function"]["arguments"]
         ) for i, call in enumerate(tool_calls or [])]
-
         return CreateResult(
             content=content,
             finish_reason=finish_reason,
@@ -151,10 +154,10 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
                     "usage", {}).get("prompt_tokens", 0),
                 completion_tokens=response.get(
                     "usage", {}).get("completion_tokens", 0),
-                total_tokens=response.get("usage", {}).get("total_tokens", 0),
             ),
             model=response["model"],
             function_calls=function_calls if function_calls else None,
+            cached=False,  # Set cached to False as response is not cached
         )
 
 
