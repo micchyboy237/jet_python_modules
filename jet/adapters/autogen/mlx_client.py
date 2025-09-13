@@ -110,7 +110,7 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
             verbose=True,
             base_url=self._host,
         ):
-            if isinstance(chunk, ChatCompletionResponse):
+            if isinstance(chunk, dict) and "choices" in chunk:
                 create_result = self._convert_mlx_to_create_result(chunk)
                 content = create_result.content or ""
                 logger.teal(content, flush=True)
