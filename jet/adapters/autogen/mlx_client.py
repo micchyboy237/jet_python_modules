@@ -116,8 +116,8 @@ class MLXChatCompletionClient(BaseOllamaChatCompletionClient):
                 content += create_result.content
 
                 if chunk["choices"][0]["finish_reason"]:
+                    create_result.content = content
                     final_chunk = create_result.model_dump()
-                    final_chunk["content"] = content
                     ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
                         messages,
                         final_chunk,
