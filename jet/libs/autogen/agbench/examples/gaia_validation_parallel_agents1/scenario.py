@@ -315,7 +315,7 @@ async def main(num_teams: int, num_answers: int) -> None:
     prompt = ""
     with open("prompt.txt", "rt") as fh:
         prompt = fh.read().strip()
-    filename = "__FILE_NAME__".strip()
+    filename = "".strip()
 
     # Prepare the prompt
     filename_prompt = ""

@@ -53,7 +53,7 @@ async def main() -> None:
     prompt = ""
     with open("prompt.txt", "rt") as fh:
         prompt = fh.read().strip()
-    filename = "__FILE_NAME__".strip()
+    filename = "".strip()
 
     # Set up the team
     coder = MagenticOneCoderAgent(
@@ -89,7 +89,6 @@ async def main() -> None:
         [coder, executor, file_surfer, web_surfer],
         model_client=orchestrator_client,
         max_turns=4,
-        emit_team_events=True,
         final_answer_prompt=f""",
 We have completed the following task:
 
