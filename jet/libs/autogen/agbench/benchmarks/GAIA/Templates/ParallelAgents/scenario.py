@@ -46,8 +46,22 @@ from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_ext.models.openai._model_info import _MODEL_TOKEN_LIMITS, resolve_model
 from autogen_agentchat.utils import content_to_str
 
+from jet.logger import logger
+
+os.chdir(os.path.dirname(__file__))
+OUTPUT_DIR = os.path.join(
+    "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
+
+WORK_DIR = "coding"
+
 # Suppress warnings about the requests.Session() not being closed
-warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)
+warnings.filterwarnings(
+    action="ignore", message="unclosed", category=ResourceWarning)
 
 core_event_logger = logging.getLogger(CORE_EVENT_LOGGER_NAME)
 agentchat_event_logger = logging.getLogger(AGENTCHAT_EVENT_LOGGER_NAME)
@@ -61,6 +75,7 @@ current_team_id = contextvars.ContextVar("current_team_id", default=None)
 original_print = builtins.print
 original_agentchat_event_logger_info = agentchat_event_logger.info
 original_core_event_logger_info = core_event_logger.info
+
 
 class LogHandler(logging.FileHandler):
     def __init__(self, filename: str = "log.jsonl", print_message: bool = True) -> None:
@@ -99,6 +114,7 @@ class LogHandler(logging.FileHandler):
             print("error in logHandler.emit", flush=True)
             self.handleError(record)
 
+
 def tee_print(*args, **kwargs):
     # Get the current log file from the context.
     log_file = current_log_file.get()
@@ -112,28 +128,34 @@ def tee_print(*args, **kwargs):
         log_file.write(message)
         log_file.flush()
 
+
 def team_specific_agentchat_event_logger_info(msg, *args, **kwargs):
     team_id = current_team_id.get()
     if team_id is not None:
         # Get a logger with a team-specific name.
-        team_logger = logging.getLogger(f"{AGENTCHAT_EVENT_LOGGER_NAME}.team{team_id}")
+        team_logger = logging.getLogger(
+            f"{AGENTCHAT_EVENT_LOGGER_NAME}.team{team_id}")
         team_logger.info(msg, *args, **kwargs)
     else:
         original_agentchat_event_logger_info(msg, *args, **kwargs)
+
 
 def team_specific_core_event_logger_info(msg, *args, **kwargs):
     team_id = current_team_id.get()
     if team_id is not None:
         # Get a logger with a team-specific name.
-        team_logger = logging.getLogger(f"{CORE_EVENT_LOGGER_NAME}.team{team_id}")
+        team_logger = logging.getLogger(
+            f"{CORE_EVENT_LOGGER_NAME}.team{team_id}")
         team_logger.info(msg, *args, **kwargs)
     else:
         original_core_event_logger_info(msg, *args, **kwargs)
+
 
 # Monkey-patch the built-in print and event_logger.info methods with our team-specific versions.
 builtins.print = tee_print
 agentchat_event_logger.info = team_specific_agentchat_event_logger_info
 core_event_logger.info = team_specific_core_event_logger_info
+
 
 async def run_team(team: MagenticOneGroupChat, team_idx: int, task: str, cancellation_token: CancellationToken, logfile):
     token_logfile = current_log_file.set(logfile)
@@ -151,93 +173,101 @@ async def run_team(team: MagenticOneGroupChat, team_idx: int, task: str, cancell
         current_team_id.reset(token_team_id)
         logfile.close()
 
+
 async def aggregate_final_answer(task: str, client: ChatCompletionClient, team_results, source: str = "Aggregator", cancellation_token: Optional[CancellationToken] = None) -> str:
-        """
-        team_results: {"team_key": TaskResult}
-        team_completion_order: The order in which the teams completed their tasks
-        """
+    """
+    team_results: {"team_key": TaskResult}
+    team_completion_order: The order in which the teams completed their tasks
+    """
 
-        if len(team_results) == 1:
-            final_answer = list(team_results.values())[0].messages[-1].content
-            aggregator_logger.info(
-                f"{source} (Response):\n{final_answer}"
-            )
-            return final_answer
+    if len(team_results) == 1:
+        final_answer = list(team_results.values())[0].messages[-1].content
+        aggregator_logger.info(
+            f"{source} (Response):\n{final_answer}"
+        )
+        return final_answer
 
-        assert len(team_results) > 1
+    assert len(team_results) > 1
 
-        aggregator_messages_to_send = {team_id: deque() for team_id in team_results.keys()} # {team_id: context}
+    aggregator_messages_to_send = {
+        # {team_id: context}
+        team_id: deque() for team_id in team_results.keys()}
 
-        team_ids = list(team_results.keys())
-        current_round = 0
-        while (
-            not all(len(team_result.messages) == 0 for team_result in team_results.values())
-            and ((not resolve_model(client._create_args["model"]) in _MODEL_TOKEN_LIMITS) or client.remaining_tokens([m for messages in aggregator_messages_to_send.values() for m in messages])
-            > 2000)
-        ):
-            team_idx = team_ids[current_round % len(team_ids)]
-            if len(team_results[team_idx].messages) > 0:
-                m = team_results[team_idx].messages[-1]
-                if isinstance(m, ToolCallRequestEvent | ToolCallExecutionEvent):
-                    # Ignore tool call messages.
-                    pass
-                elif isinstance(m, StopMessage | HandoffMessage):
-                    aggregator_messages_to_send[team_idx].appendleft(UserMessage(content=m.to_model_text(), source=m.source))
-                elif m.source == "MagenticOneOrchestrator":
-                    assert isinstance(m, TextMessage | ToolCallSummaryMessage)
-                    aggregator_messages_to_send[team_idx].appendleft(AssistantMessage(content=m.to_model_text(), source=m.source))
-                else:
-                    assert isinstance(m, (TextMessage, MultiModalMessage, ToolCallSummaryMessage))
-                    aggregator_messages_to_send[team_idx].appendleft(UserMessage(content=m.to_model_text(), source=m.source))
-                team_results[team_idx].messages.pop()
-            current_round += 1
+    team_ids = list(team_results.keys())
+    current_round = 0
+    while (
+        not all(len(team_result.messages) ==
+                0 for team_result in team_results.values())
+        and ((not resolve_model(client._create_args["model"]) in _MODEL_TOKEN_LIMITS) or client.remaining_tokens([m for messages in aggregator_messages_to_send.values() for m in messages])
+             > 2000)
+    ):
+        team_idx = team_ids[current_round % len(team_ids)]
+        if len(team_results[team_idx].messages) > 0:
+            m = team_results[team_idx].messages[-1]
+            if isinstance(m, ToolCallRequestEvent | ToolCallExecutionEvent):
+                # Ignore tool call messages.
+                pass
+            elif isinstance(m, StopMessage | HandoffMessage):
+                aggregator_messages_to_send[team_idx].appendleft(
+                    UserMessage(content=m.to_model_text(), source=m.source))
+            elif m.source == "MagenticOneOrchestrator":
+                assert isinstance(m, TextMessage | ToolCallSummaryMessage)
+                aggregator_messages_to_send[team_idx].appendleft(
+                    AssistantMessage(content=m.to_model_text(), source=m.source))
+            else:
+                assert isinstance(
+                    m, (TextMessage, MultiModalMessage, ToolCallSummaryMessage))
+                aggregator_messages_to_send[team_idx].appendleft(
+                    UserMessage(content=m.to_model_text(), source=m.source))
+            team_results[team_idx].messages.pop()
+        current_round += 1
 
-        # Log the messages to send
-        payload = ""
-        for team_idx, messages in aggregator_messages_to_send.items():
-            payload += f"\n{'*'*75} \n" f"Team #: {team_idx}" f"\n{'*'*75} \n"
-            for message in messages:
-                payload += f"\n{'-'*75} \n" f"{message.source}:\n" f"\n{message.content}\n"
-            payload += f"\n{'-'*75} \n" f"Team #{team_idx} stop reason:\n" f"\n{team_results[team_idx].stop_reason}\n"
-        payload += f"\n{'*'*75} \n"
-        aggregator_logger.info(f"{source} (Aggregator Messages):\n{payload}")
+    # Log the messages to send
+    payload = ""
+    for team_idx, messages in aggregator_messages_to_send.items():
+        payload += f"\n{'*'*75} \n" f"Team #: {team_idx}" f"\n{'*'*75} \n"
+        for message in messages:
+            payload += f"\n{'-'*75} \n" f"{message.source}:\n" f"\n{message.content}\n"
+        payload += f"\n{'-'*75} \n" f"Team #{team_idx} stop reason:\n" f"\n{team_results[team_idx].stop_reason}\n"
+    payload += f"\n{'*'*75} \n"
+    aggregator_logger.info(f"{source} (Aggregator Messages):\n{payload}")
 
-        context: List[LLMMessage] = []
+    context: List[LLMMessage] = []
 
-        # Add the preamble
+    # Add the preamble
+    context.append(
+        UserMessage(
+            content=f"Earlier you were asked the following:\n\n{task}\n\nYour team then worked diligently to address that request. You have been provided with a collection of transcripts and stop reasons from {len(team_results)} different teams to the question. Your task is to carefully evaluate the correctness of each team's response by analyzing their respective transcripts and stop reasons. After considering all perspectives, provide a FINAL ANSWER to the question. It is crucial to critically evaluate the information provided in these responses, recognizing that some of it may be biased or incorrect.",
+            source=source,
+        )
+    )
+
+    for team_idx, aggregator_messages in aggregator_messages_to_send.items():
         context.append(
             UserMessage(
-                content=f"Earlier you were asked the following:\n\n{task}\n\nYour team then worked diligently to address that request. You have been provided with a collection of transcripts and stop reasons from {len(team_results)} different teams to the question. Your task is to carefully evaluate the correctness of each team's response by analyzing their respective transcripts and stop reasons. After considering all perspectives, provide a FINAL ANSWER to the question. It is crucial to critically evaluate the information provided in these responses, recognizing that some of it may be biased or incorrect.",
+                content=f"Transcript from Team #{team_idx}:",
+                source=source,
+            )
+        )
+        for message in aggregator_messages:
+            context.append(message)
+        context.append(
+            UserMessage(
+                content=f"Stop reason from Team #{team_idx}:",
+                source=source,
+            )
+        )
+        context.append(
+            UserMessage(
+                content=team_results[team_idx].stop_reason if team_results[team_idx].stop_reason else "No stop reason provided.",
                 source=source,
             )
         )
 
-        for team_idx, aggregator_messages in aggregator_messages_to_send.items():
-            context.append(
-                UserMessage(
-                    content=f"Transcript from Team #{team_idx}:",
-                    source=source,
-                )
-            )
-            for message in aggregator_messages:
-                context.append(message)
-            context.append(
-                UserMessage(
-                    content=f"Stop reason from Team #{team_idx}:",
-                    source=source,
-                )
-            )
-            context.append(
-                UserMessage(
-                    content=team_results[team_idx].stop_reason if team_results[team_idx].stop_reason else "No stop reason provided.",
-                    source=source,
-                )
-            )
-
-        # ask for the final answer
-        context.append(
-            UserMessage(
-                content=f"""
+    # ask for the final answer
+    context.append(
+        UserMessage(
+            content=f"""
     Let's think step-by-step. Carefully review the conversation above, critically evaluate the correctness of each team's response, and then output a FINAL ANSWER to the question. The question is repeated here for convenience:
 
     {task}
@@ -249,19 +279,20 @@ async def aggregate_final_answer(task: str, client: ChatCompletionClient, team_r
     If you are asked for a string, don't use articles or abbreviations (e.g. for cities), unless specified otherwise. Don't output any final sentence punctuation such as '.', '!', or '?'.
     If you are asked for a comma separated list, apply the above rules depending on whether the elements are numbers or strings.
     """.strip(),
-                source=source,
-            )
+            source=source,
         )
+    )
 
-        response = await client.create(context, cancellation_token=cancellation_token)
-        assert isinstance(response.content, str)
+    response = await client.create(context, cancellation_token=cancellation_token)
+    assert isinstance(response.content, str)
 
-        final_answer = re.sub(r"FINAL ANSWER:", "[FINAL ANSWER]:", response.content)
-        aggregator_logger.info(
-            f"{source} (Response):\n{final_answer}"
-        )
+    final_answer = re.sub(
+        r"FINAL ANSWER:", "[FINAL ANSWER]:", response.content)
+    aggregator_logger.info(
+        f"{source} (Response):\n{final_answer}"
+    )
 
-        return re.sub(r"FINAL ANSWER:", "FINAL AGGREGATED ANSWER:", response.content)
+    return re.sub(r"FINAL ANSWER:", "FINAL AGGREGATED ANSWER:", response.content)
 
 
 async def main(num_teams: int, num_answers: int) -> None:
@@ -270,10 +301,13 @@ async def main(num_teams: int, num_answers: int) -> None:
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
-    orchestrator_client = ChatCompletionClient.load_component(config["orchestrator_client"])
+    orchestrator_client = ChatCompletionClient.load_component(
+        config["orchestrator_client"])
     coder_client = ChatCompletionClient.load_component(config["coder_client"])
-    web_surfer_client = ChatCompletionClient.load_component(config["web_surfer_client"])
-    file_surfer_client = ChatCompletionClient.load_component(config["file_surfer_client"])
+    web_surfer_client = ChatCompletionClient.load_component(
+        config["web_surfer_client"])
+    file_surfer_client = ChatCompletionClient.load_component(
+        config["file_surfer_client"])
 
     # Read the prompt
     prompt = ""
@@ -299,19 +333,23 @@ async def main(num_teams: int, num_answers: int) -> None:
         # Set up the team
         coder = MagenticOneCoderAgent(
             "Assistant",
-            model_client = coder_client,
+            model_client=coder_client,
+            model_client_stream=True,
         )
 
-        executor = CodeExecutorAgent("ComputerTerminal", code_executor=LocalCommandLineCodeExecutor())
+        executor = CodeExecutorAgent(
+            "ComputerTerminal", code_executor=LocalCommandLineCodeExecutor())
 
         file_surfer = FileSurfer(
             name="FileSurfer",
-            model_client = file_surfer_client,
+            model_client=file_surfer_client,
+            model_client_stream=True,
         )
 
         web_surfer = MultimodalWebSurfer(
             name="WebSurfer",
-            model_client = web_surfer_client,
+            model_client=web_surfer_client,
+            model_client_stream=True,
             downloads_folder=os.getcwd(),
             debug_dir=logs_dir,
             to_save_screenshots=True,
@@ -319,8 +357,9 @@ async def main(num_teams: int, num_answers: int) -> None:
         team = MagenticOneGroupChat(
             [coder, executor, file_surfer, web_surfer],
             model_client=orchestrator_client,
+            model_client_stream=True,
             max_turns=30,
-            final_answer_prompt= f""",
+            final_answer_prompt=f""",
 We have completed the following task:
 
 {prompt}
@@ -339,9 +378,12 @@ If you are asked for a comma separated list, apply the above rules depending on 
         cancellation_token = CancellationToken()
         tokens.append(cancellation_token)
         logfile = open(f"console_log_{team_idx}.txt", "w")
-        team_agentchat_logger = logging.getLogger(f"{AGENTCHAT_EVENT_LOGGER_NAME}.team{team_idx}")
-        team_core_logger = logging.getLogger(f"{CORE_EVENT_LOGGER_NAME}.team{team_idx}")
-        team_log_handler = LogHandler(f"log_{team_idx}.jsonl", print_message=False)
+        team_agentchat_logger = logging.getLogger(
+            f"{AGENTCHAT_EVENT_LOGGER_NAME}.team{team_idx}")
+        team_core_logger = logging.getLogger(
+            f"{CORE_EVENT_LOGGER_NAME}.team{team_idx}")
+        team_log_handler = LogHandler(
+            f"log_{team_idx}.jsonl", print_message=False)
         team_agentchat_logger.addHandler(team_log_handler)
         team_core_logger.addHandler(team_log_handler)
         async_task = asyncio.create_task(
@@ -397,6 +439,5 @@ if __name__ == "__main__":
     fh = logging.FileHandler("aggregator_log.txt", mode="w")
     fh.setLevel(logging.DEBUG)
     aggregator_logger.addHandler(fh)
-
 
     asyncio.run(main(num_teams, num_answers))

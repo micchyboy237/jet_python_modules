@@ -869,6 +869,7 @@ def run_cli(args: Sequence[str]) -> None:
     parser.add_argument(
         "--native",
         action="store_true",
+        default=True,
         help="Run the scenarios natively rather than in docker. NOTE: This is not advisable, and should be done with great caution.",
     )
 

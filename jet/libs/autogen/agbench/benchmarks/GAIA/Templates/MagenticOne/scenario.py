@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shutil
 import yaml
 import warnings
 from autogen_ext.agents.magentic_one import MagenticOneCoderAgent
@@ -14,8 +15,22 @@ from autogen_ext.agents.file_surfer import FileSurfer
 from autogen_agentchat.agents import CodeExecutorAgent
 from autogen_agentchat.messages import TextMessage
 
+from jet.logger import logger
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
+
+WORK_DIR = "coding"
+
 # Suppress warnings about the requests.Session() not being closed
-warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)
+warnings.filterwarnings(
+    action="ignore", message="unclosed", category=ResourceWarning)
+
 
 async def main() -> None:
 
@@ -23,11 +38,14 @@ async def main() -> None:
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
-    orchestrator_client = ChatCompletionClient.load_component(config["orchestrator_client"])
+    orchestrator_client = ChatCompletionClient.load_component(
+        config["orchestrator_client"])
     coder_client = ChatCompletionClient.load_component(config["coder_client"])
-    web_surfer_client = ChatCompletionClient.load_component(config["web_surfer_client"])
-    file_surfer_client = ChatCompletionClient.load_component(config["file_surfer_client"])
-    
+    web_surfer_client = ChatCompletionClient.load_component(
+        config["web_surfer_client"])
+    file_surfer_client = ChatCompletionClient.load_component(
+        config["file_surfer_client"])
+
     # Read the prompt
     prompt = ""
     with open("prompt.txt", "rt") as fh:
@@ -37,20 +55,29 @@ async def main() -> None:
     # Set up the team
     coder = MagenticOneCoderAgent(
         "Assistant",
-        model_client = coder_client,
+        model_client=coder_client,
+        model_client_stream=True,
     )
 
-    executor = CodeExecutorAgent("ComputerTerminal", code_executor=LocalCommandLineCodeExecutor())
+    executor = CodeExecutorAgent(
+        "ComputerTerminal",
+        code_executor=LocalCommandLineCodeExecutor(
+            work_dir=WORK_DIR,
+            cleanup_temp_files=False,
+        )
+    )
 
     file_surfer = FileSurfer(
         name="FileSurfer",
-        model_client = file_surfer_client,
+        model_client=file_surfer_client,
+        model_client_stream=True,
     )
-                
+
     web_surfer = MultimodalWebSurfer(
         name="WebSurfer",
-        model_client = web_surfer_client,
-        downloads_folder=os.getcwd(),
+        model_client=web_surfer_client,
+        model_client_stream=True,
+        downloads_folder="downloads",
         debug_dir="logs",
         to_save_screenshots=True,
     )
@@ -58,8 +85,9 @@ async def main() -> None:
     team = MagenticOneGroupChat(
         [coder, executor, file_surfer, web_surfer],
         model_client=orchestrator_client,
+        model_client_stream=True,
         max_turns=20,
-        final_answer_prompt= f""",
+        final_answer_prompt=f""",
 We have completed the following task:
 
 {prompt}

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shutil
 import yaml
 import warnings
 from typing import Sequence
@@ -18,6 +19,20 @@ from autogen_ext.agents.file_surfer import FileSurfer
 from autogen_agentchat.agents import CodeExecutorAgent
 from autogen_agentchat.messages import TextMessage, BaseAgentEvent, BaseChatMessage, HandoffMessage, MultiModalMessage, StopMessage
 from autogen_core.models import LLMMessage, UserMessage, AssistantMessage
+
+from jet.logger import logger
+
+os.chdir(os.path.dirname(__file__))
+OUTPUT_DIR = os.path.join(
+    "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
+
+WORK_DIR = "coding"
+
 
 # Suppress warnings about the requests.Session() not being closed
 warnings.filterwarnings(
@@ -41,6 +56,7 @@ async def main() -> None:
     coder = MagenticOneCoderAgent(
         "Assistant",
         model_client=coder_client,
+        model_client_stream=True,
     )
 
     executor = CodeExecutorAgent(
@@ -49,11 +65,13 @@ async def main() -> None:
     file_surfer = FileSurfer(
         name="FileSurfer",
         model_client=file_surfer_client,
+        model_client_stream=True,
     )
 
     web_surfer = MultimodalWebSurfer(
         name="WebSurfer",
         model_client=web_surfer_client,
+        model_client_stream=True,
         downloads_folder=os.getcwd(),
         debug_dir="logs",
         to_save_screenshots=True,
@@ -75,6 +93,7 @@ Does the above conversation suggest that the task has been solved?
 If so, reply "TERMINATE", otherwise reply "CONTINUE"
 """,
         model_client=orchestrator_client
+        model_client_stream=True,
     )
 
     termination = max_messages_termination | llm_termination
@@ -83,6 +102,7 @@ If so, reply "TERMINATE", otherwise reply "CONTINUE"
     team = SelectorGroupChat(
         [coder, executor, file_surfer, web_surfer],
         model_client=orchestrator_client,
+        model_client_stream=True,
         termination_condition=termination,
     )
 
