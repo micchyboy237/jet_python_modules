@@ -53,7 +53,7 @@ async def main() -> None:
     prompt = ""
     with open("prompt.txt", "rt") as fh:
         prompt = fh.read().strip()
-    filename = "".strip()
+    filename = "__FILE_NAME__".strip()
 
     # Set up the team
     coder = MagenticOneCoderAgent(
@@ -92,7 +92,7 @@ async def main() -> None:
     task = f"{prompt}\n\n{filename_prompt}"
 
     # Termination conditions
-    max_messages_termination = MaxMessageTermination(max_messages=20)
+    max_messages_termination = MaxMessageTermination(max_messages=4)
     llm_termination = LLMTermination(
         prompt=f"""Consider the following task:
 {task.strip()}

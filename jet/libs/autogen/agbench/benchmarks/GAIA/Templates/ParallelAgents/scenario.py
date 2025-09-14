@@ -362,7 +362,7 @@ async def main(num_teams: int, num_answers: int) -> None:
         team = MagenticOneGroupChat(
             [coder, executor, file_surfer, web_surfer],
             model_client=orchestrator_client,
-            max_turns=30,
+            max_turns=8,
             final_answer_prompt=f""",
 We have completed the following task:
 

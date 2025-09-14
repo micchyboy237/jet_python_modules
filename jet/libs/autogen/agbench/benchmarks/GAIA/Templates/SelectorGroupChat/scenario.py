@@ -92,7 +92,7 @@ async def main() -> None:
     task = f"{prompt}\n\n{filename_prompt}"
 
     # Termination conditions
-    max_messages_termination = MaxMessageTermination(max_messages=20)
+    max_messages_termination = MaxMessageTermination(max_messages=4)
     llm_termination = LLMTermination(
         prompt=f"""Consider the following task:
 {task.strip()}
