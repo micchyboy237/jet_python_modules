@@ -91,7 +91,6 @@ Does the above conversation suggest that the task has been solved?
 If so, reply "TERMINATE", otherwise reply "CONTINUE"
 """,
         model_client=orchestrator_client
-        model_client_stream=True,
     )
 
     termination = max_messages_termination | llm_termination
