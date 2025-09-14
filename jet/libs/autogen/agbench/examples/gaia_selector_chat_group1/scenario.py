@@ -53,7 +53,7 @@ async def main() -> None:
     prompt = ""
     with open("prompt.txt", "rt") as fh:
         prompt = fh.read().strip()
-    filename = "__FILE_NAME__".strip()
+    filename = "".strip()
 
     # Set up the team
     coder = MagenticOneCoderAgent(
