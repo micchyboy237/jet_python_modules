@@ -343,13 +343,11 @@ async def main(num_teams: int, num_answers: int) -> None:
         file_surfer = FileSurfer(
             name="FileSurfer",
             model_client=file_surfer_client,
-            model_client_stream=True,
         )
 
         web_surfer = MultimodalWebSurfer(
             name="WebSurfer",
             model_client=web_surfer_client,
-            model_client_stream=True,
             downloads_folder=os.getcwd(),
             debug_dir=logs_dir,
             to_save_screenshots=True,
