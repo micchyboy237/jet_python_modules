@@ -13,13 +13,13 @@ from autogen_core.models import ModelFamily
 from autogen_ext.code_executors.local import LocalCommandLineCodeExecutor
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.base import TerminationCondition, TerminatedException
-from autogen_ext.models.ollama import OllamaChatCompletionClient
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 from autogen_ext.agents.file_surfer import FileSurfer
 from autogen_agentchat.agents import CodeExecutorAgent
 from autogen_agentchat.messages import TextMessage, BaseAgentEvent, BaseChatMessage, HandoffMessage, MultiModalMessage, StopMessage
 from autogen_core.models import LLMMessage, UserMessage, AssistantMessage
 
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from jet.logger import logger
 
 CWD = os.path.dirname(__file__)
@@ -33,7 +33,7 @@ logger.basicConfig(filename=log_file)
 logger.orange(f"Logs: {log_file}")
 logger.info(f"Current Working Dir: {CWD}")
 
-WORK_DIR = f"{OUTPUT_DIR}/coding"
+WORK_DIR = CWD
 
 
 # Suppress warnings about the requests.Session() not being closed

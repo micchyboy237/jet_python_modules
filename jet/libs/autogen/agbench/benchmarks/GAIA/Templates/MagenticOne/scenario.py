@@ -28,7 +28,7 @@ logger.basicConfig(filename=log_file)
 logger.orange(f"Logs: {log_file}")
 logger.info(f"Current Working Dir: {CWD}")
 
-WORK_DIR = f"{OUTPUT_DIR}/coding"
+WORK_DIR = CWD
 
 # Suppress warnings about the requests.Session() not being closed
 warnings.filterwarnings(
