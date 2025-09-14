@@ -14,13 +14,13 @@ from autogen_ext.code_executors.local import LocalCommandLineCodeExecutor
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.base import TerminationCondition, TerminatedException
 from autogen_core.models import ChatCompletionClient
-from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 from autogen_ext.agents.file_surfer import FileSurfer
 from autogen_agentchat.agents import CodeExecutorAgent
 from autogen_agentchat.messages import TextMessage, BaseAgentEvent, BaseChatMessage, HandoffMessage, MultiModalMessage, StopMessage
 from autogen_core.models import LLMMessage, UserMessage, AssistantMessage
 
 from jet.logger import logger
+from jet.libs.autogen.multimodal_web_surfer import MultimodalWebSurfer
 
 CWD = os.path.dirname(__file__)
 os.chdir(CWD)
@@ -96,7 +96,6 @@ async def main() -> None:
     llm_termination = LLMTermination(
         prompt=f"""Consider the following task:
 {task.strip()}
-
 Does the above conversation suggest that the task has been solved?
 If so, reply "TERMINATE", otherwise reply "CONTINUE"
 """,
@@ -111,6 +110,8 @@ If so, reply "TERMINATE", otherwise reply "CONTINUE"
         model_client=orchestrator_client,
         model_client_streaming=True,
         termination_condition=termination,
+        allow_repeated_speaker=True,
+        emit_team_events=True,
     )
 
     # Run the task
@@ -130,7 +131,6 @@ If so, reply "TERMINATE", otherwise reply "CONTINUE"
     final_context.append(UserMessage(
         content=f"""We have completed the following task:
 {prompt}
-
 The above messages contain the conversation that took place to complete the task.
 Read the above conversation and output a FINAL ANSWER to the question.
 To output the final answer, use the following template: FINAL ANSWER: [YOUR FINAL ANSWER]
@@ -139,7 +139,7 @@ ADDITIONALLY, your FINAL ANSWER MUST adhere to any formatting instructions speci
 If you are asked for a number, express it numerically (i.e., with digits rather than words), don't use commas, and don't include units such as $ or percent signs unless specified otherwise.
 If you are asked for a string, don't use articles or abbreviations (e.g. for cities), unless specified otherwise. Don't output any final sentence punctuation such as '.', '!', or '?'.
 If you are asked for a comma separated list, apply the above rules depending on whether the elements are numbers or strings.
-#""".strip(),
+""".strip(),
         source="user"))
 
     # Call the model to evaluate
