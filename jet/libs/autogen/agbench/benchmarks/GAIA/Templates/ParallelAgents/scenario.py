@@ -26,7 +26,6 @@ from autogen_core.logging import LLMCallEvent
 from autogen_ext.code_executors.local import LocalCommandLineCodeExecutor
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_core.models import ChatCompletionClient
-from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 from autogen_ext.agents.file_surfer import FileSurfer
 from autogen_agentchat.agents import CodeExecutorAgent
 from autogen_agentchat.messages import (
@@ -47,6 +46,7 @@ from autogen_ext.models.openai._model_info import _MODEL_TOKEN_LIMITS, resolve_m
 from autogen_agentchat.utils import content_to_str
 
 from jet.logger import logger
+from jet.libs.autogen.multimodal_web_surfer import MultimodalWebSurfer
 
 CWD = os.path.dirname(__file__)
 os.chdir(CWD)

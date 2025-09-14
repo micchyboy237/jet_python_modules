@@ -19,12 +19,6 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
         super().__init__(model=model, host=host, timeout=timeout, options=options, **kwargs)
 
     async def create(self, *args, **kwargs):
-        logger.gray("Chat LLM Settings:")
-        logger.info(format_json({
-            "args": args,
-            "kwargs": kwargs,
-        }))
-
         # Use create_stream to handle the request
         result = None
         async for chunk in self.create_stream(*args, **kwargs, method="chat"):
@@ -33,7 +27,10 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
         return result
 
     async def create_stream(self, *args, method: str = "stream_chat", **kwargs):
-        logger.gray("Stream Chat LLM Settings:")
+        if method == "chat":
+            logger.gray("Chat LLM Settings:")
+        else:
+            logger.gray("Stream Chat LLM Settings:")
         logger.info(format_json({
             "args": args,
             "kwargs": kwargs,
