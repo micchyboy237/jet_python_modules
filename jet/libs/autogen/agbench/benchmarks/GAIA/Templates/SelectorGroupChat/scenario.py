@@ -70,8 +70,8 @@ async def main() -> None:
     web_surfer = MultimodalWebSurfer(
         name="WebSurfer",
         model_client=web_surfer_client,
-        downloads_folder=os.getcwd(),
-        debug_dir="logs",
+        downloads_folder=os.path.join(OUTPUT_DIR, "downloads"),
+        debug_dir=os.path.join(OUTPUT_DIR, "logs"),
         to_save_screenshots=True,
     )
 

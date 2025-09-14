@@ -348,8 +348,8 @@ async def main(num_teams: int, num_answers: int) -> None:
         web_surfer = MultimodalWebSurfer(
             name="WebSurfer",
             model_client=web_surfer_client,
-            downloads_folder=os.getcwd(),
-            debug_dir=logs_dir,
+            downloads_folder=os.path.join(OUTPUT_DIR, "downloads"),
+            debug_dir=os.path.join(OUTPUT_DIR, "logs"),
             to_save_screenshots=True,
         )
         team = MagenticOneGroupChat(
@@ -374,13 +374,13 @@ If you are asked for a comma separated list, apply the above rules depending on 
         teams.append(team)
         cancellation_token = CancellationToken()
         tokens.append(cancellation_token)
-        logfile = open(f"console_log_{team_idx}.txt", "w")
+        logfile = open(os.path.join(OUTPUT_DIR, f"console_log_{team_idx}.txt"), "w")
         team_agentchat_logger = logging.getLogger(
             f"{AGENTCHAT_EVENT_LOGGER_NAME}.team{team_idx}")
         team_core_logger = logging.getLogger(
             f"{CORE_EVENT_LOGGER_NAME}.team{team_idx}")
         team_log_handler = LogHandler(
-            f"log_{team_idx}.jsonl", print_message=False)
+            os.path.join(OUTPUT_DIR, f"log_{team_idx}.jsonl"), print_message=False)
         team_agentchat_logger.addHandler(team_log_handler)
         team_core_logger.addHandler(team_log_handler)
         async_task = asyncio.create_task(
@@ -416,7 +416,7 @@ if __name__ == "__main__":
     num_answers = 3
 
     agentchat_trace_logger.setLevel(logging.DEBUG)
-    file_handler = logging.FileHandler("trace.log", mode="w")
+    file_handler = logging.FileHandler(os.path.join(OUTPUT_DIR, "trace.log"), mode="w")
     file_handler.setLevel(logging.DEBUG)
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -433,7 +433,7 @@ if __name__ == "__main__":
     # Create another logger for the aggregator
     aggregator_logger = logging.getLogger("aggregator")
     aggregator_logger.setLevel(logging.DEBUG)
-    fh = logging.FileHandler("aggregator_log.txt", mode="w")
+    fh = logging.FileHandler(os.path.join(OUTPUT_DIR, "aggregator_log.txt"), mode="w")
     fh.setLevel(logging.DEBUG)
     aggregator_logger.addHandler(fh)
 
