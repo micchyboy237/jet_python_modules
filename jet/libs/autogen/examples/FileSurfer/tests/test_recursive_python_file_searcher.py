@@ -6,7 +6,7 @@ import aiofiles
 import pytest
 
 from autogen_agentchat.messages import TextMessage
-from autogen_ext.models.ollama import OllamaChatCompletionClient
+from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 
 from jet.libs.autogen.examples.FileSurfer.recursive_python_file_searcher import RecursivePythonFileSearcher
 

@@ -181,7 +181,7 @@ class RAGPythonFileSearcher(BaseChatAgent, Component[RAGPythonFileSearcherConfig
 
 if __name__ == "__main__":
     import asyncio
-    from autogen_ext.models.ollama import OllamaChatCompletionClient
+    from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 
     async def main():
         client = OllamaChatCompletionClient(model="llama3.2")
