@@ -17,15 +17,19 @@ from autogen_agentchat.messages import TextMessage
 
 from jet.logger import logger
 
+CWD = os.path.dirname(__file__)
+os.chdir(CWD)
+
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-log_file = os.path.join(OUTPUT_DIR, "main.log")
+log_file =  f"{OUTPUT_DIR}/main.log"
 logger.basicConfig(filename=log_file)
-logger.info(f"Logs: {log_file}")
+logger.orange(f"Logs: {log_file}")
+logger.info(f"Current Working Dir: {CWD}")
 
-WORK_DIR = "coding"
+WORK_DIR = f"{OUTPUT_DIR}/coding"
 
 # Suppress warnings about the requests.Session() not being closed
 warnings.filterwarnings(
@@ -70,6 +74,7 @@ async def main() -> None:
     file_surfer = FileSurfer(
         name="FileSurfer",
         model_client=file_surfer_client,
+        base_path=CWD,
     )
 
     web_surfer = MultimodalWebSurfer(
@@ -77,6 +82,7 @@ async def main() -> None:
         model_client=web_surfer_client,
         downloads_folder=os.path.join(OUTPUT_DIR, "downloads"),
         debug_dir=os.path.join(OUTPUT_DIR, "logs"),
+        browser_data_dir=os.path.join(OUTPUT_DIR, "browser_data"),
         to_save_screenshots=True,
     )
 

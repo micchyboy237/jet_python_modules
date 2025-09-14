@@ -48,16 +48,19 @@ from autogen_agentchat.utils import content_to_str
 
 from jet.logger import logger
 
-os.chdir(os.path.dirname(__file__))
+CWD = os.path.dirname(__file__)
+os.chdir(CWD)
+
 OUTPUT_DIR = os.path.join(
-    "generated", os.path.splitext(os.path.basename(__file__))[0])
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-log_file = os.path.join(OUTPUT_DIR, "main.log")
+log_file =  f"{OUTPUT_DIR}/main.log"
 logger.basicConfig(filename=log_file)
-logger.info(f"Logs: {log_file}")
+logger.orange(f"Logs: {log_file}")
+logger.info(f"Current Working Dir: {CWD}")
 
-WORK_DIR = "coding"
+WORK_DIR = f"{OUTPUT_DIR}/coding"
 
 # Suppress warnings about the requests.Session() not being closed
 warnings.filterwarnings(
@@ -338,11 +341,15 @@ async def main(num_teams: int, num_answers: int) -> None:
         )
 
         executor = CodeExecutorAgent(
-            "ComputerTerminal", code_executor=LocalCommandLineCodeExecutor())
+            "ComputerTerminal", code_executor=LocalCommandLineCodeExecutor(
+                work_dir=WORK_DIR,
+                cleanup_temp_files=False,
+            ))
 
         file_surfer = FileSurfer(
             name="FileSurfer",
             model_client=file_surfer_client,
+            base_path=CWD,
         )
 
         web_surfer = MultimodalWebSurfer(
@@ -350,6 +357,7 @@ async def main(num_teams: int, num_answers: int) -> None:
             model_client=web_surfer_client,
             downloads_folder=os.path.join(OUTPUT_DIR, "downloads"),
             debug_dir=os.path.join(OUTPUT_DIR, "logs"),
+            browser_data_dir=os.path.join(OUTPUT_DIR, "browser_data"),
             to_save_screenshots=True,
         )
         team = MagenticOneGroupChat(
