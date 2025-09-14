@@ -1,3 +1,5 @@
+from typing import AsyncIterator
+
 from typing import Any, Callable, Dict, List, Optional, Union, Literal, Iterator
 from pydantic.json_schema import JsonSchemaValue
 
@@ -13,6 +15,7 @@ from jet.llm.mlx.remote.types import (
 )
 from jet.llm.mlx.chat_history import ChatHistory
 from jet.llm.mlx.mlx_utils import execute_tool_calls, has_tools, process_response_format
+from jet.models.utils import resolve_model
 from jet.utils.eval_utils import parse_and_evaluate
 from jet.utils.inspect_utils import get_entry_file_name, get_method_info
 from jet.utils.object import remove_null_keys
@@ -23,7 +26,8 @@ def prepare_messages(
     history: ChatHistory,
     system_prompt: Optional[str] = None,
     with_history: bool = False,
-    response_format: Optional[Union[Literal["text", "json"], JsonSchemaValue]] = None,
+    response_format: Optional[Union[Literal["text",
+                                            "json"], JsonSchemaValue]] = None,
 ) -> List[Message]:
     """Prepare messages with optional history, system prompt, and response format, ensuring tool_calls and alternating roles."""
     if system_prompt and not any(m["role"] == "system" for m in history.get_messages()):
@@ -113,8 +117,10 @@ def prepare_chat_request(
     stream: bool = False
 ) -> ChatCompletionRequest:
     """Prepare a chat completion request with validated tools and messages."""
+    resolved_model = resolve_model(model) if model else None
+    resolved_draft_model = resolve_model(draft_model) if draft_model else None
     formatted_tools = []
-    if tools and model and has_tools(model):
+    if tools and resolved_model and has_tools(resolved_model):
         if not all(callable(tool) for tool in tools):
             raise ValueError("All tools must be callable functions")
         formatted_tools = [
@@ -130,8 +136,8 @@ def prepare_chat_request(
 
     req: ChatCompletionRequest = {
         "messages": request_messages,
-        "model": model,
-        "draft_model": draft_model,
+        "model": resolved_model,
+        "draft_model": resolved_draft_model,
         "max_tokens": max_tokens,
         "temperature": temperature,
         "top_p": top_p,
@@ -174,11 +180,14 @@ def prepare_text_request(
     stream: bool = False
 ) -> TextCompletionRequest:
     """Prepare a text completion request with formatted prompt."""
-    modified_prompt = process_response_format(prompt, response_format or "text")
+    resolved_model = resolve_model(model) if model else None
+    resolved_draft_model = resolve_model(draft_model) if draft_model else None
+    modified_prompt = process_response_format(
+        prompt, response_format or "text")
     req: TextCompletionRequest = {
         "prompt": modified_prompt,
-        "model": model,
-        "draft_model": draft_model,
+        "model": resolved_model,
+        "draft_model": resolved_draft_model,
         "max_tokens": max_tokens,
         "temperature": temperature,
         "top_p": top_p,
@@ -275,10 +284,12 @@ def process_chat_response(
             new_choices.append(choice)
 
     response["choices"] = new_choices
-    response["content"] = "".join(assistant_content) if assistant_content else None
+    response["content"] = "".join(
+        assistant_content) if assistant_content else None
     response["tool_calls"] = assistant_tool_calls if assistant_tool_calls else None
     if tools and assistant_tool_calls:
-        response["tool_execution"] = execute_tool_calls(assistant_tool_calls, tools)
+        response["tool_execution"] = execute_tool_calls(
+            assistant_tool_calls, tools)
     if with_history:
         response["history"] = history.get_messages()
 
@@ -324,7 +335,8 @@ def process_stream_chat_response(
                     try:
                         parse_input = message.get("tool_calls") if message.get(
                             "tool_calls") else content
-                        parsed_tool_calls = parse_and_evaluate(str(parse_input))
+                        parsed_tool_calls = parse_and_evaluate(
+                            str(parse_input))
                         if parsed_tool_calls and not isinstance(parsed_tool_calls, list):
                             parsed_tool_calls = [parsed_tool_calls]
                         for call in parsed_tool_calls:
@@ -362,6 +374,20 @@ def process_stream_chat_response(
         yield chunk
 
 
+async def aprocess_stream_chat_response(
+    chunks: Iterator[ChatCompletionResponse],
+    history: ChatHistory,
+    with_history: bool,
+    tools: Optional[List[Callable]] = None,
+) -> AsyncIterator[ChatCompletionResponse]:
+    """Process stream chat response chunks asynchronously."""
+    for chunk in chunks:
+        # Process chunk if needed (e.g., update history or handle tools)
+        if with_history and history:
+            history.add_response(chunk)
+        yield chunk
+
+
 def process_text_response(response: TextCompletionResponse) -> TextCompletionResponse:
     """Process a text completion response, aggregating content."""
     text_content = []
@@ -380,7 +406,16 @@ def process_stream_text_response(chunks: Iterator[TextCompletionResponse]) -> It
             if choice.get("text"):
                 text_content.append(choice["text"])
             if choice.get("finish_reason") is not None:
-                chunk["content"] = "".join(text_content) if text_content else None
+                chunk["content"] = "".join(
+                    text_content) if text_content else None
+        yield chunk
+
+
+async def aprocess_stream_text_response(
+    chunks: Iterator[TextCompletionResponse]
+) -> AsyncIterator[TextCompletionResponse]:
+    """Process stream text response chunks asynchronously."""
+    for chunk in chunks:
         yield chunk
 
 

@@ -16,7 +16,9 @@ from jet.llm.mlx.remote.utils import (
     process_chat_response,
     process_text_response,
     process_stream_chat_response,
+    aprocess_stream_chat_response,
     process_stream_text_response,
+    aprocess_stream_text_response,
     save_logs,
 )
 from jet.llm.mlx.chat_history import ChatHistory
@@ -210,20 +212,6 @@ def stream_chat(
         )
 
 
-async def process_stream_chat_response(
-    chunks: Iterator[ChatCompletionResponse],
-    history: ChatHistory,
-    with_history: bool,
-    tools: Optional[List[Callable]] = None,
-) -> AsyncIterator[ChatCompletionResponse]:
-    """Process stream chat response chunks asynchronously."""
-    for chunk in chunks:
-        # Process chunk if needed (e.g., update history or handle tools)
-        if with_history and history:
-            history.add_response(chunk)
-        yield chunk
-
-
 async def astream_chat(
     messages: Union[str, List[Message]],
     model: Optional[str] = None,
@@ -282,7 +270,7 @@ async def astream_chat(
     )
     chunks = client.create_chat_completion(req, stream=True)
     last_response = None
-    async for chunk in process_stream_chat_response(chunks, history, with_history, tools):
+    async for chunk in aprocess_stream_chat_response(chunks, history, with_history, tools):
         last_response = chunk
         yield chunk
     if last_response:
@@ -469,14 +457,6 @@ def stream_generate(
         )
 
 
-async def process_stream_text_response(
-    chunks: Iterator[TextCompletionResponse]
-) -> AsyncIterator[TextCompletionResponse]:
-    """Process stream text response chunks asynchronously."""
-    for chunk in chunks:
-        yield chunk
-
-
 async def astream_generate(
     prompt: str,
     model: Optional[str] = None,
@@ -524,7 +504,7 @@ async def astream_generate(
     )
     chunks = client.create_text_completion(req, stream=True)
     last_response = None
-    async for chunk in process_stream_text_response(chunks):
+    async for chunk in aprocess_stream_text_response(chunks):
         last_response = chunk
         yield chunk
     if last_response:
