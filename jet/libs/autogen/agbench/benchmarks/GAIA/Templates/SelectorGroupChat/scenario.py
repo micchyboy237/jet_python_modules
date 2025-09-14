@@ -25,8 +25,7 @@ from jet.logger import logger
 CWD = os.path.dirname(__file__)
 os.chdir(CWD)
 
-OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "generated")
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 log_file =  f"{OUTPUT_DIR}/main.log"
