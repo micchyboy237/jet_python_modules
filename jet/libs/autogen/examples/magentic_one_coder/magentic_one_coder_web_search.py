@@ -112,7 +112,6 @@ If so, reply "TERMINATE", otherwise reply "CONTINUE"
         model_client=orchestrator_client,
         termination_condition=termination,
         allow_repeated_speaker=True,
-        model_client_streaming=True,
     )
 
     # Run the task

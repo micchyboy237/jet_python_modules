@@ -106,7 +106,6 @@ If so, reply "TERMINATE", otherwise reply "CONTINUE"
     team = SelectorGroupChat(
         [coder, executor, file_surfer, web_surfer],
         model_client=orchestrator_client,
-        model_client_stream=True,
         termination_condition=termination,
     )
 
