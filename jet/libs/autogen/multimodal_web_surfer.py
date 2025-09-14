@@ -97,7 +97,7 @@ class MultimodalWebSurfer(BaseChatAgent, Component[MultimodalWebSurferConfig]):
     It can also summarize the entire page, or answer questions based on the content of the page.
     It can also be asked to sleep and wait for pages to load, in cases where the page seems not yet fully loaded.
     """
-    DEFAULT_START_PAGE = "https://www.bing.com/"
+    DEFAULT_START_PAGE = "http://jethros-macbook-air.local:3000/"
     VIEWPORT_HEIGHT = 900
     VIEWPORT_WIDTH = 1440
     MLM_HEIGHT = 900
