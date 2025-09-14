@@ -57,13 +57,13 @@ async def main() -> None:
 
     # Set up the team
     coder = MagenticOneCoderAgent(
-        "Assistant",
+        "Coder",
         model_client=coder_client,
         model_client_stream=True,
     )
 
     executor = CodeExecutorAgent(
-        "ComputerTerminal",
+        "CodeExecutor",
         code_executor=LocalCommandLineCodeExecutor(
             work_dir=WORK_DIR,
             cleanup_temp_files=False,

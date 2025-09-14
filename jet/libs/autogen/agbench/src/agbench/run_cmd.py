@@ -66,44 +66,35 @@ def run_scenarios(
     results_dir: str = "Results",
     subsample: Union[None, int, float] = None,
     env_file: Union[None, str] = None,
+    overwrite: bool = False,  # New parameter
 ) -> None:
     """
     Run a set agbench scenarios a given number of times.
-
     Args:
-        scenario (path):    The file or folder containing the scenario JSONL instances. If given a folder, then
+        scenario (path): The file or folder containing the scenario JSONL instances. If given a folder, then
                             all JSONL files in the folder will be loaded and run.
-        n_repeats (int):    The number of times each scenario instance will be repeated
-        is_native (bool):   True if the scenario should be run locally rather than in Docker (proceed with caution!)
+        n_repeats (int): The number of times each scenario instance will be repeated
+        is_native (bool): True if the scenario should be run locally rather than in Docker (proceed with caution!)
         results_dir (path): The folder were results will be saved.
+        overwrite (bool): If True, overwrite existing results directories.
     """
-
     files: List[str] = []
-
-    # Figure out which files or folders we are working with
     if scenario == "-" or os.path.isfile(scenario):
         files.append(scenario)
     elif os.path.isdir(scenario):
         for f in os.listdir(scenario):
             scenario_file = os.path.join(scenario, f)
-
             if not os.path.isfile(scenario_file):
                 continue
-
             if not scenario_file.lower().endswith(".jsonl"):
                 continue
-
             files.append(scenario_file)
     else:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), scenario)
-
-    # Run all the scenario files
     for scenario_file in files:
         scenario_name: Optional[str] = None
         scenario_dir: Optional[str] = None
         file_handle = None
-
-        # stdin
         if scenario_file == "-":
             scenario_name = "stdin"
             scenario_dir = "."
@@ -114,56 +105,35 @@ def run_scenarios(
             scenario_name = ".".join(scenario_name_parts)
             scenario_dir = os.path.dirname(os.path.realpath(scenario_file))
             file_handle = open(scenario_file, "rt")
-
-        # Read all the lines, then subsample if needed
         lines = [line for line in file_handle]
         if subsample is not None:
-            # How many lines are we sampling
             n = 0
-            # It's a proportion
             if 0 <= subsample < 1:
                 n = int(len(lines) * subsample + 0.5)
-            # It's a raw count
             else:
                 n = int(subsample)
             n = max(0, min(n, len(lines)))
             lines = subsample_rng.sample(lines, n)
-
         for line in lines:
             instance = json.loads(line)
-
-            # Create a folder to store the results
-            # Results base
             if not os.path.isdir(results_dir):
                 os.mkdir(results_dir)
-
-            # Results for the scenario
             results_scenario = os.path.join(results_dir, scenario_name)
             if not os.path.isdir(results_scenario):
                 os.mkdir(results_scenario)
-
-            # Results for the instance
             results_instance = os.path.join(results_scenario, instance["id"])
+            if overwrite and os.path.isdir(results_instance):
+                shutil.rmtree(results_instance)
             if not os.path.isdir(results_instance):
                 os.mkdir(results_instance)
-
-            # Results for the repeats
             for i in range(0, n_repeats):
                 results_repetition = os.path.join(results_instance, str(i))
-
-                # Skip it if it already exists
-                if os.path.isdir(results_repetition):
+                if not overwrite and os.path.isdir(results_repetition):
                     print(f"Found folder {results_repetition} ... Skipping.")
                     continue
                 print(f"Running scenario {results_repetition}")
-
-                # Expand the scenario
                 expand_scenario(scenario_dir, instance, results_repetition, config_file)
-
-                # Prepare the environment (keys/values that need to be added)
                 env = get_scenario_env(token_provider=token_provider, env_file=env_file)
-
-                # Run the scenario
                 if is_native:
                     run_scenario_natively(results_repetition, env)
                 else:
@@ -172,8 +142,6 @@ def run_scenarios(
                         env,
                         docker_image=docker_image,
                     )
-
-        # Close regular files
         if scenario_file != "-":
             file_handle.close()
 
@@ -665,42 +633,27 @@ def run_scenarios_subset(
     results_dir: str = "Results",
     subsample: Union[None, int, float] = None,
     env_file: Union[None, str] = None,
+    overwrite: bool = False,  # New parameter
 ) -> None:
     """
     Run a subset of agbench scenarios a given number of times.
     """
     for instance in scenarios:
-        # Create a folder to store the results
-        # Results base
-
         mkdir_p(results_dir)
-
-        # Results for the scenario
-
         results_scenario = os.path.join(results_dir, scenario_name)
         mkdir_p(results_scenario)
-
-        # Results for the instance
         results_instance = os.path.join(results_scenario, instance["id"])
+        if overwrite and os.path.isdir(results_instance):
+            shutil.rmtree(results_instance)
         mkdir_p(results_instance)
-
-        # Results for the repeats
         for i in range(0, n_repeats):
             results_repetition = os.path.join(results_instance, str(i))
-
-            # Skip it if it already exists
-            if os.path.isdir(results_repetition):
+            if not overwrite and os.path.isdir(results_repetition):
                 print(f"Found folder {results_repetition} ... Skipping.")
                 continue
             print(f"Running scenario {results_repetition}")
-
-            # Expand the scenario
-            expand_scenario(".", instance, results_repetition, config_file)  # type: ignore
-
-            # Prepare the environment (keys/values that need to be added)
+            expand_scenario(".", instance, results_repetition, config_file)
             env = get_scenario_env(env_file=env_file)
-
-            # Run the scenario
             if is_native:
                 run_scenario_natively(results_repetition, env)
             else:
@@ -715,15 +668,11 @@ def run_parallel(args: argparse.Namespace) -> None:
     """
     Run scenarios in parallel.
     """
-    # Read and split the JSONL file
     scenarios = split_jsonl(args.scenario, args.parallel)
     scenario_name_parts = os.path.basename(args.scenario).split(".")
     scenario_name_parts.pop()
     scenario_name = ".".join(scenario_name_parts)
-
-    # Create a pool of worker processes
     with Pool(processes=args.parallel) as pool:
-        # Prepare arguments for each worker
         worker_args = [
             (
                 scenario_name,
@@ -735,11 +684,10 @@ def run_parallel(args: argparse.Namespace) -> None:
                 "Results",
                 args.subsample,
                 args.env,
+                args.overwrite,  # Pass overwrite flag
             )
             for scenario_subset in scenarios
         ]
-
-        # Run scenarios in parallel
         pool.starmap(run_scenarios_subset, worker_args)
 
 
@@ -768,13 +716,10 @@ def get_azure_token_provider() -> Optional[Callable[[], str]]:
 def run_cli(args: Sequence[str]) -> None:
     invocation_cmd = args[0]
     args = args[1:]
-
-    # Prepare the argument parser
     parser = argparse.ArgumentParser(
         prog=invocation_cmd,
         description=f"{invocation_cmd} will run the specified AutoGen scenarios for a given number of repetitions and record all logs and trace information. When running in a Docker environment (default), each run will begin from a common, tightly controlled, environment. The resultant logs can then be further processed by other scripts to produce metrics.".strip(),
     )
-
     parser.add_argument(
         "scenario",
         help="The JSONL scenario file to run. If a directory is specified, then all JSONL scenarios in the directory are run. If set to '-', then read from stdin.",
@@ -836,65 +781,40 @@ def run_cli(args: Sequence[str]) -> None:
         action="store_true",
         help="Run the scenarios natively rather than in docker. NOTE: This is not advisable, and should be done with great caution.",
     )
-
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing results directories for scenarios, forcing a fresh run.",
+    )
     parsed_args = parser.parse_args(args)
-
     if parsed_args.config is not None:
-        # Make sure the config file is readable, so that we fail early
         with open(parsed_args.config, "r"):
             pass
-
-    # don't support parallel and subsample together
     if parsed_args.parallel > 1 and parsed_args.subsample is not None:
         sys.exit("The options --parallel and --subsample can not be used together currently. Exiting.")
-
-    # Don't allow both --docker-image and --native on the same command
     if parsed_args.docker_image is not None and parsed_args.native:
         sys.exit("The options --native and --docker-image can not be used together. Exiting.")
-
-    # Warn if running natively
     if parsed_args.native:
         if IS_WIN32:
             sys.exit("Running scenarios with --native is not supported in Windows. Exiting.")
-
         sys.stderr.write(
             "WARNING: Running natively, without Docker, not only poses the usual risks of executing arbitrary AI generated code on your machine, it also makes it impossible to ensure that each test starts from a known and consistent set of initial conditions. For example, if the agents spend time debugging and installing Python libraries to solve the task, then those libraries will be available to all other runs. In other words, earlier runs can influence later runs, leading to many confounds in testing.\n\n"
         )
-
-        # # Does an environment variable override the prompt?
-        # allow_native = os.environ.get("AGBENCH_ALLOW_NATIVE")
-        # if allow_native is None or allow_native == "":
-        #     choice = input(
-        #         'Are you absolutely sure you want to continue with native execution? Type "Yes" exactly, and in full, to proceed: '
-        #     )
-        #     if choice.strip().lower() != "yes":
-        #         sys.exit("Received '" + choice + "'. Exiting.")
-        # elif allow_native.strip().lower() != "yes":
-        #     sys.exit(f"Exiting because AGBENCH_ALLOW_NATIVE is '{allow_native}'\n")
-        # else:
-        #     sys.stderr.write(f"Continuing because AGBENCH_ALLOW_NATIVE is '{allow_native}'\n")
-        #     time.sleep(0.75)  # Pause very briefly so the message isn't lost in the noise
-
-    # Parse the subsample
     subsample = None
     if parsed_args.subsample is not None:
         subsample = float(parsed_args.subsample)
-        if "." in parsed_args.subsample:  # Intention is to run on a proportion
-            if subsample == 1.0:  # Intention is to run 100%, which is the default
-                subsample = None  # None means 100% ... which use None to differentiate from the integer 1
+        if "." in parsed_args.subsample:
+            if subsample == 1.0:
+                subsample = None
             elif subsample < 0 or subsample > 1.0:
                 raise (
                     ValueError(
                         "Subsample must either be an integer (specified without a decimal), or a Real number between 0.0 and 1.0"
                     )
                 )
-
-    # Get the Azure bearer token generator if a token wasn't provided and there's any evidence of using Azure
     azure_token_provider = None
     if parsed_args.azure:
         azure_token_provider = get_azure_token_provider()
-
-    # Run the scenario
     if parsed_args.parallel > 1:
         run_parallel(parsed_args)
     else:
@@ -907,4 +827,5 @@ def run_cli(args: Sequence[str]) -> None:
             docker_image=parsed_args.docker_image,
             subsample=subsample,
             env_file=parsed_args.env,
+            overwrite=parsed_args.overwrite,  # Pass overwrite flag
         )

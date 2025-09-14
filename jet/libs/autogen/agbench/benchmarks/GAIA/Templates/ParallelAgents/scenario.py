@@ -334,13 +334,14 @@ async def main(num_teams: int, num_answers: int) -> None:
     for team_idx in range(num_teams):
         # Set up the team
         coder = MagenticOneCoderAgent(
-            "Assistant",
+            "Coder",
             model_client=coder_client,
             model_client_stream=True,
         )
 
         executor = CodeExecutorAgent(
-            "ComputerTerminal", code_executor=LocalCommandLineCodeExecutor(
+            "CodeExecutor", 
+            code_executor=LocalCommandLineCodeExecutor(
                 work_dir=WORK_DIR,
                 cleanup_temp_files=False,
             ))
