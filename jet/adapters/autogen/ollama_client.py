@@ -38,6 +38,11 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
             "args": args,
             "kwargs": kwargs,
         }))
+        messages = kwargs.get("messages", args[0] if args else [])
+
+        if not messages:
+            raise ValueError(
+                "No messages provided in args or kwargs['messages']")
 
         async for chunk in super().create_stream(*args, **kwargs):
             if isinstance(chunk, str):
@@ -52,7 +57,7 @@ class OllamaChatCompletionClient(BaseOllamaChatCompletionClient):
 
                 # Log to file
                 ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method=method).log_interaction(
-                    args[0],
+                    messages,
                     chunk.model_dump(),
                     model=self._model_name,
                     tools=kwargs.get("tools"),
