@@ -112,7 +112,8 @@ def get_embedding_function(
     url: str = base_url,
 ) -> Callable[[str | list[str]], list[float] | list[list[float]] | np.ndarray]:
     """Retrieve embeddings with in-memory and file-based caching."""
-    embed_func = initialize_embed_function(model_name, batch_size, return_format=return_format, url=url)
+    embed_func = initialize_embed_function(
+        model_name, batch_size, return_format=return_format, url=url)
 
     def generate_cache_key(input_text: str | list[str]) -> str:
         """Generate a cache key based on model name, batch size, and input text."""
@@ -439,7 +440,8 @@ def generate_multiple(
     query: str | list[str],
     func: Callable[[str | list[str]], list],  # Replace with the correct type
     batch_size: int = 32,
-) -> list[list[float]]:
+    return_format: Literal["list", "numpy"] = "numpy",
+) -> list[list[float]] | np.ndarray:
     if isinstance(query, list):
         embeddings = []
         pbar = tqdm(range(0, len(query), batch_size),
@@ -447,16 +449,21 @@ def generate_multiple(
         for i in pbar:
             pbar.set_description(
                 f"Generating embeddings batch {i // batch_size + 1}")
-            embeddings.extend(func(query[i: i + batch_size]))
-        return embeddings
+            batch_result = func(query[i: i + batch_size])
+            embeddings.extend(batch_result)
     else:
         embeddings = func(query)
-        return embeddings
+
+    # Convert to requested format
+    if return_format == "numpy":
+        embeddings = np.array(embeddings)
+    return embeddings
 
 
 def generate_embeddings(
     model: str,
     text: Union[str, list[str]],
+    return_format: Literal["list", "numpy"] = "numpy",
     **kwargs
 ) -> GenerateEmbeddingsReturnType:
     url = kwargs.get("url", "")
@@ -464,7 +471,7 @@ def generate_embeddings(
 
     text = [text] if isinstance(text, str) else text
     embeddings = generate_ollama_batch_embeddings(
-        **{"model": model, "texts": text, "url": url, "key": key}
+        **{"model": model, "texts": text, "url": url, "key": key, "return_format": return_format}
     )
 
     return embeddings[0] if isinstance(text, str) else embeddings
@@ -477,8 +484,9 @@ def generate_ollama_batch_embeddings(
     url: str,
     key: str = "",
     max_tokens: Optional[int | float] = None,
-    max_retries: int = 3
-) -> list[list[float]]:
+    max_retries: int = 3,
+    return_format: Literal["list", "numpy"] = "numpy",
+) -> list[list[float]] | np.ndarray:
     if not max_tokens:
         max_tokens = 0.5
 
@@ -502,9 +510,6 @@ def generate_ollama_batch_embeddings(
             "\n".join(
                 f"- {count} tokens: {text[:50].replace("\n", " ")}..." for text, count in exceeded_texts)
         )
-        # raise ValueError(
-        #     f"{len(exceeded_texts)} texts exceed max token limit")
-        # texts = split_texts(texts, model, max_tokens, 100)
         texts = truncate_texts(texts, model, max_tokens)
 
     headers = {"Content-Type": "application/json"}
@@ -523,7 +528,11 @@ def generate_ollama_batch_embeddings(
             data = r.json()
 
             if "embeddings" in data:
-                return data["embeddings"]
+                embeddings = data["embeddings"]
+                # Convert to requested format
+                if return_format == "numpy":
+                    embeddings = np.array(embeddings)
+                return embeddings
             else:
                 logger.error("No embeddings found in response.")
                 raise ValueError("Invalid response: missing embeddings")
