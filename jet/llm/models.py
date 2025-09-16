@@ -45,6 +45,7 @@ OLLAMA_LLM_MODELS = Literal[
 ]
 
 OLLAMA_EMBED_MODELS = Literal[
+    "embeddinggemma",
     "mxbai-embed-large",
     "granite-embedding:278m",
     "granite-embedding",
@@ -52,6 +53,7 @@ OLLAMA_EMBED_MODELS = Literal[
     "bge-large",
     "all-minilm:33m",
     "all-minilm:22m",
+    "embeddinggemma",
 ]
 
 
@@ -73,7 +75,8 @@ OLLAMA_MODEL_CONTEXTS = {
     "paraphrase-multilingual": 512,
     "bge-large": 512,
     "all-minilm:33m": 512,
-    "all-minilm:22m": 512
+    "all-minilm:22m": 512,
+    "embeddinggemma": 2048,
 }
 
 # Map models to embedding sizes
@@ -94,7 +97,8 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "paraphrase-multilingual": 768,
     "bge-large": 1024,
     "all-minilm:33m": 384,
-    "all-minilm:22m": 384
+    "all-minilm:22m": 384,
+    "embeddinggemma": 768,
 }
 
 
@@ -125,6 +129,7 @@ OLLAMA_HF_MODELS = {
     "snowflake-arctic-embed": "Snowflake/snowflake-arctic-embed-l",
     "paraphrase-multilingual": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
     "bge-large": "BAAI/bge-large-en-v1.5",
+    "embeddinggemma": "google/embeddinggemma-300m",
 }
 
 OLLAMA_HF_MODEL_NAMES = Literal[
@@ -156,6 +161,7 @@ OLLAMA_HF_MODEL_NAMES = Literal[
     "Snowflake/snowflake-arctic-embed-l",
     "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
     "BAAI/bge-large-en-v1.5",
+    "google/embeddinggemma-300m",
 ]
 
 OLLAMA_HF_MODEL_CHAT_TEMPLATES = {}

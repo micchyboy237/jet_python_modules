@@ -202,7 +202,7 @@ EmbedModelKey = Literal[
     "static-retrieval-mrl-en-v1",
     "jina-embeddings-v2-base",
     "jina-embeddings-v2-small",
-    "embeddinggemma-300m",
+    "embeddinggemma",
 ]
 
 # Embed model value types

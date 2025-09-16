@@ -98,7 +98,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "static-retrieval-mrl-en-v1": "sentence-transformers/static-retrieval-mrl-en-v1",
     "jina-embeddings-v2-small": "jinaai/jina-embeddings-v2-small-en",
     "jina-embeddings-v2-base": "jinaai/jina-embeddings-v2-base-en",
-    "embeddinggemma-300m": "google/embeddinggemma-300m",
+    "embeddinggemma": "google/embeddinggemma-300m",
 }
 
 AVAILABLE_RERANK_MODELS: Dict[RerankModelKey, RerankModelValue] = {
@@ -199,7 +199,7 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "jina-embeddings-v2-base": 8192,
     "jina-embeddings-v2-small": 8192,
     "mistral-7b-instruct": 32768,
-    "embeddinggemma-300m": 2048,
+    "embeddinggemma": 2048,
 }
 
 MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
@@ -274,5 +274,5 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "jina-embeddings-v2-base": 768,
     "jina-embeddings-v2-small": 512,
     "mistral-7b-instruct": 4096,
-    "embeddinggemma-300m": 768,
+    "embeddinggemma": 768,
 }

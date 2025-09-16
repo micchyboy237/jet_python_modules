@@ -111,7 +111,7 @@ def save_cache(cache: dict):
 def get_embedding_function(
     model_name: str,
     batch_size: int = 64,
-    url: Optional[str] = base_url,
+    url: str = base_url,
 ) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
     """Retrieve embeddings with in-memory and file-based caching."""
     embed_func = initialize_embed_function(model_name, batch_size, url=url)
@@ -187,11 +187,12 @@ class OllamaEmbeddingFunction():
             model_name: str = large_embed_model,
             batch_size: int = 32,
             key: str = "",
-            url: Optional[str] = base_url,
+            url: str = base_url,
     ) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
         self.key = key
+        self.url = url
 
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
         logger.info(f"Generating Ollama embeddings...")
@@ -207,7 +208,7 @@ class OllamaEmbeddingFunction():
         def func(query: str | list[str]): return generate_embeddings(
             model=self.model_name,
             text=query,
-            url=url,
+            url=self.url,
             key=self.key,
         )
 
@@ -317,7 +318,7 @@ global_embed_batch_size = 32
 
 
 def initialize_embed_function(
-    model_name: str, batch_size: int, url: Optional[str] = base_url
+    model_name: str, batch_size: int, url: str = base_url
 ) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
     """Initialize and cache embedding functions globally."""
     global global_embed_model_func, global_embed_model_name, global_embed_batch_size
@@ -384,8 +385,9 @@ def ollama_embedding_function(texts, model) -> list[float] | list[list[float]]:
 def get_ollama_embedding_function(
     model: OLLAMA_EMBED_MODELS,
     batch_size: int = 32,
+    url: str = base_url
 ):
-    return OllamaEmbeddingFunction(model_name=model, batch_size=batch_size)
+    return OllamaEmbeddingFunction(model_name=model, batch_size=batch_size, url=url)
 
 
 def generate_multiple(

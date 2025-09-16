@@ -334,29 +334,34 @@ def calculate_num_predict_ctx(prompt: str | list[str] | list[ChatMessage] | list
 def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[str]:
     """
     Truncates texts that exceed the max_tokens limit.
-
     Args:
-        texts (str | list[str]): A list of texts to be truncated.
+        texts (str | list[str]): A single text or list of texts to be truncated.
         model (str): The model name for tokenization.
         max_tokens (int): The maximum number of tokens allowed per text.
-
     Returns:
         list[str]: A list of truncated texts.
     """
     tokenizer = get_tokenizer(model)
-
     if isinstance(texts, str):
         texts = [texts]
 
-    tokenized_texts = tokenizer.batch_encode_plus(texts, return_tensors=None)
-    tokenized_texts = tokenized_texts["input_ids"]
-    truncated_texts = []
+    # Handle tokenization based on tokenizer type
+    if isinstance(tokenizer, tiktoken.Encoding):
+        tokenized_texts = tokenizer.encode_batch(texts)
+    else:
+        tokenized_texts = tokenizer(
+            texts, add_special_tokens=False)["input_ids"]
 
+    truncated_texts = []
     for text, tokens in zip(texts, tokenized_texts):
         if len(tokens) > max_tokens:
-            truncated_text = tokenizer.decode(
-                tokens[:max_tokens], skip_special_tokens=True)
-            truncated_texts.append(truncated_text)
+            truncated_tokens = tokens[:max_tokens]
+            if isinstance(tokenizer, tiktoken.Encoding):
+                truncated_text = tokenizer.decode(truncated_tokens)
+            else:
+                truncated_text = tokenizer.decode(
+                    truncated_tokens, skip_special_tokens=True)
+            truncated_texts.append(truncated_text.strip())
         else:
             truncated_texts.append(text)
 
