@@ -96,7 +96,8 @@ def get_model_limits(model_id: Union[str, 'ModelValue']) -> Tuple[Optional[int],
             config = AutoConfig.from_pretrained(
                 model_path,
                 trust_remote_code=True,
-                use_auth_token=False,  # Set to True if using private repos
+                # Set to True if using private repos
+                token=os.getenv("HF_TOKEN"),
                 cache_dir=None,  # Use default cache directory
                 force_download=False,  # Use cached if available
                 resume_download=False

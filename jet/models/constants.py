@@ -199,6 +199,7 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "jina-embeddings-v2-base": 8192,
     "jina-embeddings-v2-small": 8192,
     "mistral-7b-instruct": 32768,
+    "embeddinggemma-300m": 2048,
 }
 
 MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
@@ -273,4 +274,5 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "jina-embeddings-v2-base": 768,
     "jina-embeddings-v2-small": 512,
     "mistral-7b-instruct": 4096,
+    "embeddinggemma-300m": 768,
 }
