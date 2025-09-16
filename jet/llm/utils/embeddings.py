@@ -35,7 +35,7 @@ class MemoryEmbedding(TypedDict):
 
 
 # GenerateEmbeddingsReturnType = Union[MemoryEmbedding, List[MemoryEmbedding]]
-GenerateEmbeddingsReturnType = list[float] | list[list[float]]
+GenerateEmbeddingsReturnType = list[float] | list[list[float]] | np.ndarray
 
 GenerateMultipleReturnType = Callable[[
     Union[str, List[str]]], List[MemoryEmbedding]]
