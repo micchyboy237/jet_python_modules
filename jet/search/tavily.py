@@ -253,13 +253,14 @@ def format_query_results(json_data: TavilyResponse, response_format: ResponseFor
     return "".join(formatted_text)
 
 
-def tavily_search(query: str, response_format: ResponseFormat = "markdown") -> str:
+def tavily_search(query: str, response_format: ResponseFormat = "markdown", max_results: int = 10) -> Union[str, TavilyResponse]:
     """
     Performs a web search using the Tavily API with raw httpx calls.
 
     Args:
         query: Search query string
         response_format: Output format, either 'markdown' or 'json'
+        max_results: Maximum number of search results to return (default: 10)
 
     Returns:
         Formatted search results string in specified format
@@ -279,7 +280,7 @@ def tavily_search(query: str, response_format: ResponseFormat = "markdown") -> s
     endpoint = f"{base_url}/search"
 
     # Prepare request payload
-    payload = {"query": query}
+    payload = {"query": query, "max_results": max_results}
 
     # Make the API request using httpx
     with httpx.Client() as client:
