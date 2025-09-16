@@ -211,7 +211,7 @@ def resolve_model(model_name: ModelType) -> ModelType:
     """
     if model_name in ALL_MODELS:
         return ALL_MODELS[model_name]
-    elif model_name in ALL_MODELS.values():
+    if model_name in ALL_MODELS.values() or "/" in model_name:
         return model_name
     else:
         raise ValueError(

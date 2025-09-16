@@ -1,0 +1,53 @@
+---
+license: gemma
+pipeline_tag: sentence-similarity
+library_name: sentence-transformers
+tags:
+- sentence-transformers
+- sentence-similarity
+- feature-extraction
+- text-embeddings-inference
+extra_gated_heading: Access EmbeddingGemma on Hugging Face
+extra_gated_prompt: To access EmbeddingGemma on Hugging Face, you’re required to review and
+  agree to Google’s usage license. To do this, please ensure you’re logged in to Hugging
+  Face and click below. Requests are processed immediately.
+extra_gated_button_content: Acknowledge license
+---
+
+# EmbeddingGemma model card
+
+**Model Page**: [EmbeddingGemma](https://ai.google.dev/gemma/docs/embeddinggemma)
+
+**Resources and Technical Documentation**:
+
+*   [Responsible Generative AI Toolkit](https://ai.google.dev/responsible)
+*   [EmbeddingGemma on Kaggle](https://www.kaggle.com/models/google/embeddinggemma/)
+*   [EmbeddingGemma on Vertex Model Garden](https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/embeddinggemma)
+
+**Terms of Use**: [Terms](https://ai.google.dev/gemma/terms)
+
+**Authors**: Google DeepMind
+
+## Model Information
+
+### Description
+
+EmbeddingGemma is a 300M parameter, state-of-the-art for its size, open embedding model from Google, built from Gemma 3 (with T5Gemma initialization) and the same research and technology used to create Gemini models. EmbeddingGemma produces vector representations of text, making it well-suited for search and retrieval tasks, including classification, clustering, and semantic similarity search. This model was trained with data in 100+ spoken languages.
+
+The small size and on-device focus makes it possible to deploy in environments with limited resources such as mobile phones, laptops, or desktops, democratizing access to state of the art AI models and helping foster innovation for everyone.
+
+### Inputs and outputs
+
+-   **Input:**
+    -   Text string, such as a question, a prompt, or a document to be embedded
+    -   Maximum input context length of 2048 tokens
+
+-   **Output:**
+    -   Numerical vector representations of input text data
+    -   Output embedding dimension size of 768, with smaller options available (512, 256, or 128) via Matryoshka Representation Learning (MRL). MRL allows users to truncate the output embedding of size 768 to their desired size and then re-normalize for efficient and accurate representation.
+
+### Usage
+
+These model weights are designed to be used with [Sentence Transformers](https://www.SBERT.net), using the [Gemma 3](https://huggingface.co/docs/transformers/main/en/model_doc/gemma3) implementation from [Hugging Face Transformers](https://huggingface.co/docs/transformers/en/index) as the backbone.
+
+First install the Sentence Transformers library:

@@ -98,6 +98,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "static-retrieval-mrl-en-v1": "sentence-transformers/static-retrieval-mrl-en-v1",
     "jina-embeddings-v2-small": "jinaai/jina-embeddings-v2-small-en",
     "jina-embeddings-v2-base": "jinaai/jina-embeddings-v2-base-en",
+    "embeddinggemma-300m": "google/embeddinggemma-300m",
 }
 
 AVAILABLE_RERANK_MODELS: Dict[RerankModelKey, RerankModelValue] = {
