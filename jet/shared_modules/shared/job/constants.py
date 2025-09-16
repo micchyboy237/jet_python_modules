@@ -1,4 +1,4 @@
-JOBS_DIR = '/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/my-jobs/saved'
+JOBS_DIR = '/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/saved'
 
 JOBS_FILE = f'{JOBS_DIR}/jobs.json'
 JOB_DETAILS_FILE = f'{JOBS_DIR}/job-details.json'

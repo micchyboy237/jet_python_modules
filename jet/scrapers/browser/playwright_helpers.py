@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright, Browser as SyncBrowser, Page as
 from playwright.async_api import async_playwright, Browser as AsyncBrowser, Page as AsyncPage
 from jet.logger import logger
 
-GENERATED_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/my-jobs/generated"
+GENERATED_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/generated"
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
 REDIS_CONFIG = RedisConfigParams(
