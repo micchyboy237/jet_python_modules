@@ -212,7 +212,7 @@ class TavilyResponse(TypedDict):
 ResponseFormat = Literal["markdown", "json"]
 
 
-def format_query_results(json_data: TavilyResponse, response_format: ResponseFormat = "markdown") -> str:
+def format_query_results(json_data: TavilyResponse, response_format: ResponseFormat = "markdown") -> Union[str, Dict]:
     """
     Formats Tavily search results into a specified format.
 
@@ -221,10 +221,10 @@ def format_query_results(json_data: TavilyResponse, response_format: ResponseFor
         response_format: Output format, either 'markdown' or 'json'
 
     Returns:
-        Formatted string with search results in specified format
+        Formatted results in specified format
     """
     if response_format == "json":
-        return json.dumps(json_data, indent=2)
+        return json_data  # ✅ return dict, not string
 
     formatted_text = []
 
