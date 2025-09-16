@@ -202,6 +202,7 @@ EmbedModelKey = Literal[
     "static-retrieval-mrl-en-v1",
     "jina-embeddings-v2-base",
     "jina-embeddings-v2-small",
+    "embeddinggemma-300m",
 ]
 
 # Embed model value types
@@ -242,6 +243,7 @@ EmbedModelValue = Literal[
     "sentence-transformers/static-retrieval-mrl-en-v1",
     "jinaai/jina-embeddings-v2-base-en",
     "jinaai/jina-embeddings-v2-small-en",
+    "google/embeddinggemma-300m",
 ]
 
 RerankModelKey = Literal[
