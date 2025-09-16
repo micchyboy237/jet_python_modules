@@ -40,7 +40,7 @@ class ChatLogger:
 
     def log_interaction(
         self,
-        prompt_or_messages: Union[str, List[Message]],
+        messages: Union[str, List[Message]],
         response: Union[str, CompletionResponse, List[CompletionResponse]],
         **kwargs: Any
     ) -> None:
@@ -62,10 +62,10 @@ class ChatLogger:
             "tools": tools,
         }
         log_data.update(kwargs)
-        if isinstance(prompt_or_messages, str):
-            log_data["prompt"] = prompt_or_messages
+        if isinstance(messages, str):
+            log_data["prompt"] = messages
         else:
-            log_data["messages"] = prompt_or_messages.copy()
+            log_data["messages"] = messages.copy()
         if isinstance(response, str):
             log_data["response"] = response
         elif isinstance(response, (list, dict)):
