@@ -226,15 +226,14 @@ class OllamaEmbeddingFunction:
             return generate_embeddings(
                 model=self.model_name,
                 text=query,
+                batch_size=self.batch_size,
                 url=self.url,
                 key=self.key,
+                return_format=self.return_format
             )
 
-        batch_embeddings = generate_multiple(input, func, self.batch_size)
-
-        # Convert to requested format
-        if self.return_format == "numpy":
-            batch_embeddings = np.array(batch_embeddings)
+        batch_embeddings = generate_multiple(
+            input, func, self.batch_size, return_format=self.return_format)
 
         if isinstance(input, str):
             return batch_embeddings[0]
@@ -463,15 +462,21 @@ def generate_multiple(
 def generate_embeddings(
     model: str,
     text: Union[str, list[str]],
+    batch_size: int = 32,
     return_format: Literal["list", "numpy"] = "numpy",
     **kwargs
 ) -> GenerateEmbeddingsReturnType:
-    url = kwargs.get("url", "")
+    url = kwargs.get("url", base_url)
     key = kwargs.get("key", "")
 
     text = [text] if isinstance(text, str) else text
     embeddings = generate_ollama_batch_embeddings(
-        **{"model": model, "texts": text, "url": url, "key": key, "return_format": return_format}
+        model=model,
+        texts=text,
+        batch_size=batch_size,
+        url=url,
+        key=key,
+        return_format=return_format
     )
 
     return embeddings[0] if isinstance(text, str) else embeddings
@@ -481,7 +486,8 @@ def generate_embeddings(
 def generate_ollama_batch_embeddings(
     model: OLLAMA_MODEL_NAMES,
     texts: list[str],
-    url: str,
+    batch_size: int = 32,
+    url: str = base_url,
     key: str = "",
     max_tokens: Optional[int | float] = None,
     max_retries: int = 3,
@@ -516,32 +522,42 @@ def generate_ollama_batch_embeddings(
     if key:
         headers["Authorization"] = f"Bearer {key}"
 
-    for attempt in range(max_retries):
-        try:
-            r = requests.post(
-                f"{url}/api/embed",
-                headers=headers,
-                json={"model": model, "input": texts},
-                timeout=300  # Set a timeout for reliability
-            )
-            r.raise_for_status()
-            data = r.json()
+    embeddings = []
+    pbar = tqdm(range(0, len(texts), batch_size), desc="Generating embeddings")
+    for i in pbar:
+        pbar.set_description(
+            f"Generating embeddings batch {i // batch_size + 1}")
+        batch_texts = texts[i:i + batch_size]
 
-            if "embeddings" in data:
-                embeddings = data["embeddings"]
-                # Convert to requested format
-                if return_format == "numpy":
-                    embeddings = np.array(embeddings)
-                return embeddings
-            else:
-                logger.error("No embeddings found in response.")
-                raise ValueError("Invalid response: missing embeddings")
+        for attempt in range(max_retries):
+            try:
+                r = requests.post(
+                    f"{url}/api/embed",
+                    headers=headers,
+                    json={"model": model, "input": batch_texts},
+                    timeout=300
+                )
+                r.raise_for_status()
+                data = r.json()
 
-        except requests.RequestException as e:
-            logger.error(
-                f"Attempt {attempt + 1} failed with error: {e}, Response text: {r.text if 'r' in locals() else 'No response'}")
-            logger.error(f"\nModel: {model}")
-            logger.error(f"\nTexts:\n{len(texts)}")
-            if attempt == max_retries - 1:
-                raise e
-            time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+                if "embeddings" in data:
+                    batch_embeddings = data["embeddings"]
+                    embeddings.extend(batch_embeddings)
+                    break
+                else:
+                    logger.error("No embeddings found in response.")
+                    raise ValueError("Invalid response: missing embeddings")
+
+            except requests.RequestException as e:
+                logger.error(
+                    f"Attempt {attempt + 1} failed with error: {e}, Response text: {r.text if 'r' in locals() else 'No response'}")
+                logger.error(f"\nModel: {model}")
+                logger.error(f"\nTexts:\n{len(batch_texts)}")
+                if attempt == max_retries - 1:
+                    raise e
+                time.sleep(2 ** attempt)
+
+    # Convert to requested format
+    if return_format == "numpy":
+        embeddings = np.array(embeddings)
+    return embeddings
