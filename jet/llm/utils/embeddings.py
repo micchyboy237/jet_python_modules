@@ -1,34 +1,31 @@
 import time
 import logging
-from typing import Optional, List
 import zlib
 import pickle
-from pathlib import Path
 import os
 import json
 import threading
-from typing import Callable, Union, List
-from jet.data.utils import hash_text
+import requests
+import sentence_transformers
+import numpy as np
+from typing import Any, Optional, Callable, Sequence, Union, List, TypedDict, Literal
+from pathlib import Path
+from tqdm import tqdm
 from functools import lru_cache
+from sentence_transformers import SentenceTransformer
+from chromadb import Documents, EmbeddingFunction, Embeddings
+from chromadb.utils import embedding_functions
+from jet.data.utils import hash_text
 from jet._token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
 from jet.transformers.formatters import format_json
-import numpy as np
-
 from jet.logger import logger
 from jet.logger.timer import time_it
-import sentence_transformers
-from tqdm import tqdm
 from jet.llm.models import DEFAULT_SF_EMBED_MODEL, OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
-from sentence_transformers import SentenceTransformer
-import requests
-from typing import Any, Optional, Callable, Sequence, Union, List, TypedDict
-from chromadb import Documents, EmbeddingFunction, Embeddings
 from jet.llm.ollama.config import (
     large_embed_model,
     base_url,
 
 )
-from chromadb.utils import embedding_functions
 default_ef = embedding_functions.DefaultEmbeddingFunction()
 
 
@@ -111,10 +108,11 @@ def save_cache(cache: dict):
 def get_embedding_function(
     model_name: str,
     batch_size: int = 64,
+    return_format: Literal["list", "numpy"] = "numpy",
     url: str = base_url,
-) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
+) -> Callable[[str | list[str]], list[float] | list[list[float]] | np.ndarray]:
     """Retrieve embeddings with in-memory and file-based caching."""
-    embed_func = initialize_embed_function(model_name, batch_size, url=url)
+    embed_func = initialize_embed_function(model_name, batch_size, return_format=return_format, url=url)
 
     def generate_cache_key(input_text: str | list[str]) -> str:
         """Generate a cache key based on model name, batch size, and input text."""
@@ -124,7 +122,7 @@ def get_embedding_function(
             text_hash = hash_text("".join(sorted(input_text)))
         return f"embed:{model_name}:{batch_size}:{text_hash}"
 
-    def embedding_function(input_text: str | list[str]) -> list[float] | list[list[float]]:
+    def embedding_function(input_text: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
         """Compute embeddings with caching."""
         single_input = isinstance(input_text, str)
         text_count = 1 if single_input else len(input_text)
@@ -140,22 +138,31 @@ def get_embedding_function(
         # Check in-memory cache
         with _cache_lock:
             if cache_key in _memory_cache:
-                # logger.success(
-                #     f"Memory cache hit for {'1 text' if single_input else f'{text_count} texts'} "
-                #     f"(key: {cache_key}): {text_summary}"
-                # )
-                return _memory_cache[cache_key]
+                cached_result = _memory_cache[cache_key]
+                # Convert cached result to requested format
+                result = cached_result
+                if return_format == "numpy":
+                    result = np.array(cached_result)
+                logger.debug(
+                    f"Memory cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                    f"(key: {cache_key}): {text_summary}"
+                )
+                return result[0] if single_input else result
 
         # Check file cache
         with _cache_lock:
             cache = load_cache()
             if cache_key in cache:
                 _memory_cache[cache_key] = cache[cache_key]
-                # logger.success(
-                #     f"File cache hit for {'1 text' if single_input else f'{text_count} texts'} "
-                #     f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
-                # )
-                return cache[cache_key]
+                # Convert cached result to requested format
+                result = cache[cache_key]
+                if return_format == "numpy":
+                    result = np.array(cache[cache_key])
+                logger.debug(
+                    f"File cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                    f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
+                )
+                return result[0] if single_input else result
 
         logger.warning(
             f"Cache miss for {'1 text' if single_input else f'{text_count} texts'} "
@@ -166,10 +173,16 @@ def get_embedding_function(
         input_texts = [input_text] if single_input else input_text
         computed_embeddings = embed_func(input_texts)
 
+        # Convert embeddings to requested format
+        if return_format == "numpy":
+            computed_embeddings = np.array(computed_embeddings)
+
         # Store in caches
         with _cache_lock:
-            _memory_cache[cache_key] = computed_embeddings[0] if single_input else computed_embeddings
-            cache[cache_key] = computed_embeddings[0] if single_input else computed_embeddings
+            _memory_cache[cache_key] = computed_embeddings.tolist() if isinstance(
+                computed_embeddings, np.ndarray) else computed_embeddings
+            cache[cache_key] = computed_embeddings.tolist() if isinstance(
+                computed_embeddings, np.ndarray) else computed_embeddings
             save_cache(cache)
             logger.info(
                 f"Cached embeddings for {'1 text' if single_input else f'{text_count} texts'} "
@@ -181,48 +194,62 @@ def get_embedding_function(
     return embedding_function
 
 
-class OllamaEmbeddingFunction():
+class OllamaEmbeddingFunction:
     def __init__(
-            self,
-            model_name: str = large_embed_model,
-            batch_size: int = 32,
-            key: str = "",
-            url: str = base_url,
+        self,
+        model_name: str = large_embed_model,
+        batch_size: int = 32,
+        url: str = base_url,
+        key: str = "",
+        return_format: Literal["list", "numpy"] = "numpy",
     ) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
         self.key = key
         self.url = url
+        self.return_format = return_format
 
-    def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
+    def __call__(self, input: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
         logger.info(f"Generating Ollama embeddings...")
         logger.debug(f"Model: {self.model_name}")
         logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
         logger.debug(
             f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
-        logger.debug(f"Texts: {len(input)}")
+        logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
         logger.debug(f"Batch size: {self.batch_size}")
         logger.info(
-            f"Total batches: {len(input) // self.batch_size + bool(len(input) % self.batch_size)}")
-
-        def func(query: str | list[str]): return generate_embeddings(
-            model=self.model_name,
-            text=query,
-            url=self.url,
-            key=self.key,
+            f"Total batches: {len(input) // self.batch_size + bool(len(input) % self.batch_size) if isinstance(input, list) else 1}"
         )
 
+        def func(query: str | list[str]):
+            return generate_embeddings(
+                model=self.model_name,
+                text=query,
+                url=self.url,
+                key=self.key,
+            )
+
         batch_embeddings = generate_multiple(input, func, self.batch_size)
+
+        # Convert to requested format
+        if self.return_format == "numpy":
+            batch_embeddings = np.array(batch_embeddings)
 
         if isinstance(input, str):
             return batch_embeddings[0]
         return batch_embeddings
 
 
-class SFEmbeddingFunction():
-    def __init__(self, model_name: str = DEFAULT_SF_EMBED_MODEL, batch_size: int = 32) -> None:
+class SFEmbeddingFunction:
+    def __init__(
+        self,
+        model_name: str = DEFAULT_SF_EMBED_MODEL,
+        batch_size: int = 32,
+        return_format: Literal["list", "numpy"] = "numpy",
+    ) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
+        self.return_format = return_format
         self.model = SentenceTransformer(model_name)
 
     def __getattr__(self, name):
@@ -239,17 +266,22 @@ class SFEmbeddingFunction():
         return [len(tokens) for tokens in tokenized]
 
     @time_it(function_name="generate_sf_batch_embeddings")
-    def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
+    def __call__(self, input: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
         base_input = input
 
         logger.info(f"Generating SF embeddings...")
         logger.debug(f"Model: {self.model_name}")
         logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
         logger.debug(f"Batch size: {self.batch_size}")
+        logger.debug(f"Return format: {self.return_format}")
 
         all_embeddings = self.model.encode(
-            base_input, convert_to_tensor=True, show_progress_bar=False)
+            base_input, convert_to_tensor=True, show_progress_bar=False
+        )
 
+        # Convert to requested format
+        if self.return_format == "numpy":
+            return all_embeddings.numpy()
         return all_embeddings.tolist()
 
 
@@ -318,8 +350,11 @@ global_embed_batch_size = 32
 
 
 def initialize_embed_function(
-    model_name: str, batch_size: int, url: str = base_url
-) -> Callable[[str | list[str]], list[float] | list[list[float]]]:
+    model_name: str,
+    batch_size: int,
+    return_format: Literal["list", "numpy"] = "numpy",
+    url: str = base_url,
+) -> Callable[[str | list[str]], list[float] | list[list[float]] | np.ndarray]:
     """Initialize and cache embedding functions globally."""
     global global_embed_model_func, global_embed_model_name, global_embed_batch_size
 
@@ -327,9 +362,18 @@ def initialize_embed_function(
         use_ollama = model_name in OLLAMA_EMBED_MODELS.__args__
 
         if use_ollama:
-            embed_func = OllamaEmbeddingFunction(model_name, batch_size, url)
+            embed_func = OllamaEmbeddingFunction(
+                model_name=model_name,
+                batch_size=batch_size,
+                return_format=return_format,
+                url=url,
+            )
         else:
-            embed_func = SFEmbeddingFunction(model_name, batch_size)
+            embed_func = SFEmbeddingFunction(
+                model_name=model_name,
+                batch_size=batch_size,
+                return_format=return_format,
+            )
 
         global_embed_model_func = embed_func
         global_embed_model_name = model_name
@@ -385,9 +429,10 @@ def ollama_embedding_function(texts, model) -> list[float] | list[list[float]]:
 def get_ollama_embedding_function(
     model: OLLAMA_EMBED_MODELS,
     batch_size: int = 32,
-    url: str = base_url
+    return_format: Literal["list", "numpy"] = "numpy",
+    url: str = base_url,
 ):
-    return OllamaEmbeddingFunction(model_name=model, batch_size=batch_size, url=url)
+    return OllamaEmbeddingFunction(model_name=model, batch_size=batch_size, return_format=return_format, url=url)
 
 
 def generate_multiple(

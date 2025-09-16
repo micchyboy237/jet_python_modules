@@ -256,7 +256,7 @@ class SentenceTransformerRegistry(BaseModelRegistry):
         input_data: Union[str, List[str]],
         batch_size: int = 32,
         show_progress: bool = False,
-        return_format: Literal["list", "numpy"] = "list",
+        return_format: Literal["list", "numpy"] = "numpy",
     ) -> Union[List[float], List[List[float]], np.ndarray, torch.Tensor]:
         """Generate embeddings for input text using a SentenceTransformer model."""
         from jet.models.embeddings.base import generate_embeddings

@@ -150,7 +150,7 @@ class CrossEncoderRegistry(BaseModelRegistry):
         input_pairs: Union[Tuple[str, str], List[Tuple[str, str]]],
         batch_size: int = 32,
         show_progress: bool = False,
-        return_format: Literal["list", "numpy"] = "list",
+        return_format: Literal["list", "numpy"] = "numpy",
     ) -> Union[float, List[float], np.ndarray]:
         """Generate similarity scores for input sentence pairs using a CrossEncoder model."""
         instance = CrossEncoderRegistry()

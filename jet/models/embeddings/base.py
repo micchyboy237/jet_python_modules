@@ -209,7 +209,7 @@ def get_embedding_function(
     model_name: EmbedModelType,
     batch_size: int = 32,
     show_progress: bool = False,
-    return_format: Literal["list", "numpy"] = "list",
+    return_format: Literal["list", "numpy"] = "numpy",
     truncate_dim: Optional[int] = None,
 ) -> Callable[[Union[str, List[str]]], EmbeddingOutput]:
     def embed_func(x): return generate_embeddings(
