@@ -7,6 +7,7 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
+from ollama import Options
 from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.logger import logger
@@ -26,6 +27,49 @@ class ChatOllama(BaseChatOllama):
         super().__init__(model=model, base_url=base_url, **options, **kwargs)
         self._chat_logger = ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="chat")
 
+    def _chat_params(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        ollama_messages = self._convert_messages_to_ollama_messages(messages)
+        if self.stop is not None and stop is not None:
+            msg = "`stop` found in both the input and default params."
+            raise ValueError(msg)
+        if self.stop is not None:
+            stop = self.stop
+        options_dict = {
+            "mirostat": self.mirostat,
+            "mirostat_eta": self.mirostat_eta,
+            "mirostat_tau": self.mirostat_tau,
+            "num_ctx": self.num_ctx,
+            "num_gpu": self.num_gpu,
+            "num_thread": self.num_thread,
+            "num_predict": self.num_predict,
+            "repeat_last_n": self.repeat_last_n,
+            "repeat_penalty": self.repeat_penalty,
+            "temperature": kwargs.pop("temperature", self.temperature),
+            "seed": self.seed,
+            "stop": self.stop if stop is None else stop,
+            "tfs_z": self.tfs_z,
+            "top_k": self.top_k,
+            "top_p": self.top_p,
+        }
+        params = {
+            "messages": ollama_messages,
+            "stream": kwargs.pop("stream", True),
+            "model": kwargs.pop("model", self.model),
+            "think": kwargs.pop("reasoning", self.reasoning),
+            "format": kwargs.pop("format", self.format),
+            "options": Options(**options_dict),
+            "keep_alive": kwargs.pop("keep_alive", self.keep_alive),
+            **kwargs,
+        }
+        if tools := kwargs.get("tools"):
+            params["tools"] = tools
+        return params
+
     def _generate(
         self,
         messages: list[BaseMessage],
@@ -43,7 +87,7 @@ class ChatOllama(BaseChatOllama):
         for generation in result.generations:
             logger.teal(generation.message.content, flush=True)
             self._chat_logger.log_interaction(
-                messages,
+                messages=messages,
                 response=generation.message.dict(),
                 model=self.model,
                 tools=kwargs.get("tools"),
@@ -68,7 +112,7 @@ class ChatOllama(BaseChatOllama):
                 chunk.message.content, str) else str(chunk.message.content)
             logger.teal(content, flush=True)
             self._chat_logger.log_interaction(
-                messages,
+                messages=messages,
                 response=chunk.message.dict(),
                 model=self.model,
                 tools=kwargs.get("tools"),
@@ -92,7 +136,7 @@ class ChatOllama(BaseChatOllama):
         for generation in result.generations:
             logger.teal(generation.message.content, flush=True)
             self._chat_logger.log_interaction(
-                messages,
+                messages=messages,
                 response=generation.message.dict(),
                 model=self.model,
                 tools=kwargs.get("tools"),
@@ -117,7 +161,7 @@ class ChatOllama(BaseChatOllama):
                 chunk.message.content, str) else str(chunk.message.content)
             logger.teal(content, flush=True)
             self._chat_logger.log_interaction(
-                messages,
+                messages=messages,
                 response=chunk.message.dict(),
                 model=self.model,
                 tools=kwargs.get("tools"),
