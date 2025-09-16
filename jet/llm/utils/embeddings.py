@@ -224,8 +224,8 @@ class OllamaEmbeddingFunction:
 
         def func(query: str | list[str]):
             return generate_embeddings(
-                model=self.model_name,
                 text=query,
+                model=self.model_name,
                 batch_size=self.batch_size,
                 url=self.url,
                 key=self.key,
@@ -460,8 +460,8 @@ def generate_multiple(
 
 
 def generate_embeddings(
-    model: str,
     text: Union[str, list[str]],
+    model: str,
     batch_size: int = 32,
     return_format: Literal["list", "numpy"] = "numpy",
     **kwargs
@@ -471,8 +471,8 @@ def generate_embeddings(
 
     text = [text] if isinstance(text, str) else text
     embeddings = generate_ollama_batch_embeddings(
-        model=model,
         texts=text,
+        model=model,
         batch_size=batch_size,
         url=url,
         key=key,
@@ -484,8 +484,8 @@ def generate_embeddings(
 
 @time_it
 def generate_ollama_batch_embeddings(
-    model: OLLAMA_MODEL_NAMES,
     texts: list[str],
+    model: OLLAMA_MODEL_NAMES,
     batch_size: int = 32,
     url: str = base_url,
     key: str = "",
