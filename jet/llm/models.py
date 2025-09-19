@@ -28,7 +28,9 @@ OLLAMA_MODEL_NAMES = Literal[
     "paraphrase-multilingual",
     "bge-large",
     "all-minilm:33m",
-    "all-minilm:22m"
+    "all-minilm:22m",
+    "embeddinggemma",
+    "nomic-embed-text",
 ]
 
 OLLAMA_LLM_MODELS = Literal[
@@ -54,6 +56,7 @@ OLLAMA_EMBED_MODELS = Literal[
     "all-minilm:33m",
     "all-minilm:22m",
     "embeddinggemma",
+    "nomic-embed-text",
 ]
 
 
@@ -77,6 +80,7 @@ OLLAMA_MODEL_CONTEXTS = {
     "all-minilm:33m": 512,
     "all-minilm:22m": 512,
     "embeddinggemma": 2048,
+    "nomic-embed-text": 8192,
 }
 
 # Map models to embedding sizes
@@ -99,6 +103,7 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "all-minilm:33m": 384,
     "all-minilm:22m": 384,
     "embeddinggemma": 768,
+    "nomic-embed-text": 768,
 }
 
 
