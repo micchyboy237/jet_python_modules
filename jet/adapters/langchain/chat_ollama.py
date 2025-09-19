@@ -23,8 +23,8 @@ DETERMINISTIC_LLM_SETTINGS = {
 
 class ChatOllama(BaseChatOllama):
     def __init__(self, model: str, base_url: str = "http://localhost:11434", **kwargs):
-        options = {**DETERMINISTIC_LLM_SETTINGS, **(kwargs.pop("options", {}))}
-        super().__init__(model=model, base_url=base_url, **options, **kwargs)
+        options = {**DETERMINISTIC_LLM_SETTINGS, **kwargs, **(kwargs.pop("options", {}))}
+        super().__init__(model=model, base_url=base_url, **options)
         self._chat_logger = ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="chat")
 
     def _chat_params(

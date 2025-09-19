@@ -4,7 +4,7 @@ from swarms.agents.reasoning_agents import ReasoningAgentRouter
 reasoning_agent_router = ReasoningAgentRouter(
     agent_name="reasoning-agent",
     description="A reasoning agent that can answer questions and help with tasks.",
-    model_name="gpt-4o-mini",
+    model_name="ollama/llama3.2",
     system_prompt="You are a helpful assistant that can answer questions and help with tasks.",
     max_loops=1,
     swarm_type="self-consistency",

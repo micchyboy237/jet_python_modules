@@ -147,7 +147,7 @@ def chunk_texts_with_data(
     for i, (doc_index, text) in enumerate(zip(doc_indices, texts)):
         sentences = split_sentences(text)
         if not sentences:
-            logger.debug(f"No sentences found for text: {text}")
+            # logger.debug(f"No sentences found for text: {text}")
             continue
 
         # Split large sentences
@@ -415,7 +415,7 @@ def chunk_texts(
         # Split text into sentences
         sentences = split_sentences(text)
         if not sentences:
-            logger.debug(f"No sentences found for text: {text}")
+            # logger.debug(f"No sentences found for text: {text}")
             continue
 
         # Pair sentences with their separators
@@ -517,7 +517,7 @@ def truncate_texts(texts: str | List[str], model: ModelType, max_tokens: Optiona
     for text in texts:
         sentences = split_sentences(text)
         if not sentences:
-            logger.debug(f"No sentences found for text: {text}")
+            # logger.debug(f"No sentences found for text: {text}")
             truncated_texts.append(text)
             continue
         sentence_pairs = []
@@ -592,7 +592,7 @@ def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, sentence_
             sentences = [s for s, _ in sentence_pairs]
             separators = [sep for _, sep in sentence_pairs]
             if not sentences:
-                logger.debug(f"No sentences found for text: {text}")
+                # logger.debug(f"No sentences found for text: {text}")
                 continue
             # Check total tokens against chunk_size
             total_tokens = sum(len(tokenize_fn(s)) for s in sentences)

@@ -1,0 +1,11 @@
+line-length = 88
+
+[lint]
+select = ["W291", "W293", "D205"]  # Specific rules for whitespace/EOF fixes
+ignore = ["E501", "E402"]  # Ignore line length and import errors
+fixable = ["W291", "W293", "D205"]  # Enable safe fixes for selected rules (replaces fix = true)
+
+[format]
+indent-style = "space"  # Use spaces for indentation (4 spaces by default, matches editor.tabSize)
+quote-style = "double"  # Use double quotes for strings (PEP 8, avoids escapes)
+line-ending = "lf"  # Ensure newline at EOF with \n (adds if missing)

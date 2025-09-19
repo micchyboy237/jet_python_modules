@@ -1,0 +1,246 @@
+{
+  // Editor settings
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "editor.insertSpaces": true,
+  "editor.stickyScroll.enabled": false,
+  "editor.tabSize": 4,
+  // Explorer settings
+  "explorer.autoRevealExclude": {
+    "**/bower_components": false,
+    "**/node_modules": false
+  },
+  "explorer.confirmDragAndDrop": false,
+  "explorer.openEditors.sortOrder": "editorOrder",
+  "explorer.sortOrder": "filesFirst",
+  // File associations
+  "files.associations": {
+    "*.cypherl": "cypher",
+    "*.mdx": "markdown",
+    "*.rst": "restructuredtext"
+  },
+  // Git settings
+  "git.openRepositoryInParentFolders": "never",
+  // JS/TS settings
+  "javascript.updateImportsOnFileMove.enabled": "always",
+  "typescript.suggest.completeFunctionCalls": true,
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  // Markdown
+  "markdownlint.run": "onType",
+  // Notebook
+  "notebook.output.scrolling": true,
+  "notebook.output.wordWrap": true,
+  // Playwright
+  "playwright.reuseBrowser": true,
+  "playwright.showTrace": false,
+  // Python testing
+  "python.testing.unittestEnabled": false,
+  "python.testing.nosetestsEnabled": false,
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": [
+    "-vv",
+    "--last-failed",
+    "--pdb",
+    "--config-file=/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.pytest.ini"
+  ],
+  // Terminal
+  "terminal.integrated.defaultLocation": "view",
+  "terminal.integrated.tabs.enabled": true,
+  // Testing
+  "testing.alwaysRevealTestOnStateChange": true,
+  "testing.automaticallyOpenPeekView": "failureAnywhere",
+  "testing.automaticallyOpenPeekViewDuringAutoRun": false,
+  "testing.automaticallyOpenTestResults": "openOnTestStart",
+  "testing.countBadge": "failed",
+  "testing.coverageBarThresholds": {
+    "green": 90,
+    "red": 0,
+    "yellow": 60
+  },
+  "testing.coverageToolbarEnabled": true,
+  "testing.defaultGutterClickAction": "debug",
+  "testing.displayedCoveragePercent": "totalCoverage",
+  "testing.followRunningTest": true,
+  "testing.gutterEnabled": true,
+  "testing.saveBeforeTest": false,
+  "testing.showAllMessages": true,
+  "testing.showCoverageInExplorer": true,
+  // Window
+  "window.commandCenter": 1,
+  "window.newWindowProfile": "Jet Profile",
+  "window.zoomLevel": -1,
+  // Workbench
+  "workbench.activityBar.location": "top",
+  "workbench.activityBar.orientation": "vertical",
+  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.editor.centeredLayoutFixedWidth": true,
+  "workbench.editor.restoreViewState": true,
+  "workbench.panel.defaultLocation": "right",
+  "workbench.panel.opensMaximized": "preserve",
+  "workbench.panel.showLabels": true,
+  // CMake
+  "cmake.options.statusBarVisibility": "visible",
+  "cmake.pinnedCommands": [
+    "workbench.action.tasks.configureTaskRunner",
+    "workbench.action.tasks.runTask"
+  ],
+  // Exclude files
+  "files.exclude": {
+    "**/.git": true,
+    "**/__pycache__": true,
+    "**/.?cache*": true,
+    "**/.?venv*": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/public": true,
+    "**/site-packages": true,
+    "**/venv": true
+  },
+  "search.exclude": {
+    "**/.git": true,
+    "**/__pycache__": true,
+    "**/.?cache*": true,
+    "**/.?venv*": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/public": true,
+    "**/site-packages": true,
+    "**/venv": true,
+    "**/Jet_Sample_Projects/**": true,
+    "**/Jet_Sample_Projects/react-router-default/**": false
+  },
+  "search.quickOpen.history.filterSortOrder": "recency",
+  "search.useIgnoreFiles": true,
+  // Python interpreter
+  "python.defaultInterpreterPath": "/Users/jethroestrada/.pyenv/shims/python",
+  "python.pythonPath": "/Users/jethroestrada/.pyenv/shims/python",
+  // Optimize Pylance for autocomplete and performance
+  "python.languageServer": "Pylance",
+  "python.analysis.indexing": false,
+  "python.analysis.persistAllIndices": false,
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "python.analysis.completeFunctionParens": false,
+  "python.analysis.logLevel": "Warning",
+  "python.analysis.autoFormatStrings": false,
+  "python.analysis.autoIndent": false,
+  "python.analysis.enablePytestSupport": false,
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "warning",
+    "reportUndefinedVariable": "error",
+    "reportGeneralTypeIssues": "warning",
+    "reportOptionalMemberAccess": "warning"
+  },
+  "python.analysis.packageIndexDepths": [
+    { "name": "transformers", "depth": 1 },
+    { "name": "django", "depth": 2 },
+    { "name": "fastapi", "depth": 2 },
+    { "name": "flask", "depth": 2 },
+    { "name": "matplotlib", "depth": 2 },
+    { "name": "pathlib", "depth": 1 },
+    { "name": "pydantic", "depth": 2 },
+    { "name": "scipy", "depth": 2 },
+    { "name": "sklearn", "depth": 2 }
+  ],
+  "python.analysis.showOnlyDirectDependenciesInAutoImport": false,
+  "python.analysis.ignore": [
+    "**/.git",
+    "**/__pycache__",
+    "**/.?cache*",
+    "**/.?venv*",
+    "**/build",
+    "**/dist",
+    "**/node_modules",
+    "**/public",
+    "**/site-packages",
+    "**/venv",
+    "**/vector_db",
+    "**/generated"
+  ],
+  "python.analysis.exclude": [
+    "**/.git",
+    "**/__pycache__",
+    "**/.?cache*",
+    "**/.?venv*",
+    "**/build",
+    "**/dist",
+    "**/public",
+    "**/vector_db",
+    "**/generated",
+    "**/node_modules",
+    "**/site-packages",
+    "**/venv"
+  ],
+  "python.analysis.include": [
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules"
+  ],
+  "python.analysis.extraPaths": [
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules"
+  ],
+  "python.autoComplete.extraPaths": [
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules"
+  ],
+  // Python integration with Ruff (updated for native server: disable ms-python overlaps, enable Ruff fixes)
+  "[python]": {
+    "editor.defaultFormatter": "astral-sh.ruff", // Updated extension ID for native server (if using charliermarsh.ruff, keep but update extension)
+    "editor.formatOnSave": true,
+    "editor.semanticHighlighting.enabled": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "never", // Keep disabled for speed
+      "source.fixAll": "never", // Disable Pylance fixes
+      "source.fixAll.ruff": "explicit" // Enable Ruff fixes on save (trailing whitespace, EOF, etc.)
+    }
+  },
+
+  // Ruff settings for formatting and linting (migrated to native server: no deprecated args/run)
+  "ruff.lint.enable": true,
+  "ruff.lint.select": ["W291", "W293", "D205"], // Select specific rules for trailing whitespace, blank lines, EOF newline (mimics autopep8)
+  "ruff.lint.ignore": ["E501", "E402"], // Ignore line length (formatter handles) and module import errors (Pylance handles)
+  "ruff.lineLength": 88, // Line length for both linting and formatting
+  "ruff.configuration": {
+    // Nested config for advanced formatter options (flexible, can reference ruff.toml)
+    "format": {
+      "indent-style": "space", // Use spaces for indentation
+      "indent-width": 4, // 4-space indents to match editor.tabSize
+      "quote-style": "single" // Use single quotes for strings (PEP 8)
+    }
+  },
+
+  // Autocomplete settings for Ctrl+Space
+  "editor.quickSuggestions": {
+    "comments": false,
+    "other": true,
+    "strings": true,
+    "delay": 0
+  },
+  "editor.suggestOnTriggerCharacters": true,
+  "editor.suggest.filterGraceful": true,
+  "editor.suggest.localityBonus": true,
+  "editor.suggestSelection": "first",
+  "editor.snippetSuggestions": "top",
+  "editor.acceptSuggestionOnCommitCharacter": true,
+  "editor.acceptSuggestionOnEnter": "smart",
+  "editor.largeFileOptimizations": true,
+  // Theme consistency
+  "workbench.preferredDarkColorTheme": "Default Dark Modern",
+  "workbench.preferredLightColorTheme": "Default Dark Modern",
+  // File watcher
+  "files.watcherExclude": {
+    "**/.git": true,
+    "**/__pycache__": true,
+    "**/.?cache*": true,
+    "**/.?venv*": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/public": true,
+    "**/site-packages": true,
+    "**/venv": true
+  },
+  "cmake.additionalCompilerSearchDirs": ["/opt/homebrew/bin", "/usr/bin"]
+}

@@ -3,7 +3,7 @@ from swarms.agents.gkp_agent import GKPAgent
 # Initialize the GKP Agent
 agent = GKPAgent(
     agent_name="gkp-agent",
-    model_name="gpt-4o-mini",  # Using OpenAI's model
+    model_name="ollama/llama3.2",  # Using OpenAI's model
     num_knowledge_items=6,  # Generate 6 knowledge items per query
 )
 

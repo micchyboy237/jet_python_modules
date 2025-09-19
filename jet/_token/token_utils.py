@@ -14,7 +14,7 @@ from jet.llm.models import (
     OLLAMA_HF_MODEL_NAMES,
     OLLAMA_HF_MODELS,
     OLLAMA_LLM_MODELS,
-    OLLAMA_MODEL_EMBEDDING_TOKENS,
+    OLLAMA_MODEL_CONTEXTS,
     OLLAMA_MODEL_NAMES,
 )
 
@@ -22,7 +22,7 @@ from jet.llm.models import (
 def get_ollama_models():
     """Lazy loading of Ollama models to avoid circular imports"""
 
-    return OLLAMA_HF_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS
+    return OLLAMA_HF_MODELS, OLLAMA_MODEL_CONTEXTS
 
 
 def get_ollama_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
@@ -131,8 +131,8 @@ def get_token_counts_info(texts: list[str], model: OLLAMA_MODEL_NAMES) -> TokenC
 def get_model_max_tokens(
     model: Optional[str | OLLAMA_MODEL_NAMES] = "mistral",
 ) -> int:
-    if model in OLLAMA_MODEL_EMBEDDING_TOKENS:
-        return OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+    if model in OLLAMA_MODEL_CONTEXTS:
+        return OLLAMA_MODEL_CONTEXTS[model]
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -313,7 +313,7 @@ def calculate_num_predict_ctx(prompt: str | list[str] | list[ChatMessage] | list
     num_predict = int(prompt_tokens * max_prediction_ratio)
     num_ctx = prompt_tokens + num_predict
 
-    model_max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+    model_max_tokens = OLLAMA_MODEL_CONTEXTS[model]
 
     if num_ctx > model_max_tokens:
         raise ValueError({
@@ -390,7 +390,7 @@ def split_texts(
         list[str]: A list of split text chunks.
     """
     if not chunk_size:
-        chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+        chunk_size = OLLAMA_MODEL_CONTEXTS[model]
 
     if chunk_size <= chunk_overlap:
         raise ValueError(
@@ -487,7 +487,7 @@ def split_docs(
 
     if not chunk_size:
         if model:
-            chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+            chunk_size = OLLAMA_MODEL_CONTEXTS[model]
         else:
             average_tokens = sum(token_counts) / \
                 len(token_counts) if token_counts else 0
@@ -596,7 +596,7 @@ def split_headers(
 
     if not chunk_size:
         if model:
-            chunk_size = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+            chunk_size = OLLAMA_MODEL_CONTEXTS[model]
         else:
             average_tokens = sum(token_counts) / \
                 len(token_counts) if token_counts else 0
@@ -675,19 +675,19 @@ def get_model_by_max_predict(text: str, max_predict: int = 500, type: Literal["l
 
     sorted_models = sorted(
         models,
-        key=lambda name: OLLAMA_MODEL_EMBEDDING_TOKENS[name]
+        key=lambda name: OLLAMA_MODEL_CONTEXTS[name]
     )
 
     text_token_count: int = token_counter(text)
 
     for model in sorted_models:
-        max_tokens = OLLAMA_MODEL_EMBEDDING_TOKENS[model]
+        max_tokens = OLLAMA_MODEL_CONTEXTS[model]
         if text_token_count + max_predict <= max_tokens:
             return model
 
     raise ValueError(
         f"No suitable model found. Required tokens: {text_token_count + max_predict}, "
-        f"but highest model max is {OLLAMA_MODEL_EMBEDDING_TOKENS[sorted_models[-1]]}"
+        f"but highest model max is {OLLAMA_MODEL_CONTEXTS[sorted_models[-1]]}"
     )
 
 

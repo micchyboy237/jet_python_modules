@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from jet.logger import logger
+# from jet.llm.utils.embeddings import generate_embeddings
 from jet.models.embeddings.base import generate_embeddings
-from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 
 from jet.transformers.formatters import format_json
@@ -336,7 +336,8 @@ def search_files(
     includes: Optional[List[str]] = None,
     excludes: Optional[List[str]] = None,
     preprocess: Optional[Callable[[str], str]] = None,
-    weights: Optional[Weights] = None
+    weights: Optional[Weights] = None,
+    batch_size: int = 64,
 ) -> Iterator[FileSearchResult]:
     """
     Search files using vector similarity on chunked contents + file metadata.
@@ -356,6 +357,7 @@ def search_files(
         excludes: List of glob patterns to exclude
         preprocess: Optional callback to preprocess texts before embedding
         weights: Optional dictionary specifying weights for name, dir, and content similarities
+        batch_size: Batch size to use when generating embeddings
     Returns:
         Iterator of FileSearchResult dictionaries (ranked by similarity)
     """
@@ -393,7 +395,7 @@ def search_files(
         all_texts,
         embed_model,
         return_format="numpy",
-        batch_size=32,
+        batch_size=batch_size,
         show_progress=True
     )
     query_vector = all_vectors[0]

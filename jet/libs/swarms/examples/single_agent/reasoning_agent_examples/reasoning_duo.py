@@ -8,7 +8,7 @@ load_dotenv()
 
 
 model = OpenAIChat(
-    model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free",
+    model_name="ollama/llama3.2",
     openai_api_key=os.getenv("TOGETHER_API_KEY"),
     base_url="https://api.together.xyz/v1",
 )

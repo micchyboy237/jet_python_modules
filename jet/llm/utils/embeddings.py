@@ -16,7 +16,7 @@ from sentence_transformers import SentenceTransformer
 from chromadb import Documents, EmbeddingFunction, Embeddings
 from chromadb.utils import embedding_functions
 from jet.data.utils import hash_text
-from jet._token.token_utils import get_model_max_tokens, split_texts, token_counter, truncate_texts
+from jet._token.token_utils import get_model_max_tokens, split_texts, token_counter
 from jet.transformers.formatters import format_json
 from jet.logger import logger
 from jet.logger.timer import time_it
@@ -26,6 +26,7 @@ from jet.llm.ollama.config import (
     base_url,
 
 )
+from jet.wordnet.text_chunker import truncate_texts
 default_ef = embedding_functions.DefaultEmbeddingFunction()
 
 
@@ -493,8 +494,8 @@ def generate_ollama_batch_embeddings(
     max_retries: int = 3,
     return_format: Literal["list", "numpy"] = "numpy",
 ) -> list[list[float]] | np.ndarray:
-    if not max_tokens:
-        max_tokens = 0.5
+    # if not max_tokens:
+    #     max_tokens = 0.5
 
     model_max_tokens: int = get_model_max_tokens(model)
 
@@ -502,6 +503,10 @@ def generate_ollama_batch_embeddings(
         max_tokens = int(model_max_tokens * max_tokens)
     else:
         max_tokens = int(max_tokens or model_max_tokens)
+
+    logger.debug(f"generate_ollama_batch_embeddings - text:\n{format_json(texts)}")
+    logger.debug(f"generate_ollama_batch_embeddings - model: {model}")
+    logger.debug(f"generate_ollama_batch_embeddings - max_tokens: {max_tokens}")
 
     token_counts: list[int] = token_counter(texts, model, prevent_total=True)
 

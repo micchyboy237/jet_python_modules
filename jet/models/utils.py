@@ -41,10 +41,7 @@ def resolve_model_key(model: ModelType) -> ModelKey:
     for key, value in ALL_MODELS.items():
         if value == model:
             return key
-    raise ValueError(
-        f"Invalid model: {model}. Must be one of: "
-        f"{list(ALL_MODELS.keys()) + list(ALL_MODELS.values())}"
-    )
+    return model
 
 
 def resolve_model_value(model: ModelType) -> ModelValue:
@@ -62,12 +59,13 @@ def resolve_model_value(model: ModelType) -> ModelValue:
     """
     if model in ALL_MODELS:
         return ALL_MODELS[model]
-    if model in ALL_MODELS.values() or "/" in model:
-        return model
-    raise ValueError(
-        f"Invalid model: {model}. Must be one of: "
-        f"{list(ALL_MODELS.keys()) + list(ALL_MODELS.values())}"
-    )
+    # if model in ALL_MODELS.values() or "/" in model:
+    #     return model
+    # raise ValueError(
+    #     f"Invalid model: {model}. Must be one of: "
+    #     f"{list(ALL_MODELS.keys()) + list(ALL_MODELS.values())}"
+    # )
+    return model
 
 
 def get_model_limits(model_id: Union[str, 'ModelValue']) -> Tuple[Optional[int], Optional[int]]:
@@ -212,13 +210,14 @@ def resolve_model(model_name: ModelType) -> ModelType:
     """
     if model_name in ALL_MODELS:
         return ALL_MODELS[model_name]
-    if model_name in ALL_MODELS.values() or "/" in model_name:
-        return model_name
-    else:
-        raise ValueError(
-            f"Invalid model: {model_name}. Must be one of: "
-            f"{list(ALL_MODELS.keys()) + list(ALL_MODELS.values())}"
-        )
+    # if model_name in ALL_MODELS.values() or "/" in model_name:
+    #     return model_name
+    # else:
+    #     raise ValueError(
+    #         f"Invalid model: {model_name}. Must be one of: "
+    #         f"{list(ALL_MODELS.keys()) + list(ALL_MODELS.values())}"
+    #     )
+    return model_name
 
 
 def get_embedding_size(model: ModelType) -> int:

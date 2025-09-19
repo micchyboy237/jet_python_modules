@@ -16,7 +16,7 @@ print("\n=== Example 1: Using Custom Evaluation Criteria ===\n")
 
 # Create an AgentJudge with custom evaluation criteria
 judge = AgentJudge(
-    model_name="claude-3-7-sonnet-20250219",  # Use any available model
+    model_name="ollama/llama3.2",  # Use any available model
     evaluation_criteria={
         "correctness": 0.5,
         "problem_solving_approach": 0.3,
@@ -43,7 +43,7 @@ print(
 )
 
 code_judge = AgentJudge(
-    model_name="claude-3-7-sonnet-20250219",
+    model_name="ollama/llama3.2",
     agent_name="code_judge",
     evaluation_criteria={
         "code_correctness": 0.4,
@@ -76,7 +76,7 @@ print(code_evaluation[0])
 print("\n=== Example 3: Comparing Multiple Agent Responses ===\n")
 
 comparison_judge = AgentJudge(
-    model_name="claude-3-7-sonnet-20250219",
+    model_name="ollama/llama3.2",
     evaluation_criteria={"accuracy": 0.6, "completeness": 0.4},
 )
 
