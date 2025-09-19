@@ -81,7 +81,7 @@ class OllamaModel:
         if not validated_messages:
             return None
 
-        options = {"temperature": self.temperature, **kwargs.pop("options", {}) **kwargs}
+        options = {"temperature": self.temperature, **kwargs.pop("options", {}), **kwargs}
         jet_logger.gray("Ollama Model Chat Settings:")
         jet_logger.info(format_json({
             "messages": validated_messages,
@@ -112,13 +112,13 @@ class OllamaModel:
         )
         return response_text
 
-    def generate(self, prompt: str) -> Optional[str]:
+    def generate(self, prompt: str, *args, **kwargs) -> Optional[str]:
         """Generates text based on a prompt."""
         if len(prompt) == 0:
             jet_logger.error("Prompt cannot be empty.")
             return None
 
-        options = {"temperature": self.temperature, **kwargs.pop("options", {}) **kwargs}
+        options = {"temperature": self.temperature, **kwargs.pop("options", {}), **kwargs}
         jet_logger.gray("Ollama Model Generate Settings:")
         jet_logger.info(format_json({
             "prompt": prompt,
@@ -132,6 +132,8 @@ class OllamaModel:
             prompt=prompt,
             stream=True,
             options=options,
+            *args,
+            **kwargs,
         )
         for chunk in stream:
             content = chunk.get("response", "")
@@ -176,6 +178,4 @@ class OllamaModel:
         Args:
             task (str): The task to execute, such as 'chat', 'generate', etc.
         """
-        return ollama.generate(
-            model=self.model_name, prompt=task, *args, **kwargs
-        )
+        return self.generate(prompt=task, *args, **kwargs)
