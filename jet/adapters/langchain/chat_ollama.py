@@ -1,3 +1,4 @@
+import os
 from pydantic import BaseModel
 from typing import Any, AsyncIterator, Callable, Iterator, Optional, Sequence, Union
 from langchain_core.tools import BaseTool
@@ -28,12 +29,13 @@ class ChatOllama(BaseChatOllama):
         model: str,
         base_url: str = "http://localhost:11434",
         agent_name: Optional[str] = None,
+        log_dir: Optional[str] = None,
         **kwargs
     ):
         options = {**DETERMINISTIC_LLM_SETTINGS, **kwargs, **(kwargs.pop("options", {}))}
         super().__init__(model=model, base_url=base_url, **options)
 
-        log_dir = DEFAULT_OLLAMA_LOG_DIR
+        log_dir = os.path.join(DEFAULT_OLLAMA_LOG_DIR, log_dir or "")
         if agent_name:
             log_dir += f"/{format_sub_dir(agent_name)}"
         self._chat_logger = ChatLogger(log_dir, method="chat")
