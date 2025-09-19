@@ -1,7 +1,18 @@
+import os
+import shutil
 import json
 import requests
 from swarms import Agent
 
+from jet.adapters.swarms.ollama_model import OllamaModel
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+WORK_DIR = f"{OUTPUT_DIR}/coding"
+os.makedirs(WORK_DIR, exist_ok=True)
 
 def create_python_file(code: str, filename: str) -> str:
     """Create a Python file with the given code and execute it using Python 3.12.
@@ -30,6 +41,8 @@ def create_python_file(code: str, filename: str) -> str:
     import subprocess
     import os
     import datetime
+
+    filename = f"{WORK_DIR}/{filename}"
 
     # Get current timestamp for logging
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -124,6 +137,8 @@ def update_python_file(code: str, filename: str) -> str:
     import subprocess
     import os
     import datetime
+
+    filename = f"{WORK_DIR}/{filename}"
 
     # Get current timestamp for logging
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -228,6 +243,11 @@ def run_quant_trading_agent(task: str) -> str:
         >>> print(result)
     """
     # Initialize the agent
+    model = OllamaModel(
+        model_name="llama3.2",
+        temperature=0.1,
+        agent_name="Quantitative-Trading-Agent",
+    )
     agent = Agent(
         agent_name="Quantitative-Trading-Agent",
         agent_description="Advanced quantitative trading and algorithmic analysis agent",
@@ -261,7 +281,7 @@ def run_quant_trading_agent(task: str) -> str:
         
         You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
         max_loops=2,
-        model_name="claude-3-5-sonnet-20240620",
+        llm=model,
         tools=[
             create_python_file,
             update_python_file,
@@ -360,6 +380,11 @@ def run_crypto_quant_agent(task: str) -> str:
         "Based on current market analysis..."
     """
     # Initialize the agent with expanded tools
+    model = OllamaModel(
+        model_name="llama3.2",
+        temperature=0.1,
+        agent_name="Crypto-Quant-Agent",
+    )
     quant_agent = Agent(
         agent_name="Crypto-Quant-Agent",
         agent_description="Advanced quantitative trading agent specializing in cryptocurrency markets with algorithmic analysis capabilities",
@@ -385,9 +410,9 @@ def run_crypto_quant_agent(task: str) -> str:
         You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
         max_loops=1,
         max_tokens=4096,
-        model_name="gpt-4.1-mini",
         dynamic_temperature_enabled=True,
         output_type="final",
+        llm=model,
         tools=[
             get_coin_price,
         ],
@@ -397,6 +422,11 @@ def run_crypto_quant_agent(task: str) -> str:
 
 
 # Initialize the agent
+model = OllamaModel(
+    model_name="llama3.2",
+    temperature=0.1,
+    agent_name="Director-Agent",
+)
 agent = Agent(
     agent_name="Director-Agent",
     agent_description="Strategic director and project management agent",
@@ -430,9 +460,9 @@ agent = Agent(
     
     You communicate with clarity and authority while maintaining professionalism and ensuring all stakeholders are aligned.""",
     max_loops=1,
-    model_name="gpt-4o-mini",
     output_type="final",
     interactive=False,
+    llm=model,
     tools=[run_quant_trading_agent],
 )
 
