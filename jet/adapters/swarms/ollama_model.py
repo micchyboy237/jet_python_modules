@@ -33,6 +33,8 @@ class OllamaModel:
         timeout: int = 30,
         stream: bool = False,
         temperature: float = 0.1,
+        max_tokens: int = 4000,
+        top_p: float = 1.0,
         agent_name: Optional[str] = None,
     ):
         """
@@ -49,8 +51,10 @@ class OllamaModel:
         self.timeout = timeout
         self.stream = stream
         self.temperature = temperature
-        self.client = ollama.Client(host=host) if host else None
+        self.max_tokens = max_tokens
+        self.top_p = top_p
         self.agent_name = agent_name
+        self.client = ollama.Client(host=host) if host else None
 
         log_dir = DEFAULT_OLLAMA_LOG_DIR
         if agent_name:
@@ -81,7 +85,13 @@ class OllamaModel:
         if not validated_messages:
             return None
 
-        options = {"temperature": self.temperature, **kwargs.pop("options", {}), **kwargs}
+        options = {
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            **kwargs.pop("options", {}),
+            **kwargs
+        }
         jet_logger.gray("Ollama Model Chat Settings:")
         jet_logger.info(format_json({
             "messages": validated_messages,
@@ -118,7 +128,13 @@ class OllamaModel:
             jet_logger.error("Prompt cannot be empty.")
             return None
 
-        options = {"temperature": self.temperature, **kwargs.pop("options", {}), **kwargs}
+        options = {
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            **kwargs.pop("options", {}),
+            **kwargs
+        }
         jet_logger.gray("Ollama Model Generate Settings:")
         jet_logger.info(format_json({
             "prompt": prompt,
@@ -151,7 +167,9 @@ class OllamaModel:
 
     def list_models(self) -> List[str]:
         """Lists available models."""
-        return ollama.list()
+        models = ollama.list()
+        model_names = [m.model for m in models.models]
+        return model_names
 
     def show_model(self) -> dict:
         """Shows details of the current model."""
