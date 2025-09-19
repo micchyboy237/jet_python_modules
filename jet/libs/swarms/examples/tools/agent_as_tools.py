@@ -245,7 +245,7 @@ def run_quant_trading_agent(task: str) -> str:
     """
     # Initialize the agent
     model = LiteLLM(
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         temperature=0.1,
         agent_name="Quantitative-Trading-Agent",
     )
@@ -382,7 +382,7 @@ def run_crypto_quant_agent(task: str) -> str:
     """
     # Initialize the agent with expanded tools
     model = LiteLLM(
-        model_name="llama3.2",
+        model_name="ollama/llama3.2",
         temperature=0.1,
         agent_name="Crypto-Quant-Agent",
     )
@@ -424,7 +424,7 @@ def run_crypto_quant_agent(task: str) -> str:
 
 # Initialize the agent
 model = LiteLLM(
-    model_name="llama3.2",
+    model_name="ollama/llama3.2",
     temperature=0.1,
     agent_name="Director-Agent",
 )
