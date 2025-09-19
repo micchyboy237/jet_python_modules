@@ -16,7 +16,7 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
@@ -547,10 +547,11 @@ class QuantitativeTradingRAGAgent:
         collection_name: str = "financial_documents",
         qdrant_url: Optional[str] = None,
         qdrant_api_key: Optional[str] = None,
-        model_name: str = "claude-sonnet-4-20250514",
+        # model_name: str = "claude-sonnet-4-20250514",
         max_loops: int = 1,
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
+        llm: Optional[Any] = None,
     ):
         """
         Initialize the Quantitative Trading RAG Agent.
@@ -560,7 +561,7 @@ class QuantitativeTradingRAGAgent:
             collection_name: Name of the Qdrant collection
             qdrant_url: Optional Qdrant server URL
             qdrant_api_key: Optional Qdrant API key
-            model_name: LLM model to use
+            # model_name: LLM model to use
             max_loops: Maximum number of agent loops
             chunk_size: Size of text chunks for processing
             chunk_overlap: Overlap between consecutive chunks
@@ -617,12 +618,13 @@ class QuantitativeTradingRAGAgent:
             - Performance attribution
             
             You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
-            model_name=model_name,
+            # model_name=model_name,
             dynamic_temperature_enabled=True,
             output_type="str-all-except-first",
             max_loops=max_loops,
             dynamic_context_window=True,
             long_term_memory=self.rag_memory,
+            llm=llm,
         )
 
     def ingest_documents(

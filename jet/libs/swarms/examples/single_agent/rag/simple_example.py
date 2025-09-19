@@ -5,18 +5,24 @@ This is a simplified example showing the basic usage of the Qdrant RAG system
 for document ingestion and querying.
 """
 
+import os
+import shutil
 from pathlib import Path
-from examples.single_agent.rag.qdrant_rag_example import (
+from jet.libs.swarms.examples.single_agent.rag.qdrant_rag_example import (
     QuantitativeTradingRAGAgent,
 )
+from jet.adapters.swarms.ollama_function_caller import OllamaFunctionCaller
 
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 def create_sample_documents():
     """
     Create sample documents for demonstration purposes.
     """
     # Create a sample documents directory
-    docs_dir = Path("./sample_documents")
+    docs_dir = Path(f"{OUTPUT_DIR}/sample_documents")
     docs_dir.mkdir(exist_ok=True)
 
     # Create sample text files
@@ -118,10 +124,12 @@ def main():
 
     # Initialize the RAG agent
     print("\n📊 Initializing Quantitative Trading RAG Agent...")
+    llm = OllamaFunctionCaller(agent_name="Simple-Financial-Agent")
     agent = QuantitativeTradingRAGAgent(
         agent_name="Simple-Financial-Agent",
         collection_name="sample_financial_docs",
-        model_name="claude-sonnet-4-20250514",
+        # model_name="ollama/llama3.2",
+        llm=llm,
         chunk_size=800,  # Smaller chunks for sample documents
         chunk_overlap=100,
     )
