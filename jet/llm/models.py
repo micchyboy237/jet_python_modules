@@ -31,6 +31,9 @@ OLLAMA_MODEL_NAMES = Literal[
     "all-minilm:22m",
     "embeddinggemma",
     "nomic-embed-text",
+    "qwen3:4b-q4_K_M",
+    "mistral",
+    "mistral:7b-instruct-v0.3-q4_K_M",
 ]
 
 OLLAMA_LLM_MODELS = Literal[
@@ -44,6 +47,9 @@ OLLAMA_LLM_MODELS = Literal[
     "gemma3:1b-it-qat",
     "deepseek-r1:1.5b",
     "llama3.2:1b",
+    "qwen3:4b-q4_K_M",
+    "mistral",
+    "mistral:7b-instruct-v0.3-q4_K_M",
 ]
 
 OLLAMA_EMBED_MODELS = Literal[
@@ -81,6 +87,9 @@ OLLAMA_MODEL_CONTEXTS = {
     "all-minilm:22m": 512,
     "embeddinggemma": 2048,
     "nomic-embed-text": 8192,
+    "qwen3:4b-q4_K_M": 8192,
+    "mistral": 32768,
+    "mistral:7b-instruct-v0.3-q4_K_M": 32768,
 }
 
 # Map models to embedding sizes
@@ -104,6 +113,9 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "all-minilm:22m": 384,
     "embeddinggemma": 768,
     "nomic-embed-text": 768,
+    "qwen3:4b-q4_K_M": 768,
+    "mistral": 4096,
+    "mistral:7b-instruct-v0.3-q4_K_M": 4096,
 }
 
 
