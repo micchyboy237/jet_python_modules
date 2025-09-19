@@ -27,7 +27,7 @@ class ChatOllama(BaseChatOllama):
     def __init__(
         self,
         model: str,
-        base_url: str = "http://localhost:11434",
+        base_url: str = "http://localhost:11435",
         agent_name: Optional[str] = None,
         log_dir: Optional[str] = None,
         **kwargs
