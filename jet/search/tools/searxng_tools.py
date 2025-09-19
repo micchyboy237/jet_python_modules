@@ -57,7 +57,16 @@ def search_web(
 
     logger.debug(f"Search completed, retrieved {len(results)} results")
 
-    # Format results to include only url, title, content, and score
+    # Filter results to include only those with all required keys
+    required_keys = {"url", "title", "content", "score"}
+    valid_results = [
+        result for result in results
+        if all(key in result for key in required_keys)
+    ]
+
+    logger.debug(f"Filtered to {len(valid_results)} results with all required keys (url, title, content, score)")
+
+    # Format valid results to include only url, title, content, and score
     formatted_results: List[WebSearchResult] = [
         {
             "url": result["url"],
@@ -65,7 +74,7 @@ def search_web(
             "content": result["content"],
             "score": result["score"]
         }
-        for result in results
+        for result in valid_results
     ]
 
     logger.debug(f"Formatted {len(formatted_results)} results with url, title, content, and score")
