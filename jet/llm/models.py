@@ -147,6 +147,9 @@ OLLAMA_HF_MODELS = {
     "paraphrase-multilingual": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
     "bge-large": "BAAI/bge-large-en-v1.5",
     "embeddinggemma": "google/embeddinggemma-300m",
+    "qwen3:4b-q4_K_M": "Qwen/Qwen3-4B",
+    "mistral": "mistralai/Mistral-7B-Instruct-v0.3",
+    "mistral:7b-instruct-v0.3-q4_K_M": "mistralai/Mistral-7B-Instruct-v0.3",
 }
 
 OLLAMA_HF_MODEL_NAMES = Literal[
