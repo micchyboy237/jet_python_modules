@@ -1,4 +1,4 @@
-from jet.token.token_utils import split_headers
+from jet._token.token_utils import split_headers
 import pytest
 from unittest.mock import Mock, patch
 from jet.vectors.document_types import HeaderDocument, HeaderTextNode

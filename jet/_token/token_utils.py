@@ -86,7 +86,7 @@ def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | dict | list[str] 
 
 def token_counter(
     text: str | dict | list[str] | list[dict] | list[ChatMessage] | list[Message],
-    model: Optional[str | OLLAMA_MODEL_NAMES] = "mistral",
+    model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
     prevent_total: bool = False
 ) -> int | list[int]:
     if not text:

@@ -100,7 +100,7 @@ class ChatOllama(BaseChatOllama):
         for generation in result.generations:
             logger.teal(generation.message.content, flush=True)
             self._chat_logger.log_interaction(
-                messages=messages,
+                messages=self._convert_messages_to_ollama_messages(messages),
                 response=generation.message.dict(),
                 model=self.model,
                 tools=kwargs.get("tools"),
@@ -125,7 +125,7 @@ class ChatOllama(BaseChatOllama):
                 chunk.message.content, str) else str(chunk.message.content)
             logger.teal(content, flush=True)
             self._chat_logger.log_interaction(
-                messages=messages,
+                messages=self._convert_messages_to_ollama_messages(messages),
                 response=chunk.message.dict(),
                 model=self.model,
                 tools=kwargs.get("tools"),
@@ -149,7 +149,7 @@ class ChatOllama(BaseChatOllama):
         for generation in result.generations:
             logger.teal(generation.message.content, flush=True)
             self._chat_logger.log_interaction(
-                messages=messages,
+                messages=self._convert_messages_to_ollama_messages(messages),
                 response=generation.message.dict(),
                 model=self.model,
                 tools=kwargs.get("tools"),
@@ -174,7 +174,7 @@ class ChatOllama(BaseChatOllama):
                 chunk.message.content, str) else str(chunk.message.content)
             logger.teal(content, flush=True)
             self._chat_logger.log_interaction(
-                messages=messages,
+                messages=self._convert_messages_to_ollama_messages(messages),
                 response=chunk.message.dict(),
                 model=self.model,
                 tools=kwargs.get("tools"),

@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock
 
 from jet.llm.models import OLLAMA_LLM_MODELS, OLLAMA_MODEL_EMBEDDING_TOKENS
-from jet.token.token_utils import get_model_by_max_predict, group_texts, split_texts, token_counter
+from jet._token.token_utils import get_model_by_max_predict, group_texts, split_texts, token_counter
 
 
 def get_tokenizer(model):
