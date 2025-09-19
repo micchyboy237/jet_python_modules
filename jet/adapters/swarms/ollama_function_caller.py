@@ -78,12 +78,13 @@ class OllamaFunctionCaller:
             for chunk in response_stream:
                 content = chunk["message"]["content"]
                 logger.teal(content, flush=True)
-                self._chat_logger.log_interaction(
-                    messages=messages,
-                    response={"content": content},
-                    model=self.model_name,
-                )
                 response_text += content
+
+            self._chat_logger.log_interaction(
+                messages=messages,
+                response={"content": response_text},
+                model=self.model_name,
+            )
 
             if self.base_model:
                 cleaned_response = re.sub(r'^```json\n|```$', '', response_text.strip())
@@ -99,6 +100,7 @@ class OllamaFunctionCaller:
         except Exception as e:
             logger.error(f"There was an error: {e}")
             return None
+
     def check_model_support(self):
         for model in SUPPORTED_OLLAMA_MODELS:
             print(model)
