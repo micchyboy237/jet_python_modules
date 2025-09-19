@@ -22,7 +22,7 @@ class ChatLogger:
     def __init__(
         self,
         log_dir: str,
-        method: Literal["chat", "stream_chat", "generate", "stream_generate"],
+        method: Literal["chat", "stream_chat", "generate", "stream_generate"] = "chat",
         limit: Optional[int] = None
     ):
         start_time = EventSettings.get_entry_time()
@@ -42,11 +42,13 @@ class ChatLogger:
         self,
         messages: Union[str, List[Message]],
         response: Union[str, CompletionResponse, List[CompletionResponse]],
+        method: Optional[Literal["chat", "stream_chat", "generate", "stream_generate"]] = None,
         **kwargs: Any
     ) -> None:
         """Log prompt or messages and response to a timestamped file with additional metadata."""
-        timestamp_prefix = get_next_file_counter(self.log_dir, self.method)
-        filename = f"{timestamp_prefix}_{self.method}.json"
+        effective_method = method if method is not None else self.method
+        timestamp_prefix = get_next_file_counter(self.log_dir, effective_method)
+        filename = f"{timestamp_prefix}_{effective_method}.json"
         log_file = os.path.join(self.log_dir, filename)
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
         tools = None
@@ -58,7 +60,7 @@ class ChatLogger:
         log_data = {
             "timestamp": timestamp,
             "session_id": self.session_id,
-            "method": self.method,
+            "method": effective_method,
             "tools": tools,
         }
         log_data.update(kwargs)

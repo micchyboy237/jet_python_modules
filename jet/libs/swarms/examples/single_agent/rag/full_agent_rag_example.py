@@ -1,27 +1,24 @@
 import os
+import shutil
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
 from loguru import logger
-from swarm_models import OpenAIChat
+# from swarm_models import OpenAIChat
+from jet.adapters.swarms.ollama_model import OllamaModel
 
 from swarms import Agent, AgentRearrange
 
 load_dotenv()
 
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
 # Get the OpenAI API key from the environment variable
-api_key = os.getenv("GROQ_API_KEY")
-
-# Model
-model = OpenAIChat(
-    openai_api_base="https://api.groq.com/openai/v1",
-    openai_api_key=api_key,
-    model_name="llama-3.1-70b-versatile",
-    temperature=0.1,
-)
-
+# api_key = os.getenv("GROQ_API_KEY")
 
 class LlamaIndexDB:
     """A class to manage document indexing and querying using LlamaIndex.
@@ -44,7 +41,7 @@ class LlamaIndexDB:
                 - store_nodes_override (bool): Override node storage
     """
 
-    def __init__(self, data_dir: str = "docs", **kwargs) -> None:
+    def __init__(self, data_dir: str = f"{OUTPUT_DIR}/docs", **kwargs) -> None:
         """Initialize the LlamaIndexDB with an empty index.
 
         Args:
@@ -120,6 +117,11 @@ class LlamaIndexDB:
 
 
 # Initialize specialized medical agents
+model = OllamaModel(
+    model_name="llama3.2",
+    temperature=0.1,
+    agent_name="Medical-Data-Extractor",
+)
 medical_data_extractor = Agent(
     agent_name="Medical-Data-Extractor",
     system_prompt="You are a specialized medical data extraction expert, trained in processing and analyzing clinical data, lab results, medical imaging reports, and patient records. Your role is to carefully extract relevant medical information while maintaining strict HIPAA compliance and patient confidentiality. Focus on identifying key clinical indicators, test results, vital signs, medication histories, and relevant patient history. Pay special attention to temporal relationships between symptoms, treatments, and outcomes. Ensure all extracted data maintains proper medical context and terminology.",
@@ -135,6 +137,11 @@ medical_data_extractor = Agent(
     output_type="string",
 )
 
+model = OllamaModel(
+    model_name="llama3.2",
+    temperature=0.1,
+    agent_name="Diagnostic-Specialist",
+)
 diagnostic_specialist = Agent(
     agent_name="Diagnostic-Specialist",
     system_prompt="You are a senior diagnostic physician with extensive experience in differential diagnosis. Your role is to analyze patient symptoms, lab results, and clinical findings to develop comprehensive diagnostic assessments. Consider all presenting symptoms, patient history, risk factors, and test results to formulate possible diagnoses. Prioritize diagnoses based on clinical probability and severity. Always consider both common and rare conditions that match the symptom pattern. Recommend additional tests or imaging when needed for diagnostic clarity. Follow evidence-based diagnostic criteria and current medical guidelines.",
@@ -150,6 +157,11 @@ diagnostic_specialist = Agent(
     output_type="string",
 )
 
+model = OllamaModel(
+    model_name="llama3.2",
+    temperature=0.1,
+    agent_name="Treatment-Planner",
+)
 treatment_planner = Agent(
     agent_name="Treatment-Planner",
     system_prompt="You are an experienced clinical treatment specialist focused on developing comprehensive treatment plans. Your expertise covers both acute and chronic condition management, medication selection, and therapeutic interventions. Consider patient-specific factors including age, comorbidities, allergies, and contraindications when recommending treatments. Incorporate both pharmacological and non-pharmacological interventions. Emphasize evidence-based treatment protocols while considering patient preferences and quality of life. Address potential drug interactions and side effects. Include monitoring parameters and treatment milestones.",
@@ -165,6 +177,11 @@ treatment_planner = Agent(
     output_type="string",
 )
 
+model = OllamaModel(
+    model_name="llama3.2",
+    temperature=0.1,
+    agent_name="Specialist-Consultant",
+)
 specialist_consultant = Agent(
     agent_name="Specialist-Consultant",
     system_prompt="You are a medical specialist consultant with expertise across multiple disciplines including cardiology, neurology, endocrinology, and internal medicine. Your role is to provide specialized insight for complex cases requiring deep domain knowledge. Analyze cases from your specialist perspective, considering rare conditions and complex interactions between multiple systems. Provide detailed recommendations for specialized testing, imaging, or interventions within your domain. Highlight potential complications or considerations that may not be immediately apparent to general practitioners.",
@@ -180,6 +197,11 @@ specialist_consultant = Agent(
     output_type="string",
 )
 
+model = OllamaModel(
+    model_name="llama3.2",
+    temperature=0.1,
+    agent_name="Patient-Care-Coordinator",
+)
 patient_care_coordinator = Agent(
     agent_name="Patient-Care-Coordinator",
     system_prompt="You are a patient care coordinator specializing in comprehensive healthcare management. Your role is to ensure holistic patient care by coordinating between different medical specialists, considering patient needs, and managing care transitions. Focus on patient education, medication adherence, lifestyle modifications, and follow-up care planning. Consider social determinants of health, patient resources, and access to care. Develop actionable care plans that patients can realistically follow. Coordinate with other healthcare providers to ensure continuity of care and proper implementation of treatment plans.",
@@ -210,7 +232,7 @@ router = AgentRearrange(
     ],
     # Configure the document storage and retrieval system
     memory_system=LlamaIndexDB(
-        data_dir="docs",  # Directory containing medical documents
+        data_dir=f"{OUTPUT_DIR}/docs",  # Directory containing medical documents
         filename_as_id=True,  # Use filenames as document identifiers
         recursive=True,  # Search subdirectories
         # required_exts=[".txt", ".pdf", ".docx"],  # Supported file types
