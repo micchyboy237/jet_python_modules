@@ -5,20 +5,19 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
+from llama_index.embeddings.ollama import OllamaEmbedding
 from loguru import logger
-# from swarm_models import OpenAIChat
 from jet.adapters.swarms.ollama_model import OllamaModel
-
 from swarms import Agent, AgentRearrange
 
 load_dotenv()
 
 OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
-# Get the OpenAI API key from the environment variable
-# api_key = os.getenv("GROQ_API_KEY")
+DATA_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/swarms/examples/single_agent/rag/sample_docs/medical"
 
 class LlamaIndexDB:
     """A class to manage document indexing and querying using LlamaIndex.
@@ -26,14 +25,13 @@ class LlamaIndexDB:
     This class provides functionality to add documents from a directory and query the indexed documents.
 
     Args:
-        data_dir (str): Directory containing documents to index. Defaults to "docs".
+        data_dir (str): Directory containing documents to index. Defaults to DATA_DIR.
         **kwargs: Additional arguments passed to SimpleDirectoryReader and VectorStoreIndex.
             SimpleDirectoryReader kwargs:
                 - filename_as_id (bool): Use filenames as document IDs
                 - recursive (bool): Recursively read subdirectories
                 - required_exts (List[str]): Only read files with these extensions
                 - exclude_hidden (bool): Skip hidden files
-
             VectorStoreIndex kwargs:
                 - service_context: Custom service context
                 - embed_model: Custom embedding model
@@ -41,7 +39,7 @@ class LlamaIndexDB:
                 - store_nodes_override (bool): Override node storage
     """
 
-    def __init__(self, data_dir: str = f"{OUTPUT_DIR}/docs", **kwargs) -> None:
+    def __init__(self, data_dir: str = DATA_DIR, **kwargs) -> None:
         """Initialize the LlamaIndexDB with an empty index.
 
         Args:
@@ -53,8 +51,7 @@ class LlamaIndexDB:
         self.reader_kwargs = {
             k: v
             for k, v in kwargs.items()
-            if k
-            in SimpleDirectoryReader.__init__.__code__.co_varnames
+            if k in SimpleDirectoryReader.__init__.__code__.co_varnames
         }
         self.index_kwargs = {
             k: v
@@ -62,57 +59,24 @@ class LlamaIndexDB:
             if k not in self.reader_kwargs
         }
 
+        # Set up Ollama embedding model
+        self.index_kwargs["embed_model"] = self.index_kwargs.get("embed_model") or OllamaEmbedding(
+            model_name="nomic-embed-text",
+            base_url="http://localhost:11434",  # Default Ollama URL, adjust if needed
+        )
+
         logger.info("Initialized LlamaIndexDB")
         data_path = Path(self.data_dir)
         if not data_path.exists():
             logger.error(f"Directory not found: {self.data_dir}")
-            raise FileNotFoundError(
-                f"Directory {self.data_dir} does not exist"
-            )
+            raise FileNotFoundError(f"Directory {self.data_dir} does not exist")
 
         try:
-            documents = SimpleDirectoryReader(
-                self.data_dir, **self.reader_kwargs
-            ).load_data()
-            self.index = VectorStoreIndex.from_documents(
-                documents, **self.index_kwargs
-            )
-            logger.success(
-                f"Successfully indexed documents from {self.data_dir}"
-            )
+            documents = SimpleDirectoryReader(self.data_dir, **self.reader_kwargs).load_data()
+            self.index = VectorStoreIndex.from_documents(documents, **self.index_kwargs)
+            logger.success(f"Successfully indexed documents from {self.data_dir}")
         except Exception as e:
             logger.error(f"Error indexing documents: {str(e)}")
-            raise
-
-    def query(self, query: str, **kwargs) -> str:
-        """Query the indexed documents.
-
-        Args:
-            query (str): The query string to search for
-            **kwargs: Additional arguments passed to the query engine
-                - similarity_top_k (int): Number of similar documents to retrieve
-                - streaming (bool): Enable streaming response
-                - response_mode (str): Response synthesis mode
-                - max_tokens (int): Maximum tokens in response
-
-        Returns:
-            str: The response from the query engine
-
-        Raises:
-            ValueError: If no documents have been indexed yet
-        """
-        if self.index is None:
-            logger.error("No documents have been indexed yet")
-            raise ValueError("Must add documents before querying")
-
-        try:
-            query_engine = self.index.as_query_engine(**kwargs)
-            response = query_engine.query(query)
-            print(response)
-            logger.info(f"Successfully queried: {query}")
-            return str(response)
-        except Exception as e:
-            logger.error(f"Error during query: {str(e)}")
             raise
 
 
@@ -232,7 +196,7 @@ router = AgentRearrange(
     ],
     # Configure the document storage and retrieval system
     memory_system=LlamaIndexDB(
-        data_dir=f"{OUTPUT_DIR}/docs",  # Directory containing medical documents
+        data_dir=DATA_DIR,  # Directory containing medical documents
         filename_as_id=True,  # Use filenames as document identifiers
         recursive=True,  # Search subdirectories
         # required_exts=[".txt", ".pdf", ".docx"],  # Supported file types
