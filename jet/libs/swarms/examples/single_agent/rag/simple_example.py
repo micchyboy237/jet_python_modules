@@ -23,7 +23,7 @@ def create_sample_documents():
     """
     # Create a sample documents directory
     docs_dir = Path(f"{OUTPUT_DIR}/sample_documents")
-    docs_dir.mkdir(exist_ok=True)
+    docs_dir.mkdir(parents=True, exist_ok=True)
 
     # Create sample text files
     sample_texts = {
