@@ -75,7 +75,6 @@ class ChatLogger:
                 if callable(tool_fn):
                     tools[tool_idx] = get_method_info(tool_fn)
 
-        prompt_tokens = token_counter(messages, model)
         log_data = {
             "timestamp": timestamp,
             "session_id": self.session_id,
@@ -118,6 +117,14 @@ class ChatLogger:
             log_data["response"] = format_json(resp_copy, indent=2)
         else:
             log_data["response"] = str(response)
+
+        prompt_tokens = token_counter(messages, model)
+        response_tokens = token_counter(log_data["response"], model)
+
+        log_data["tokens"] = {}
+        log_data["tokens"]["prompt"] = prompt_tokens
+        log_data["tokens"]["response"] = response_tokens
+        log_data["tokens"]["total"] = prompt_tokens + response_tokens
 
         save_file(log_data, log_file)
 
