@@ -7,7 +7,6 @@ from jet.logger import logger
 from jet.search.tools.searxng_tools import search_web
 from jet.search.tools.web_tools import scrape_urls
 
-
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
 )
@@ -21,7 +20,7 @@ agent = Agent(
     max_loops=1,
     tools=[search_web, scrape_urls],
     dynamic_context_window=True,
-    streaming_on=False,
+    streaming_on=True,
     model_name="ollama/llama3.2",
 )
 
