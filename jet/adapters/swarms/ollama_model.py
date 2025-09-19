@@ -44,7 +44,7 @@ class OllamaModel:
             stream (bool, optional): Enable streaming for responses. Defaults to False.
             temperature (float, optional): Temperature for text generation. Defaults to 0.1.
         """
-        self.model_name = model_name
+        self.model_name = model_name.lstrip("ollama/")
         self.host = host
         self.timeout = timeout
         self.stream = stream
