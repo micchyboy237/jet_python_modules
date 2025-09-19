@@ -7,8 +7,7 @@ import inspect
 import typing
 from typing import Union
 from swarms import Agent
-
-from jet.adapters.swarms.litellm_wrapper import LiteLLM
+from jet.adapters.swarms.ollama_model import OllamaModel
 
 
 @dataclass
@@ -123,17 +122,15 @@ class ToolAgent:
     def __init__(
         self,
         functions: List[Callable],
-        model_name: str = "ollama/llama3.2",
+        model_name: str = "llama3.2",
         temperature: float = 0.1,
     ):
         self.functions = {func.__name__: func for func in functions}
         self.function_specs = self._analyze_functions(functions)
 
-        self.model = LiteLLM(
-            model_name="ollama/llama3.2",   # Ollama model
-            base_url="http://localhost:11434",  # Default Ollama API endpoint
+        self.model = OllamaModel(
+            model_name=model_name,
             temperature=temperature,
-            # verbose=True,
         )
 
         self.system_prompt = self._create_system_prompt()
@@ -142,7 +139,7 @@ class ToolAgent:
             system_prompt=self.system_prompt,
             llm=self.model,
             max_loops=1,
-            # verbose=True,
+            verbose=True,
         )
 
     def _analyze_functions(
