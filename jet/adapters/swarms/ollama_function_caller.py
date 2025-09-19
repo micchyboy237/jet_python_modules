@@ -11,6 +11,7 @@ from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.transformers.formatters import format_json
 from jet.logger import logger
+from jet.utils.text import format_sub_dir
 
 
 SUPPORTED_OLLAMA_MODELS = [
@@ -37,6 +38,7 @@ class OllamaFunctionCaller:
         temperature: float = 0.1,
         max_tokens: int = 5000,
         model_name: str = "llama3.2",
+        agent_name: Optional[str] = None,
     ):
         self.system_prompt = system_prompt
         self.temperature = temperature
@@ -44,7 +46,12 @@ class OllamaFunctionCaller:
         self.max_tokens = max_tokens
         self.model_name = model_name
         self.host = check_ollama_host()
-        self._chat_logger = ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="stream_chat")
+        self.agent_name = agent_name
+
+        log_dir = DEFAULT_OLLAMA_LOG_DIR
+        if agent_name:
+            log_dir += f"/{format_sub_dir(agent_name)}"
+        self._chat_logger = ChatLogger(log_dir, method="stream_chat")
 
     def run(self, task: str) -> Union[str, BaseModel, None]:
         try:

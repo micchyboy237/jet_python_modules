@@ -9,14 +9,18 @@ for more targeted and customizable evaluation of agent outputs.
 from swarms.agents.agent_judge import AgentJudge
 from dotenv import load_dotenv
 
+from jet.adapters.swarms.ollama_function_caller import OllamaFunctionCaller
+
 load_dotenv()
+
 
 # Example 1: Basic usage with evaluation criteria
 print("\n=== Example 1: Using Custom Evaluation Criteria ===\n")
 
 # Create an AgentJudge with custom evaluation criteria
+llm = OllamaFunctionCaller(agent_name="default_judge")
 judge = AgentJudge(
-    model_name="ollama/llama3.2",  # Use any available model
+    llm=llm,  # Use any available model
     evaluation_criteria={
         "correctness": 0.5,
         "problem_solving_approach": 0.3,
@@ -42,8 +46,9 @@ print(
     "\n=== Example 2: Code Evaluation with Specialized Criteria ===\n"
 )
 
+llm = OllamaFunctionCaller(agent_name="code_judge")
 code_judge = AgentJudge(
-    model_name="ollama/llama3.2",
+    llm=llm,
     agent_name="code_judge",
     evaluation_criteria={
         "code_correctness": 0.4,
@@ -75,8 +80,9 @@ print(code_evaluation[0])
 # Example 3: Comparing multiple responses
 print("\n=== Example 3: Comparing Multiple Agent Responses ===\n")
 
+llm = OllamaFunctionCaller(agent_name="comparison_judge")
 comparison_judge = AgentJudge(
-    model_name="ollama/llama3.2",
+    llm=llm,
     evaluation_criteria={"accuracy": 0.6, "completeness": 0.4},
 )
 
