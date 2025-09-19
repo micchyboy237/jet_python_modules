@@ -12,6 +12,7 @@ from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.logger import logger
 from jet.transformers.formatters import format_json
+from jet.utils.text import format_sub_dir
 
 DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,
@@ -22,10 +23,20 @@ DETERMINISTIC_LLM_SETTINGS = {
 
 
 class ChatOllama(BaseChatOllama):
-    def __init__(self, model: str, base_url: str = "http://localhost:11434", **kwargs):
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://localhost:11434",
+        agent_name: Optional[str] = None,
+        **kwargs
+    ):
         options = {**DETERMINISTIC_LLM_SETTINGS, **kwargs, **(kwargs.pop("options", {}))}
         super().__init__(model=model, base_url=base_url, **options)
-        self._chat_logger = ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="chat")
+
+        log_dir = DEFAULT_OLLAMA_LOG_DIR
+        if agent_name:
+            log_dir += f"/{format_sub_dir(agent_name)}"
+        self._chat_logger = ChatLogger(log_dir, method="chat")
 
     def _chat_params(
         self,
