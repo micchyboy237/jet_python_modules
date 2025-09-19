@@ -64,7 +64,7 @@ def force_single_tool_call(response: ChatResponse) -> None:
         response.message.additional_kwargs["tool_calls"] = [tool_calls[0]]
 
 
-class OllamaFunctionCallingAdapter(FunctionCallingLLM):
+class OllamaFunctionCalling(FunctionCallingLLM):
     """
     Ollama LLM.
 

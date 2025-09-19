@@ -282,7 +282,7 @@ def run_quant_trading_agent(task: str) -> str:
         
         You communicate in precise, technical terms while maintaining clarity for stakeholders.""",
         max_loops=2,
-        llm=model,
+        # llm=model,
         model_name="ollama/llama3.2",
         tools=[
             create_python_file,
@@ -414,7 +414,7 @@ def run_crypto_quant_agent(task: str) -> str:
         max_tokens=4096,
         dynamic_temperature_enabled=True,
         output_type="final",
-        llm=model,
+        # llm=model,
         model_name="ollama/llama3.2",
         tools=[
             get_coin_price,
@@ -465,7 +465,7 @@ agent = Agent(
     max_loops=1,
     output_type="final",
     interactive=False,
-    llm=model,
+    # llm=model,
     model_name="ollama/llama3.2",
     tools=[run_quant_trading_agent],
 )

@@ -13,9 +13,6 @@ from jet.models.model_types import EmbedModelType
 from jet.transformers.formatters import format_json
 from jet.wordnet.text_chunker import chunk_texts_with_data
 
-DEFAULT_EMBED_MODEL: EmbedModelType = 'static-retrieval-mrl-en-v1'
-MAX_CONTENT_SIZE = 1000
-
 
 class FileSearchMetadata(TypedDict):
     """Typed dictionary for search result metadata."""
@@ -42,6 +39,16 @@ class Weights(TypedDict):
     name: float
     dir: float
     content: float
+
+
+DEFAULT_EMBED_MODEL: EmbedModelType = 'static-retrieval-mrl-en-v1'
+MAX_CONTENT_SIZE = 1000
+
+DEFAULT_WEIGHTS: Weights = {
+    "dir": 0.0,
+    "name": 0.25,
+    "content": 0.75,
+}
 
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
@@ -185,13 +192,9 @@ def compute_weighted_similarity(
     if content_vector is not None:
         content_sim = cosine_similarity(query_vector, content_vector)
 
+
     # Use default weights if none provided
-    default_weights: Weights = {
-        "dir": 0.325,
-        "name": 0.325,
-        "content": 0.35,
-    }
-    active_weights = weights if weights is not None else default_weights
+    active_weights = weights if weights is not None else DEFAULT_WEIGHTS
 
     weighted_sim = (
         active_weights["name"] * name_sim +

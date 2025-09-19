@@ -5,7 +5,7 @@ from typing import List
 from llama_index.core.agent import FunctionAgent
 from llama_index.core.memory import Memory, StaticMemoryBlock, FactExtractionMemoryBlock, VectorMemoryBlock
 from llama_index.core import Settings, VectorStoreIndex
-from jet.llm.ollama.adapters.ollama_llama_index_llm_adapter import OllamaFunctionCallingAdapter
+from jet.adapters.llama_index.ollama_function_calling import OllamaFunctionCalling
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 # Setup logging
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Setup LLM and embedding model
 model_name = "sentence-transformers/all-MiniLM-L6-v2"
-Settings.llm = OllamaFunctionCallingAdapter(model="llama3.2")
+Settings.llm = OllamaFunctionCalling(model="llama3.2")
 Settings.embed_model = HuggingFaceEmbedding(model_name=model_name)
 
 
