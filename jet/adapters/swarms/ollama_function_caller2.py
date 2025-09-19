@@ -41,7 +41,7 @@ class OllamaFunctionCaller(OpenAIAssistant):
         name: str = "Ollama Assistant",
         description: str = "Ollama-based assistant wrapper",
         instructions: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: Optional[List[Union[Dict[str, Any], Callable]]] = None,
         file_ids: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         functions: Optional[List[Dict[str, Any]]] = None,
@@ -60,17 +60,17 @@ class OllamaFunctionCaller(OpenAIAssistant):
             name (str): Name of the assistant (inherited from OpenAIAssistant).
             description (str): Description of the assistant.
             instructions (str, optional): System instructions for the assistant.
-            tools (List[Dict[str, Any]], optional): List of tools to enable.
+            tools (List[Union[Dict[str, Any], Callable]], optional): List of tools, either as dictionaries or callable functions.
             file_ids (List[str], optional): List of file IDs to attach.
             metadata (Dict[str, Any], optional): Additional metadata.
-            functions (List[Dict[str, Any]], optional): List of custom functions.
+            functions (List[Dict[str, Any]], optional): List of custom functions in dictionary format.
         """
         # Initialize attributes before super().__init__ to avoid OpenAI client setup
         self.name = name
         self.description = description
         self.instructions = instructions
         self.model = model_name
-        self.tools = tools or []
+        self.tools = []
         self.file_ids = file_ids
         self.metadata = metadata or {}
         self.functions = functions
@@ -79,6 +79,39 @@ class OllamaFunctionCaller(OpenAIAssistant):
         # Debug logs to inspect initialization
         jet_logger.debug(f"Initializing OllamaFunctionCaller with model: {model_name}")
         jet_logger.debug(f"Tools: {tools}, Functions: {functions}")
+
+        # Process tools (dictionaries or callables)
+        if tools:
+            for tool in tools:
+                if isinstance(tool, dict):
+                    self.tools.append(tool)
+                    if tool.get("type") == "function" and "name" in tool.get("function", {}):
+                        jet_logger.debug(f"Added dictionary-based tool: {tool['function']['name']}")
+                elif callable(tool):
+                    func_dict = {
+                        "type": "function",
+                        "function": {
+                            "name": tool.__name__,
+                            "description": tool.__doc__ or f"Function {tool.__name__}",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {},
+                                "required": []
+                            }
+                        }
+                    }
+                    self.tools.append(func_dict)
+                    self.available_functions[tool.__name__] = tool
+                    jet_logger.debug(f"Added callable tool: {tool.__name__}")
+                else:
+                    jet_logger.error(f"Invalid tool type: {type(tool)}")
+
+        # Handle functions parameter
+        if functions:
+            for func in functions:
+                self.tools.append({"type": "function", "function": func})
+                if "name" in func:
+                    jet_logger.debug(f"Added function from functions param: {func['name']}")
 
         # Call parent __init__ without triggering OpenAI client
         super(Agent, self).__init__(*args, **kwargs)  # Skip OpenAIAssistant.__init__
@@ -103,13 +136,7 @@ class OllamaFunctionCaller(OpenAIAssistant):
         self.client = self  # Use self as client to redirect to Ollama methods
         self.assistant = self  # Use self as assistant to avoid OpenAI API calls
 
-        # Handle functions
-        if functions:
-            for func in functions:
-                self.tools.append({"type": "function", "function": func})
-
         jet_logger.debug("OllamaFunctionCaller initialization completed")
-
     def add_function(
         self,
         func: Callable,
