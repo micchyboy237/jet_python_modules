@@ -4,7 +4,8 @@ import json
 import requests
 from swarms import Agent
 
-from jet.adapters.swarms.ollama_model import OllamaModel
+# from jet.adapters.swarms.ollama_model import OllamaModel
+from jet.adapters.swarms.litellm_wrapper import LiteLLM
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
@@ -243,7 +244,7 @@ def run_quant_trading_agent(task: str) -> str:
         >>> print(result)
     """
     # Initialize the agent
-    model = OllamaModel(
+    model = LiteLLM(
         model_name="llama3.2",
         temperature=0.1,
         agent_name="Quantitative-Trading-Agent",
@@ -380,7 +381,7 @@ def run_crypto_quant_agent(task: str) -> str:
         "Based on current market analysis..."
     """
     # Initialize the agent with expanded tools
-    model = OllamaModel(
+    model = LiteLLM(
         model_name="llama3.2",
         temperature=0.1,
         agent_name="Crypto-Quant-Agent",
@@ -422,7 +423,7 @@ def run_crypto_quant_agent(task: str) -> str:
 
 
 # Initialize the agent
-model = OllamaModel(
+model = LiteLLM(
     model_name="llama3.2",
     temperature=0.1,
     agent_name="Director-Agent",

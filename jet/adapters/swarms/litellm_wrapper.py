@@ -13,6 +13,7 @@ from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.logger import logger
 from jet.transformers.formatters import format_json
+from jet.utils.text import format_sub_dir
 
 
 class LiteLLMException(Exception):
@@ -238,6 +239,7 @@ class LiteLLM:
         drop_params: bool = True,
         thinking_tokens: int = None,
         reasoning_enabled: bool = False,
+        agent_name: Optional[str] = None,
         *args,
         **kwargs,
     ):
@@ -297,6 +299,7 @@ class LiteLLM:
         self.verbose = verbose
         self.modalities = []
         self.messages = []  # Initialize messages list
+        self.agent_name = agent_name
 
         # Configure litellm settings
         litellm.set_verbose = (
@@ -322,7 +325,10 @@ class LiteLLM:
         # if self.reasoning_enabled is True:
         #     self.reasoning_check()
 
-        self._chat_logger = ChatLogger(DEFAULT_OLLAMA_LOG_DIR, method="chat") if model_name.startswith("ollama/") else None
+        log_dir = DEFAULT_OLLAMA_LOG_DIR
+        if agent_name:
+            log_dir += f"/{format_sub_dir(agent_name)}"
+        self._chat_logger = ChatLogger(log_dir, method="chat") if model_name.startswith("ollama/") else None
 
     def reasoning_check(self):
         """
