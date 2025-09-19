@@ -4,7 +4,7 @@ from typing import Callable, List, Dict, Any
 from datetime import datetime
 import ollama
 import os
-from jet.libs.swarms.jet_examples.swarm_examples_1 import (
+from jet.libs.swarms.jet_examples.random.swarm_examples_1 import (
     basic_agent_example,
     agent_with_tools_example,
     interactive_streaming_example,

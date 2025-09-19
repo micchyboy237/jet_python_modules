@@ -8,7 +8,7 @@ import json
 import yaml
 import xml.etree.ElementTree as ET
 from unittest.mock import Mock
-from jet.libs.swarms.jet_examples.swarm_examples_2 import (
+from jet.libs.swarms.jet_examples.random.swarm_examples_2 import (
     template_retry_example,
     stopping_token_dynamic_loops_example,
     dashboard_exit_command_example,

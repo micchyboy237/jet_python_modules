@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock
-from jet.libs.swarms.jet_examples.swarm_examples_custom_llm import (
+from jet.libs.swarms.jet_examples.random.swarm_examples_custom_llm import (
     custom_ollama_agent_example,
     custom_ollama_tools_example,
     custom_ollama_streaming_example,

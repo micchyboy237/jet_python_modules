@@ -7,8 +7,7 @@ import inspect
 import typing
 from typing import Union
 from swarms import Agent
-
-from jet.adapters.swarms.litellm_wrapper import LiteLLM
+from swarm_models import OpenAIChat
 
 
 @dataclass
@@ -123,17 +122,17 @@ class ToolAgent:
     def __init__(
         self,
         functions: List[Callable],
-        model_name: str = "ollama/llama3.2",
+        openai_api_key: str,
+        model_name: str = "gpt-4",
         temperature: float = 0.1,
     ):
         self.functions = {func.__name__: func for func in functions}
         self.function_specs = self._analyze_functions(functions)
 
-        self.model = LiteLLM(
-            model_name="ollama/llama3.2",   # Ollama model
-            base_url="http://localhost:11434",  # Default Ollama API endpoint
+        self.model = OpenAIChat(
+            openai_api_key=openai_api_key,
+            model_name=model_name,
             temperature=temperature,
-            # verbose=True,
         )
 
         self.system_prompt = self._create_system_prompt()
@@ -142,7 +141,7 @@ class ToolAgent:
             system_prompt=self.system_prompt,
             llm=self.model,
             max_loops=1,
-            # verbose=True,
+            verbose=True,
         )
 
     def _analyze_functions(
@@ -417,6 +416,7 @@ def calculate_investment_return(
 
 agent = ToolAgent(
     functions=[calculate_investment_return],
+    openai_api_key=os.getenv("OPENAI_API_KEY"),
 )
 
 result = agent.run(
