@@ -248,9 +248,9 @@ class CustomLogger:
             errors=errors,
         )
 
-    def custom_logger_method(self, level: str) -> Callable[[str, Optional[bool]], None]:
+    def custom_logger_method(self, level: str) -> Callable[..., None]:
         def wrapper(
-            message: Any,
+            message: Any = "",
             *args: Any,
             bright: bool = False,
             flush: bool = False,
@@ -280,32 +280,26 @@ class CustomLogger:
             if colors is None:
                 colors = [f"BRIGHT_{level}" if bright else level]
             else:
-                colors = [f"BRIGHT_{c}" if bright and c.upper(
-                ) in level_map else c for c in colors]
-                colors = colors * \
-                    ((len(formatted_args) + 1 + len(colors) - 1) // len(colors))
+                colors = [f"BRIGHT_{c}" if bright and c.upper() in level_map else c for c in colors]
+                colors = colors * ((len(formatted_args) + 1 + len(colors) - 1) // len(colors))
             messages = [message] + [str(arg) for arg in formatted_args]
             processed_messages = []
             for i, msg in enumerate(messages):
                 parsed_message = parse_json(msg)
                 if isinstance(parsed_message, (dict, list)):
                     msg = format_json(parsed_message)
-                msg = fix_and_unidecode(msg) if isinstance(
-                    msg, str) else str(msg)
-                processed_messages.append(
-                    (msg, colors[i % len(colors)] if colors else level))
+                msg = fix_and_unidecode(msg) if isinstance(msg, str) else str(msg)
+                processed_messages.append((msg, colors[i % len(colors)] if colors else level))
             colored_output = ""
             try:
                 if hasattr(sys.stdout, 'fileno') and os.isatty(sys.stdout.fileno()):
                     colored_output = "".join(
                         f"{COLORS.get(color, COLORS['LOG'])}{msg}{RESET}" for msg, color in processed_messages)
                 else:
-                    colored_output = " ".join(
-                        msg for msg, _ in processed_messages)
+                    colored_output = " ".join(msg for msg, _ in processed_messages)
             except io.UnsupportedOperation:
                 colored_output = " ".join(msg for msg, _ in processed_messages)
-                print(
-                    f"[WARNING] Fallback to non-colored output due to io.UnsupportedOperation")
+                print(f"[WARNING] Fallback to non-colored output due to io.UnsupportedOperation")
             if level.lower() == "error" and exc_info:
                 error_msg = colorize_log("Trace exception:", "gray")
                 try:
@@ -313,8 +307,7 @@ class CustomLogger:
                         error_msg = clean_ansi(error_msg)
                 except io.UnsupportedOperation:
                     error_msg = clean_ansi(error_msg)
-                    print(
-                        f"[WARNING] Fallback to non-colored error message due to io.UnsupportedOperation")
+                    print(f"[WARNING] Fallback to non-colored error message due to io.UnsupportedOperation")
                 print(error_msg, flush=True)
                 error_trace = colorize_log(traceback.format_exc(), level)
                 try:
@@ -322,8 +315,7 @@ class CustomLogger:
                         error_trace = clean_ansi(error_trace)
                 except io.UnsupportedOperation:
                     error_trace = clean_ansi(error_trace)
-                    print(
-                        f"[WARNING] Fallback to non-colored error trace due to io.UnsupportedOperation")
+                    print(f"[WARNING] Fallback to non-colored error trace due to io.UnsupportedOperation")
                 print(error_trace, flush=True)
             if not end:
                 end = "" if flush else "\n"
@@ -335,33 +327,36 @@ class CustomLogger:
                 if log_file is not None and self.overwrite and os.path.exists(target_log_file):
                     os.remove(target_log_file)
                 end = "" if flush else "\n\n"
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                try:
-                    stack = traceback.extract_stack()
-                    caller = None
-                    logger_methods = {'wrapper',
-                                      '__getattr__', 'custom_logger_method'}
-                    for frame in reversed(stack):
-                        if frame.name in logger_methods and frame.filename == __file__:
-                            continue
-                        caller = frame
-                        break
-                    if caller:
-                        file_name = os.path.basename(caller.filename)
-                        func_name = caller.name if caller.name != '<module>' else 'main'
-                        line_number = caller.lineno
-                        metadata = f"[{level.upper()}] {timestamp} {file_name}:{func_name}:{line_number}"
-                    else:
-                        metadata = f"[{level.upper()}] {timestamp} unknown:unknown:0"
-                except IndexError:
-                    metadata = f"[{level.upper()}] {timestamp} unknown:unknown:0"
+                output_message = clean_ansi(" ".join(msg for msg, _ in processed_messages))
                 with open(target_log_file, "a") as file:
                     if not flush and self._last_message_flushed:
                         file.write("\n\n")
-                    if not flush or (flush and not self._last_message_flushed):
-                        file.write(metadata + "\n")
-                    file.write(clean_ansi(
-                        " ".join(msg for msg, _ in processed_messages)) + end)
+                    # Write only the end string (newline) for empty messages, skip metadata
+                    if output_message.strip() == "":
+                        file.write(end)
+                    else:
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        try:
+                            stack = traceback.extract_stack()
+                            caller = None
+                            logger_methods = {'wrapper', '__getattr__', 'custom_logger_method'}
+                            for frame in reversed(stack):
+                                if frame.name in logger_methods and frame.filename == __file__:
+                                    continue
+                                caller = frame
+                                break
+                            if caller:
+                                file_name = os.path.basename(caller.filename)
+                                func_name = caller.name if caller.name != '<module>' else 'main'
+                                line_number = caller.lineno
+                                metadata = f"[{level.upper()}] {timestamp} {file_name}:{func_name}:{line_number}"
+                            else:
+                                metadata = f"[{level.upper()}] {timestamp} unknown:unknown:0"
+                        except IndexError:
+                            metadata = f"[{level.upper()}] {timestamp} unknown:unknown:0"
+                        if not flush or (flush and not self._last_message_flushed):
+                            file.write(metadata + "\n")
+                        file.write(output_message + end)
                 self._last_message_flushed = flush
         return wrapper
 
@@ -447,7 +442,7 @@ class CustomLogger:
                 file.write(format_json(prompt) + "\n\n")
         self._last_message_flushed = False
 
-    def __getattr__(self, name: str) -> Callable[[str, Optional[bool]], None]:
+    def __getattr__(self, name: str) -> Callable[..., None]:
         if name.upper() in COLORS:
             return self.custom_logger_method(name.upper())
         self.warning(f"'CustomLogger' object has no attribute '{name}'")
@@ -457,30 +452,41 @@ def logger_examples(logger: CustomLogger):
     logger.log("\n==== LOGGER METHODS =====")
     logger.newline()
     logger.log("This is a default log message.")
+    logger.info()  # Added
     logger.info("This is an info message.")
     logger.info("This is a bright info message.", bright=True)
+    logger.debug()  # Added
     logger.debug("This is a debug message.")
     logger.debug("This is a bright debug message.", bright=True)
+    logger.warning()  # Added
     logger.warning("This is a warning message.")
     logger.warning("This is a bright warning message.", bright=True)
+    logger.error()  # Added
     logger.error("This is an error message.")
     logger.error("This is a bright error message.", bright=True)
+    logger.critical()  # Added
     logger.critical("This is a critical message.")
     logger.critical("This is a bright critical message.", bright=True)
+    logger.success()  # Added
     logger.success("This is a success message.")
     logger.success("This is a bright success message.", bright=True)
+    logger.orange()  # Added
     logger.orange("This is a orange message.")
     logger.orange("This is a bright orange message.", bright=True)
+    logger.teal()  # Added
     logger.teal("This is a teal message.")
     logger.teal("This is a bright teal message.", bright=True)
+    logger.cyan()  # Added
     logger.cyan("This is a cyan message.")
     logger.cyan("This is a bright cyan message.", bright=True)
+    logger.purple()  # Added
     logger.purple("This is a purple message.")
     logger.purple("This is a bright purple message.", bright=True)
+    logger.lime()  # Added
     logger.lime("This is a lime message.")
     logger.lime("This is a bright lime message.", bright=True)
     logger.log("Unicode message:", "Playwright Team \u2551 \u255a",
-               colors=["WHITE", "DEBUG"])
+            colors=["WHITE", "DEBUG"])
     logger.newline()
     logger.log("Flush word 1.", flush=True)
     logger.log("Flush word 2.", flush=True)
@@ -489,15 +495,15 @@ def logger_examples(logger: CustomLogger):
     logger.newline()
     logger.log("multi-color default", "Message 2")
     logger.log("2 multi-color with colors",
-               "Message 2", colors=["DEBUG", "SUCCESS"])
+            "Message 2", colors=["DEBUG", "SUCCESS"])
     logger.log("2 multi-color cycle", "Message 2",
-               "Message 3", "Message 4", "Message 5", colors=["DEBUG", "SUCCESS"])
+            "Message 3", "Message 4", "Message 5", colors=["DEBUG", "SUCCESS"])
     logger.log("2 multi-color with bright", "Message 2",
-               colors=["GRAY", "BRIGHT_DEBUG"])
+            colors=["GRAY", "BRIGHT_DEBUG"])
     logger.log("3 multi-color", "Message 2", "Message 3",
-               colors=["WHITE", "BRIGHT_DEBUG", "BRIGHT_SUCCESS"])
+            colors=["WHITE", "BRIGHT_DEBUG", "BRIGHT_SUCCESS"])
     logger.log("3 multi-color with repeat", "Message 2", "Message 3",
-               colors=["INFO", "DEBUG"])
+            colors=["INFO", "DEBUG"])
     logger.newline()
     logger.info({
         "user": "Alice",
@@ -563,22 +569,22 @@ def logger_examples(logger: CustomLogger):
     logger.success(123.12)
     logger.log("Logging to default log file (if set).")
     logger.log("Logging to custom log file.",
-               log_file=f"{OUTPUT_DIR}/custom_log.txt")
+            log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.info("Info message to custom log file.",
                 log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.warning("Warning message to custom log file.",
-                   log_file=f"{OUTPUT_DIR}/custom_log.txt")
+                log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.error("Error message to custom log file.",
-                 log_file=f"{OUTPUT_DIR}/custom_log.txt")
+                log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.critical("Append critical message to custom log file.",
                     log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.pretty({"example": "Append pretty message to custom log file."},
-                  log_file=f"{OUTPUT_DIR}/custom_log.txt")
+                log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.pretty({"example": "Append pretty message"},
-                  log_file=f"{OUTPUT_DIR}/custom_pretty_log.txt")
+                log_file=f"{OUTPUT_DIR}/custom_pretty_log.txt")
     logger.newline()
     logger.log("Append logging with multiple arguments to custom file.", "Arg1", "Arg2",
-               colors=["DEBUG", "SUCCESS"], log_file=f"{OUTPUT_DIR}/custom_log.txt")
+            colors=["DEBUG", "SUCCESS"], log_file=f"{OUTPUT_DIR}/custom_log.txt")
     logger.log("====== END LOGGER METHODS ======\n")
 
 
