@@ -85,7 +85,7 @@ async def scrape_urls(
     num_parallel: int = 10,
     limit: Optional[int] = None,
     show_progress: bool = False,
-    timeout: Optional[float] = 5000,
+    timeout: Optional[float] = 10000,  # Increased timeout
     max_retries: int = 2,
     with_screenshot: bool = True,
     headless: bool = True,
@@ -95,7 +95,6 @@ async def scrape_urls(
     semaphore = asyncio.Semaphore(num_parallel)
     completed_count = 0
     tasks = []
-
     async def sem_fetch_and_yield(url: str, context: BrowserContext, pbar=None) -> List[ScrapeResult]:
         results = []
         results.append({"url": url, "status": "started", "html": None, "screenshot": None})
@@ -122,35 +121,47 @@ async def scrape_urls(
         browser = await p.chromium.launch(headless=headless)
         context = await browser.new_context(user_agent=ua.random)
         try:
-            coroutines = [sem_fetch_and_yield(url, context) for url in urls]
+            coroutines = [sem_fetch_and_yield(url, context, None) for url in urls]
             if show_progress:
                 with tqdm_asyncio(total=len(urls), desc=f"Scraping URLs ({min(num_parallel, len(urls))} active)", file=sys.stdout, mininterval=0.1) as pbar:
                     coroutines = [sem_fetch_and_yield(url, context, pbar) for url in urls]
             tasks = [asyncio.create_task(coro) for coro in coroutines]
-            for task in asyncio.as_completed(tasks):
-                try:
-                    result = await task
-                    for item in result:
-                        yield item
-                        if item["status"] == "completed":
-                            completed_count += 1
-                            if limit and completed_count >= limit:
-                                logger.info(f"Reached limit of {limit} completed URLs.")
-                                for t in tasks:
-                                    if not t.done():
-                                        t.cancel()
-                                await asyncio.gather(*tasks, return_exceptions=True)
-                                return
-                except asyncio.CancelledError:
-                    logger.info("Task processing was cancelled")
-                    raise
+            try:
+                for task in asyncio.as_completed(tasks):
+                    try:
+                        result = await task
+                        for item in result:
+                            yield item
+                            if item["status"] == "completed":
+                                completed_count += 1
+                                if limit and completed_count >= limit:
+                                    logger.info(f"Reached limit of {limit} completed URLs.")
+                                    for t in tasks:
+                                        if not t.done():
+                                            t.cancel()
+                                    await asyncio.gather(*tasks, return_exceptions=True)
+                                    return
+                    except asyncio.CancelledError:
+                        logger.info("Task processing was cancelled")
+                        raise
+            except asyncio.CancelledError:
+                logger.info("Cancelling all tasks due to interruption")
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
         finally:
             await context.close()
             await browser.close()
+            # Ensure all tasks are cancelled and awaited
             for task in tasks:
                 if not task.done():
                     task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except asyncio.CancelledError:
+                logger.debug("All tasks cancelled and cleaned up")
 
 async def consume_generator(gen: AsyncIterator[ScrapeResult]) -> List[ScrapeResult]:
     return [item async for item in gen]
