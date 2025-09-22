@@ -5,7 +5,7 @@ from jet.transformers.formatters import format_json
 
 client = Client(host='http://localhost:11435')
 
-response_stream = client.generate('deepseek-r1', 'why is the sky blue', think=True, stream=True)
+response_stream = client.generate('deepseek-r1:7b-qwen-distill-q4_K_M', 'why is the sky blue', think=True, stream=True)
 
 thinking = ''
 content = ''
