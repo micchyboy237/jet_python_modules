@@ -18,8 +18,7 @@ messages = [
 # gpt-oss supports 'low', 'medium', 'high'
 levels = ['low', 'medium', 'high']
 for i, level in enumerate(levels):
-  # response = client.chat('gpt-oss:20b', messages=messages, think=level)
-  response: ChatResponse = client.chat('deepseek-r1:7b-qwen-distill-q4_K_M', messages=messages, think=level)
+  response: ChatResponse = client.chat('gpt-oss:20b', messages=messages, think=level)
 
   heading(f'Thinking ({level})')
   print(response.message.thinking)
