@@ -30,5 +30,6 @@ for response in client.generate('qwen2.5vl:3b-q4_K_M', 'explain this comic:', im
 
 logger.gray("Result:")
 # Remove 'context' to reduce logged response
-response.pop('context')
-logger.success(format_json(response))
+response_dict = response.__dict__
+response_dict.pop('context')
+logger.success(format_json(response_dict))
