@@ -331,8 +331,9 @@ class LLMGenerateResult(TypedDict):
     sorted_search_results: List[HeaderSearchResult]
     filtered_results: List[HeaderSearchResult]
     filtered_urls: List[Dict]
+    template: str
     context: str
-    response_text: str
+    response: str
     token_info: Dict[str, int]
 
 class WebDeepSearchResult(TypedDict):
@@ -346,8 +347,9 @@ class WebDeepSearchResult(TypedDict):
     sorted_search_results: List[HeaderSearchResult]
     filtered_results: List[HeaderSearchResult]
     filtered_urls: List[Dict]
+    template: str
     context: str
-    response_text: str
+    response: str
     token_info: Dict[str, int]
 
 def prepare_context(
@@ -453,8 +455,9 @@ async def llm_generate(
     output_tokens = count_tokens(llm_model, response_text)
 
     return {
+        "template": str(PROMPT_TEMPLATE),
         "context": context,
-        "response_text": response_text,
+        "response": response_text,
         "token_info": {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
@@ -516,7 +519,7 @@ async def rag_search(
         search_engine_results = search_data(query, use_cache=use_cache)
         urls = [r["url"] for r in search_engine_results][:urls_limit]
 
-    async for url_result in scrape_urls(urls, show_progress=True):
+    async for url_result in scrape_urls(urls, show_progress=True, use_cache=use_cache):
         url = url_result["url"]
         status = url_result["status"]
         html = url_result["html"]
