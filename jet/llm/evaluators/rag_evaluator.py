@@ -7,11 +7,10 @@ from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
-
-from langchain_openai import OpenAI
-from langchain.chains.retrieval_qa.base import RetrievalQA
 from langchain_core.prompts import PromptTemplate
+from langchain.chains.retrieval_qa.base import RetrievalQA
 
+from jet.adapters.langchain.chat_ollama import ChatOllama
 
 def import_data(pages: int, start_year: int, end_year: int, search_terms: str) -> pd.DataFrame:
     """
@@ -115,22 +114,18 @@ def create_vector_store(ai_search: pd.DataFrame) -> FAISS:
     return vector_store
 
 
-def setup_rag_pipeline(vector_store: FAISS, openai_api_key: str) -> RetrievalQA:
+def setup_rag_pipeline(vector_store: FAISS) -> RetrievalQA:
     """
-    Sets up the RAG pipeline using the vector store and OpenAI LLM.
+    Sets up the RAG pipeline using the vector store and Ollama LLM.
     
     Args:
         vector_store: FAISS vector store.
-        openai_api_key: OpenAI API key.
     
     Returns:
         RetrievalQA chain.
     """
-    # set API key
-    os.environ["OPENAI_API_KEY"] = openai_api_key
-
     # load llm
-    llm = OpenAI(openai_api_key=openai_api_key)
+    llm = ChatOllama(model="qwen3:4b-q4_K_M")
 
     # test that vector database is working (example query)
     print(vector_store.similarity_search("computer vision", k=3))
