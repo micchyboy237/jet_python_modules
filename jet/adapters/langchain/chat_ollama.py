@@ -15,6 +15,8 @@ from jet.logger import logger
 from jet.transformers.formatters import format_json
 from jet.utils.text import format_sub_dir
 
+from .ollama_embeddings import OllamaEmbeddings
+
 DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,
     "temperature": 0,
