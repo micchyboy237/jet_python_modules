@@ -313,6 +313,14 @@ def create_url_dict_list(urls: List[str], search_results: List[HeaderSearchResul
     ]
 
 
+class RagSearchResult(TypedDict):
+    sorted_search_results: List[HeaderSearchResult]
+    filtered_results: List[HeaderSearchResult]
+    filtered_urls: List[Dict]
+    context: str
+    response_text: str
+    token_info: Dict[str, int]
+
 class WebDeepSearchResult(TypedDict):
     query: str
     search_engine_results: List[Dict]
@@ -328,14 +336,106 @@ class WebDeepSearchResult(TypedDict):
     response_text: str
     token_info: Dict[str, int]
 
-async def web_deep_search(query: str) -> WebDeepSearchResult:
-    """Main function to perform web deep search and return structured results."""
-    embed_model: EmbedModelType = "all-MiniLM-L6-v2"
+async def rag_search(
+    query: str,
+    search_results: List[HeaderSearchResult],
+    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit",
+    max_tokens: int = 2000
+) -> RagSearchResult:
+    """
+    Performs RAG pipeline: sorts, filters, and generates context and LLM response.
+    
+    Args:
+        query: The search query string.
+        search_results: List of search results to process.
+        llm_model: The LLM model to use for generation.
+        max_tokens: Maximum tokens for filtered results.
+    
+    Returns:
+        RagSearchResult: Structured RAG results.
+    """
+    # Sort URLs by high_score_tokens, then medium_score_tokens
+    sorted_urls_list = sort_urls_by_high_and_medium_score_tokens(search_results)
+
+    # Sort all results by score
+    sorted_results = sort_search_results_by_url_and_category(search_results, sorted_urls_list)
+    total_tokens = sum(result["metadata"].get("num_tokens", 0) for result in sorted_results)
+
+    # Filter search_results based on score, MTLD, and link-to-text ratio
+    current_tokens = 0
+    filtered_results = []
+    for result in sorted_results:
+        content = f"{result['header']}\n{result['content']}"
+        tokens = count_tokens(llm_model, content)
+        if current_tokens + tokens > max_tokens:
+            break
+        filtered_results.append(result)
+        current_tokens += tokens
+
+    # Compute filtered_urls based on filtered_results
+    filtered_url_stats = defaultdict(
+        lambda: {'high_score_tokens': 0, 'medium_score_tokens': 0, 'header_count': 0})
+    for result in filtered_results:
+        url = result['metadata']['source']
+        if result['score'] >= HIGH_QUALITY_SCORE:
+            filtered_url_stats[url]['high_score_tokens'] += result['metadata'].get('num_tokens', 0)
+            filtered_url_stats[url]['header_count'] += 1
+        elif result['score'] >= MEDIUM_QUALITY_SCORE:
+            filtered_url_stats[url]['medium_score_tokens'] += result['metadata'].get('num_tokens', 0)
+            filtered_url_stats[url]['header_count'] += 1
+
+    # Create filtered_urls list, sorted by high_score_tokens then medium_score_tokens
+    filtered_urls = [
+        {
+            'url': url,
+            'high_score_tokens': stats['high_score_tokens'],
+            'medium_score_tokens': stats['medium_score_tokens'],
+            'header_count': stats['header_count']
+        }
+        for url, stats in sorted(
+            filtered_url_stats.items(),
+            key=lambda x: (x[1]['high_score_tokens'], x[1]['medium_score_tokens']),
+            reverse=True
+        )
+    ]
+
+    context = group_results_by_source_for_llm_context(filtered_results)
+    prompt = PROMPT_TEMPLATE.format(query=query, context=context)
+    response_text = ""
+    for chunk in gen.stream_chat(
+        prompt,
+        llm_model,
+        temperature=0.7,
+        verbose=True
+    ):
+        content = chunk["choices"][0]["message"]["content"]
+        response_text += content
+
+    input_tokens = count_tokens(llm_model, prompt)
+    output_tokens = count_tokens(llm_model, response_text)
+
+    return {
+        "sorted_search_results": sorted_results,
+        "filtered_results": filtered_results,
+        "filtered_urls": filtered_urls,
+        "context": context,
+        "response_text": response_text,
+        "token_info": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+        }
+    }
+
+async def web_deep_search(
+    query: str,
+    embed_model: EmbedModelType = "all-MiniLM-L6-v2",
     llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit"
+) -> WebDeepSearchResult:
+    """Main function to perform web deep search and return structured results."""
     max_tokens = 2000
     use_cache = True
     urls_limit = 10
-
     top_k = None
     threshold = 0.0
     chunk_size = 200
@@ -348,12 +448,10 @@ async def web_deep_search(query: str) -> WebDeepSearchResult:
     html_list = []
     header_docs: List[HeaderDoc] = []
     search_results: List[HeaderSearchResult] = []
-
     headers_total_tokens = 0
     headers_high_score_tokens = 0
     headers_medium_score_tokens = 0
     headers_mtld_score_average = 0
-
     all_started_urls = []
     all_completed_urls = []
     all_searched_urls = []
@@ -375,9 +473,7 @@ async def web_deep_search(query: str) -> WebDeepSearchResult:
             doc_analysis = analyze_markdown(doc_markdown)
             doc_markdown_tokens = base_parse_markdown(doc_markdown)
 
-            original_docs: List[HeaderDoc] = derive_by_header_hierarchy(
-                doc_markdown, ignore_links=True)
-
+            original_docs: List[HeaderDoc] = derive_by_header_hierarchy(doc_markdown, ignore_links=True)
             for doc in original_docs:
                 doc["source"] = url
 
@@ -396,51 +492,38 @@ async def web_deep_search(query: str) -> WebDeepSearchResult:
             )
             all_searched_urls.append(url)
 
-            # Add ltr_ratio using link_to_text_ratio on each result by content
             filtered_sub_results = []
             for result in sub_results:
                 ltr = link_to_text_ratio(result["content"])
                 result["metadata"]["ltr_ratio"] = ltr
                 mtld_result = calculate_mtld(result["content"])
                 result["metadata"]["mtld"] = mtld_result
-                result["metadata"]["mtld_category"] = calculate_mtld_category(
-                    mtld_result)
+                result["metadata"]["mtld_category"] = calculate_mtld_category(mtld_result)
                 if (
                     result["score"] >= MEDIUM_QUALITY_SCORE
                     and result["metadata"]["mtld_category"] != "very_low"
                 ):
                     filtered_sub_results.append(result)
 
-            sub_total_tokens = sum(
-                result["metadata"]["num_tokens"] for result in filtered_sub_results)
-
+            sub_total_tokens = sum(result["metadata"]["num_tokens"] for result in filtered_sub_results)
             sub_high_score_tokens = sum(
                 result["metadata"]["num_tokens"]
                 for result in filtered_sub_results
                 if result["score"] >= HIGH_QUALITY_SCORE
             )
-
             sub_medium_score_tokens = sum(
                 result["metadata"]["num_tokens"]
                 for result in filtered_sub_results
-                if (
-                    result["score"] >= MEDIUM_QUALITY_SCORE
-                    and result["score"] < HIGH_QUALITY_SCORE
-                )
+                if result["score"] >= MEDIUM_QUALITY_SCORE and result["score"] < HIGH_QUALITY_SCORE
             )
 
             sub_mtld_score_values = [
                 calculate_mtld(result["content"])
                 for result in filtered_sub_results
-                if (
-                    result["score"] >= HIGH_QUALITY_SCORE
-                    and calculate_mtld_category(calculate_mtld(result["content"]))
-                )
+                if result["score"] >= HIGH_QUALITY_SCORE and calculate_mtld_category(calculate_mtld(result["content"]))
             ]
             sub_mtld_score_average = (
-                sum(sub_mtld_score_values) /
-                len(sub_mtld_score_values)
-                if sub_mtld_score_values else 0
+                sum(sub_mtld_score_values) / len(sub_mtld_score_values) if sub_mtld_score_values else 0
             )
 
             header_docs.extend(original_docs)
@@ -453,11 +536,8 @@ async def web_deep_search(query: str) -> WebDeepSearchResult:
             headers_total_tokens += sub_total_tokens
             headers_high_score_tokens += sub_high_score_tokens
             headers_medium_score_tokens += sub_medium_score_tokens
-            headers_mtld_score_average += round(
-                sub_mtld_score_average, 2)
+            headers_mtld_score_average += round(sub_mtld_score_average, 2)
 
-            # Stop processing if either high-score tokens reach TARGET_HIGH_SCORE_TOKENS
-            # or combined high and medium-score tokens reach TARGET_MEDIUM_SCORE_TOKENS
             if headers_high_score_tokens >= TARGET_HIGH_SCORE_TOKENS or \
                (headers_high_score_tokens + headers_medium_score_tokens) >= TARGET_MEDIUM_SCORE_TOKENS:
                 logger.info(
@@ -466,8 +546,7 @@ async def web_deep_search(query: str) -> WebDeepSearchResult:
                 break
 
     # Sort search_results by score then update rank
-    search_results = sorted(
-        search_results, key=lambda x: x["score"], reverse=True)
+    search_results = sorted(search_results, key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(search_results, 1):
         result["rank"] = i
 
@@ -477,15 +556,13 @@ async def web_deep_search(query: str) -> WebDeepSearchResult:
     for result in search_results:
         url = result["metadata"].get("source", "Unknown")
         if result["score"] >= HIGH_QUALITY_SCORE:
-            url_stats[url]["high_score_tokens"] += result["metadata"].get(
-                "num_tokens", 0)
+            url_stats[url]["high_score_tokens"] += result["metadata"].get("num_tokens", 0)
             url_stats[url]["header_count"] += 1
         elif result["score"] >= MEDIUM_QUALITY_SCORE:
-            url_stats[url]["medium_score_tokens"] += result["metadata"].get(
-                "num_tokens", 0)
+            url_stats[url]["medium_score_tokens"] += result["metadata"].get("num_tokens", 0)
             url_stats[url]["header_count"] += 1
 
-    # Filter URLs with high_score_tokens > 0 or medium_score_tokens > 0 and format as list of dicts
+    # Filter URLs with high_score_tokens > 0 or medium_score_tokens > 0
     sorted_urls = [
         {
             "url": url,
@@ -495,77 +572,14 @@ async def web_deep_search(query: str) -> WebDeepSearchResult:
         }
         for url, stats in sorted(
             url_stats.items(),
-            key=lambda x: (x[1]["high_score_tokens"],
-                           x[1]["medium_score_tokens"]),
+            key=lambda x: (x[1]["high_score_tokens"], x[1]["medium_score_tokens"]),
             reverse=True
         )
         if stats["high_score_tokens"] > 0 or stats["medium_score_tokens"] > 0
     ]
 
-    # Sort URLs by high_score_tokens, then medium_score_tokens (descending)
-    sorted_urls_list = sort_urls_by_high_and_medium_score_tokens(search_results)
-
-    # Sort all results by score
-    sorted_results = sort_search_results_by_url_and_category(
-        search_results, sorted_urls_list)
-    total_tokens = sum(result["metadata"].get("num_tokens", 0)
-                       for result in sorted_results)
-
-    # Filter search_results directly based on score, MTLD, and link-to-text ratio
-    current_tokens = 0
-    filtered_results = []
-    for result in sorted_results:
-        content = f"{result['header']}\n{result['content']}"
-        tokens = count_tokens(llm_model, content)
-        if current_tokens + tokens > max_tokens:
-            break
-        filtered_results.append(result)
-        current_tokens += tokens
-
-    # Compute filtered_urls based on filtered_results
-    filtered_url_stats = defaultdict(
-        lambda: {'high_score_tokens': 0, 'medium_score_tokens': 0, 'header_count': 0})
-    for result in filtered_results:
-        url = result['metadata']['source']
-        if result['score'] >= HIGH_QUALITY_SCORE:
-            filtered_url_stats[url]['high_score_tokens'] += result['metadata'].get(
-                'num_tokens', 0)
-            filtered_url_stats[url]['header_count'] += 1
-        elif result['score'] >= MEDIUM_QUALITY_SCORE:
-            filtered_url_stats[url]['medium_score_tokens'] += result['metadata'].get(
-                'num_tokens', 0)
-            filtered_url_stats[url]['header_count'] += 1
-
-    # Create filtered_urls list, sorted by high_score_tokens then medium_score_tokens
-    filtered_urls = [
-        {
-            'url': url,
-            'high_score_tokens': stats['high_score_tokens'],
-            'medium_score_tokens': stats['medium_score_tokens'],
-            'header_count': stats['header_count']
-        }
-        for url, stats in sorted(
-            filtered_url_stats.items(),
-            key=lambda x: (x[1]['high_score_tokens'],
-                           x[1]['medium_score_tokens']),
-            reverse=True
-        )
-    ]
-
-    context = group_results_by_source_for_llm_context(filtered_results)
-    prompt = PROMPT_TEMPLATE.format(query=query, context=context)
-    response_text = ""
-    for chunk in gen.stream_chat(
-        prompt,
-        llm_model,
-        temperature=0.7,
-        verbose=True
-    ):
-        content = chunk["choices"][0]["message"]["content"]
-        response_text += content
-
-    input_tokens = count_tokens(llm_model, prompt)
-    output_tokens = count_tokens(llm_model, response_text)
+    # Perform RAG pipeline
+    rag_results = await rag_search(query, search_results, llm_model, max_tokens)
 
     return {
         "query": query,
@@ -575,25 +589,21 @@ async def web_deep_search(query: str) -> WebDeepSearchResult:
         "high_score_urls": create_url_dict_list(all_urls_with_high_scores, search_results),
         "header_docs": header_docs,
         "search_results": search_results,
-        "sorted_search_results": sorted_results,
-        "filtered_results": filtered_results,
-        "filtered_urls": filtered_urls,
-        "context": context,
-        "response_text": response_text,
-        "token_info": {
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "total_tokens": input_tokens + output_tokens,
-        }
+        **rag_results
     }
 
-
-def web_deep_search_sync(query: str) -> WebDeepSearchResult:
+def web_deep_search_sync(
+    query: str,
+    embed_model: EmbedModelType = "all-MiniLM-L6-v2",
+    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit"
+) -> WebDeepSearchResult:
     """
     Synchronous version of web_deep_search that checks for a running event loop.
     
     Args:
-        query (str): The search query string.
+        query: The search query string.
+        embed_model: The embedding model to use.
+        llm_model: The LLM model to use.
     
     Returns:
         WebDeepSearchResult: Structured search results.
@@ -602,23 +612,20 @@ def web_deep_search_sync(query: str) -> WebDeepSearchResult:
         RuntimeError: If an event loop is already running and cannot be used.
     """
     try:
-        # Check if there's a running event loop
         loop = asyncio.get_event_loop()
         if loop.is_running():
             raise RuntimeError(
                 "Cannot run web_deep_search_sync in a running event loop. "
                 "Use web_deep_search instead or run in a new thread."
             )
-        # If no running loop, run the async function synchronously
-        return loop.run_until_complete(web_deep_search(query))
+        return loop.run_until_complete(web_deep_search(query, embed_model, llm_model))
     except RuntimeError as e:
         if "no running event loop" in str(e):
-            # Create a new event loop if none exists
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                result = loop.run_until_complete(web_deep_search(query))
+                result = loop.run_until_complete(web_deep_search(query, embed_model, llm_model))
                 return result
             finally:
                 loop.close()
-        raise  # Re-raise other RuntimeError exceptions
+        raise
