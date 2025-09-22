@@ -1,4 +1,9 @@
-from ollama import chat
+from ollama import ChatResponse, Client
+
+from jet.logger import logger
+from jet.transformers.formatters import format_json
+
+client = Client(host='http://localhost:11435')
 
 
 def heading(text):
@@ -13,7 +18,8 @@ messages = [
 # gpt-oss supports 'low', 'medium', 'high'
 levels = ['low', 'medium', 'high']
 for i, level in enumerate(levels):
-  response = chat('gpt-oss:20b', messages=messages, think=level)
+  # response = client.chat('gpt-oss:20b', messages=messages, think=level)
+  response: ChatResponse = client.chat('deepseek-r1:7b-qwen-distill-q4_K_M', messages=messages, think=level)
 
   heading(f'Thinking ({level})')
   print(response.message.thinking)
