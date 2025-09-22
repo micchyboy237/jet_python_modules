@@ -1,6 +1,8 @@
 # import nltk
-from nltk.tokenize import sent_tokenize
 import re
+import os
+import string
+from nltk.tokenize import sent_tokenize
 from unidecode import unidecode
 
 # nltk.download("punkt")
@@ -121,6 +123,16 @@ def format_sub_dir(text: str) -> str:
     return result.strip('_')
 
 
+def format_sub_source_dir(source: str) -> str:
+    """Format a source (URL or file path) into a directory name."""
+    clean_source = re.sub(r'^(https?://|www\.)|(\?.*)', '', source)
+    clean_source = clean_source.replace(os.sep, '_')
+    trans_table = str.maketrans({p: '_' for p in string.punctuation})
+    formatted = clean_source.translate(trans_table).lower()
+    formatted = re.sub(r'_+', '_', formatted)
+    return formatted.strip('_')
+
+
 __all__ = [
     "fix_and_unidecode",
     "has_non_ascii",
@@ -130,4 +142,5 @@ __all__ = [
     "extract_substrings",
     "remove_substring",
     "format_sub_dir",
+    "format_sub_source_dir",
 ]

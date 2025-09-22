@@ -43,20 +43,6 @@ TARGET_HIGH_SCORE_TOKENS = 4000
 TARGET_MEDIUM_SCORE_TOKENS = 10000
 
 
-def format_sub_dir(text: str) -> str:
-    return text.lower().strip('.,!?').replace(' ', '_').replace('.', '_').replace(',', '_').replace('!', '_').replace('?', '_').strip()
-
-
-def format_sub_source_dir(source: str) -> str:
-    """Format a source (URL or file path) into a directory name."""
-    clean_source = re.sub(r'^(https?://|www\.)|(\?.*)', '', source)
-    clean_source = clean_source.replace(os.sep, '_')
-    trans_table = str.maketrans({p: '_' for p in string.punctuation})
-    formatted = clean_source.translate(trans_table).lower()
-    formatted = re.sub(r'_+', '_', formatted)
-    return formatted.strip('_')
-
-
 def sort_urls_by_high_and_medium_score_tokens(results: List[HeaderSearchResult]) -> List[str]:
     # Group results by URL and calculate total medium_score_tokens per URL
     url_medium_score_tokens = defaultdict(int)
@@ -313,7 +299,7 @@ def create_url_dict_list(urls: List[str], search_results: List[HeaderSearchResul
     ]
 
 
-class UrlProcessingResult(TypedDict):
+class RagSearchResult(TypedDict):
     html_list: List[str]
     header_docs: List[HeaderDoc]
     search_results: List[HeaderSearchResult]
@@ -326,6 +312,7 @@ class UrlProcessingResult(TypedDict):
     all_searched_urls: List[str]
     all_urls_with_high_scores: List[str]
     all_urls_with_low_scores: List[str]
+    search_engine_results: List[Dict]
 
 class ContextData(TypedDict):
     sorted_search_results: List[HeaderSearchResult]
@@ -472,20 +459,22 @@ async def llm_generate(
     }
 
 async def rag_search(
-    urls: List[str],
     query: str,
     embed_model: EmbedModelType,
     top_k: Optional[int] = None,
     threshold: float = 0.0,
     chunk_size: int = 200,
     chunk_overlap: int = 50,
-    merge_chunks: bool = False
-) -> UrlProcessingResult:
+    merge_chunks: bool = False,
+    urls: Optional[List[str]] = None,
+    use_cache: bool = True,
+    urls_limit: int = 10
+) -> RagSearchResult:
     """
     Processes URLs by scraping, converting to markdown, deriving headers, and generating search results.
-    
+    If no URLs are provided, performs a search using the query to fetch URLs.
+
     Args:
-        urls: List of URLs to process.
         query: The search query string.
         embed_model: The embedding model to use.
         top_k: Number of top results to return (None for all).
@@ -493,9 +482,12 @@ async def rag_search(
         chunk_size: Size of chunks for processing.
         chunk_overlap: Overlap between chunks.
         merge_chunks: Whether to merge overlapping chunks.
-    
+        urls: Optional list of URLs to process. If None, fetches URLs using search_data.
+        use_cache: Whether to use cached search results.
+        urls_limit: Maximum number of URLs to process from search results.
+
     Returns:
-        UrlProcessingResult: Structured results from URL processing.
+        RagSearchResult: Structured results from URL processing.
     """
     html_list = []
     header_docs: List[HeaderDoc] = []
@@ -509,6 +501,12 @@ async def rag_search(
     all_searched_urls = []
     all_urls_with_high_scores = []
     all_urls_with_low_scores = []
+    search_engine_results: List[Dict] = []
+
+    # Fetch URLs if none provided
+    if urls is None:
+        search_engine_results = search_data(query, use_cache=use_cache)
+        urls = [r["url"] for r in search_engine_results][:urls_limit]
 
     async for url, status, html in scrape_urls(urls, show_progress=True):
         if status == "started":
@@ -609,42 +607,43 @@ async def rag_search(
         "all_completed_urls": all_completed_urls,
         "all_searched_urls": all_searched_urls,
         "all_urls_with_high_scores": all_urls_with_high_scores,
-        "all_urls_with_low_scores": all_urls_with_low_scores
+        "all_urls_with_low_scores": all_urls_with_low_scores,
+        "search_engine_results": search_engine_results
     }
 
 async def web_deep_search(
     query: str,
     embed_model: EmbedModelType = "all-MiniLM-L6-v2",
-    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit"
+    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit",
+    use_cache: bool = True,
+    urls_limit: int = 10
 ) -> WebDeepSearchResult:
     """Main function to perform web deep search and return structured results."""
     max_tokens = 2000
-    use_cache = True
-    urls_limit = 10
     top_k = None
     threshold = 0.0
     chunk_size = 200
     chunk_overlap = 50
     merge_chunks = False
 
-    search_engine_results = search_data(query, use_cache=use_cache)
-    urls = [r["url"] for r in search_engine_results][:urls_limit]
-
     # Process URLs
     url_results = await rag_search(
-        urls=urls,
         query=query,
         embed_model=embed_model,
         top_k=top_k,
         threshold=threshold,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        merge_chunks=merge_chunks
+        merge_chunks=merge_chunks,
+        urls=None,
+        use_cache=use_cache,
+        urls_limit=urls_limit
     )
 
     # Extract results from URL processing
     search_results = url_results["search_results"]
     header_docs = url_results["header_docs"]
+    search_engine_results = url_results["search_engine_results"]
 
     # Sort search_results by score then update rank
     search_results = sorted(search_results, key=lambda x: x["score"], reverse=True)
