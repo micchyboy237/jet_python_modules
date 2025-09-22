@@ -759,3 +759,5 @@ class OllamaFunctionCalling(FunctionCallingLLM):
             return await super().astream_structured_predict(
                 output_cls, prompt, llm_kwargs, **prompt_args
             )
+
+Ollama = OllamaFunctionCalling
