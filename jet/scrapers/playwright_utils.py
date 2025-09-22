@@ -47,10 +47,7 @@ async def scrape_url(
                 await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
                 if wait_for_js:
                     logger.debug(f"Waiting for JS content on {url}")
-                    try:
-                        await page.wait_for_selector(".dynamic-content", timeout=1000)
-                    except Exception:
-                        await page.wait_for_timeout(1000)  # Fallback to 1-second wait
+                    await page.wait_for_timeout(5000)  # Fallback to 5-second wait
                 html_content = await page.content()
                 screenshot = None
                 if with_screenshot:
