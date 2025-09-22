@@ -300,8 +300,14 @@ def create_url_dict_list(urls: List[str], search_results: List[HeaderSearchResul
     ]
 
 
+class RagUrlResult(TypedDict):
+    url: str
+    html: str
+    screenshot: Optional[str]
+
+
 class RagSearchResult(TypedDict):
-    html_list: List[str]
+    url_results: List[RagUrlResult]
     header_docs: List[HeaderDoc]
     search_results: List[HeaderSearchResult]
     headers_total_tokens: int
@@ -447,16 +453,16 @@ async def llm_generate(
     output_tokens = count_tokens(llm_model, response_text)
 
     return {
-        "sorted_search_results": context_data["sorted_search_results"],
-        "filtered_results": context_data["filtered_results"],
-        "filtered_urls": context_data["filtered_urls"],
         "context": context,
         "response_text": response_text,
         "token_info": {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
-        }
+        },
+        "sorted_search_results": context_data["sorted_search_results"],
+        "filtered_results": context_data["filtered_results"],
+        "filtered_urls": context_data["filtered_urls"],
     }
 
 async def rag_search(
@@ -491,6 +497,7 @@ async def rag_search(
         RagSearchResult: Structured results from URL processing.
     """
     html_list = []
+    screenshot_list = []
     header_docs: List[HeaderDoc] = []
     search_results: List[HeaderSearchResult] = []
     headers_total_tokens = 0
@@ -519,6 +526,7 @@ async def rag_search(
         elif status == "completed" and html:
             all_completed_urls.append(url)
             html_list.append(html)
+            screenshot_list.append(screenshot)
 
             links = set(scrape_links(html, url))
             links = [link for link in links if (
@@ -601,7 +609,6 @@ async def rag_search(
                 break
 
     return {
-        "html_list": html_list,
         "header_docs": header_docs,
         "search_results": search_results,
         "headers_total_tokens": headers_total_tokens,
@@ -613,7 +620,12 @@ async def rag_search(
         "all_searched_urls": all_searched_urls,
         "all_urls_with_high_scores": all_urls_with_high_scores,
         "all_urls_with_low_scores": all_urls_with_low_scores,
-        "search_engine_results": search_engine_results
+        "search_engine_results": search_engine_results,
+        "url_results": [{
+            "url": url,
+            "html": html,
+            "screenshot": screenshot,
+        } for url, html, screenshot in zip(urls, html_list, screenshot_list)],
     }
 
 async def web_deep_search(
@@ -689,13 +701,13 @@ async def web_deep_search(
 
     return {
         "query": query,
+        **llm_results,
         "search_engine_results": search_engine_results,
         "started_urls": url_results["all_started_urls"],
         "searched_urls": url_results["all_searched_urls"],
         "high_score_urls": create_url_dict_list(url_results["all_urls_with_high_scores"], search_results),
         "header_docs": header_docs,
         "search_results": search_results,
-        **llm_results
     }
 
 def web_deep_search_sync(
