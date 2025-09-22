@@ -298,43 +298,37 @@ def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite
     """
     Download README.md for a Hugging Face model using API, fallback to web scraping if necessary.
     Optionally extract code blocks from the downloaded README.
-
     Args:
         model_id (str | ModelValue): Full HF model repo ID or model name.
         output_dir (str | Path): Directory to save README.
         overwrite (bool): Force overwrite if file exists.
         extract_code (bool): Whether to extract code blocks from the README.
-
     Returns:
         bool: True if download is successful, False otherwise.
     """
     from jet.models.utils import resolve_model_key
     from jet.models.extract_hf_readme_code import extract_code_from_hf_readmes
-
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-
     try:
         model_key = resolve_model_key(model_id)
+        # Sanitize model_key to replace invalid characters for file/directory names
+        sanitized_model_key = model_key.replace("/", "_").replace("\\", "_")
     except ValueError as e:
         logger.warning(
             f"Could not resolve model key for model_name='{model_id}': {e}")
         return False
-
-    readme_path = output_dir / f"{model_key}_README.md"
-
+    readme_path = output_dir / f"{sanitized_model_key}_README.md"
     if readme_path.exists() and not overwrite:
-        print(f"README for {model_key} already exists, skipping...")
+        print(f"README for {sanitized_model_key} already exists, skipping...")
         if extract_code:
             code_output_dir = output_dir / "code"
             extract_code_from_hf_readmes(
                 str(output_dir), str(code_output_dir), model_id, include_text=True)
         return True
-
-    # Use temporary directory with model_key as suffix
     try:
-        with tempfile.TemporaryDirectory(prefix=f"tmp_{model_key}_") as tmp_dir:
+        with tempfile.TemporaryDirectory(prefix=f"tmp_{sanitized_model_key}_") as tmp_dir:
             tmp_path = Path(tmp_dir)
             hf_hub_download(
                 repo_id=model_id,
@@ -346,23 +340,21 @@ def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite
             if downloaded_file.exists():
                 downloaded_file.rename(readme_path)
                 logger.success(
-                    f"Downloaded README for {model_key} via API: {str(readme_path)}")
+                    f"Downloaded README for {sanitized_model_key} via API: {str(readme_path)}")
                 if extract_code:
                     code_output_dir = output_dir / "code"
                     extract_code_from_hf_readmes(
                         str(output_dir), str(code_output_dir), model_id, include_text=True)
                 return True
     except Exception as e:
-        logger.error(f"API failed for {model_key}: {e}")
-
-    # Fallback to web scraping
+        logger.error(f"API failed for {sanitized_model_key}: {e}")
     try:
         url = f"https://huggingface.co/{model_id}/raw/main/README.md"
         response = requests.get(url)
         if response.status_code == 200:
             with open(readme_path, "w", encoding="utf-8") as f:
                 f.write(response.text)
-            print(f"Downloaded README for {model_key} via web")
+            print(f"Downloaded README for {sanitized_model_key} via web")
             if extract_code:
                 code_output_dir = output_dir / "code"
                 extract_code_from_hf_readmes(
@@ -370,10 +362,9 @@ def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite
             return True
         else:
             print(
-                f"Web scraping failed for {model_key}: HTTP {response.status_code}")
+                f"Web scraping failed for {sanitized_model_key}: HTTP {response.status_code}")
     except Exception as e:
-        print(f"Web scraping failed for {model_key}: {e}")
-
+        print(f"Web scraping failed for {sanitized_model_key}: {e}")
     return False
 
 

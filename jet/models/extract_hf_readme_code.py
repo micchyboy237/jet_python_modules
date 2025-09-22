@@ -140,7 +140,8 @@ def extract_code_from_hf_readmes(
 
     # Construct the expected README filename for the model
     model_key = resolve_model_key(model_id)
-    md_file = input_path / f"{model_key}_README.md"
+    sanitized_model_key = model_key.replace("/", "_").replace("\\", "_")
+    md_file = input_path / f"{sanitized_model_key}_README.md"
 
     if not md_file.exists():
         logger.error(f"README file not found for {model_id}: {md_file}")
@@ -163,6 +164,9 @@ def extract_code_from_hf_readmes(
 
     for block in code_blocks:
         lang = block["language"].lower()
+        if lang == "text":
+            continue
+
         ext = block["extension"] or ".txt"
         code = block["code"]
         file_path = block["file_path"]

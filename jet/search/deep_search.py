@@ -318,6 +318,7 @@ class RagSearchResult(TypedDict):
     all_completed_urls: List[str]
     all_searched_urls: List[str]
     all_urls_with_high_scores: List[str]
+    all_urls_with_medium_scores: List[str]
     all_urls_with_low_scores: List[str]
     search_engine_results: List[Dict]
 
@@ -342,6 +343,7 @@ class WebDeepSearchResult(TypedDict):
     started_urls: List[str]
     searched_urls: List[str]
     high_score_urls: List[Dict]
+    medium_score_urls: List[Dict]
     header_docs: List[HeaderDoc]
     search_results: List[HeaderSearchResult]
     sorted_search_results: List[HeaderSearchResult]
@@ -351,6 +353,9 @@ class WebDeepSearchResult(TypedDict):
     context: str
     response: str
     token_info: Dict[str, int]
+    all_completed_urls: List[str]
+    all_urls_with_high_scores: List[str]
+    all_urls_with_medium_scores: List[str]
 
 def prepare_context(
     query: str,
@@ -480,25 +485,6 @@ def rag_search(
     use_cache: bool = True,
     urls_limit: int = 10
 ) -> RagSearchResult:
-    """
-    Processes URLs by scraping, converting to markdown, deriving headers, and generating search results.
-    If no URLs are provided, performs a search using the query to fetch URLs.
-
-    Args:
-        query: The search query string.
-        embed_model: The embedding model to use.
-        top_k: Number of top results to return (None for all).
-        threshold: Minimum score threshold for results.
-        chunk_size: Size of chunks for processing.
-        chunk_overlap: Overlap between chunks.
-        merge_chunks: Whether to merge overlapping chunks.
-        urls: Optional list of URLs to process. If None, fetches URLs using search_data.
-        use_cache: Whether to use cached search results.
-        urls_limit: Maximum number of URLs to process from search results.
-
-    Returns:
-        RagSearchResult: Structured results from URL processing.
-    """
     html_list = []
     screenshot_list = []
     header_docs: List[HeaderDoc] = []
@@ -511,6 +497,7 @@ def rag_search(
     all_completed_urls = []
     all_searched_urls = []
     all_urls_with_high_scores = []
+    all_urls_with_medium_scores = []
     all_urls_with_low_scores = []
     search_engine_results: List[Dict] = []
 
@@ -596,6 +583,8 @@ def rag_search(
             search_results.extend(filtered_sub_results)
             if sub_high_score_tokens > 0:
                 all_urls_with_high_scores.append(url)
+            elif sub_medium_score_tokens > 0:
+                all_urls_with_medium_scores.append(url)
             else:
                 all_urls_with_low_scores.append(url)
 
@@ -622,6 +611,7 @@ def rag_search(
         "all_completed_urls": all_completed_urls,
         "all_searched_urls": all_searched_urls,
         "all_urls_with_high_scores": all_urls_with_high_scores,
+        "all_urls_with_medium_scores": all_urls_with_medium_scores,
         "all_urls_with_low_scores": all_urls_with_low_scores,
         "search_engine_results": search_engine_results,
         "url_results": [{
@@ -648,19 +638,23 @@ def web_deep_search(
 
     partial_result: WebDeepSearchResult = {
         "query": query,
+        "template": "",
+        "context": "",
+        "response": "",
+        "token_info": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "filtered_urls": [],
+        "all_completed_urls": [],
+        "all_urls_with_high_scores": [],
+        "all_urls_with_medium_scores": [],
         "search_engine_results": [],
         "started_urls": [],
         "searched_urls": [],
         "high_score_urls": [],
+        "medium_score_urls": [],
         "header_docs": [],
         "search_results": [],
         "sorted_search_results": [],
         "filtered_results": [],
-        "filtered_urls": [],
-        "template": "",
-        "context": "",
-        "response": "",
-        "token_info": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     }
 
     try:
@@ -677,12 +671,18 @@ def web_deep_search(
             urls_limit=urls_limit
         )
         partial_result.update({
+            "all_completed_urls": url_results["all_completed_urls"],
+            "all_urls_with_high_scores": url_results["all_urls_with_high_scores"],
+            "all_urls_with_medium_scores": url_results["all_urls_with_medium_scores"],
             "search_engine_results": url_results["search_engine_results"],
             "started_urls": url_results["all_started_urls"],
             "searched_urls": url_results["all_searched_urls"],
             "header_docs": url_results["header_docs"],
             "search_results": url_results["search_results"],
-            "high_score_urls": create_url_dict_list(url_results["all_urls_with_high_scores"], url_results["search_results"])
+            "high_score_urls": create_url_dict_list(url_results["all_urls_with_high_scores"], url_results["search_results"]),
+            "medium_score_urls": create_url_dict_list(url_results["all_urls_with_medium_scores"], url_results["search_results"]),
+            "all_urls_with_medium_scores": url_results["all_urls_with_medium_scores"],
+            "url_results": url_results["url_results"],
         })
 
         search_results = url_results["search_results"]
@@ -718,4 +718,3 @@ def web_deep_search(
         logger.error(f"Unexpected error in web_deep_search: {str(e)}")
         partial_result["response"] = f"Error: {str(e)}"
         return partial_result
-

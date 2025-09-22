@@ -1,6 +1,4 @@
-from ollama import Client, ChatResponse
-
-client = Client(host='http://localhost:11435')
+from ollama import ChatResponse, chat
 
 
 def add_two_numbers(a: int, b: int) -> int:
@@ -54,7 +52,7 @@ available_functions = {
     'subtract_two_numbers': subtract_two_numbers,
 }
 
-response: ChatResponse = client.chat(
+response: ChatResponse = chat(
     'llama3.2',
     messages=messages,
     tools=[add_two_numbers, subtract_two_numbers_tool],
@@ -80,7 +78,7 @@ if response.message.tool_calls:
         output), 'tool_name': tool.function.name})
 
     # Get final response from model with function outputs
-    final_response = client.chat('llama3.2', messages=messages)
+    final_response = chat('llama3.2', messages=messages)
     print('Final response:', final_response.message.content)
 
 else:
