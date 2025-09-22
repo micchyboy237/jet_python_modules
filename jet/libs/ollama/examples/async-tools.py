@@ -52,7 +52,7 @@ available_functions = {
 
 
 async def main():
-    client = ollama.AsyncClient()
+    client = ollama.AsyncClient(host='http://localhost:11435')
 
     response: ChatResponse = await client.chat(
         'llama3.2',
