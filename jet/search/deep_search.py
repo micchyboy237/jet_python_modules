@@ -20,8 +20,8 @@ from jet.llm.mlx.remote import generation as gen
 from jet.models.model_types import EmbedModelType, LLMModelType
 from jet.models.utils import resolve_model_value
 from jet.models.tokenizer.base import get_tokenizer_fn, count_tokens
-# from jet.scrapers.hrequests_utils import scrape_urls
-from jet.scrapers.playwright_utils import scrape_urls
+# from jet.scrapers.hrequests_utils import scrape_urls_sync
+from jet.scrapers.playwright_utils import scrape_urls_sync
 from jet.scrapers.utils import scrape_links, search_data
 from jet.vectors.semantic_search.header_vector_search import search_headers
 from jet.wordnet.analyzers.text_analysis import calculate_mtld, calculate_mtld_category
@@ -423,7 +423,7 @@ def prepare_context(
         "context": context
     }
 
-async def llm_generate(
+def llm_generate(
     query: str,
     context_data: ContextData,
     llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit"
@@ -468,7 +468,7 @@ async def llm_generate(
         "filtered_urls": context_data["filtered_urls"],
     }
 
-async def rag_search(
+def rag_search(
     query: str,
     embed_model: EmbedModelType,
     top_k: Optional[int] = None,
@@ -519,7 +519,7 @@ async def rag_search(
         search_engine_results = search_data(query, use_cache=use_cache)
         urls = [r["url"] for r in search_engine_results][:urls_limit]
 
-    async for url_result in scrape_urls(urls, show_progress=True, use_cache=use_cache):
+    for url_result in scrape_urls_sync(urls, show_progress=True, use_cache=use_cache):
         url = url_result["url"]
         status = url_result["status"]
         html = url_result["html"]
@@ -631,20 +631,21 @@ async def rag_search(
         } for url, html, screenshot in zip(urls, html_list, screenshot_list)],
     }
 
-async def web_deep_search(
+def web_deep_search(
     query: str,
     embed_model: EmbedModelType = "all-MiniLM-L6-v2",
     llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit",
     use_cache: bool = True,
-    urls_limit: int = 10
+    urls_limit: int = 10,
+    max_tokens: int = 2000,
+    top_k: int = None,
+    threshold: float = 0.0,
+    chunk_size: int = 200,
+    chunk_overlap: int = 50,
+    merge_chunks: bool = False,
 ) -> WebDeepSearchResult:
     """Main function to perform web deep search and return structured results."""
-    max_tokens = 2000
-    top_k = None
-    threshold = 0.0
-    chunk_size = 200
-    chunk_overlap = 50
-    merge_chunks = False
+
     partial_result: WebDeepSearchResult = {
         "query": query,
         "search_engine_results": [],
@@ -663,7 +664,7 @@ async def web_deep_search(
     }
 
     try:
-        url_results = await rag_search(
+        url_results = rag_search(
             query=query,
             embed_model=embed_model,
             top_k=top_k,
@@ -697,7 +698,7 @@ async def web_deep_search(
             "context": context_data["context"]
         })
 
-        llm_results = await llm_generate(query, context_data, llm_model)
+        llm_results = llm_generate(query, context_data, llm_model)
         partial_result.update({
             "template": llm_results["template"],
             "context": llm_results["context"],
@@ -718,40 +719,3 @@ async def web_deep_search(
         partial_result["response"] = f"Error: {str(e)}"
         return partial_result
 
-def web_deep_search_sync(
-    query: str,
-    embed_model: EmbedModelType = "all-MiniLM-L6-v2",
-    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit"
-) -> WebDeepSearchResult:
-    """
-    Synchronous version of web_deep_search that checks for a running event loop.
-    
-    Args:
-        query: The search query string.
-        embed_model: The embedding model to use.
-        llm_model: The LLM model to use.
-    
-    Returns:
-        WebDeepSearchResult: Structured search results.
-    
-    Raises:
-        RuntimeError: If an event loop is already running and cannot be used.
-    """
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            raise RuntimeError(
-                "Cannot run web_deep_search_sync in a running event loop. "
-                "Use web_deep_search instead or run in a new thread."
-            )
-        return loop.run_until_complete(web_deep_search(query, embed_model, llm_model))
-    except RuntimeError as e:
-        if "no running event loop" in str(e):
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(web_deep_search(query, embed_model, llm_model))
-                return result
-            finally:
-                loop.close()
-        raise

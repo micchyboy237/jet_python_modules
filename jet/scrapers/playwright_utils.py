@@ -136,7 +136,6 @@ async def scrape_urls(
                     pbar.update(1)
                 results.append({"url": url, "status": "failed_error", "html": None, "screenshot": None})
         return results
-
     async with async_playwright() as p:
         ua = UserAgent()
         browser = None
@@ -144,12 +143,29 @@ async def scrape_urls(
         try:
             browser = await p.chromium.launch(headless=headless)
             context = await browser.new_context(user_agent=ua.random)
-            coroutines = [sem_fetch_and_yield(url, context, None) for url in urls]
+            # Create tasks directly, handling progress bar if enabled
             if show_progress:
                 with tqdm_asyncio(total=len(urls), desc=f"Scraping URLs ({min(num_parallel, len(urls))} active)", file=sys.stdout, mininterval=0.1) as pbar:
-                    coroutines = [sem_fetch_and_yield(url, context, pbar) for url in urls]
-            tasks = [asyncio.create_task(coro) for coro in coroutines]
-            try:
+                    tasks = [asyncio.create_task(sem_fetch_and_yield(url, context, pbar)) for url in urls]
+                    for task in asyncio.as_completed(tasks):
+                        try:
+                            result = await task
+                            for item in result:
+                                yield item
+                                if item["status"] == "completed":
+                                    completed_count += 1
+                                    if limit and completed_count >= limit:
+                                        logger.info(f"Reached limit of {limit} completed URLs.")
+                                        for t in tasks:
+                                            if not t.done():
+                                                t.cancel()
+                                        await asyncio.gather(*tasks, return_exceptions=True)
+                                        return
+                        except asyncio.CancelledError:
+                            logger.info("Task processing was cancelled")
+                            raise
+            else:
+                tasks = [asyncio.create_task(sem_fetch_and_yield(url, context, None)) for url in urls]
                 for task in asyncio.as_completed(tasks):
                     try:
                         result = await task
@@ -167,13 +183,18 @@ async def scrape_urls(
                     except asyncio.CancelledError:
                         logger.info("Task processing was cancelled")
                         raise
-            except asyncio.CancelledError:
-                logger.info("Cancelling all tasks due to interruption")
-                for t in tasks:
-                    if not t.done():
-                        t.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                raise
+            # Ensure all tasks are completed or cancelled
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            logger.info("Cancelling all tasks due to interruption")
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
         finally:
             if context:
                 try:
@@ -185,13 +206,6 @@ async def scrape_urls(
                     await asyncio.wait_for(browser.close(), timeout=5.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError) as e:
                     logger.debug(f"Failed to close browser: {str(e)}")
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            try:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            except asyncio.CancelledError:
-                logger.debug("All tasks cancelled and cleaned up")
 
 def scrape_urls_sync(
     urls: List[str],
