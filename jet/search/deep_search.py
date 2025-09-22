@@ -4,7 +4,7 @@ import string
 import numpy as np
 
 from collections import defaultdict
-from typing import DefaultDict, List, Set, TypedDict, Dict
+from typing import DefaultDict, List, Set, TypedDict, Dict, Optional
 from jet.code.html_utils import preprocess_html
 from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, HeaderSearchResult
 from jet.code.markdown_utils._converters import convert_html_to_markdown
@@ -313,8 +313,26 @@ def create_url_dict_list(urls: List[str], search_results: List[HeaderSearchResul
     ]
 
 
-class RagSearchResult(TypedDict):
-    sorted_search_results: List[HeaderSearchResult]
+from typing import TypedDict, List, Dict, Optional
+from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, HeaderSearchResult
+from jet.models.model_types import EmbedModelType, LLMModelType
+from collections import defaultdict
+
+class UrlProcessingResult(TypedDict):
+    html_list: List[str]
+    header_docs: List[HeaderDoc]
+    search_results: List[HeaderSearchResult]
+    headers_total_tokens: int
+    headers_high_score_tokens: int
+    headers_medium_score_tokens: int
+    headers_mtld_score_average: float
+    all_started_urls: List[str]
+    all_completed_urls: List[str]
+    all_searched_urls: List[str]
+    all_urls_with_high_scores: List[str]
+    all_urls_with_low_scores: List[str]
+
+class LLMGenerateResult(TypedDict):
     filtered_results: List[HeaderSearchResult]
     filtered_urls: List[Dict]
     context: str
@@ -336,30 +354,29 @@ class WebDeepSearchResult(TypedDict):
     response_text: str
     token_info: Dict[str, int]
 
-async def rag_search(
+def prepare_context(
     query: str,
     search_results: List[HeaderSearchResult],
-    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit",
-    max_tokens: int = 2000
-) -> RagSearchResult:
+    llm_model: LLMModelType,
+    max_tokens: int
+) -> Dict:
     """
-    Performs RAG pipeline: sorts, filters, and generates context and LLM response.
+    Prepares context by sorting and filtering search results and generating context string.
     
     Args:
         query: The search query string.
         search_results: List of search results to process.
-        llm_model: The LLM model to use for generation.
+        llm_model: The LLM model to use for token counting.
         max_tokens: Maximum tokens for filtered results.
     
     Returns:
-        RagSearchResult: Structured RAG results.
+        Dict containing sorted_search_results, filtered_results, filtered_urls, and context.
     """
     # Sort URLs by high_score_tokens, then medium_score_tokens
     sorted_urls_list = sort_urls_by_high_and_medium_score_tokens(search_results)
 
     # Sort all results by score
     sorted_results = sort_search_results_by_url_and_category(search_results, sorted_urls_list)
-    total_tokens = sum(result["metadata"].get("num_tokens", 0) for result in sorted_results)
 
     # Filter search_results based on score, MTLD, and link-to-text ratio
     current_tokens = 0
@@ -400,6 +417,35 @@ async def rag_search(
     ]
 
     context = group_results_by_source_for_llm_context(filtered_results)
+
+    return {
+        "sorted_search_results": sorted_results,
+        "filtered_results": filtered_results,
+        "filtered_urls": filtered_urls,
+        "context": context
+    }
+
+async def llm_generate(
+    query: str,
+    search_results: List[HeaderSearchResult],
+    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit",
+    max_tokens: int = 2000
+) -> LLMGenerateResult:
+    """
+    Generates LLM response using prepared context from search results.
+    
+    Args:
+        query: The search query string.
+        search_results: List of search results to process.
+        llm_model: The LLM model to use for generation.
+        max_tokens: Maximum tokens for filtered results.
+    
+    Returns:
+        LLMGenerateResult: Structured LLM generation results.
+    """
+    context_data = prepare_context(query, search_results, llm_model, max_tokens)
+    context = context_data["context"]
+
     prompt = PROMPT_TEMPLATE.format(query=query, context=context)
     response_text = ""
     for chunk in gen.stream_chat(
@@ -415,9 +461,8 @@ async def rag_search(
     output_tokens = count_tokens(llm_model, response_text)
 
     return {
-        "sorted_search_results": sorted_results,
-        "filtered_results": filtered_results,
-        "filtered_urls": filtered_urls,
+        "filtered_results": context_data["filtered_results"],
+        "filtered_urls": context_data["filtered_urls"],
         "context": context,
         "response_text": response_text,
         "token_info": {
@@ -427,24 +472,32 @@ async def rag_search(
         }
     }
 
-async def web_deep_search(
+async def rag_search(
+    urls: List[str],
     query: str,
-    embed_model: EmbedModelType = "all-MiniLM-L6-v2",
-    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit"
-) -> WebDeepSearchResult:
-    """Main function to perform web deep search and return structured results."""
-    max_tokens = 2000
-    use_cache = True
-    urls_limit = 10
-    top_k = None
-    threshold = 0.0
-    chunk_size = 200
-    chunk_overlap = 50
-    merge_chunks = False
-
-    search_engine_results = search_data(query, use_cache=use_cache)
-    urls = [r["url"] for r in search_engine_results][:urls_limit]
-
+    embed_model: EmbedModelType,
+    top_k: Optional[int] = None,
+    threshold: float = 0.0,
+    chunk_size: int = 200,
+    chunk_overlap: int = 50,
+    merge_chunks: bool = False
+) -> UrlProcessingResult:
+    """
+    Processes URLs by scraping, converting to markdown, deriving headers, and generating search results.
+    
+    Args:
+        urls: List of URLs to process.
+        query: The search query string.
+        embed_model: The embedding model to use.
+        top_k: Number of top results to return (None for all).
+        threshold: Minimum score threshold for results.
+        chunk_size: Size of chunks for processing.
+        chunk_overlap: Overlap between chunks.
+        merge_chunks: Whether to merge overlapping chunks.
+    
+    Returns:
+        UrlProcessingResult: Structured results from URL processing.
+    """
     html_list = []
     header_docs: List[HeaderDoc] = []
     search_results: List[HeaderSearchResult] = []
@@ -545,6 +598,55 @@ async def web_deep_search(
                     f"and {headers_medium_score_tokens} medium-score tokens collected from source: {url}.")
                 break
 
+    return {
+        "html_list": html_list,
+        "header_docs": header_docs,
+        "search_results": search_results,
+        "headers_total_tokens": headers_total_tokens,
+        "headers_high_score_tokens": headers_high_score_tokens,
+        "headers_medium_score_tokens": headers_medium_score_tokens,
+        "headers_mtld_score_average": headers_mtld_score_average,
+        "all_started_urls": all_started_urls,
+        "all_completed_urls": all_completed_urls,
+        "all_searched_urls": all_searched_urls,
+        "all_urls_with_high_scores": all_urls_with_high_scores,
+        "all_urls_with_low_scores": all_urls_with_low_scores
+    }
+
+async def web_deep_search(
+    query: str,
+    embed_model: EmbedModelType = "all-MiniLM-L6-v2",
+    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit"
+) -> WebDeepSearchResult:
+    """Main function to perform web deep search and return structured results."""
+    max_tokens = 2000
+    use_cache = True
+    urls_limit = 10
+    top_k = None
+    threshold = 0.0
+    chunk_size = 200
+    chunk_overlap = 50
+    merge_chunks = False
+
+    search_engine_results = search_data(query, use_cache=use_cache)
+    urls = [r["url"] for r in search_engine_results][:urls_limit]
+
+    # Process URLs
+    url_results = await rag_search(
+        urls=urls,
+        query=query,
+        embed_model=embed_model,
+        top_k=top_k,
+        threshold=threshold,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        merge_chunks=merge_chunks
+    )
+
+    # Extract results from URL processing
+    search_results = url_results["search_results"]
+    header_docs = url_results["header_docs"]
+
     # Sort search_results by score then update rank
     search_results = sorted(search_results, key=lambda x: x["score"], reverse=True)
     for i, result in enumerate(search_results, 1):
@@ -578,18 +680,19 @@ async def web_deep_search(
         if stats["high_score_tokens"] > 0 or stats["medium_score_tokens"] > 0
     ]
 
-    # Perform RAG pipeline
-    rag_results = await rag_search(query, search_results, llm_model, max_tokens)
+    # Perform LLM generation
+    llm_results = await llm_generate(query, search_results, llm_model, max_tokens)
 
     return {
         "query": query,
         "search_engine_results": search_engine_results,
-        "started_urls": all_started_urls,
-        "searched_urls": all_searched_urls,
-        "high_score_urls": create_url_dict_list(all_urls_with_high_scores, search_results),
+        "started_urls": url_results["all_started_urls"],
+        "searched_urls": url_results["all_searched_urls"],
+        "high_score_urls": create_url_dict_list(url_results["all_urls_with_high_scores"], search_results),
         "header_docs": header_docs,
         "search_results": search_results,
-        **rag_results
+        "sorted_search_results": llm_results["filtered_results"],  # Note: filtered_results used as sorted_search_results
+        **llm_results
     }
 
 def web_deep_search_sync(
