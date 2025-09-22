@@ -14,10 +14,11 @@ messages = [
 client = Client(
     # Ollama Turbo
     # host="https://ollama.com", headers={'Authorization': (os.getenv('OLLAMA_API_KEY'))}
+    host='http://localhost:11435'
 )
 
 response_stream: Iterator[ChatResponse] = client.chat(
-    model='deepseek-r1', messages=messages, think=True, stream=True)
+    model='granite3.3:2b', messages=messages, think=True, stream=True)
 tool_calls = []
 thinking = ''
 content = ''
