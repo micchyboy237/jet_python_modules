@@ -47,7 +47,7 @@ messages = [{'role': 'user', 'content': f'What is the temperature in {city}? and
 print('----- Prompt:', messages[0]['content'], '\n')
 
 model = 'qwen3'
-client = Client()
+client = Client(host='http://localhost:11435')
 response: Iterator[ChatResponse] = client.chat(model, stream=True, messages=messages, tools=[get_temperature, get_conditions], think=True)
 
 for chunk in response:
