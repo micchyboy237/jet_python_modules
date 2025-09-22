@@ -313,11 +313,6 @@ def create_url_dict_list(urls: List[str], search_results: List[HeaderSearchResul
     ]
 
 
-from typing import TypedDict, List, Dict, Optional
-from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, HeaderSearchResult
-from jet.models.model_types import EmbedModelType, LLMModelType
-from collections import defaultdict
-
 class UrlProcessingResult(TypedDict):
     html_list: List[str]
     header_docs: List[HeaderDoc]
@@ -332,7 +327,14 @@ class UrlProcessingResult(TypedDict):
     all_urls_with_high_scores: List[str]
     all_urls_with_low_scores: List[str]
 
+class ContextData(TypedDict):
+    sorted_search_results: List[HeaderSearchResult]
+    filtered_results: List[HeaderSearchResult]
+    filtered_urls: List[Dict]
+    context: str
+
 class LLMGenerateResult(TypedDict):
+    sorted_search_results: List[HeaderSearchResult]
     filtered_results: List[HeaderSearchResult]
     filtered_urls: List[Dict]
     context: str
@@ -359,7 +361,7 @@ def prepare_context(
     search_results: List[HeaderSearchResult],
     llm_model: LLMModelType,
     max_tokens: int
-) -> Dict:
+) -> ContextData:
     """
     Prepares context by sorting and filtering search results and generating context string.
     
@@ -370,7 +372,7 @@ def prepare_context(
         max_tokens: Maximum tokens for filtered results.
     
     Returns:
-        Dict containing sorted_search_results, filtered_results, filtered_urls, and context.
+        ContextData: Structured context data with sorted results, filtered results, URLs, and context.
     """
     # Sort URLs by high_score_tokens, then medium_score_tokens
     sorted_urls_list = sort_urls_by_high_and_medium_score_tokens(search_results)
@@ -427,25 +429,21 @@ def prepare_context(
 
 async def llm_generate(
     query: str,
-    search_results: List[HeaderSearchResult],
-    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit",
-    max_tokens: int = 2000
+    context_data: ContextData,
+    llm_model: LLMModelType = "llama-3.2-3b-instruct-4bit"
 ) -> LLMGenerateResult:
     """
-    Generates LLM response using prepared context from search results.
+    Generates LLM response using prepared context data.
     
     Args:
         query: The search query string.
-        search_results: List of search results to process.
+        context_data: Structured context data from prepare_context.
         llm_model: The LLM model to use for generation.
-        max_tokens: Maximum tokens for filtered results.
     
     Returns:
         LLMGenerateResult: Structured LLM generation results.
     """
-    context_data = prepare_context(query, search_results, llm_model, max_tokens)
     context = context_data["context"]
-
     prompt = PROMPT_TEMPLATE.format(query=query, context=context)
     response_text = ""
     for chunk in gen.stream_chat(
@@ -461,6 +459,7 @@ async def llm_generate(
     output_tokens = count_tokens(llm_model, response_text)
 
     return {
+        "sorted_search_results": context_data["sorted_search_results"],
         "filtered_results": context_data["filtered_results"],
         "filtered_urls": context_data["filtered_urls"],
         "context": context,
@@ -680,8 +679,9 @@ async def web_deep_search(
         if stats["high_score_tokens"] > 0 or stats["medium_score_tokens"] > 0
     ]
 
-    # Perform LLM generation
-    llm_results = await llm_generate(query, search_results, llm_model, max_tokens)
+    # Prepare context and perform LLM generation
+    context_data = prepare_context(query, search_results, llm_model, max_tokens)
+    llm_results = await llm_generate(query, context_data, llm_model)
 
     return {
         "query": query,
@@ -691,7 +691,6 @@ async def web_deep_search(
         "high_score_urls": create_url_dict_list(url_results["all_urls_with_high_scores"], search_results),
         "header_docs": header_docs,
         "search_results": search_results,
-        "sorted_search_results": llm_results["filtered_results"],  # Note: filtered_results used as sorted_search_results
         **llm_results
     }
 
