@@ -1,5 +1,8 @@
 from ollama import chat, Client
 
+from jet.logger import logger
+from jet.transformers.formatters import format_json
+
 # Initialize the client with the new host
 client = Client(host='http://localhost:11435')
 
@@ -27,3 +30,6 @@ response = client.chat(
 )
 
 print(response['message']['content'])
+
+logger.gray("Result:")
+logger.success(format_json(response))
