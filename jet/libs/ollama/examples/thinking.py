@@ -3,6 +3,7 @@ from ollama import Client
 from ollama._types import ChatResponse
 
 from jet.logger import logger
+from jet.transformers.formatters import format_json
 
 messages = [
     {
@@ -18,7 +19,7 @@ client = Client(
 )
 
 response_stream: Iterator[ChatResponse] = client.chat(
-    model='qwen3:4b-q4_K_M', messages=messages, think=True, stream=True)
+    model='deepseek-r1:7b-qwen-distill-q4_K_M', messages=messages, think=True, stream=True)
 tool_calls = []
 thinking = ''
 content = ''
@@ -29,6 +30,7 @@ for chunk in response_stream:
         tool_calls.extend(chunk.message.tool_calls)
 
     if chunk.message.content:
+        content += chunk.message.content
         if not (chunk.message.thinking or chunk.message.thinking == '') and final:
             print('\n\n' + '=' * 10)
             print('Final result: ')
@@ -36,10 +38,12 @@ for chunk in response_stream:
         logger.success(chunk.message.content, flush=True)
 
     if chunk.message.thinking:
+        if not thinking:
+            print('\n\n' + '=' * 10)
+            print('Thinking: ')
         # accumulate thinking
         thinking += chunk.message.thinking
         logger.debug(chunk.message.thinking, flush=True)
 
-
-logger.debug('Thinking:\n========\n\n' + thinking)
-logger.success('\nResponse:\n========\n\n' + content)
+logger.gray("\n\nOutput Info:")
+logger.success(format_json(chunk))
