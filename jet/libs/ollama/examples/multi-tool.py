@@ -46,7 +46,7 @@ city2 = random.choice(cities)
 messages = [{'role': 'user', 'content': f'What is the temperature in {city}? and what are the weather conditions in {city2}?'}]
 print('----- Prompt:', messages[0]['content'], '\n')
 
-model = 'qwen3'
+model = 'qwen3:4b-q4_K_M'
 client = Client(host='http://localhost:11435')
 response: Iterator[ChatResponse] = client.chat(model, stream=True, messages=messages, tools=[get_temperature, get_conditions], think=True)
 
