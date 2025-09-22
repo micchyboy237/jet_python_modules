@@ -13,10 +13,10 @@ from jet.code.markdown_utils._markdown_parser import base_parse_markdown, derive
 from jet.code.markdown_utils._preprocessors import clean_markdown_links, link_to_text_ratio
 from jet.logger import logger
 from jet.logger.config import colorize_log
-from jet.models.embeddings.base import generate_embeddings
+# from jet.models.embeddings.base import generate_embeddings
 # from jet.models.model_registry.transformers.mlx_model_registry import MLXModelRegistry
 from jet.llm.mlx.remote import generation as gen
-from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
+# from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType, LLMModelType
 from jet.models.utils import resolve_model_value
 from jet.models.tokenizer.base import get_tokenizer_fn, count_tokens
