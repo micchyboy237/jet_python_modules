@@ -18,7 +18,7 @@ client = Client(
 )
 
 response_stream: Iterator[ChatResponse] = client.chat(
-    model='granite3.3:2b', messages=messages, think=True, stream=True)
+    model='qwen3:4b-q4_K_M', messages=messages, think=True, stream=True)
 tool_calls = []
 thinking = ''
 content = ''
