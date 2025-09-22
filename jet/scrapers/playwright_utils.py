@@ -25,7 +25,7 @@ cache = RedisCache(config=REDIS_CONFIG)
 async def scrape_url(
     context: BrowserContext,
     url: str,
-    timeout: Optional[float] = 5000,
+    timeout: Optional[float] = 10000,
     max_retries: int = 2,
     with_screenshot: bool = True,
     wait_for_js: bool = False,
@@ -46,15 +46,16 @@ async def scrape_url(
                 return {"url": url, "status": "completed", "html": cached_content['content'], "screenshot": screenshot}
 
     attempt = 0
-    while attempt <= max_retries:
-        try:
-            page = await context.new_page()
+    page = None
+    try:
+        while attempt <= max_retries:
             try:
+                page = await context.new_page()
                 logger.debug(f"Navigating to {url}, attempt {attempt + 1}")
                 await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
                 if wait_for_js:
                     logger.debug(f"Waiting for JS content on {url}")
-                    await page.wait_for_timeout(5000)  # Fallback to 5-second wait
+                    await page.wait_for_timeout(5000)
                 html_content = await page.content()
                 screenshot = None
                 if with_screenshot:
@@ -67,25 +68,45 @@ async def scrape_url(
                     cache.set(cache_key, cache_data, ttl=3600)
                     logger.debug(f"Cached content for {url}")
                 return {"url": url, "status": "completed", "html": html_content, "screenshot": screenshot}
+            except Exception as e:
+                logger.error(f"Error fetching {url}: {str(e)} (Attempt {attempt + 1}/{max_retries + 1})")
+                if attempt == max_retries:
+                    logger.debug(f"Max retries reached for {url}")
+                    return {"url": url, "status": "failed_no_html", "html": None, "screenshot": None}
+                attempt += 1
+                try:
+                    # Use a cancellation-safe delay
+                    await asyncio.wait_for(asyncio.sleep(2 ** attempt), timeout=10.0)
+                except asyncio.CancelledError:
+                    logger.info(f"Retry delay for {url} cancelled")
+                    raise
+                except asyncio.TimeoutError:
+                    logger.warning(f"Retry delay timeout for {url}")
+                    return {"url": url, "status": "failed_no_html", "html": None, "screenshot": None}
             finally:
-                await page.close()
-        except Exception as e:
-            logger.error(f"Error fetching {url}: {str(e)} (Attempt {attempt + 1}/{max_retries + 1})")
-            if attempt == max_retries:
-                logger.debug(f"Max retries reached for {url}")
-                return {"url": url, "status": "failed_no_html", "html": None, "screenshot": None}
-            attempt += 1
-            delay = 2 ** attempt
-            logger.info(f"Retrying {url} after {delay} seconds")
-            await asyncio.sleep(delay)
-    return {"url": url, "status": "failed_no_html", "html": None, "screenshot": None}
+                if page:
+                    try:
+                        await asyncio.wait_for(page.close(), timeout=5.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError) as e:
+                        logger.debug(f"Failed to close page for {url}: {str(e)}")
+    except asyncio.CancelledError:
+        logger.info(f"Scrape task for {url} cancelled")
+        if page:
+            try:
+                await asyncio.wait_for(page.close(), timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError) as e:
+                logger.debug(f"Failed to close page for {url} during cancellation: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in scrape_url for {url}: {str(e)}")
+        return {"url": url, "status": "failed_error", "html": None, "screenshot": None}
 
 async def scrape_urls(
     urls: List[str],
     num_parallel: int = 10,
     limit: Optional[int] = None,
     show_progress: bool = False,
-    timeout: Optional[float] = 10000,  # Increased timeout
+    timeout: Optional[float] = 10000,
     max_retries: int = 2,
     with_screenshot: bool = True,
     headless: bool = True,
@@ -118,9 +139,11 @@ async def scrape_urls(
 
     async with async_playwright() as p:
         ua = UserAgent()
-        browser = await p.chromium.launch(headless=headless)
-        context = await browser.new_context(user_agent=ua.random)
+        browser = None
+        context = None
         try:
+            browser = await p.chromium.launch(headless=headless)
+            context = await browser.new_context(user_agent=ua.random)
             coroutines = [sem_fetch_and_yield(url, context, None) for url in urls]
             if show_progress:
                 with tqdm_asyncio(total=len(urls), desc=f"Scraping URLs ({min(num_parallel, len(urls))} active)", file=sys.stdout, mininterval=0.1) as pbar:
@@ -152,9 +175,16 @@ async def scrape_urls(
                 await asyncio.gather(*tasks, return_exceptions=True)
                 raise
         finally:
-            await context.close()
-            await browser.close()
-            # Ensure all tasks are cancelled and awaited
+            if context:
+                try:
+                    await asyncio.wait_for(context.close(), timeout=5.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError) as e:
+                    logger.debug(f"Failed to close context: {str(e)}")
+            if browser:
+                try:
+                    await asyncio.wait_for(browser.close(), timeout=5.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError) as e:
+                    logger.debug(f"Failed to close browser: {str(e)}")
             for task in tasks:
                 if not task.done():
                     task.cancel()
@@ -162,9 +192,6 @@ async def scrape_urls(
                 await asyncio.gather(*tasks, return_exceptions=True)
             except asyncio.CancelledError:
                 logger.debug("All tasks cancelled and cleaned up")
-
-async def consume_generator(gen: AsyncIterator[ScrapeResult]) -> List[ScrapeResult]:
-    return [item async for item in gen]
 
 def scrape_urls_sync(
     urls: List[str],
@@ -196,3 +223,6 @@ def scrape_urls_sync(
         finally:
             if not loop.is_running():
                 loop.close()
+
+async def consume_generator(gen: AsyncIterator[ScrapeResult]) -> List[ScrapeResult]:
+    return [item async for item in gen]

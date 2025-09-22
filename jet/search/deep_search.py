@@ -645,73 +645,78 @@ async def web_deep_search(
     chunk_size = 200
     chunk_overlap = 50
     merge_chunks = False
-
-    # Process URLs
-    url_results = await rag_search(
-        query=query,
-        embed_model=embed_model,
-        top_k=top_k,
-        threshold=threshold,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        merge_chunks=merge_chunks,
-        urls=None,
-        use_cache=use_cache,
-        urls_limit=urls_limit
-    )
-
-    # Extract results from URL processing
-    search_results = url_results["search_results"]
-    header_docs = url_results["header_docs"]
-    search_engine_results = url_results["search_engine_results"]
-
-    # Sort search_results by score then update rank
-    search_results = sorted(search_results, key=lambda x: x["score"], reverse=True)
-    for i, result in enumerate(search_results, 1):
-        result["rank"] = i
-
-    # Calculate high_score_tokens, medium_score_tokens, and header_count per URL
-    url_stats = defaultdict(
-        lambda: {"high_score_tokens": 0, "medium_score_tokens": 0, "header_count": 0})
-    for result in search_results:
-        url = result["metadata"].get("source", "Unknown")
-        if result["score"] >= HIGH_QUALITY_SCORE:
-            url_stats[url]["high_score_tokens"] += result["metadata"].get("num_tokens", 0)
-            url_stats[url]["header_count"] += 1
-        elif result["score"] >= MEDIUM_QUALITY_SCORE:
-            url_stats[url]["medium_score_tokens"] += result["metadata"].get("num_tokens", 0)
-            url_stats[url]["header_count"] += 1
-
-    # Filter URLs with high_score_tokens > 0 or medium_score_tokens > 0
-    sorted_urls = [
-        {
-            "url": url,
-            "high_score_tokens": stats["high_score_tokens"],
-            "medium_score_tokens": stats["medium_score_tokens"],
-            "header_count": stats["header_count"]
-        }
-        for url, stats in sorted(
-            url_stats.items(),
-            key=lambda x: (x[1]["high_score_tokens"], x[1]["medium_score_tokens"]),
-            reverse=True
-        )
-        if stats["high_score_tokens"] > 0 or stats["medium_score_tokens"] > 0
-    ]
-
-    # Prepare context and perform LLM generation
-    context_data = prepare_context(query, search_results, llm_model, max_tokens)
-    llm_results = await llm_generate(query, context_data, llm_model)
-
-    return {
+    partial_result: WebDeepSearchResult = {
         "query": query,
-        **llm_results,
-        "search_engine_results": search_engine_results,
-        "started_urls": url_results["all_started_urls"],
-        "searched_urls": url_results["all_searched_urls"],
-        "high_score_urls": create_url_dict_list(url_results["all_urls_with_high_scores"], search_results),
-        "header_docs": header_docs,
-        "search_results": search_results,
+        "search_engine_results": [],
+        "started_urls": [],
+        "searched_urls": [],
+        "high_score_urls": [],
+        "header_docs": [],
+        "search_results": [],
+        "sorted_search_results": [],
+        "filtered_results": [],
+        "filtered_urls": [],
+        "template": "",
+        "context": "",
+        "response": "",
+        "token_info": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     }
+
+    try:
+        url_results = await rag_search(
+            query=query,
+            embed_model=embed_model,
+            top_k=top_k,
+            threshold=threshold,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            merge_chunks=merge_chunks,
+            urls=None,
+            use_cache=use_cache,
+            urls_limit=urls_limit
+        )
+        partial_result.update({
+            "search_engine_results": url_results["search_engine_results"],
+            "started_urls": url_results["all_started_urls"],
+            "searched_urls": url_results["all_searched_urls"],
+            "header_docs": url_results["header_docs"],
+            "search_results": url_results["search_results"],
+            "high_score_urls": create_url_dict_list(url_results["all_urls_with_high_scores"], url_results["search_results"])
+        })
+
+        search_results = url_results["search_results"]
+        search_results = sorted(search_results, key=lambda x: x["score"], reverse=True)
+        for i, result in enumerate(search_results, 1):
+            result["rank"] = i
+
+        context_data = prepare_context(query, search_results, llm_model, max_tokens)
+        partial_result.update({
+            "sorted_search_results": context_data["sorted_search_results"],
+            "filtered_results": context_data["filtered_results"],
+            "filtered_urls": context_data["filtered_urls"],
+            "context": context_data["context"]
+        })
+
+        llm_results = await llm_generate(query, context_data, llm_model)
+        partial_result.update({
+            "template": llm_results["template"],
+            "context": llm_results["context"],
+            "response": llm_results["response"],
+            "token_info": llm_results["token_info"],
+            "sorted_search_results": llm_results["sorted_search_results"],
+            "filtered_results": llm_results["filtered_results"],
+            "filtered_urls": llm_results["filtered_urls"]
+        })
+
+        return partial_result
+
+    except asyncio.CancelledError:
+        logger.warning("Web deep search cancelled. Returning partial results.")
+        return partial_result
+    except Exception as e:
+        logger.error(f"Unexpected error in web_deep_search: {str(e)}")
+        partial_result["response"] = f"Error: {str(e)}"
+        return partial_result
 
 def web_deep_search_sync(
     query: str,
