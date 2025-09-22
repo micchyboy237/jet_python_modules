@@ -3,7 +3,12 @@ import sys
 
 import httpx
 
-from ollama import generate
+from ollama import Client
+
+from jet.logger import logger
+from jet.transformers.formatters import format_json
+
+client = Client(host='http://localhost:11435')
 
 latest = httpx.get('https://xkcd.com/info.0.json')
 latest.raise_for_status()
@@ -20,7 +25,10 @@ print('---')
 raw = httpx.get(comic.json().get('img'))
 raw.raise_for_status()
 
-for response in generate('llava', 'explain this comic:', images=[raw.content], stream=True):
-  print(response['response'], end='', flush=True)
+for response in client.generate('qwen2.5vl:3b-q4_K_M', 'explain this comic:', images=[raw.content], stream=True):
+  logger.teal(response['response'], flush=True)
 
-print()
+logger.gray("Result:")
+# Remove 'context' to reduce logged response
+response.pop('context')
+logger.success(format_json(response))
