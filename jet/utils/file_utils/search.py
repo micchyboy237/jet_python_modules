@@ -1,9 +1,9 @@
 import glob
 import os
 from pathlib import Path
-from typing import List, Set
+from typing import List, Set, Optional
 import fnmatch
-
+from jet.logger import logger
 
 def find_files(
     base_dir: str,
@@ -12,13 +12,34 @@ def find_files(
     include_content_patterns: List[str],
     exclude_content_patterns: List[str],
     case_sensitive: bool = False,
-    extensions: List[str] = []
+    extensions: List[str] = [],
+    modified_after: Optional[float] = None,
 ) -> List[str]:
+    """
+    Find files in a directory matching specified criteria, including an optional modified time filter.
+
+    Args:
+        base_dir (str): The root directory to search.
+        include (List[str]): Patterns or paths to include.
+        exclude (List[str]): Patterns or paths to exclude.
+        include_content_patterns (List[str]): Content patterns to include.
+        exclude_content_patterns (List[str]): Content patterns to exclude.
+        case_sensitive (bool): Whether content matching is case-sensitive.
+        extensions (List[str]): File extensions to include (e.g., ['.py', '.ipynb']).
+        modified_after (Optional[float]): Only include files modified after this timestamp (seconds since epoch).
+
+    Returns:
+        List[str]: List of file paths matching the criteria.
+    """
     normalized_extensions = [
         ext.lstrip('.').lstrip('*').lower() for ext in extensions
     ]
     matched_files: Set[str] = set()
     base_path = Path(base_dir).resolve()
+
+    if not base_path.exists():
+        logger.warning(f"Directory does not exist: {base_dir}")
+        return []
 
     # Handle absolute paths in include
     for abs_path in [pat for pat in include if os.path.isabs(pat) and os.path.exists(pat)]:
@@ -27,6 +48,14 @@ def find_files(
             if normalized_extensions:
                 file_ext = path.suffix.lstrip('.').lower()
                 if file_ext not in normalized_extensions:
+                    continue
+            if modified_after is not None:
+                try:
+                    mtime = path.stat().st_mtime
+                    if mtime <= modified_after:
+                        continue
+                except OSError as e:
+                    logger.error(f"Failed to get modified time for {path}: {e}")
                     continue
             normalized_path = os.path.normpath(
                 str(path)).replace('/private/var', '/var')
@@ -37,6 +66,14 @@ def find_files(
                     if normalized_extensions:
                         file_ext = file_path.suffix.lstrip('.').lower()
                         if file_ext not in normalized_extensions:
+                            continue
+                    if modified_after is not None:
+                        try:
+                            mtime = file_path.stat().st_mtime
+                            if mtime <= modified_after:
+                                continue
+                        except OSError as e:
+                            logger.error(f"Failed to get modified time for {file_path}: {e}")
                             continue
                     normalized_path = os.path.normpath(
                         str(file_path)).replace('/private/var', '/var')
@@ -72,6 +109,18 @@ def find_files(
         if not os.path.isabs(pattern):
             for file_path in base_path.rglob(pattern):
                 if file_path.is_file():
+                    if normalized_extensions:
+                        file_ext = file_path.suffix.lstrip('.').lower()
+                        if file_ext not in normalized_extensions:
+                            continue
+                    if modified_after is not None:
+                        try:
+                            mtime = file_path.stat().st_mtime
+                            if mtime <= modified_after:
+                                continue
+                        except OSError as e:
+                            logger.error(f"Failed to get modified time for {file_path}: {e}")
+                            continue
                     normalized_path = os.path.normpath(
                         str(file_path)).replace('/private/var', '/var')
                     matched_files.add(normalized_path)
@@ -82,18 +131,42 @@ def find_files(
         if not os.path.isabs(pattern):
             for file_path in base_path.rglob(pattern):
                 if file_path.is_file():
+                    if modified_after is not None:
+                        try:
+                            mtime = file_path.stat().st_mtime
+                            if mtime <= modified_after:
+                                continue
+                        except OSError as e:
+                            logger.error(f"Failed to get modified time for {file_path}: {e}")
+                            continue
                     normalized_path = os.path.normpath(
                         str(file_path)).replace('/private/var', '/var')
                     files_to_remove.add(normalized_path)
         else:
             exclude_path = Path(pattern)
             if exclude_path.is_file():
+                if modified_after is not None:
+                    try:
+                        mtime = exclude_path.stat().st_mtime
+                        if mtime <= modified_after:
+                            continue
+                    except OSError as e:
+                        logger.error(f"Failed to get modified time for {exclude_path}: {e}")
+                        continue
                 normalized_path = os.path.normpath(
                     str(exclude_path)).replace('/private/var', '/var')
                 files_to_remove.add(normalized_path)
             elif exclude_path.is_dir():
                 for file_path in exclude_path.rglob('*'):
                     if file_path.is_file():
+                        if modified_after is not None:
+                            try:
+                                mtime = file_path.stat().st_mtime
+                                if mtime <= modified_after:
+                                    continue
+                            except OSError as e:
+                                logger.error(f"Failed to get modified time for {file_path}: {e}")
+                                continue
                         normalized_path = os.path.normpath(
                             str(file_path)).replace('/private/var', '/var')
                         files_to_remove.add(normalized_path)
@@ -167,5 +240,5 @@ def matches_content(
                     return False
         return True
     except (OSError, IOError) as e:
-        print(f"Error reading {file_path}: {e}")
+        logger.error(f"Error reading {file_path}: {e}")
         return False
