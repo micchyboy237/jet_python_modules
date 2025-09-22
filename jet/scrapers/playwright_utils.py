@@ -2,7 +2,7 @@ import asyncio
 import platform
 import sys
 import base64
-from typing import AsyncIterator, List, Literal, Optional, Tuple
+from typing import AsyncIterator, List, Literal, Optional, TypedDict
 from playwright.async_api import async_playwright, BrowserContext
 from fake_useragent import UserAgent
 from jet.cache.redis.types import RedisConfigParams
@@ -12,6 +12,13 @@ from jet.scrapers.utils import scrape_links
 from tqdm.asyncio import tqdm_asyncio
 
 ScrapeStatus = Literal["started", "completed", "failed_no_html", "failed_error"]
+
+class ScrapeResult(TypedDict):
+    url: str
+    status: ScrapeStatus
+    html: Optional[str]
+    screenshot: Optional[bytes]
+
 REDIS_CONFIG = RedisConfigParams(port=6379)
 cache = RedisCache(config=REDIS_CONFIG)
 
@@ -23,7 +30,7 @@ async def scrape_url(
     with_screenshot: bool = True,
     wait_for_js: bool = False,
     use_cache: bool = True
-) -> Tuple[Optional[str], Optional[bytes]]:
+) -> ScrapeResult:
     cache_key = f"html:{url}"
     if use_cache:
         cached_content = cache.get(cache_key)
@@ -36,7 +43,7 @@ async def scrape_url(
                 except Exception as e:
                     logger.error(f"Failed to decode cached screenshot for {url}: {str(e)}")
                     screenshot = None
-                return cached_content['content'], screenshot
+                return {"url": url, "status": "completed", "html": cached_content['content'], "screenshot": screenshot}
 
     attempt = 0
     while attempt <= max_retries:
@@ -59,19 +66,19 @@ async def scrape_url(
                         logger.debug(f"Encoded screenshot for {url}, length: {len(cache_data['screenshot'])}")
                     cache.set(cache_key, cache_data, ttl=3600)
                     logger.debug(f"Cached content for {url}")
-                return html_content, screenshot
+                return {"url": url, "status": "completed", "html": html_content, "screenshot": screenshot}
             finally:
                 await page.close()
         except Exception as e:
             logger.error(f"Error fetching {url}: {str(e)} (Attempt {attempt + 1}/{max_retries + 1})")
             if attempt == max_retries:
                 logger.debug(f"Max retries reached for {url}")
-                return None, None
+                return {"url": url, "status": "failed_no_html", "html": None, "screenshot": None}
             attempt += 1
             delay = 2 ** attempt
             logger.info(f"Retrying {url} after {delay} seconds")
             await asyncio.sleep(delay)
-    return None, None
+    return {"url": url, "status": "failed_no_html", "html": None, "screenshot": None}
 
 async def scrape_urls(
     urls: List[str],
@@ -84,25 +91,22 @@ async def scrape_urls(
     headless: bool = True,
     wait_for_js: bool = False,
     use_cache: bool = True
-) -> AsyncIterator[Tuple[str, ScrapeStatus, Optional[str], Optional[bytes]]]:
+) -> AsyncIterator[ScrapeResult]:
     semaphore = asyncio.Semaphore(num_parallel)
     completed_count = 0
     tasks = []
 
-    async def sem_fetch_and_yield(url: str, context: BrowserContext, pbar=None) -> List[Tuple[str, ScrapeStatus, Optional[str], Optional[bytes]]]:
+    async def sem_fetch_and_yield(url: str, context: BrowserContext, pbar=None) -> List[ScrapeResult]:
         results = []
-        results.append((url, "started", None, None))
+        results.append({"url": url, "status": "started", "html": None, "screenshot": None})
         async with semaphore:
             try:
-                html, screenshot = await scrape_url(context, url, timeout, max_retries, with_screenshot, wait_for_js, use_cache)
+                result = await scrape_url(context, url, timeout, max_retries, with_screenshot, wait_for_js, use_cache)
                 if pbar:
                     pbar.update(1)
                     active_tasks = min(num_parallel, len(urls)) - semaphore._value
                     pbar.set_description(f"Scraping URLs ({active_tasks} active)")
-                if html:
-                    results.append((url, "completed", html, screenshot))
-                else:
-                    results.append((url, "failed_no_html", None, None))
+                results.append(result)
             except asyncio.CancelledError:
                 logger.info(f"Task for {url} was cancelled")
                 raise
@@ -110,7 +114,7 @@ async def scrape_urls(
                 logger.error(f"Exception while scraping {url}: {str(e)}")
                 if pbar:
                     pbar.update(1)
-                results.append((url, "failed_error", None, None))
+                results.append({"url": url, "status": "failed_error", "html": None, "screenshot": None})
         return results
 
     async with async_playwright() as p:
@@ -128,7 +132,7 @@ async def scrape_urls(
                     result = await task
                     for item in result:
                         yield item
-                        if item[1] == "completed":
+                        if item["status"] == "completed":
                             completed_count += 1
                             if limit and completed_count >= limit:
                                 logger.info(f"Reached limit of {limit} completed URLs.")
@@ -148,7 +152,7 @@ async def scrape_urls(
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
-async def consume_generator(gen: AsyncIterator[Tuple[str, ScrapeStatus, Optional[str], Optional[bytes]]]) -> List[Tuple[str, ScrapeStatus, Optional[str], Optional[bytes]]]:
+async def consume_generator(gen: AsyncIterator[ScrapeResult]) -> List[ScrapeResult]:
     return [item async for item in gen]
 
 def scrape_urls_sync(
@@ -162,7 +166,7 @@ def scrape_urls_sync(
     headless: bool = True,
     wait_for_js: bool = False,
     use_cache: bool = True
-) -> List[Tuple[str, ScrapeStatus, Optional[str], Optional[bytes]]]:
+) -> List[ScrapeResult]:
     async def run_scraper():
         return await consume_generator(
             scrape_urls(urls, num_parallel, limit, show_progress, timeout, max_retries, with_screenshot, headless, wait_for_js, use_cache)

@@ -20,7 +20,8 @@ from jet.models.model_registry.transformers.sentence_transformer_registry import
 from jet.models.model_types import EmbedModelType, LLMModelType
 from jet.models.utils import resolve_model_value
 from jet.models.tokenizer.base import get_tokenizer_fn, count_tokens
-from jet.scrapers.hrequests_utils import scrape_urls
+# from jet.scrapers.hrequests_utils import scrape_urls
+from jet.scrapers.playwright_utils import scrape_urls
 from jet.scrapers.utils import scrape_links, search_data
 from jet.vectors.semantic_search.header_vector_search import search_headers
 from jet.wordnet.analyzers.text_analysis import calculate_mtld, calculate_mtld_category
@@ -508,7 +509,11 @@ async def rag_search(
         search_engine_results = search_data(query, use_cache=use_cache)
         urls = [r["url"] for r in search_engine_results][:urls_limit]
 
-    async for url, status, html in scrape_urls(urls, show_progress=True):
+    async for url_result in scrape_urls(urls, show_progress=True):
+        url = url_result["url"]
+        status = url_result["status"]
+        html = url_result["html"]
+        screenshot = url_result["screenshot"]
         if status == "started":
             all_started_urls.append(url)
         elif status == "completed" and html:
