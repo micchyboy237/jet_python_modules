@@ -1,19 +1,19 @@
 # /Users/jethroestrada/.pyenv/shims/python
 ag-ui-protocol==0.1.8
+-e git+ssh://git@github.com/micchyboy237/jet_python_modules.git@d2fbd1bfaf19474e95729c8705ad9bc371c06f6c#egg=agbench&subdirectory=jet/libs/autogen/agbench
 application_properties==0.8.3
 asitop==0.0.24
 asyncio-atexit==1.0.1
--e git+ssh://git@github.com/microsoft/autogen.git@31078550445f1e6f09adb40f96ee85d68a963f8c#egg=autogenstudio&subdirectory=python/packages/autogen-studio
+-e git+ssh://git@github.com/microsoft/autogen.git@f76f92dd8c22af51cc62cce738342bf4fb7e8970#egg=autogenstudio&subdirectory=python/packages/autogen-studio
 azure-ai-documentintelligence==1.0.2
 azure-ai-inference==1.0.0b9
 azure-search-documents==11.5.3
 bertopic==0.17.3
 blake3==1.0.5
 boto3==1.40.17
--e git+ssh://git@github.com/browser-use/browser-use.git@b2eb803e585b6a51ef5b1ab5dcd29a9c16be9e91#egg=browser_use
+-e git+ssh://git@github.com/browser-use/browser-use.git@f698d9d7c414ca86f1db0052898f5d149af8a229#egg=browser_use
 bs4==0.0.2
 chainlit==2.7.1.1
-chromadb==1.0.12
 cohere==5.17.0
 Columnar==1.4.1
 compressed-tensors==0.9.4
@@ -22,7 +22,6 @@ Crawl4AI==0.7.1
 cssutils==2.11.1
 ddgs==9.5.4
 depyf==0.18.0
-docker==7.1.0
 editdistance==0.8.1
 einops==0.8.1
 email_validator==2.2.0
@@ -32,12 +31,13 @@ faiss-cpu==1.11.0
 fastapi-cli==0.0.8
 fastapi-cloud-cli==0.1.5
 faster-whisper==1.1.1
--e git+ssh://git@github.com/jlowin/fastmcp.git@9e5e75d73e713e2940a4f540a29738fd8f42783d#egg=fastmcp
+-e git+ssh://git@github.com/jlowin/fastmcp.git@1f2d3f216516e3ea9947037985292203e85c4b29#egg=fastmcp
 fasttext-langdetect==1.0.5
 ffmpeg-python==0.2.0
 fiddle==0.3.0
 gguf==0.17.0
 gliner-spacy==0.0.11
+gradio==5.45.0
 gTTS==2.5.4
 hrequests==0.9.2
 httptools==0.6.4
@@ -47,23 +47,24 @@ instructor==1.10.0
 ipykernel==6.30.1
 jiwer==3.1.0
 kaldi-python-io==1.2.2
-keybert==0.9.0
+-e git+ssh://git@github.com/MaartenGr/KeyBERT.git@b9c4939d53454b74a97f901b95e3ca7b873eb2a0#egg=keybert
+langchain-chroma==0.2.6
 -e git+ssh://git@github.com/langchain-ai/langchain-experimental.git@5cdbf02e3771da35d1438bb7597be4575610684e#egg=langchain_experimental&subdirectory=libs/experimental
 langchain-monorepo @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain
--e git+ssh://git@github.com/langchain-ai/langchain.git@6e2f46d04cb9a551c8821c3a9f7050f76d61bc9a#egg=langchain_ollama&subdirectory=libs/partners/ollama
+-e git+ssh://git@github.com/langchain-ai/langchain.git@cdae9e494221162c36d1341a9db3265f500f4a88#egg=langchain_ollama&subdirectory=libs/partners/ollama
 langchain-postgres @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres
 langchain-tavily==0.2.11
--e git+ssh://git@github.com/langchain-ai/langmem.git@992b9363064812a9d93c08a769cf83f5f3fa4378#egg=langmem
+-e git+ssh://git@github.com/langchain-ai/langmem.git@41a6c3b39c94e47ebe8c20be6d4898a193c73e42#egg=langmem
 lhotse==1.30.3
 librosa==0.11.0
 lightning==2.4.0
 llama_cpp_python==0.3.14
--e git+ssh://git@github.com/run-llama/llama_index.git@4ff728f0e48131a12c3dc13c8f4b5522adfd1636#egg=llama_index
--e git+ssh://git@github.com/run-llama/llama_index.git@4ff728f0e48131a12c3dc13c8f4b5522adfd1636#egg=llama_index_embeddings_huggingface&subdirectory=llama-index-integrations/embeddings/llama-index-embeddings-huggingface
--e git+ssh://git@github.com/run-llama/llama_index.git@4ff728f0e48131a12c3dc13c8f4b5522adfd1636#egg=llama_index_packs_code_hierarchy&subdirectory=llama-index-packs/llama-index-packs-code-hierarchy
--e git+ssh://git@github.com/run-llama/llama_index.git@4ff728f0e48131a12c3dc13c8f4b5522adfd1636#egg=llama_index_tools_duckduckgo&subdirectory=llama-index-integrations/tools/llama-index-tools-duckduckgo
--e git+ssh://git@github.com/run-llama/llama_index.git@4ff728f0e48131a12c3dc13c8f4b5522adfd1636#egg=llama_index_tools_playwright&subdirectory=llama-index-integrations/tools/llama-index-tools-playwright
--e git+ssh://git@github.com/run-llama/llama_index.git@4ff728f0e48131a12c3dc13c8f4b5522adfd1636#egg=llama_index_utils_workflow&subdirectory=llama-index-utils/llama-index-utils-workflow
+-e git+ssh://git@github.com/run-llama/llama_index.git@11c55aa9b48b57335a8e47a37537f182ae18da2d#egg=llama_index
+-e git+ssh://git@github.com/run-llama/llama_index.git@11c55aa9b48b57335a8e47a37537f182ae18da2d#egg=llama_index_embeddings_huggingface&subdirectory=llama-index-integrations/embeddings/llama-index-embeddings-huggingface
+-e git+ssh://git@github.com/run-llama/llama_index.git@11c55aa9b48b57335a8e47a37537f182ae18da2d#egg=llama_index_packs_code_hierarchy&subdirectory=llama-index-packs/llama-index-packs-code-hierarchy
+-e git+ssh://git@github.com/run-llama/llama_index.git@11c55aa9b48b57335a8e47a37537f182ae18da2d#egg=llama_index_tools_duckduckgo&subdirectory=llama-index-integrations/tools/llama-index-tools-duckduckgo
+-e git+ssh://git@github.com/run-llama/llama_index.git@11c55aa9b48b57335a8e47a37537f182ae18da2d#egg=llama_index_tools_playwright&subdirectory=llama-index-integrations/tools/llama-index-tools-playwright
+-e git+ssh://git@github.com/run-llama/llama_index.git@11c55aa9b48b57335a8e47a37537f182ae18da2d#egg=llama_index_utils_workflow&subdirectory=llama-index-utils/llama-index-utils-workflow
 llguidance==0.7.29
 lm-format-enforcer==0.10.11
 logfire==4.3.6
@@ -86,6 +87,7 @@ noisereduce==3.0.3
 num2words==0.5.14
 opencv-python-headless==4.11.0.86
 openpyxl==3.1.5
+opentelemetry-instrumentation-fastapi==0.55b1
 optimum==1.25.3
 optuna==4.4.0
 outlines==0.1.11
@@ -102,7 +104,6 @@ psycopg2-binary==2.9.10
 pyannote.metrics==3.2.1
 pydantic-ai==0.8.1
 pydantic-evals==0.8.1
-pydub==0.25.1
 pygame==2.6.1
 PyGetWindow==0.0.9
 pyloudnorm==0.1.1
@@ -134,8 +135,8 @@ rq==2.3.2
 rumps==0.4.0
 sacremoses==0.1.1
 scrapy-selenium4==1.0.0
--e git+ssh://git@github.com/microsoft/semantic-kernel.git@0ec81c8a14cee73e543a4a93f76526fd5ca7ab4a#egg=semantic_kernel&subdirectory=python
--e git+ssh://git@github.com/huggingface/smolagents.git@83ff2f7ed09788e130965349929f8bd5152e507e#egg=smolagents
+-e git+ssh://git@github.com/microsoft/semantic-kernel.git@d455a2003343742e9a25f778db9c73bb47d44a25#egg=semantic_kernel&subdirectory=python
+-e git+ssh://git@github.com/huggingface/smolagents.git@06cfa27051837fd41830b79ac4338e7f4cf0edd9#egg=smolagents
 sounddevice==0.5.2
 sox==1.5.0
 spacy-curated-transformers==0.3.0
@@ -144,12 +145,12 @@ span_marker==1.7.0
 SpeechRecognition==3.14.3
 sqlite-utils==3.38
 streamlit==1.41.1
--e git+ssh://git@github.com/kyegomez/swarms.git@28995b6900127a4510dd3c3e926dddf41646ac58#egg=swarms
--e git+ssh://git@github.com/The-Swarm-Corporation/swarms-tools.git@8f8a1cdb6ff7a7f67d2c0e301a83f38ed64efbba#egg=swarms_tools
+-e git+ssh://git@github.com/kyegomez/swarms.git@a64f57a66c3049495d072a751a1804480f1d732a#egg=swarms
+-e git+ssh://git@github.com/The-Swarm-Corporation/swarms-tools.git@1bd808d05bc4c3bf4f69d6f59e26b963844d7f60#egg=swarms_tools
 -e git+ssh://git@github.com/tavily-ai/tavily-python.git@32a933b845480e750ba057443bf4503b6d03cde3#egg=tavily_python
 temporalio==1.16.0
 textacy==0.13.0
--e git+ssh://git@github.com/sloria/TextBlob.git@364ee8bbb4efb8bbfced19410c3c0bddcfe3cd73#egg=textblob
+-e git+ssh://git@github.com/sloria/TextBlob.git@8112e41cc7461a40e05d079064e3029b9f5aeecd#egg=textblob
 texterrors==0.5.1
 textstat==0.7.5
 thefuzz==0.22.1
