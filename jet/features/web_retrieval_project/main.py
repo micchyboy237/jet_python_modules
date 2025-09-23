@@ -18,7 +18,7 @@ logger.info(f"Logs: {log_file}")
 if __name__ == "__main__":
     query = "What is Python's garbage collector?"
     url = "https://docs.python.org/3.12/"
-    docs = scrape_recursive_url(url, max_depth=2)
+    docs = scrape_recursive_url(url, max_depth=1)
     vectorstore = index_scraped_docs(docs)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
     answer = rag_query({"query": query, "retriever": retriever})

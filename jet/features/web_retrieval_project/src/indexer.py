@@ -17,6 +17,6 @@ def index_scraped_docs(
     )
     splits = text_splitter.split_documents(documents)
 
-    embeddings = OllamaEmbeddings(model="nomic_embed_text")
+    embeddings = OllamaEmbeddings(model="nomic-embed-text")
     vectorstore = FAISS.from_documents(splits, embeddings)
     return vectorstore
