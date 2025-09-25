@@ -48,7 +48,7 @@ def main():
         #     print("For now, demonstrating direct tool usage:")
 
         pipeline = Pipeline()
-        pipeline.add_component("llm", OllamaChatGenerator(model="llama3.2", tools=mcp_toolset, agent_name="tool_llm"))
+        pipeline.add_component("llm", OllamaChatGenerator(model="qwen3:4b-q4_K_M", tools=mcp_toolset, agent_name="tool_llm"))
         pipeline.add_component("tool_invoker", ToolInvoker(tools=mcp_toolset))
         pipeline.add_component(
             "adapter",
@@ -58,7 +58,7 @@ def main():
                 unsafe=True,
             ),
         )
-        pipeline.add_component("response_llm", OllamaChatGenerator(model="llama3.2", agent_name="response_llm"))
+        pipeline.add_component("response_llm", OllamaChatGenerator(model="qwen3:4b-q4_K_M", agent_name="response_llm"))
         pipeline.connect("llm.replies", "tool_invoker.messages")
         pipeline.connect("llm.replies", "adapter.initial_tool_messages")
         pipeline.connect("tool_invoker.tool_messages", "adapter.tool_messages")

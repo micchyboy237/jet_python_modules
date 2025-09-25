@@ -1,17 +1,13 @@
 import json
 import base64
 import numpy as np
-import json
-import base64
-import numpy as np
 import types
-from typing import Any, Callable, Dict
+from typing import Any, Dict
 from enum import Enum
 from jet.transformers.text import to_snake_case
-from jet.utils.class_utils import get_non_empty_attributes, is_class_instance
+from jet.utils.class_utils import get_non_empty_attributes
 from pydantic.main import BaseModel
-# from jet.validation.object import is_iterable_but_not_primitive
-
+from dataclasses import is_dataclass, asdict
 
 def convert_dict_keys_to_snake_case(d: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively convert dictionary keys to snake_case."""
@@ -23,7 +19,6 @@ def convert_dict_keys_to_snake_case(d: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(v, dict) else v
         for k, v in d.items()
     }
-
 
 def make_serializable(obj):
     """
@@ -70,7 +65,13 @@ def make_serializable(obj):
     elif isinstance(obj, BaseModel):
         try:
             return make_serializable(obj.model_dump())
-        except (AttributeError, TypeError) as e:            return make_serializable(vars(obj))
+        except (AttributeError, TypeError):
+            return make_serializable(vars(obj))
+    elif is_dataclass(obj):
+        try:
+            return make_serializable(asdict(obj))
+        except Exception:
+            return make_serializable(vars(obj))
     elif isinstance(obj, (np.integer, np.floating)):
         return obj.item()  # Convert numpy types to native Python types
     elif isinstance(obj, np.ndarray):
@@ -83,7 +84,7 @@ def make_serializable(obj):
             else:
                 dict_data = get_non_empty_attributes(obj)
             return make_serializable(dict_data)
-        except Exception as e:
+        except Exception:
             return str(obj)
     else:
         return str(obj)  # Fallback for unsupported types

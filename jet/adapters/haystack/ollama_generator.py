@@ -273,7 +273,8 @@ class OllamaGenerator:
         generation_kwargs = {**self.generation_kwargs, **(generation_kwargs or {})}
 
         resolved_streaming_callback = streaming_callback or self.streaming_callback
-        stream = resolved_streaming_callback is not None
+        # stream = resolved_streaming_callback is not None
+        stream = True
 
         logger.gray("Ollama Generator Settings:")
         logger.info(format_json({

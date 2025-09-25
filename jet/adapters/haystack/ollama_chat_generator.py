@@ -441,7 +441,8 @@ class OllamaChatGenerator:
         ollama_tools = [{"type": "function", "function": {**tool.tool_spec}} for tool in tools] if tools else None
 
         callback = streaming_callback or self.streaming_callback
-        is_stream = callback is not None
+        # is_stream = callback is not None
+        is_stream = True
 
         ollama_messages = [_convert_chatmessage_to_ollama_format(m) for m in messages]
 
