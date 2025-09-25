@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+
+load_dotenv("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/cognee/examples/.env")
+
 import base64
 import json
 import os
@@ -5,9 +9,6 @@ import pathlib
 import asyncio
 import cognee
 from cognee.modules.search.types import SearchType
-from dotenv import load_dotenv
-
-load_dotenv("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/cognee/examples/.env")
 
 
 async def main():
