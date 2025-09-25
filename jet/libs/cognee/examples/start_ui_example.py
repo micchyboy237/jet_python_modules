@@ -30,9 +30,14 @@ async def main():
 
     # Start the UI server
     server = cognee.start_ui(
+        pid_callback=lambda pid: print(f"Started process with PID: {pid}"),
         host="localhost",
-        port=3000,
-        open_browser=True,  # This will automatically open your browser
+        port=3001,
+        open_browser=True,
+        auto_download=True,
+        start_backend=True,
+        backend_host="localhost",
+        backend_port=8000,
     )
 
     if server:
