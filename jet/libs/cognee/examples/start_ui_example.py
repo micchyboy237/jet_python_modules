@@ -8,11 +8,26 @@ This demonstrates the new UI functionality that works similar to DuckDB's start_
 import asyncio
 import cognee
 import time
+from dotenv import load_dotenv
+
+load_dotenv("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/cognee/examples/.env")
+
+import os
+import shutil
+from jet.logger import logger
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.orange(f"Logs: {log_file}")
 
 
 async def main():
     # First, let's add some data to cognee for the UI to display
-    print("Adding sample data to cognee...")
+    logger.debug("Adding sample data to cognee...")
     await cognee.add(
         "Natural language processing (NLP) is an interdisciplinary subfield of computer science and information retrieval."
     )
@@ -21,16 +36,16 @@ async def main():
     )
 
     # Generate the knowledge graph
-    print("Generating knowledge graph...")
+    logger.debug("Generating knowledge graph...")
     await cognee.cognify()
 
-    print("\n" + "=" * 60)
-    print("Starting cognee UI...")
-    print("=" * 60)
+    logger.debug("\n" + "=" * 60)
+    logger.debug("Starting cognee UI...")
+    logger.debug("=" * 60)
 
     # Start the UI server
     server = cognee.start_ui(
-        pid_callback=lambda pid: print(f"Started process with PID: {pid}"),
+        pid_callback=lambda pid: logger.debug(f"Started process with PID: {pid}"),
         host="localhost",
         port=3001,
         open_browser=True,
@@ -41,21 +56,21 @@ async def main():
     )
 
     if server:
-        print("UI server started successfully!")
-        print("The interface will be available at: http://localhost:3000")
-        print("\nPress Ctrl+C to stop the server when you're done...")
+        logger.debug("UI server started successfully!")
+        logger.debug("The interface will be available at: http://localhost:3000")
+        logger.debug("\nPress Ctrl+C to stop the server when you're done...")
 
         try:
             # Keep the server running
             while server.poll() is None:  # While process is still running
                 time.sleep(1)
         except KeyboardInterrupt:
-            print("\nStopping UI server...")
+            logger.debug("\nStopping UI server...")
             server.terminate()
             server.wait()  # Wait for process to finish
-            print("UI server stopped.")
+            logger.debug("UI server stopped.")
     else:
-        print("Failed to start UI server. Check the logs above for details.")
+        logger.debug("Failed to start UI server. Check the logs above for details.")
 
 
 if __name__ == "__main__":

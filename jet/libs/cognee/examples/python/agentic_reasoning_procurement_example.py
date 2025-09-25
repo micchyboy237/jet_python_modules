@@ -1,18 +1,18 @@
 import os
 import logging
-import cognee
 import asyncio
-
-from cognee.infrastructure.llm.LLMGateway import LLMGateway
 from dotenv import load_dotenv
+
+load_dotenv("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/cognee/examples/.env")
+
+import cognee
+from cognee.infrastructure.llm.LLMGateway import LLMGateway
 from cognee.api.v1.search import SearchType
 from cognee.modules.engine.models import NodeSet
 from cognee.shared.logging_utils import setup_logging
 
 
-load_dotenv()
-
-os.environ["LLM_API_KEY"] = ""
+# os.environ["LLM_API_KEY"] = ""
 # Notes: Nodesets cognee feature only works with kuzu and Neo4j graph databases
 os.environ["GRAPH_DATABASE_PROVIDER"] = "kuzu"
 

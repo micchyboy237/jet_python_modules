@@ -7,7 +7,7 @@ import cognee
 from cognee.modules.search.types import SearchType
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/cognee/examples/.env")
 
 
 async def main():
