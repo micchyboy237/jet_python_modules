@@ -301,9 +301,12 @@ class OllamaGenerator:
             messages=prompt,
             response=response["replies"][0],
             model=self.model,
+            url=self.url,
             stream=stream,
+            raw=self.raw,
             keep_alive=self.keep_alive,
             options=generation_kwargs,
+            template=self.template,
             response_meta=response["meta"][0]
         )
 
