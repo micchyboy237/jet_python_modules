@@ -1,7 +1,6 @@
 import os
 from datetime import datetime, UTC
 from typing import Any, Literal, Optional, Union, List
-from uuid import uuid4
 
 from jet.file.utils import save_file
 from jet.models.model_types import CompletionResponse, Message
@@ -75,19 +74,26 @@ class ChatLogger:
                 if callable(tool_fn):
                     tools[tool_idx] = get_method_info(tool_fn)
 
+        # Initialize log_data with the specified keys in order
         log_data = {
-            "timestamp": timestamp,
-            "session_id": self.session_id,
-            "method": effective_method,
-            "tools": tools,
+            "model": model
         }
-        log_data.update(kwargs)
-
         if isinstance(messages, str):
             log_data["prompt"] = messages
         else:
             log_data["messages"] = messages.copy()
 
+        log_data["response"] = None  # Placeholder, will be updated after processing response
+        log_data["tokens"] = {}  # Placeholder, will be updated after token calculation
+
+        # Add remaining metadata
+        log_data["timestamp"] = timestamp
+        log_data["session_id"] = self.session_id
+        log_data["method"] = effective_method
+        log_data["tools"] = tools
+        log_data.update(kwargs)
+
+        # Process response
         if isinstance(response, str):
             log_data["response"] = response
         elif isinstance(response, (list, dict)):
@@ -118,10 +124,9 @@ class ChatLogger:
         else:
             log_data["response"] = str(response)
 
+        # Calculate and set tokens
         prompt_tokens = token_counter(messages, model)
         response_tokens = token_counter(log_data["response"], model)
-
-        log_data["tokens"] = {}
         log_data["tokens"]["prompt"] = prompt_tokens
         log_data["tokens"]["response"] = response_tokens
         log_data["tokens"]["total"] = prompt_tokens + response_tokens

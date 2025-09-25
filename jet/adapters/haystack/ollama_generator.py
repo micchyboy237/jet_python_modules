@@ -1,14 +1,18 @@
-import os
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Union
+
 from haystack import component, default_from_dict, default_to_dict
 from haystack.dataclasses import StreamingChunk
 from haystack.utils.callable_serialization import deserialize_callable, serialize_callable
+
 from ollama import Client, GenerateResponse
+
+import os
 from jet.llm.mlx.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 from jet.utils.text import format_sub_dir
+
 
 def _convert_ollama_meta_to_openai_format(intput_response_dict: Dict) -> Dict:
     """
@@ -63,6 +67,7 @@ def _convert_ollama_meta_to_openai_format(intput_response_dict: Dict) -> Dict:
     """
 
     meta = {key: value for key, value in intput_response_dict.items() if key != "response"}
+
     if "done_reason" in meta:
         meta["finish_reason"] = meta.pop("done_reason")
     if "eval_count" in meta and "prompt_eval_count" in meta:
@@ -74,6 +79,7 @@ def _convert_ollama_meta_to_openai_format(intput_response_dict: Dict) -> Dict:
             "total_tokens": eval_count + prompt_eval_count,
         }
     return meta
+
 
 @component
 class OllamaGenerator:
@@ -94,6 +100,7 @@ class OllamaGenerator:
     print(generator.run("Who is the best American actor?"))
     ```
     """
+
     def __init__(
         self,
         model: str = "orca-mini",
@@ -147,11 +154,13 @@ class OllamaGenerator:
         self.keep_alive = keep_alive
         self.generation_kwargs = generation_kwargs or {}
         self.streaming_callback = streaming_callback
+
         self._client = Client(host=self.url, timeout=self.timeout)
+
         log_dir = os.path.join(DEFAULT_OLLAMA_LOG_DIR, log_dir or "")
         if agent_name:
             log_dir += f"/{format_sub_dir(agent_name)}"
-        self._chat_logger = ChatLogger(log_dir, method="chat")
+        self._chat_logger = ChatLogger(log_dir, method="generate")
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -172,8 +181,6 @@ class OllamaGenerator:
             keep_alive=self.keep_alive,
             generation_kwargs=self.generation_kwargs,
             streaming_callback=callback_name,
-            log_dir=self._chat_logger.log_dir,
-            agent_name=self._chat_logger.log_dir.split("/")[-1] if self._chat_logger.log_dir else None,
         )
 
     @classmethod
@@ -199,28 +206,19 @@ class OllamaGenerator:
         response_dict = ollama_response.model_dump()
         reply = response_dict["response"]
         meta = _convert_ollama_meta_to_openai_format(response_dict)
-        logger.teal(reply, flush=True)
-        self._chat_logger.log_interaction(
-            messages=[{"role": "user", "content": response_dict.get("prompt", "")}],
-            response=reply,
-            model=self.model,
-            tools=None,
-        )
+
         return {"replies": [reply], "meta": [meta]}
 
     def _convert_to_streaming_response(self, chunks: List[StreamingChunk]) -> Dict[str, List[Any]]:
         """
         Converts a list of chunks response required Haystack format.
         """
+
         replies = ["".join([c.content for c in chunks])]
+
+        # Convert the metadata from the last chunk
         meta = _convert_ollama_meta_to_openai_format(chunks[-1].meta)
-        logger.teal(replies[0], flush=True)
-        self._chat_logger.log_interaction(
-            messages=[{"role": "user", "content": chunks[0].meta.get("prompt", "")}],
-            response=replies[0],
-            model=self.model,
-            tools=None,
-        )
+
         return {"replies": replies, "meta": [meta]}
 
     def _handle_streaming_response(
@@ -230,20 +228,12 @@ class OllamaGenerator:
         Handles Streaming response cases
         """
         chunks: List[StreamingChunk] = []
-        response_text = ""
         for chunk in response:
             chunk_delta: StreamingChunk = self._build_chunk(chunk)
             chunks.append(chunk_delta)
             logger.teal(chunk_delta.content, flush=True)
-            response_text += chunk_delta.content
             if streaming_callback is not None:
                 streaming_callback(chunk_delta)
-        self._chat_logger.log_interaction(
-            messages=[{"role": "user", "content": chunk_delta.meta.get("prompt", "")}],
-            response=response_text,
-            model=self.model,
-            tools=None,
-        )
         return chunks
 
     def _build_chunk(self, chunk_response: Any) -> StreamingChunk:
@@ -253,6 +243,7 @@ class OllamaGenerator:
         chunk_response_dict = chunk_response.model_dump()
         content = chunk_response_dict["response"]
         meta = {key: value for key, value in chunk_response_dict.items() if key != "response"}
+
         chunk_message = StreamingChunk(content, meta)
         return chunk_message
 
@@ -279,22 +270,41 @@ class OllamaGenerator:
             - `replies`: The responses from the model
             - `meta`: The metadata collected during the run
         """
+        generation_kwargs = {**self.generation_kwargs, **(generation_kwargs or {})}
+
+        resolved_streaming_callback = streaming_callback or self.streaming_callback
+        stream = resolved_streaming_callback is not None
+
         logger.gray("Ollama Generator Settings:")
         logger.info(format_json({
             "prompt": prompt,
             "generation_kwargs": generation_kwargs,
+            "stream": stream,
         }))
-        generation_kwargs = {**self.generation_kwargs, **(generation_kwargs or {})}
-        resolved_streaming_callback = streaming_callback or self.streaming_callback
-        stream = resolved_streaming_callback is not None
+
         response = self._client.generate(
             model=self.model,
             prompt=prompt,
-            stream=stream,
+            stream=stream,  # type: ignore[call-overload]  # Ollama expects Literal[True] or Literal[False], not bool
             keep_alive=self.keep_alive,
             options=generation_kwargs,
         )
+
         if stream:
             chunks: List[StreamingChunk] = self._handle_streaming_response(response, resolved_streaming_callback)
-            return self._convert_to_streaming_response(chunks)
-        return self._convert_to_response(cast(GenerateResponse, response))
+            response = self._convert_to_streaming_response(chunks)
+        else:
+            response = self._convert_to_response(response)
+
+        response["meta"][0].pop("context")
+        self._chat_logger.log_interaction(
+            messages=prompt,
+            response=response["replies"][0],
+            model=self.model,
+            stream=stream,
+            keep_alive=self.keep_alive,
+            options=generation_kwargs,
+            response_meta=response["meta"][0]
+        )
+
+        return response
