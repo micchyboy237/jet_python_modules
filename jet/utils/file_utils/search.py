@@ -1,7 +1,7 @@
 import os
 import fnmatch
 from pathlib import Path
-from typing import List, Set, Optional
+from typing import List, Set, Optional, Iterable
 from jet.logger import logger
 
 
@@ -49,20 +49,41 @@ def find_files(
     if not adjusted_include:
         adjusted_include = ["**/*"]
 
+    # Pre-split excludes into absolute/relative
+    abs_excludes = [p for p in adjusted_exclude if os.path.isabs(p)]
+    rel_excludes = [p for p in adjusted_exclude if not os.path.isabs(p)]
+
+    def is_excluded(file_path: Path) -> bool:
+        """Check if file should be excluded early (absolute + relative)."""
+        f_str = str(file_path)
+        # Absolute patterns
+        for pat in abs_excludes:
+            if "**" in pat or "*" in pat or "?" in pat:
+                if fnmatch.fnmatch(f_str, pat):
+                    return True
+            else:
+                if Path(pat) in [file_path, *file_path.parents]:
+                    return True
+        # Relative patterns (match from base_path)
+        rel = os.path.relpath(f_str, base_path)
+        for pat in rel_excludes:
+            if fnmatch.fnmatch(rel, pat):
+                return True
+        return False
+
     # Collect candidates
     for pattern in adjusted_include:
         try:
-            candidates = []
+            candidates: Iterable[Path]
             if os.path.isabs(pattern):
-                # Handle absolute file/directory explicitly
                 abs_path = Path(pattern)
                 if abs_path.is_file():
                     candidates = [abs_path]
                 elif abs_path.is_dir():
                     candidates = abs_path.rglob("*")
                 else:
-                    # Handle absolute wildcard patterns (e.g., /foo/**/*.py)
-                    if "**" in pattern or "*" in pattern or "?" in pattern:
+                    # Handle absolute wildcard patterns
+                    if any(x in pattern for x in ["*", "?", "**"]):
                         root = Path("/")
                         try:
                             candidates = root.glob(pattern.lstrip("/"))
@@ -74,11 +95,14 @@ def find_files(
                     else:
                         continue
             else:
-                # Relative pattern from base_path
                 candidates = base_path.rglob(pattern)
 
             for file_path in candidates:
                 if not file_path.is_file():
+                    continue
+
+                # Exclude check (early)
+                if is_excluded(file_path):
                     continue
 
                 # Extension filter
@@ -101,34 +125,6 @@ def find_files(
 
         except OSError as e:
             logger.error(f"Error traversing {pattern}: {e}")
-
-    # Remove exclude matches
-    excluded = set()
-    for pattern in adjusted_exclude:
-        try:
-            if os.path.isabs(pattern):
-                if "**" in pattern or "*" in pattern or "?" in pattern:
-                    root = Path("/")
-                    for f in root.glob(pattern.lstrip("/")):
-                        if f.is_file():
-                            excluded.add(os.path.normpath(str(f)))
-                else:
-                    p = Path(pattern)
-                    if p.is_file():
-                        excluded.add(os.path.normpath(str(p)))
-                    elif p.is_dir():
-                        for f in p.rglob("*"):
-                            if f.is_file():
-                                excluded.add(os.path.normpath(str(f)))
-            else:
-                for f in matched_files:
-                    rel = os.path.relpath(f, base_path)
-                    if fnmatch.fnmatch(rel, pattern):
-                        excluded.add(f)
-        except OSError as e:
-            logger.error(f"Error processing exclude {pattern}: {e}")
-
-    matched_files.difference_update(excluded)
 
     # Final content filtering
     final_files = [
