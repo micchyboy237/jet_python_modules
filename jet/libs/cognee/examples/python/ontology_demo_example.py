@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/cognee/examples/.env")
+
 import asyncio
 import os
 
@@ -7,6 +10,18 @@ from cognee.api.v1.visualize.visualize import visualize_graph
 from cognee.shared.logging_utils import setup_logging
 from cognee.modules.ontology.rdf_xml.RDFLibOntologyResolver import RDFLibOntologyResolver
 from cognee.modules.ontology.ontology_config import Config
+
+from jet.logger import logger
+import shutil
+
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
 
 text_1 = """
 1. Audi

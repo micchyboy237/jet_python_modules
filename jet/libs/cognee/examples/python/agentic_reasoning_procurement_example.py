@@ -2,7 +2,6 @@ import os
 import logging
 import asyncio
 from dotenv import load_dotenv
-
 load_dotenv("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/cognee/examples/.env")
 
 import cognee
