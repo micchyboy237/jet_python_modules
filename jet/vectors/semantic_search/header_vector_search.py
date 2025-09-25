@@ -15,7 +15,7 @@ from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, MarkdownTok
 import logging
 from jet.utils.text_constants import TEXT_CONTRACTIONS_EN
 
-DEFAULT_EMBED_MODEL: EmbedModelType = 'all-MiniLM-L6-v2'
+DEFAULT_EMBED_MODEL: EmbedModelType = 'all-MiniLM-L12-v2'
 MAX_CONTENT_SIZE = 1000
 
 

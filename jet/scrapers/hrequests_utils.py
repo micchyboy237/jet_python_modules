@@ -5,7 +5,6 @@ import sys
 import platform
 from fake_useragent import UserAgent
 from typing import AsyncIterator, List, Literal, Optional, Tuple
-from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.logger import logger
 from jet.scrapers.utils import scrape_links
 from jet.cache.redis.types import RedisConfigParams
@@ -48,7 +47,7 @@ async def scrape_url(
     url: str,
     ua: UserAgent,
     timeout: Optional[float] = 5.0,
-    max_retries: int = 2
+    max_retries: int = 1
 ) -> Optional[str]:
     cache_key = f"html:{url}"
     cached_content = cache.get(cache_key)
@@ -96,7 +95,7 @@ async def scrape_urls(
     limit: Optional[int] = None,
     show_progress: bool = False,
     timeout: Optional[float] = 5.0,
-    max_retries: int = 2
+    max_retries: int = 1
 ) -> AsyncIterator[Tuple[str, ScrapeStatus, Optional[str]]]:
     ua = UserAgent()
     semaphore = asyncio.Semaphore(num_parallel)
@@ -183,7 +182,7 @@ def scrape_urls_sync(
     limit: Optional[int] = None,
     show_progress: bool = False,
     timeout: Optional[float] = 5.0,
-    max_retries: int = 2
+    max_retries: int = 1
 ) -> List[Tuple[str, ScrapeStatus, Optional[str]]]:
     """
     Synchronously scrape multiple URLs while leveraging async parallel capabilities.

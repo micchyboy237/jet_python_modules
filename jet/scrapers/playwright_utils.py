@@ -8,7 +8,6 @@ from fake_useragent import UserAgent
 from jet.cache.redis.types import RedisConfigParams
 from jet.cache.redis.utils import RedisCache
 from jet.logger import logger
-from jet.scrapers.utils import scrape_links
 from tqdm.asyncio import tqdm_asyncio
 
 ScrapeStatus = Literal["started", "completed", "failed_no_html", "failed_error"]
@@ -26,7 +25,7 @@ async def scrape_url(
     context: BrowserContext,
     url: str,
     timeout: Optional[float] = 10000,
-    max_retries: int = 2,
+    max_retries: int = 1,
     with_screenshot: bool = True,
     wait_for_js: bool = False,
     use_cache: bool = True
@@ -107,7 +106,7 @@ async def scrape_urls(
     limit: Optional[int] = None,
     show_progress: bool = False,
     timeout: Optional[float] = 10000,
-    max_retries: int = 2,
+    max_retries: int = 1,
     with_screenshot: bool = True,
     headless: bool = True,
     wait_for_js: bool = False,
@@ -210,7 +209,7 @@ async def scrape_urls(
 def scrape_url_sync(
     url: str,
     timeout: Optional[float] = 5000,
-    max_retries: int = 2,
+    max_retries: int = 1,
     with_screenshot: bool = True,
     headless: bool = True,
     wait_for_js: bool = False,
@@ -252,7 +251,7 @@ def scrape_urls_sync(
     limit: Optional[int] = None,
     show_progress: bool = False,
     timeout: Optional[float] = 5000,
-    max_retries: int = 2,
+    max_retries: int = 1,
     with_screenshot: bool = True,
     headless: bool = True,
     wait_for_js: bool = False,
