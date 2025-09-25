@@ -11,6 +11,17 @@ from cognee.api.v1.search import SearchType
 from cognee.modules.engine.models import NodeSet
 from cognee.shared.logging_utils import setup_logging
 
+import shutil
+from jet.logger import logger
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.orange(f"Logs: {log_file}")
+
 
 # os.environ["LLM_API_KEY"] = ""
 # Notes: Nodesets cognee feature only works with kuzu and Neo4j graph databases

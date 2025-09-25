@@ -4,6 +4,14 @@ line-length = 88
 select = ["W291", "W293", "D205"]  # Specific rules for whitespace/EOF fixes
 ignore = ["E501", "E402"]  # Ignore line length and import errors
 fixable = ["W291", "W293", "D205"]  # Enable safe fixes for selected rules (replaces fix = true)
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "*.pyc",
+    ".pyenv",  # Excludes your pyenv installation paths (e.g., /Users/jethroestrada/.pyenv/...)
+    "**/lib/python*/",  # Broader stdlib exclusion (covers site-packages and stdlib dirs)
+]
 
 [format]
 indent-style = "space"  # Use spaces for indentation (4 spaces by default, matches editor.tabSize)

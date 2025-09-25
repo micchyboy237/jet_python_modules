@@ -1,9 +1,9 @@
-import glob
 import os
+import fnmatch
 from pathlib import Path
 from typing import List, Set, Optional
-import fnmatch
 from jet.logger import logger
+
 
 def find_files(
     base_dir: str,
@@ -31,9 +31,8 @@ def find_files(
     Returns:
         List[str]: List of file paths matching the criteria.
     """
-    normalized_extensions = [
-        ext.lstrip('.').lstrip('*').lower() for ext in extensions
-    ]
+
+    normalized_extensions = {ext.lstrip(".").lstrip("*").lower() for ext in extensions}
     matched_files: Set[str] = set()
     base_path = Path(base_dir).resolve()
 
@@ -41,150 +40,94 @@ def find_files(
         logger.warning(f"Directory does not exist: {base_dir}")
         return []
 
-    # Handle absolute paths in include
-    for abs_path in [pat for pat in include if os.path.isabs(pat) and os.path.exists(pat)]:
-        path = Path(abs_path)
-        if path.is_file():
-            if normalized_extensions:
-                file_ext = path.suffix.lstrip('.').lower()
-                if file_ext not in normalized_extensions:
-                    continue
-            if modified_after is not None:
-                try:
-                    mtime = path.stat().st_mtime
-                    if mtime <= modified_after:
-                        continue
-                except OSError as e:
-                    logger.error(f"Failed to get modified time for {path}: {e}")
-                    continue
-            normalized_path = os.path.normpath(
-                str(path)).replace('/private/var', '/var')
-            matched_files.add(normalized_path)
-        elif path.is_dir():
-            for file_path in path.rglob('*'):
-                if file_path.is_file():
-                    if normalized_extensions:
-                        file_ext = file_path.suffix.lstrip('.').lower()
-                        if file_ext not in normalized_extensions:
-                            continue
-                    if modified_after is not None:
-                        try:
-                            mtime = file_path.stat().st_mtime
-                            if mtime <= modified_after:
-                                continue
-                        except OSError as e:
-                            logger.error(f"Failed to get modified time for {file_path}: {e}")
-                            continue
-                    normalized_path = os.path.normpath(
-                        str(file_path)).replace('/private/var', '/var')
-                    matched_files.add(normalized_path)
+    # Normalize includes/excludes
+    def normalize_patterns(patterns: List[str], is_exclude=False) -> List[str]:
+        out = []
+        for pat in patterns:
+            if os.path.isabs(pat):
+                out.append(pat)
+            else:
+                if pat.endswith("/") or pat.endswith("/*"):
+                    pat = pat.rstrip("/") + "/**/*"
+                elif not is_exclude and (pat.startswith("*/") or pat.endswith("/*/")):
+                    pat = pat.strip("*/").rstrip("/") + "/**/*"
+                out.append(pat)
+        return out
 
-    # Adjust include and exclude patterns
-    adjusted_include = []
-    for pat in include:
-        if not os.path.isabs(pat):
-            if pat.endswith('/') or pat.endswith('/*/'):
-                pat = pat.rstrip('/') + '/**/*'
-            elif pat.startswith('*/'):
-                pat = pat[2:].rstrip('/') + '/**/*'
-            adjusted_include.append(pat)
-        else:
-            adjusted_include.append(pat)
+    adjusted_include = normalize_patterns(include)
+    adjusted_exclude = normalize_patterns(exclude, is_exclude=True)
 
-    adjusted_exclude = []
-    for pat in exclude:
-        if not os.path.isabs(pat):
-            if pat.endswith('/') or pat.endswith('/*'):
-                pat = pat.rstrip('/') + '/**/*'
-            adjusted_exclude.append(pat)
-        else:
-            adjusted_exclude.append(pat)
-
-    # If no include patterns are provided, default to searching all files
+    # Default: search everything
     if not adjusted_include:
-        adjusted_include = ['**/*']
+        adjusted_include = ["**/*"]
 
-    # Collect files based on include patterns
+    # Collect candidates
     for pattern in adjusted_include:
-        if not os.path.isabs(pattern):
-            for file_path in base_path.rglob(pattern):
-                if file_path.is_file():
-                    if normalized_extensions:
-                        file_ext = file_path.suffix.lstrip('.').lower()
-                        if file_ext not in normalized_extensions:
-                            continue
-                    if modified_after is not None:
-                        try:
-                            mtime = file_path.stat().st_mtime
-                            if mtime <= modified_after:
-                                continue
-                        except OSError as e:
-                            logger.error(f"Failed to get modified time for {file_path}: {e}")
-                            continue
-                    normalized_path = os.path.normpath(
-                        str(file_path)).replace('/private/var', '/var')
-                    matched_files.add(normalized_path)
+        try:
+            if os.path.isabs(pattern):
+                abs_path = Path(pattern)
+                if abs_path.is_file():
+                    candidates = [abs_path]
+                elif abs_path.is_dir():
+                    candidates = abs_path.rglob("*")
+                else:
+                    continue
+            else:
+                candidates = base_path.rglob(pattern)
 
-    # Remove files based on exclude patterns
-    files_to_remove = set()
-    for pattern in adjusted_exclude:
-        if not os.path.isabs(pattern):
-            for file_path in base_path.rglob(pattern):
-                if file_path.is_file():
-                    if modified_after is not None:
-                        try:
-                            mtime = file_path.stat().st_mtime
-                            if mtime <= modified_after:
-                                continue
-                        except OSError as e:
-                            logger.error(f"Failed to get modified time for {file_path}: {e}")
-                            continue
-                    normalized_path = os.path.normpath(
-                        str(file_path)).replace('/private/var', '/var')
-                    files_to_remove.add(normalized_path)
-        else:
-            exclude_path = Path(pattern)
-            if exclude_path.is_file():
-                if modified_after is not None:
+            for file_path in candidates:
+                if not file_path.is_file():
+                    continue
+
+                # Extension filter
+                if normalized_extensions:
+                    ext = file_path.suffix.lstrip(".").lower()
+                    if ext not in normalized_extensions:
+                        continue
+
+                # Modified time filter
+                if modified_after:
                     try:
-                        mtime = exclude_path.stat().st_mtime
-                        if mtime <= modified_after:
+                        if file_path.stat().st_mtime <= modified_after:
                             continue
                     except OSError as e:
-                        logger.error(f"Failed to get modified time for {exclude_path}: {e}")
+                        logger.error(f"Failed to get modified time for {file_path}: {e}")
                         continue
-                normalized_path = os.path.normpath(
-                    str(exclude_path)).replace('/private/var', '/var')
-                files_to_remove.add(normalized_path)
-            elif exclude_path.is_dir():
-                for file_path in exclude_path.rglob('*'):
-                    if file_path.is_file():
-                        if modified_after is not None:
-                            try:
-                                mtime = file_path.stat().st_mtime
-                                if mtime <= modified_after:
-                                    continue
-                            except OSError as e:
-                                logger.error(f"Failed to get modified time for {file_path}: {e}")
-                                continue
-                        normalized_path = os.path.normpath(
-                            str(file_path)).replace('/private/var', '/var')
-                        files_to_remove.add(normalized_path)
 
-    matched_files.difference_update(files_to_remove)
+                norm_path = os.path.normpath(str(file_path)).replace("/private/var", "/var")
+                matched_files.add(norm_path)
 
-    # Apply extensions filter and content patterns
-    final_files = []
-    for file_path in matched_files:
-        if os.path.isfile(file_path):
-            if normalized_extensions:
-                file_ext = Path(file_path).suffix.lstrip('.').lower()
-                if file_ext not in normalized_extensions:
-                    continue
-            if matches_content(
-                file_path, include_content_patterns, exclude_content_patterns, case_sensitive
-            ):
-                final_files.append(file_path)
+        except OSError as e:
+            logger.error(f"Error traversing {pattern}: {e}")
+
+    # Remove exclude matches
+    excluded = set()
+    for pattern in adjusted_exclude:
+        try:
+            if os.path.isabs(pattern):
+                p = Path(pattern)
+                if p.is_file():
+                    excluded.add(os.path.normpath(str(p)))
+                elif p.is_dir():
+                    for f in p.rglob("*"):
+                        if f.is_file():
+                            excluded.add(os.path.normpath(str(f)))
+            else:
+                for f in matched_files:
+                    rel = os.path.relpath(f, base_path)
+                    if fnmatch.fnmatch(rel, pattern):
+                        excluded.add(f)
+        except OSError as e:
+            logger.error(f"Error processing exclude {pattern}: {e}")
+
+    matched_files.difference_update(excluded)
+
+    # Final content filtering
+    final_files = [
+        f
+        for f in matched_files
+        if matches_content(f, include_content_patterns, exclude_content_patterns, case_sensitive)
+    ]
 
     return sorted(final_files)
 
@@ -193,51 +136,32 @@ def matches_content(
     file_path: str,
     include_patterns: List[str],
     exclude_patterns: List[str],
-    case_sensitive: bool = False
+    case_sensitive: bool = False,
 ) -> bool:
-    """
-    Check if file content matches include patterns and does not match exclude patterns.
-
-    Args:
-        file_path (str): Path to the file to check.
-        include_patterns (List[str]): Patterns to match in file content (e.g., "hello*").
-        exclude_patterns (List[str]): Patterns to exclude from file content.
-        case_sensitive (bool, optional): Whether matching is case-sensitive. Defaults to False.
-
-    Returns:
-        bool: True if content matches include patterns and does not match exclude patterns, False otherwise.
-
-    Example:
-        >>> matches_content("file.txt", ["hello"], ["world"], False)
-        True
-    """
     if not include_patterns and not exclude_patterns:
         return True
+
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content: str = f.read()
-            if not case_sensitive:
-                content = content.lower()
-            if include_patterns:
-                include_patterns = [
-                    pattern if case_sensitive else pattern.lower() for pattern in include_patterns
-                ]
-                if not any(
-                    fnmatch.fnmatch(
-                        content, pattern) if '*' in pattern or '?' in pattern else pattern in content
-                    for pattern in include_patterns
-                ):
-                    return False
-            if exclude_patterns:
-                exclude_patterns = [
-                    pattern if case_sensitive else pattern.lower() for pattern in exclude_patterns
-                ]
-                if any(
-                    fnmatch.fnmatch(
-                        content, pattern) if '*' in pattern or '?' in pattern else pattern in content
-                    for pattern in exclude_patterns
-                ):
-                    return False
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+
+        if not case_sensitive:
+            content = content.lower()
+            include_patterns = [p.lower() for p in include_patterns]
+            exclude_patterns = [p.lower() for p in exclude_patterns]
+
+        if include_patterns and not any(
+            fnmatch.fnmatch(content, p) if any(x in p for x in "*?") else p in content
+            for p in include_patterns
+        ):
+            return False
+
+        if exclude_patterns and any(
+            fnmatch.fnmatch(content, p) if any(x in p for x in "*?") else p in content
+            for p in exclude_patterns
+        ):
+            return False
+
         return True
     except (OSError, IOError) as e:
         logger.error(f"Error reading {file_path}: {e}")
