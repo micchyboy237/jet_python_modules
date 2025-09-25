@@ -12,15 +12,30 @@ import logging
 
 from haystack import Pipeline
 from haystack.components.converters import OutputAdapter
-from haystack.components.generators.chat import OpenAIChatGenerator
+# from haystack.components.generators.chat import OpenAIChatGenerator
 from haystack.components.tools import ToolInvoker
 from haystack.dataclasses import ChatMessage
 
 from haystack_integrations.tools.mcp.mcp_tool import MCPTool, StdioServerInfo
 
+import os
+from jet.adapters.haystack.ollama_chat_generator import OllamaChatGenerator
+from jet.logger import logger, CustomLogger
+import shutil
+
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
+
 # Setup targeted logging - only show debug logs from our package
-logging.basicConfig(level=logging.WARNING)  # Set root logger to WARNING
-mcp_logger = logging.getLogger("haystack_integrations.tools.mcp")
+mcp_log_file = os.path.join(OUTPUT_DIR, "mcp.log")
+mcp_logger = CustomLogger("haystack_integrations.tools.mcp", mcp_log_file)
+mcp_logger.basicConfig(level=logging.WARNING)  # Set root logger to WARNING
 mcp_logger.setLevel(logging.DEBUG)
 # Ensure we have at least one handler to avoid messages going to root logger
 if not mcp_logger.handlers:
@@ -38,7 +53,7 @@ def main():
             server_info=StdioServerInfo(command="uvx", args=["mcp-server-time", "--local-timezone=Europe/Berlin"]),
         )
         pipeline = Pipeline()
-        pipeline.add_component("llm", OpenAIChatGenerator(model="gpt-4o-mini", tools=[time_tool]))
+        pipeline.add_component("llm", OllamaChatGenerator(model="qwen3:4b-q4_K_M", tools=[time_tool], agent_name="tool_llm"))
         pipeline.add_component("tool_invoker", ToolInvoker(tools=[time_tool]))
         pipeline.add_component(
             "adapter",
@@ -48,7 +63,7 @@ def main():
                 unsafe=True,
             ),
         )
-        pipeline.add_component("response_llm", OpenAIChatGenerator(model="gpt-4o-mini"))
+        pipeline.add_component("response_llm", OllamaChatGenerator(model="qwen3:4b-q4_K_M", agent_name="response_llm"))
         pipeline.connect("llm.replies", "tool_invoker.messages")
         pipeline.connect("llm.replies", "adapter.initial_tool_messages")
         pipeline.connect("tool_invoker.tool_messages", "adapter.tool_messages")

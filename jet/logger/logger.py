@@ -4,7 +4,6 @@ import shutil
 import sys
 import logging
 import traceback
-import unidecode
 import argparse
 from datetime import datetime
 from typing import List, Callable, Optional, Any, Union, Literal, Iterable
@@ -12,7 +11,6 @@ from jet.logger.config import DEFAULT_LOGGER, COLORS, RESET, colorize_log
 from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
 from jet.utils.text import fix_and_unidecode
-from jet.utils.class_utils import is_class_instance
 
 OUTPUT_DIR = os.path.join(os.path.dirname(
     os.path.abspath(__file__)), "generated")
@@ -28,8 +26,8 @@ def clean_ansi(text: str) -> str:
 class CustomLogger:
     def __init__(
         self,
-        log_file: Optional[str] = None,
         name: str = DEFAULT_LOGGER,
+        log_file: Optional[str] = None,
         overwrite: bool = False,
         console_level: Union[int, Literal["DEBUG", "INFO",
                                           "WARNING", "ERROR", "CRITICAL"]] = "DEBUG",
@@ -90,7 +88,7 @@ class CustomLogger:
     def removeHandler(self, handler: logging.Handler) -> None:
         self.logger.removeHandler(handler)
 
-    def get_level(self, level: Union[int, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]]) -> str:
+    def get_level(self, level: Union[int, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]]) -> Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
         if isinstance(level, int):
             level_name = logging.getLevelName(level)
             if isinstance(level_name, str):
@@ -218,8 +216,8 @@ class CustomLogger:
         format: str = "%(message)s",
         datefmt: Optional[str] = None,
         style: Literal["%", "{", "$"] = "%",
-        level: Optional[Literal["DEBUG", "INFO",
-                                "WARNING", "ERROR", "CRITICAL"]] = None,
+        level: Optional[Union[int, Literal["DEBUG", "INFO",
+                                  "WARNING", "ERROR", "CRITICAL"]]] = None,
         stream: Optional[Any] = None,
         handlers: Optional[Iterable[logging.Handler]] = None,
         force: bool = False,
@@ -240,7 +238,7 @@ class CustomLogger:
             format=format,
             datefmt=datefmt,
             style=style,
-            level=level,
+            level=self.get_level(level) if level else None,
             stream=stream,
             handlers=handlers,
             force=force,
@@ -273,7 +271,7 @@ class CustomLogger:
                 try:
                     message = message % args
                     formatted_args = ""
-                except (TypeError, ValueError) as e:
+                except (TypeError, ValueError):
                     formatted_args = tuple(map(str, args))
             else:
                 formatted_args = ""
@@ -299,7 +297,7 @@ class CustomLogger:
                     colored_output = " ".join(msg for msg, _ in processed_messages)
             except io.UnsupportedOperation:
                 colored_output = " ".join(msg for msg, _ in processed_messages)
-                print(f"[WARNING] Fallback to non-colored output due to io.UnsupportedOperation")
+                print("[WARNING] Fallback to non-colored output due to io.UnsupportedOperation")
             if level.lower() == "error" and exc_info:
                 error_msg = colorize_log("Trace exception:", "gray")
                 try:
@@ -307,7 +305,7 @@ class CustomLogger:
                         error_msg = clean_ansi(error_msg)
                 except io.UnsupportedOperation:
                     error_msg = clean_ansi(error_msg)
-                    print(f"[WARNING] Fallback to non-colored error message due to io.UnsupportedOperation")
+                    print("[WARNING] Fallback to non-colored error message due to io.UnsupportedOperation")
                 print(error_msg, flush=True)
                 error_trace = colorize_log(traceback.format_exc(), level)
                 try:
@@ -315,7 +313,7 @@ class CustomLogger:
                         error_trace = clean_ansi(error_trace)
                 except io.UnsupportedOperation:
                     error_trace = clean_ansi(error_trace)
-                    print(f"[WARNING] Fallback to non-colored error trace due to io.UnsupportedOperation")
+                    print("[WARNING] Fallback to non-colored error trace due to io.UnsupportedOperation")
                 print(error_trace, flush=True)
             if not end:
                 end = "" if flush else "\n"
@@ -412,7 +410,7 @@ class CustomLogger:
         except io.UnsupportedOperation:
             print(clean_ansi(prompt_log))
             print(
-                f"[WARNING] Fallback to non-colored output in pretty method due to io.UnsupportedOperation")
+                "[WARNING] Fallback to non-colored output in pretty method due to io.UnsupportedOperation")
         target_log_file = log_file if log_file is not None else self.log_file
         if target_log_file:
             log_dir = os.path.dirname(os.path.abspath(target_log_file))
@@ -614,7 +612,7 @@ def getLogger(
 ):
     if not name or isinstance(name, str) and name == logger.name:
         return logger
-    return CustomLogger(log_file, name, overwrite, console_level, level, fmt)
+    return CustomLogger(name, log_file, overwrite, console_level, level, fmt)
 
 
 logger = CustomLogger()
